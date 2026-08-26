@@ -905,11 +905,7 @@ function ModelGeoBreakdownSection(props: { data: CountryEntry[] }) {
         setActiveCountry(undefined)
       }}
     >
-      <SectionTitle
-        href="#geo-breakdown"
-        title={i18n.t("nav.geoBreakdown")}
-        description={i18n.t("model.geoDescription")}
-      />
+      <SectionTitle href="#geo-breakdown" title={i18n.t("home.geoTitle")} />
       <Show
         when={data().length > 0}
         fallback={<ModelEmptyState title={i18n.t("model.noGeoTitle")} description={i18n.t("model.noGeoDescription")} />}
@@ -1019,7 +1015,7 @@ function PeerRow(props: { peer: ModelPeerEntry; active: boolean }) {
   )
 }
 
-function SectionTitle(props: { href: string; title: string; description: string }) {
+function SectionTitle(props: { href: string; title: string; description?: string }) {
   return <SectionHeading href={props.href} title={props.title} description={props.description} />
 }
 
