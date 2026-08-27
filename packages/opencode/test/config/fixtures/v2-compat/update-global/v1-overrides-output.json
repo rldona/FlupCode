@@ -10,9 +10,7 @@
     "servers": {
       "modern": {
         "type": "local",
-        "command": [
-          "modern-mcp"
-        ],
+        "command": ["modern-mcp"],
         "disabled": false
       }
     },

@@ -2,9 +2,7 @@
   "mcp": {
     "legacy": {
       "type": "local",
-      "command": [
-        "legacy-mcp"
-      ],
+      "command": ["legacy-mcp"],
       "enabled": false
     },
     "shared": {
@@ -13,9 +11,7 @@
     },
     "native": {
       "type": "local",
-      "command": [
-        "native-mcp"
-      ],
+      "command": ["native-mcp"],
       "enabled": false
     }
   }

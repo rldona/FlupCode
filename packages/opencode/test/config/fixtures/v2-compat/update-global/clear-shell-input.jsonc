@@ -3,5 +3,5 @@
   // Empty shell in a global update removes the setting.
   "shell": "bash",
   "model": { "providerID": "example", "model": "demo" },
-  "snapshots": false
+  "snapshots": false,
 }

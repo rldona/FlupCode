@@ -9,7 +9,7 @@
     "preserve_recent_tokens": 100,
     "keep": { "tokens": 200 },
     "reserved": 300,
-    "buffer": 400
+    "buffer": 400,
   },
-  "mcp": { "timeout": { "catalog": 8000, "execution": 8000 } }
+  "mcp": { "timeout": { "catalog": 8000, "execution": 8000 } },
 }

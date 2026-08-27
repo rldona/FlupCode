@@ -2,6 +2,6 @@
   // An object-valued type must not hide a flat enabled-only server.
   "mcp": {
     "servers": { "type": {}, "enabled": false },
-    "timeout": { "enabled": true }
-  }
+    "timeout": { "enabled": true },
+  },
 }

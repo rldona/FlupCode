@@ -5,8 +5,8 @@
       "description": "Review code",
       "agent": "reviewer",
       "model": { "providerID": "anthropic", "model": "claude-sonnet", "variant": "thinking" },
-      "subtask": true
+      "subtask": true,
     },
-    "quick": { "template": "Quick review", "model": "openai/gpt-4.1#fast" }
-  }
+    "quick": { "template": "Quick review", "model": "openai/gpt-4.1#fast" },
+  },
 }

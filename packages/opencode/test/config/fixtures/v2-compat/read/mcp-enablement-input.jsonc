@@ -9,7 +9,7 @@
       "type": { "type": "local", "command": ["type-mcp"] },
       "enabled": { "type": "remote", "url": "https://example.com/mcp" },
       "explicit-enabled": { "type": "local", "command": ["enabled-mcp"], "disabled": false },
-      "explicit-disabled": { "type": "local", "command": ["disabled-mcp"], "disabled": true }
-    }
-  }
+      "explicit-disabled": { "type": "local", "command": ["disabled-mcp"], "disabled": true },
+    },
+  },
 }

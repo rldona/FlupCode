@@ -4,9 +4,7 @@
   "mcp": {
     "modern": {
       "type": "local",
-      "command": [
-        "modern-mcp"
-      ],
+      "command": ["modern-mcp"],
       "enabled": false
     }
   }

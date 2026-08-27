@@ -10,10 +10,10 @@
           "client_secret": "secret",
           "scope": "read write",
           "callback_port": 19877,
-          "redirect_uri": "http://127.0.0.1:19877/callback"
-        }
+          "redirect_uri": "http://127.0.0.1:19877/callback",
+        },
       },
-      "anonymous": { "type": "remote", "url": "https://anonymous.example.com/mcp", "oauth": false }
-    }
-  }
+      "anonymous": { "type": "remote", "url": "https://anonymous.example.com/mcp", "oauth": false },
+    },
+  },
 }

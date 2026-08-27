@@ -4,5 +4,5 @@
   "policies": [{ "action": "provider.use", "effect": "deny", "resource": "openai" }],
   "websearch": "native-only",
   "warming": true,
-  "experimental": { "portable_shell_scanner": true }
+  "experimental": { "portable_shell_scanner": true },
 }

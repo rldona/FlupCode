@@ -8,8 +8,8 @@
       "startup": {
         "type": "local",
         "command": ["startup-mcp"],
-        "timeout": { "startup": 1000, "catalog": 3000, "execution": 3000 }
-      }
-    }
-  }
+        "timeout": { "startup": 1000, "catalog": 3000, "execution": 3000 },
+      },
+    },
+  },
 }

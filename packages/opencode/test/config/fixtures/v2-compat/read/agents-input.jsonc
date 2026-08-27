@@ -8,8 +8,8 @@
       "hidden": true,
       "color": "#123abc",
       "steps": 4,
-      "disabled": true
+      "disabled": true,
     },
-    "quick": { "model": "openai/gpt-4.1#fast", "disabled": false }
-  }
+    "quick": { "model": "openai/gpt-4.1#fast", "disabled": false },
+  },
 }

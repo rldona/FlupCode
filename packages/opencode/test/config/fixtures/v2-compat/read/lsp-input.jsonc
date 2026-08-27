@@ -3,6 +3,6 @@
     "typescript": { "command": ["typescript-language-server", "--stdio"] },
     "compatible": { "command": ["custom-lsp"], "extensions": [".custom"] },
     "incompatible": { "command": ["incompatible-lsp"] },
-    "disabled": { "disabled": true }
-  }
+    "disabled": { "disabled": true },
+  },
 }

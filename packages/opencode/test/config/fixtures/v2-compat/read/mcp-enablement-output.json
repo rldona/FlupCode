@@ -8,30 +8,22 @@
     },
     "existing": {
       "type": "local",
-      "command": [
-        "existing-mcp"
-      ],
+      "command": ["existing-mcp"],
       "enabled": true
     },
     "flat-disabled": {
       "type": "local",
-      "command": [
-        "legacy"
-      ],
+      "command": ["legacy"],
       "enabled": false
     },
     "flat-enabled": {
       "type": "local",
-      "command": [
-        "legacy"
-      ],
+      "command": ["legacy"],
       "enabled": true
     },
     "type": {
       "type": "local",
-      "command": [
-        "type-mcp"
-      ],
+      "command": ["type-mcp"],
       "enabled": true
     },
     "enabled": {
@@ -41,16 +33,12 @@
     },
     "explicit-enabled": {
       "type": "local",
-      "command": [
-        "enabled-mcp"
-      ],
+      "command": ["enabled-mcp"],
       "enabled": true
     },
     "explicit-disabled": {
       "type": "local",
-      "command": [
-        "disabled-mcp"
-      ],
+      "command": ["disabled-mcp"],
       "enabled": false
     }
   }
