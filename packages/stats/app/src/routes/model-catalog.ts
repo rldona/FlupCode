@@ -73,7 +73,9 @@ export const getModelCatalog = query(async () => {
 
 export function findModelCatalogEntry(catalog: ModelCatalog, model: string, lab?: string) {
   const canonicalModel = statModel(model, undefined)
-  const normalizedId = lab ? `${catalogLabSlug(lab)}/${catalogSlug(canonicalModel)}` : canonicalModel.trim().toLowerCase()
+  const normalizedId = lab
+    ? `${catalogLabSlug(lab)}/${catalogSlug(canonicalModel)}`
+    : canonicalModel.trim().toLowerCase()
   const leaf = catalogSlug(canonicalModel)
   return (
     catalog.models.find((entry) => entry.id.toLowerCase() === normalizedId) ??

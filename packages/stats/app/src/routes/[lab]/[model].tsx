@@ -98,9 +98,7 @@ export default function StatsModel() {
   )
   const labName = createMemo(() => formatCatalogLabName(catalogEntry()?.lab ?? stats()?.provider ?? labParam()))
   const formerName = createMemo(() => formerModelName(canonicalModel()))
-  const searchModelName = createMemo(() =>
-    formerName() ? `${modelName()} (formerly ${formerName()})` : modelName(),
-  )
+  const searchModelName = createMemo(() => (formerName() ? `${modelName()} (formerly ${formerName()})` : modelName()))
   const modelTitle = createMemo(() => i18n.t("model.title", { model: searchModelName() }))
   const modelDescription = createMemo(() => i18n.t("model.description", { model: searchModelName() }))
   const modelPath = createMemo(() => {
@@ -350,9 +348,7 @@ function ModelHero(props: {
         when={props.data}
         fallback={
           <p data-slot="model-hero-state">
-            <Show when={props.formerName}>
-              {(name) => <span>{`Formerly ${name()}.`}</span>}
-            </Show>
+            <Show when={props.formerName}>{(name) => <span>{`Formerly ${name()}.`}</span>}</Show>
             <span>Listed</span>
             <span>across the shared model catalog.</span>
           </p>
@@ -360,9 +356,7 @@ function ModelHero(props: {
       >
         {(data) => (
           <p data-slot="model-hero-rankline">
-            <Show when={props.formerName}>
-              {(name) => <span>{`Formerly ${name()}.`}</span>}
-            </Show>
+            <Show when={props.formerName}>{(name) => <span>{`Formerly ${name()}.`}</span>}</Show>
             <span>Ranked</span>
             <span data-slot="model-hero-rank-group">
               <span data-slot="model-hero-pill">{formatHeroRank(data().rank)}</span>
