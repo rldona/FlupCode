@@ -135,9 +135,7 @@ describe("inference stat normalization", () => {
     expect(queries[0]).toContain("WHEN lower(COALESCE(raw_tier, '')) = 'free'")
     expect(queries[0]).toContain("regexp_replace(NULLIF(route_model, ''), '^.*/', '')")
     expect(queries[0]).toContain("= 'deepseek-v4-flash-0731' THEN 'deepseek-v4-flash'")
-    expect(queries[0]).toContain(
-      "= 'deepseek-v4-flash-dsv4-flash-final-rnaovd' THEN 'deepseek-v4-flash'",
-    )
+    expect(queries[0]).toContain("= 'deepseek-v4-flash-dsv4-flash-final-rnaovd' THEN 'deepseek-v4-flash'")
     expect(queries[0]).not.toContain("= 'deepseek-v4-flash-vision-exp' THEN 'deepseek-v4-flash'")
     expect(queries[0]).toContain("= 'ox-alpha' THEN 'glm-5.3-flash'")
     expect(queries[0]).toContain("= 'x-preview-f' THEN 'glm-5.3-flash'")
