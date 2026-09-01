@@ -267,6 +267,12 @@ strong {
   font-weight: 500 !important;
 }
 
+ul,
+ol {
+  list-style: none !important;
+  padding: 0 !important;
+}
+
 .sl-markdown-content .tab > [role="tab"][aria-selected="true"] {
   border-color: var(--color-text-strong);
 }
