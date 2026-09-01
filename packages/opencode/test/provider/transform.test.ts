@@ -6,7 +6,7 @@ import { ProviderV2 } from "@opencode-ai/core/provider"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { generateText, jsonSchema, type ModelMessage } from "ai"
-import { createAmazonBedrock } from "@ai-sdk/amazon-bedrock"
+import { createAmazonBedrock, type AmazonBedrockLanguageModelOptions } from "@ai-sdk/amazon-bedrock"
 import { createAnthropic } from "@ai-sdk/anthropic"
 import { createVertexAnthropic } from "@ai-sdk/google-vertex/anthropic"
 
@@ -3715,6 +3715,42 @@ describe("ProviderTransform.reasoningVariants", () => {
     expect(ProviderTransform.reasoningVariants(model([{ type: "effort", values: ["high"] }]), target(npm, id))).toEqual(
       { high: expected },
     )
+  })
+
+  test.each(["luna", "sol", "terra"])("serializes Bedrock GPT-5.6 %s none effort", async (name) => {
+    const item = target("@ai-sdk/amazon-bedrock", `global.openai.gpt-5.6-${name}`)
+    const variants = ProviderTransform.reasoningVariants(
+      model([{ type: "effort", values: ["none", "low", "medium", "high", "xhigh", "max"] }]),
+      item,
+    )
+    for (const effort of ["low", "medium", "high", "xhigh", "max"]) {
+      expect(variants?.[effort]).toEqual({ reasoningConfig: { type: "enabled", maxReasoningEffort: effort } })
+    }
+    expect(variants?.none).toEqual({
+      reasoningConfig: { type: "enabled", maxReasoningEffort: "none" },
+    } satisfies AmazonBedrockLanguageModelOptions)
+    const sent: unknown[] = []
+    const provider = createAmazonBedrock({
+      apiKey: "test-key",
+      region: "us-east-1",
+      fetch: Object.assign(
+        async (...args: Parameters<typeof fetch>) => {
+          sent.push(JSON.parse(String(args[1]?.body)))
+          return Response.json({
+            output: { message: { role: "assistant", content: [{ text: "ok" }] } },
+            stopReason: "end_turn",
+            usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+          })
+        },
+        { preconnect: () => undefined },
+      ),
+    })
+    await generateText({
+      model: provider(item.api.id),
+      prompt: "hi",
+      providerOptions: ProviderTransform.providerOptions(item, variants?.none ?? {}),
+    })
+    expect(sent).toEqual([expect.objectContaining({ additionalModelRequestFields: { reasoning: { effort: "none" } } })])
   })
 
   test("combines effort with extended thinking for Claude Opus 4.5", () => {
