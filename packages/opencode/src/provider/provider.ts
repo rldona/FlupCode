@@ -1792,7 +1792,7 @@ const layer = Layer.effect(
         if (existing) return existing
 
         const customFetch = options["fetch"]
-        const chunkTimeout = options["chunkTimeout"]
+        const chunkTimeout = options["chunkTimeout"] ?? 300_000
         const headerTimeout = options["headerTimeout"]
         delete options["chunkTimeout"]
         delete options["headerTimeout"]
