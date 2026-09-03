@@ -2,9 +2,7 @@
   "version": "6",
   "dialect": "mysql",
   "id": "43e72697-1bf9-4df7-bc8e-5ca091bf2ff1",
-  "prevIds": [
-    "9d4d1a06-7d28-4cb4-b0cd-3dfb7b481b8b"
-  ],
+  "prevIds": ["9d4d1a06-7d28-4cb4-b0cd-3dfb7b481b8b"],
   "ddl": [
     {
       "name": "geo_stat",
@@ -1773,33 +1771,25 @@
       "table": "provider_stat"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "name": "PRIMARY",
       "table": "geo_stat",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "name": "PRIMARY",
       "table": "model_retention",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "name": "PRIMARY",
       "table": "model_stat",
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
+      "columns": ["id"],
       "name": "PRIMARY",
       "table": "provider_stat",
       "entityType": "pks"
