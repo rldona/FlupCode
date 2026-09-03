@@ -2126,12 +2126,7 @@ function Write(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool
-          icon="←"
-          pending="Preparing write…"
-          complete={stringValue(props.input.filePath)}
-          part={props.part}
-        >
+        <InlineTool icon="←" pending="Preparing write…" complete={stringValue(props.input.filePath)} part={props.part}>
           Write {pathFormatter.format(stringValue(props.input.filePath))}
         </InlineTool>
       </Match>
@@ -2533,13 +2528,7 @@ function TodoWrite(props: ToolProps) {
         </BlockTool>
       </Match>
       <Match when={true}>
-        <InlineTool
-          icon="⚙"
-          pending="Updating todos…"
-          failure="Todo update failed"
-          complete={false}
-          part={props.part}
-        >
+        <InlineTool icon="⚙" pending="Updating todos…" failure="Todo update failed" complete={false} part={props.part}>
           Updating todos…
         </InlineTool>
       </Match>
