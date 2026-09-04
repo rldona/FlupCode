@@ -297,10 +297,7 @@ function ModelHero(props: {
         </a>
         <Show when={hasLab()}>
           <span data-slot="model-hero-separator">/</span>
-          <Show
-            when={labs().length > 0}
-            fallback={<span data-slot="model-hero-crumb">{props.labName}</span>}
-          >
+          <Show when={labs().length > 0} fallback={<span data-slot="model-hero-crumb">{props.labName}</span>}>
             <BreadcrumbSelect
               ariaLabel="Choose a lab"
               label={props.labName ?? ""}
@@ -1005,7 +1002,9 @@ function ModelPeersSection(props: { data: StatsModelPageData | null; catalogLabs
       >
         <ol data-component="model-peer-list">
           <For each={props.data?.peers ?? []}>
-            {(peer) => <PeerRow peer={peer} active={peer.model === props.data?.model} catalogLabs={props.catalogLabs} />}
+            {(peer) => (
+              <PeerRow peer={peer} active={peer.model === props.data?.model} catalogLabs={props.catalogLabs} />
+            )}
           </For>
         </ol>
       </Show>

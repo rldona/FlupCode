@@ -590,9 +590,7 @@ function CompareModelDetail(props: { model: ModelCatalogEntry }) {
         <strong>{props.model.name}</strong>
       </header>
       <div data-slot="compare-model-modal-description">
-        <p>
-          {props.model.description ?? `${props.model.name} is an AI model.`}
-        </p>
+        <p>{props.model.description ?? `${props.model.name} is an AI model.`}</p>
         <span aria-hidden="true" />
       </div>
       <dl data-slot="compare-model-modal-facts">
@@ -888,10 +886,7 @@ function buildComparisonDetailSections(models: readonly ComparisonModel[]): Comp
     {
       title: "Overview",
       rows: [
-        comparisonDetailRow(
-          "Author",
-          models.map(providerDetailCell),
-        ),
+        comparisonDetailRow("Author", models.map(providerDetailCell)),
         comparisonDetailRow(
           "Context length",
           models.map((model) => limitCell(model.catalog?.limit?.context)),
@@ -910,10 +905,7 @@ function buildComparisonDetailSections(models: readonly ComparisonModel[]): Comp
           "Output modalities",
           models.map((model) => textCell(formatCatalogModalities(model.catalog?.modalities.output ?? []))),
         ),
-        comparisonDetailRow(
-          "Providers",
-          models.map(providerDetailCell),
-        ),
+        comparisonDetailRow("Providers", models.map(providerDetailCell)),
       ],
     },
     {

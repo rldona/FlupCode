@@ -374,7 +374,11 @@ function formatUpdatedAtLabel(value: { date: string; time: string }) {
   return `${value.date}, ${value.time}`
 }
 
-function TopModelsSection(props: { data: UsagePoint[]; leaderboard: LeaderboardEntry[]; catalogLabs: readonly string[] }) {
+function TopModelsSection(props: {
+  data: UsagePoint[]
+  leaderboard: LeaderboardEntry[]
+  catalogLabs: readonly string[]
+}) {
   const i18n = useI18n()
   const [activeModel, setActiveModel] = createSignal<string>()
 

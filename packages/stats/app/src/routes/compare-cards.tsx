@@ -151,12 +151,7 @@ function ComparisonLabLogo(props: { model: ComparisonModelRef }) {
 
   return (
     <Show when={props.model.labName}>
-      <span
-        data-slot="compare-home-avatar"
-        data-lab={iconId()}
-        data-size="small"
-        aria-label={props.model.labName}
-      >
+      <span data-slot="compare-home-avatar" data-lab={iconId()} data-size="small" aria-label={props.model.labName}>
         <ProviderIcon aria-hidden="true" id={iconId()} />
       </span>
     </Show>
