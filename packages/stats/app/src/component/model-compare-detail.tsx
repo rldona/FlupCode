@@ -24,6 +24,8 @@ import {
   findModelCatalogEntry,
   formatCatalogLabName,
   getModelCatalog,
+  isKnownCatalogLab,
+  isProviderlessLab,
   type ModelCatalog,
   type ModelCatalogEntry,
 } from "../routes/model-catalog"
@@ -71,7 +73,7 @@ const comparisonModelLimit = 6
 type ComparisonModel = {
   name: string
   lab: string
-  labName: string
+  labName?: string
   slug: string
   catalog: ModelCatalogEntry | null
   stats: StatsModelComparisonEntry | null
@@ -159,13 +161,19 @@ export default function ModelCompareDetailPage(props: ModelCompareDetailPageProp
   let comparisonBodyScroll: HTMLDivElement | undefined
   const models = createMemo(() =>
     modelSelections().map((model, index) =>
-      buildComparisonModel(model.lab, model.slug, model.catalog ?? null, stats()?.models[index] ?? null),
+      buildComparisonModel(
+        model.lab,
+        model.slug,
+        model.catalog ?? null,
+        stats()?.models[index] ?? null,
+        catalog()?.labs.map((lab) => lab.id) ?? [],
+      ),
     ),
   )
   const title = createMemo(() => `${models()[0].name} vs ${models()[1].name} - AI Model Comparison`)
   const description = createMemo(
     () =>
-      `Compare ${models()[0].name} from ${models()[0].labName} and ${models()[1].name} from ${models()[1].labName} on key metrics including benchmarks, price, context length, usage, and model features.`,
+      `Compare ${comparisonModelLabel(models()[0])} and ${comparisonModelLabel(models()[1])} on key metrics including benchmarks, price, context length, usage, and model features.`,
   )
   const canonicalPath = createMemo(() => {
     if (props.family) return canonicalFamilyComparisonPath(props.family.first, props.family.second)
@@ -206,7 +214,7 @@ export default function ModelCompareDetailPage(props: ModelCompareDetailPageProp
         "@type": "SoftwareApplication",
         name: model.name,
         applicationCategory: "AI model",
-        provider: model.labName,
+        ...(model.labName ? { provider: model.labName } : {}),
       })),
     }),
   )
@@ -459,7 +467,9 @@ function CompareDetailSelectButton(props: {
       aria-expanded={props.expanded}
       onClick={props.onOpen}
     >
-      <LabLogo lab={props.model.lab} label={props.model.labName} size="small" />
+      <Show when={props.model.labName}>
+        {(labName) => <LabLogo lab={props.model.lab} label={labName()} size="small" />}
+      </Show>
       <span data-slot="compare-detail-select-name">{props.model.name}</span>
       <ChevronDownIcon />
     </button>
@@ -581,8 +591,7 @@ function CompareModelDetail(props: { model: ModelCatalogEntry }) {
       </header>
       <div data-slot="compare-model-modal-description">
         <p>
-          {props.model.description ??
-            `${props.model.name} is an AI model from ${formatCatalogLabName(props.model.lab)}.`}
+          {props.model.description ?? `${props.model.name} is an AI model.`}
         </p>
         <span aria-hidden="true" />
       </div>
@@ -789,9 +798,11 @@ function LabLogo(props: { lab: string; label: string; size: "large" | "small" | 
   const iconId = () => getProviderIconId(props.lab)
 
   return (
-    <span data-slot="compare-home-avatar" data-lab={iconId()} data-size={props.size} aria-label={props.label}>
-      <ProviderIcon aria-hidden="true" id={iconId()} />
-    </span>
+    <Show when={!isProviderlessLab(props.lab)}>
+      <span data-slot="compare-home-avatar" data-lab={iconId()} data-size={props.size} aria-label={props.label}>
+        <ProviderIcon aria-hidden="true" id={iconId()} />
+      </span>
+    </Show>
   )
 }
 
@@ -832,11 +843,13 @@ function buildComparisonModel(
   modelParam: string,
   catalog: ModelCatalogEntry | null,
   stats: StatsModelComparisonEntry | null,
+  catalogLabs: readonly string[],
 ): ComparisonModel {
+  const lab = catalog?.lab ?? stats?.provider ?? catalogSlug(labParam)
   return {
     name: catalog?.name ?? stats?.model ?? formatParamName(modelParam),
-    lab: catalog?.lab ?? stats?.provider ?? catalogSlug(labParam),
-    labName: formatCatalogLabName(catalog?.lab ?? stats?.provider ?? labParam),
+    lab,
+    labName: isKnownCatalogLab(lab, catalogLabs) ? formatCatalogLabName(lab) : undefined,
     slug: catalog?.slug ?? stats?.slug ?? catalogSlug(modelParam),
     catalog,
     stats,
@@ -877,7 +890,7 @@ function buildComparisonDetailSections(models: readonly ComparisonModel[]): Comp
       rows: [
         comparisonDetailRow(
           "Author",
-          models.map((model) => linkedTextCell(model.stats?.author ?? model.labName, labHref(model.lab))),
+          models.map(providerDetailCell),
         ),
         comparisonDetailRow(
           "Context length",
@@ -899,7 +912,7 @@ function buildComparisonDetailSections(models: readonly ComparisonModel[]): Comp
         ),
         comparisonDetailRow(
           "Providers",
-          models.map((model) => linkedTextCell(model.labName, labHref(model.lab))),
+          models.map(providerDetailCell),
         ),
       ],
     },
@@ -1011,6 +1024,15 @@ function comparisonRef(model: ComparisonModel): ComparisonModelRef {
     labName: model.labName,
     metric: model.stats ? `#${model.stats.rank}` : "Catalog",
   }
+}
+
+function comparisonModelLabel(model: ComparisonModel) {
+  return model.labName ? `${model.name} from ${model.labName}` : model.name
+}
+
+function providerDetailCell(model: ComparisonModel): ComparisonDetailCell {
+  if (!model.labName) return textCell("")
+  return linkedTextCell(model.stats?.author ?? model.labName ?? "", labHref(model.lab))
 }
 
 function textCell(value: string): ComparisonDetailCell {
