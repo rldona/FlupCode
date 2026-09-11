@@ -150,7 +150,10 @@ const setBlockedBatch = async (input: { workspaceIDs: string[] }, isBlocked: boo
     for (let index = 0; index < ids.length; index += 500) {
       const chunk = ids.slice(index, index + 500)
       await tx.update(WorkspaceTable).set({ is_blocked: isBlocked }).where(inArray(WorkspaceTable.id, chunk))
-      const rows = await tx.select({ id: WorkspaceTable.id }).from(WorkspaceTable).where(inArray(WorkspaceTable.id, chunk))
+      const rows = await tx
+        .select({ id: WorkspaceTable.id })
+        .from(WorkspaceTable)
+        .where(inArray(WorkspaceTable.id, chunk))
       for (const row of rows) applied.add(row.id)
     }
     return {
