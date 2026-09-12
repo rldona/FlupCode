@@ -155,6 +155,21 @@ export function createClient(baseUrl = resolveServerUrl()) {
         unwrap(client.v2.session.switchModel({ sessionID: input.sessionID, model: input.model })),
       switchAgent: (input: { sessionID: string; agent: string }) =>
         unwrap(client.v2.session.switchAgent({ sessionID: input.sessionID, agent: input.agent })),
+      setPermission: async (input: {
+        sessionID: string
+        permission: Array<{ permission: string; pattern: string; action: "allow" | "ask" | "deny" }>
+        directory?: string
+      }) => {
+        const base = baseUrl.replace(/\/$/, "")
+        const query = input.directory ? `?directory=${encodeURIComponent(input.directory)}` : ""
+        const response = await fetch(`${base}/session/${input.sessionID}${query}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ permission: input.permission }),
+        })
+        if (!response.ok) throw new Error("Request failed")
+        return (await response.json()) as SessionV2Info
+      },
       revert: {
         stage: (input: { sessionID: string; messageID: string; files?: boolean }) =>
           unwrap(client.v2.session.revert.stage({ sessionID: input.sessionID, messageID: input.messageID, files: input.files })),

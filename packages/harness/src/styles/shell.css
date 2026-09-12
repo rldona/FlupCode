@@ -1435,6 +1435,96 @@ button.fc-row-main {
   padding: 8px 2px;
 }
 
+.fc-mode {
+  position: relative;
+}
+
+.fc-mode-button {
+  height: 28px;
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-mode-caret {
+  color: var(--fc-text-muted);
+  font-size: 10px;
+}
+
+.fc-mode-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 50;
+  min-width: 300px;
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.35);
+}
+
+.fc-mode-title {
+  padding: 6px 8px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fc-text-muted);
+}
+
+.fc-mode-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 7px 26px 7px 8px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.fc-mode-item:hover {
+  background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+}
+
+.fc-mode-item-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fc-text-sm);
+  font-weight: 500;
+}
+
+.fc-mode-badge {
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-accent) 32%, transparent);
+  font-size: 10px;
+}
+
+.fc-mode-item-desc {
+  font-size: 12px;
+  color: var(--fc-text-muted);
+}
+
+.fc-mode-check {
+  position: absolute;
+  right: 8px;
+  top: 8px;
+  color: var(--fc-accent);
+}
+
 .fc-flower {
   color: #d97757;
   animation: fc-flower-spin 1.6s steps(8, end) infinite;

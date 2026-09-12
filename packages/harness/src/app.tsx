@@ -23,6 +23,7 @@ import { RightAside } from "./components/RightAside"
 import { WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
 import { ModelPicker } from "./components/ModelPicker"
+import { permissionMode } from "./permission-modes"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
@@ -66,6 +67,7 @@ export const App: Component = () => {
   )
   const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, 280))
   const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "build"))
+  const [permissionModeId, setPermissionModeId] = createSignal(readStorage(STORAGE_KEYS.permissionMode, "auto"))
   const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
   const [workspaceWidth, setWorkspaceWidth] = createSignal(readStorage(STORAGE_KEYS.workspaceWidth, 420))
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
@@ -769,6 +771,11 @@ export const App: Component = () => {
         ...(model ? { model } : {}),
         ...(location ? { location: { directory: location } } : {}),
       })
+      await current.session.setPermission({
+        sessionID: session.id,
+        permission: permissionMode(permissionModeId()).rules,
+        directory: location,
+      })
       return session.id
     }, t("Session created"))
 
@@ -880,6 +887,24 @@ export const App: Component = () => {
       await current.session.switchAgent({ sessionID, agent: value })
       return undefined
     })
+  }
+
+  const applyPermissionMode = async (sessionID: string, directory?: string) => {
+    await client().session.setPermission({
+      sessionID,
+      permission: permissionMode(permissionModeId()).rules,
+      directory,
+    })
+  }
+
+  const changePermissionMode = (id: string) => {
+    setPermissionModeId(id)
+    writeStorage(STORAGE_KEYS.permissionMode, id)
+    const sessionID = selected()
+    if (!sessionID) return
+    void applyPermissionMode(sessionID, selectedSession()?.location?.directory).catch((cause) =>
+      toast(cause instanceof Error ? cause.message : String(cause), "error"),
+    )
   }
 
   const addMcp = (server: string, config: McpConfig) =>
@@ -1130,6 +1155,11 @@ export const App: Component = () => {
             ...(location ? { location: { directory: location } } : {}),
           })
         ).id
+      await current.session.setPermission({
+        sessionID,
+        permission: permissionMode(permissionModeId()).rules,
+        directory: location ?? selectedSession()?.location?.directory,
+      })
       await current.session.prompt({
         sessionID,
         text: expandPastes(text),
@@ -1299,6 +1329,7 @@ export const App: Component = () => {
           targetDirectory={targetDirectory()}
           agents={agents()?.data ?? []}
           agent={agent()}
+          permissionMode={permissionModeId()}
           mascotState={mascotState()}
           onInput={setPrompt}
           onSend={send}
@@ -1313,6 +1344,7 @@ export const App: Component = () => {
           onStash={() => stashPrompt(prompt(), true)}
           onTargetChange={setTargetDirectory}
           onAgentChange={changeAgent}
+          onPermissionModeChange={changePermissionMode}
         />
       </main>
       <WorkspacePanels
