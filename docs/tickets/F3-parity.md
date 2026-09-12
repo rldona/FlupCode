@@ -47,7 +47,9 @@ porting/adapting them into `packages/harness`, not rebuilding.
 **Acceptance**
 - Move a session to another project/workspace; file-change confirmation.
 
-## F3-8 — Session tags/labels · P1 · todo
+## F3-8 — Session tags/labels · P1 · blocked
+
+Blocker: the v2 client exposes no tag model.
 
 **Acceptance**
 - Create/assign/filter tags; persisted with the session.
@@ -73,7 +75,9 @@ porting/adapting them into `packages/harness`, not rebuilding.
 **Acceptance**
 - Export with options (thinking/tool details/metadata); copy transcript.
 
-## F3-13 — Settings editors · P1 · todo
+## F3-13 — Settings editors · P1 · blocked
+
+Blocker: the vendored v2 client has no `config` group.
 
 Permissions, agents, commands and MCP editors.
 
@@ -81,7 +85,7 @@ Permissions, agents, commands and MCP editors.
 - Each editor reads/writes the corresponding config.
 - Validation and defaults match the engine.
 
-## F3-14 — MCP add/configure · P2 · todo
+## F3-14 — MCP add/configure · P2 · done
 
 **Acceptance**
 - Add and configure MCP servers from the UI, not just toggle.
@@ -91,7 +95,9 @@ Permissions, agents, commands and MCP editors.
 **Acceptance**
 - The orphan `command.steps.toggle` i18n key is wired to a real command.
 
-## F3-16 — Console org switch · P2 · todo
+## F3-16 — Console org switch · P2 · blocked
+
+Blocker: no console API in the v2 client.
 
 **Acceptance**
 - Switch console organization when multiple exist.

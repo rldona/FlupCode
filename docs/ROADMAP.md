@@ -3,7 +3,7 @@
 Prioritised, ticket-based plan. Priorities: **P0** must-have for the phase · **P1** important ·
 **P2** nice-to-have. Detailed tickets live in [docs/tickets/](tickets/).
 
-Status: `todo` · `doing` · `done` · `cut`
+Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 ## Milestones
 
@@ -62,15 +62,15 @@ Status: `todo` · `doing` · `done` · `cut`
 | F3-5 | P0 | Session list/switch, share/unshare, export | doing |
 | F3-6 | P0 | Agents, subagents, todos | done |
 | F3-7 | P1 | Move session between locations | done |
-| F3-8 | P1 | Session tags/labels | todo |
+| F3-8 | P1 | Session tags/labels | blocked |
 | F3-9 | P1 | Prompt stash | todo |
 | F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | doing |
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
-| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | todo |
-| F3-14 | P2 | MCP add/configure UI | todo |
+| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | blocked |
+| F3-14 | P2 | MCP add/configure UI | done |
 | F3-15 | P2 | "Toggle steps" command | done |
-| F3-16 | P2 | Console org switch | todo |
+| F3-16 | P2 | Console org switch | blocked |
 | F3-17 | P2 | Keybind/leader parity where sensible | todo |
 
 ## F4 — Harness extras
@@ -122,3 +122,12 @@ Status: `todo` · `doing` · `done` · `cut`
 3. F4 only after F3 parity passes the matrix in `docs/PARITY.md`.
 4. F5 can start once F2 stabilises; desktop reuses the web renderer.
 5. F6 is independent of F5 and can run in parallel once the web app is responsive.
+
+---
+
+## Blockers
+
+- **F3-8 Session tags/labels** — the v2 client exposes no tag model. Needs an upstream API.
+- **F3-13 Settings editors (permissions/agents/commands/MCP config)** — the vendored v2 client has
+  no `config` group. Needs a config read/write endpoint or the legacy SDK.
+- **F3-16 Console org switch** — no console API in the v2 client.
