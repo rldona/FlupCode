@@ -516,6 +516,8 @@
         "@opencode-ai/sdk": "workspace:*",
         "@opencode-ai/session-ui": "workspace:*",
         "@opencode-ai/ui": "workspace:*",
+        "@xterm/addon-fit": "0.11.0",
+        "@xterm/xterm": "6.0.0",
         "dompurify": "catalog:",
         "marked": "catalog:",
         "qrcode": "1.5.4",
@@ -3072,6 +3074,10 @@
     "@webgpu/types": ["@webgpu/types@0.1.54", "", {}, "sha512-81oaalC8LFrXjhsczomEQ0u3jG+TqE6V9QHLA8GNZq/Rnot0KDugu3LhSYSlie8tSdooAN1Hov05asrUUp9qgg=="],
 
     "@xmldom/xmldom": ["@xmldom/xmldom@0.8.13", "", {}, "sha512-KRYzxepc14G/CEpEGc3Yn+JKaAeT63smlDr+vjB8jRfgTBBI9wRj/nkQEO+ucV8p8I9bfKLWp37uHgFrbntPvw=="],
+
+    "@xterm/addon-fit": ["@xterm/addon-fit@0.11.0", "", {}, "sha512-jYcgT6xtVYhnhgxh3QgYDnnNMYTcf8ElbxxFzX0IZo+vabQqSPAjC3c1wJrKB5E19VwQei89QCiZZP86DCPF7g=="],
+
+    "@xterm/xterm": ["@xterm/xterm@6.0.0", "", {}, "sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg=="],
 
     "@zip.js/zip.js": ["@zip.js/zip.js@2.7.62", "", {}, "sha512-OaLvZ8j4gCkLn048ypkZu29KX30r8/OfFF2w4Jo5WXFr+J04J+lzJ5TKZBVgFXhlvSkqNFQdfnY1Q8TMTCyBVA=="],
 

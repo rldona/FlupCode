@@ -2,6 +2,7 @@ import { For, Show, createResource, createSignal, type Component } from "solid-j
 import type { FileDiffInfo, SessionInfo } from "../engine-types"
 import { createClient } from "../client"
 import { t } from "../i18n"
+import { TerminalPanel } from "./Terminal"
 
 type WorkspacePanelsProps = {
   panels: string[]
@@ -118,6 +119,7 @@ const DiffPanel: Component<{ serverUrl: string; session: SessionInfo | undefined
 const TITLES: Record<string, string> = {
   browser: "Browser",
   diff: "Files changed",
+  terminal: "Terminal",
 }
 
 export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
@@ -163,6 +165,9 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
               </Show>
               <Show when={kind === "diff"}>
                 <DiffPanel serverUrl={props.serverUrl} session={props.session} />
+              </Show>
+              <Show when={kind === "terminal"}>
+                <TerminalPanel serverUrl={props.serverUrl} directory={props.session?.location?.directory} />
               </Show>
             </div>
           )}

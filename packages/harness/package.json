@@ -18,6 +18,8 @@
     "@opencode-ai/sdk": "workspace:*",
     "@opencode-ai/session-ui": "workspace:*",
     "@opencode-ai/ui": "workspace:*",
+    "@xterm/addon-fit": "0.11.0",
+    "@xterm/xterm": "6.0.0",
     "dompurify": "catalog:",
     "marked": "catalog:",
     "qrcode": "1.5.4",
