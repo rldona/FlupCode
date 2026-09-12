@@ -2371,6 +2371,158 @@ button.fc-row-main {
   flex: 1;
 }
 
+.fc-workspace {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  min-width: 280px;
+  border-left: 1px solid var(--fc-border);
+  background: var(--fc-bg);
+}
+
+.fc-workspace-resizer {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.fc-workspace-resizer:hover {
+  background: color-mix(in srgb, var(--fc-accent) 40%, transparent);
+}
+
+.fc-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-panel:last-child {
+  border-bottom: none;
+}
+
+.fc-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 8px 4px 10px;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-panel-title {
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fc-text-muted);
+}
+
+.fc-panel-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fc-browser-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-browser-url {
+  flex: 1;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: 12px;
+}
+
+.fc-browser-frame {
+  flex: 1;
+  width: 100%;
+  border: none;
+  background: #fff;
+}
+
+.fc-diff {
+  flex-direction: row;
+}
+
+.fc-diff-files {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--fc-border);
+  overflow-y: auto;
+}
+
+.fc-diff-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  font-size: 12px;
+  color: var(--fc-text);
+}
+
+.fc-diff-file:hover {
+  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+}
+
+.fc-diff-file-active {
+  background: var(--fc-accent-soft);
+}
+
+.fc-diff-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-diff-stats {
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.fc-diff-add {
+  color: var(--fc-success);
+}
+
+.fc-diff-del {
+  color: var(--fc-danger);
+  margin-left: 4px;
+}
+
+.fc-diff-patch {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 10px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+}
+
 @media (max-width: 720px) {
   .fc-sidebar {
     position: absolute;

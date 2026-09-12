@@ -32,4 +32,6 @@ export const STORAGE_KEYS = {
   expandedProjects: "flupcode.expandedProjects",
   sidebarWidth: "flupcode.sidebarWidth",
   agent: "flupcode.agent",
+  workspacePanels: "flupcode.workspacePanels",
+  workspaceWidth: "flupcode.workspaceWidth",
 } as const

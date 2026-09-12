@@ -208,6 +208,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
       children: async (input: { sessionID: string }) => ({
         data: (await unwrap(client.session.children({ sessionID: input.sessionID }))) as unknown as SessionInfo[],
       }),
+      diff: (input: { sessionID: string }) => unwrap(client.session.diff({ sessionID: input.sessionID })),
     },
     message: {
       list: async (input: { sessionID: string; order?: "asc" | "desc" }) => {
