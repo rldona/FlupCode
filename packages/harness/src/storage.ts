@@ -31,4 +31,5 @@ export const STORAGE_KEYS = {
   pinnedSessions: "flupcode.pinnedSessions",
   expandedProjects: "flupcode.expandedProjects",
   sidebarWidth: "flupcode.sidebarWidth",
+  agent: "flupcode.agent",
 } as const

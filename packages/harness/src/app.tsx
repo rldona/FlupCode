@@ -17,7 +17,7 @@ import { CommandPalette } from "./components/CommandPalette"
 import { SessionView } from "./components/SessionView"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
-import { TodoDock } from "./components/TodoDock"
+import { RightAside } from "./components/RightAside"
 import { McpManager } from "./components/McpManager"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
@@ -59,6 +59,7 @@ export const App: Component = () => {
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
   )
   const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, 280))
+  const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "build"))
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
@@ -664,6 +665,7 @@ export const App: Component = () => {
       const model = selectedModel()
       const location = directory ?? targetDirectory()
       const session = await current.session.create({
+        agent: agent(),
         ...(model ? { model } : {}),
         ...(location ? { location: { directory: location } } : {}),
       })
@@ -769,11 +771,13 @@ export const App: Component = () => {
     })()
   }
 
-  const changeAgent = (agent: string) => {
+  const changeAgent = (value: string) => {
+    setAgent(value)
+    writeStorage(STORAGE_KEYS.agent, value)
     const sessionID = selected()
     if (!sessionID) return
     void run(async (current) => {
-      await current.session.switchAgent({ sessionID, agent })
+      await current.session.switchAgent({ sessionID, agent: value })
       return undefined
     })
   }
@@ -996,6 +1000,7 @@ export const App: Component = () => {
         selected() ??
         (
           await current.session.create({
+            agent: agent(),
             ...(model ? { model } : {}),
             ...(location ? { location: { directory: location } } : {}),
           })
@@ -1103,7 +1108,6 @@ export const App: Component = () => {
           />
         </Show>
         <div class="fc-docks">
-          <TodoDock todos={todos()} />
           <For each={permissions()?.data ?? []}>
             {(request) => (
               <PermissionDock
@@ -1136,6 +1140,8 @@ export const App: Component = () => {
           commands={commandOptions()}
           projects={projects()}
           targetDirectory={targetDirectory()}
+          agents={agents()?.data ?? []}
+          agent={agent()}
           onInput={setPrompt}
           onSend={send}
           onCommandPick={(name) => setPrompt(`/${name} `)}
@@ -1148,8 +1154,14 @@ export const App: Component = () => {
           onPasteText={collapsePaste}
           onStash={() => stashPrompt(prompt(), true)}
           onTargetChange={setTargetDirectory}
+          onAgentChange={changeAgent}
         />
       </main>
+      <Show when={selectedSession()}>
+        {(session) => (
+          <RightAside session={session()} models={models()?.data ?? []} todos={todos()} />
+        )}
+      </Show>
       <Toaster />
       <CommandPalette
         open={paletteOpen()}
