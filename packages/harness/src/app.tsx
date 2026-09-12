@@ -1,15 +1,24 @@
-import { createEffect, createResource, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createResource, createSignal, onCleanup, type Component } from "solid-js"
+import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import type { Attachment } from "./types"
+import type { Attachment, CommandOption } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
 import { Composer } from "./components/Composer"
+import { PermissionDock, type PermissionReply } from "./components/PermissionDock"
+import { QuestionDock } from "./components/QuestionDock"
 
 type Client = ReturnType<typeof createClient>
+
+const BUILTIN_COMMANDS: CommandOption[] = [
+  { name: "new", description: "Nueva sesión" },
+  { name: "compact", description: "Compactar la sesión actual" },
+  { name: "about", description: "Acerca de OpenHarness" },
+]
 
 export const App: Component = () => {
   const [serverUrl, setServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
@@ -38,6 +47,35 @@ export const App: Component = () => {
   )
   const [models] = createResource(serverUrl, (url) => createClient(url).model.list())
   const [defaultModel] = createResource(serverUrl, (url) => createClient(url).model.default())
+  const [commands] = createResource(serverUrl, (url) => createClient(url).command.list())
+  const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, (url) =>
+    createClient(url).permission.request.list(),
+  )
+  const [questions, { refetch: refetchQuestions }] = createResource(serverUrl, (url) =>
+    createClient(url).question.request.list(),
+  )
+
+  const commandOptions = (): CommandOption[] => [
+    ...BUILTIN_COMMANDS,
+    ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
+  ]
+
+  createEffect(() => {
+    const url = serverUrl()
+    const controller = new AbortController()
+    onCleanup(() => controller.abort())
+    void (async () => {
+      try {
+        for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
+          if (event.type.startsWith("permission.")) void refetchPermissions()
+          else if (event.type.startsWith("question.")) void refetchQuestions()
+          else if (event.type.startsWith("session.")) void refetchSessions()
+        }
+      } catch {
+        return
+      }
+    })()
+  })
 
   const selectedModel = () => (auto() ? undefined : modelRef())
   const modelKey = () => {
@@ -192,10 +230,78 @@ export const App: Component = () => {
       return session.id
     }, "Sesión creada")
 
+  const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
+    run(async (current) => {
+      await current.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
+      void refetchPermissions()
+      return undefined
+    })
+
+  const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
+    run(async (current) => {
+      await current.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
+      void refetchQuestions()
+      return undefined
+    })
+
+  const rejectQuestion = (request: QuestionV2Request) =>
+    run(async (current) => {
+      await current.question.reject({ sessionID: request.sessionID, requestID: request.id })
+      void refetchQuestions()
+      return undefined
+    })
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
     if (!text && files.length === 0) return
+
+    if (text.startsWith("/")) {
+      const [rawName, ...rest] = text.slice(1).split(/\s+/)
+      const name = rawName ?? ""
+      const args = rest.join(" ").trim()
+      if (name === "new" || name === "clear") {
+        setPrompt("")
+        newSession()
+        return
+      }
+      if (name === "about") {
+        setPrompt("")
+        setAboutOpen(true)
+        return
+      }
+      if (name === "compact") {
+        void run(async (current) => {
+          const model = selectedModel()
+          const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
+          await current.session.compact({ sessionID })
+          setPrompt("")
+          return sessionID
+        }, "Sesión compactada")
+        return
+      }
+      void run(async (current) => {
+        const model = selectedModel()
+        const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
+        await current.session.command({ sessionID, command: name, ...(args ? { arguments: args } : {}) })
+        setPrompt("")
+        return sessionID
+      }, "Comando ejecutado")
+      return
+    }
+
+    if (text.startsWith("!")) {
+      const command = text.slice(1).trim()
+      if (!command) return
+      void run(async (current) => {
+        const sessionID = selected() ?? (await current.session.create()).id
+        await current.session.shell({ sessionID, command })
+        setPrompt("")
+        return sessionID
+      }, "Comando lanzado")
+      return
+    }
+
     void run(async (current) => {
       const model = selectedModel()
       const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
@@ -250,6 +356,27 @@ export const App: Component = () => {
           busy={busy()}
           error={error()}
         />
+        <div class="oh-docks">
+          <For each={permissions()?.data ?? []}>
+            {(request) => (
+              <PermissionDock
+                request={request}
+                busy={busy()}
+                onReply={(reply) => replyPermission(request, reply)}
+              />
+            )}
+          </For>
+          <For each={questions()?.data ?? []}>
+            {(request) => (
+              <QuestionDock
+                request={request}
+                busy={busy()}
+                onReply={(answers) => replyQuestion(request, answers)}
+                onReject={() => rejectQuestion(request)}
+              />
+            )}
+          </For>
+        </div>
         <Composer
           value={prompt()}
           sending={busy()}
@@ -259,8 +386,10 @@ export const App: Component = () => {
           variantKey={variantKey()}
           auto={auto()}
           attachments={attachments()}
+          commands={commandOptions()}
           onInput={setPrompt}
           onSend={send}
+          onCommandPick={(name) => setPrompt(`/${name} `)}
           onModelChange={changeModel}
           onVariantChange={changeVariant}
           onToggleAuto={() => setAuto((value) => !value)}
