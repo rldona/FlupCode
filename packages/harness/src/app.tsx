@@ -120,7 +120,7 @@ export const App: Component = () => {
       const sessionID = selected()
       return sessionID ? { url: serverUrl(), sessionID } : undefined
     },
-    async (source) => createClient(source.url).session.list({ parentID: source.sessionID }),
+    async     (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
   )
 
   const todos = () => {
