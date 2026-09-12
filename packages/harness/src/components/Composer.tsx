@@ -21,6 +21,7 @@ type ComposerProps = {
   onRemoveAttachment: (uri: string) => void
   onCommandPick: (name: string) => void
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
+  onPasteText: (text: string) => string
 }
 
 type SpeechRecognitionResult = {
@@ -232,6 +233,13 @@ export const Composer: Component<ComposerProps> = (props) => {
             if (files && files.length > 0) {
               event.preventDefault()
               handleFiles(files)
+              return
+            }
+            const raw = event.clipboardData?.getData("text")
+            if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
+              event.preventDefault()
+              const token = props.onPasteText(raw)
+              props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
             }
           }}
           onKeyDown={(event) => {

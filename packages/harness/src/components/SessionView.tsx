@@ -11,6 +11,7 @@ type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
   loading: boolean
   busy: boolean
+  showTools: boolean
 }
 
 function toolOutput(tool: SessionMessageAssistantTool) {
@@ -58,23 +59,25 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
   )
 }
 
-const AssistantMessage: Component<{ message: SessionMessageAssistant }> = (props) => (
+const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools: boolean }> = (props) => (
   <div class="oh-message oh-message-assistant">
     <div class="oh-message-role">{props.message.agent}</div>
     <For each={props.message.content}>
       {(part) => (
-        <Show
-          when={part.type === "tool"}
-          fallback={
-            <Show
-              when={part.type === "reasoning"}
-              fallback={<div class="oh-message-text">{(part as SessionMessageAssistantText).text}</div>}
-            >
-              <ReasoningBlock part={part as SessionMessageAssistantReasoning} />
-            </Show>
-          }
-        >
-          <ToolCall part={part as SessionMessageAssistantTool} />
+        <Show when={props.showTools || part.type !== "tool"}>
+          <Show
+            when={part.type === "tool"}
+            fallback={
+              <Show
+                when={part.type === "reasoning"}
+                fallback={<div class="oh-message-text">{(part as SessionMessageAssistantText).text}</div>}
+              >
+                <ReasoningBlock part={part as SessionMessageAssistantReasoning} />
+              </Show>
+            }
+          >
+            <ToolCall part={part as SessionMessageAssistantTool} />
+          </Show>
         </Show>
       )}
     </For>
@@ -111,7 +114,7 @@ export const SessionView: Component<SessionViewProps> = (props) => (
               when={message.type === "user"}
               fallback={
                 <Show when={message.type === "assistant"}>
-                  <AssistantMessage message={message as SessionMessageAssistant} />
+                  <AssistantMessage message={message as SessionMessageAssistant} showTools={props.showTools} />
                 </Show>
               }
             >
