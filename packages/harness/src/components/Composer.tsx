@@ -333,7 +333,12 @@ export const Composer: Component<ComposerProps> = (props) => {
           <Show when={props.variants.length > 0}>
             <select
               class="fc-model-select"
-              value={props.variantKey ?? ""}
+              ref={(element: HTMLSelectElement) => {
+                createEffect(() => {
+                  props.variants
+                  element.value = props.variantKey ?? ""
+                })
+              }}
               aria-label={t("Variant")}
               onChange={(event) => props.onVariantChange(event.currentTarget.value)}
             >
