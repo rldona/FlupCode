@@ -1086,7 +1086,6 @@ export const App: Component = () => {
           {(session) => (
             <SessionToolbar
               session={session()}
-              agents={agents()?.data ?? []}
               projects={projects()}
               busy={busy()}
               reverting={!!session().revert}
@@ -1096,7 +1095,6 @@ export const App: Component = () => {
               onExport={exportMarkdown}
               onMove={moveSession}
               onDelete={deleteSession}
-              onAgentChange={changeAgent}
               onUndo={undo}
               onRedo={redo}
               onCommitRevert={commitRevert}

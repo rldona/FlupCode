@@ -1125,9 +1125,9 @@ button.fc-row-main {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-3);
-  width: min(760px, 100%);
-  margin: 0 auto;
-  padding: var(--fc-space-5) var(--fc-space-4);
+  width: 100%;
+  max-width: none;
+  padding: var(--fc-space-5) var(--fc-space-6);
 }
 
 .fc-message {
@@ -1183,6 +1183,7 @@ button.fc-row-main {
 
 .fc-reasoning-text {
   white-space: pre-wrap;
+  font-style: italic;
   padding: 10px 12px;
   border-left: 2px solid var(--fc-border);
   border-radius: 0 var(--fc-radius-sm) var(--fc-radius-sm) 0;
@@ -2022,11 +2023,71 @@ button.fc-row-main {
 
 .fc-mascot {
   position: absolute;
-  top: -14px;
+  top: -16px;
   right: max(12px, calc(50% - 388px));
   width: 34px;
-  height: 22px;
-  pointer-events: none;
+  height: 28px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  transform-origin: 50% 100%;
+  animation: fc-mascot-idle 3.2s ease-in-out infinite;
+}
+
+.fc-mascot-play {
+  animation: fc-mascot-hop 0.9s cubic-bezier(0.3, 0.8, 0.3, 1);
+}
+
+@keyframes fc-mascot-idle {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes fc-mascot-hop {
+  0% {
+    transform: translateY(0) rotate(0);
+  }
+  25% {
+    transform: translateY(-10px) rotate(-12deg);
+  }
+  50% {
+    transform: translateY(0) rotate(8deg);
+  }
+  75% {
+    transform: translateY(-6px) rotate(-6deg);
+  }
+  100% {
+    transform: translateY(0) rotate(0);
+  }
+}
+
+.fc-composer-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-2);
+}
+
+.fc-composer-left,
+.fc-composer-right {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-icon-button-active {
+  color: var(--fc-accent);
+  background: var(--fc-accent-soft);
+}
+
+.fc-input {
+  width: 100%;
 }
 
 .fc-spinner {
