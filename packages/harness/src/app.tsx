@@ -1,4 +1,4 @@
-import { createResource, createSignal, type Component } from "solid-js"
+import { createEffect, createResource, createSignal, type Component } from "solid-js"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { Sidebar } from "./components/Sidebar"
@@ -20,6 +20,8 @@ export const App: Component = () => {
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
+  const [auto, setAuto] = createSignal(true)
+  const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string }>()
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -29,6 +31,34 @@ export const App: Component = () => {
   const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, (url) =>
     createClient(url).session.list(),
   )
+  const [models] = createResource(serverUrl, (url) => createClient(url).model.list())
+  const [defaultModel] = createResource(serverUrl, (url) => createClient(url).model.default())
+
+  const selectedModel = () => (auto() ? undefined : modelRef())
+  const modelKey = () => {
+    const ref = selectedModel()
+    return ref ? `${ref.providerID}/${ref.id}` : undefined
+  }
+
+  createEffect(() => {
+    if (modelRef()) return
+    const fallback = defaultModel()?.data ?? models()?.data?.find((model) => model.enabled) ?? models()?.data?.[0]
+    if (!fallback) return
+    setModelRef({ providerID: fallback.providerID, id: fallback.modelID })
+  })
+
+  const changeModel = (key: string) => {
+    const [providerID, ...rest] = key.split("/")
+    const id = rest.join("/")
+    if (!providerID || !id) return
+    setModelRef({ providerID, id })
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.switchModel({ sessionID, model: { id, providerID } })
+      return undefined
+    })
+  }
 
   const sessionList = () => sessions()?.data
   const canGoBack = () => historyIndex() > 0
@@ -102,7 +132,11 @@ export const App: Component = () => {
 
   const newSession = (directory?: string) =>
     run(async (current) => {
-      const session = await current.session.create(directory ? { location: { directory } } : {})
+      const model = selectedModel()
+      const session = await current.session.create({
+        ...(model ? { model } : {}),
+        ...(directory ? { location: { directory } } : {}),
+      })
       return session.id
     })
 
@@ -110,7 +144,8 @@ export const App: Component = () => {
     const text = prompt().trim()
     if (!text) return
     void run(async (current) => {
-      const sessionID = selected() ?? (await current.session.create({})).id
+      const model = selectedModel()
+      const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
       await current.session.prompt({ sessionID, text })
       setPrompt("")
       return sessionID
@@ -156,7 +191,17 @@ export const App: Component = () => {
           busy={busy()}
           error={error()}
         />
-        <Composer value={prompt()} sending={busy()} onInput={setPrompt} onSend={send} />
+        <Composer
+          value={prompt()}
+          sending={busy()}
+          models={models()?.data ?? []}
+          modelKey={modelKey()}
+          auto={auto()}
+          onInput={setPrompt}
+          onSend={send}
+          onModelChange={changeModel}
+          onToggleAuto={() => setAuto((value) => !value)}
+        />
       </main>
     </div>
   )

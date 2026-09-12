@@ -455,6 +455,37 @@ button.oh-row-main {
   color: var(--oh-text-muted);
 }
 
+.oh-chip-button {
+  background: transparent;
+}
+
+.oh-chip-active {
+  border-color: var(--oh-accent);
+  color: var(--oh-accent);
+}
+
+.oh-composer-controls {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--oh-space-2);
+}
+
+.oh-model-select {
+  height: 28px;
+  max-width: 260px;
+  padding: 0 8px;
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-sm);
+  background: var(--oh-bg-elevated);
+  color: var(--oh-text);
+  font-size: var(--oh-text-sm);
+}
+
+.oh-model-select:disabled {
+  color: var(--oh-text-muted);
+}
+
 .oh-composer-row {
   display: flex;
   align-items: flex-end;
