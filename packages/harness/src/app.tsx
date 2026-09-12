@@ -55,7 +55,9 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
 export const App: Component = () => {
   const [serverUrl, setServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
   const [serverInput, setServerInput] = createSignal(serverUrl())
-  const [selected, setSelected] = createSignal<string>()
+  const [selected, setSelected] = createSignal<string | undefined>(
+    readStorage<string | undefined>(STORAGE_KEYS.selectedSession, undefined),
+  )
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
   const [streamedChars, setStreamedChars] = createSignal(0)
@@ -73,7 +75,9 @@ export const App: Component = () => {
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
-  const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string }>()
+  const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string } | undefined>(
+    readStorage<{ providerID: string; id: string; variant?: string } | undefined>(STORAGE_KEYS.selectedModel, undefined),
+  )
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
   const [favorites, setFavorites] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.favoriteModels, []))
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
@@ -362,6 +366,16 @@ export const App: Component = () => {
     const fallback = preferred ? { providerID: preferred[0], id: preferred[1] } : modelList()[0]
     if (!fallback) return
     setModelRef({ providerID: fallback.providerID, id: fallback.id })
+  })
+
+  createEffect(() => {
+    const id = selected()
+    if (id) writeStorage(STORAGE_KEYS.selectedSession, id)
+  })
+
+  createEffect(() => {
+    const ref = modelRef()
+    if (ref) writeStorage(STORAGE_KEYS.selectedModel, ref)
   })
 
   const modelLabel = () => currentModel()?.name ?? t("Default model")
