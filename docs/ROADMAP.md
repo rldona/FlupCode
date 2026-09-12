@@ -83,8 +83,8 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
 | F4-5 | P2 | Artifacts | todo |
 | F4-6 | P2 | Routines (scheduled tasks) | done |
-| F4-7 | P2 | Voice input | todo |
-| F4-8 | P2 | In-place message editing | todo |
+| F4-7 | P2 | Voice input | done |
+| F4-8 | P2 | In-place message editing | done |
 
 ## F5 — Desktop
 
@@ -94,7 +94,7 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | F5-2 | P1 | Native menus, window state, multi-window | done |
 | F5-3 | P1 | Auto-update | done |
 | F5-4 | P1 | Signing/notarization: macOS, Windows, Linux | blocked |
-| F5-5 | P2 | First-launch onboarding | todo |
+| F5-5 | P2 | First-launch onboarding | done |
 
 ## F6 — Remote / mobile
 

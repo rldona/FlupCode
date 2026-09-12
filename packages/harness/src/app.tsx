@@ -21,6 +21,7 @@ import { McpManager } from "./components/McpManager"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
+import { Onboarding } from "./components/Onboarding"
 
 type Client = ReturnType<typeof createClient>
 
@@ -58,6 +59,7 @@ export const App: Component = () => {
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
   const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
+  const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [stashOpen, setStashOpen] = createSignal(false)
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
@@ -332,6 +334,12 @@ export const App: Component = () => {
   const updateDisplayName = (value: string) => {
     setDisplayName(value)
     writeStorage(STORAGE_KEYS.displayName, value)
+  }
+
+  const completeOnboarding = (name: string) => {
+    if (name.trim()) updateDisplayName(name.trim())
+    setOnboarded(true)
+    writeStorage(STORAGE_KEYS.onboarded, true)
   }
 
   const updateTheme = (value: string) => {
@@ -624,6 +632,17 @@ export const App: Component = () => {
       return undefined
     }, "Servidor MCP desconectado")
 
+  const editMessage = (messageID: string, text: string) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    setPrompt(text)
+    void run(async (current) => {
+      await current.session.revert.stage({ sessionID, messageID, files: true })
+      void refetchMessages()
+      return undefined
+    }, "Mensaje listo para editar")
+  }
+
   const undo = () => {
     const sessionID = selected()
     if (!sessionID) return
@@ -861,7 +880,13 @@ export const App: Component = () => {
             />
           }
         >
-          <SessionView messages={messages()?.data} loading={messages.loading} busy={busy()} showTools={showTools()} />
+          <SessionView
+            messages={messages()?.data}
+            loading={messages.loading}
+            busy={busy()}
+            showTools={showTools()}
+            onEditUser={editMessage}
+          />
         </Show>
         <div class="fc-docks">
           <TodoDock todos={todos()} />
@@ -973,6 +998,7 @@ export const App: Component = () => {
         onRun={runRoutine}
         onClose={() => setRoutinesOpen(false)}
       />
+      <Onboarding open={!onboarded()} serverHealthy={health()?.healthy} onDone={completeOnboarding} />
     </div>
   )
 }

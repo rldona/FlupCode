@@ -31,7 +31,7 @@ macOS, Windows, Linux.
 - macOS notarized; Windows signed; Linux packages (deb/rpm/AppImage).
 - Release artifacts published from CI.
 
-## F5-5 — First-launch onboarding · P2 · todo
+## F5-5 — First-launch onboarding · P2 · done
 
 **Acceptance**
 - Pick a directory, configure a provider, start the first session.
