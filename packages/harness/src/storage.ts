@@ -34,4 +34,5 @@ export const STORAGE_KEYS = {
   agent: "flupcode.agent",
   workspacePanels: "flupcode.workspacePanels",
   workspaceWidth: "flupcode.workspaceWidth",
+  favoriteModels: "flupcode.favoriteModels",
 } as const

@@ -21,6 +21,7 @@ import { SubagentList } from "./components/SubagentList"
 import { RightAside } from "./components/RightAside"
 import { WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
+import { ModelPicker } from "./components/ModelPicker"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
@@ -68,8 +69,10 @@ export const App: Component = () => {
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
-  const [auto, setAuto] = createSignal(true)
+  const [auto, setAuto] = createSignal(false)
   const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string }>()
+  const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
+  const [favorites, setFavorites] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.favoriteModels, []))
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
@@ -122,7 +125,6 @@ export const App: Component = () => {
     }
     return models()?.data ?? []
   })
-  const [defaultModel] = createResource(serverUrl, async (url) => createClient(url).model.default())
   const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
   const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
   const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
@@ -324,10 +326,34 @@ export const App: Component = () => {
 
   createEffect(() => {
     if (modelRef()) return
-    const fallback = defaultModel()?.data ?? modelList()[0]
+    const preferred = Object.entries(modelDirectory()?.default ?? {}).find(([providerID, id]) =>
+      modelList().some((model) => model.providerID === providerID && model.id === id),
+    )
+    const fallback = preferred ? { providerID: preferred[0], id: preferred[1] } : modelList()[0]
     if (!fallback) return
     setModelRef({ providerID: fallback.providerID, id: fallback.id })
   })
+
+  const modelLabel = () => currentModel()?.name ?? t("Default model")
+
+  const toggleFavoriteModel = (key: string) => {
+    setFavorites((current) => {
+      const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+      writeStorage(STORAGE_KEYS.favoriteModels, next)
+      return next
+    })
+  }
+
+  const pickModel = (providerID: string, id: string) => {
+    setModelRef({ providerID, id })
+    setModelPickerOpen(false)
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.switchModel({ sessionID, model: { id, providerID } })
+      return undefined
+    })
+  }
 
   const changeModel = (key: string) => {
     const [providerID, ...rest] = key.split("/")
@@ -1227,8 +1253,7 @@ export const App: Component = () => {
         <Composer
           value={prompt()}
           sending={busy()}
-          models={modelList()}
-          modelKey={modelKey()}
+          modelLabel={modelLabel()}
           variants={variants()}
           variantKey={variantKey()}
           auto={auto()}
@@ -1242,7 +1267,7 @@ export const App: Component = () => {
           onInput={setPrompt}
           onSend={send}
           onCommandPick={(name) => setPrompt(`/${name} `)}
-          onModelChange={changeModel}
+          onOpenModelPicker={() => setModelPickerOpen(true)}
           onVariantChange={changeVariant}
           onToggleAuto={() => setAuto((value) => !value)}
           onAttach={addAttachments}
@@ -1297,6 +1322,15 @@ export const App: Component = () => {
         onSave={saveProvider}
         onRemove={removeProvider}
         onClose={() => setProvidersOpen(false)}
+      />
+      <ModelPicker
+        open={modelPickerOpen()}
+        models={modelList()}
+        selectedKey={modelKey()}
+        favorites={favorites()}
+        onSelect={pickModel}
+        onToggleFavorite={toggleFavoriteModel}
+        onClose={() => setModelPickerOpen(false)}
       />
       <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
       <StashDialog

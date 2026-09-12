@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
+import type { AgentInfo, FileSystemEntry, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { Mascot } from "./Mascot"
@@ -7,8 +7,7 @@ import { Mascot } from "./Mascot"
 type ComposerProps = {
   value: string
   sending: boolean
-  models: ModelInfo[]
-  modelKey: string | undefined
+  modelLabel: string
   variants: ModelVariant[]
   variantKey: string | undefined
   auto: boolean
@@ -21,7 +20,7 @@ type ComposerProps = {
   mascotState: string
   onInput: (value: string) => void
   onSend: () => void
-  onModelChange: (key: string) => void
+  onOpenModelPicker: () => void
   onVariantChange: (value: string) => void
   onToggleAuto: () => void
   onAttach: (files: File[]) => void
@@ -36,16 +35,6 @@ type ComposerProps = {
 
 function primaryAgents(agents: AgentInfo[]) {
   return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
-}
-
-function groupModels(models: ModelInfo[]) {
-  const map = new Map<string, ModelInfo[]>()
-  for (const model of models) {
-    const list = map.get(model.providerID) ?? []
-    list.push(model)
-    map.set(model.providerID, list)
-  }
-  return [...map.entries()].map(([providerID, items]) => ({ providerID, items }))
 }
 
 function projectLabel(project: ProjectItem) {
@@ -342,26 +331,15 @@ export const Composer: Component<ComposerProps> = (props) => {
         </div>
 
         <div class="fc-composer-right">
-          <select
-            class="fc-model-select"
-            value={props.auto ? "" : (props.modelKey ?? "")}
+          <button
+            class="fc-model-button"
+            type="button"
             disabled={props.auto}
             aria-label={t("Model")}
-            onChange={(event) => props.onModelChange(event.currentTarget.value)}
+            onClick={props.onOpenModelPicker}
           >
-            <option value="" disabled>
-              {t("Default model")}
-            </option>
-            <For each={groupModels(props.models)}>
-              {(group) => (
-                <optgroup label={group.providerID}>
-                  <For each={group.items}>
-                    {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
-                  </For>
-                </optgroup>
-              )}
-            </For>
-          </select>
+            <span class="fc-model-button-label">{props.modelLabel}</span>
+          </button>
           <Show when={props.variants.length > 0}>
             <select
               class="fc-model-select"
