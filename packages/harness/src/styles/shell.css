@@ -813,40 +813,6 @@ button.fc-row-main {
   color: var(--fc-text);
 }
 
-.fc-skeleton-list {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.fc-skeleton {
-  height: 32px;
-  border-radius: var(--fc-radius-sm);
-  background: linear-gradient(
-    90deg,
-    color-mix(in srgb, var(--fc-border) 45%, transparent) 25%,
-    color-mix(in srgb, var(--fc-border) 70%, transparent) 50%,
-    color-mix(in srgb, var(--fc-border) 45%, transparent) 75%
-  );
-  background-size: 200% 100%;
-  animation: fc-shimmer 1.4s ease-in-out infinite;
-}
-
-@keyframes fc-shimmer {
-  from {
-    background-position: 200% 0;
-  }
-  to {
-    background-position: -200% 0;
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .fc-skeleton {
-    animation: none;
-  }
-}
-
 .fc-empty-state {
   display: flex;
   flex-direction: column;
@@ -1384,6 +1350,49 @@ button.fc-row-main {
 .fc-message-pending {
   color: var(--fc-text-muted);
   font-size: 13px;
+}
+
+.fc-loading-center {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fc-space-6);
+}
+
+.fc-loader {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fc-text-muted);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-loader-inline {
+  padding: 8px 2px;
+}
+
+.fc-flower {
+  color: #d97757;
+  animation: fc-flower-spin 1.6s steps(8, end) infinite;
+  flex-shrink: 0;
+}
+
+.fc-loader-time,
+.fc-loader-meta,
+.fc-loader-sep {
+  color: var(--fc-text-muted);
+}
+
+.fc-loader-text {
+  color: var(--fc-text);
+}
+
+@keyframes fc-flower-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .fc-message-error {
