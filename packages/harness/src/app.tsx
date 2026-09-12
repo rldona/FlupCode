@@ -118,8 +118,13 @@ export const App: Component = () => {
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
   const modelLocation = () => targetDirectory() ?? selectedSession()?.location?.directory
   const [models, { refetch: refetchModels }] = createResource(
-    () => [serverUrl(), modelLocation()] as const,
-    ([url, directory]) => createClient(url).model.list(directory ? { location: { directory } } : undefined),
+    () => `${serverUrl()}::${modelLocation() ?? ""}`,
+    (key) => {
+      const separator = key.lastIndexOf("::")
+      const url = key.slice(0, separator)
+      const directory = key.slice(separator + 2)
+      return createClient(url).model.list(directory ? { location: { directory } } : undefined)
+    },
   )
   const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(serverUrl, async (url) =>
     createClient(url).model.directory(),
@@ -322,6 +327,27 @@ export const App: Component = () => {
     new Notification(title, { body })
   }
 
+  let refetchTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingMessages = false
+  let pendingSessions = false
+  const scheduleRefetch = (messages: boolean, sessions: boolean) => {
+    pendingMessages = pendingMessages || messages
+    pendingSessions = pendingSessions || sessions
+    if (refetchTimer) return
+    refetchTimer = setTimeout(() => {
+      refetchTimer = undefined
+      const wantMessages = pendingMessages
+      const wantSessions = pendingSessions
+      pendingMessages = false
+      pendingSessions = false
+      if (wantMessages) void refetchMessages()
+      if (wantSessions) void refetchSessions()
+    }, 300)
+  }
+  onCleanup(() => {
+    if (refetchTimer) clearTimeout(refetchTimer)
+  })
+
   createEffect(() => {
     const url = serverUrl()
     const controller = new AbortController()
@@ -333,7 +359,7 @@ export const App: Component = () => {
           const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
           if (type === "session.next.step.started") {
             if (payload?.sessionID === selected()) setStreamedChars(0)
-            void refetchMessages()
+            scheduleRefetch(true, false)
           } else if (type.endsWith(".delta")) {
             const delta = payload?.delta
             if (payload?.sessionID === selected() && typeof delta === "string")
@@ -346,9 +372,10 @@ export const App: Component = () => {
           } else if (type.startsWith("question.")) {
             if (type === "question.v2.asked") notify(t("Question asked"), "")
             void refetchQuestions()
-          } else if (type.startsWith("message.") || type.startsWith("session.")) {
-            void refetchMessages()
-            void refetchSessions()
+          } else if (type.startsWith("message.")) {
+            scheduleRefetch(true, false)
+          } else if (type.startsWith("session.")) {
+            scheduleRefetch(false, true)
           }
         }
       } catch {
@@ -467,15 +494,16 @@ export const App: Component = () => {
   const comparisonLine = createMemo(() => comparison(metrics().tokens))
   const [messageCount] = createResource(
     () => {
+      if (selected()) return undefined
       const ids = filteredSessions()
         .slice(0, 30)
         .map((session) => session.id)
-      return ids.length ? { url: serverUrl(), ids } : undefined
+      return ids.length ? ids.join(",") : undefined
     },
-    async (source) => {
-      const client = createClient(source.url)
+    async (key) => {
+      const client = createClient(serverUrl())
       const counts = await Promise.all(
-        source.ids.map(async (id) => {
+        key.split(",").map(async (id) => {
           try {
             const response = await client.message.list({ sessionID: id })
             return response.data.length
