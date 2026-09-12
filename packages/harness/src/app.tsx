@@ -56,7 +56,7 @@ export const App: Component = () => {
   const [serverUrl, setServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
   const [serverInput, setServerInput] = createSignal(serverUrl())
   const [selected, setSelected] = createSignal<string | undefined>(
-    readStorage<string | undefined>(STORAGE_KEYS.selectedSession, undefined),
+    readStorage<string>(STORAGE_KEYS.selectedSession, "") || undefined,
   )
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
@@ -77,6 +77,9 @@ export const App: Component = () => {
   const [historyIndex, setHistoryIndex] = createSignal(-1)
   const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string } | undefined>(
     readStorage<{ providerID: string; id: string; variant?: string } | undefined>(STORAGE_KEYS.selectedModel, undefined),
+  )
+  const [noFolderSessions, setNoFolderSessions] = createSignal<string[]>(
+    readStorage<string[]>(STORAGE_KEYS.noFolderSessions, []),
   )
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
   const [favorites, setFavorites] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.favoriteModels, []))
@@ -369,13 +372,16 @@ export const App: Component = () => {
   })
 
   createEffect(() => {
-    const id = selected()
-    if (id) writeStorage(STORAGE_KEYS.selectedSession, id)
+    writeStorage(STORAGE_KEYS.selectedSession, selected() ?? "")
   })
 
   createEffect(() => {
     const ref = modelRef()
     if (ref) writeStorage(STORAGE_KEYS.selectedModel, ref)
+  })
+
+  createEffect(() => {
+    writeStorage(STORAGE_KEYS.noFolderSessions, noFolderSessions())
   })
 
   const modelLabel = () => currentModel()?.name ?? t("Default model")
@@ -779,22 +785,19 @@ export const App: Component = () => {
     }
   }
 
-  const newSession = (directory?: string) =>
-    run(async (current) => {
-      const model = selectedModel()
-      const location = directory ?? targetDirectory()
-      const session = await current.session.create({
-        agent: agent(),
-        ...(model ? { model } : {}),
-        ...(location ? { location: { directory: location } } : {}),
-      })
-      await current.session.setPermission({
-        sessionID: session.id,
-        permission: permissionMode(permissionModeId()).rules,
-        directory: location,
-      })
-      return session.id
-    }, t("Session created"))
+  const newSession = (directory?: string) => {
+    const sessionID = selected()
+    if (sessionID && !messages.loading && (messages()?.data ?? []).length === 0) {
+      void createClient(serverUrl())
+        .session.remove({ sessionID })
+        .then(() => refetchSessions())
+        .catch(() => undefined)
+    }
+    setTargetDirectory(directory)
+    setSelected(undefined)
+    setPrompt("")
+    setAttachments([])
+  }
 
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
     run(async (current) => {
@@ -870,6 +873,7 @@ export const App: Component = () => {
   const moveSession = (directory: string) => {
     const sessionID = selected()
     if (!sessionID) return
+    setNoFolderSessions((list) => list.filter((id) => id !== sessionID))
     void run(async (current) => {
       await current.session.move({ sessionID, directory })
       return undefined
@@ -1049,6 +1053,12 @@ export const App: Component = () => {
     toast(t("Transcript exported"), "success")
   }
 
+  const titleFromText = (value: string) => {
+    const line = value.replace(/\s+/g, " ").trim()
+    if (!line) return t("New session")
+    return line.length > 60 ? `${line.slice(0, 57)}…` : line
+  }
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
@@ -1163,8 +1173,9 @@ export const App: Component = () => {
     void run(async (current) => {
       const model = selectedModel()
       const location = targetDirectory()
+      const existing = selected()
       const sessionID =
-        selected() ??
+        existing ??
         (
           await current.session.create({
             agent: agent(),
@@ -1172,6 +1183,10 @@ export const App: Component = () => {
             ...(location ? { location: { directory: location } } : {}),
           })
         ).id
+      if (!existing) {
+        await current.session.rename({ sessionID, title: titleFromText(text) })
+        if (!location) setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
+      }
       await current.session.setPermission({
         sessionID,
         permission: permissionMode(permissionModeId()).rules,
@@ -1206,6 +1221,7 @@ export const App: Component = () => {
         selectedSession={selected()}
         pinnedSessions={pinned()}
         expandedProjects={expanded()}
+        noFolderSessions={noFolderSessions()}
         onDisplayName={updateDisplayName}
         onToggleSessionPin={togglePin}
         onToggleProject={toggleProject}
