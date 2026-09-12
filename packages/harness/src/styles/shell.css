@@ -1560,10 +1560,29 @@ button.fc-row-main {
   height: 100%;
 }
 
-.fc-flower {
-  color: #d97757;
-  animation: fc-flower-spin 1.6s steps(8, end) infinite;
+.fc-loader-dots {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: #d9a441;
   flex-shrink: 0;
+}
+
+.fc-loader-dots i {
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.25;
+  animation: fc-thought-dot 1s ease-in-out infinite;
+}
+
+.fc-loader-dots i:nth-child(2) {
+  animation-delay: 0.15s;
+}
+
+.fc-loader-dots i:nth-child(3) {
+  animation-delay: 0.3s;
 }
 
 .fc-loader-time,
@@ -1574,12 +1593,6 @@ button.fc-row-main {
 
 .fc-loader-text {
   color: var(--fc-text);
-}
-
-@keyframes fc-flower-spin {
-  to {
-    transform: rotate(360deg);
-  }
 }
 
 .fc-message-error {
