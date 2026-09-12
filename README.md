@@ -33,8 +33,9 @@ system and the harness features that OpenCode's default UI does not emphasise.
 
 ## Status
 
-Early planning/foundation. The fork is bootstrapped, the parity audit is complete and the
-documentation set is in place. Implementation starts at **F2 — Design system & shell**.
+**v1.0.** The web harness (Claude Code–style shell, TUI parity, dashboard, artifacts, routines,
+i18n) and the Electron desktop app are built; the upstream sync and release pipelines are in place.
+See [docs/ROADMAP.md](docs/ROADMAP.md) for the live status.
 
 ## Repository layout
 
@@ -74,6 +75,7 @@ bun run dev:desktop      # start the upstream desktop app (reference)
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system and the Claude Code–style harness direction |
 | [docs/PARITY.md](docs/PARITY.md) | TUI ↔ Web feature parity matrix |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritised, ticket-based roadmap |
+| [docs/RELEASE.md](docs/RELEASE.md) | Versioning and release process |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Language, conventions, workflow |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
 | [docs/tickets/](docs/tickets/) | Per-phase ticket breakdowns |
