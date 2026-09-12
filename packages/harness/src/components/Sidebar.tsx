@@ -23,6 +23,12 @@ function projectLabel(project: Project) {
   return segments.at(-1) ?? project.worktree
 }
 
+const SkeletonRows: Component<{ count: number }> = (props) => (
+  <div class="oh-skeleton-list">
+    <For each={Array.from({ length: props.count })}>{() => <div class="oh-skeleton" />}</For>
+  </div>
+)
+
 export const Sidebar: Component<SidebarProps> = (props) => {
   const orderedProjects = () => {
     const list = props.projects ?? []
@@ -59,10 +65,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           </button>
         </div>
         <div class="oh-scroll">
-          <Show when={!props.projectsLoading} fallback={<div class="oh-empty">Cargando…</div>}>
+          <Show when={!props.projectsLoading} fallback={<SkeletonRows count={3} />}>
             <Show
               when={orderedProjects().length}
-              fallback={<div class="oh-empty">Sin proyectos abiertos</div>}
+              fallback={
+                <div class="oh-empty-state">
+                  <span class="oh-empty-title">Sin proyectos abiertos</span>
+                  <span class="oh-empty-hint">Abre una carpeta para empezar</span>
+                </div>
+              }
             >
               <ul class="oh-list">
                 <For each={orderedProjects()}>
@@ -109,8 +120,16 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           <span class="oh-section-label">Sesiones</span>
         </div>
         <div class="oh-scroll">
-          <Show when={!props.sessionsLoading} fallback={<div class="oh-empty">Cargando…</div>}>
-            <Show when={props.sessions?.length} fallback={<div class="oh-empty">No hay sesiones</div>}>
+          <Show when={!props.sessionsLoading} fallback={<SkeletonRows count={2} />}>
+            <Show
+              when={props.sessions?.length}
+              fallback={
+                <div class="oh-empty-state">
+                  <span class="oh-empty-title">No hay sesiones</span>
+                  <span class="oh-empty-hint">Crea una con Nuevo</span>
+                </div>
+              }
+            >
               <ul class="oh-list">
                 <For each={props.sessions}>
                   {(session) => (

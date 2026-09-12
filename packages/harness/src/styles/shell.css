@@ -537,6 +537,167 @@ button.oh-row-main {
   outline: none;
 }
 
+.oh-file-input {
+  display: none;
+}
+
+.oh-attach {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--oh-control-lg);
+  height: var(--oh-control-lg);
+  flex-shrink: 0;
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-md);
+  background: var(--oh-bg-elevated);
+  color: var(--oh-text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.oh-attach:hover {
+  color: var(--oh-text);
+}
+
+.oh-composer-dragging {
+  outline: 2px dashed var(--oh-accent);
+  outline-offset: -4px;
+}
+
+.oh-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.oh-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 220px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-pill);
+  background: var(--oh-bg-elevated);
+  font-size: var(--oh-text-sm);
+}
+
+.oh-attachment-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oh-attachment-remove {
+  border: none;
+  background: transparent;
+  color: var(--oh-text-muted);
+  border-radius: var(--oh-radius-pill);
+  width: 18px;
+  height: 18px;
+  line-height: 1;
+}
+
+.oh-attachment-remove:hover {
+  background: color-mix(in srgb, var(--oh-border) 60%, transparent);
+  color: var(--oh-text);
+}
+
+.oh-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oh-skeleton {
+  height: 32px;
+  border-radius: var(--oh-radius-sm);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--oh-border) 45%, transparent) 25%,
+    color-mix(in srgb, var(--oh-border) 70%, transparent) 50%,
+    color-mix(in srgb, var(--oh-border) 45%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: oh-shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes oh-shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oh-skeleton {
+    animation: none;
+  }
+}
+
+.oh-empty-state {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 2px;
+}
+
+.oh-empty-title {
+  font-size: var(--oh-text-sm);
+  color: var(--oh-text);
+}
+
+.oh-empty-hint {
+  font-size: var(--oh-text-xs);
+  color: var(--oh-text-muted);
+}
+
+.oh-toaster {
+  position: fixed;
+  right: var(--oh-space-4);
+  bottom: var(--oh-space-4);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--oh-space-2);
+  max-width: 340px;
+}
+
+.oh-toast {
+  padding: 10px 14px;
+  border: 1px solid var(--oh-border);
+  border-left: 3px solid var(--oh-text-muted);
+  border-radius: var(--oh-radius-sm);
+  background: var(--oh-bg-elevated);
+  color: var(--oh-text);
+  font-size: 13px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  animation: oh-toast-in var(--oh-motion-panel);
+}
+
+.oh-toast-success {
+  border-left-color: var(--oh-success);
+}
+
+.oh-toast-error {
+  border-left-color: var(--oh-danger);
+}
+
+@keyframes oh-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;
