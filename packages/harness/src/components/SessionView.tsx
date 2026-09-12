@@ -98,12 +98,39 @@ function toolTitle(tool: SessionMessageAssistantTool) {
   return undefined
 }
 
+function formatThoughtDuration(ms: number) {
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  const seconds = ms / 1000
+  if (seconds < 60) return `${seconds.toFixed(1)}s`
+  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
+}
+
 const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (props) => {
   const [open, setOpen] = createSignal(false)
+  const completed = () => props.part.time?.completed !== undefined
+  const duration = () => {
+    const time = props.part.time
+    if (!time?.completed) return undefined
+    return formatThoughtDuration(time.completed - time.created)
+  }
   return (
     <div class="fc-reasoning">
       <button class="fc-reasoning-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        <span class="fc-tool-chevron">{open() ? "▾" : "▸"}</span> {t("Thought")}
+        <Show
+          when={!completed()}
+          fallback={<span class="fc-thought-mark">{open() ? "−" : "+"}</span>}
+        >
+          <span class="fc-thought-spinner" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </Show>
+        <span class="fc-thought-label">{completed() ? t("Thought") : t("Thinking")}</span>
+        <Show when={duration()}>
+          <span class="fc-thought-sep">:</span>
+          <span class="fc-thought-time">{duration()}</span>
+        </Show>
       </button>
       <Show when={open()}>
         <div class="fc-reasoning-text">{props.part.text}</div>
