@@ -1235,6 +1235,28 @@ button.fc-row-main {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  content-visibility: auto;
+  contain-intrinsic-size: auto 180px;
+}
+
+.fc-load-earlier {
+  align-self: center;
+  margin: 4px 0 8px;
+  padding: 6px 14px;
+  border: 1px solid var(--fc-border);
+  border-radius: 999px;
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-load-earlier:hover {
+  color: var(--fc-text);
+  border-color: color-mix(in srgb, var(--fc-border) 50%, var(--fc-text-muted));
+}
+
+.fc-message-live {
+  opacity: 0.9;
 }
 
 .fc-message-user {
