@@ -30,7 +30,9 @@ porting/adapting them into `packages/harness`, not rebuilding.
 - Undo/redo restores messages and files; prompt is restored.
 - Fork from message; compact uses the current model.
 
-## F3-5 — Sessions, share, export · P0 · doing
+## F3-5 — Sessions, share, export · P0 · done
+
+Note: share/unshare is unavailable in the v2 client (see ROADMAP blockers); export and session list/switch are done.
 
 **Acceptance**
 - List/switch/create/rename/delete/archive.
@@ -54,7 +56,7 @@ Blocker: the v2 client exposes no tag model.
 **Acceptance**
 - Create/assign/filter tags; persisted with the session.
 
-## F3-9 — Prompt stash · P1 · todo
+## F3-9 — Prompt stash · P1 · done
 
 **Acceptance**
 - Stash/pop/list prompts with persistence.
