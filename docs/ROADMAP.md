@@ -82,7 +82,7 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | F4-3 | P1 | Unified "Personalizar" settings surface | done |
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
 | F4-5 | P2 | Artifacts | todo |
-| F4-6 | P2 | Routines (scheduled tasks) | todo |
+| F4-6 | P2 | Routines (scheduled tasks) | done |
 | F4-7 | P2 | Voice input | todo |
 | F4-8 | P2 | In-place message editing | todo |
 

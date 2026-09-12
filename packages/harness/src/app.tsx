@@ -3,7 +3,7 @@ import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
-import type { Attachment, CommandOption, McpConfig, StashedPrompt } from "./types"
+import type { Attachment, CommandOption, McpConfig, Routine, StashedPrompt } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
@@ -20,6 +20,7 @@ import { TodoDock } from "./components/TodoDock"
 import { McpManager } from "./components/McpManager"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
+import { RoutinesPanel } from "./components/RoutinesPanel"
 
 type Client = ReturnType<typeof createClient>
 
@@ -31,6 +32,7 @@ const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "stash", description: "Guardar el prompt actual" },
   { name: "stashes", description: "Ver prompts guardados" },
   { name: "settings", description: "Personalizar FlupCode" },
+  { name: "routines", description: "Tareas programadas" },
   { name: "about", description: "Acerca de FlupCode" },
 ]
 
@@ -54,6 +56,8 @@ export const App: Component = () => {
   const [showTools, setShowTools] = createSignal(true)
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
+  const [routinesOpen, setRoutinesOpen] = createSignal(false)
+  const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [stashOpen, setStashOpen] = createSignal(false)
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
@@ -168,6 +172,10 @@ export const App: Component = () => {
     }
     if (name === "settings") {
       setSettingsOpen(true)
+      return
+    }
+    if (name === "routines") {
+      setRoutinesOpen(true)
       return
     }
     setPrompt(`/${name} `)
@@ -403,6 +411,72 @@ export const App: Component = () => {
   }
 
   const removeStash = (id: string) => persistStashes(stashes().filter((entry) => entry.id !== id))
+
+  const persistRoutines = (next: Routine[]) => {
+    setRoutines(next)
+    writeStorage(STORAGE_KEYS.routines, next)
+  }
+
+  const addRoutine = (input: { name: string; prompt: string; intervalMinutes: number }) => {
+    persistRoutines([
+      ...routines(),
+      { id: newId(), ...input, enabled: true, createdAt: Date.now() },
+    ])
+    toast("Rutina creada", "success")
+  }
+
+  const toggleRoutine = (id: string) => {
+    persistRoutines(routines().map((routine) => (routine.id === id ? { ...routine, enabled: !routine.enabled } : routine)))
+  }
+
+  const removeRoutine = (id: string) => {
+    persistRoutines(routines().filter((routine) => routine.id !== id))
+  }
+
+  const markRoutineRun = (id: string) => {
+    persistRoutines(
+      routines().map((routine) => (routine.id === id ? { ...routine, lastRunAt: Date.now() } : routine)),
+    )
+  }
+
+  const executeRoutine = (routine: Routine) => {
+    void (async () => {
+      setBusy(true)
+      try {
+        const current = createClient(serverUrl())
+        const model = selectedModel()
+        const session = await current.session.create(model ? { model } : {})
+        await current.session.rename({ sessionID: session.id, title: routine.name })
+        await current.session.prompt({ sessionID: session.id, text: routine.prompt })
+        void refetchSessions()
+        toast(`Rutina "${routine.name}" ejecutada`, "success")
+      } catch (cause) {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  const runRoutine = (id: string) => {
+    const routine = routines().find((entry) => entry.id === id)
+    if (!routine) return
+    markRoutineRun(id)
+    executeRoutine(routine)
+  }
+
+  createEffect(() => {
+    const timer = setInterval(() => {
+      const now = Date.now()
+      for (const routine of routines()) {
+        if (!routine.enabled) continue
+        if (routine.lastRunAt && now - routine.lastRunAt < routine.intervalMinutes * 60000) continue
+        markRoutineRun(routine.id)
+        executeRoutine(routine)
+      }
+    }, 30000)
+    onCleanup(() => clearInterval(timer))
+  })
 
   const run = async (
     action: (current: Client) => Promise<string | undefined>,
@@ -665,6 +739,11 @@ export const App: Component = () => {
         setSettingsOpen(true)
         return
       }
+      if (name === "routines") {
+        setPrompt("")
+        setRoutinesOpen(true)
+        return
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -729,6 +808,7 @@ export const App: Component = () => {
         onRefresh={refresh}
         onAbout={() => setAboutOpen(true)}
         onSettings={() => setSettingsOpen(true)}
+        onRoutines={() => setRoutinesOpen(true)}
       />
       <main class="fc-main">
         <Topbar
@@ -882,6 +962,16 @@ export const App: Component = () => {
           setAboutOpen(true)
         }}
         onClose={() => setSettingsOpen(false)}
+      />
+      <RoutinesPanel
+        open={routinesOpen()}
+        routines={routines()}
+        busy={busy()}
+        onAdd={addRoutine}
+        onToggle={toggleRoutine}
+        onRemove={removeRoutine}
+        onRun={runRoutine}
+        onClose={() => setRoutinesOpen(false)}
       />
     </div>
   )
