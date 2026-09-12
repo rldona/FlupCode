@@ -1366,6 +1366,86 @@ button.oh-row-main {
   color: var(--oh-text-muted);
 }
 
+.oh-heatmap {
+  margin-top: var(--oh-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--oh-space-2);
+}
+
+.oh-heatmap-grid {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, 11px);
+  gap: 3px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.oh-heat-cell {
+  width: 11px;
+  height: 11px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--oh-border) 65%, transparent);
+}
+
+.oh-heat-cell[data-level="1"] {
+  background: color-mix(in srgb, var(--oh-accent) 25%, transparent);
+}
+
+.oh-heat-cell[data-level="2"] {
+  background: color-mix(in srgb, var(--oh-accent) 45%, transparent);
+}
+
+.oh-heat-cell[data-level="3"] {
+  background: color-mix(in srgb, var(--oh-accent) 70%, transparent);
+}
+
+.oh-heat-cell[data-level="4"] {
+  background: var(--oh-accent);
+}
+
+.oh-heatmap-comparison {
+  font-size: var(--oh-text-sm);
+  color: var(--oh-text-muted);
+}
+
+.oh-settings {
+  display: flex;
+  flex-direction: column;
+  gap: var(--oh-space-4);
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.oh-settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--oh-space-2);
+}
+
+.oh-settings-title {
+  margin: 0;
+  font-size: var(--oh-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--oh-text-muted);
+}
+
+.oh-settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--oh-space-3);
+  font-size: 13px;
+}
+
+.oh-settings-row .oh-question-custom {
+  flex: 1;
+  max-width: 60%;
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;

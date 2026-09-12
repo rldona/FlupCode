@@ -16,6 +16,7 @@ type SidebarProps = {
   onSelectSession: (id: string) => void
   onRefresh: () => void
   onAbout: () => void
+  onSettings: () => void
 }
 
 function projectLabel(project: Project) {
@@ -52,7 +53,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           <button class="oh-nav-item" type="button">
             Rutinas
           </button>
-          <button class="oh-nav-item" type="button">
+          <button class="oh-nav-item" type="button" onClick={props.onSettings}>
             Personalizar
           </button>
         </nav>
