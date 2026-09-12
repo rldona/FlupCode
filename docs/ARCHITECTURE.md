@@ -1,6 +1,6 @@
 # Architecture
 
-OpenHarness is a fork of [OpenCode](https://github.com/anomalyco/opencode). This document explains
+FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode). This document explains
 the upstream architecture we build on, the boundary we keep with upstream code, and how our
 product packages fit in.
 
@@ -34,7 +34,7 @@ OpenCode is a client/server system. One engine, many front-ends:
 The server publishes an OpenAPI 3.1 spec at `/doc`; the SDK is generated from it. Any client that
 speaks the HTTP API is a first-class citizen.
 
-## 2. The OpenHarness boundary
+## 2. The FlupCode boundary
 
 **Rule: upstream packages are read-only.** We never edit `packages/{opencode,server,core,protocol,
 schema,client,sdk,sdk-next,tui,app,desktop,ui,session-ui}`. If we need behaviour we wrap or extend
@@ -58,7 +58,7 @@ Why a new package instead of forking `packages/app`:
 
 ### Dependency direction
 
-OpenHarness must respect upstream's layering:
+FlupCode must respect upstream's layering:
 
 - `sdk`/`client` may be consumed freely.
 - `@opencode-ai/ui` and `@opencode-ai/session-ui` are UI-only and safe.

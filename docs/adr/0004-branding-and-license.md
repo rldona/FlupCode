@@ -5,15 +5,15 @@
 
 ## Context
 
-OpenHarness is a public fork of OpenCode (MIT). It is inspired by Anthropic's Claude Code desktop
+FlupCode is a public fork of OpenCode (MIT). It is inspired by Anthropic's Claude Code desktop
 app but is not built by or affiliated with OpenCode or Anthropic. We need a clear product identity
 without violating the upstream license or implying endorsement.
 
 ## Decision
 
-- Product name: **OpenHarness**; repository `rldona/OpenHarness`.
+- Product name: **FlupCode**; repository `rldona/FlupCode`.
 - Preserve the upstream MIT `LICENSE` and copyright notices.
-- State prominently in the README that OpenHarness is an independent fork, **not affiliated with
+- State prominently in the README that FlupCode is an independent fork, **not affiliated with
   OpenCode (Anomaly) or Anthropic**.
 - Rebrand only our own surfaces (harness app name, icon, about, installers). Do not strip upstream
   notices from reused code.

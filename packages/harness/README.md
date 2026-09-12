@@ -1,6 +1,6 @@
-# @openharness/harness
+# @flupcode/harness
 
-The OpenHarness web app. A Claude Code–style harness that reuses the OpenCode engine and UI
+The FlupCode web app. A Claude Code–style harness that reuses the OpenCode engine and UI
 libraries without modifying upstream packages.
 
 ## Stack

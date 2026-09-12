@@ -20,12 +20,12 @@ export const ActivityHeatmap: Component<ActivityHeatmapProps> = (props) => {
   const level = (count: number) => (count === 0 ? 0 : Math.min(4, Math.ceil((count / max()) * 4)))
 
   return (
-    <div class="oh-heatmap">
-      <div class="oh-heatmap-grid">
+    <div class="fc-heatmap">
+      <div class="fc-heatmap-grid">
         <For each={cells()}>
           {(cell) => (
             <span
-              class="oh-heat-cell"
+              class="fc-heat-cell"
               data-level={cell ? level(cell.count) : 0}
               title={cell ? `${cell.count} sesiones` : ""}
             />
@@ -33,7 +33,7 @@ export const ActivityHeatmap: Component<ActivityHeatmapProps> = (props) => {
         </For>
       </div>
       <Show when={props.comparison}>
-        <div class="oh-heatmap-comparison">{props.comparison}</div>
+        <div class="fc-heatmap-comparison">{props.comparison}</div>
       </Show>
     </div>
   )

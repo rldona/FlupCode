@@ -16,10 +16,10 @@ export function writeStorage(key: string, value: unknown) {
 }
 
 export const STORAGE_KEYS = {
-  pinnedProjects: "openharness.pinnedProjects",
-  displayName: "openharness.displayName",
-  sidebarCollapsed: "openharness.sidebarCollapsed",
-  serverUrl: "openharness.serverUrl",
-  stashedPrompts: "openharness.stashedPrompts",
-  theme: "openharness.theme",
+  pinnedProjects: "flupcode.pinnedProjects",
+  displayName: "flupcode.displayName",
+  sidebarCollapsed: "flupcode.sidebarCollapsed",
+  serverUrl: "flupcode.serverUrl",
+  stashedPrompts: "flupcode.stashedPrompts",
+  theme: "flupcode.theme",
 } as const

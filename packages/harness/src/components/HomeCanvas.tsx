@@ -35,40 +35,40 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   ]
 
   return (
-    <section class="oh-canvas">
-      <h1 class="oh-greeting">{greeting()}</h1>
-      <p class="oh-subtitle">Resumen de tu actividad en OpenHarness.</p>
+    <section class="fc-canvas">
+      <h1 class="fc-greeting">{greeting()}</h1>
+      <p class="fc-subtitle">Resumen de tu actividad en FlupCode.</p>
 
       <Show when={props.error}>
-        <div class="oh-error">{props.error}</div>
+        <div class="fc-error">{props.error}</div>
       </Show>
 
-      <div class="oh-card">
-        <div class="oh-card-header">
-          <div class="oh-tabs">
+      <div class="fc-card">
+        <div class="fc-card-header">
+          <div class="fc-tabs">
             <button
-              class="oh-tab"
-              classList={{ "oh-tab-active": tab() === "summary" }}
+              class="fc-tab"
+              classList={{ "fc-tab-active": tab() === "summary" }}
               type="button"
               onClick={() => setTab("summary")}
             >
               Resumen
             </button>
             <button
-              class="oh-tab"
-              classList={{ "oh-tab-active": tab() === "models" }}
+              class="fc-tab"
+              classList={{ "fc-tab-active": tab() === "models" }}
               type="button"
               onClick={() => setTab("models")}
             >
               Modelos
             </button>
           </div>
-          <div class="oh-range">
+          <div class="fc-range">
             <For each={RANGES}>
               {(item) => (
                 <button
-                  class="oh-range-button"
-                  classList={{ "oh-range-button-active": props.range === item.id }}
+                  class="fc-range-button"
+                  classList={{ "fc-range-button-active": props.range === item.id }}
                   type="button"
                   onClick={() => props.onRangeChange(item.id)}
                 >
@@ -84,14 +84,14 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           fallback={
             <Show
               when={props.metrics.models.length > 0}
-              fallback={<div class="oh-empty-state"><span class="oh-empty-title">Sin datos de modelos</span></div>}
+              fallback={<div class="fc-empty-state"><span class="fc-empty-title">Sin datos de modelos</span></div>}
             >
-              <ul class="oh-model-stats">
+              <ul class="fc-model-stats">
                 <For each={props.metrics.models}>
                   {(model) => (
-                    <li class="oh-model-stat">
-                      <span class="oh-model-stat-name">{model.name}</span>
-                      <span class="oh-model-stat-count">{model.count} sesiones</span>
+                    <li class="fc-model-stat">
+                      <span class="fc-model-stat-name">{model.name}</span>
+                      <span class="fc-model-stat-count">{model.count} sesiones</span>
                     </li>
                   )}
                 </For>
@@ -99,12 +99,12 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
             </Show>
           }
         >
-          <div class="oh-stat-grid">
+          <div class="fc-stat-grid">
             <For each={stats()}>
               {(stat) => (
-                <div class="oh-stat">
-                  <span class="oh-stat-value">{stat.value}</span>
-                  <span class="oh-stat-label">{stat.label}</span>
+                <div class="fc-stat">
+                  <span class="fc-stat-value">{stat.value}</span>
+                  <span class="fc-stat-label">{stat.label}</span>
                 </div>
               )}
             </For>

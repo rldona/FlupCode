@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenHarness targets both web and desktop. The desktop app is expected to be the primary Claude
+FlupCode targets both web and desktop. The desktop app is expected to be the primary Claude
 Code–style harness, but packaging and signing add significant cost (Electron, notarization, auto-update).
 The web app can be validated quickly in a browser.
 

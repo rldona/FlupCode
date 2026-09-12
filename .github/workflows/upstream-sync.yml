@@ -26,7 +26,7 @@ jobs:
 
       - name: Configure git
         run: |
-          git config user.name "openharness-bot"
+          git config user.name "flupcode-bot"
           git config user.email "bot@users.noreply.github.com"
 
       - name: Fetch upstream
@@ -60,5 +60,5 @@ jobs:
               --title "chore(upstream): sync dev into power" \
               --body "Automated sync from \`anomalyco/opencode@dev\`.
 
-          Review conflicts only in OpenHarness-owned files (see docs/UPSTREAM.md). Upstream packages must take upstream's version."
+          Review conflicts only in FlupCode-owned files (see docs/UPSTREAM.md). Upstream packages must take upstream's version."
           fi

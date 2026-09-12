@@ -35,27 +35,27 @@ export const McpManager: Component<McpManagerProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <div class="oh-modal-backdrop" onClick={props.onClose}>
-        <div class="oh-modal oh-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-          <div class="oh-modal-header">
+      <div class="fc-modal-backdrop" onClick={props.onClose}>
+        <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+          <div class="fc-modal-header">
             <span>Servidores MCP</span>
-            <button class="oh-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
+            <button class="fc-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
               ×
             </button>
           </div>
 
           <Show
             when={props.servers.length > 0}
-            fallback={<div class="oh-empty-state"><span class="oh-empty-title">Sin servidores MCP</span></div>}
+            fallback={<div class="fc-empty-state"><span class="fc-empty-title">Sin servidores MCP</span></div>}
           >
-            <ul class="oh-mcp-list">
+            <ul class="fc-mcp-list">
               <For each={props.servers}>
                 {(server) => (
-                  <li class="oh-mcp-row">
-                    <span class="oh-mcp-name">{server.name}</span>
-                    <span class="oh-chip">{statusLabel(server)}</span>
+                  <li class="fc-mcp-row">
+                    <span class="fc-mcp-name">{server.name}</span>
+                    <span class="fc-chip">{statusLabel(server)}</span>
                     <button
-                      class="oh-button"
+                      class="fc-button"
                       type="button"
                       disabled={props.busy}
                       onClick={() => (statusLabel(server) === "connected" ? props.onDisconnect(server.name) : props.onConnect(server.name))}
@@ -63,7 +63,7 @@ export const McpManager: Component<McpManagerProps> = (props) => {
                       {statusLabel(server) === "connected" ? "Desconectar" : "Conectar"}
                     </button>
                     <button
-                      class="oh-button oh-button-danger"
+                      class="fc-button fc-button-danger"
                       type="button"
                       disabled={props.busy}
                       onClick={() => props.onRemove(server.name)}
@@ -76,15 +76,15 @@ export const McpManager: Component<McpManagerProps> = (props) => {
             </ul>
           </Show>
 
-          <div class="oh-mcp-form">
+          <div class="fc-mcp-form">
             <input
-              class="oh-question-custom"
+              class="fc-question-custom"
               placeholder="Nombre"
               value={name()}
               onInput={(event) => setName(event.currentTarget.value)}
             />
             <select
-              class="oh-toolbar-select"
+              class="fc-toolbar-select"
               value={type()}
               onChange={(event) => setType(event.currentTarget.value as "local" | "remote")}
             >
@@ -92,12 +92,12 @@ export const McpManager: Component<McpManagerProps> = (props) => {
               <option value="remote">Remoto</option>
             </select>
             <input
-              class="oh-question-custom"
+              class="fc-question-custom"
               placeholder={type() === "local" ? "comando y argumentos" : "https://…"}
               value={field()}
               onInput={(event) => setField(event.currentTarget.value)}
             />
-            <button class="oh-button oh-button-primary" type="button" disabled={props.busy} onClick={submit}>
+            <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={submit}>
               Añadir
             </button>
           </div>

@@ -5,7 +5,7 @@
 
 ## Context
 
-OpenHarness is a public project intended to align with the OpenCode community and accept outside
+FlupCode is a public project intended to align with the OpenCode community and accept outside
 contributions. Upstream OpenCode writes all code and documentation in English and follows a
 documented style guide (`AGENTS.md`). Mixed-language code would hurt readability, tooling and the
 upstream merge workflow.

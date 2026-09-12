@@ -84,11 +84,11 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <div class="oh-modal-backdrop" onClick={props.onClose}>
-        <div class="oh-palette" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+      <div class="fc-modal-backdrop" onClick={props.onClose}>
+        <div class="fc-palette" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
           <input
             ref={input}
-            class="oh-palette-input"
+            class="fc-palette-input"
             value={query()}
             placeholder="Buscar comandos, sesiones y archivos"
             aria-label="Command palette"
@@ -119,30 +119,30 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
           />
           <Show
             when={items().length > 0}
-            fallback={<div class="oh-palette-empty">Sin resultados</div>}
+            fallback={<div class="fc-palette-empty">Sin resultados</div>}
           >
-            <ul class="oh-palette-list">
+            <ul class="fc-palette-list">
               <For each={items()}>
                 {(item, index) => (
                   <li>
                     <button
-                      class="oh-palette-item"
-                      classList={{ "oh-palette-item-active": active() === index() }}
+                      class="fc-palette-item"
+                      classList={{ "fc-palette-item-active": active() === index() }}
                       type="button"
                       onMouseEnter={() => setActive(index())}
                       onClick={() => select(item)}
                     >
-                      <span class="oh-palette-badge">
+                      <span class="fc-palette-badge">
                         {item.kind === "command" ? "/" : item.kind === "session" ? "S" : "@"}
                       </span>
-                      <span class="oh-palette-label">
+                      <span class="fc-palette-label">
                         {item.kind === "command" ? item.name : item.kind === "session" ? item.title : item.path}
                       </span>
                       <Show when={item.kind === "command" && item.description}>
-                        <span class="oh-palette-desc">{item.kind === "command" ? item.description : ""}</span>
+                        <span class="fc-palette-desc">{item.kind === "command" ? item.description : ""}</span>
                       </Show>
                       <Show when={item.kind === "session"}>
-                        <span class="oh-palette-desc">{item.kind === "session" ? item.subtitle : ""}</span>
+                        <span class="fc-palette-desc">{item.kind === "session" ? item.subtitle : ""}</span>
                       </Show>
                     </button>
                   </li>

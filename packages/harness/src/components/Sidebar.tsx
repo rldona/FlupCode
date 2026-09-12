@@ -26,8 +26,8 @@ function projectLabel(project: Project) {
 }
 
 const SkeletonRows: Component<{ count: number }> = (props) => (
-  <div class="oh-skeleton-list">
-    <For each={Array.from({ length: props.count })}>{() => <div class="oh-skeleton" />}</For>
+  <div class="fc-skeleton-list">
+    <For each={Array.from({ length: props.count })}>{() => <div class="fc-skeleton" />}</For>
   </div>
 )
 
@@ -40,51 +40,51 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   }
 
   return (
-    <aside class="oh-sidebar" classList={{ "oh-sidebar-collapsed": props.collapsed }}>
-      <div class="oh-sidebar-top">
-        <button class="oh-new" type="button" onClick={() => props.onNewSession()}>
-          <span class="oh-new-icon">+</span>
+    <aside class="fc-sidebar" classList={{ "fc-sidebar-collapsed": props.collapsed }}>
+      <div class="fc-sidebar-top">
+        <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
+          <span class="fc-new-icon">+</span>
           <span>Nuevo</span>
         </button>
-        <nav class="oh-nav">
-          <button class="oh-nav-item" type="button">
+        <nav class="fc-nav">
+          <button class="fc-nav-item" type="button">
             Artefactos
           </button>
-          <button class="oh-nav-item" type="button">
+          <button class="fc-nav-item" type="button">
             Rutinas
           </button>
-          <button class="oh-nav-item" type="button" onClick={props.onSettings}>
+          <button class="fc-nav-item" type="button" onClick={props.onSettings}>
             Personalizar
           </button>
         </nav>
       </div>
 
-      <div class="oh-sidebar-section oh-grow">
-        <div class="oh-section-header">
-          <span class="oh-section-label">Proyectos</span>
-          <button class="oh-icon-button" type="button" title="Actualizar" onClick={() => props.onRefresh()}>
+      <div class="fc-sidebar-section fc-grow">
+        <div class="fc-section-header">
+          <span class="fc-section-label">Proyectos</span>
+          <button class="fc-icon-button" type="button" title="Actualizar" onClick={() => props.onRefresh()}>
             ↻
           </button>
         </div>
-        <div class="oh-scroll">
+        <div class="fc-scroll">
           <Show when={!props.projectsLoading} fallback={<SkeletonRows count={3} />}>
             <Show
               when={orderedProjects().length}
               fallback={
-                <div class="oh-empty-state">
-                  <span class="oh-empty-title">Sin proyectos abiertos</span>
-                  <span class="oh-empty-hint">Abre una carpeta para empezar</span>
+                <div class="fc-empty-state">
+                  <span class="fc-empty-title">Sin proyectos abiertos</span>
+                  <span class="fc-empty-hint">Abre una carpeta para empezar</span>
                 </div>
               }
             >
-              <ul class="oh-list">
+              <ul class="fc-list">
                 <For each={orderedProjects()}>
                   {(project) => (
                     <li>
-                      <div class="oh-row">
+                      <div class="fc-row">
                         <button
-                          class="oh-row-action"
-                          classList={{ "oh-row-action-on": props.pinned.includes(project.id) }}
+                          class="fc-row-action"
+                          classList={{ "fc-row-action-on": props.pinned.includes(project.id) }}
                           type="button"
                           title="Fijar"
                           onClick={() => props.onTogglePin(project.id)}
@@ -92,15 +92,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                           {props.pinned.includes(project.id) ? "★" : "☆"}
                         </button>
                         <button
-                          class="oh-row-main"
+                          class="fc-row-main"
                           type="button"
                           onClick={() => props.onNewSession(project.worktree)}
                         >
-                          <span class="oh-row-title">{projectLabel(project)}</span>
-                          <span class="oh-row-meta">{project.worktree}</span>
+                          <span class="fc-row-title">{projectLabel(project)}</span>
+                          <span class="fc-row-meta">{project.worktree}</span>
                         </button>
                         <button
-                          class="oh-row-action"
+                          class="fc-row-action"
                           type="button"
                           title="Nueva sesión"
                           onClick={() => props.onNewSession(project.worktree)}
@@ -117,34 +117,34 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         </div>
       </div>
 
-      <div class="oh-sidebar-section oh-sessions-section">
-        <div class="oh-section-header">
-          <span class="oh-section-label">Sesiones</span>
+      <div class="fc-sidebar-section fc-sessions-section">
+        <div class="fc-section-header">
+          <span class="fc-section-label">Sesiones</span>
         </div>
-        <div class="oh-scroll">
+        <div class="fc-scroll">
           <Show when={!props.sessionsLoading} fallback={<SkeletonRows count={2} />}>
             <Show
               when={props.sessions?.length}
               fallback={
-                <div class="oh-empty-state">
-                  <span class="oh-empty-title">No hay sesiones</span>
-                  <span class="oh-empty-hint">Crea una con Nuevo</span>
+                <div class="fc-empty-state">
+                  <span class="fc-empty-title">No hay sesiones</span>
+                  <span class="fc-empty-hint">Crea una con Nuevo</span>
                 </div>
               }
             >
-              <ul class="oh-list">
+              <ul class="fc-list">
                 <For each={props.sessions}>
                   {(session) => (
                     <li>
                       <button
-                        class="oh-row"
-                        classList={{ "oh-row-active": props.selectedSession === session.id }}
+                        class="fc-row"
+                        classList={{ "fc-row-active": props.selectedSession === session.id }}
                         type="button"
                         onClick={() => props.onSelectSession(session.id)}
                       >
-                        <span class="oh-row-main">
-                          <span class="oh-row-title">{session.title || "Sesión sin título"}</span>
-                          <span class="oh-row-meta">{session.id.slice(0, 8)}</span>
+                        <span class="fc-row-main">
+                          <span class="fc-row-title">{session.title || "Sesión sin título"}</span>
+                          <span class="fc-row-meta">{session.id.slice(0, 8)}</span>
                         </span>
                       </button>
                     </li>
@@ -156,16 +156,16 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         </div>
       </div>
 
-      <div class="oh-sidebar-footer">
-        <span class="oh-avatar">OH</span>
+      <div class="fc-sidebar-footer">
+        <span class="fc-avatar">OH</span>
         <input
-          class="oh-name-input"
+          class="fc-name-input"
           value={props.displayName}
           placeholder="Tu nombre"
           aria-label="Display name"
           onInput={(event) => props.onDisplayName(event.currentTarget.value)}
         />
-        <button class="oh-icon-button" type="button" title="Acerca de" aria-label="Acerca de" onClick={props.onAbout}>
+        <button class="fc-icon-button" type="button" title="Acerca de" aria-label="Acerca de" onClick={props.onAbout}>
           i
         </button>
       </div>

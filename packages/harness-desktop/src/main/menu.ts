@@ -36,8 +36,8 @@ export function setApplicationMenu(handlers: MenuHandlers) {
       role: "help",
       submenu: [
         {
-          label: "OpenHarness on GitHub",
-          click: () => void shell.openExternal("https://github.com/rldona/OpenHarness"),
+          label: "FlupCode on GitHub",
+          click: () => void shell.openExternal("https://github.com/rldona/FlupCode"),
         },
         {
           label: "Upstream OpenCode",
