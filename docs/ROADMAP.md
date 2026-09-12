@@ -64,12 +64,12 @@ Status: `todo` · `doing` · `done` · `cut`
 | F3-7 | P1 | Move session between locations | done |
 | F3-8 | P1 | Session tags/labels | todo |
 | F3-9 | P1 | Prompt stash | todo |
-| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | todo |
-| F3-11 | P1 | Paste summarization | todo |
+| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | doing |
+| F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
 | F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | todo |
 | F3-14 | P2 | MCP add/configure UI | todo |
-| F3-15 | P2 | "Toggle steps" command | todo |
+| F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | todo |
 | F3-17 | P2 | Keybind/leader parity where sensible | todo |
 

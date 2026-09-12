@@ -57,13 +57,13 @@ porting/adapting them into `packages/harness`, not rebuilding.
 **Acceptance**
 - Stash/pop/list prompts with persistence.
 
-## F3-10 — Skill manager + slash sources · P1 · todo
+## F3-10 — Skill manager + slash sources · P1 · doing
 
 **Acceptance**
 - `/skills` dialog inserts a skill command.
 - v2 composer shows skill/MCP source badges.
 
-## F3-11 — Paste summarization · P1 · todo
+## F3-11 — Paste summarization · P1 · done
 
 **Acceptance**
 - Large pastes collapse to `[Pasted ~N lines]`, expand on submit.
@@ -86,7 +86,7 @@ Permissions, agents, commands and MCP editors.
 **Acceptance**
 - Add and configure MCP servers from the UI, not just toggle.
 
-## F3-15 — "Toggle steps" command · P2 · todo
+## F3-15 — "Toggle steps" command · P2 · done
 
 **Acceptance**
 - The orphan `command.steps.toggle` i18n key is wired to a real command.
