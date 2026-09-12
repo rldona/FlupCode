@@ -363,6 +363,8 @@ export const App: Component = () => {
   })
 
   const modelLabel = () => currentModel()?.name ?? t("Default model")
+  const modelName = (ref: { providerID: string; id: string }) =>
+    modelList().find((entry) => entry.providerID === ref.providerID && entry.id === ref.id)?.name ?? ref.id
 
   const toggleFavoriteModel = (key: string) => {
     setFavorites((current) => {
@@ -1290,6 +1292,7 @@ export const App: Component = () => {
             busy={generating()}
             usage={liveUsage()}
             startedAt={generationStartedAt()}
+            modelName={modelName}
             showTools={showTools()}
             onEditUser={editMessage}
           />

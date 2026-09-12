@@ -10,9 +10,11 @@ marked.use({
     code(token) {
       const language = (token.lang ?? "").split(/\s+/)[0] ?? ""
       const body = highlight(token.text, language)
-      return `<div class="fc-code-block"><div class="fc-code-head"><span class="fc-code-lang">${escapeHtml(
-        language || "text",
-      )}</span></div><pre class="fc-code"><code>${body}</code></pre></div>`
+      const label =
+        language && language !== "text"
+          ? `<div class="fc-code-head"><span class="fc-code-lang">${escapeHtml(language)}</span></div>`
+          : ""
+      return `<div class="fc-code-block">${label}<pre class="fc-code"><code>${body}</code></pre></div>`
     },
   },
 })
