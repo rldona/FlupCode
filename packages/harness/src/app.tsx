@@ -108,7 +108,7 @@ export const App: Component = () => {
   )
 
   const client = () => createClient(serverUrl())
-  const [health] = createResource(serverUrl, async (url) => createClient(url).health.get())
+  const [health, { refetch: refetchHealth }] = createResource(serverUrl, async (url) => createClient(url).health.get())
   const serverStatus = () =>
     health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
   const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, async (url) =>
@@ -1294,6 +1294,17 @@ export const App: Component = () => {
           workspace={panels()}
           onTogglePanel={togglePanel}
         />
+        <Show when={onboarded() && !health.loading && health()?.healthy !== true}>
+          <div class="fc-offline-banner">
+            <span>
+              {t("Server offline")} — {t("start it and connect from Settings")} ·{" "}
+              <code>opencode serve --port 4096 --cors {window.location.origin}</code>
+            </span>
+            <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
+              {t("Retry")}
+            </button>
+          </div>
+        </Show>
         <Show when={selectedSession()}>
           {(session) => (
             <SessionToolbar
@@ -1514,7 +1525,17 @@ export const App: Component = () => {
         onRun={runRoutine}
         onClose={() => setRoutinesOpen(false)}
       />
-      <Onboarding open={!onboarded()} serverHealthy={health()?.healthy} onDone={completeOnboarding} />
+      <Onboarding
+        open={!onboarded()}
+        serverHealthy={health()?.healthy}
+        serverInput={serverInput()}
+        onServerInput={setServerInput}
+        onConnect={() => {
+          commitServer()
+          void refetchHealth()
+        }}
+        onDone={completeOnboarding}
+      />
       <RemotePanel
         open={remoteOpen()}
         initialUrl={serverUrl()}

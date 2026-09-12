@@ -2516,6 +2516,39 @@ button.fc-row-main {
   color: var(--fc-danger);
 }
 
+.fc-onboarding-code {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.fc-offline-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+  padding: 8px var(--fc-space-4);
+  background: color-mix(in srgb, var(--fc-danger) 12%, transparent);
+  color: var(--fc-danger);
+  font-size: var(--fc-text-sm);
+  border-bottom: 1px solid color-mix(in srgb, var(--fc-danger) 30%, var(--fc-border));
+}
+
+.fc-offline-banner code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.fc-offline-banner .fc-button {
+  flex-shrink: 0;
+}
+
 .fc-message-edit {
   align-self: flex-start;
   border: none;
