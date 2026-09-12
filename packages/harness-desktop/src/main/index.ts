@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from "electron"
+import { BrowserWindow, app, dialog, ipcMain } from "electron"
 import { join } from "node:path"
 import { setApplicationMenu } from "./menu"
 import { ensureServer, stopServer } from "./server"
@@ -20,8 +20,10 @@ function createWindow() {
     title: "FlupCode",
     backgroundColor: "#0f0f0f",
     webPreferences: {
+      preload: join(app.getAppPath(), "out", "preload", "index.mjs"),
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: false,
       // The packaged app loads from file:// and talks to the local engine over HTTP.
       webSecurity: false,
     },
@@ -51,6 +53,12 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
+})
+
+ipcMain.handle("flupcode:choose-folder", async () => {
+  const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] })
+  if (result.canceled || result.filePaths.length === 0) return undefined
+  return result.filePaths[0]
 })
 
 app.on("before-quit", () => stopServer())

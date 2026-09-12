@@ -6,4 +6,9 @@ export default defineConfig({
       outDir: "out/main",
     },
   },
+  preload: {
+    build: {
+      outDir: "out/preload",
+    },
+  },
 })
