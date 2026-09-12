@@ -1,0 +1,49 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install
+        env:
+          npm_config_registry: https://registry.npmjs.org/
+          NPM_CONFIG_REGISTRY: https://registry.npmjs.org/
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck
+        run: bun run --cwd packages/harness typecheck
+
+      - name: Test
+        run: bun run --cwd packages/harness test
+
+      - name: Build
+        run: bun run --cwd packages/harness build
+
+      - name: Package web bundle
+        run: |
+          cd packages/harness/dist
+          zip -r ../../../flupcode-web.zip .
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: FlupCode ${{ github.ref_name }}
+          generate_release_notes: true
+          draft: false
+          files: flupcode-web.zip
