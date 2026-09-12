@@ -20,6 +20,10 @@ export type SessionMessagesResponse = SdkSessionMessagesResponse
 export type SessionMessageInfo = SdkSessionMessagesResponse["data"][number]
 
 export type { SnapshotFileDiff as FileDiffInfo } from "@opencode-ai/sdk/v2/client"
+export type {
+  Provider as ProviderDirectoryInfo,
+  ProviderAuthMethod,
+} from "@opencode-ai/sdk/v2/client"
 
 export type McpServer = {
   name: string
