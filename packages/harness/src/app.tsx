@@ -1360,6 +1360,10 @@ export const App: Component = () => {
         onConnect={connectMcp}
         onDisconnect={disconnectMcp}
         onClose={() => setMcpOpen(false)}
+        onBack={() => {
+          setMcpOpen(false)
+          setSettingsOpen(true)
+        }}
       />
       <ProvidersPanel
         open={providersOpen()}
@@ -1380,7 +1384,14 @@ export const App: Component = () => {
         onToggleFavorite={toggleFavoriteModel}
         onClose={() => setModelPickerOpen(false)}
       />
-      <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
+      <About
+        open={aboutOpen()}
+        onClose={() => setAboutOpen(false)}
+        onBack={() => {
+          setAboutOpen(false)
+          setSettingsOpen(true)
+        }}
+      />
       <StashDialog
         open={stashOpen()}
         items={stashes()}
@@ -1437,7 +1448,15 @@ export const App: Component = () => {
         onClose={() => setRoutinesOpen(false)}
       />
       <Onboarding open={!onboarded()} serverHealthy={health()?.healthy} onDone={completeOnboarding} />
-      <RemotePanel open={remoteOpen()} initialUrl={serverUrl()} onClose={() => setRemoteOpen(false)} />
+      <RemotePanel
+        open={remoteOpen()}
+        initialUrl={serverUrl()}
+        onClose={() => setRemoteOpen(false)}
+        onBack={() => {
+          setRemoteOpen(false)
+          setSettingsOpen(true)
+        }}
+      />
       <ArtifactsPanel
         open={artifactsOpen()}
         artifacts={artifacts()}
@@ -1453,7 +1472,15 @@ export const App: Component = () => {
         }}
         onClose={() => setSkillsOpen(false)}
       />
-      <ConfigPanel open={configOpen()} serverUrl={serverUrl()} onClose={() => setConfigOpen(false)} />
+      <ConfigPanel
+        open={configOpen()}
+        serverUrl={serverUrl()}
+        onClose={() => setConfigOpen(false)}
+        onBack={() => {
+          setConfigOpen(false)
+          setSettingsOpen(true)
+        }}
+      />
     </div>
   )
 }
