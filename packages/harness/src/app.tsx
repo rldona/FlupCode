@@ -111,16 +111,17 @@ export const App: Component = () => {
 
   const client = () => createClient(serverUrl())
   const [health, { refetch: refetchHealth }] = createResource(serverUrl, async (url) => createClient(url).health.get())
+  const ready = () => health()?.healthy === true
   const serverStatus = () =>
     health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
-  const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, async (url) =>
+  const [sessions, { refetch: refetchSessions }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
     createClient(url).session.list(),
   )
   const sessionList = () => sessions()?.data
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
   const modelLocation = () => targetDirectory() ?? selectedSession()?.location?.directory
   const [models, { refetch: refetchModels }] = createResource(
-    () => `${serverUrl()}::${modelLocation() ?? ""}`,
+    () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
     (key) => {
       const separator = key.lastIndexOf("::")
       const url = key.slice(0, separator)
@@ -128,36 +129,36 @@ export const App: Component = () => {
       return createClient(url).model.list(directory ? { location: { directory } } : undefined)
     },
   )
-  const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(serverUrl, async (url) =>
+  const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
     createClient(url).model.directory(),
   )
   const modelList = createMemo(() => models()?.data ?? [])
-  const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
-  const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
-  const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
-  const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(serverUrl, async (url) =>
+  const [agents] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).agent.list())
+  const [skills] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).skill.list())
+  const [mcp, { refetch: refetchMcp }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).mcp.list())
+  const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
     createClient(url).provider.directory(),
   )
-  const [providerAuth] = createResource(serverUrl, async (url) => createClient(url).provider.auth())
-  const [commands] = createResource(serverUrl, async (url) => createClient(url).command.list())
+  const [providerAuth] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).provider.auth())
+  const [commands] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).command.list())
   const [permissions, { refetch: refetchPermissions }] = createResource(
     () => {
       const sessionID = selected()
-      return sessionID ? { url: serverUrl(), sessionID } : undefined
+      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
     },
     (source) => createClient(source.url).session.permission.list({ sessionID: source.sessionID }),
   )
   const [questions, { refetch: refetchQuestions }] = createResource(
     () => {
       const sessionID = selected()
-      return sessionID ? { url: serverUrl(), sessionID } : undefined
+      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
     },
     (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
   )
   const [messages, { refetch: refetchMessages }] = createResource(
     () => {
       const sessionID = selected()
-      return sessionID ? { url: serverUrl(), sessionID } : undefined
+      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
     },
     async (source) => {
       const result = await createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" })
@@ -201,7 +202,7 @@ export const App: Component = () => {
   const [children] = createResource(
     () => {
       const sessionID = selected()
-      return sessionID ? { url: serverUrl(), sessionID } : undefined
+      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
     },
     async     (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
   )
@@ -351,6 +352,7 @@ export const App: Component = () => {
   })
 
   createEffect(() => {
+    if (!ready()) return
     const url = serverUrl()
     const controller = new AbortController()
     onCleanup(() => controller.abort())

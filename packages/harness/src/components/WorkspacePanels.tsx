@@ -1,8 +1,10 @@
-import { For, Show, createResource, createSignal, type Component } from "solid-js"
+import { For, Show, Suspense, createResource, createSignal, lazy, type Component } from "solid-js"
 import type { FileDiffInfo, SessionInfo } from "../engine-types"
 import { createClient } from "../client"
 import { t } from "../i18n"
-import { TerminalPanel } from "./Terminal"
+import { Loader } from "./Loader"
+
+const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
 
 type WorkspacePanelsProps = {
   panels: string[]
@@ -167,7 +169,15 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                 <DiffPanel serverUrl={props.serverUrl} session={props.session} />
               </Show>
               <Show when={kind === "terminal"}>
-                <TerminalPanel serverUrl={props.serverUrl} directory={props.session?.location?.directory} />
+                <Suspense
+                  fallback={
+                    <div class="fc-loading-center">
+                      <Loader label={t("Loading terminal…")} />
+                    </div>
+                  }
+                >
+                  <TerminalPanel serverUrl={props.serverUrl} directory={props.session?.location?.directory} />
+                </Suspense>
               </Show>
             </div>
           )}

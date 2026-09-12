@@ -36,7 +36,7 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-modal fc-modal-xl" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div class="fc-modal fc-modal-xl" role="dialog" aria-modal="true" aria-label={t("Providers & API keys")} onClick={(event) => event.stopPropagation()}>
           <div class="fc-modal-header">
             <span>{t("Providers & API keys")}</span>
             <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
