@@ -32,23 +32,23 @@ Status: `todo` · `doing` · `done` · `cut`
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
 | F1-1 | P0 | Fork, remotes, branch model (`dev` mirror / `power`) | done |
-| F1-2 | P0 | `upstream-sync` GitHub Action (`dev` FF + PR to `power`) | todo |
-| F1-3 | P0 | Rebrand: name, icons, about, non-affiliation notice | todo |
+| F1-2 | P0 | `upstream-sync` GitHub Action (`dev` FF + PR to `power`) | done |
+| F1-3 | P0 | Rebrand: name, icons, about, non-affiliation notice | doing |
 | F1-4 | P0 | Base docs (README, ARCHITECTURE, UPSTREAM, CONTRIBUTING) | done |
 | F1-5 | P1 | Product build/release pipeline | todo |
-| F1-6 | P1 | Set `power` as default branch on the fork | todo |
+| F1-6 | P1 | Set `power` as default branch on the fork | done |
 
 ## F2 — Design system & shell (Claude Code style)
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F2-1 | P0 | Design tokens + theme layer mapped to `@opencode-ai/ui` | todo |
-| F2-2 | P0 | Window chrome: traffic lights, back/forward, sidebar toggle | todo |
-| F2-3 | P0 | Sidebar: nav sections (Nuevo/Artefactos/Rutinas/Personalizar) | todo |
-| F2-4 | P0 | Sidebar: project list with quick-create, pin, search/filter | todo |
-| F2-5 | P0 | Greeting header + home canvas | todo |
-| F2-6 | P0 | Composer dock: context chips, attachments, voice, model/variant | todo |
-| F2-7 | P1 | Sidebar footer: profile / plan indicator | todo |
+| F2-1 | P0 | Design tokens + theme layer mapped to `@opencode-ai/ui` | done |
+| F2-2 | P0 | Window chrome: traffic lights, back/forward, sidebar toggle | done |
+| F2-3 | P0 | Sidebar: nav sections (Nuevo/Artefactos/Rutinas/Personalizar) | done |
+| F2-4 | P0 | Sidebar: project list with quick-create, pin, search/filter | done |
+| F2-5 | P0 | Greeting header + home canvas | done |
+| F2-6 | P0 | Composer dock: context chips, attachments, voice, model/variant | doing |
+| F2-7 | P1 | Sidebar footer: profile / plan indicator | doing |
 | F2-8 | P1 | Empty states, skeletons, toasts | todo |
 
 ## F3 — TUI parity
