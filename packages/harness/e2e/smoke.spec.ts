@@ -16,7 +16,9 @@ test("opens the command palette", async ({ page }) => {
   const start = page.getByRole("button", { name: /Get started/i })
   if (await start.isVisible().catch(() => false)) await start.click()
 
-  await page.keyboard.press("ControlOrMeta+k")
+  await page.evaluate(() => {
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "k", ctrlKey: true, metaKey: true, bubbles: true }))
+  })
   await expect(page.getByPlaceholder(/Search commands/i)).toBeVisible()
   await page.keyboard.press("Escape")
 })
