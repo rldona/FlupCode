@@ -1,0 +1,346 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>FlupCode — The Claude Code experience on top of OpenCode</title>
+    <meta
+      name="description"
+      content="FlupCode is an open-source, Claude Code–style web and desktop harness for OpenCode: rich chat with diffs, an embedded terminal, permission modes, dashboards and full TUI parity."
+    />
+    <meta name="theme-color" content="#0d0c0b" />
+    <link rel="canonical" href="https://flupcode.com/" />
+    <link rel="icon" href="/assets/flup-idle.gif" type="image/gif" />
+    <link rel="apple-touch-icon" href="/assets/flup-idle.gif" />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://flupcode.com/" />
+    <meta property="og:title" content="FlupCode — The Claude Code experience on top of OpenCode" />
+    <meta
+      property="og:description"
+      content="An open-source web and desktop harness for OpenCode: rich chat, embedded terminal, permission modes and full TUI parity."
+    />
+    <meta property="og:image" content="https://flupcode.com/assets/flup-excited.gif" />
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+
+    <header class="nav" id="nav">
+      <div class="container nav-inner">
+        <a class="brand" href="/" aria-label="FlupCode home">
+          <svg class="brand-mark" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+            <g fill="currentColor">
+              <rect x="11" y="1.5" width="2" height="7" rx="1" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(45 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(90 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(135 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(180 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(225 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(270 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(315 12 12)" />
+            </g>
+          </svg>
+          <span>FlupCode</span>
+        </a>
+        <nav class="nav-links" aria-label="Main">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="#honest">Open source</a>
+          <a href="#docs">Docs</a>
+          <a class="btn btn-ghost" href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer">GitHub</a>
+          <a class="btn btn-primary" href="#start">Get started</a>
+        </nav>
+        <button class="nav-toggle" type="button" aria-label="Menu" aria-expanded="false" data-menu-toggle>
+          <span></span><span></span><span></span>
+        </button>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="hero">
+        <div class="hero-glow" aria-hidden="true"></div>
+        <div class="container hero-inner">
+          <div class="hero-copy reveal">
+            <span class="pill">
+              <span class="pill-dot"></span>
+              Open source · MIT · Fork of OpenCode
+            </span>
+            <h1>
+              The <span class="accent">Claude&nbsp;Code</span> experience,
+              <br />on top of <span class="accent2">OpenCode</span>.
+            </h1>
+            <p class="lead">
+              FlupCode takes OpenCode's terminal-grade engine and wraps it in a first-class
+              <strong>web and desktop harness</strong>: rich chat with side-by-side diffs, an embedded
+              terminal, permission modes, usage dashboards and full TUI parity.
+            </p>
+            <div class="cta">
+              <a class="btn btn-primary btn-lg" href="#start">Get started</a>
+              <a class="btn btn-outline btn-lg" href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer">
+                <svg viewBox="0 0 16 16" width="18" height="18" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8a8 8 0 0 0 5.47 7.59c.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.4 7.4 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8 8 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>
+                Star on GitHub
+              </a>
+            </div>
+            <div class="install">
+              <code id="install-cmd">git clone https://github.com/rldona/FlupCode &amp;&amp; bun install</code>
+              <button class="copy" type="button" data-copy="#install-cmd" aria-label="Copy install command">Copy</button>
+            </div>
+            <p class="hero-note">Runs on the OpenCode engine you already have. No new backend.</p>
+          </div>
+
+          <div class="hero-visual reveal">
+            <div class="mock">
+              <div class="mock-bar">
+                <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
+                <span class="mock-title">FlupCode — session</span>
+              </div>
+              <div class="mock-body">
+                <div class="mock-msg user">Move the provider panel into a dialog and add a search field.</div>
+                <div class="mock-tool">
+                  <div class="mock-tool-head"><span class="mock-badge">edit</span> src/components/ProvidersPanel.tsx <span class="mock-status">completed</span></div>
+                  <div class="mock-diff">
+                    <div class="d2"><span class="ln">12</span><span class="same">const [query, setQuery] = createSignal("")</span><span class="ln">12</span><span class="same">const [query, setQuery] = createSignal("")</span></div>
+                    <div class="d2"><span class="ln"></span><span></span><span class="ln">13</span><span class="add">+ const filtered = createMemo(() =&gt; providers.filter(…))</span></div>
+                    <div class="d2"><span class="ln">13</span><span class="del">- return &lt;ul&gt;&#123;providers.map(render)&#125;&lt;/ul&gt;</span><span class="ln">14</span><span class="add">+ return &lt;ul&gt;&#123;filtered().map(render)&#125;&lt;/ul&gt;</span></div>
+                  </div>
+                </div>
+                <div class="mock-tool">
+                  <div class="mock-tool-head"><span class="mock-badge">bash</span> bun run check <span class="mock-status">completed</span></div>
+                  <pre class="mock-pre">6 pass · 0 fail · 15 expect() calls</pre>
+                </div>
+                <div class="mock-foot"><span class="flame">▣</span> Build · Muse Spark 1.3 · 42s</div>
+              </div>
+              <img class="mock-flup" src="/assets/flup-thinking.gif" alt="Flup, the FlupCode mascot" width="64" height="64" />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="logos">
+        <div class="container logos-inner">
+          <span>Built on</span>
+          <strong>OpenCode</strong>
+          <span class="sep">·</span>
+          <span>SolidJS</span>
+          <span class="sep">·</span>
+          <span>Bun</span>
+          <span class="sep">·</span>
+          <span>Electron</span>
+          <span class="sep">·</span>
+          <span>MIT</span>
+        </div>
+      </section>
+
+      <section class="section" id="features">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="eyebrow">Features</span>
+            <h2>Everything the terminal does, in a real UI</h2>
+            <p>Not a new engine — a better cockpit. FlupCode focuses on the experience layer while the OpenCode engine stays untouched.</p>
+          </div>
+
+          <div class="grid">
+            <article class="card reveal">
+              <div class="card-icon">🪟</div>
+              <h3>Web &amp; desktop</h3>
+              <p>One harness, two homes: a browser app and an Electron desktop shell over the same engine.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🧩</div>
+              <h3>Full TUI parity</h3>
+              <p>Feature-for-feature parity with the terminal UI, tracked in a living matrix.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🛡️</div>
+              <h3>Engine untouched</h3>
+              <p>Upstream packages stay pristine, so you can keep pulling in OpenCode improvements.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">💬</div>
+              <h3>Rich chat</h3>
+              <p>Markdown with syntax highlighting, side-by-side diffs, collapsible reasoning and clean tool output.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">⌨️</div>
+              <h3>Embedded terminal</h3>
+              <p>A real PTY in a workspace panel, wired to the engine. Resize, type, run — no context switch.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🔐</div>
+              <h3>Permission modes</h3>
+              <p>Auto, Manual, Accept edits and Bypass — switch how much the agent can do, per session.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">📊</div>
+              <h3>Usage dashboard</h3>
+              <p>Tokens, cost and an activity heatmap across every project and session.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🗂️</div>
+              <h3>Multi-project workspaces</h3>
+              <p>Projects, pinned sessions, tags and a fast nested tree — keep many repos in view.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🧪</div>
+              <h3>Artifacts &amp; routines</h3>
+              <p>Save generated artifacts and schedule recurring prompts, right from the harness.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🧠</div>
+              <h3>Any model, any provider</h3>
+              <p>Connect providers with an API key and pick from grouped, searchable catalogs.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">🌍</div>
+              <h3>Bilingual UI</h3>
+              <p>English and Spanish, with an i18n layer ready for more languages.</p>
+            </article>
+            <article class="card reveal">
+              <div class="card-icon">⚡</div>
+              <h3>Keyboard-first</h3>
+              <p>Command palette, shortcuts and a composer designed to stay out of your way.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="how">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="eyebrow">How it works</span>
+            <h2>Three steps, no lock-in</h2>
+            <p>FlupCode talks to the same HTTP + SSE API every OpenCode client uses.</p>
+          </div>
+          <ol class="steps">
+            <li class="step reveal">
+              <span class="step-no">1</span>
+              <h3>Install</h3>
+              <p>Clone the repo and install with Bun.</p>
+              <pre class="codeblock"><code>bun install</code><button class="copy" data-copy="#s1">Copy</button></pre>
+              <span id="s1" hidden>git clone https://github.com/rldona/FlupCode &amp;&amp; cd FlupCode &amp;&amp; bun install</span>
+            </li>
+            <li class="step reveal">
+              <span class="step-no">2</span>
+              <h3>Run the engine</h3>
+              <p>Start the OpenCode server on a port.</p>
+              <pre class="codeblock"><code>opencode serve --port 4096</code><button class="copy" data-copy="#s2">Copy</button></pre>
+              <span id="s2" hidden>opencode serve --port 4096</span>
+            </li>
+            <li class="step reveal">
+              <span class="step-no">3</span>
+              <h3>Open the harness</h3>
+              <p>Launch the web app (or the desktop app) and point it at the server.</p>
+              <pre class="codeblock"><code>bun run dev:harness</code><button class="copy" data-copy="#s3">Copy</button></pre>
+              <span id="s3" hidden>bun run dev:harness   # web · bun run dev:desktop for Electron</span>
+            </li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="section" id="honest">
+        <div class="container honest">
+          <div class="honest-copy reveal">
+            <span class="eyebrow">Open source, honestly</span>
+            <h2>What FlupCode is — and isn't</h2>
+            <div class="two-col">
+              <div>
+                <h4 class="ok">It is</h4>
+                <ul>
+                  <li>An independent, MIT-licensed fork of OpenCode.</li>
+                  <li>A web and desktop harness focused on UX.</li>
+                  <li>Upstream-first: the engine stays mergeable.</li>
+                  <li>A small, readable product layer you can extend.</li>
+                </ul>
+              </div>
+              <div>
+                <h4 class="no">It isn't</h4>
+                <ul>
+                  <li>A new model, provider or inference stack.</li>
+                  <li>Affiliated with or endorsed by OpenCode or Anthropic.</li>
+                  <li>A replacement for the OpenCode TUI — it complements it.</li>
+                  <li>Vaporware: it builds, ships and syncs with upstream.</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+          <div class="honest-art reveal">
+            <img src="/assets/flup-idle.gif" alt="Flup resting" width="120" height="120" />
+            <div class="quote">
+              “The engine does the hard work. FlupCode makes it a joy to drive.”
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="section section-alt" id="docs">
+        <div class="container">
+          <div class="section-head reveal">
+            <span class="eyebrow">Documentation</span>
+            <h2>Read before you fly</h2>
+          </div>
+          <div class="docs-grid">
+            <a class="doc reveal" href="https://github.com/rldona/FlupCode/blob/power/docs/USAGE.md" target="_blank" rel="noreferrer"><strong>Usage</strong><span>Install, shortcuts, troubleshooting</span></a>
+            <a class="doc reveal" href="https://github.com/rldona/FlupCode/blob/power/docs/ARCHITECTURE.md" target="_blank" rel="noreferrer"><strong>Architecture</strong><span>How the monorepo fits together</span></a>
+            <a class="doc reveal" href="https://github.com/rldona/FlupCode/blob/power/docs/PARITY.md" target="_blank" rel="noreferrer"><strong>TUI parity</strong><span>The feature matrix</span></a>
+            <a class="doc reveal" href="https://github.com/rldona/FlupCode/blob/power/docs/UPSTREAM.md" target="_blank" rel="noreferrer"><strong>Upstream</strong><span>Branch model &amp; syncing</span></a>
+            <a class="doc reveal" href="https://github.com/rldona/FlupCode/blob/power/docs/ROADMAP.md" target="_blank" rel="noreferrer"><strong>Roadmap</strong><span>Where it's heading</span></a>
+            <a class="doc reveal" href="https://github.com/rldona/FlupCode/blob/power/CONTRIBUTING.md" target="_blank" rel="noreferrer"><strong>Contributing</strong><span>Conventions &amp; workflow</span></a>
+          </div>
+        </div>
+      </section>
+
+      <section class="cta-final" id="start">
+        <div class="container cta-final-inner reveal">
+          <img src="/assets/flup-excited.gif" alt="Flup excited" width="96" height="96" />
+          <h2>Your engine. A better cockpit.</h2>
+          <p>Clone it, connect it to OpenCode, and keep shipping.</p>
+          <div class="cta">
+            <a class="btn btn-primary btn-lg" href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer">Get FlupCode</a>
+            <a class="btn btn-outline btn-lg" href="https://github.com/rldona/FlupCode/blob/power/docs/USAGE.md" target="_blank" rel="noreferrer">Read the docs</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <div class="container footer-inner">
+        <div class="footer-brand">
+          <svg class="brand-mark" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <g fill="currentColor">
+              <rect x="11" y="1.5" width="2" height="7" rx="1" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(45 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(90 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(135 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(180 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(225 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(270 12 12)" />
+              <rect x="11" y="1.5" width="2" height="7" rx="1" transform="rotate(315 12 12)" />
+            </g>
+          </svg>
+          <span>FlupCode</span>
+        </div>
+        <nav class="footer-links" aria-label="Footer">
+          <a href="#features">Features</a>
+          <a href="#how">How it works</a>
+          <a href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://github.com/rldona/FlupCode/blob/power/LICENSE" target="_blank" rel="noreferrer">MIT License</a>
+        </nav>
+        <p class="footer-note">
+          © <span id="year">2026</span> FlupCode. An independent fork of OpenCode. Not affiliated with, endorsed by, or
+          built by OpenCode or Anthropic. “OpenCode” is a project by Anomaly; “Claude Code” is a product of Anthropic.
+        </p>
+      </div>
+    </footer>
+
+    <script src="/script.js" defer></script>
+  </body>
+</html>
