@@ -1,11 +1,12 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import type { Project, SessionInfo } from "@opencode-ai/client"
+import type { SessionInfo } from "@opencode-ai/client"
+import type { ProjectItem } from "../types"
 import { t } from "../i18n"
 
 type SidebarProps = {
   collapsed: boolean
   displayName: string
-  projects: Project[] | undefined
+  projects: ProjectItem[] | undefined
   projectsLoading: boolean
   pinned: string[]
   sessions: SessionInfo[] | undefined
@@ -22,10 +23,8 @@ type SidebarProps = {
   onArtifacts: () => void
 }
 
-function projectLabel(project: Project) {
-  if (project.name) return project.name
-  const segments = project.worktree.split("/").filter(Boolean)
-  return segments.at(-1) ?? project.worktree
+function projectLabel(project: ProjectItem) {
+  return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
 
 const SkeletonRows: Component<{ count: number }> = (props) => (
@@ -40,7 +39,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   const orderedProjects = () => {
     const query = filter().trim().toLowerCase()
     const list = (props.projects ?? []).filter((project) =>
-      query ? `${projectLabel(project)} ${project.worktree}`.toLowerCase().includes(query) : true,
+      query ? `${projectLabel(project)} ${project.directory}`.toLowerCase().includes(query) : true,
     )
     return [...list].sort(
       (a, b) => Number(props.pinned.includes(b.id)) - Number(props.pinned.includes(a.id)),
@@ -109,16 +108,16 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                         <button
                           class="fc-row-main"
                           type="button"
-                          onClick={() => props.onNewSession(project.worktree)}
+                          onClick={() => props.onNewSession(project.directory)}
                         >
                           <span class="fc-row-title">{projectLabel(project)}</span>
-                          <span class="fc-row-meta">{project.worktree}</span>
+                          <span class="fc-row-meta">{project.directory}</span>
                         </button>
                         <button
                           class="fc-row-action"
                           type="button"
                           title={t("New session")}
-                          onClick={() => props.onNewSession(project.worktree)}
+                          onClick={() => props.onNewSession(project.directory)}
                         >
                           +
                         </button>
