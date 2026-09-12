@@ -87,6 +87,7 @@ const ES: Record<string, string> = {
   "Automatically accept all file edits": "Aceptar automáticamente todas las ediciones",
   "Accepts all permissions": "Acepta todos los permisos",
   Terminal: "Terminal",
+  Status: "Estado",
   "Click to expand": "Clic para expandir",
   "Click to collapse": "Clic para contraer",
   Commit: "Commit",

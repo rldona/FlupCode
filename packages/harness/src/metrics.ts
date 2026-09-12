@@ -11,6 +11,27 @@ export type UsageMetrics = {
   peakHour: string
   favoriteModel: string
   models: Array<{ name: string; count: number }>
+  modelUsage: Array<{ name: string; input: number; output: number; total: number; share: number }>
+  weeks: Array<{ label: string; total: number; segments: Array<{ name: string; tokens: number }> }>
+}
+
+const MODEL_COLORS = [
+  "#6ea8fe",
+  "#7aa2d6",
+  "#4f7fc4",
+  "#3b6fb0",
+  "#8b5cf6",
+  "#a78bfa",
+  "#64748b",
+  "#94a3b8",
+]
+
+export function modelColor(index: number) {
+  return MODEL_COLORS[index % MODEL_COLORS.length]!
+}
+
+function sessionTokens(session: SessionInfo) {
+  return session.tokens.input + session.tokens.output + session.tokens.reasoning
 }
 
 const dayKey = (timestamp: number) => {
@@ -85,6 +106,54 @@ export function computeMetrics(filtered: SessionInfo[]): UsageMetrics {
     .map(([name, count]) => ({ name, count }))
     .sort((a, b) => b.count - a.count)
 
+  const usageMap = new Map<string, { input: number; output: number; total: number }>()
+  for (const session of filtered) {
+    const name = session.model?.id
+    if (!name) continue
+    const current = usageMap.get(name) ?? { input: 0, output: 0, total: 0 }
+    current.input += session.tokens.input
+    current.output += session.tokens.output
+    current.total += sessionTokens(session)
+    usageMap.set(name, current)
+  }
+  const grandTotal = [...usageMap.values()].reduce((sum, item) => sum + item.total, 0)
+  const modelUsage = [...usageMap.entries()]
+    .map(([name, value]) => ({ name, ...value, share: grandTotal > 0 ? value.total / grandTotal : 0 }))
+    .sort((a, b) => b.total - a.total)
+
+  const week = 7 * 86400000
+  const end = Date.now()
+  const earliest = filtered.length
+    ? Math.min(...filtered.map((session) => session.time.updated || session.time.created))
+    : end
+  const weeksCount = Math.max(4, Math.min(16, Math.ceil((end - earliest) / week) || 4))
+  const start = end - weeksCount * week
+  const buckets = Array.from({ length: weeksCount }, (_, index) => {
+    const bucketStart = start + index * week
+    return {
+      label: new Date(bucketStart).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      total: 0,
+      map: new Map<string, number>(),
+    }
+  })
+  for (const session of filtered) {
+    const at = session.time.updated || session.time.created
+    const index = Math.min(weeksCount - 1, Math.max(0, Math.floor((at - start) / week)))
+    const bucket = buckets[index]!
+    const tokens = sessionTokens(session)
+    bucket.total += tokens
+    const name = session.model?.id ?? "unknown"
+    bucket.map.set(name, (bucket.map.get(name) ?? 0) + tokens)
+  }
+  const modelOrder = modelUsage.map((item) => item.name)
+  const weeks = buckets.map((bucket) => ({
+    label: bucket.label,
+    total: bucket.total,
+    segments: modelOrder
+      .map((name) => ({ name, tokens: bucket.map.get(name) ?? 0 }))
+      .filter((segment) => segment.tokens > 0),
+  }))
+
   return {
     sessions: filtered.length,
     tokens,
@@ -94,6 +163,8 @@ export function computeMetrics(filtered: SessionInfo[]): UsageMetrics {
     peakHour: filtered.length > 0 ? `${peak}:00` : "—",
     favoriteModel: models[0]?.name ?? "—",
     models,
+    modelUsage,
+    weeks,
   }
 }
 

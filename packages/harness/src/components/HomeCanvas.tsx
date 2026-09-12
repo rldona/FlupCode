@@ -1,5 +1,5 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import { formatTokens, type ActivityDay, type UsageMetrics, type UsageRange } from "../metrics"
+import { formatTokens, modelColor, type ActivityDay, type UsageMetrics, type UsageRange } from "../metrics"
 import { t } from "../i18n"
 import { ActivityHeatmap } from "./ActivityHeatmap"
 
@@ -20,6 +20,58 @@ const RANGES: Array<{ id: UsageRange; label: string }> = [
   { id: "30d", label: "30d" },
   { id: "7d", label: "7d" },
 ]
+
+const ModelUsage: Component<{ metrics: UsageMetrics }> = (props) => {
+  const order = () => props.metrics.modelUsage.map((model) => model.name)
+  const color = (name: string) => modelColor(Math.max(0, order().indexOf(name)))
+  const max = () => Math.max(...props.metrics.weeks.map((week) => week.total), 1)
+  const ticks = () => [max(), (max() * 2) / 3, max() / 3, 0]
+
+  return (
+    <div class="fc-model-usage">
+      <div class="fc-chart">
+        <div class="fc-chart-y">
+          <For each={ticks()}>{(tick) => <span>{formatTokens(Math.round(tick))}</span>}</For>
+        </div>
+        <div class="fc-chart-plot">
+          <For each={props.metrics.weeks}>
+            {(week) => (
+              <div class="fc-chart-col" title={`${week.label} · ${formatTokens(week.total)}`}>
+                <For each={week.segments}>
+                  {(segment) => (
+                    <div
+                      class="fc-chart-seg"
+                      style={{ height: `${(segment.tokens / max()) * 100}%`, background: color(segment.name) }}
+                    />
+                  )}
+                </For>
+              </div>
+            )}
+          </For>
+        </div>
+      </div>
+      <div class="fc-chart-x">
+        <For each={props.metrics.weeks}>
+          {(week, index) => <span>{index() % 2 === 0 ? week.label : ""}</span>}
+        </For>
+      </div>
+      <ul class="fc-model-legend">
+        <For each={props.metrics.modelUsage}>
+          {(model) => (
+            <li class="fc-model-legend-row">
+              <span class="fc-legend-swatch" style={{ background: color(model.name) }} />
+              <span class="fc-legend-name">{model.name}</span>
+              <span class="fc-legend-tokens">
+                {formatTokens(model.input)} in · {formatTokens(model.output)} out
+              </span>
+              <span class="fc-legend-share">{(model.share * 100).toFixed(1)}%</span>
+            </li>
+          )}
+        </For>
+      </ul>
+    </div>
+  )
+}
 
 export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   const [tab, setTab] = createSignal<"summary" | "models">("summary")
@@ -81,19 +133,6 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
         <div class="fc-error">{props.error}</div>
       </Show>
 
-      <div class="fc-actions">
-        <For each={actions()}>
-          {(action) => (
-            <button class="fc-action" type="button" onClick={() => props.onAction(action.prompt)}>
-              <span class="fc-action-icon" data-tone={action.tone}>
-                {action.icon}
-              </span>
-              <span class="fc-action-title">{action.title}</span>
-            </button>
-          )}
-        </For>
-      </div>
-
       <div class="fc-card">
         <div class="fc-card-header">
           <div class="fc-tabs">
@@ -134,25 +173,14 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           when={tab() === "summary"}
           fallback={
             <Show
-              when={props.metrics.models.length > 0}
+              when={props.metrics.modelUsage.length > 0}
               fallback={
                 <div class="fc-empty-state">
                   <span class="fc-empty-title">{t("No model data")}</span>
                 </div>
               }
             >
-              <ul class="fc-model-stats">
-                <For each={props.metrics.models}>
-                  {(model) => (
-                    <li class="fc-model-stat">
-                      <span class="fc-model-stat-name">{model.name}</span>
-                      <span class="fc-model-stat-count">
-                        {t("{count} sessions", { count: model.count })}
-                      </span>
-                    </li>
-                  )}
-                </For>
-              </ul>
+              <ModelUsage metrics={props.metrics} />
             </Show>
           }
         >
@@ -168,6 +196,19 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           </div>
           <ActivityHeatmap days={props.activity} comparison={comparisonText()} />
         </Show>
+      </div>
+
+      <div class="fc-actions">
+        <For each={actions()}>
+          {(action) => (
+            <button class="fc-action" type="button" onClick={() => props.onAction(action.prompt)}>
+              <span class="fc-action-icon" data-tone={action.tone}>
+                {action.icon}
+              </span>
+              <span class="fc-action-title">{action.title}</span>
+            </button>
+          )}
+        </For>
       </div>
     </section>
   )

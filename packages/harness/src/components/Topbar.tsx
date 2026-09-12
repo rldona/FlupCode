@@ -2,7 +2,6 @@ import type { Component } from "solid-js"
 import { t } from "../i18n"
 
 type TopbarProps = {
-  serverInput: string
   healthLoading: boolean
   healthHealthy: boolean | undefined
   healthError: boolean
@@ -11,8 +10,6 @@ type TopbarProps = {
   onBack: () => void
   onForward: () => void
   onToggleSidebar: () => void
-  onRefreshServer: () => void
-  onServerInput: (value: string) => void
   onOpenPalette: () => void
   workspace: string[]
   onTogglePanel: (kind: string) => void
@@ -85,16 +82,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           ⌕
         </button>
-        <input
-          class="fc-server-input"
-          value={props.serverInput}
-          spellcheck={false}
-          aria-label="Server URL"
-          onInput={(event) => props.onServerInput(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") props.onRefreshServer()
-          }}
-        />
         <span
           class="fc-status"
           classList={{
