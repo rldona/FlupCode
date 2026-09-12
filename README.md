@@ -21,7 +21,7 @@
   <img src="docs/assets/flupcode-cover.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
 </p>
 
-🌐 **Website:** [flupcode.com](https://flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode) · ⬇️ **[Download](https://github.com/rldona/FlupCode/releases/latest)**
+🌐 **Website:** [flupcode.com](https://flupcode.com) · 🖥️ **Web app:** [app.flupcode.com](https://app.flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode) · ⬇️ **[Download](https://github.com/rldona/FlupCode/releases/latest)**
 
 FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode) that takes its
 terminal-grade feature set and packages it into a first-class **web and desktop experience**:
