@@ -49,9 +49,9 @@ Note: share/unshare is unavailable in the v2 client (see ROADMAP blockers); expo
 **Acceptance**
 - Move a session to another project/workspace; file-change confirmation.
 
-## F3-8 — Session tags/labels · P1 · blocked
+## F3-8 — Session tags/labels · P1 · done
 
-Blocker: the v2 client exposes no tag model.
+Client-side tags persist per session and are shown/edited in the session toolbar.
 
 **Acceptance**
 - Create/assign/filter tags; persisted with the session.
@@ -61,7 +61,9 @@ Blocker: the v2 client exposes no tag model.
 **Acceptance**
 - Stash/pop/list prompts with persistence.
 
-## F3-10 — Skill manager + slash sources · P1 · doing
+## F3-10 — Skill manager + slash sources · P1 · done
+
+Skills panel (`/skills`) to browse and insert, plus skills in the `/` menu and `session.skill` execution.
 
 **Acceptance**
 - `/skills` dialog inserts a skill command.
@@ -77,9 +79,9 @@ Blocker: the v2 client exposes no tag model.
 **Acceptance**
 - Export with options (thinking/tool details/metadata); copy transcript.
 
-## F3-13 — Settings editors · P1 · blocked
+## F3-13 — Settings editors · P1 · done
 
-Blocker: the vendored v2 client has no `config` group.
+Advanced config editor reads/writes the server `/config` endpoint (GET/PATCH) as JSON.
 
 Permissions, agents, commands and MCP editors.
 
@@ -104,10 +106,9 @@ Blocker: no console API in the v2 client.
 **Acceptance**
 - Switch console organization when multiple exist.
 
-## F3-17 — Keybind/leader parity · P2 · doing
+## F3-17 — Keybind/leader parity · P2 · done
 
-Done: command palette (`Cmd/Ctrl+K` / `Cmd/Ctrl+P`), send/newline and Escape handling.
-Pending: a configurable keybind editor.
+Command palette with a configurable shortcut (Customize → Shortcuts), plus send/newline and Escape handling.
 
 **Acceptance**
 - Terminal-equivalent actions reachable via configurable bindings where sensible; leader-key

@@ -25,4 +25,7 @@ export const STORAGE_KEYS = {
   routines: "flupcode.routines",
   onboarded: "flupcode.onboarded",
   locale: "flupcode.locale",
+  sessionTags: "flupcode.sessionTags",
+  notifications: "flupcode.notifications",
+  paletteKey: "flupcode.paletteKey",
 } as const

@@ -511,7 +511,7 @@
     },
     "packages/harness": {
       "name": "@flupcode/harness",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "dependencies": {
         "@opencode-ai/client": "file:../app/vendor/opencode-ai-client-1.17.13-v2.tgz",
         "@opencode-ai/session-ui": "workspace:*",
@@ -520,6 +520,7 @@
         "solid-js": "catalog:",
       },
       "devDependencies": {
+        "@playwright/test": "catalog:",
         "@tailwindcss/vite": "catalog:",
         "@types/bun": "catalog:",
         "@types/qrcode": "1.5.5",
@@ -533,7 +534,7 @@
     },
     "packages/harness-desktop": {
       "name": "@flupcode/desktop",
-      "version": "0.1.0",
+      "version": "1.0.0",
       "dependencies": {
         "electron-updater": "6.8.9",
       },
