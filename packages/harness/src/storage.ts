@@ -23,4 +23,5 @@ export const STORAGE_KEYS = {
   stashedPrompts: "flupcode.stashedPrompts",
   theme: "flupcode.theme",
   routines: "flupcode.routines",
+  onboarded: "flupcode.onboarded",
 } as const

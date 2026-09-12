@@ -12,6 +12,7 @@ type SessionViewProps = {
   loading: boolean
   busy: boolean
   showTools: boolean
+  onEditUser: (messageID: string, text: string) => void
 }
 
 function toolOutput(tool: SessionMessageAssistantTool) {
@@ -121,6 +122,13 @@ export const SessionView: Component<SessionViewProps> = (props) => (
               <div class="fc-message fc-message-user">
                 <div class="fc-message-role">Tú</div>
                 <div class="fc-message-text">{(message as { text?: string }).text}</div>
+                <button
+                  class="fc-message-edit"
+                  type="button"
+                  onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+                >
+                  Editar
+                </button>
               </div>
             </Show>
           )}
