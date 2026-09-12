@@ -28,6 +28,7 @@ type ComposerProps = {
   onPasteText: (text: string) => string
   onStash: () => void
   onTargetChange: (directory: string | undefined) => void
+  onOpenFolder: () => void
   onAgentChange: (agent: string) => void
   onPermissionModeChange: (id: string) => void
 }
@@ -176,12 +177,26 @@ export const Composer: Component<ComposerProps> = (props) => {
           class="fc-folder-select"
           aria-label={t("Folder")}
           value={props.targetDirectory ?? ""}
-          onChange={(event) => props.onTargetChange(event.currentTarget.value || undefined)}
+          onChange={(event) => {
+            const value = event.currentTarget.value
+            if (value === "__open__") {
+              event.currentTarget.value = props.targetDirectory ?? ""
+              props.onOpenFolder()
+              return
+            }
+            props.onTargetChange(value || undefined)
+          }}
         >
           <option value="">{t("No folder")}</option>
           <For each={props.projects}>
             {(project) => <option value={project.directory}>{projectLabel(project)}</option>}
           </For>
+          <Show when={props.targetDirectory && !props.projects.some((p) => p.directory === props.targetDirectory)}>
+            <option value={props.targetDirectory}>
+              {props.targetDirectory?.split("/").filter(Boolean).at(-1) ?? props.targetDirectory}
+            </option>
+          </Show>
+          <option value="__open__">{t("Open folder…")}</option>
         </select>
         <Show when={props.value.startsWith("!")}>
           <span class="fc-chip fc-chip-active">{t("Shell")}</span>

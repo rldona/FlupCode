@@ -4,69 +4,26 @@ import type { ProjectItem } from "../types"
 import { t } from "../i18n"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 
-type SessionToolbarProps = {
+type SessionTitleProps = {
   session: SessionInfo
-  projects: ProjectItem[]
-  busy: boolean
-  reverting: boolean
   tags: string[]
-  onFork: () => void
-  onCompact: () => void
-  onRename: () => void
-  onExport: () => void
-  onMove: (directory: string) => void
-  onDelete: () => void
-  onUndo: () => void
-  onRedo: () => void
-  onCommitRevert: () => void
   onAddTag: (tag: string) => void
   onRemoveTag: (tag: string) => void
 }
 
-export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
+export const SessionTitle: Component<SessionTitleProps> = (props) => {
   const [tag, setTag] = createSignal("")
-  const [menu, setMenu] = createSignal<{ x: number; y: number; items: MenuItem[] }>()
-
   const addTag = () => {
     const value = tag().trim()
     if (!value) return
     props.onAddTag(value)
     setTag("")
   }
-
-  const items = (): MenuItem[] => [
-    { label: t("Fork"), icon: "⑂", onSelect: props.onFork },
-    { label: t("Compact"), icon: "⇲", onSelect: props.onCompact },
-    { label: t("Undo"), icon: "↶", onSelect: props.onUndo },
-    { label: t("Redo"), icon: "↷", onSelect: props.onRedo },
-    ...(props.reverting
-      ? [{ label: t("Confirm revert"), icon: "✓", onSelect: props.onCommitRevert }]
-      : []),
-    { label: t("Rename"), icon: "✎", onSelect: props.onRename },
-    { label: t("Export MD"), icon: "↓", onSelect: props.onExport },
-    ...props.projects.map((project) => ({
-      label: `${t("Move to…")} ${project.name}`,
-      icon: "→",
-      onSelect: () => props.onMove(project.directory),
-    })),
-    { label: t("Delete"), icon: "×", danger: true, onSelect: props.onDelete },
-  ]
-
   return (
-    <div class="fc-session-toolbar">
-      <div class="fc-session-toolbar-title">{props.session.title || t("Session without title")}</div>
-      <button
-        class="fc-icon-button"
-        type="button"
-        title={t("Menu")}
-        aria-label={t("Menu")}
-        onClick={(event) => {
-          const rect = event.currentTarget.getBoundingClientRect()
-          setMenu({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4, items: items() })
-        }}
-      >
-        ⋯
-      </button>
+    <div class="fc-session-heading">
+      <span class="fc-session-heading-title" title={props.session.title}>
+        {props.session.title || t("Session without title")}
+      </span>
       <div class="fc-session-tags">
         <For each={props.tags}>
           {(value) => (
@@ -96,9 +53,63 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
           }}
         />
       </div>
+    </div>
+  )
+}
+
+type SessionActionsProps = {
+  session: SessionInfo
+  projects: ProjectItem[]
+  reverting: boolean
+  onFork: () => void
+  onCompact: () => void
+  onRename: () => void
+  onExport: () => void
+  onMove: (directory: string) => void
+  onDelete: () => void
+  onUndo: () => void
+  onRedo: () => void
+  onCommitRevert: () => void
+}
+
+export const SessionActions: Component<SessionActionsProps> = (props) => {
+  const [menu, setMenu] = createSignal<{ x: number; y: number; items: MenuItem[] }>()
+
+  const items = (): MenuItem[] => [
+    { label: t("Fork"), icon: "⑂", onSelect: props.onFork },
+    { label: t("Compact"), icon: "⇲", onSelect: props.onCompact },
+    { label: t("Undo"), icon: "↶", onSelect: props.onUndo },
+    { label: t("Redo"), icon: "↷", onSelect: props.onRedo },
+    ...(props.reverting
+      ? [{ label: t("Confirm revert"), icon: "✓", onSelect: props.onCommitRevert }]
+      : []),
+    { label: t("Rename"), icon: "✎", onSelect: props.onRename },
+    { label: t("Export MD"), icon: "↓", onSelect: props.onExport },
+    ...props.projects.map((project) => ({
+      label: `${t("Move to…")} ${project.name}`,
+      icon: "→",
+      onSelect: () => props.onMove(project.directory),
+    })),
+    { label: t("Delete"), icon: "×", danger: true, onSelect: props.onDelete },
+  ]
+
+  return (
+    <>
+      <button
+        class="fc-nav-arrow"
+        type="button"
+        title={t("Menu")}
+        aria-label={t("Menu")}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          setMenu({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4, items: items() })
+        }}
+      >
+        ⋯
+      </button>
       <Show when={menu()}>
         {(m) => <ContextMenu x={m().x} y={m().y} items={m().items} onClose={() => setMenu(undefined)} />}
       </Show>
-    </div>
+    </>
   )
 }

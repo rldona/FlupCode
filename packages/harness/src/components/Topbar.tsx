@@ -1,4 +1,4 @@
-import type { Component } from "solid-js"
+import type { JSX, Component } from "solid-js"
 import { t } from "../i18n"
 
 type TopbarProps = {
@@ -13,6 +13,8 @@ type TopbarProps = {
   onOpenPalette: () => void
   workspace: string[]
   onTogglePanel: (kind: string) => void
+  sessionTitle?: JSX.Element
+  sessionActions?: JSX.Element
 }
 
 export const Topbar: Component<TopbarProps> = (props) => {
@@ -41,8 +43,10 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           →
         </button>
+        {props.sessionTitle}
       </div>
       <div class="fc-topbar-right">
+        {props.sessionActions}
         <button
           class="fc-nav-arrow"
           classList={{ "fc-icon-button-active": props.workspace.includes("diff") }}
