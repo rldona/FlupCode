@@ -7,6 +7,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
+import { Spinner } from "./Spinner"
 
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
@@ -135,7 +136,9 @@ export const SessionView: Component<SessionViewProps> = (props) => (
           )}
         </For>
         <Show when={props.busy}>
-          <div class="fc-message fc-message-assistant fc-message-pending">{t("Generating")}</div>
+          <div class="fc-message fc-message-assistant fc-message-pending">
+            <Spinner /> {t("Generating")}
+          </div>
         </Show>
       </Show>
     </Show>

@@ -24,6 +24,10 @@ type SessionToolbarProps = {
   onRemoveTag: (tag: string) => void
 }
 
+function primaryAgents(agents: AgentInfo[]) {
+  return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
+}
+
 function projectLabel(project: ProjectItem) {
   return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
@@ -52,7 +56,7 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
           <option value="" disabled>
             {t("Agent")}
           </option>
-          <For each={props.agents.filter((agent) => agent.mode !== "subagent")}>
+          <For each={primaryAgents(props.agents)}>
             {(agent) => <option value={agent.id}>{agent.id}</option>}
           </For>
         </select>
