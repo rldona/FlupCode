@@ -55,7 +55,8 @@
       ],
       "category": "public.app-category.developer-tools",
       "identity": null,
-      "artifactName": "FlupCode-mac-${arch}.${ext}"
+      "artifactName": "FlupCode-mac-${arch}.${ext}",
+      "icon": "build/icon.png"
     },
     "win": {
       "target": [
@@ -66,7 +67,8 @@
           ]
         }
       ],
-      "artifactName": "FlupCode-win-${arch}.${ext}"
+      "artifactName": "FlupCode-win-${arch}.${ext}",
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": [
@@ -78,7 +80,8 @@
         }
       ],
       "category": "Development",
-      "artifactName": "FlupCode-linux-x64.${ext}"
+      "artifactName": "FlupCode-linux-x64.${ext}",
+      "icon": "build/icon.png"
     }
   },
   "devDependencies": {

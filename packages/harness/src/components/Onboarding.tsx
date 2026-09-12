@@ -20,7 +20,10 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
       <div class="fc-modal-backdrop">
         <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Welcome to FlupCode")}>
           <div class="fc-onboarding">
-            <span class="fc-onboarding-logo">FlupCode</span>
+            <div class="fc-onboarding-brand">
+              <img src="/flupcode-logo.png" alt="" width="40" height="40" />
+              <span class="fc-onboarding-logo">FlupCode</span>
+            </div>
             <h2 class="fc-onboarding-title">{t("Welcome to FlupCode")}</h2>
             <p class="fc-onboarding-text">
               {t("A harness for OpenCode with a dashboard, routines and projects, on web and desktop.")}
