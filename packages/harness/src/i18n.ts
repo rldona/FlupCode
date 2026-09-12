@@ -51,6 +51,18 @@ const ES: Record<string, string> = {
   "Peak hour": "Hora pico",
   "Favorite model": "Modelo favorito",
   "No model data": "Sin datos de modelos",
+  "Explore and understand code": "Explora y comprende código",
+  "Create a new function, app or tool": "Crea una nueva función, aplicación o herramienta",
+  "Review code and suggest changes": "Revisa código y sugiere cambios",
+  "Fix problems and bugs": "Corrige problemas y fallos",
+  "Explore this repository and explain its architecture and main modules.":
+    "Explora este repositorio y explícame su arquitectura y módulos principales.",
+  "Create a new feature from scratch. Ask me for details first.":
+    "Crea una nueva funcionalidad desde cero. Pregúntame los detalles primero.",
+  "Review the recent changes and suggest improvements.":
+    "Revisa los cambios recientes y sugiere mejoras.",
+  "Find and fix problems and bugs in this project.":
+    "Encuentra y corrige problemas y fallos en este proyecto.",
   "{count} sessions": "{count} sesiones",
   "You used ~{ratio}× more tokens than {name}.": "Usaste ~{ratio}× más tokens que {name}.",
 

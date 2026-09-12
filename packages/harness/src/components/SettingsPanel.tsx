@@ -32,6 +32,16 @@ type SettingsPanelProps = {
   onClose: () => void
 }
 
+function groupModels(models: ModelInfo[]) {
+  const map = new Map<string, ModelInfo[]>()
+  for (const model of models) {
+    const list = map.get(model.providerID) ?? []
+    list.push(model)
+    map.set(model.providerID, list)
+  }
+  return [...map.entries()].map(([providerID, items]) => ({ providerID, items }))
+}
+
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   return (
     <Show when={props.open}>
@@ -109,8 +119,14 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <option value="" disabled>
                   {t("Default model")}
                 </option>
-                <For each={props.models}>
-                  {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                <For each={groupModels(props.models)}>
+                  {(group) => (
+                    <optgroup label={group.providerID}>
+                      <For each={group.items}>
+                        {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                      </For>
+                    </optgroup>
+                  )}
                 </For>
               </select>
             </label>
