@@ -22,6 +22,8 @@ function createWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      // The packaged app loads from file:// and talks to the local engine over HTTP.
+      webSecurity: false,
     },
   })
 

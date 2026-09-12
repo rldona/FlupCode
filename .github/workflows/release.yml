@@ -37,10 +37,65 @@ jobs:
           cd packages/harness/dist
           zip -r ../../../flupcode-web.zip .
 
+      - name: Upload web bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: web
+          path: flupcode-web.zip
+
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Typecheck desktop
+        run: bun run --cwd packages/harness-desktop typecheck
+
+      - name: Package desktop
+        run: bun run --cwd packages/harness-desktop dist
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          if-no-files-found: ignore
+          path: |
+            packages/harness-desktop/release/*.dmg
+            packages/harness-desktop/release/*.zip
+            packages/harness-desktop/release/*.exe
+            packages/harness-desktop/release/*.AppImage
+            packages/harness-desktop/release/latest*.yml
+
+  publish:
+    needs: [web, desktop]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
       - name: Publish release
         uses: softprops/action-gh-release@v2
         with:
           name: FlupCode ${{ github.ref_name }}
           generate_release_notes: true
           draft: false
-          files: flupcode-web.zip
+          files: dist/**
