@@ -903,6 +903,18 @@ button.fc-row-main {
   font-weight: 600;
 }
 
+.fc-modal-heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-back {
+  font-size: 16px;
+  line-height: 1;
+  padding: 2px 8px;
+}
+
 .fc-modal-line {
   margin: 0;
   color: var(--fc-text-muted);

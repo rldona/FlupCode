@@ -6,6 +6,7 @@ type RemotePanelProps = {
   open: boolean
   initialUrl: string
   onClose: () => void
+  onBack?: () => void
 }
 
 export const RemotePanel: Component<RemotePanelProps> = (props) => {
@@ -29,7 +30,14 @@ export const RemotePanel: Component<RemotePanelProps> = (props) => {
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
-          <span>{t("Remote access / mobile")}</span>
+          <span class="fc-modal-heading">
+            <Show when={props.onBack}>
+              <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+                ←
+              </button>
+            </Show>
+            <span>{t("Remote access / mobile")}</span>
+          </span>
           <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
             ×
           </button>
