@@ -14,6 +14,8 @@ type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
   loading: boolean
   busy: boolean
+  usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
+  startedAt?: number
   showTools: boolean
   onEditUser: (messageID: string, text: string) => void
 }
@@ -95,17 +97,6 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   let container: HTMLElement | undefined
   const [stick, setStick] = createSignal(true)
 
-  const liveTokens = () => {
-    const list = props.messages ?? []
-    for (let index = list.length - 1; index >= 0; index--) {
-      const message = list[index]
-      if (!message || message.type !== "assistant") continue
-      const assistant = message as SessionMessageAssistant
-      return { tokens: assistant.tokens, cost: assistant.cost }
-    }
-    return undefined
-  }
-
   createEffect(() => {
     props.messages
     props.busy
@@ -170,7 +161,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           </For>
           <Show when={props.busy}>
             <div class="fc-message fc-message-assistant fc-message-pending">
-              <Loader tokens={liveTokens()?.tokens} cost={liveTokens()?.cost} />
+              <Loader tokens={props.usage?.tokens} cost={props.usage?.cost} startedAt={props.startedAt} />
             </div>
           </Show>
         </Show>

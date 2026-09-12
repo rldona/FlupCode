@@ -18,7 +18,8 @@ function formatTokens(value: number) {
 }
 
 export const Loader: Component<LoaderProps> = (props) => {
-  const started = props.startedAt ?? Date.now()
+  const mountedAt = Date.now()
+  const started = () => props.startedAt ?? mountedAt
   const [index, setIndex] = createSignal(0)
   const [now, setNow] = createSignal(Date.now())
   const phraseTimer = setInterval(() => setIndex((value) => (value + 1) % phrases.length), 2200)
@@ -29,7 +30,7 @@ export const Loader: Component<LoaderProps> = (props) => {
   })
 
   const label = () => props.label ?? t(phrases[index()] ?? phrases[0]!)
-  const elapsed = () => `${Math.max(0, Math.round((now() - started) / 1000))}s`
+  const elapsed = () => `${Math.max(0, Math.round((now() - started()) / 1000))}s`
   const total = () => {
     const tokens = props.tokens
     if (!tokens) return undefined
