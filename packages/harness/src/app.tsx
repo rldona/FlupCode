@@ -22,6 +22,7 @@ import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { Onboarding } from "./components/Onboarding"
+import { RemotePanel } from "./components/RemotePanel"
 
 type Client = ReturnType<typeof createClient>
 
@@ -34,6 +35,7 @@ const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "stashes", description: "Ver prompts guardados" },
   { name: "settings", description: "Personalizar FlupCode" },
   { name: "routines", description: "Tareas programadas" },
+  { name: "remote", description: "Acceso remoto / móvil" },
   { name: "about", description: "Acerca de FlupCode" },
 ]
 
@@ -58,6 +60,7 @@ export const App: Component = () => {
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
+  const [remoteOpen, setRemoteOpen] = createSignal(false)
   const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
@@ -178,6 +181,10 @@ export const App: Component = () => {
     }
     if (name === "routines") {
       setRoutinesOpen(true)
+      return
+    }
+    if (name === "remote") {
+      setRemoteOpen(true)
       return
     }
     setPrompt(`/${name} `)
@@ -763,6 +770,11 @@ export const App: Component = () => {
         setRoutinesOpen(true)
         return
       }
+      if (name === "remote") {
+        setPrompt("")
+        setRemoteOpen(true)
+        return
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -982,6 +994,10 @@ export const App: Component = () => {
           setSettingsOpen(false)
           setMcpOpen(true)
         }}
+        onOpenRemote={() => {
+          setSettingsOpen(false)
+          setRemoteOpen(true)
+        }}
         onOpenAbout={() => {
           setSettingsOpen(false)
           setAboutOpen(true)
@@ -999,6 +1015,7 @@ export const App: Component = () => {
         onClose={() => setRoutinesOpen(false)}
       />
       <Onboarding open={!onboarded()} serverHealthy={health()?.healthy} onDone={completeOnboarding} />
+      <RemotePanel open={remoteOpen()} initialUrl={serverUrl()} onClose={() => setRemoteOpen(false)} />
     </div>
   )
 }
