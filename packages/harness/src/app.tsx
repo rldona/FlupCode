@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
 import type { PermissionV2Request, QuestionV2Request } from "./engine-types"
+import type { SessionMessageAssistant } from "./engine-types"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
@@ -56,6 +57,7 @@ export const App: Component = () => {
   const [selected, setSelected] = createSignal<string>()
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
+  const [streamedChars, setStreamedChars] = createSignal(0)
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
@@ -142,6 +144,34 @@ export const App: Component = () => {
     },
     async (source) => createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" }),
   )
+  const generating = () => {
+    if (busy()) return true
+    const list = messages()?.data ?? []
+    const last = list[list.length - 1]
+    if (!last) return false
+    if (last.type === "user") return true
+    if (last.type !== "assistant") return false
+    const time = (last as { time?: { completed?: number } }).time
+    return time !== undefined && time.completed === undefined
+  }
+  const liveUsage = () => {
+    const list = messages()?.data ?? []
+    const last = list[list.length - 1]
+    if (last?.type === "assistant") {
+      const assistant = last as SessionMessageAssistant
+      if (assistant.tokens) return { tokens: assistant.tokens, cost: assistant.cost }
+    }
+    const chars = streamedChars()
+    if (chars <= 0) return undefined
+    return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
+  }
+  const generationStartedAt = () => {
+    const list = messages()?.data ?? []
+    const last = list[list.length - 1]
+    if (last?.type === "user") return (last as { time?: { created?: number } }).time?.created
+    if (last?.type === "assistant") return (last as SessionMessageAssistant).time?.created
+    return undefined
+  }
   const [children] = createResource(
     () => {
       const sessionID = selected()
@@ -281,7 +311,16 @@ export const App: Component = () => {
       try {
         for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
           const type = event.type ?? ""
-          if (type.endsWith(".delta")) continue
+          const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
+          if (type === "session.next.step.started") {
+            if (payload?.sessionID === selected()) setStreamedChars(0)
+            void refetchMessages()
+          } else if (type.endsWith(".delta")) {
+            const delta = payload?.delta
+            if (payload?.sessionID === selected() && typeof delta === "string")
+              setStreamedChars((value) => value + delta.length)
+            continue
+          }
           if (type.startsWith("permission.")) {
             if (type === "permission.v2.asked") notify(t("Permission needed"), "")
             void refetchPermissions()
@@ -1096,6 +1135,7 @@ export const App: Component = () => {
         text: expandPastes(text),
         ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
       })
+      setStreamedChars(0)
       setPrompt("")
       setAttachments([])
       return sessionID
@@ -1119,7 +1159,7 @@ export const App: Component = () => {
   })
 
   const mascotState = () => {
-    if (busy()) return agent() === "plan" ? "planning" : "thinking"
+    if (generating()) return agent() === "plan" ? "planning" : "thinking"
     if (success()) return "success"
     const list = messages()?.data ?? []
     const last = list[list.length - 1]
@@ -1218,7 +1258,9 @@ export const App: Component = () => {
           <SessionView
             messages={messages()?.data}
             loading={messages.loading}
-            busy={busy()}
+            busy={generating()}
+            usage={liveUsage()}
+            startedAt={generationStartedAt()}
             showTools={showTools()}
             onEditUser={editMessage}
           />
