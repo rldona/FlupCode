@@ -23,6 +23,7 @@
       "output": "release"
     },
     "files": ["out/**", "package.json"],
+    "executableName": "flupcode",
     "npmRebuild": false,
     "publish": [
       {
@@ -47,7 +48,8 @@
     "linux": {
       "target": [{ "target": "AppImage", "arch": ["x64"] }],
       "category": "Development",
-      "artifactName": "FlupCode-linux-${arch}.${ext}"
+      "desktopName": "FlupCode",
+      "artifactName": "FlupCode-linux-x64.${ext}"
     }
   },
   "devDependencies": {

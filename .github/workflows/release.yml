@@ -84,6 +84,7 @@ jobs:
 
   publish:
     needs: [web, desktop]
+    if: always() && needs.web.result == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Download artifacts
