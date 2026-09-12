@@ -24,4 +24,5 @@ export const STORAGE_KEYS = {
   theme: "flupcode.theme",
   routines: "flupcode.routines",
   onboarded: "flupcode.onboarded",
+  locale: "flupcode.locale",
 } as const

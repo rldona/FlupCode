@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
 import type { FileSystemEntry, SessionInfo } from "@opencode-ai/client"
 import type { CommandOption } from "../types"
+import { t } from "../i18n"
 
 type PaletteItem =
   | { kind: "command"; id: string; name: string; description?: string }
@@ -65,7 +66,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
       .map<PaletteItem>((session) => ({
         kind: "session",
         id: `session:${session.id}`,
-        title: session.title || "Sesión sin título",
+        title: session.title || t("Session without title"),
         subtitle: session.id.slice(0, 8),
       }))
     const fileItems = files()
@@ -90,7 +91,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
             ref={input}
             class="fc-palette-input"
             value={query()}
-            placeholder="Buscar comandos, sesiones y archivos"
+            placeholder={t("Search commands, sessions and files")}
             aria-label="Command palette"
             onInput={(event) => {
               setQuery(event.currentTarget.value)
@@ -119,7 +120,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
           />
           <Show
             when={items().length > 0}
-            fallback={<div class="fc-palette-empty">Sin resultados</div>}
+            fallback={<div class="fc-palette-empty">{t("No results")}</div>}
           >
             <ul class="fc-palette-list">
               <For each={items()}>

@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { ActivityDay } from "../metrics"
+import { t } from "../i18n"
 
 type ActivityHeatmapProps = {
   days: ActivityDay[]
@@ -27,7 +28,7 @@ export const ActivityHeatmap: Component<ActivityHeatmapProps> = (props) => {
             <span
               class="fc-heat-cell"
               data-level={cell ? level(cell.count) : 0}
-              title={cell ? `${cell.count} sesiones` : ""}
+              title={cell ? t("{count} sessions", { count: cell.count }) : ""}
             />
           )}
         </For>

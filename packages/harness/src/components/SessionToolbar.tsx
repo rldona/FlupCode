@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { AgentInfo, Project, SessionInfo } from "@opencode-ai/client"
+import { t } from "../i18n"
 
 type SessionToolbarProps = {
   session: SessionInfo
@@ -27,48 +28,48 @@ function projectLabel(project: Project) {
 
 export const SessionToolbar: Component<SessionToolbarProps> = (props) => (
   <div class="fc-session-toolbar">
-    <div class="fc-session-toolbar-title">{props.session.title || "Sesión sin título"}</div>
+    <div class="fc-session-toolbar-title">{props.session.title || t("Session without title")}</div>
     <div class="fc-session-toolbar-actions">
       <select
         class="fc-toolbar-select"
-        aria-label="Agente"
+        aria-label={t("Agent")}
         value={props.session.agent ?? ""}
         disabled={props.busy}
         onChange={(event) => props.onAgentChange(event.currentTarget.value)}
       >
         <option value="" disabled>
-          Agente
+          {t("Agent")}
         </option>
         <For each={props.agents.filter((agent) => agent.mode !== "subagent")}>
           {(agent) => <option value={agent.name}>{agent.name}</option>}
         </For>
       </select>
       <button class="fc-button" type="button" disabled={props.busy} onClick={props.onFork}>
-        Fork
+        {t("Fork")}
       </button>
       <button class="fc-button" type="button" disabled={props.busy} onClick={props.onCompact}>
-        Compactar
+        {t("Compact")}
       </button>
       <button class="fc-button" type="button" disabled={props.busy} onClick={props.onUndo}>
-        Undo
+        {t("Undo")}
       </button>
       <button class="fc-button" type="button" disabled={props.busy} onClick={props.onRedo}>
-        Rehacer
+        {t("Redo")}
       </button>
       <Show when={props.reverting}>
         <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={props.onCommitRevert}>
-          Confirmar reversión
+          {t("Confirm revert")}
         </button>
       </Show>
       <button class="fc-button" type="button" disabled={props.busy} onClick={props.onRename}>
-        Renombrar
+        {t("Rename")}
       </button>
       <button class="fc-button" type="button" disabled={props.busy} onClick={props.onExport}>
-        Exportar MD
+        {t("Export MD")}
       </button>
       <select
         class="fc-toolbar-select"
-        aria-label="Mover a proyecto"
+        aria-label={t("Move to…")}
         value=""
         disabled={props.busy}
         onChange={(event) => {
@@ -76,12 +77,12 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => (
         }}
       >
         <option value="" disabled>
-          Mover a…
+          {t("Move to…")}
         </option>
         <For each={props.projects}>{(project) => <option value={project.worktree}>{projectLabel(project)}</option>}</For>
       </select>
       <button class="fc-button fc-button-danger" type="button" disabled={props.busy} onClick={props.onDelete}>
-        Eliminar
+        {t("Delete")}
       </button>
     </div>
   </div>

@@ -1,5 +1,6 @@
 import { createEffect, createSignal, type Component } from "solid-js"
 import QRCode from "qrcode"
+import { t } from "../i18n"
 
 type RemotePanelProps = {
   open: boolean
@@ -29,14 +30,14 @@ export const RemotePanel: Component<RemotePanelProps> = (props) => {
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
-          <span>Acceso remoto / móvil</span>
-          <button class="fc-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
+          <span>{t("Remote access / mobile")}</span>
+          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
             ×
           </button>
         </div>
-        <p class="fc-modal-line">Abre FlupCode desde el móvil escaneando el código.</p>
+        <p class="fc-modal-line">{t("Open FlupCode on your phone by scanning the code.")}</p>
         <label class="fc-settings-row">
-          <span>URL</span>
+          <span>{t("URL")}</span>
           <input
             class="fc-question-custom"
             value={url()}
@@ -47,11 +48,11 @@ export const RemotePanel: Component<RemotePanelProps> = (props) => {
         <div class="fc-qr" innerHTML={svg()} />
         <div class="fc-modal-links">
           <button class="fc-button" type="button" onClick={() => void navigator.clipboard?.writeText(url())}>
-            Copiar URL
+            {t("Copy URL")}
           </button>
         </div>
         <p class="fc-modal-license">
-          Para exponerlo en la red: OPENCODE_SERVER_PASSWORD=… opencode serve --hostname 0.0.0.0 --port 4096
+          {t("To expose on the network:")} OPENCODE_SERVER_PASSWORD=… opencode serve --hostname 0.0.0.0 --port 4096
         </p>
       </div>
     </div>
