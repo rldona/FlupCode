@@ -1,5 +1,7 @@
 # Roadmap
 
+Released: **flupcode-v1.0.0** (web bundle attached to the GitHub Release).
+
 Prioritised, ticket-based plan. Priorities: **P0** must-have for the phase · **P1** important ·
 **P2** nice-to-have. Detailed tickets live in [docs/tickets/](tickets/).
 
@@ -24,10 +26,10 @@ _Last updated: 2026-09-12._
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 42 | F0-1…4, F1-1…6, F2-1…6, F2-8, F3-1…7, F3-9, F3-11, F3-12, F3-14, F3-15, F4-1, F4-3…8, F5-1, F5-2, F5-3, F5-5, F6-1, F7-2 |
+| done | 43 | F0-1…4, F1-1…6, F2-1…6, F2-8, F3-1…7, F3-9, F3-11, F3-12, F3-14, F3-15, F4-1, F4-3…8, F5-1, F5-2, F5-3, F5-5, F6-1, F7-2 |
 | doing | 6 | F2-7, F3-10, F3-17, F4-2, F6-2, F7-1 |
 | blocked | 4 | F3-8, F3-13, F3-16, F5-4 |
-| todo | 3 | F6-3, F6-4, F7-3 |
+| todo | 2 | F6-3, F6-4 |
 | **total** | **55** | |
 
 ### What remains
@@ -39,7 +41,6 @@ _Last updated: 2026-09-12._
 - **F6-2** — credential-embedding pairing token (QR + LAN instructions are done).
 - **F7-1** — Playwright E2E (unit tests, i18n and focus styles are done).
 - **F6-3 / F6-4** — push notifications and in-app tunnel/serve management.
-- **F7-3** — v1.0 release (tag + notes + publish pipeline).
 - **Blocked** — F3-8 tags, F3-13 config editors, F3-16 org switch, F5-4 signing; plus share/unshare (part of F3-5). See [Blockers](#blockers).
 
 ---
@@ -137,7 +138,7 @@ _Last updated: 2026-09-12._
 | --- | --- | --- | --- |
 | F7-1 | P1 | E2E, accessibility, i18n coverage | doing |
 | F7-2 | P1 | User documentation | done |
-| F7-3 | P1 | v1.0 release | todo |
+| F7-3 | P1 | v1.0 release | done |
 
 ---
 

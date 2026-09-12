@@ -40,7 +40,7 @@ README, ARCHITECTURE, UPSTREAM, DESIGN, PARITY, ROADMAP, CONTRIBUTING, ADRs, tic
 
 ## F1-5 — Product build/release pipeline · P1 · done
 
-CI to build the harness. Release publishing to GitHub Releases is tracked in F7-3.
+CI to build and release the harness. Publish pipeline: `.github/workflows/release.yml` (tag `flupcode-v*`).
 
 **Acceptance**
 - CI builds `packages/harness` on PR and push to `power` (`.github/workflows/harness.yml`).

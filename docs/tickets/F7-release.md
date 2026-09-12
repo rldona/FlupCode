@@ -16,7 +16,9 @@ Unit tests for metrics merged, focus-visible styles added, and an i18n layer (En
 **Acceptance**
 - Install, quickstart, concepts, keyboard shortcuts, troubleshooting.
 
-## F7-3 — v1.0 release · P1 · todo
+## F7-3 — v1.0 release · P1 · done
+
+Tag `flupcode-v1.0.0` released with the `flupcode-web.zip` asset via `.github/workflows/release.yml`.
 
 **Acceptance**
 - Versioned release with notes for web and desktop.
