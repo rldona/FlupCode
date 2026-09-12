@@ -1,11 +1,12 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import type { AgentInfo, Project, SessionInfo } from "@opencode-ai/client"
+import type { AgentInfo, SessionInfo } from "@opencode-ai/client"
+import type { ProjectItem } from "../types"
 import { t } from "../i18n"
 
 type SessionToolbarProps = {
   session: SessionInfo
   agents: AgentInfo[]
-  projects: Project[]
+  projects: ProjectItem[]
   busy: boolean
   reverting: boolean
   tags: string[]
@@ -23,10 +24,8 @@ type SessionToolbarProps = {
   onRemoveTag: (tag: string) => void
 }
 
-function projectLabel(project: Project) {
-  if (project.name) return project.name
-  const segments = project.worktree.split("/").filter(Boolean)
-  return segments.at(-1) ?? project.worktree
+function projectLabel(project: ProjectItem) {
+  return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
 
 export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
@@ -93,7 +92,7 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
             {t("Move to…")}
           </option>
           <For each={props.projects}>
-            {(project) => <option value={project.worktree}>{projectLabel(project)}</option>}
+            {(project) => <option value={project.directory}>{projectLabel(project)}</option>}
           </For>
         </select>
         <button class="fc-button fc-button-danger" type="button" disabled={props.busy} onClick={props.onDelete}>

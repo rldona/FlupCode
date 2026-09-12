@@ -89,7 +89,9 @@ Permissions, agents, commands and MCP editors.
 - Each editor reads/writes the corresponding config.
 - Validation and defaults match the engine.
 
-## F3-14 — MCP add/configure · P2 · done
+## F3-14 — MCP add/configure · P2 · blocked
+
+Blocker: the vendored client targets the removed `/api/mcp` route in the current server.
 
 **Acceptance**
 - Add and configure MCP servers from the UI, not just toggle.
