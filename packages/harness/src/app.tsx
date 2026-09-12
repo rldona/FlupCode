@@ -1,6 +1,8 @@
 import { createEffect, createResource, createSignal, type Component } from "solid-js"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
+import type { Attachment } from "./types"
+import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
@@ -21,7 +23,8 @@ export const App: Component = () => {
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
   const [auto, setAuto] = createSignal(true)
-  const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string }>()
+  const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string }>()
+  const [attachments, setAttachments] = createSignal<Attachment[]>([])
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -39,6 +42,13 @@ export const App: Component = () => {
     const ref = selectedModel()
     return ref ? `${ref.providerID}/${ref.id}` : undefined
   }
+  const currentModel = () => {
+    const ref = modelRef()
+    if (!ref) return
+    return models()?.data?.find((model) => model.providerID === ref.providerID && model.modelID === ref.id)
+  }
+  const variants = () => (auto() ? [] : (currentModel()?.variants ?? []))
+  const variantKey = () => (auto() ? undefined : modelRef()?.variant)
 
   createEffect(() => {
     if (modelRef()) return
@@ -56,6 +66,22 @@ export const App: Component = () => {
     if (!sessionID) return
     void run(async (current) => {
       await current.session.switchModel({ sessionID, model: { id, providerID } })
+      return undefined
+    })
+  }
+
+  const changeVariant = (value: string) => {
+    const ref = modelRef()
+    if (!ref) return
+    const next = { providerID: ref.providerID, id: ref.id, variant: value || undefined }
+    setModelRef(next)
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.switchModel({
+        sessionID,
+        model: { id: next.id, providerID: next.providerID, ...(next.variant ? { variant: next.variant } : {}) },
+      })
       return undefined
     })
   }
@@ -116,15 +142,39 @@ export const App: Component = () => {
     void refetchSessions()
   }
 
-  const run = async (action: (current: Client) => Promise<string | undefined>) => {
+  const addAttachments = (files: File[]) => {
+    void Promise.all(
+      files.map(
+        (file) =>
+          new Promise<Attachment>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
+            reader.onerror = () => resolve({ uri: "", name: file.name })
+            reader.readAsDataURL(file)
+          }),
+      ),
+    ).then((items) => setAttachments((list) => [...list, ...items.filter((item) => item.uri)]))
+  }
+
+  const removeAttachment = (uri: string) => {
+    setAttachments((list) => list.filter((item) => item.uri !== uri))
+  }
+
+  const run = async (
+    action: (current: Client) => Promise<string | undefined>,
+    successMessage?: string,
+  ) => {
     setBusy(true)
     setError(undefined)
     try {
       const id = await action(client())
       if (id) selectSession(id)
       void refetchSessions()
+      if (successMessage) toast(successMessage, "success")
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause))
+      const message = cause instanceof Error ? cause.message : String(cause)
+      setError(message)
+      toast(message, "error")
     } finally {
       setBusy(false)
     }
@@ -138,18 +188,24 @@ export const App: Component = () => {
         ...(directory ? { location: { directory } } : {}),
       })
       return session.id
-    })
+    }, "Sesión creada")
 
   const send = () => {
     const text = prompt().trim()
-    if (!text) return
+    const files = attachments()
+    if (!text && files.length === 0) return
     void run(async (current) => {
       const model = selectedModel()
       const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
-      await current.session.prompt({ sessionID, text })
+      await current.session.prompt({
+        sessionID,
+        text,
+        ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
+      })
       setPrompt("")
+      setAttachments([])
       return sessionID
-    })
+    }, "Mensaje enviado")
   }
 
   return (
@@ -196,13 +252,20 @@ export const App: Component = () => {
           sending={busy()}
           models={models()?.data ?? []}
           modelKey={modelKey()}
+          variants={variants()}
+          variantKey={variantKey()}
           auto={auto()}
+          attachments={attachments()}
           onInput={setPrompt}
           onSend={send}
           onModelChange={changeModel}
+          onVariantChange={changeVariant}
           onToggleAuto={() => setAuto((value) => !value)}
+          onAttach={addAttachments}
+          onRemoveAttachment={removeAttachment}
         />
       </main>
+      <Toaster />
     </div>
   )
 }
