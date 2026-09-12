@@ -2,7 +2,26 @@
 
 **A Claude Code–style web & desktop harness for OpenCode.**
 
-🌐 **Website:** [flupcode.com](https://flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode)
+<p align="center">
+  <a href="https://github.com/rldona/FlupCode/actions/workflows/harness.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/rldona/FlupCode/harness.yml?branch=power&label=build" /></a>
+  <a href="https://github.com/rldona/FlupCode/releases"><img alt="release" src="https://img.shields.io/github/v/release/rldona/FlupCode?label=release" /></a>
+  <a href="https://github.com/rldona/FlupCode/blob/power/LICENSE"><img alt="license" src="https://img.shields.io/github/license/rldona/FlupCode?label=license" /></a>
+  <a href="https://flupcode.com"><img alt="website" src="https://img.shields.io/badge/website-flupcode.com-9aa84f" /></a>
+</p>
+
+<p align="center">
+  <img alt="platforms" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" />
+  <a href="https://github.com/rldona/FlupCode/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/rldona/FlupCode" /></a>
+  <a href="https://github.com/rldona/FlupCode/issues"><img alt="issues" src="https://img.shields.io/github/issues/rldona/FlupCode" /></a>
+  <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen" />
+  <img alt="fork of OpenCode" src="https://img.shields.io/badge/fork%20of-OpenCode-blueviolet" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/flupcode-cover.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
+</p>
+
+🌐 **Website:** [flupcode.com](https://flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode) · ⬇️ **[Download](https://github.com/rldona/FlupCode/releases/latest)**
 
 FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode) that takes its
 terminal-grade feature set and packages it into a first-class **web and desktop experience**:
