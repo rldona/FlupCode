@@ -45,7 +45,7 @@ Project list with quick create, pinning, search and filter.
 - Greeting uses the configured display name.
 - Home canvas hosts the dashboard card (F4-1) and composer.
 
-## F2-6 — Composer dock · P0 · doing
+## F2-6 — Composer dock · P0 · done
 
 Context chips, attachments, voice, model/variant/effort, send.
 
@@ -62,7 +62,7 @@ User + plan indicator bottom-left.
 **Acceptance**
 - Shows account/plan; opens settings.
 
-## F2-8 — Empty states, skeletons, toasts · P1 · todo
+## F2-8 — Empty states, skeletons, toasts · P1 · done
 
 Consistent feedback across the shell.
 

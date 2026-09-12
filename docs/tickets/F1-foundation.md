@@ -21,7 +21,7 @@ Scheduled workflow that fast-forwards `dev` and opens a `dev → power` PR.
 - Opens or updates a PR with a generated summary.
 - PR runs typecheck + harness build.
 
-## F1-3 — Rebrand · P0 · doing
+## F1-3 — Rebrand · P0 · done
 
 Product identity across harness surfaces, with non-affiliation notice.
 
@@ -38,7 +38,7 @@ README, ARCHITECTURE, UPSTREAM, DESIGN, PARITY, ROADMAP, CONTRIBUTING, ADRs, tic
 - All documents exist and cross-link.
 - ROADMAP and PARITY are the tracking sources of truth.
 
-## F1-5 — Product build/release pipeline · P1 · todo
+## F1-5 — Product build/release pipeline · P1 · done
 
 CI to build/release the harness (and later desktop).
 
