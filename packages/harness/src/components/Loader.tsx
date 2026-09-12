@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, type Component } from "solid-js"
+import { Show, createSignal, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
 
 type LoaderProps = {
@@ -39,13 +39,11 @@ export const Loader: Component<LoaderProps> = (props) => {
 
   return (
     <div class={`fc-loader ${props.class ?? ""}`} role="status" aria-live="polite">
-      <svg class="fc-flower" viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
-        <g fill="currentColor">
-          <For each={[0, 45, 90, 135, 180, 225, 270, 315]}>
-            {(angle) => <rect x="11" y="2" width="2" height="6" rx="1" transform={`rotate(${angle} 12 12)`} />}
-          </For>
-        </g>
-      </svg>
+      <span class="fc-loader-dots" aria-hidden="true">
+        <i />
+        <i />
+        <i />
+      </span>
       <span class="fc-loader-time">{elapsed()}</span>
       <Show when={total() !== undefined}>
         <span class="fc-loader-sep">·</span>
