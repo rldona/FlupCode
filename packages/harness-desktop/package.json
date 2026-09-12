@@ -5,16 +5,56 @@
   "private": true,
   "type": "module",
   "license": "MIT",
+  "description": "FlupCode desktop — a Claude Code–style harness for OpenCode.",
+  "author": "FlupCode",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "typecheck": "tsgo --noEmit"
+    "typecheck": "tsgo --noEmit",
+    "renderer": "bun scripts/renderer.mjs",
+    "dist": "bun run renderer && electron-vite build && electron-builder --publish never"
+  },
+  "build": {
+    "appId": "com.flupcode.desktop",
+    "productName": "FlupCode",
+    "copyright": "Copyright © 2026 FlupCode",
+    "directories": {
+      "output": "release"
+    },
+    "files": ["out/**", "package.json"],
+    "npmRebuild": false,
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "rldona",
+        "repo": "FlupCode"
+      }
+    ],
+    "mac": {
+      "target": [
+        { "target": "dmg", "arch": ["x64", "arm64"] },
+        { "target": "zip", "arch": ["x64", "arm64"] }
+      ],
+      "category": "public.app-category.developer-tools",
+      "identity": null,
+      "artifactName": "FlupCode-mac-${arch}.${ext}"
+    },
+    "win": {
+      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "artifactName": "FlupCode-win-${arch}.${ext}"
+    },
+    "linux": {
+      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "category": "Development",
+      "artifactName": "FlupCode-linux-${arch}.${ext}"
+    }
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "electron": "42.3.3",
+    "electron-builder": "^26.15.3",
     "electron-vite": "^5",
     "typescript": "catalog:"
   },
