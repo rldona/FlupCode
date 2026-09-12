@@ -23,7 +23,7 @@ test("completes onboarding", async ({ page }) => {
 })
 
 test("opens the command palette", async ({ page }) => {
-  test.skip(!!process.env.CI, "requires a running OpenCode server")
+  test.skip(process.env.FLUPCODE_E2E_SERVER !== "1", "set FLUPCODE_E2E_SERVER=1 with a running OpenCode server")
   await page.goto("/")
   await page.getByRole("button", { name: /Command palette/i }).click()
   await expect(page.getByPlaceholder(/Search commands/i)).toBeVisible()
@@ -31,13 +31,13 @@ test("opens the command palette", async ({ page }) => {
 })
 
 test("sidebar loads projects", async ({ page }) => {
-  test.skip(!!process.env.CI, "requires a running OpenCode server")
+  test.skip(process.env.FLUPCODE_E2E_SERVER !== "1", "set FLUPCODE_E2E_SERVER=1 with a running OpenCode server")
   await page.goto("/")
   await expect(page.locator(".fc-skeleton")).toHaveCount(0)
 })
 
 test("sends a prompt and receives an answer", async ({ page }) => {
-  test.skip(!!process.env.CI, "requires a running OpenCode server with a model")
+  test.skip(process.env.FLUPCODE_E2E_MODEL !== "1", "set FLUPCODE_E2E_MODEL=1 to run the live model test")
   test.setTimeout(120_000)
   await page.goto("/")
   await page.getByRole("button", { name: /New/ }).first().click()

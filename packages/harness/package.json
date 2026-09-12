@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "check": "tsgo --noEmit && bun test src",
     "test": "bun test src",
     "test:e2e": "playwright test",
     "typecheck": "tsgo --noEmit"
