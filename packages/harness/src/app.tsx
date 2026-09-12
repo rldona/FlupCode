@@ -102,6 +102,8 @@ export const App: Component = () => {
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, async (url) => createClient(url).health.get())
+  const serverStatus = () =>
+    health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
   const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, async (url) =>
     createClient(url).session.list(),
   )
@@ -1213,7 +1215,6 @@ export const App: Component = () => {
       />
       <main class="fc-main">
         <Topbar
-          serverInput={serverInput()}
           healthLoading={health.loading}
           healthHealthy={health()?.healthy === true}
           healthError={!!health.error}
@@ -1222,8 +1223,6 @@ export const App: Component = () => {
           onBack={goBack}
           onForward={goForward}
           onToggleSidebar={toggleSidebar}
-          onRefreshServer={commitServer}
-          onServerInput={setServerInput}
           onOpenPalette={() => setPaletteOpen(true)}
           workspace={panels()}
           onTogglePanel={togglePanel}
@@ -1405,6 +1404,7 @@ export const App: Component = () => {
         locale={getLocale()}
         displayName={displayName()}
         serverInput={serverInput()}
+        serverStatus={serverStatus()}
         models={modelList()}
         modelKey={modelKey()}
         showTools={showTools()}
