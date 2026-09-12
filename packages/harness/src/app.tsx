@@ -7,7 +7,7 @@ import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRan
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, SessionTags, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
-import { Toaster, toast } from "./toast"
+import { toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
@@ -17,12 +17,13 @@ import { PermissionDock, type PermissionReply } from "./components/PermissionDoc
 import { QuestionDock } from "./components/QuestionDock"
 import { CommandPalette } from "./components/CommandPalette"
 import { SessionView } from "./components/SessionView"
-import { SessionToolbar } from "./components/SessionToolbar"
+import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
 import { RightAside } from "./components/RightAside"
 import { WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
 import { ModelPicker } from "./components/ModelPicker"
+import { FolderDialog } from "./components/FolderDialog"
 import { permissionMode } from "./permission-modes"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
@@ -94,6 +95,7 @@ export const App: Component = () => {
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
   const [remoteOpen, setRemoteOpen] = createSignal(false)
   const [providersOpen, setProvidersOpen] = createSignal(false)
+  const [folderOpen, setFolderOpen] = createSignal(false)
   const [artifactsOpen, setArtifactsOpen] = createSignal(false)
   const [skillsOpen, setSkillsOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
@@ -1331,6 +1333,38 @@ export const App: Component = () => {
           onOpenPalette={() => setPaletteOpen(true)}
           workspace={panels()}
           onTogglePanel={togglePanel}
+          sessionTitle={
+            <Show when={selectedSession()}>
+              {(session) => (
+                <SessionTitle
+                  session={session()}
+                  tags={currentTags()}
+                  onAddTag={addTag}
+                  onRemoveTag={removeTag}
+                />
+              )}
+            </Show>
+          }
+          sessionActions={
+            <Show when={selectedSession()}>
+              {(session) => (
+                <SessionActions
+                  session={session()}
+                  projects={projects()}
+                  reverting={!!session().revert}
+                  onFork={forkSession}
+                  onCompact={compactSession}
+                  onRename={renameSession}
+                  onExport={exportMarkdown}
+                  onMove={moveSession}
+                  onDelete={deleteSession}
+                  onUndo={undo}
+                  onRedo={redo}
+                  onCommitRevert={commitRevert}
+                />
+              )}
+            </Show>
+          }
         />
         <Show when={onboarded() && !health.loading && health()?.healthy !== true}>
           <div class="fc-offline-banner">
@@ -1342,28 +1376,6 @@ export const App: Component = () => {
               {t("Retry")}
             </button>
           </div>
-        </Show>
-        <Show when={selectedSession()}>
-          {(session) => (
-            <SessionToolbar
-              session={session()}
-              projects={projects()}
-              busy={busy()}
-              reverting={!!session().revert}
-              onFork={forkSession}
-              onCompact={compactSession}
-              onRename={renameSession}
-              onExport={exportMarkdown}
-              onMove={moveSession}
-              onDelete={deleteSession}
-              onUndo={undo}
-              onRedo={redo}
-              onCommitRevert={commitRevert}
-              tags={currentTags()}
-              onAddTag={addTag}
-              onRemoveTag={removeTag}
-            />
-          )}
         </Show>
         <SubagentList sessions={children()?.data} onOpen={selectSession} />
         <Show
@@ -1440,6 +1452,7 @@ export const App: Component = () => {
           onPasteText={collapsePaste}
           onStash={() => stashPrompt(prompt(), true)}
           onTargetChange={setTargetDirectory}
+          onOpenFolder={() => setFolderOpen(true)}
           onAgentChange={changeAgent}
           onPermissionModeChange={changePermissionMode}
         />
@@ -1457,7 +1470,6 @@ export const App: Component = () => {
           <RightAside session={session()} models={modelList()} todos={todos()} />
         )}
       </Show>
-      <Toaster />
       <CommandPalette
         open={paletteOpen()}
         commands={commandOptions()}
@@ -1564,6 +1576,15 @@ export const App: Component = () => {
         onRemove={removeRoutine}
         onRun={runRoutine}
         onClose={() => setRoutinesOpen(false)}
+      />
+      <FolderDialog
+        open={folderOpen()}
+        initial={targetDirectory()}
+        onOpen={(path) => {
+          setTargetDirectory(path)
+          setFolderOpen(false)
+        }}
+        onClose={() => setFolderOpen(false)}
       />
       <Onboarding
         open={!onboarded()}
