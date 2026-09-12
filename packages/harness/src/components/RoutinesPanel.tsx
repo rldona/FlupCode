@@ -23,8 +23,6 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   const [prompt, setPrompt] = createSignal("")
   const [interval, setInterval] = createSignal("60")
 
-  if (!props.open) return null
-
   const submit = () => {
     const routineName = name().trim()
     const text = prompt().trim()
@@ -37,6 +35,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   }
 
   return (
+    <Show when={props.open}>
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
@@ -114,5 +113,6 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
         </div>
       </div>
     </div>
+    </Show>
   )
 }
