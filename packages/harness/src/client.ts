@@ -221,6 +221,14 @@ export function createClient(baseUrl = resolveServerUrl()) {
       list: (input?: LocationInput) => unwrap(client.v2.model.list(input)),
       default: async () => ({ data: undefined as ModelV2Info | undefined }),
     },
+    provider: {
+      list: (input?: LocationInput) => unwrap(client.v2.provider.list(input)),
+    },
+    auth: {
+      set: (input: { providerID: string; key: string }) =>
+        unwrap(client.auth.set({ providerID: input.providerID, auth: { type: "api", key: input.key } })),
+      remove: (input: { providerID: string }) => unwrap(client.auth.remove({ providerID: input.providerID })),
+    },
     agent: {
       list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
     },
