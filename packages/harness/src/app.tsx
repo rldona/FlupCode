@@ -112,12 +112,20 @@ export const App: Component = () => {
       const result: ModelInfo[] = []
       for (const provider of providers) {
         for (const [modelID, model] of Object.entries(provider.models ?? {})) {
-          const entry = model as { id?: string; variants?: unknown[] }
+          const entry = model as {
+            id?: string
+            headers?: Record<string, string>
+            variants?: Record<string, Record<string, unknown>>
+          }
           result.push({
             ...(model as object),
             providerID: provider.id,
             id: entry.id ?? modelID,
-            variants: entry.variants ?? [],
+            variants: Object.entries(entry.variants ?? {}).map(([variantID, body]) => ({
+              id: variantID,
+              headers: entry.headers ?? {},
+              body,
+            })),
           } as unknown as ModelInfo)
         }
       }
