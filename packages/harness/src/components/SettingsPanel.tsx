@@ -1,5 +1,5 @@
 import { For, type Component, Show } from "solid-js"
-import type { ModelInfo } from "@opencode-ai/client"
+import type { ModelInfo } from "../engine-types"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
 
@@ -110,7 +110,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   {t("Default model")}
                 </option>
                 <For each={props.models}>
-                  {(model) => <option value={`${model.providerID}/${model.modelID}`}>{model.name}</option>}
+                  {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
                 </For>
               </select>
             </label>

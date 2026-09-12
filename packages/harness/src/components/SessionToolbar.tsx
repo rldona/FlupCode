@@ -1,5 +1,5 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import type { AgentInfo, SessionInfo } from "@opencode-ai/client"
+import type { AgentInfo, SessionInfo } from "../engine-types"
 import type { ProjectItem } from "../types"
 import { t } from "../i18n"
 
@@ -53,7 +53,7 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
             {t("Agent")}
           </option>
           <For each={props.agents.filter((agent) => agent.mode !== "subagent")}>
-            {(agent) => <option value={agent.name}>{agent.name}</option>}
+            {(agent) => <option value={agent.id}>{agent.id}</option>}
           </For>
         </select>
         <button class="fc-button" type="button" disabled={props.busy} onClick={props.onFork}>

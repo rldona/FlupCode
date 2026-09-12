@@ -1,5 +1,5 @@
 import { For, Show, type Component } from "solid-js"
-import type { PermissionV2Request } from "@opencode-ai/client"
+import type { PermissionV2Request } from "../engine-types"
 import { t } from "../i18n"
 
 export type PermissionReply = "once" | "always" | "reject"

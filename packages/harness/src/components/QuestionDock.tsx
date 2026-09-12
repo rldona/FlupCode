@@ -1,6 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import { createStore } from "solid-js/store"
-import type { QuestionV2Request } from "@opencode-ai/client"
+import type { QuestionV2Request } from "../engine-types"
 import { t } from "../i18n"
 
 type QuestionDockProps = {

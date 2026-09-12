@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { FileSystemEntry, ModelInfo, ModelVariant } from "@opencode-ai/client"
+import type { FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 
@@ -310,7 +310,7 @@ export const Composer: Component<ComposerProps> = (props) => {
             {t("Default model")}
           </option>
           <For each={props.models}>
-            {(model) => <option value={`${model.providerID}/${model.modelID}`}>{model.name}</option>}
+            {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
           </For>
         </select>
         <Show when={props.variants.length > 0}>

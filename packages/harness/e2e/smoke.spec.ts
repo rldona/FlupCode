@@ -35,3 +35,16 @@ test("sidebar loads projects", async ({ page }) => {
   await page.goto("/")
   await expect(page.locator(".fc-skeleton")).toHaveCount(0)
 })
+
+test("sends a prompt and receives an answer", async ({ page }) => {
+  test.skip(!!process.env.CI, "requires a running OpenCode server with a model")
+  test.setTimeout(120_000)
+  await page.goto("/")
+  await page.getByRole("button", { name: /New/ }).first().click()
+  const composer = page.getByPlaceholder(/Describe a task or ask a question/i)
+  await composer.fill("Reply with exactly: ok")
+  await composer.press("Enter")
+  await expect(page.locator(".fc-message-assistant").filter({ hasText: "ok" }).first()).toBeVisible({
+    timeout: 90_000,
+  })
+})

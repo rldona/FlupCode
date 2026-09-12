@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionInfo } from "@opencode-ai/client"
+import type { SessionInfo } from "./engine-types"
 import { computeMetrics, filterByRange, formatTokens, activityByDay } from "./metrics"
 
 const DAY = 86_400_000
