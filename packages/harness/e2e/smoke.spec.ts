@@ -13,6 +13,15 @@ test("loads the harness shell", async ({ page }) => {
   await expect(page.getByText("FlupCode").first()).toBeVisible()
 })
 
+test("completes onboarding", async ({ page }) => {
+  await page.addInitScript(() => window.localStorage.removeItem("flupcode.onboarded"))
+  await page.goto("/")
+  await expect(page.getByText(/Welcome to FlupCode/i)).toBeVisible()
+  await page.locator(".fc-onboarding").getByPlaceholder(/Your name/i).fill("Raúl")
+  await page.getByRole("button", { name: /Get started/i }).click()
+  await expect(page.getByText(/Welcome to FlupCode/i)).toHaveCount(0)
+})
+
 test("opens the command palette", async ({ page }) => {
   test.skip(!!process.env.CI, "requires a running OpenCode server")
   await page.goto("/")
