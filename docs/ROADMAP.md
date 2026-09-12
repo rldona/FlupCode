@@ -18,6 +18,32 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 ---
 
+## Status summary
+
+_Last updated: 2026-09-12._
+
+| Status | Count | Tickets |
+| --- | --- | --- |
+| done | 42 | F0-1…4, F1-1…6, F2-1…6, F2-8, F3-1…7, F3-9, F3-11, F3-12, F3-14, F3-15, F4-1, F4-3…8, F5-1, F5-2, F5-3, F5-5, F6-1, F7-2 |
+| doing | 6 | F2-7, F3-10, F3-17, F4-2, F6-2, F7-1 |
+| blocked | 4 | F3-8, F3-13, F3-16, F5-4 |
+| todo | 3 | F6-3, F6-4, F7-3 |
+| **total** | **55** | |
+
+### What remains
+
+- **F2-7** — plan indicator in the sidebar footer (profile/name is done).
+- **F3-10** — dedicated skill manager dialog (skills already appear in the `/` menu and run via `session.skill`).
+- **F3-17** — configurable keybind editor (command palette and basic shortcuts already exist).
+- **F4-2** — git worktree workspaces (projects, filter, quick-create and pinning are done).
+- **F6-2** — credential-embedding pairing token (QR + LAN instructions are done).
+- **F7-1** — Playwright E2E (unit tests, i18n and focus styles are done).
+- **F6-3 / F6-4** — push notifications and in-app tunnel/serve management.
+- **F7-3** — v1.0 release (tag + notes + publish pipeline).
+- **Blocked** — F3-8 tags, F3-13 config editors, F3-16 org switch, F5-4 signing; plus share/unshare (part of F3-5). See [Blockers](#blockers).
+
+---
+
 ## F0 — Discovery
 
 | ID | P | Ticket | Status |
@@ -71,7 +97,7 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | F3-14 | P2 | MCP add/configure UI | done |
 | F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | blocked |
-| F3-17 | P2 | Keybind/leader parity where sensible | todo |
+| F3-17 | P2 | Keybind/leader parity where sensible | doing |
 
 ## F4 — Harness extras
 

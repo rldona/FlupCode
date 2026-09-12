@@ -40,11 +40,12 @@ README, ARCHITECTURE, UPSTREAM, DESIGN, PARITY, ROADMAP, CONTRIBUTING, ADRs, tic
 
 ## F1-5 — Product build/release pipeline · P1 · done
 
-CI to build/release the harness (and later desktop).
+CI to build the harness. Release publishing to GitHub Releases is tracked in F7-3.
 
 **Acceptance**
-- CI builds `packages/harness` on PR and on tag.
-- Artifacts published; versioning scheme documented.
+- CI builds `packages/harness` on PR and push to `power` (`.github/workflows/harness.yml`).
+- Build artifact uploaded.
+- Desktop build verified locally (`bun run build:harness-desktop`); packaging/signing is F5-4.
 
 ## F1-6 — Set `power` as default branch · P1 · done
 
