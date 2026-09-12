@@ -11,7 +11,6 @@ type ComposerProps = {
   modelLabel: string
   variants: ModelVariant[]
   variantKey: string | undefined
-  auto: boolean
   attachments: Attachment[]
   commands: CommandOption[]
   projects: ProjectItem[]
@@ -24,7 +23,6 @@ type ComposerProps = {
   onSend: () => void
   onOpenModelPicker: () => void
   onVariantChange: (value: string) => void
-  onToggleAuto: () => void
   onAttach: (files: File[]) => void
   onRemoveAttachment: (uri: string) => void
   onCommandPick: (name: string) => void
@@ -323,14 +321,6 @@ export const Composer: Component<ComposerProps> = (props) => {
               </For>
             </div>
           </Show>
-          <button
-            class="fc-chip fc-chip-button"
-            classList={{ "fc-chip-active": props.auto }}
-            type="button"
-            onClick={props.onToggleAuto}
-          >
-            {t("Auto")}
-          </button>
           <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
         </div>
 
@@ -338,7 +328,6 @@ export const Composer: Component<ComposerProps> = (props) => {
           <button
             class="fc-model-button"
             type="button"
-            disabled={props.auto}
             aria-label={t("Model")}
             onClick={props.onOpenModelPicker}
           >
@@ -348,7 +337,6 @@ export const Composer: Component<ComposerProps> = (props) => {
             <select
               class="fc-model-select"
               value={props.variantKey ?? ""}
-              disabled={props.auto}
               aria-label={t("Variant")}
               onChange={(event) => props.onVariantChange(event.currentTarget.value)}
             >

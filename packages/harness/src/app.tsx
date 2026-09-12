@@ -73,7 +73,6 @@ export const App: Component = () => {
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
-  const [auto, setAuto] = createSignal(false)
   const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string }>()
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
   const [favorites, setFavorites] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.favoriteModels, []))
@@ -350,8 +349,8 @@ export const App: Component = () => {
     if (!ref) return
     return modelList().find((model) => model.providerID === ref.providerID && model.id === ref.id)
   }
-  const variants = () => (auto() ? [] : (currentModel()?.variants ?? []))
-  const variantKey = () => (auto() ? undefined : modelRef()?.variant)
+  const variants = () => currentModel()?.variants ?? []
+  const variantKey = () => modelRef()?.variant
 
   createEffect(() => {
     if (modelRef()) return
@@ -1322,7 +1321,6 @@ export const App: Component = () => {
           modelLabel={modelLabel()}
           variants={variants()}
           variantKey={variantKey()}
-          auto={auto()}
           attachments={attachments()}
           commands={commandOptions()}
           projects={projects()}
@@ -1336,7 +1334,6 @@ export const App: Component = () => {
           onCommandPick={(name) => setPrompt(`/${name} `)}
           onOpenModelPicker={() => setModelPickerOpen(true)}
           onVariantChange={changeVariant}
-          onToggleAuto={() => setAuto((value) => !value)}
           onAttach={addAttachments}
           onRemoveAttachment={removeAttachment}
           searchFiles={searchFiles}
@@ -1416,7 +1413,6 @@ export const App: Component = () => {
         serverInput={serverInput()}
         models={modelList()}
         modelKey={modelKey()}
-        auto={auto()}
         showTools={showTools()}
         notifications={notifications()}
         paletteKey={paletteKey()}
@@ -1426,7 +1422,6 @@ export const App: Component = () => {
         onServerInput={setServerInput}
         onServerCommit={commitServer}
         onModelChange={changeModel}
-        onToggleAuto={() => setAuto((value) => !value)}
         onToggleTools={() => setShowTools((value) => !value)}
         onToggleNotifications={toggleNotifications}
         onPaletteKey={changePaletteKey}

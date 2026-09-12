@@ -11,7 +11,6 @@ type SettingsPanelProps = {
   serverInput: string
   models: ModelInfo[]
   modelKey: string | undefined
-  auto: boolean
   showTools: boolean
   notifications: boolean
   paletteKey: string
@@ -21,7 +20,6 @@ type SettingsPanelProps = {
   onServerInput: (value: string) => void
   onServerCommit: () => void
   onModelChange: (key: string) => void
-  onToggleAuto: () => void
   onToggleTools: () => void
   onToggleNotifications: () => void
   onPaletteKey: (value: string) => void
@@ -97,23 +95,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
           <section class="fc-settings-section">
             <h3 class="fc-settings-title">{t("Model")}</h3>
-            <div class="fc-settings-row">
-              <span>{t("Auto")}</span>
-              <button
-                class="fc-chip fc-chip-button"
-                classList={{ "fc-chip-active": props.auto }}
-                type="button"
-                onClick={props.onToggleAuto}
-              >
-                {props.auto ? t("On") : t("Off")}
-              </button>
-            </div>
             <label class="fc-settings-row">
               <span>{t("Default")}</span>
               <select
                 class="fc-toolbar-select"
                 value={props.modelKey ?? ""}
-                disabled={props.auto}
                 onChange={(event) => props.onModelChange(event.currentTarget.value)}
               >
                 <option value="" disabled>
