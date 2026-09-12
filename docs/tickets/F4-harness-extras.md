@@ -35,7 +35,7 @@ current streak, longest streak, peak hour, favorite model.
 - Generated/collected artifacts are listed and openable.
 - Scoping model documented.
 
-## F4-6 — Routines (scheduled tasks) · P2 · todo
+## F4-6 — Routines (scheduled tasks) · P2 · done
 
 **Acceptance**
 - Create/list/edit/disable routines.

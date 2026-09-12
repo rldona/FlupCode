@@ -17,6 +17,7 @@ type SidebarProps = {
   onRefresh: () => void
   onAbout: () => void
   onSettings: () => void
+  onRoutines: () => void
 }
 
 function projectLabel(project: Project) {
@@ -50,7 +51,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           <button class="fc-nav-item" type="button">
             Artefactos
           </button>
-          <button class="fc-nav-item" type="button">
+          <button class="fc-nav-item" type="button" onClick={props.onRoutines}>
             Rutinas
           </button>
           <button class="fc-nav-item" type="button" onClick={props.onSettings}>
