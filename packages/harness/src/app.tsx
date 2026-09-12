@@ -102,8 +102,12 @@ export const App: Component = () => {
   const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, async (url) =>
     createClient(url).session.list(),
   )
-  const [models, { refetch: refetchModels }] = createResource(serverUrl, async (url) =>
-    createClient(url).model.list(),
+  const sessionList = () => sessions()?.data
+  const selectedSession = () => sessionList()?.find((session) => session.id === selected())
+  const modelLocation = () => targetDirectory() ?? selectedSession()?.location?.directory
+  const [models, { refetch: refetchModels }] = createResource(
+    () => [serverUrl(), modelLocation()] as const,
+    ([url, directory]) => createClient(url).model.list(directory ? { location: { directory } } : undefined),
   )
   const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(serverUrl, async (url) =>
     createClient(url).model.directory(),
@@ -367,9 +371,6 @@ export const App: Component = () => {
       return undefined
     })
   }
-
-  const sessionList = () => sessions()?.data
-  const selectedSession = () => sessionList()?.find((session) => session.id === selected())
 
   const projects = createMemo(() => {
     const map = new Map<string, ProjectItem>()
