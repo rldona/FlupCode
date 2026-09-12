@@ -178,7 +178,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
           <section class="fc-settings-section">
             <h3 class="fc-settings-title">{t("Integrations")}</h3>
-            <div class="fc-settings-row">
+            <div class="fc-settings-grid">
               <button class="fc-button" type="button" onClick={props.onOpenMcp}>
                 {t("MCP servers")}
               </button>
