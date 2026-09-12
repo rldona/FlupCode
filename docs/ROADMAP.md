@@ -58,9 +58,9 @@ Status: `todo` · `doing` · `done` · `cut`
 | F3-1 | P0 | Slash commands + command palette in harness | done |
 | F3-2 | P0 | `@` mentions and `!` shell mode | done |
 | F3-3 | P0 | Permissions & questions docks | done |
-| F3-4 | P0 | Undo/redo, revert, fork, compact | doing |
+| F3-4 | P0 | Undo/redo, revert, fork, compact | done |
 | F3-5 | P0 | Session list/switch, share/unshare, export | doing |
-| F3-6 | P0 | Agents, subagents, todos | doing |
+| F3-6 | P0 | Agents, subagents, todos | done |
 | F3-7 | P1 | Move session between locations | done |
 | F3-8 | P1 | Session tags/labels | todo |
 | F3-9 | P1 | Prompt stash | todo |
