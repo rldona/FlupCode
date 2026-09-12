@@ -4,7 +4,7 @@ Goal: stable, documented v1.0.
 
 ## F7-1 — E2E, accessibility, i18n · P1 · done
 
-Unit tests for metrics, Playwright smoke E2E, focus-visible styles and an i18n layer (English source, Spanish translation, locale switch).
+Unit tests for metrics, Playwright smoke E2E (shell runs in CI; palette test needs a running server), focus-visible styles and an i18n layer (English source, Spanish translation, locale switch).
 
 **Acceptance**
 - E2E coverage for core flows (session, composer, permissions, settings).
