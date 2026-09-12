@@ -698,6 +698,63 @@ button.oh-row-main {
   }
 }
 
+.oh-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--oh-space-4);
+  background: rgb(0 0 0 / 0.35);
+}
+
+.oh-modal {
+  width: min(440px, 100%);
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-lg);
+  background: var(--oh-bg-elevated);
+  padding: var(--oh-space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--oh-space-3);
+}
+
+.oh-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-weight: 600;
+}
+
+.oh-modal-line {
+  margin: 0;
+  color: var(--oh-text-muted);
+  font-size: var(--oh-text-sm);
+}
+
+.oh-modal-note {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.oh-modal-links {
+  display: flex;
+  gap: var(--oh-space-3);
+}
+
+.oh-modal-links a {
+  color: var(--oh-accent);
+  font-size: 13px;
+}
+
+.oh-modal-license {
+  margin: 0;
+  color: var(--oh-text-muted);
+  font-size: var(--oh-text-xs);
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;

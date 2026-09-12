@@ -4,6 +4,7 @@ import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import type { Attachment } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
+import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
 import { Composer } from "./components/Composer"
@@ -25,6 +26,7 @@ export const App: Component = () => {
   const [auto, setAuto] = createSignal(true)
   const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string }>()
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  const [aboutOpen, setAboutOpen] = createSignal(false)
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -224,6 +226,7 @@ export const App: Component = () => {
         onNewSession={newSession}
         onSelectSession={selectSession}
         onRefresh={refresh}
+        onAbout={() => setAboutOpen(true)}
       />
       <main class="oh-main">
         <Topbar
@@ -266,6 +269,7 @@ export const App: Component = () => {
         />
       </main>
       <Toaster />
+      <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
     </div>
   )
 }
