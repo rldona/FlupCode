@@ -104,7 +104,10 @@ Blocker: no console API in the v2 client.
 **Acceptance**
 - Switch console organization when multiple exist.
 
-## F3-17 — Keybind/leader parity · P2 · todo
+## F3-17 — Keybind/leader parity · P2 · doing
+
+Done: command palette (`Cmd/Ctrl+K` / `Cmd/Ctrl+P`), send/newline and Escape handling.
+Pending: a configurable keybind editor.
 
 **Acceptance**
 - Terminal-equivalent actions reachable via configurable bindings where sensible; leader-key
