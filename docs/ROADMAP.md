@@ -92,8 +92,8 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | --- | --- | --- | --- |
 | F5-1 | P1 | `harness-desktop` Electron shell reusing `packages/desktop` patterns | done |
 | F5-2 | P1 | Native menus, window state, multi-window | done |
-| F5-3 | P1 | Auto-update | todo |
-| F5-4 | P1 | Signing/notarization: macOS, Windows, Linux | todo |
+| F5-3 | P1 | Auto-update | done |
+| F5-4 | P1 | Signing/notarization: macOS, Windows, Linux | blocked |
 | F5-5 | P2 | First-launch onboarding | todo |
 
 ## F6 — Remote / mobile
@@ -132,3 +132,4 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
   no `config` group. Needs a config read/write endpoint or the legacy SDK.
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; only export is available.
+- **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo.
