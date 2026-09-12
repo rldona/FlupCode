@@ -5,13 +5,13 @@ Goal: every P0/P1 row in `docs/PARITY.md` is parity. The matrix is the acceptanc
 Many features already exist in `packages/app` / `packages/session-ui`; in those cases the work is
 porting/adapting them into `packages/harness`, not rebuilding.
 
-## F3-1 — Slash commands + command palette · P0 · doing
+## F3-1 — Slash commands + command palette · P0 · done
 
 **Acceptance**
 - All TUI slash commands reachable, plus server/MCP/custom commands.
 - Palette searches commands, sessions and files.
 
-## F3-2 — `@` mentions and `!` shell · P0 · doing
+## F3-2 — `@` mentions and `!` shell · P0 · done
 
 **Acceptance**
 - `@` fuzzy files, references, agents, MCP resources; line ranges supported.

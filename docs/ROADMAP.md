@@ -55,8 +55,8 @@ Status: `todo` · `doing` · `done` · `cut`
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F3-1 | P0 | Slash commands + command palette in harness | doing |
-| F3-2 | P0 | `@` mentions and `!` shell mode | doing |
+| F3-1 | P0 | Slash commands + command palette in harness | done |
+| F3-2 | P0 | `@` mentions and `!` shell mode | done |
 | F3-3 | P0 | Permissions & questions docks | done |
 | F3-4 | P0 | Undo/redo, revert, fork, compact | todo |
 | F3-5 | P0 | Session list/switch, share/unshare, export | todo |
