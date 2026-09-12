@@ -248,135 +248,149 @@ export const Composer: Component<ComposerProps> = (props) => {
         </div>
       </Show>
 
-      <div class="fc-composer-row">
-        <button
-          class="fc-attach"
-          type="button"
-          title={t("Attach")}
-          aria-label={t("Attach")}
-          onClick={() => fileInput?.click()}
-        >
-          +
-        </button>
-        <textarea
-          class="fc-input"
-          rows={1}
-          placeholder={t("Describe a task or ask a question")}
-          value={props.value}
-          onInput={(event) => props.onInput(event.currentTarget.value)}
-          onPaste={(event) => {
-            const files = event.clipboardData?.files
-            if (files && files.length > 0) {
-              event.preventDefault()
-              handleFiles(files)
-              return
-            }
-            const raw = event.clipboardData?.getData("text")
-            if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
-              event.preventDefault()
-              const token = props.onPasteText(raw)
-              props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault()
-              props.onSend()
-            }
-          }}
-        />
-        <button
-          class="fc-chip fc-chip-button"
-          classList={{ "fc-chip-active": listening() }}
-          type="button"
-          title={t("Voice dictation")}
-          aria-label={t("Voice dictation")}
-          disabled={!speechRecognition()}
-          onClick={toggleVoice}
-        >
-          {t("Voice")}
-        </button>
-        <button
-          class="fc-send"
-          type="button"
-          title={t("Send")}
-          aria-label={t("Send")}
-          onClick={props.onSend}
-          disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path
-              d="M12 19V5M12 5l-6 6M12 5l6 6"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2.2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
-      </div>
+      <textarea
+        class="fc-input"
+        rows={1}
+        placeholder={t("Describe a task or ask a question")}
+        value={props.value}
+        onInput={(event) => props.onInput(event.currentTarget.value)}
+        onPaste={(event) => {
+          const files = event.clipboardData?.files
+          if (files && files.length > 0) {
+            event.preventDefault()
+            handleFiles(files)
+            return
+          }
+          const raw = event.clipboardData?.getData("text")
+          if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
+            event.preventDefault()
+            const token = props.onPasteText(raw)
+            props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
+          }
+        }}
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault()
+            props.onSend()
+          }
+        }}
+      />
 
-      <div class="fc-composer-controls">
-        <Show when={primaryAgents(props.agents).length > 0}>
-          <div class="fc-segment">
-            <For each={primaryAgents(props.agents)}>
-              {(entry) => (
-                <button
-                  class="fc-segment-item"
-                  classList={{ "fc-segment-item-active": props.agent === entry.id }}
-                  type="button"
-                  onClick={() => props.onAgentChange(entry.id)}
-                >
-                  {entry.id}
-                </button>
-              )}
-            </For>
-          </div>
-        </Show>
-        <button class="fc-chip fc-chip-button" type="button" onClick={props.onStash}>
-          {t("Save")}
-        </button>
-        <button
-          class="fc-chip fc-chip-button"
-          classList={{ "fc-chip-active": props.auto }}
-          type="button"
-          onClick={props.onToggleAuto}
-        >
-          {t("Auto")}
-        </button>
-        <select
-          class="fc-model-select"
-          value={props.auto ? "" : (props.modelKey ?? "")}
-          disabled={props.auto}
-          aria-label={t("Model")}
-          onChange={(event) => props.onModelChange(event.currentTarget.value)}
-        >
-          <option value="" disabled>
-            {t("Default model")}
-          </option>
-          <For each={groupModels(props.models)}>
-            {(group) => (
-              <optgroup label={group.providerID}>
-                <For each={group.items}>
-                  {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
-                </For>
-              </optgroup>
-            )}
-          </For>
-        </select>
-        <Show when={props.variants.length > 0}>
+      <div class="fc-composer-bottom">
+        <div class="fc-composer-left">
+          <button
+            class="fc-icon-button"
+            type="button"
+            title={t("Attach")}
+            aria-label={t("Attach")}
+            onClick={() => fileInput?.click()}
+          >
+            +
+          </button>
+          <button
+            class="fc-icon-button"
+            classList={{ "fc-icon-button-active": listening() }}
+            type="button"
+            title={t("Voice dictation")}
+            aria-label={t("Voice dictation")}
+            disabled={!speechRecognition()}
+            onClick={toggleVoice}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path
+                d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+              />
+              <path
+                d="M5 11a7 7 0 0 0 14 0M12 18v3"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="1.8"
+                stroke-linecap="round"
+              />
+            </svg>
+          </button>
+          <Show when={primaryAgents(props.agents).length > 0}>
+            <div class="fc-segment">
+              <For each={primaryAgents(props.agents)}>
+                {(entry) => (
+                  <button
+                    class="fc-segment-item"
+                    classList={{ "fc-segment-item-active": props.agent === entry.id }}
+                    type="button"
+                    onClick={() => props.onAgentChange(entry.id)}
+                  >
+                    {entry.id}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+          <button
+            class="fc-chip fc-chip-button"
+            classList={{ "fc-chip-active": props.auto }}
+            type="button"
+            onClick={props.onToggleAuto}
+          >
+            {t("Auto")}
+          </button>
+        </div>
+
+        <div class="fc-composer-right">
           <select
             class="fc-model-select"
-            value={props.variantKey ?? ""}
+            value={props.auto ? "" : (props.modelKey ?? "")}
             disabled={props.auto}
-            aria-label={t("Variant")}
-            onChange={(event) => props.onVariantChange(event.currentTarget.value)}
+            aria-label={t("Model")}
+            onChange={(event) => props.onModelChange(event.currentTarget.value)}
           >
-            <option value="">{t("Default")}</option>
-            <For each={props.variants}>{(variant) => <option value={variant.id}>{variant.id}</option>}</For>
+            <option value="" disabled>
+              {t("Default model")}
+            </option>
+            <For each={groupModels(props.models)}>
+              {(group) => (
+                <optgroup label={group.providerID}>
+                  <For each={group.items}>
+                    {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                  </For>
+                </optgroup>
+              )}
+            </For>
           </select>
-        </Show>
+          <Show when={props.variants.length > 0}>
+            <select
+              class="fc-model-select"
+              value={props.variantKey ?? ""}
+              disabled={props.auto}
+              aria-label={t("Variant")}
+              onChange={(event) => props.onVariantChange(event.currentTarget.value)}
+            >
+              <option value="">{t("Default")}</option>
+              <For each={props.variants}>{(variant) => <option value={variant.id}>{variant.id}</option>}</For>
+            </select>
+          </Show>
+          <button
+            class="fc-send"
+            type="button"
+            title={t("Send")}
+            aria-label={t("Send")}
+            onClick={props.onSend}
+            disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+              <path
+                d="M12 19V5M12 5l-6 6M12 5l6 6"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2.2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </div>
       </div>
 
       <input

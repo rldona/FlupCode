@@ -1,11 +1,11 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import type { AgentInfo, SessionInfo } from "../engine-types"
+import type { SessionInfo } from "../engine-types"
 import type { ProjectItem } from "../types"
 import { t } from "../i18n"
+import { ContextMenu, type MenuItem } from "./ContextMenu"
 
 type SessionToolbarProps = {
   session: SessionInfo
-  agents: AgentInfo[]
   projects: ProjectItem[]
   busy: boolean
   reverting: boolean
@@ -16,7 +16,6 @@ type SessionToolbarProps = {
   onExport: () => void
   onMove: (directory: string) => void
   onDelete: () => void
-  onAgentChange: (agent: string) => void
   onUndo: () => void
   onRedo: () => void
   onCommitRevert: () => void
@@ -24,16 +23,9 @@ type SessionToolbarProps = {
   onRemoveTag: (tag: string) => void
 }
 
-function primaryAgents(agents: AgentInfo[]) {
-  return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
-}
-
-function projectLabel(project: ProjectItem) {
-  return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
-}
-
 export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
   const [tag, setTag] = createSignal("")
+  const [menu, setMenu] = createSignal<{ x: number; y: number; items: MenuItem[] }>()
 
   const addTag = () => {
     const value = tag().trim()
@@ -42,67 +34,39 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
     setTag("")
   }
 
+  const items = (): MenuItem[] => [
+    { label: t("Fork"), icon: "⑂", onSelect: props.onFork },
+    { label: t("Compact"), icon: "⇲", onSelect: props.onCompact },
+    { label: t("Undo"), icon: "↶", onSelect: props.onUndo },
+    { label: t("Redo"), icon: "↷", onSelect: props.onRedo },
+    ...(props.reverting
+      ? [{ label: t("Confirm revert"), icon: "✓", onSelect: props.onCommitRevert }]
+      : []),
+    { label: t("Rename"), icon: "✎", onSelect: props.onRename },
+    { label: t("Export MD"), icon: "↓", onSelect: props.onExport },
+    ...props.projects.map((project) => ({
+      label: `${t("Move to…")} ${project.name}`,
+      icon: "→",
+      onSelect: () => props.onMove(project.directory),
+    })),
+    { label: t("Delete"), icon: "×", danger: true, onSelect: props.onDelete },
+  ]
+
   return (
     <div class="fc-session-toolbar">
       <div class="fc-session-toolbar-title">{props.session.title || t("Session without title")}</div>
-      <div class="fc-session-toolbar-actions">
-        <select
-          class="fc-toolbar-select"
-          aria-label={t("Agent")}
-          value={props.session.agent ?? ""}
-          disabled={props.busy}
-          onChange={(event) => props.onAgentChange(event.currentTarget.value)}
-        >
-          <option value="" disabled>
-            {t("Agent")}
-          </option>
-          <For each={primaryAgents(props.agents)}>
-            {(agent) => <option value={agent.id}>{agent.id}</option>}
-          </For>
-        </select>
-        <button class="fc-button" type="button" disabled={props.busy} onClick={props.onFork}>
-          {t("Fork")}
-        </button>
-        <button class="fc-button" type="button" disabled={props.busy} onClick={props.onCompact}>
-          {t("Compact")}
-        </button>
-        <button class="fc-button" type="button" disabled={props.busy} onClick={props.onUndo}>
-          {t("Undo")}
-        </button>
-        <button class="fc-button" type="button" disabled={props.busy} onClick={props.onRedo}>
-          {t("Redo")}
-        </button>
-        <Show when={props.reverting}>
-          <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={props.onCommitRevert}>
-            {t("Confirm revert")}
-          </button>
-        </Show>
-        <button class="fc-button" type="button" disabled={props.busy} onClick={props.onRename}>
-          {t("Rename")}
-        </button>
-        <button class="fc-button" type="button" disabled={props.busy} onClick={props.onExport}>
-          {t("Export MD")}
-        </button>
-        <select
-          class="fc-toolbar-select"
-          aria-label={t("Move to…")}
-          value=""
-          disabled={props.busy}
-          onChange={(event) => {
-            if (event.currentTarget.value) props.onMove(event.currentTarget.value)
-          }}
-        >
-          <option value="" disabled>
-            {t("Move to…")}
-          </option>
-          <For each={props.projects}>
-            {(project) => <option value={project.directory}>{projectLabel(project)}</option>}
-          </For>
-        </select>
-        <button class="fc-button fc-button-danger" type="button" disabled={props.busy} onClick={props.onDelete}>
-          {t("Delete")}
-        </button>
-      </div>
+      <button
+        class="fc-icon-button"
+        type="button"
+        title={t("Menu")}
+        aria-label={t("Menu")}
+        onClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect()
+          setMenu({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4, items: items() })
+        }}
+      >
+        ⋯
+      </button>
       <div class="fc-session-tags">
         <For each={props.tags}>
           {(value) => (
@@ -132,6 +96,9 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => {
           }}
         />
       </div>
+      <Show when={menu()}>
+        {(m) => <ContextMenu x={m().x} y={m().y} items={m().items} onClose={() => setMenu(undefined)} />}
+      </Show>
     </div>
   )
 }
