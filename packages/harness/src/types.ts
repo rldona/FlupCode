@@ -9,3 +9,9 @@ export type CommandOption = {
 }
 
 export type McpConfig = { type: "local"; command: string[] } | { type: "remote"; url: string }
+
+export type StashedPrompt = {
+  id: string
+  text: string
+  createdAt: number
+}

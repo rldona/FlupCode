@@ -22,6 +22,7 @@ type ComposerProps = {
   onCommandPick: (name: string) => void
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
   onPasteText: (text: string) => string
+  onStash: () => void
 }
 
 type SpeechRecognitionResult = {
@@ -271,6 +272,9 @@ export const Composer: Component<ComposerProps> = (props) => {
       </div>
 
       <div class="oh-composer-controls">
+        <button class="oh-chip oh-chip-button" type="button" onClick={props.onStash}>
+          Guardar
+        </button>
         <button
           class="oh-chip oh-chip-button"
           classList={{ "oh-chip-active": props.auto }}
