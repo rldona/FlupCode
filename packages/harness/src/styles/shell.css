@@ -150,6 +150,16 @@ textarea {
   padding: 4px 2px;
 }
 
+.fc-filter-input {
+  height: var(--fc-control-sm);
+  padding: 0 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
 .fc-icon-button {
   border: none;
   background: transparent;

@@ -16,6 +16,7 @@ const ES: Record<string, string> = {
   Pinned: "Fijado",
   "No open projects": "Sin proyectos abiertos",
   "Open a folder to get started": "Abre una carpeta para empezar",
+  "Filter projects": "Filtrar proyectos",
   "No sessions": "No hay sesiones",
   "Create one with New": "Crea una con Nuevo",
   Pin: "Fijar",

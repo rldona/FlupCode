@@ -1,4 +1,4 @@
-import { For, Show, type Component } from "solid-js"
+import { For, Show, createSignal, type Component } from "solid-js"
 import type { Project, SessionInfo } from "@opencode-ai/client"
 import { t } from "../i18n"
 
@@ -35,8 +35,13 @@ const SkeletonRows: Component<{ count: number }> = (props) => (
 )
 
 export const Sidebar: Component<SidebarProps> = (props) => {
+  const [filter, setFilter] = createSignal("")
+
   const orderedProjects = () => {
-    const list = props.projects ?? []
+    const query = filter().trim().toLowerCase()
+    const list = (props.projects ?? []).filter((project) =>
+      query ? `${projectLabel(project)} ${project.worktree}`.toLowerCase().includes(query) : true,
+    )
     return [...list].sort(
       (a, b) => Number(props.pinned.includes(b.id)) - Number(props.pinned.includes(a.id)),
     )
@@ -69,6 +74,13 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             ↻
           </button>
         </div>
+        <input
+          class="fc-filter-input"
+          value={filter()}
+          placeholder={t("Filter projects")}
+          aria-label={t("Filter projects")}
+          onInput={(event) => setFilter(event.currentTarget.value)}
+        />
         <div class="fc-scroll">
           <Show when={!props.projectsLoading} fallback={<SkeletonRows count={3} />}>
             <Show
