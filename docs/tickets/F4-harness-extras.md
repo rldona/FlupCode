@@ -18,12 +18,12 @@ current streak, longest streak, peak hour, favorite model.
 - Projects and workspaces are first-class in the sidebar.
 - Pinned items persist and are reorderable.
 
-## F4-3 — Unified "Personalizar" · P1 · todo
+## F4-3 — Unified "Personalizar" · P1 · done
 
 **Acceptance**
 - One surface for appearance, models, agents, permissions, commands, MCP and shortcuts.
 
-## F4-4 — Activity heatmap + comparisons · P2 · todo
+## F4-4 — Activity heatmap + comparisons · P2 · done
 
 **Acceptance**
 - Contribution-style heatmap over a rolling year.
