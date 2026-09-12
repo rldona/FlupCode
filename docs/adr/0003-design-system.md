@@ -11,7 +11,7 @@ primitive library (`@opencode-ai/ui`), and users can install community themes.
 
 ## Decision
 
-- Define OpenHarness design tokens as CSS custom properties (`--oh-*`) documented in
+- Define FlupCode design tokens as CSS custom properties (`--oh-*`) documented in
   [DESIGN.md](../DESIGN.md).
 - Map those tokens onto the upstream theme engine so light/dark/system switching and community
   themes keep working.

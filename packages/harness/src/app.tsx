@@ -30,8 +30,8 @@ const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "mcp", description: "Servidores MCP" },
   { name: "stash", description: "Guardar el prompt actual" },
   { name: "stashes", description: "Ver prompts guardados" },
-  { name: "settings", description: "Personalizar OpenHarness" },
-  { name: "about", description: "Acerca de OpenHarness" },
+  { name: "settings", description: "Personalizar FlupCode" },
+  { name: "about", description: "Acerca de FlupCode" },
 ]
 
 export const App: Component = () => {
@@ -336,7 +336,7 @@ export const App: Component = () => {
     const media = window.matchMedia("(prefers-color-scheme: dark)")
     const apply = () => {
       const dark = mode === "dark" || (mode === "system" && media.matches)
-      document.documentElement.classList.toggle("oh-dark", dark)
+      document.documentElement.classList.toggle("fc-dark", dark)
     }
     apply()
     media.addEventListener("change", apply)
@@ -712,7 +712,7 @@ export const App: Component = () => {
   }
 
   return (
-    <div class="oh-app">
+    <div class="fc-app">
       <Sidebar
         collapsed={collapsed()}
         displayName={displayName()}
@@ -730,7 +730,7 @@ export const App: Component = () => {
         onAbout={() => setAboutOpen(true)}
         onSettings={() => setSettingsOpen(true)}
       />
-      <main class="oh-main">
+      <main class="fc-main">
         <Topbar
           serverInput={serverInput()}
           healthLoading={health.loading}
@@ -783,7 +783,7 @@ export const App: Component = () => {
         >
           <SessionView messages={messages()?.data} loading={messages.loading} busy={busy()} showTools={showTools()} />
         </Show>
-        <div class="oh-docks">
+        <div class="fc-docks">
           <TodoDock todos={todos()} />
           <For each={permissions()?.data ?? []}>
             {(request) => (

@@ -11,32 +11,32 @@ type StashDialogProps = {
 
 export const StashDialog: Component<StashDialogProps> = (props) => (
   <Show when={props.open}>
-    <div class="oh-modal-backdrop" onClick={props.onClose}>
-      <div class="oh-modal oh-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-        <div class="oh-modal-header">
+    <div class="fc-modal-backdrop" onClick={props.onClose}>
+      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div class="fc-modal-header">
           <span>Prompts guardados</span>
-          <button class="oh-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
+          <button class="fc-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
             ×
           </button>
         </div>
         <Show
           when={props.items.length > 0}
           fallback={
-            <div class="oh-empty-state">
-              <span class="oh-empty-title">Sin prompts guardados</span>
-              <span class="oh-empty-hint">Usa /stash para guardar el prompt actual</span>
+            <div class="fc-empty-state">
+              <span class="fc-empty-title">Sin prompts guardados</span>
+              <span class="fc-empty-hint">Usa /stash para guardar el prompt actual</span>
             </div>
           }
         >
-          <ul class="oh-stash-list">
+          <ul class="fc-stash-list">
             <For each={props.items}>
               {(item) => (
-                <li class="oh-stash-row">
-                  <span class="oh-stash-text">{item.text}</span>
-                  <button class="oh-button" type="button" onClick={() => props.onRestore(item.id)}>
+                <li class="fc-stash-row">
+                  <span class="fc-stash-text">{item.text}</span>
+                  <button class="fc-button" type="button" onClick={() => props.onRestore(item.id)}>
                     Restaurar
                   </button>
-                  <button class="oh-button oh-button-danger" type="button" onClick={() => props.onRemove(item.id)}>
+                  <button class="fc-button fc-button-danger" type="button" onClick={() => props.onRemove(item.id)}>
                     Quitar
                   </button>
                 </li>

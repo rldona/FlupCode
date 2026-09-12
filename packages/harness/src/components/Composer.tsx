@@ -144,8 +144,8 @@ export const Composer: Component<ComposerProps> = (props) => {
 
   return (
     <footer
-      class="oh-composer"
-      classList={{ "oh-composer-dragging": dragging() }}
+      class="fc-composer"
+      classList={{ "fc-composer-dragging": dragging() }}
       onDragOver={(event) => {
         event.preventDefault()
         setDragging(true)
@@ -157,22 +157,22 @@ export const Composer: Component<ComposerProps> = (props) => {
         handleFiles(event.dataTransfer?.files ?? null)
       }}
     >
-      <div class="oh-composer-chips">
-        <span class="oh-chip">Local</span>
-        <span class="oh-chip">Sin carpeta</span>
+      <div class="fc-composer-chips">
+        <span class="fc-chip">Local</span>
+        <span class="fc-chip">Sin carpeta</span>
         <Show when={props.value.startsWith("!")}>
-          <span class="oh-chip oh-chip-active">Shell</span>
+          <span class="fc-chip fc-chip-active">Shell</span>
         </Show>
       </div>
 
       <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
-        <div class="oh-command-menu">
+        <div class="fc-command-menu">
           <For each={filteredCommands()}>
             {(command) => (
-              <button class="oh-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
-                <span class="oh-command-name">/{command.name}</span>
+              <button class="fc-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
+                <span class="fc-command-name">/{command.name}</span>
                 <Show when={command.description}>
-                  <span class="oh-command-desc">{command.description}</span>
+                  <span class="fc-command-desc">{command.description}</span>
                 </Show>
               </button>
             )}
@@ -181,12 +181,12 @@ export const Composer: Component<ComposerProps> = (props) => {
       </Show>
 
       <Show when={commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0}>
-        <div class="oh-command-menu">
+        <div class="fc-command-menu">
           <For each={fileResults()}>
             {(file) => (
-              <button class="oh-command-item" type="button" onClick={() => insertMention(file.path)}>
-                <span class="oh-command-name">@{file.path}</span>
-                <span class="oh-command-desc">{file.type}</span>
+              <button class="fc-command-item" type="button" onClick={() => insertMention(file.path)}>
+                <span class="fc-command-name">@{file.path}</span>
+                <span class="fc-command-desc">{file.type}</span>
               </button>
             )}
           </For>
@@ -194,13 +194,13 @@ export const Composer: Component<ComposerProps> = (props) => {
       </Show>
 
       <Show when={props.attachments.length > 0}>
-        <div class="oh-attachments">
+        <div class="fc-attachments">
           <For each={props.attachments}>
             {(attachment) => (
-              <span class="oh-attachment">
-                <span class="oh-attachment-name">{attachment.name}</span>
+              <span class="fc-attachment">
+                <span class="fc-attachment-name">{attachment.name}</span>
                 <button
-                  class="oh-attachment-remove"
+                  class="fc-attachment-remove"
                   type="button"
                   aria-label={`Quitar ${attachment.name}`}
                   onClick={() => props.onRemoveAttachment(attachment.uri)}
@@ -213,9 +213,9 @@ export const Composer: Component<ComposerProps> = (props) => {
         </div>
       </Show>
 
-      <div class="oh-composer-row">
+      <div class="fc-composer-row">
         <button
-          class="oh-attach"
+          class="fc-attach"
           type="button"
           title="Adjuntar"
           aria-label="Adjuntar"
@@ -224,7 +224,7 @@ export const Composer: Component<ComposerProps> = (props) => {
           +
         </button>
         <textarea
-          class="oh-input"
+          class="fc-input"
           rows={1}
           placeholder="Describe una tarea o haz una pregunta"
           value={props.value}
@@ -251,8 +251,8 @@ export const Composer: Component<ComposerProps> = (props) => {
           }}
         />
         <button
-          class="oh-chip oh-chip-button"
-          classList={{ "oh-chip-active": listening() }}
+          class="fc-chip fc-chip-button"
+          classList={{ "fc-chip-active": listening() }}
           type="button"
           title="Dictado por voz"
           aria-label="Dictado por voz"
@@ -262,7 +262,7 @@ export const Composer: Component<ComposerProps> = (props) => {
           Voz
         </button>
         <button
-          class="oh-send"
+          class="fc-send"
           type="button"
           onClick={props.onSend}
           disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
@@ -271,20 +271,20 @@ export const Composer: Component<ComposerProps> = (props) => {
         </button>
       </div>
 
-      <div class="oh-composer-controls">
-        <button class="oh-chip oh-chip-button" type="button" onClick={props.onStash}>
+      <div class="fc-composer-controls">
+        <button class="fc-chip fc-chip-button" type="button" onClick={props.onStash}>
           Guardar
         </button>
         <button
-          class="oh-chip oh-chip-button"
-          classList={{ "oh-chip-active": props.auto }}
+          class="fc-chip fc-chip-button"
+          classList={{ "fc-chip-active": props.auto }}
           type="button"
           onClick={props.onToggleAuto}
         >
           Auto
         </button>
         <select
-          class="oh-model-select"
+          class="fc-model-select"
           value={props.auto ? "" : (props.modelKey ?? "")}
           disabled={props.auto}
           aria-label="Modelo"
@@ -299,7 +299,7 @@ export const Composer: Component<ComposerProps> = (props) => {
         </select>
         <Show when={props.variants.length > 0}>
           <select
-            class="oh-model-select"
+            class="fc-model-select"
             value={props.variantKey ?? ""}
             disabled={props.auto}
             aria-label="Variante"
@@ -313,7 +313,7 @@ export const Composer: Component<ComposerProps> = (props) => {
 
       <input
         ref={fileInput}
-        class="oh-file-input"
+        class="fc-file-input"
         type="file"
         multiple
         onChange={(event) => {

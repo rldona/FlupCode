@@ -10,25 +10,25 @@ type PermissionDockProps = {
 }
 
 export const PermissionDock: Component<PermissionDockProps> = (props) => (
-  <div class="oh-dock oh-dock-permission">
-    <div class="oh-dock-header">
-      <span class="oh-dock-title">Permiso requerido</span>
-      <span class="oh-chip">{props.request.action}</span>
+  <div class="fc-dock fc-dock-permission">
+    <div class="fc-dock-header">
+      <span class="fc-dock-title">Permiso requerido</span>
+      <span class="fc-chip">{props.request.action}</span>
     </div>
     <Show when={props.request.resources.length > 0}>
-      <ul class="oh-dock-list">
+      <ul class="fc-dock-list">
         <For each={props.request.resources}>{(resource) => <li><code>{resource}</code></li>}</For>
       </ul>
     </Show>
-    <div class="oh-dock-actions">
-      <button class="oh-button oh-button-primary" type="button" disabled={props.busy} onClick={() => props.onReply("once")}>
+    <div class="fc-dock-actions">
+      <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={() => props.onReply("once")}>
         Permitir una vez
       </button>
-      <button class="oh-button" type="button" disabled={props.busy} onClick={() => props.onReply("always")}>
+      <button class="fc-button" type="button" disabled={props.busy} onClick={() => props.onReply("always")}>
         Permitir siempre
       </button>
       <button
-        class="oh-button oh-button-danger"
+        class="fc-button fc-button-danger"
         type="button"
         disabled={props.busy}
         onClick={() => props.onReply("reject")}

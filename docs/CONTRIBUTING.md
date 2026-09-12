@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for helping build OpenHarness. This project is a fork of OpenCode; read
+Thanks for helping build FlupCode. This project is a fork of OpenCode; read
 [docs/UPSTREAM.md](UPSTREAM.md) first, because the upstream boundary shapes how we work.
 
 ## Getting started

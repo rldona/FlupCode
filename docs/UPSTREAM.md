@@ -1,6 +1,6 @@
 # Upstream
 
-OpenHarness tracks [anomalyco/opencode](https://github.com/anomalyco/opencode) so we inherit every
+FlupCode tracks [anomalyco/opencode](https://github.com/anomalyco/opencode) so we inherit every
 new engine capability, provider, tool and fix. This document defines how we do that without
 fighting merge conflicts.
 
@@ -8,7 +8,7 @@ fighting merge conflicts.
 
 | Remote | URL | Role |
 | --- | --- | --- |
-| `origin` | `https://github.com/rldona/OpenHarness.git` | Our fork. We push here. |
+| `origin` | `https://github.com/rldona/FlupCode.git` | Our fork. We push here. |
 | `upstream` | `https://github.com/anomalyco/opencode.git` | Read-only source of truth. |
 
 ## Branches
@@ -16,7 +16,7 @@ fighting merge conflicts.
 | Branch | Meaning |
 | --- | --- |
 | `dev` | Fast-forward mirror of `upstream/dev`. **Never commit here.** |
-| `power` | Product branch. All OpenHarness work. Default branch of the fork. |
+| `power` | Product branch. All FlupCode work. Default branch of the fork. |
 
 > Upstream's default branch is `dev` (not `main`), so our mirror is `dev` too. There is no `main`.
 
@@ -48,7 +48,7 @@ git push origin dev
 # 2. Bring the product branch up to date
 git switch power
 git merge dev
-# resolve conflicts only in OpenHarness-owned files
+# resolve conflicts only in FlupCode-owned files
 git push origin power
 ```
 

@@ -36,33 +36,33 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
   const canSubmit = () => answers().every((values) => values.length > 0)
 
   return (
-    <div class="oh-dock oh-dock-question">
-      <div class="oh-dock-header">
-        <span class="oh-dock-title">Pregunta</span>
+    <div class="fc-dock fc-dock-question">
+      <div class="fc-dock-header">
+        <span class="fc-dock-title">Pregunta</span>
       </div>
       <For each={props.request.questions}>
         {(question, index) => (
-          <div class="oh-question">
-            <div class="oh-question-header">{question.header}</div>
-            <div class="oh-question-text">{question.question}</div>
-            <div class="oh-question-options">
+          <div class="fc-question">
+            <div class="fc-question-header">{question.header}</div>
+            <div class="fc-question-text">{question.question}</div>
+            <div class="fc-question-options">
               <For each={question.options}>
                 {(option) => (
                   <button
-                    class="oh-option"
-                    classList={{ "oh-option-selected": (selected[index()] ?? []).includes(option.label) }}
+                    class="fc-option"
+                    classList={{ "fc-option-selected": (selected[index()] ?? []).includes(option.label) }}
                     type="button"
                     onClick={() => toggle(index(), option.label, question.multiple)}
                   >
-                    <span class="oh-option-label">{option.label}</span>
-                    <span class="oh-option-desc">{option.description}</span>
+                    <span class="fc-option-label">{option.label}</span>
+                    <span class="fc-option-desc">{option.description}</span>
                   </button>
                 )}
               </For>
             </div>
             <Show when={question.custom}>
               <input
-                class="oh-question-custom"
+                class="fc-question-custom"
                 placeholder="Respuesta personalizada"
                 value={custom[index()] ?? ""}
                 onInput={(event) => setCustom(index(), event.currentTarget.value)}
@@ -71,16 +71,16 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
           </div>
         )}
       </For>
-      <div class="oh-dock-actions">
+      <div class="fc-dock-actions">
         <button
-          class="oh-button oh-button-primary"
+          class="fc-button fc-button-primary"
           type="button"
           disabled={props.busy || !canSubmit()}
           onClick={() => props.onReply(answers())}
         >
           Responder
         </button>
-        <button class="oh-button oh-button-danger" type="button" disabled={props.busy} onClick={props.onReject}>
+        <button class="fc-button fc-button-danger" type="button" disabled={props.busy} onClick={props.onReject}>
           Rechazar
         </button>
       </div>

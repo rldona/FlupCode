@@ -1,6 +1,6 @@
 {
-  "name": "OpenHarness",
-  "short_name": "OpenHarness",
+  "name": "FlupCode",
+  "short_name": "FlupCode",
   "description": "A Claude Code-style web and desktop harness for OpenCode.",
   "start_url": "/",
   "scope": "/",

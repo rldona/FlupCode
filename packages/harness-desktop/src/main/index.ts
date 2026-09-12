@@ -4,7 +4,7 @@ import { setApplicationMenu } from "./menu"
 import { ensureServer, stopServer } from "./server"
 import { loadBounds, saveBounds } from "./window-state"
 
-const DEV_URL = process.env.OPENHARNESS_DEV_URL ?? "http://localhost:4444"
+const DEV_URL = process.env.FLUPCODE_DEV_URL ?? "http://localhost:4444"
 
 function createWindow() {
   const bounds = loadBounds()
@@ -16,7 +16,7 @@ function createWindow() {
     y: bounds.y,
     minWidth: 720,
     minHeight: 480,
-    title: "OpenHarness",
+    title: "FlupCode",
     backgroundColor: "#0f0f0f",
     webPreferences: {
       contextIsolation: true,
@@ -26,7 +26,7 @@ function createWindow() {
 
   window.on("close", () => saveBounds(window.getBounds()))
 
-  const devUrl = process.env.OPENHARNESS_DEV_URL
+  const devUrl = process.env.FLUPCODE_DEV_URL
   if (devUrl || !app.isPackaged) {
     void window.loadURL(devUrl ?? DEV_URL)
     return

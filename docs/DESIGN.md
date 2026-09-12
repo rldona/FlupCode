@@ -114,6 +114,6 @@ Built on `@opencode-ai/ui` primitives where possible.
 
 ## 6. Theming
 
-Keep the upstream theme contract intact. OpenHarness supplies a default theme plus any additional
+Keep the upstream theme contract intact. FlupCode supplies a default theme plus any additional
 harness-specific overrides. Users can still install community themes; our tokens are the fallback
 layer, not a replacement for the theme engine.

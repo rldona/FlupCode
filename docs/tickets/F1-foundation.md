@@ -26,7 +26,7 @@ Scheduled workflow that fast-forwards `dev` and opens a `dev → power` PR.
 Product identity across harness surfaces, with non-affiliation notice.
 
 **Acceptance**
-- App name, icon, about dialog and window title read "OpenHarness".
+- App name, icon, about dialog and window title read "FlupCode".
 - README and app footer state non-affiliation with OpenCode and Anthropic.
 - Upstream LICENSE untouched.
 
@@ -48,7 +48,7 @@ CI to build/release the harness (and later desktop).
 
 ## F1-6 — Set `power` as default branch · P1 · done
 
-`gh repo edit rldona/OpenHarness --default-branch power`.
+`gh repo edit rldona/FlupCode --default-branch power`.
 
 **Acceptance**
 - Fork default branch is `power`.

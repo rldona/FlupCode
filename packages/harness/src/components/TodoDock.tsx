@@ -17,15 +17,15 @@ const mark = (status: string) => {
 
 export const TodoDock: Component<TodoDockProps> = (props) => (
   <Show when={props.todos.length > 0}>
-    <div class="oh-dock oh-todo-dock">
-      <div class="oh-dock-header">
-        <span class="oh-dock-title">Tareas</span>
+    <div class="fc-dock fc-todo-dock">
+      <div class="fc-dock-header">
+        <span class="fc-dock-title">Tareas</span>
       </div>
-      <ul class="oh-todo-list">
+      <ul class="fc-todo-list">
         <For each={props.todos}>
           {(todo) => (
-            <li class="oh-todo" classList={{ "oh-todo-done": todo.status === "completed" }}>
-              <span class="oh-todo-mark">{mark(todo.status)}</span>
+            <li class="fc-todo" classList={{ "fc-todo-done": todo.status === "completed" }}>
+              <span class="fc-todo-mark">{mark(todo.status)}</span>
               <span>{todo.content}</span>
             </li>
           )}

@@ -18,14 +18,14 @@ export function toast(message: string, variant: ToastVariant = "info") {
 }
 
 export const Toaster: Component = () => (
-  <div class="oh-toaster" role="status" aria-live="polite">
+  <div class="fc-toaster" role="status" aria-live="polite">
     <For each={toasts()}>
       {(item) => (
         <div
-          class="oh-toast"
+          class="fc-toast"
           classList={{
-            "oh-toast-success": item.variant === "success",
-            "oh-toast-error": item.variant === "error",
+            "fc-toast-success": item.variant === "success",
+            "fc-toast-error": item.variant === "error",
           }}
         >
           {item.message}
