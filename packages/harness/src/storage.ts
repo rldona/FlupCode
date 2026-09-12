@@ -30,4 +30,5 @@ export const STORAGE_KEYS = {
   paletteKey: "flupcode.paletteKey",
   pinnedSessions: "flupcode.pinnedSessions",
   expandedProjects: "flupcode.expandedProjects",
+  sidebarWidth: "flupcode.sidebarWidth",
 } as const
