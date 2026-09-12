@@ -1,0 +1,168 @@
+const KEYWORDS = new Set([
+  "abstract",
+  "as",
+  "async",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "default",
+  "def",
+  "defer",
+  "delete",
+  "do",
+  "elif",
+  "else",
+  "enum",
+  "except",
+  "export",
+  "extends",
+  "finally",
+  "fn",
+  "for",
+  "from",
+  "func",
+  "function",
+  "if",
+  "impl",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "lambda",
+  "let",
+  "match",
+  "mut",
+  "new",
+  "of",
+  "package",
+  "pass",
+  "private",
+  "protected",
+  "pub",
+  "public",
+  "raise",
+  "range",
+  "return",
+  "select",
+  "static",
+  "struct",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "trait",
+  "try",
+  "type",
+  "typeof",
+  "use",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+])
+
+const CONSTANTS = new Set(["true", "false", "null", "undefined", "None", "True", "False", "nil", "NaN"])
+
+const HASH_COMMENT = new Set(["bash", "sh", "shell", "zsh", "python", "py", "yaml", "yml", "ruby", "rb", "toml", "ini", "conf", "makefile", "dockerfile", "r", "perl", "pl"])
+const DASH_COMMENT = new Set(["sql", "lua", "haskell", "hs", "elm"])
+
+export function escapeHtml(value: string) {
+  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+}
+
+export type DiffLine = { type: "add" | "del" | "same"; text: string }
+
+export function diffLines(oldText: string, newText: string): DiffLine[] {
+  const a = oldText.split("\n")
+  const b = newText.split("\n")
+  if (a.length * b.length > 250_000) {
+    return [
+      ...a.map((text): DiffLine => ({ type: "del", text })),
+      ...b.map((text): DiffLine => ({ type: "add", text })),
+    ]
+  }
+  const dp = Array.from({ length: a.length + 1 }, () => new Array<number>(b.length + 1).fill(0))
+  for (let i = a.length - 1; i >= 0; i--) {
+    for (let j = b.length - 1; j >= 0; j--) {
+      dp[i]![j] = a[i] === b[j] ? dp[i + 1]![j + 1]! + 1 : Math.max(dp[i + 1]![j]!, dp[i]![j + 1]!)
+    }
+  }
+  const result: DiffLine[] = []
+  let i = 0
+  let j = 0
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      result.push({ type: "same", text: a[i]! })
+      i++
+      j++
+    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
+      result.push({ type: "del", text: a[i]! })
+      i++
+    } else {
+      result.push({ type: "add", text: b[j]! })
+      j++
+    }
+  }
+  while (i < a.length) result.push({ type: "del", text: a[i++]! })
+  while (j < b.length) result.push({ type: "add", text: b[j++]! })
+  return result
+}
+
+function commentPattern(lang: string) {
+  if (DASH_COMMENT.has(lang)) return "--[^\\n]*"
+  if (HASH_COMMENT.has(lang)) return "#[^\\n]*"
+  return "//[^\\n]*|/\\*[\\s\\S]*?\\*/"
+}
+
+export function highlightDiff(code: string) {
+  return code
+    .split("\n")
+    .map((line) => {
+      const escaped = escapeHtml(line)
+      if (line.startsWith("+++") || line.startsWith("---")) return `<span class="fc-diff-meta">${escaped}</span>`
+      if (line.startsWith("@@")) return `<span class="fc-diff-hunk">${escaped}</span>`
+      if (line.startsWith("+")) return `<span class="fc-diff-add">${escaped}</span>`
+      if (line.startsWith("-")) return `<span class="fc-diff-del">${escaped}</span>`
+      return escaped
+    })
+    .join("\n")
+}
+
+export function highlight(code: string, lang = "") {
+  const language = lang.toLowerCase()
+  if (language === "diff" || language === "patch") return highlightDiff(code)
+  if (!language) return escapeHtml(code)
+
+  const pattern = new RegExp(
+    [
+      `(${commentPattern(language)})`,
+      `("(?:\\\\.|[^"\\\\])*"|'(?:\\\\.|[^'\\\\])*'|\`(?:\\\\.|[^\`\\\\])*\`)`,
+      `(\\b\\d[\\d_]*(?:\\.\\d+)?\\b)`,
+      `(\\b[A-Za-z_][A-Za-z0-9_]*\\b)`,
+    ].join("|"),
+    "g",
+  )
+
+  let result = ""
+  let last = 0
+  let match: RegExpExecArray | null
+  while ((match = pattern.exec(code)) !== null) {
+    result += escapeHtml(code.slice(last, match.index))
+    const [value, comment, string, number, word] = match
+    if (comment) result += `<span class="fc-tok-comment">${escapeHtml(value)}</span>`
+    else if (string) result += `<span class="fc-tok-string">${escapeHtml(value)}</span>`
+    else if (number) result += `<span class="fc-tok-number">${escapeHtml(value)}</span>`
+    else if (word && CONSTANTS.has(word)) result += `<span class="fc-tok-const">${escapeHtml(value)}</span>`
+    else if (word && KEYWORDS.has(word)) result += `<span class="fc-tok-keyword">${escapeHtml(value)}</span>`
+    else result += escapeHtml(value)
+    last = match.index + value.length
+  }
+  result += escapeHtml(code.slice(last))
+  return result
+}
