@@ -183,7 +183,6 @@ export const Composer: Component<ComposerProps> = (props) => {
         handleFiles(event.dataTransfer?.files ?? null)
       }}
     >
-      <Mascot class="fc-mascot" state={props.mascotState} />
       <div class="fc-composer-chips">
         <select
           class="fc-folder-select"
@@ -249,33 +248,36 @@ export const Composer: Component<ComposerProps> = (props) => {
         </div>
       </Show>
 
-      <textarea
-        class="fc-input"
-        rows={1}
-        placeholder={t("Describe a task or ask a question")}
-        value={props.value}
-        onInput={(event) => props.onInput(event.currentTarget.value)}
-        onPaste={(event) => {
-          const files = event.clipboardData?.files
-          if (files && files.length > 0) {
-            event.preventDefault()
-            handleFiles(files)
-            return
-          }
-          const raw = event.clipboardData?.getData("text")
-          if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
-            event.preventDefault()
-            const token = props.onPasteText(raw)
-            props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
-          }
-        }}
-        onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey) {
-            event.preventDefault()
-            props.onSend()
-          }
-        }}
-      />
+      <div class="fc-input-wrap">
+        <Mascot class="fc-mascot" state={props.mascotState} />
+        <textarea
+          class="fc-input"
+          rows={1}
+          placeholder={t("Describe a task or ask a question")}
+          value={props.value}
+          onInput={(event) => props.onInput(event.currentTarget.value)}
+          onPaste={(event) => {
+            const files = event.clipboardData?.files
+            if (files && files.length > 0) {
+              event.preventDefault()
+              handleFiles(files)
+              return
+            }
+            const raw = event.clipboardData?.getData("text")
+            if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
+              event.preventDefault()
+              const token = props.onPasteText(raw)
+              props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
+            }
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.shiftKey) {
+              event.preventDefault()
+              props.onSend()
+            }
+          }}
+        />
+      </div>
 
       <div class="fc-composer-bottom">
         <div class="fc-composer-left">
