@@ -1135,6 +1135,40 @@ button.oh-row-main {
   word-break: break-word;
 }
 
+.oh-session-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--oh-space-3);
+  padding: var(--oh-space-2) var(--oh-space-4);
+  border-bottom: 1px solid var(--oh-border);
+  flex-wrap: wrap;
+}
+
+.oh-session-toolbar-title {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oh-session-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.oh-toolbar-select {
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-sm);
+  background: var(--oh-bg-elevated);
+  color: var(--oh-text);
+  font-size: var(--oh-text-sm);
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;

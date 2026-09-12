@@ -13,6 +13,7 @@ import { PermissionDock, type PermissionReply } from "./components/PermissionDoc
 import { QuestionDock } from "./components/QuestionDock"
 import { CommandPalette } from "./components/CommandPalette"
 import { SessionView } from "./components/SessionView"
+import { SessionToolbar } from "./components/SessionToolbar"
 
 type Client = ReturnType<typeof createClient>
 
@@ -50,6 +51,7 @@ export const App: Component = () => {
   )
   const [models] = createResource(serverUrl, (url) => createClient(url).model.list())
   const [defaultModel] = createResource(serverUrl, (url) => createClient(url).model.default())
+  const [agents] = createResource(serverUrl, (url) => createClient(url).agent.list())
   const [commands] = createResource(serverUrl, (url) => createClient(url).command.list())
   const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, (url) =>
     createClient(url).permission.request.list(),
@@ -167,6 +169,7 @@ export const App: Component = () => {
   }
 
   const sessionList = () => sessions()?.data
+  const selectedSession = () => sessionList()?.find((session) => session.id === selected())
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
@@ -291,6 +294,99 @@ export const App: Component = () => {
       return undefined
     })
 
+  const forkSession = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      const forked = await current.session.fork({ sessionID })
+      return forked.id
+    }, "Sesión bifurcada")
+  }
+
+  const compactSession = () => {
+    void run(async (current) => {
+      const model = selectedModel()
+      const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
+      await current.session.compact({ sessionID })
+      return sessionID
+    }, "Sesión compactada")
+  }
+
+  const renameSession = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const currentTitle = sessionList()?.find((session) => session.id === sessionID)?.title ?? ""
+    const title = window.prompt("Nuevo título", currentTitle)
+    if (!title) return
+    void run(async (current) => {
+      await current.session.rename({ sessionID, title })
+      return undefined
+    }, "Sesión renombrada")
+  }
+
+  const moveSession = (directory: string) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.move({ sessionID, directory })
+      return undefined
+    }, "Sesión movida")
+  }
+
+  const deleteSession = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    if (!window.confirm("¿Eliminar esta sesión?")) return
+    void (async () => {
+      setBusy(true)
+      try {
+        await createClient(serverUrl()).session.remove({ sessionID })
+        setSelected(undefined)
+        toast("Sesión eliminada", "success")
+        void refetchSessions()
+      } catch (cause) {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+      } finally {
+        setBusy(false)
+      }
+    })()
+  }
+
+  const changeAgent = (agent: string) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.switchAgent({ sessionID, agent })
+      return undefined
+    })
+  }
+
+  const exportMarkdown = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const lines: string[] = [`# ${selectedSession()?.title ?? sessionID}`, ""]
+    for (const message of messages()?.data ?? []) {
+      if (message.type === "user") {
+        lines.push("## User", "", (message as { text?: string }).text ?? "", "")
+        continue
+      }
+      if (message.type !== "assistant") continue
+      for (const part of message.content) {
+        if (part.type === "text") lines.push(part.text, "")
+        else if (part.type === "reasoning") lines.push("<details><summary>Reasoning</summary>", "", part.text, "", "</details>", "")
+        else if (part.type === "tool") lines.push(`> Tool: ${part.name}`, "")
+      }
+    }
+    const blob = new Blob([lines.join("\n")], { type: "text/markdown" })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement("a")
+    anchor.href = url
+    anchor.download = `${sessionID}.md`
+    anchor.click()
+    URL.revokeObjectURL(url)
+    toast("Transcripción exportada", "success")
+  }
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
@@ -388,6 +484,23 @@ export const App: Component = () => {
           onRefreshServer={commitServer}
           onServerInput={setServerInput}
         />
+        <Show when={selectedSession()}>
+          {(session) => (
+            <SessionToolbar
+              session={session()}
+              agents={agents()?.data ?? []}
+              projects={projects() ?? []}
+              busy={busy()}
+              onFork={forkSession}
+              onCompact={compactSession}
+              onRename={renameSession}
+              onExport={exportMarkdown}
+              onMove={moveSession}
+              onDelete={deleteSession}
+              onAgentChange={changeAgent}
+            />
+          )}
+        </Show>
         <Show
           when={selected()}
           fallback={
