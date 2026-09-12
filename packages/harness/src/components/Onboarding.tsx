@@ -18,7 +18,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop">
-        <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true">
+        <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Welcome to FlupCode")}>
           <div class="fc-onboarding">
             <span class="fc-onboarding-logo">FlupCode</span>
             <h2 class="fc-onboarding-title">{t("Welcome to FlupCode")}</h2>

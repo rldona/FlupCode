@@ -86,7 +86,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-palette" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div class="fc-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onClick={(event) => event.stopPropagation()}>
           <input
             ref={input}
             class="fc-palette-input"

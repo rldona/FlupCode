@@ -169,6 +169,7 @@ const ES: Record<string, string> = {
   "start it and connect from Settings": "arráncalo y conéctate desde Ajustes",
   Retry: "Reintentar",
   "Load earlier messages": "Cargar mensajes anteriores",
+  "Loading terminal…": "Cargando terminal…",
   "What's your name?": "¿Cómo te llamas?",
   "Get started": "Empezar",
 

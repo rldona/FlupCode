@@ -37,7 +37,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   return (
     <Show when={props.open}>
     <div class="fc-modal-backdrop" onClick={props.onClose}>
-      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Routines")} onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
           <span>{t("Routines")}</span>
           <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>

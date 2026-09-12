@@ -37,7 +37,7 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-modal fc-modal-xl" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div class="fc-modal fc-modal-xl" role="dialog" aria-modal="true" aria-label={t("Choose a model")} onClick={(event) => event.stopPropagation()}>
           <div class="fc-modal-header">
             <span>{t("Choose a model")}</span>
             <button class="fc-icon-button" type="button" onClick={props.onClose} aria-label={t("Close")}>
