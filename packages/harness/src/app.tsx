@@ -18,6 +18,7 @@ import { SessionView } from "./components/SessionView"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
 import { RightAside } from "./components/RightAside"
+import { WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
@@ -61,6 +62,8 @@ export const App: Component = () => {
   )
   const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, 280))
   const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "build"))
+  const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
+  const [workspaceWidth, setWorkspaceWidth] = createSignal(readStorage(STORAGE_KEYS.workspaceWidth, 420))
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
@@ -441,6 +444,24 @@ export const App: Component = () => {
     const next = Math.max(200, Math.min(480, Math.round(width)))
     setSidebarWidth(next)
     writeStorage(STORAGE_KEYS.sidebarWidth, next)
+  }
+
+  const togglePanel = (kind: string) => {
+    const next = panels().includes(kind) ? panels().filter((value) => value !== kind) : [...panels(), kind]
+    setPanels(next)
+    writeStorage(STORAGE_KEYS.workspacePanels, next)
+  }
+
+  const closePanel = (kind: string) => {
+    const next = panels().filter((value) => value !== kind)
+    setPanels(next)
+    writeStorage(STORAGE_KEYS.workspacePanels, next)
+  }
+
+  const updateWorkspaceWidth = (width: number) => {
+    const next = Math.max(280, Math.min(900, Math.round(width)))
+    setWorkspaceWidth(next)
+    writeStorage(STORAGE_KEYS.workspaceWidth, next)
   }
 
   createEffect(() => {
@@ -1081,6 +1102,8 @@ export const App: Component = () => {
           onRefreshServer={commitServer}
           onServerInput={setServerInput}
           onOpenPalette={() => setPaletteOpen(true)}
+          workspace={panels()}
+          onTogglePanel={togglePanel}
         />
         <Show when={selectedSession()}>
           {(session) => (
@@ -1179,6 +1202,14 @@ export const App: Component = () => {
           onAgentChange={changeAgent}
         />
       </main>
+      <WorkspacePanels
+        panels={panels()}
+        serverUrl={serverUrl()}
+        session={selectedSession()}
+        width={workspaceWidth()}
+        onResize={updateWorkspaceWidth}
+        onClose={closePanel}
+      />
       <Show when={selectedSession()}>
         {(session) => (
           <RightAside session={session()} models={models()?.data ?? []} todos={todos()} />

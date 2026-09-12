@@ -19,6 +19,8 @@ export type ModelVariant = ModelV2Info["variants"][number]
 export type SessionMessagesResponse = SdkSessionMessagesResponse
 export type SessionMessageInfo = SdkSessionMessagesResponse["data"][number]
 
+export type { SnapshotFileDiff as FileDiffInfo } from "@opencode-ai/sdk/v2/client"
+
 export type McpServer = {
   name: string
   status: { status?: string } | unknown
