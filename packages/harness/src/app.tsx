@@ -22,6 +22,7 @@ type Client = ReturnType<typeof createClient>
 const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "new", description: "Nueva sesión" },
   { name: "compact", description: "Compactar la sesión actual" },
+  { name: "steps", description: "Mostrar u ocultar los pasos de herramientas" },
   { name: "about", description: "Acerca de OpenHarness" },
 ]
 
@@ -42,6 +43,7 @@ export const App: Component = () => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
+  const [showTools, setShowTools] = createSignal(true)
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -54,6 +56,7 @@ export const App: Component = () => {
   const [models] = createResource(serverUrl, (url) => createClient(url).model.list())
   const [defaultModel] = createResource(serverUrl, (url) => createClient(url).model.default())
   const [agents] = createResource(serverUrl, (url) => createClient(url).agent.list())
+  const [skills] = createResource(serverUrl, (url) => createClient(url).skill.list())
   const [commands] = createResource(serverUrl, (url) => createClient(url).command.list())
   const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, (url) =>
     createClient(url).permission.request.list(),
@@ -103,7 +106,23 @@ export const App: Component = () => {
   const commandOptions = (): CommandOption[] => [
     ...BUILTIN_COMMANDS,
     ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
+    ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
   ]
+
+  const pastes = new Map<string, string>()
+
+  const collapsePaste = (raw: string) => {
+    const lines = raw.split("\n").length
+    const token = `[Pasted ~${lines} lines]`
+    pastes.set(token, raw)
+    return token
+  }
+
+  const expandPastes = (value: string) => {
+    let result = value
+    for (const [token, full] of pastes) result = result.split(token).join(full)
+    return result
+  }
 
   const searchFiles = async (query: string) => {
     const response = await createClient(serverUrl()).file.find({ query, limit: 8 })
@@ -484,6 +503,21 @@ export const App: Component = () => {
         }, "Sesión compactada")
         return
       }
+      if (name === "steps") {
+        setPrompt("")
+        setShowTools((value) => !value)
+        return
+      }
+      const skill = skills()?.data?.find((item) => item.name === name)
+      if (skill) {
+        void run(async (current) => {
+          const sessionID = selected() ?? (await current.session.create()).id
+          await current.session.skill({ sessionID, skill: skill.name })
+          setPrompt("")
+          return sessionID
+        }, "Skill ejecutada")
+        return
+      }
       void run(async (current) => {
         const model = selectedModel()
         const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
@@ -511,7 +545,7 @@ export const App: Component = () => {
       const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
       await current.session.prompt({
         sessionID,
-        text,
+        text: expandPastes(text),
         ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
       })
       setPrompt("")
@@ -587,7 +621,7 @@ export const App: Component = () => {
             />
           }
         >
-          <SessionView messages={messages()?.data} loading={messages.loading} busy={busy()} />
+          <SessionView messages={messages()?.data} loading={messages.loading} busy={busy()} showTools={showTools()} />
         </Show>
         <div class="oh-docks">
           <TodoDock todos={todos()} />
@@ -630,6 +664,7 @@ export const App: Component = () => {
           onAttach={addAttachments}
           onRemoveAttachment={removeAttachment}
           searchFiles={searchFiles}
+          onPasteText={collapsePaste}
         />
       </main>
       <Toaster />
