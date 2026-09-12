@@ -37,6 +37,16 @@ function primaryAgents(agents: AgentInfo[]) {
   return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
 }
 
+function groupModels(models: ModelInfo[]) {
+  const map = new Map<string, ModelInfo[]>()
+  for (const model of models) {
+    const list = map.get(model.providerID) ?? []
+    list.push(model)
+    map.set(model.providerID, list)
+  }
+  return [...map.entries()].map(([providerID, items]) => ({ providerID, items }))
+}
+
 function projectLabel(project: ProjectItem) {
   return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
@@ -345,8 +355,14 @@ export const Composer: Component<ComposerProps> = (props) => {
           <option value="" disabled>
             {t("Default model")}
           </option>
-          <For each={props.models}>
-            {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+          <For each={groupModels(props.models)}>
+            {(group) => (
+              <optgroup label={group.providerID}>
+                <For each={group.items}>
+                  {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                </For>
+              </optgroup>
+            )}
           </For>
         </select>
         <Show when={props.variants.length > 0}>

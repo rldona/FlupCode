@@ -1474,17 +1474,79 @@ button.fc-row-main {
 .fc-heatmap-grid {
   display: grid;
   grid-auto-flow: column;
-  grid-template-rows: repeat(7, 11px);
-  gap: 3px;
-  overflow-x: auto;
+  grid-template-rows: repeat(7, 9px);
+  gap: 2px;
+  overflow: hidden;
   padding-bottom: 4px;
 }
 
 .fc-heat-cell {
-  width: 11px;
-  height: 11px;
+  width: 9px;
+  height: 9px;
   border-radius: 2px;
   background: color-mix(in srgb, var(--fc-border) 65%, transparent);
+}
+
+.fc-actions {
+  width: min(820px, 100%);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: var(--fc-space-4);
+}
+
+.fc-action {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 14px;
+  min-height: 96px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-action:hover {
+  border-color: color-mix(in srgb, var(--fc-border) 50%, var(--fc-text-muted));
+}
+
+.fc-action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.fc-action-icon[data-tone="blue"] {
+  color: #4f7cff;
+}
+
+.fc-action-icon[data-tone="violet"] {
+  color: #a06bff;
+}
+
+.fc-action-icon[data-tone="green"] {
+  color: #34c759;
+}
+
+.fc-action-icon[data-tone="orange"] {
+  color: #e8843a;
+}
+
+.fc-action-title {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+@media (max-width: 900px) {
+  .fc-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 .fc-heat-cell[data-level="1"] {
