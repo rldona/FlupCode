@@ -1,4 +1,5 @@
 import { createSignal, type Component } from "solid-js"
+import { t } from "../i18n"
 
 type OnboardingProps = {
   open: boolean
@@ -15,31 +16,31 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true">
         <div class="fc-onboarding">
           <span class="fc-onboarding-logo">FlupCode</span>
-          <h2 class="fc-onboarding-title">Bienvenido a FlupCode</h2>
+          <h2 class="fc-onboarding-title">{t("Welcome to FlupCode")}</h2>
           <p class="fc-onboarding-text">
-            Un harness para OpenCode con dashboard, rutinas y proyectos, en web y escritorio.
+            {t("A harness for OpenCode with a dashboard, routines and projects, on web and desktop.")}
           </p>
 
           <div class="fc-onboarding-status" classList={{ "fc-onboarding-status-off": props.serverHealthy === false }}>
             {props.serverHealthy === undefined
-              ? "Comprobando el servidor…"
+              ? t("Checking the server…")
               : props.serverHealthy
-                ? "Servidor conectado"
-                : "Sin conexión al servidor"}
+                ? t("Server connected")
+                : t("Server offline")}
           </div>
 
           <label class="fc-settings-row">
-            <span>¿Cómo te llamas?</span>
+            <span>{t("What's your name?")}</span>
             <input
               class="fc-question-custom"
               value={name()}
-              placeholder="Tu nombre"
+              placeholder={t("Your name")}
               onInput={(event) => setName(event.currentTarget.value)}
             />
           </label>
 
           <button class="fc-button fc-button-primary" type="button" onClick={() => props.onDone(name())}>
-            Empezar
+            {t("Get started")}
           </button>
         </div>
       </div>

@@ -4,6 +4,7 @@ import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import type { Attachment, CommandOption, McpConfig, Routine, StashedPrompt } from "./types"
+import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
@@ -26,17 +27,17 @@ import { RemotePanel } from "./components/RemotePanel"
 
 type Client = ReturnType<typeof createClient>
 
-const BUILTIN_COMMANDS: CommandOption[] = [
-  { name: "new", description: "Nueva sesión" },
-  { name: "compact", description: "Compactar la sesión actual" },
-  { name: "steps", description: "Mostrar u ocultar los pasos de herramientas" },
-  { name: "mcp", description: "Servidores MCP" },
-  { name: "stash", description: "Guardar el prompt actual" },
-  { name: "stashes", description: "Ver prompts guardados" },
-  { name: "settings", description: "Personalizar FlupCode" },
-  { name: "routines", description: "Tareas programadas" },
-  { name: "remote", description: "Acceso remoto / móvil" },
-  { name: "about", description: "Acerca de FlupCode" },
+const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
+  { name: "new", descriptionKey: "New session…" },
+  { name: "compact", descriptionKey: "Compact the current session" },
+  { name: "steps", descriptionKey: "Show or hide tool steps" },
+  { name: "mcp", descriptionKey: "MCP servers…" },
+  { name: "stash", descriptionKey: "Save the current prompt" },
+  { name: "stashes", descriptionKey: "View saved prompts" },
+  { name: "settings", descriptionKey: "Customize FlupCode" },
+  { name: "routines", descriptionKey: "Scheduled tasks" },
+  { name: "remote", descriptionKey: "Remote access / mobile" },
+  { name: "about", descriptionKey: "About FlupCode" },
 ]
 
 export const App: Component = () => {
@@ -129,7 +130,7 @@ export const App: Component = () => {
   }
 
   const commandOptions = (): CommandOption[] => [
-    ...BUILTIN_COMMANDS,
+    ...BUILTIN_COMMANDS.map((command) => ({ name: command.name, description: t(command.descriptionKey) })),
     ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
     ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
   ]
@@ -409,12 +410,12 @@ export const App: Component = () => {
   const stashPrompt = (text: string, clear: boolean) => {
     const value = text.trim()
     if (!value) {
-      toast("No hay prompt que guardar", "info")
+      toast(t("No prompt to save"), "info")
       return
     }
     persistStashes([{ id: newId(), text: value, createdAt: Date.now() }, ...stashes()])
     if (clear) setPrompt("")
-    toast("Prompt guardado", "success")
+    toast(t("Prompt saved"), "success")
   }
 
   const restoreStash = (id: string) => {
@@ -437,7 +438,7 @@ export const App: Component = () => {
       ...routines(),
       { id: newId(), ...input, enabled: true, createdAt: Date.now() },
     ])
-    toast("Rutina creada", "success")
+    toast(t("Routine created"), "success")
   }
 
   const toggleRoutine = (id: string) => {
@@ -464,7 +465,7 @@ export const App: Component = () => {
         await current.session.rename({ sessionID: session.id, title: routine.name })
         await current.session.prompt({ sessionID: session.id, text: routine.prompt })
         void refetchSessions()
-        toast(`Rutina "${routine.name}" ejecutada`, "success")
+        toast(t('Routine "{name}" executed', { name: routine.name }), "success")
       } catch (cause) {
         toast(cause instanceof Error ? cause.message : String(cause), "error")
       } finally {
@@ -521,7 +522,7 @@ export const App: Component = () => {
         ...(directory ? { location: { directory } } : {}),
       })
       return session.id
-    }, "Sesión creada")
+    }, t("Session created"))
 
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
     run(async (current) => {
@@ -550,7 +551,7 @@ export const App: Component = () => {
     void run(async (current) => {
       const forked = await current.session.fork({ sessionID })
       return forked.id
-    }, "Sesión bifurcada")
+    }, t("Session forked"))
   }
 
   const compactSession = () => {
@@ -559,19 +560,19 @@ export const App: Component = () => {
       const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
       await current.session.compact({ sessionID })
       return sessionID
-    }, "Sesión compactada")
+    }, t("Session compacted"))
   }
 
   const renameSession = () => {
     const sessionID = selected()
     if (!sessionID) return
     const currentTitle = sessionList()?.find((session) => session.id === sessionID)?.title ?? ""
-    const title = window.prompt("Nuevo título", currentTitle)
+    const title = window.prompt(t("New title"), currentTitle)
     if (!title) return
     void run(async (current) => {
       await current.session.rename({ sessionID, title })
       return undefined
-    }, "Sesión renombrada")
+    }, t("Session renamed"))
   }
 
   const moveSession = (directory: string) => {
@@ -580,19 +581,19 @@ export const App: Component = () => {
     void run(async (current) => {
       await current.session.move({ sessionID, directory })
       return undefined
-    }, "Sesión movida")
+    }, t("Session moved"))
   }
 
   const deleteSession = () => {
     const sessionID = selected()
     if (!sessionID) return
-    if (!window.confirm("¿Eliminar esta sesión?")) return
+    if (!window.confirm(t("Delete this session?"))) return
     void (async () => {
       setBusy(true)
       try {
         await createClient(serverUrl()).session.remove({ sessionID })
         setSelected(undefined)
-        toast("Sesión eliminada", "success")
+        toast(t("Session deleted"), "success")
         void refetchSessions()
       } catch (cause) {
         toast(cause instanceof Error ? cause.message : String(cause), "error")
@@ -616,28 +617,28 @@ export const App: Component = () => {
       await current.mcp.add({ server, config })
       void refetchMcp()
       return undefined
-    }, "Servidor MCP añadido")
+    }, t("MCP server added"))
 
   const removeMcp = (server: string) =>
     run(async (current) => {
       await current.mcp.remove({ server })
       void refetchMcp()
       return undefined
-    }, "Servidor MCP eliminado")
+    }, t("MCP server removed"))
 
   const connectMcp = (server: string) =>
     run(async (current) => {
       await current.mcp.connect({ server })
       void refetchMcp()
       return undefined
-    }, "Servidor MCP conectado")
+    }, t("MCP server connected"))
 
   const disconnectMcp = (server: string) =>
     run(async (current) => {
       await current.mcp.disconnect({ server })
       void refetchMcp()
       return undefined
-    }, "Servidor MCP desconectado")
+    }, t("MCP server disconnected"))
 
   const editMessage = (messageID: string, text: string) => {
     const sessionID = selected()
@@ -647,7 +648,7 @@ export const App: Component = () => {
       await current.session.revert.stage({ sessionID, messageID, files: true })
       void refetchMessages()
       return undefined
-    }, "Mensaje listo para editar")
+    }, t("Message ready to edit"))
   }
 
   const undo = () => {
@@ -655,14 +656,14 @@ export const App: Component = () => {
     if (!sessionID) return
     const lastUser = [...(messages()?.data ?? [])].reverse().find((message) => message.type === "user")
     if (!lastUser) {
-      toast("Nada que deshacer", "info")
+      toast(t("Nothing to undo"), "info")
       return
     }
     void run(async (current) => {
       await current.session.revert.stage({ sessionID, messageID: lastUser.id, files: true })
       void refetchMessages()
       return undefined
-    }, "Cambios revertidos")
+    }, t("Changes reverted"))
   }
 
   const redo = () => {
@@ -672,7 +673,7 @@ export const App: Component = () => {
       await current.session.revert.clear({ sessionID })
       void refetchMessages()
       return undefined
-    }, "Cambios restaurados")
+    }, t("Changes restored"))
   }
 
   const commitRevert = () => {
@@ -682,7 +683,7 @@ export const App: Component = () => {
       await current.session.revert.commit({ sessionID })
       void refetchMessages()
       return undefined
-    }, "Reversión confirmada")
+    }, t("Revert confirmed"))
   }
 
   const exportMarkdown = () => {
@@ -708,7 +709,7 @@ export const App: Component = () => {
     anchor.download = `${sessionID}.md`
     anchor.click()
     URL.revokeObjectURL(url)
-    toast("Transcripción exportada", "success")
+    toast(t("Transcript exported"), "success")
   }
 
   const send = () => {
@@ -737,7 +738,7 @@ export const App: Component = () => {
           await current.session.compact({ sessionID })
           setPrompt("")
           return sessionID
-        }, "Sesión compactada")
+        }, t("Session compacted"))
         return
       }
       if (name === "steps") {
@@ -782,7 +783,7 @@ export const App: Component = () => {
           await current.session.skill({ sessionID, skill: skill.name })
           setPrompt("")
           return sessionID
-        }, "Skill ejecutada")
+        }, t("Skill executed"))
         return
       }
       void run(async (current) => {
@@ -791,7 +792,7 @@ export const App: Component = () => {
         await current.session.command({ sessionID, command: name, ...(args ? { arguments: args } : {}) })
         setPrompt("")
         return sessionID
-      }, "Comando ejecutado")
+      }, t("Command executed"))
       return
     }
 
@@ -803,7 +804,7 @@ export const App: Component = () => {
         await current.session.shell({ sessionID, command })
         setPrompt("")
         return sessionID
-      }, "Comando lanzado")
+      }, t("Command launched"))
       return
     }
 
@@ -818,7 +819,7 @@ export const App: Component = () => {
       setPrompt("")
       setAttachments([])
       return sessionID
-    }, "Mensaje enviado")
+    }, t("Message sent"))
   }
 
   return (
@@ -977,6 +978,7 @@ export const App: Component = () => {
       <SettingsPanel
         open={settingsOpen()}
         theme={theme()}
+        locale={getLocale()}
         displayName={displayName()}
         serverInput={serverInput()}
         models={models()?.data ?? []}
@@ -984,6 +986,7 @@ export const App: Component = () => {
         auto={auto()}
         showTools={showTools()}
         onTheme={updateTheme}
+        onLocale={setLocale}
         onDisplayName={updateDisplayName}
         onServerInput={setServerInput}
         onServerCommit={commitServer}

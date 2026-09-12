@@ -1,6 +1,7 @@
 import { For, Show, type Component } from "solid-js"
 import { createStore } from "solid-js/store"
 import type { QuestionV2Request } from "@opencode-ai/client"
+import { t } from "../i18n"
 
 type QuestionDockProps = {
   request: QuestionV2Request
@@ -38,7 +39,7 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
   return (
     <div class="fc-dock fc-dock-question">
       <div class="fc-dock-header">
-        <span class="fc-dock-title">Pregunta</span>
+        <span class="fc-dock-title">{t("Question")}</span>
       </div>
       <For each={props.request.questions}>
         {(question, index) => (
@@ -63,7 +64,7 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
             <Show when={question.custom}>
               <input
                 class="fc-question-custom"
-                placeholder="Respuesta personalizada"
+                placeholder={t("Custom answer")}
                 value={custom[index()] ?? ""}
                 onInput={(event) => setCustom(index(), event.currentTarget.value)}
               />
@@ -78,10 +79,10 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
           disabled={props.busy || !canSubmit()}
           onClick={() => props.onReply(answers())}
         >
-          Responder
+          {t("Respond")}
         </button>
         <button class="fc-button fc-button-danger" type="button" disabled={props.busy} onClick={props.onReject}>
-          Rechazar
+          {t("Reject")}
         </button>
       </div>
     </div>

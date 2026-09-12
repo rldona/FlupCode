@@ -6,6 +6,7 @@ import type {
   SessionMessageAssistantTool,
   SessionMessageInfo,
 } from "@opencode-ai/client"
+import { t } from "../i18n"
 
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
@@ -26,8 +27,8 @@ function toolOutput(tool: SessionMessageAssistantTool) {
     const error = tool.state.error as { message?: string }
     return error.message ?? "Error"
   }
-  if (tool.state.status === "running") return "En ejecución…"
-  return "Pendiente…"
+  if (tool.state.status === "running") return t("In progress")
+  return t("Pending")
 }
 
 const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (props) => {
@@ -35,7 +36,7 @@ const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (p
   return (
     <div class="fc-reasoning">
       <button class="fc-reasoning-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        {open() ? "▾" : "▸"} Pensamiento
+        {open() ? "▾" : "▸"} {t("Thinking")}
       </button>
       <Show when={open()}>
         <div class="fc-reasoning-text">{props.part.text}</div>
@@ -83,7 +84,7 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
       )}
     </For>
     <Show when={props.message.error}>
-      <div class="fc-message-error">Error al generar la respuesta</div>
+      <div class="fc-message-error">{t("Error generating the response")}</div>
     </Show>
   </div>
 )
@@ -104,8 +105,8 @@ export const SessionView: Component<SessionViewProps> = (props) => (
         when={props.messages && props.messages.length > 0}
         fallback={
           <div class="fc-empty-state">
-            <span class="fc-empty-title">Aún no hay mensajes</span>
-            <span class="fc-empty-hint">Escribe abajo para empezar</span>
+            <span class="fc-empty-title">{t("No messages yet")}</span>
+            <span class="fc-empty-hint">{t("Write below to start")}</span>
           </div>
         }
       >
@@ -120,21 +121,21 @@ export const SessionView: Component<SessionViewProps> = (props) => (
               }
             >
               <div class="fc-message fc-message-user">
-                <div class="fc-message-role">Tú</div>
+                <div class="fc-message-role">{t("You")}</div>
                 <div class="fc-message-text">{(message as { text?: string }).text}</div>
                 <button
                   class="fc-message-edit"
                   type="button"
                   onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
                 >
-                  Editar
+                  {t("Edit")}
                 </button>
               </div>
             </Show>
           )}
         </For>
         <Show when={props.busy}>
-          <div class="fc-message fc-message-assistant fc-message-pending">Generando…</div>
+          <div class="fc-message fc-message-assistant fc-message-pending">{t("Generating")}</div>
         </Show>
       </Show>
     </Show>

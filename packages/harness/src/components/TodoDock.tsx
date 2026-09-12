@@ -1,4 +1,5 @@
 import { For, Show, type Component } from "solid-js"
+import { t } from "../i18n"
 
 export type TodoItem = {
   content: string
@@ -19,7 +20,7 @@ export const TodoDock: Component<TodoDockProps> = (props) => (
   <Show when={props.todos.length > 0}>
     <div class="fc-dock fc-todo-dock">
       <div class="fc-dock-header">
-        <span class="fc-dock-title">Tareas</span>
+        <span class="fc-dock-title">{t("Tasks")}</span>
       </div>
       <ul class="fc-todo-list">
         <For each={props.todos}>
