@@ -159,8 +159,8 @@ All feasible tickets are done. The only open items are blocked on external const
 - **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; only export is available.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo.
 
-### Vendored client drift
+### Engine API layer
 
-The harness uses OpenCode's vendored client (`1.17.13`) while the engine is `1.18.30`. Most routes
-still match, but `project` was removed (projects are now derived from session locations) and `mcp`
-no longer exists. Regenerating the client (`packages/client`) and re-vendoring it is the durable fix.
+Resolved in ADR-0009: the harness uses `@opencode-ai/sdk/v2/client` (ADR-0009) and reaches the
+event stream over SSE. Projects are derived from session locations. MCP remains blocked because the
+current engine does not expose an MCP group.

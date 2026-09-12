@@ -1,4 +1,4 @@
-import type { SessionInfo } from "@opencode-ai/client"
+import type { SessionInfo } from "./engine-types"
 
 export type UsageRange = "all" | "30d" | "7d"
 

@@ -1,5 +1,5 @@
 import { For, Show, type Component } from "solid-js"
-import type { SkillInfo } from "@opencode-ai/client"
+import type { SkillInfo } from "../engine-types"
 import { t } from "../i18n"
 
 type SkillsPanelProps = {

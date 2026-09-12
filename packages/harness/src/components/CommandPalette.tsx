@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { FileSystemEntry, SessionInfo } from "@opencode-ai/client"
+import type { FileSystemEntry, SessionInfo } from "../engine-types"
 import type { CommandOption } from "../types"
 import { t } from "../i18n"
 

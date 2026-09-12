@@ -5,7 +5,7 @@ import type {
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionMessageInfo,
-} from "@opencode-ai/client"
+} from "../engine-types"
 import { t } from "../i18n"
 
 type SessionViewProps = {

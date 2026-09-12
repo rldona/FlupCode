@@ -1,5 +1,5 @@
 import { For, Show, type Component } from "solid-js"
-import type { SessionInfo } from "@opencode-ai/client"
+import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 
 type SubagentListProps = {
