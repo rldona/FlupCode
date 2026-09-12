@@ -233,6 +233,18 @@ export function createClient(baseUrl = resolveServerUrl()) {
         unwrap(client.auth.set({ providerID: input.providerID, auth: { type: "api", key: input.key } })),
       remove: (input: { providerID: string }) => unwrap(client.auth.remove({ providerID: input.providerID })),
     },
+    integration: {
+      list: () => unwrap(client.v2.integration.list()),
+      connectKey: (input: { integrationID: string; key: string; label?: string }) =>
+        unwrap(
+          client.v2.integration.connect.key({
+            integrationID: input.integrationID,
+            key: input.key,
+            label: input.label,
+          }),
+        ),
+      disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
+    },
     agent: {
       list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
     },
