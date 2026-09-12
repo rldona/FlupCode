@@ -21,4 +21,5 @@ export const STORAGE_KEYS = {
   sidebarCollapsed: "openharness.sidebarCollapsed",
   serverUrl: "openharness.serverUrl",
   stashedPrompts: "openharness.stashedPrompts",
+  theme: "openharness.theme",
 } as const

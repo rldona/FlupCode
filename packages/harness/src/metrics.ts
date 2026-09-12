@@ -103,4 +103,38 @@ export function formatTokens(value: number) {
   return String(value)
 }
 
+export type ActivityDay = {
+  day: number
+  count: number
+}
+
+export function activityByDay(sessions: SessionInfo[], days: number): ActivityDay[] {
+  const counts = new Map<number, number>()
+  for (const session of sessions) {
+    const day = dayNumber(session.time.updated || session.time.created)
+    counts.set(day, (counts.get(day) ?? 0) + 1)
+  }
+  const today = dayNumber(Date.now())
+  const start = today - (days - 1)
+  const result: ActivityDay[] = []
+  for (let day = start; day <= today; day++) result.push({ day, count: counts.get(day) ?? 0 })
+  return result
+}
+
+const COMPARISONS = [
+  { name: "Dune", tokens: 226_000 },
+  { name: "El Quijote", tokens: 380_000 },
+  { name: "Cien años de soledad", tokens: 160_000 },
+  { name: "1984", tokens: 90_000 },
+  { name: "El Señor de los Anillos", tokens: 576_000 },
+]
+
+export function comparison(tokens: number) {
+  if (tokens <= 0) return ""
+  const reference = COMPARISONS[tokens % COMPARISONS.length]
+  if (!reference) return ""
+  const ratio = Math.max(1, Math.round(tokens / reference.tokens))
+  return `Usaste ~${ratio}× más tokens que ${reference.name}.`
+}
+
 export { dayKey }
