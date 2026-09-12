@@ -44,7 +44,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           →
         </button>
-        <span class="fc-logo">FlupCode</span>
       </div>
       <div class="fc-topbar-right">
         <button

@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
@@ -7,6 +7,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
+import { diffLines, highlight } from "../highlight"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 
@@ -35,12 +36,73 @@ function toolOutput(tool: SessionMessageAssistantTool) {
   return t("Pending")
 }
 
+function toolInput(tool: SessionMessageAssistantTool): Record<string, unknown> {
+  if (tool.state.status === "pending") return {}
+  return tool.state.input as Record<string, unknown>
+}
+
+function stringField(input: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = input[key]
+    if (typeof value === "string") return value
+  }
+  return undefined
+}
+
+const EXT_LANG: Record<string, string> = {
+  ts: "ts",
+  tsx: "tsx",
+  mts: "ts",
+  cts: "ts",
+  js: "js",
+  jsx: "jsx",
+  mjs: "js",
+  cjs: "js",
+  json: "json",
+  py: "python",
+  rb: "ruby",
+  go: "go",
+  rs: "rust",
+  java: "java",
+  kt: "kotlin",
+  css: "css",
+  scss: "scss",
+  html: "html",
+  htm: "html",
+  sh: "bash",
+  bash: "bash",
+  zsh: "bash",
+  yml: "yaml",
+  yaml: "yaml",
+  toml: "toml",
+  md: "markdown",
+  sql: "sql",
+  xml: "xml",
+}
+
+function languageFor(path: string | undefined) {
+  const extension = path ? /\.([a-zA-Z0-9]+)$/.exec(path)?.[1]?.toLowerCase() : undefined
+  return extension ? (EXT_LANG[extension] ?? "") : ""
+}
+
+function toolTitle(tool: SessionMessageAssistantTool) {
+  const input = toolInput(tool)
+  if (tool.name === "bash") return stringField(input, "command")
+  if (tool.name === "webfetch") return stringField(input, "url")
+  if (tool.name === "edit" || tool.name === "write" || tool.name === "read" || tool.name === "multiedit")
+    return stringField(input, "filePath", "file")
+  if (tool.name === "grep" || tool.name === "glob") return stringField(input, "pattern", "query")
+  if (tool.name === "websearch") return stringField(input, "query")
+  if (tool.name === "task") return stringField(input, "description", "prompt")
+  return undefined
+}
+
 const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (props) => {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="fc-reasoning">
       <button class="fc-reasoning-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        {open() ? "▾" : "▸"} {t("Thinking")}
+        <span class="fc-tool-chevron">{open() ? "▾" : "▸"}</span> {t("Thought")}
       </button>
       <Show when={open()}>
         <div class="fc-reasoning-text">{props.part.text}</div>
@@ -49,25 +111,65 @@ const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (p
   )
 }
 
+const DiffView: Component<{ oldText: string; newText: string }> = (props) => (
+  <pre class="fc-diff-view">
+    <For each={diffLines(props.oldText, props.newText)}>
+      {(line) => <div class={`fc-diff-line fc-diff-${line.type}`}>{line.text === "" ? " " : line.text}</div>}
+    </For>
+  </pre>
+)
+
 const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
-  const [open, setOpen] = createSignal(false)
+  const [open, setOpen] = createSignal(
+    props.part.state.status === "error" ||
+      props.part.name === "write" ||
+      props.part.name === "edit" ||
+      props.part.name === "multiedit",
+  )
+  const input = createMemo(() => toolInput(props.part))
   const output = () => toolOutput(props.part)
+  const status = () => props.part.state.status
+  const command = createMemo(() => stringField(input(), "command"))
+  const path = createMemo(() => stringField(input(), "filePath", "file"))
+  const writeContent = createMemo(() => stringField(input(), "content"))
+  const oldText = createMemo(() => stringField(input(), "oldString", "old_string"))
+  const newText = createMemo(() => stringField(input(), "newString", "new_string"))
+  const hasDiff = () => oldText() !== undefined && newText() !== undefined
   return (
-    <div class="fc-tool">
+    <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error" }}>
       <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
+        <span class="fc-tool-chevron">{open() ? "▾" : "▸"}</span>
         <span class="fc-tool-name">{props.part.name}</span>
-        <span class="fc-tool-status">{props.part.state.status}</span>
+        <Show when={toolTitle(props.part)}>{(value) => <span class="fc-tool-title">{value()}</span>}</Show>
+        <span class={`fc-tool-status fc-tool-status-${status()}`}>{status()}</span>
       </button>
-      <Show when={open() && output()}>
-        <pre class="fc-tool-output">{output()}</pre>
+      <Show when={open()}>
+        <div class="fc-tool-body">
+          <Show when={hasDiff()}>
+            <DiffView oldText={oldText() ?? ""} newText={newText() ?? ""} />
+          </Show>
+          <Show when={props.part.name === "write" && writeContent() !== undefined}>
+            <pre class="fc-code" innerHTML={highlight(writeContent() ?? "", languageFor(path()))} />
+          </Show>
+          <Show when={command() !== undefined}>
+            <pre class="fc-tool-cmd">$ {command()}</pre>
+          </Show>
+          <Show when={output()}>
+            <pre class="fc-tool-output">{output()}</pre>
+          </Show>
+        </div>
       </Show>
     </div>
   )
 }
 
-const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools: boolean }> = (props) => (
+const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools: boolean; showRole: boolean }> = (
+  props,
+) => (
   <div class="fc-message fc-message-assistant">
-    <div class="fc-message-role">{props.message.agent}</div>
+    <Show when={props.showRole}>
+      <div class="fc-message-role">{props.message.agent}</div>
+    </Show>
     <For each={props.message.content}>
       {(part) => (
         <Show when={props.showTools || part.type !== "tool"}>
@@ -136,12 +238,16 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           }
         >
           <For each={props.messages}>
-            {(message) => (
+            {(message, index) => (
               <Show
                 when={message.type === "user"}
                 fallback={
                   <Show when={message.type === "assistant"}>
-                    <AssistantMessage message={message as SessionMessageAssistant} showTools={props.showTools} />
+                    <AssistantMessage
+                      message={message as SessionMessageAssistant}
+                      showTools={props.showTools}
+                      showRole={index() === 0 || props.messages?.[index() - 1]?.type !== "assistant"}
+                    />
                   </Show>
                 }
               >
