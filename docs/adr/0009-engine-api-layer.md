@@ -32,6 +32,8 @@ OpenAPI) for request/response calls, reserving the vendored client for the event
 
 - Prompts complete end to end; models, agents, commands, skills, permissions, questions, files,
   revert and session lifecycle all use the current API.
+- Historical sessions created before the v2 message projection existed have no rows in
+  `session_message`, so their messages are read from the legacy route and normalized for rendering.
 - Projects are derived from session locations instead of the removed `project` group.
 - MCP configuration is unavailable until the engine exposes it again (tracked as blocked).
 - Session rename/delete/fork/shell use the still-served v1 routes; session move and skill execution

@@ -1,6 +1,7 @@
 import type { ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
+import type { AssistantMessage, Message, Part, ReasoningPart, TextPart, ToolPart, ToolState } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import type { McpServer, SessionInfo } from "./engine-types"
+import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 
@@ -54,6 +55,50 @@ async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
     throw new Error(error?.message ?? "Request failed")
   }
   return result.data as T
+}
+
+function toolOutput(state: ToolState) {
+  if (state.status === "completed") return [{ type: "text", text: state.output }]
+  return undefined
+}
+
+function fromLegacy(entries: Array<{ info: Message; parts: Part[] }>): SessionMessageInfo[] {
+  return entries.map((entry) => {
+    if (entry.info.role === "user") {
+      const text = entry.parts
+        .filter((part): part is TextPart => part.type === "text")
+        .map((part) => part.text)
+        .join("\n")
+      return { id: entry.info.id, type: "user", time: entry.info.time, text } as unknown as SessionMessageInfo
+    }
+
+    const info = entry.info as AssistantMessage
+    const content = entry.parts.flatMap((part): unknown[] => {
+      if (part.type === "text") return [{ type: "text", text: part.text }]
+      if (part.type === "reasoning") return [{ type: "reasoning", text: part.text }]
+      if (part.type !== "tool") return []
+      const tool = part as ToolPart
+      return [
+        {
+          type: "tool",
+          name: tool.tool,
+          state: {
+            status: tool.state.status,
+            input: "input" in tool.state ? tool.state.input : undefined,
+            content: toolOutput(tool.state),
+            error: tool.state.status === "error" ? { message: tool.state.error } : undefined,
+          },
+        },
+      ]
+    })
+    return {
+      id: info.id,
+      type: "assistant",
+      agent: info.agent,
+      content,
+      error: info.error,
+    } as unknown as SessionMessageInfo
+  })
 }
 
 export function createClient(baseUrl = resolveServerUrl()) {
@@ -165,8 +210,12 @@ export function createClient(baseUrl = resolveServerUrl()) {
       }),
     },
     message: {
-      list: (input: { sessionID: string; order?: "asc" | "desc" }) =>
-        unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order })),
+      list: async (input: { sessionID: string; order?: "asc" | "desc" }) => {
+        const v2 = await unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order }))
+        if ((v2?.data?.length ?? 0) > 0) return v2
+        const legacy = await unwrap(client.session.messages({ sessionID: input.sessionID }))
+        return { data: fromLegacy(legacy ?? []), cursor: {} } as SessionMessagesResponse
+      },
     },
     model: {
       list: (input?: LocationInput) => unwrap(client.v2.model.list(input)),
