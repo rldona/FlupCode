@@ -1,6 +1,6 @@
 import { For, Show, createSignal, onCleanup, type Component } from "solid-js"
 import type { ModelInfo, ModelVariant } from "@opencode-ai/client"
-import type { Attachment } from "../types"
+import type { Attachment, CommandOption } from "../types"
 
 type ComposerProps = {
   value: string
@@ -11,6 +11,7 @@ type ComposerProps = {
   variantKey: string | undefined
   auto: boolean
   attachments: Attachment[]
+  commands: CommandOption[]
   onInput: (value: string) => void
   onSend: () => void
   onModelChange: (key: string) => void
@@ -18,6 +19,7 @@ type ComposerProps = {
   onToggleAuto: () => void
   onAttach: (files: File[]) => void
   onRemoveAttachment: (uri: string) => void
+  onCommandPick: (name: string) => void
 }
 
 type SpeechRecognitionResult = {
@@ -56,6 +58,20 @@ export const Composer: Component<ComposerProps> = (props) => {
   let recognition: SpeechRecognitionLike | undefined
   const [listening, setListening] = createSignal(false)
   const [dragging, setDragging] = createSignal(false)
+
+  const commandQuery = () => {
+    const value = props.value
+    if (!value.startsWith("/")) return
+    const body = value.slice(1)
+    if (body.includes(" ")) return
+    return body.toLowerCase()
+  }
+
+  const filteredCommands = () => {
+    const query = commandQuery()
+    if (query === undefined) return []
+    return props.commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
+  }
 
   onCleanup(() => recognition?.stop())
 
@@ -106,7 +122,25 @@ export const Composer: Component<ComposerProps> = (props) => {
       <div class="oh-composer-chips">
         <span class="oh-chip">Local</span>
         <span class="oh-chip">Sin carpeta</span>
+        <Show when={props.value.startsWith("!")}>
+          <span class="oh-chip oh-chip-active">Shell</span>
+        </Show>
       </div>
+
+      <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
+        <div class="oh-command-menu">
+          <For each={filteredCommands()}>
+            {(command) => (
+              <button class="oh-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
+                <span class="oh-command-name">/{command.name}</span>
+                <Show when={command.description}>
+                  <span class="oh-command-desc">{command.description}</span>
+                </Show>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
 
       <Show when={props.attachments.length > 0}>
         <div class="oh-attachments">
