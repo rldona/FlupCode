@@ -2,6 +2,8 @@
 
 **A Claude Code–style web & desktop harness for OpenCode.**
 
+🌐 **Website:** [flupcode.com](https://flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode)
+
 FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode) that takes its
 terminal-grade feature set and packages it into a first-class **web and desktop experience**:
 a harness layout with a project sidebar, usage dashboard, artifacts, routines and a polished
