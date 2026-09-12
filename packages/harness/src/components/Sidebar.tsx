@@ -1,30 +1,33 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
-import type { ProjectItem } from "../types"
 import { t } from "../i18n"
+
+type ProjectGroup = {
+  id: string
+  name: string
+  directory?: string
+  sessions: SessionInfo[]
+}
 
 type SidebarProps = {
   collapsed: boolean
   displayName: string
-  projects: ProjectItem[] | undefined
-  projectsLoading: boolean
-  pinned: string[]
   sessions: SessionInfo[] | undefined
   sessionsLoading: boolean
   selectedSession?: string
+  pinnedSessions: string[]
+  expandedProjects: Record<string, boolean>
   onDisplayName: (value: string) => void
-  onTogglePin: (id: string) => void
+  onToggleSessionPin: (id: string) => void
+  onToggleProject: (id: string) => void
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
+  onDeleteSession: (id: string) => void
   onRefresh: () => void
   onAbout: () => void
   onSettings: () => void
   onRoutines: () => void
   onArtifacts: () => void
-}
-
-function projectLabel(project: ProjectItem) {
-  return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
 
 const SkeletonRows: Component<{ count: number }> = (props) => (
@@ -36,15 +39,70 @@ const SkeletonRows: Component<{ count: number }> = (props) => (
 export const Sidebar: Component<SidebarProps> = (props) => {
   const [filter, setFilter] = createSignal("")
 
-  const orderedProjects = () => {
+  const sortedSessions = createMemo(() => {
     const query = filter().trim().toLowerCase()
-    const list = (props.projects ?? []).filter((project) =>
-      query ? `${projectLabel(project)} ${project.directory}`.toLowerCase().includes(query) : true,
-    )
-    return [...list].sort(
-      (a, b) => Number(props.pinned.includes(b.id)) - Number(props.pinned.includes(a.id)),
-    )
+    const list = (props.sessions ?? []).filter((session) => {
+      if (!query) return true
+      const directory = session.location?.directory ?? ""
+      return `${session.title} ${directory}`.toLowerCase().includes(query)
+    })
+    return [...list].sort((a, b) => b.time.updated - a.time.updated)
+  })
+
+  const groups = createMemo(() => {
+    const map = new Map<string, ProjectGroup>()
+    for (const session of sortedSessions()) {
+      const directory = session.location?.directory
+      const key = directory ?? "__none__"
+      let group = map.get(key)
+      if (!group) {
+        group = { id: key, name: directory ? (directory.split("/").filter(Boolean).at(-1) ?? directory) : t("No folder"), directory, sessions: [] }
+        map.set(key, group)
+      }
+      group.sessions.push(session)
+    }
+    return [...map.values()].sort((a, b) => {
+      if (a.directory === undefined) return 1
+      if (b.directory === undefined) return -1
+      return a.name.localeCompare(b.name)
+    })
+  })
+
+  const pinned = createMemo(() => sortedSessions().filter((session) => props.pinnedSessions.includes(session.id)))
+
+  const isExpanded = (group: ProjectGroup) => {
+    const state = props.expandedProjects[group.id]
+    if (state !== undefined) return state
+    const selected = props.sessions?.find((session) => session.id === props.selectedSession)
+    return !!selected && (selected.location?.directory ?? "__none__") === group.id
   }
+
+  const SessionRow: Component<{ session: SessionInfo }> = (row) => (
+    <div class="fc-session-row" classList={{ "fc-session-row-active": props.selectedSession === row.session.id }}>
+      <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
+        <span class="fc-session-title">{row.session.title || row.session.id.slice(0, 8)}</span>
+      </button>
+      <button
+        class="fc-session-action"
+        classList={{ "fc-session-action-on": props.pinnedSessions.includes(row.session.id) }}
+        type="button"
+        title={t("Pin")}
+        aria-label={t("Pin")}
+        onClick={() => props.onToggleSessionPin(row.session.id)}
+      >
+        {props.pinnedSessions.includes(row.session.id) ? "★" : "☆"}
+      </button>
+      <button
+        class="fc-session-action"
+        type="button"
+        title={t("Delete")}
+        aria-label={t("Delete")}
+        onClick={() => props.onDeleteSession(row.session.id)}
+      >
+        ×
+      </button>
+    </div>
+  )
 
   return (
     <aside class="fc-sidebar" classList={{ "fc-sidebar-collapsed": props.collapsed }}>
@@ -66,112 +124,68 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         </nav>
       </div>
 
-      <div class="fc-sidebar-section fc-grow">
+      <input
+        class="fc-filter-input"
+        value={filter()}
+        placeholder={t("Filter projects")}
+        aria-label={t("Filter projects")}
+        onInput={(event) => setFilter(event.currentTarget.value)}
+      />
+
+      <div class="fc-scroll fc-grow">
+        <Show when={pinned().length > 0}>
+          <div class="fc-section-label">{t("Pinned")}</div>
+          <For each={pinned()}>{(session) => <SessionRow session={session} />}</For>
+        </Show>
+
         <div class="fc-section-header">
           <span class="fc-section-label">{t("Projects")}</span>
           <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
             ↻
           </button>
         </div>
-        <input
-          class="fc-filter-input"
-          value={filter()}
-          placeholder={t("Filter projects")}
-          aria-label={t("Filter projects")}
-          onInput={(event) => setFilter(event.currentTarget.value)}
-        />
-        <div class="fc-scroll">
-          <Show when={!props.projectsLoading} fallback={<SkeletonRows count={3} />}>
-            <Show
-              when={orderedProjects().length}
-              fallback={
-                <div class="fc-empty-state">
-                  <span class="fc-empty-title">{t("No open projects")}</span>
-                  <span class="fc-empty-hint">{t("Open a folder to get started")}</span>
-                </div>
-              }
-            >
-              <ul class="fc-list">
-                <For each={orderedProjects()}>
-                  {(project) => (
-                    <li>
-                      <div class="fc-row">
-                        <button
-                          class="fc-row-action"
-                          classList={{ "fc-row-action-on": props.pinned.includes(project.id) }}
-                          type="button"
-                          title={t("Pin")}
-                          onClick={() => props.onTogglePin(project.id)}
-                        >
-                          {props.pinned.includes(project.id) ? "★" : "☆"}
-                        </button>
-                        <button
-                          class="fc-row-main"
-                          type="button"
-                          onClick={() => props.onNewSession(project.directory)}
-                        >
-                          <span class="fc-row-title">{projectLabel(project)}</span>
-                          <span class="fc-row-meta">{project.directory}</span>
-                        </button>
-                        <button
-                          class="fc-row-action"
-                          type="button"
-                          title={t("New session")}
-                          onClick={() => props.onNewSession(project.directory)}
-                        >
-                          +
-                        </button>
-                      </div>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </Show>
-        </div>
-      </div>
 
-      <div class="fc-sidebar-section fc-sessions-section">
-        <div class="fc-section-header">
-          <span class="fc-section-label">{t("Sessions")}</span>
-        </div>
-        <div class="fc-scroll">
-          <Show when={!props.sessionsLoading} fallback={<SkeletonRows count={2} />}>
-            <Show
-              when={props.sessions?.length}
-              fallback={
-                <div class="fc-empty-state">
-                  <span class="fc-empty-title">{t("No sessions")}</span>
-                  <span class="fc-empty-hint">{t("Create one with New")}</span>
+        <Show when={!props.sessionsLoading} fallback={<SkeletonRows count={4} />}>
+          <Show
+            when={groups().length > 0}
+            fallback={
+              <div class="fc-empty-state">
+                <span class="fc-empty-title">{t("No sessions")}</span>
+                <span class="fc-empty-hint">{t("Create one with New")}</span>
+              </div>
+            }
+          >
+            <For each={groups()}>
+              {(group) => (
+                <div class="fc-project-group">
+                  <div class="fc-project-row">
+                    <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
+                      <span class="fc-chevron">{isExpanded(group) ? "⌄" : "›"}</span>
+                      <span class="fc-project-name">{group.name}</span>
+                      <span class="fc-project-count">{group.sessions.length}</span>
+                    </button>
+                    <button
+                      class="fc-icon-button"
+                      type="button"
+                      title={t("New session")}
+                      aria-label={t("New session")}
+                      onClick={() => props.onNewSession(group.directory)}
+                    >
+                      +
+                    </button>
+                  </div>
+                  <Show when={isExpanded(group)}>
+                    <For each={group.sessions}>{(session) => <SessionRow session={session} />}</For>
+                  </Show>
                 </div>
-              }
-            >
-              <ul class="fc-list">
-                <For each={props.sessions}>
-                  {(session) => (
-                    <li>
-                      <button
-                        class="fc-row"
-                        classList={{ "fc-row-active": props.selectedSession === session.id }}
-                        type="button"
-                        onClick={() => props.onSelectSession(session.id)}
-                      >
-                        <span class="fc-row-main">
-                          <span class="fc-row-title">{session.title || session.id.slice(0, 8)}</span>
-                          <span class="fc-row-meta">{session.id.slice(0, 8)}</span>
-                        </span>
-                      </button>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
+              )}
+            </For>
           </Show>
-        </div>
+        </Show>
       </div>
 
       <div class="fc-sidebar-footer">
-        <span class="fc-avatar">FC</span>
+        <span class="fc-avatar">{props.displayName.trim() ? props.displayName.trim().slice(0, 2).toUpperCase() : "FC"}</span>
         <input
           class="fc-name-input"
           value={props.displayName}
@@ -180,6 +194,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           onInput={(event) => props.onDisplayName(event.currentTarget.value)}
         />
         <span class="fc-chip fc-chip-plan">{t("Local")}</span>
+        <button class="fc-icon-button" type="button" title={t("Customize")} aria-label={t("Customize")} onClick={props.onSettings}>
+          ⚙
+        </button>
         <button class="fc-icon-button" type="button" title={t("About")} aria-label={t("About")} onClick={props.onAbout}>
           i
         </button>
