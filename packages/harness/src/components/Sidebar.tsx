@@ -15,6 +15,7 @@ type SidebarProps = {
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
   onRefresh: () => void
+  onAbout: () => void
 }
 
 function projectLabel(project: Project) {
@@ -163,6 +164,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           aria-label="Display name"
           onInput={(event) => props.onDisplayName(event.currentTarget.value)}
         />
+        <button class="oh-icon-button" type="button" title="Acerca de" aria-label="Acerca de" onClick={props.onAbout}>
+          i
+        </button>
       </div>
     </aside>
   )
