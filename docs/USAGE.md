@@ -31,8 +31,19 @@ bun run --cwd packages/opencode src/index.ts serve --port 4096
 bun run dev:harness
 ```
 
-Open http://localhost:4444. The server URL defaults to `http://localhost:4096`; edit it in the top
-bar or set `VITE_OPENCODE_SERVER_URL`.
+Open http://localhost:4444. The server URL defaults to `http://localhost:4096`; change it in
+**Settings → Server**, or set `VITE_OPENCODE_SERVER_URL`.
+
+### Hosted web app
+
+There is a deployed UI at https://app.flupcode.com that talks to an engine on your machine:
+
+```bash
+opencode serve --port 4096 --cors https://app.flupcode.com
+```
+
+The `--cors` origin is required because the page and the engine are different origins. The app
+connects to `http://localhost:4096` by default (change it in **Settings → Server**).
 
 ### Desktop
 
@@ -49,7 +60,7 @@ The desktop main process starts a local server automatically if none is reachabl
 - **Sidebar** — New session, navigation (Artifacts, Routines, Personalize), projects with quick
   create and pinning, and the session list.
 - **Canvas** — the usage dashboard on the home screen, or the conversation when a session is open.
-- **Composer** — the input dock with attachments, voice, context chips, model/variant and Auto mode.
+- **Composer** — the input dock with attachments, voice, context chips, model/effort and permission modes.
 
 ## Keyboard
 

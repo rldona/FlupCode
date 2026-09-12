@@ -86,6 +86,18 @@ bun run dev:desktop      # start the upstream desktop app (reference)
 > public registry for installs:
 > `npm_config_registry="https://registry.npmjs.org/" bun install --frozen-lockfile`
 
+## Web app
+
+Use the hosted UI at [app.flupcode.com](https://app.flupcode.com) — it connects to an engine on
+your machine:
+
+```bash
+opencode serve --port 4096 --cors https://app.flupcode.com
+```
+
+`--cors` is required because the page and the engine are different origins; the app connects to
+`http://localhost:4096` by default (change it in **Settings → Server**).
+
 ## Documentation
 
 | Document | Purpose |
