@@ -20,6 +20,7 @@ type SidebarProps = {
   selectedSession?: string
   pinnedSessions: string[]
   expandedProjects: Record<string, boolean>
+  noFolderSessions: string[]
   onDisplayName: (value: string) => void
   onToggleSessionPin: (id: string) => void
   onToggleProject: (id: string) => void
@@ -59,7 +60,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   const groups = createMemo(() => {
     const map = new Map<string, ProjectGroup>()
     for (const session of sortedSessions()) {
-      const directory = session.location?.directory
+      const directory = props.noFolderSessions.includes(session.id) ? undefined : session.location?.directory
       const key = directory ?? "__none__"
       let group = map.get(key)
       if (!group) {
@@ -86,7 +87,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     const state = props.expandedProjects[group.id]
     if (state !== undefined) return state
     const selected = props.sessions?.find((session) => session.id === props.selectedSession)
-    return !!selected && (selected.location?.directory ?? "__none__") === group.id
+    if (!selected) return false
+    const key = props.noFolderSessions.includes(selected.id) ? "__none__" : (selected.location?.directory ?? "__none__")
+    return key === group.id
   }
 
   const openSessionMenu = (event: MouseEvent, session: SessionInfo) => {
