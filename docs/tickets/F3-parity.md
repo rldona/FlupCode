@@ -24,25 +24,25 @@ porting/adapting them into `packages/harness`, not rebuilding.
 - Multi-question wizard with multi-select and custom answers.
 - Auto-accept mode toggle.
 
-## F3-4 — Undo/redo, revert, fork, compact · P0 · todo
+## F3-4 — Undo/redo, revert, fork, compact · P0 · doing
 
 **Acceptance**
 - Undo/redo restores messages and files; prompt is restored.
 - Fork from message; compact uses the current model.
 
-## F3-5 — Sessions, share, export · P0 · todo
+## F3-5 — Sessions, share, export · P0 · doing
 
 **Acceptance**
 - List/switch/create/rename/delete/archive.
 - Share/unshare; export session.
 
-## F3-6 — Agents, subagents, todos · P0 · todo
+## F3-6 — Agents, subagents, todos · P0 · doing
 
 **Acceptance**
 - Agent switch/cycle; plan/build auto-switch.
 - Subagent sessions openable; todo dock.
 
-## F3-7 — Move session between locations · P1 · todo
+## F3-7 — Move session between locations · P1 · done
 
 **Acceptance**
 - Move a session to another project/workspace; file-change confirmation.
@@ -68,7 +68,7 @@ porting/adapting them into `packages/harness`, not rebuilding.
 **Acceptance**
 - Large pastes collapse to `[Pasted ~N lines]`, expand on submit.
 
-## F3-12 — Markdown transcript export · P1 · todo
+## F3-12 — Markdown transcript export · P1 · done
 
 **Acceptance**
 - Export with options (thinking/tool details/metadata); copy transcript.

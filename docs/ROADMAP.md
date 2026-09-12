@@ -58,15 +58,15 @@ Status: `todo` · `doing` · `done` · `cut`
 | F3-1 | P0 | Slash commands + command palette in harness | done |
 | F3-2 | P0 | `@` mentions and `!` shell mode | done |
 | F3-3 | P0 | Permissions & questions docks | done |
-| F3-4 | P0 | Undo/redo, revert, fork, compact | todo |
-| F3-5 | P0 | Session list/switch, share/unshare, export | todo |
-| F3-6 | P0 | Agents, subagents, todos | todo |
-| F3-7 | P1 | Move session between locations | todo |
+| F3-4 | P0 | Undo/redo, revert, fork, compact | doing |
+| F3-5 | P0 | Session list/switch, share/unshare, export | doing |
+| F3-6 | P0 | Agents, subagents, todos | doing |
+| F3-7 | P1 | Move session between locations | done |
 | F3-8 | P1 | Session tags/labels | todo |
 | F3-9 | P1 | Prompt stash | todo |
 | F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | todo |
 | F3-11 | P1 | Paste summarization | todo |
-| F3-12 | P1 | Markdown transcript export with options | todo |
+| F3-12 | P1 | Markdown transcript export with options | done |
 | F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | todo |
 | F3-14 | P2 | MCP add/configure UI | todo |
 | F3-15 | P2 | "Toggle steps" command | todo |
