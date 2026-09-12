@@ -1,5 +1,5 @@
-import { For, Show, createSignal, onCleanup, type Component } from "solid-js"
-import type { ModelInfo, ModelVariant } from "@opencode-ai/client"
+import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
+import type { FileSystemEntry, ModelInfo, ModelVariant } from "@opencode-ai/client"
 import type { Attachment, CommandOption } from "../types"
 
 type ComposerProps = {
@@ -20,6 +20,7 @@ type ComposerProps = {
   onAttach: (files: File[]) => void
   onRemoveAttachment: (uri: string) => void
   onCommandPick: (name: string) => void
+  searchFiles: (query: string) => Promise<FileSystemEntry[]>
 }
 
 type SpeechRecognitionResult = {
@@ -71,6 +72,41 @@ export const Composer: Component<ComposerProps> = (props) => {
     const query = commandQuery()
     if (query === undefined) return []
     return props.commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
+  }
+
+  const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
+
+  const mentionToken = () => {
+    const value = props.value
+    const at = value.lastIndexOf("@")
+    if (at === -1) return
+    const token = value.slice(at + 1)
+    if (token.includes(" ")) return
+    return token
+  }
+
+  createEffect(() => {
+    const token = mentionToken()
+    if (token === undefined || commandQuery() !== undefined) {
+      setFileResults([])
+      return
+    }
+    const handle = setTimeout(async () => {
+      try {
+        setFileResults(await props.searchFiles(token))
+      } catch {
+        setFileResults([])
+      }
+    }, 150)
+    onCleanup(() => clearTimeout(handle))
+  })
+
+  const insertMention = (path: string) => {
+    const value = props.value
+    const at = value.lastIndexOf("@")
+    if (at === -1) return
+    props.onInput(`${value.slice(0, at)}@${path} `)
+    setFileResults([])
   }
 
   onCleanup(() => recognition?.stop())
@@ -136,6 +172,19 @@ export const Composer: Component<ComposerProps> = (props) => {
                 <Show when={command.description}>
                   <span class="oh-command-desc">{command.description}</span>
                 </Show>
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
+
+      <Show when={commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0}>
+        <div class="oh-command-menu">
+          <For each={fileResults()}>
+            {(file) => (
+              <button class="oh-command-item" type="button" onClick={() => insertMention(file.path)}>
+                <span class="oh-command-name">@{file.path}</span>
+                <span class="oh-command-desc">{file.type}</span>
               </button>
             )}
           </For>

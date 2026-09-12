@@ -929,6 +929,212 @@ button.oh-row-main {
   white-space: nowrap;
 }
 
+.oh-palette {
+  width: min(560px, 100%);
+  align-self: flex-start;
+  margin-top: 12vh;
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-lg);
+  background: var(--oh-bg-elevated);
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.2);
+  overflow: hidden;
+}
+
+.oh-palette-input {
+  width: 100%;
+  height: 48px;
+  padding: 0 var(--oh-space-4);
+  border: none;
+  border-bottom: 1px solid var(--oh-border);
+  background: transparent;
+  color: var(--oh-text);
+  font-size: var(--oh-text-lg);
+}
+
+.oh-palette-input:focus {
+  outline: none;
+}
+
+.oh-palette-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--oh-space-2);
+  max-height: 50vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.oh-palette-item {
+  display: flex;
+  align-items: center;
+  gap: var(--oh-space-2);
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  border-radius: var(--oh-radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.oh-palette-item-active {
+  background: var(--oh-accent-soft);
+}
+
+.oh-palette-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--oh-border) 60%, transparent);
+  color: var(--oh-text-muted);
+  font-size: var(--oh-text-xs);
+  font-weight: 600;
+}
+
+.oh-palette-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oh-palette-desc {
+  flex-shrink: 0;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--oh-text-xs);
+  color: var(--oh-text-muted);
+}
+
+.oh-palette-empty {
+  padding: var(--oh-space-4);
+  color: var(--oh-text-muted);
+  font-size: var(--oh-text-sm);
+}
+
+.oh-transcript {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--oh-space-3);
+  width: min(760px, 100%);
+  margin: 0 auto;
+  padding: var(--oh-space-5) var(--oh-space-4);
+}
+
+.oh-message {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oh-message-role {
+  font-size: var(--oh-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--oh-text-muted);
+}
+
+.oh-message-text {
+  white-space: pre-wrap;
+  line-height: 1.55;
+  font-size: var(--oh-text-md);
+}
+
+.oh-message-user .oh-message-text {
+  padding: 12px 14px;
+  border-radius: var(--oh-radius-md);
+  background: color-mix(in srgb, var(--oh-border) 35%, transparent);
+}
+
+.oh-message-pending {
+  color: var(--oh-text-muted);
+  font-size: 13px;
+}
+
+.oh-message-error {
+  font-size: var(--oh-text-sm);
+  color: var(--oh-danger);
+}
+
+.oh-reasoning {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.oh-reasoning-toggle {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--oh-text-muted);
+  font-size: var(--oh-text-xs);
+  padding: 0;
+}
+
+.oh-reasoning-text {
+  white-space: pre-wrap;
+  padding: 10px 12px;
+  border-left: 2px solid var(--oh-border);
+  border-radius: 0 var(--oh-radius-sm) var(--oh-radius-sm) 0;
+  background: color-mix(in srgb, var(--oh-border) 25%, transparent);
+  color: var(--oh-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.oh-tool {
+  border: 1px solid var(--oh-border);
+  border-radius: var(--oh-radius-sm);
+  overflow: hidden;
+}
+
+.oh-tool-header {
+  display: flex;
+  align-items: center;
+  gap: var(--oh-space-2);
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: color-mix(in srgb, var(--oh-border) 20%, transparent);
+  text-align: left;
+}
+
+.oh-tool-name {
+  font-family: var(--oh-font-ui);
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.oh-tool-status {
+  margin-left: auto;
+  font-size: var(--oh-text-xs);
+  color: var(--oh-text-muted);
+}
+
+.oh-tool-output {
+  margin: 0;
+  padding: 10px 12px;
+  max-height: 280px;
+  overflow: auto;
+  background: var(--oh-bg);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;
