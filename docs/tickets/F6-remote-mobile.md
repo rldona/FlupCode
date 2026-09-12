@@ -8,7 +8,9 @@ Goal: a native-feeling mobile experience on top of the existing server. See ADR-
 - Harness installs as a PWA.
 - Layout adapts down to phone widths (sidebar drawer, composer dock).
 
-## F6-2 — QR pairing + auth · P1 · todo
+## F6-2 — QR pairing + auth · P1 · doing
+
+QR of the server URL and LAN instructions done. Credential-embedding pairing token is pending.
 
 **Acceptance**
 - Desktop/server shows a QR code; mobile pairs and authenticates.

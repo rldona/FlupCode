@@ -18,6 +18,7 @@ type SettingsPanelProps = {
   onToggleAuto: () => void
   onToggleTools: () => void
   onOpenMcp: () => void
+  onOpenRemote: () => void
   onOpenAbout: () => void
   onClose: () => void
 }
@@ -131,6 +132,9 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <div class="fc-settings-row">
               <button class="fc-button" type="button" onClick={props.onOpenMcp}>
                 Servidores MCP
+              </button>
+              <button class="fc-button" type="button" onClick={props.onOpenRemote}>
+                Acceso remoto (QR)
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenAbout}>
                 Acerca de FlupCode
