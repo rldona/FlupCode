@@ -35,6 +35,10 @@ type SidebarProps = {
   onSettings: () => void
   onRoutines: () => void
   onArtifacts: () => void
+  onProviders: () => void
+  onConfig: () => void
+  onRemote: () => void
+  onMcp: () => void
 }
 
 const SkeletonRows: Component<{ count: number }> = (props) => (
@@ -273,22 +277,33 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         </div>
 
         <div class="fc-sidebar-footer">
-          <span class="fc-avatar">
-            {props.displayName.trim() ? props.displayName.trim().slice(0, 2).toUpperCase() : "FC"}
-          </span>
-          <input
-            class="fc-name-input"
-            value={props.displayName}
-            placeholder={t("Your name")}
-            aria-label={t("Your name")}
-            onInput={(event) => props.onDisplayName(event.currentTarget.value)}
-          />
-          <span class="fc-chip fc-chip-plan">{t("Local")}</span>
-          <button class="fc-icon-button" type="button" title={t("Customize")} aria-label={t("Customize")} onClick={props.onSettings}>
-            ⚙
-          </button>
-          <button class="fc-icon-button" type="button" title={t("About")} aria-label={t("About")} onClick={props.onAbout}>
-            i
+          <button
+            class="fc-profile-button"
+            type="button"
+            onClick={(event) => {
+              const rect = event.currentTarget.getBoundingClientRect()
+              setMenu({
+                x: rect.left,
+                y: Math.max(8, rect.top - 360),
+                items: [
+                  { label: t("Settings"), icon: "⚙", shortcut: "⌘,", onSelect: props.onSettings },
+                  { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
+                  { label: t("Language"), icon: "文", onSelect: props.onSettings },
+                  { label: t("Artifacts"), icon: "▤", onSelect: props.onArtifacts },
+                  { label: t("Routines"), icon: "↻", onSelect: props.onRoutines },
+                  { label: t("MCP servers"), icon: "◫", onSelect: props.onMcp },
+                  { label: t("Config (advanced)"), icon: "{}", onSelect: props.onConfig },
+                  { label: t("Remote access (QR)"), icon: "◉", onSelect: props.onRemote },
+                  { label: t("About"), icon: "i", onSelect: props.onAbout },
+                ],
+              })
+            }}
+          >
+            <span class="fc-avatar">
+              {props.displayName.trim() ? props.displayName.trim().slice(0, 2).toUpperCase() : "FC"}
+            </span>
+            <span class="fc-profile-name">{props.displayName.trim() || t("Local")}</span>
+            <span class="fc-chevron">⌄</span>
           </button>
         </div>
 

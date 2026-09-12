@@ -5,6 +5,7 @@ export type {
   FileSystemEntry,
   ModelV2Info as ModelInfo,
   PermissionV2Request,
+  ProviderV2Info as ProviderInfo,
   QuestionV2Request,
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,

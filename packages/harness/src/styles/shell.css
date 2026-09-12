@@ -2138,6 +2138,70 @@ button.fc-row-main {
   color: var(--fc-text-muted);
 }
 
+.fc-profile-button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.fc-profile-button:hover {
+  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+}
+
+.fc-profile-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.fc-provider-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.fc-provider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-provider-info {
+  display: flex;
+  flex-direction: column;
+  width: 160px;
+  flex-shrink: 0;
+}
+
+.fc-provider-name {
+  font-weight: 500;
+}
+
+.fc-provider-id {
+  font-size: var(--fc-text-xs);
+  color: var(--fc-text-muted);
+}
+
+.fc-provider-row .fc-question-custom {
+  flex: 1;
+}
+
 @media (max-width: 720px) {
   .fc-sidebar {
     position: absolute;
