@@ -13,6 +13,7 @@ type TopbarProps = {
   onToggleSidebar: () => void
   onRefreshServer: () => void
   onServerInput: (value: string) => void
+  onOpenPalette: () => void
 }
 
 export const Topbar: Component<TopbarProps> = (props) => {
@@ -44,6 +45,15 @@ export const Topbar: Component<TopbarProps> = (props) => {
         <span class="fc-logo">FlupCode</span>
       </div>
       <div class="fc-topbar-right">
+        <button
+          class="fc-nav-arrow"
+          type="button"
+          title={t("Command palette")}
+          aria-label={t("Command palette")}
+          onClick={props.onOpenPalette}
+        >
+          ⌕
+        </button>
         <input
           class="fc-server-input"
           value={props.serverInput}

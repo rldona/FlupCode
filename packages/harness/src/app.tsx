@@ -975,6 +975,7 @@ export const App: Component = () => {
           onToggleSidebar={toggleSidebar}
           onRefreshServer={commitServer}
           onServerInput={setServerInput}
+          onOpenPalette={() => setPaletteOpen(true)}
         />
         <Show when={selectedSession()}>
           {(session) => (
