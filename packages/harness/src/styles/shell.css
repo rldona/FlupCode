@@ -2131,16 +2131,24 @@ button.fc-row-main {
 
 .fc-mascot {
   position: absolute;
-  top: -16px;
-  right: max(12px, calc(50% - 388px));
-  width: 34px;
-  height: 28px;
+  top: -84px;
+  right: max(12px, calc(50% - 440px));
+  width: 128px;
+  height: 128px;
   padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
   transform-origin: 50% 100%;
   animation: fc-mascot-idle 3.2s ease-in-out infinite;
+}
+
+.fc-mascot-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  pointer-events: none;
 }
 
 .fc-mascot-play {
