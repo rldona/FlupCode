@@ -2,7 +2,7 @@
 
 Goal: the features in the target screenshot that go beyond TUI parity.
 
-## F4-1 — Global usage dashboard · P1 · todo
+## F4-1 — Global usage dashboard · P1 · done
 
 Summary/Models tabs with ranges (all / 30d / 7d): sessions, messages, total tokens, active days,
 current streak, longest streak, peak hour, favorite model.
@@ -12,7 +12,7 @@ current streak, longest streak, peak hour, favorite model.
 - Range switching re-computes.
 - Model tab breaks usage down by model.
 
-## F4-2 — Multi-project workspaces + pinned items · P1 · todo
+## F4-2 — Multi-project workspaces + pinned items · P1 · doing
 
 **Acceptance**
 - Projects and workspaces are first-class in the sidebar.
