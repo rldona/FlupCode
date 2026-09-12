@@ -224,6 +224,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     provider: {
       list: (input?: LocationInput) => unwrap(client.v2.provider.list(input)),
+      directory: () => unwrap(client.provider.list()),
+      auth: () => unwrap(client.provider.auth()),
     },
     auth: {
       set: (input: { providerID: string; key: string }) =>

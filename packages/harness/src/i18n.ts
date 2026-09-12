@@ -211,6 +211,9 @@ const ES: Record<string, string> = {
   "Add an API key for a provider. It is stored by the OpenCode server.":
     "Añade una API key para un proveedor. La guarda el servidor de OpenCode.",
   "No providers": "Sin proveedores",
+  "Search providers": "Buscar proveedores",
+  "OAuth available": "OAuth disponible",
+  "{count} models": "{count} modelos",
   Configured: "Configurado",
   "Not configured": "Sin configurar",
   "API key": "API key",
