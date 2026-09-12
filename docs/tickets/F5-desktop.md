@@ -2,7 +2,9 @@
 
 Goal: a packaged, signed, auto-updating desktop app reusing the harness renderer.
 
-## F5-1 — `harness-desktop` Electron shell · P1 · todo
+## F5-1 — `harness-desktop` Electron shell · P1 · doing
+
+Bootstrap done: Electron main + window loading the harness renderer. Remaining: manage the local server sidecar.
 
 **Acceptance**
 - Electron main boots/attaches to the local server and loads the harness renderer.

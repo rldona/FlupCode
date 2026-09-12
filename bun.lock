@@ -529,6 +529,17 @@
         "vite-plugin-solid": "catalog:",
       },
     },
+    "packages/harness-desktop": {
+      "name": "@openharness/desktop",
+      "version": "0.1.0",
+      "devDependencies": {
+        "@types/node": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "electron": "42.3.3",
+        "electron-vite": "^5",
+        "typescript": "catalog:",
+      },
+    },
     "packages/http-recorder": {
       "name": "@opencode-ai/http-recorder",
       "version": "1.18.30",
@@ -2029,6 +2040,8 @@
     "@opencode-ai/ui": ["@opencode-ai/ui@workspace:packages/ui"],
 
     "@opencode-ai/web": ["@opencode-ai/web@workspace:packages/web"],
+
+    "@openharness/desktop": ["@openharness/desktop@workspace:packages/harness-desktop"],
 
     "@openharness/harness": ["@openharness/harness@workspace:packages/harness"],
 
