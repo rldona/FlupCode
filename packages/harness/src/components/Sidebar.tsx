@@ -180,6 +180,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           aria-label={t("Your name")}
           onInput={(event) => props.onDisplayName(event.currentTarget.value)}
         />
+        <span class="fc-chip fc-chip-plan">{t("Local")}</span>
         <button class="fc-icon-button" type="button" title={t("About")} aria-label={t("About")} onClick={props.onAbout}>
           i
         </button>

@@ -25,3 +25,5 @@ export type Routine = {
   createdAt: number
   lastRunAt?: number
 }
+
+export type SessionTags = Record<string, string[]>

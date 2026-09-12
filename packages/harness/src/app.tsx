@@ -3,7 +3,7 @@ import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
-import type { Attachment, CommandOption, McpConfig, Routine, StashedPrompt } from "./types"
+import type { Attachment, CommandOption, McpConfig, Routine, SessionTags, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
@@ -25,6 +25,8 @@ import { RoutinesPanel } from "./components/RoutinesPanel"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
+import { SkillsPanel } from "./components/SkillsPanel"
+import { ConfigPanel } from "./components/ConfigPanel"
 
 type Client = ReturnType<typeof createClient>
 
@@ -35,6 +37,8 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "mcp", descriptionKey: "MCP servers…" },
   { name: "stash", descriptionKey: "Save the current prompt" },
   { name: "stashes", descriptionKey: "View saved prompts" },
+  { name: "skills", descriptionKey: "Skills" },
+  { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
   { name: "routines", descriptionKey: "Scheduled tasks" },
   { name: "remote", descriptionKey: "Remote access / mobile" },
@@ -65,6 +69,12 @@ export const App: Component = () => {
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
   const [remoteOpen, setRemoteOpen] = createSignal(false)
   const [artifactsOpen, setArtifactsOpen] = createSignal(false)
+  const [skillsOpen, setSkillsOpen] = createSignal(false)
+  const [configOpen, setConfigOpen] = createSignal(false)
+  const [tags, setTags] = createSignal<SessionTags>(readStorage<SessionTags>(STORAGE_KEYS.sessionTags, {}))
+  const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
+  const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
+  const [targetDirectory, setTargetDirectory] = createSignal<string>()
   const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
@@ -195,20 +205,41 @@ export const App: Component = () => {
       setArtifactsOpen(true)
       return
     }
+    if (name === "skills") {
+      setSkillsOpen(true)
+      return
+    }
+    if (name === "config") {
+      setConfigOpen(true)
+      return
+    }
     setPrompt(`/${name} `)
   }
 
   createEffect(() => {
+    const parts = paletteKey().split("+")
+    const keyPart = (parts.at(-1) ?? "k").toLowerCase()
+    const wantsMod = parts.includes("mod")
+    const wantsShift = parts.includes("shift")
+    const wantsAlt = parts.includes("alt")
     const handler = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey)) return
-      const key = event.key.toLowerCase()
-      if (key !== "k" && key !== "p") return
+      if (event.key.toLowerCase() !== keyPart) return
+      if ((event.metaKey || event.ctrlKey) !== wantsMod) return
+      if (event.shiftKey !== wantsShift) return
+      if (event.altKey !== wantsAlt) return
       event.preventDefault()
       setPaletteOpen(true)
     }
     document.addEventListener("keydown", handler)
     onCleanup(() => document.removeEventListener("keydown", handler))
   })
+
+  const notify = (title: string, body: string) => {
+    if (!notifications()) return
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return
+    if (!document.hidden) return
+    new Notification(title, { body })
+  }
 
   createEffect(() => {
     const url = serverUrl()
@@ -217,9 +248,13 @@ export const App: Component = () => {
     void (async () => {
       try {
         for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
-          if (event.type.startsWith("permission.")) void refetchPermissions()
-          else if (event.type.startsWith("question.")) void refetchQuestions()
-          else if (event.type.startsWith("message.")) void refetchMessages()
+          if (event.type.startsWith("permission.")) {
+            if (event.type === "permission.v2.asked") notify(t("Permission needed"), "")
+            void refetchPermissions()
+          } else if (event.type.startsWith("question.")) {
+            if (event.type === "question.v2.asked") notify(t("Question asked"), "")
+            void refetchQuestions()
+          } else if (event.type.startsWith("message.")) void refetchMessages()
           else if (event.type.startsWith("session.")) void refetchSessions()
         }
       } catch {
@@ -407,6 +442,38 @@ export const App: Component = () => {
     toast(t("Path copied"), "success")
   }
 
+  const currentTags = () => tags()[selected() ?? ""] ?? []
+
+  const addTag = (value: string) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const next = { ...tags(), [sessionID]: [...(tags()[sessionID] ?? []), value] }
+    setTags(next)
+    writeStorage(STORAGE_KEYS.sessionTags, next)
+  }
+
+  const removeTag = (value: string) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const next = { ...tags(), [sessionID]: (tags()[sessionID] ?? []).filter((entry) => entry !== value) }
+    setTags(next)
+    writeStorage(STORAGE_KEYS.sessionTags, next)
+  }
+
+  const toggleNotifications = () => {
+    const next = !notifications()
+    if (next && typeof Notification !== "undefined" && Notification.permission === "default") {
+      void Notification.requestPermission()
+    }
+    setNotifications(next)
+    writeStorage(STORAGE_KEYS.notifications, next)
+  }
+
+  const changePaletteKey = (value: string) => {
+    setPaletteKey(value)
+    writeStorage(STORAGE_KEYS.paletteKey, value)
+  }
+
   const addAttachments = (files: File[]) => {
     void Promise.all(
       files.map(
@@ -545,9 +612,10 @@ export const App: Component = () => {
   const newSession = (directory?: string) =>
     run(async (current) => {
       const model = selectedModel()
+      const location = directory ?? targetDirectory()
       const session = await current.session.create({
         ...(model ? { model } : {}),
-        ...(directory ? { location: { directory } } : {}),
+        ...(location ? { location: { directory: location } } : {}),
       })
       return session.id
     }, t("Session created"))
@@ -809,6 +877,16 @@ export const App: Component = () => {
         setArtifactsOpen(true)
         return
       }
+      if (name === "skills") {
+        setPrompt("")
+        setSkillsOpen(true)
+        return
+      }
+      if (name === "config") {
+        setPrompt("")
+        setConfigOpen(true)
+        return
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -843,7 +921,15 @@ export const App: Component = () => {
 
     void run(async (current) => {
       const model = selectedModel()
-      const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
+      const location = targetDirectory()
+      const sessionID =
+        selected() ??
+        (
+          await current.session.create({
+            ...(model ? { model } : {}),
+            ...(location ? { location: { directory: location } } : {}),
+          })
+        ).id
       await current.session.prompt({
         sessionID,
         text: expandPastes(text),
@@ -908,6 +994,9 @@ export const App: Component = () => {
               onUndo={undo}
               onRedo={redo}
               onCommitRevert={commitRevert}
+              tags={currentTags()}
+              onAddTag={addTag}
+              onRemoveTag={removeTag}
             />
           )}
         </Show>
@@ -967,6 +1056,8 @@ export const App: Component = () => {
           auto={auto()}
           attachments={attachments()}
           commands={commandOptions()}
+          projects={projects() ?? []}
+          targetDirectory={targetDirectory()}
           onInput={setPrompt}
           onSend={send}
           onCommandPick={(name) => setPrompt(`/${name} `)}
@@ -978,6 +1069,7 @@ export const App: Component = () => {
           searchFiles={searchFiles}
           onPasteText={collapsePaste}
           onStash={() => stashPrompt(prompt(), true)}
+          onTargetChange={setTargetDirectory}
         />
       </main>
       <Toaster />
@@ -1019,6 +1111,8 @@ export const App: Component = () => {
         modelKey={modelKey()}
         auto={auto()}
         showTools={showTools()}
+        notifications={notifications()}
+        paletteKey={paletteKey()}
         onTheme={updateTheme}
         onLocale={setLocale}
         onDisplayName={updateDisplayName}
@@ -1027,6 +1121,8 @@ export const App: Component = () => {
         onModelChange={changeModel}
         onToggleAuto={() => setAuto((value) => !value)}
         onToggleTools={() => setShowTools((value) => !value)}
+        onToggleNotifications={toggleNotifications}
+        onPaletteKey={changePaletteKey}
         onOpenMcp={() => {
           setSettingsOpen(false)
           setMcpOpen(true)
@@ -1034,6 +1130,10 @@ export const App: Component = () => {
         onOpenRemote={() => {
           setSettingsOpen(false)
           setRemoteOpen(true)
+        }}
+        onOpenConfig={() => {
+          setSettingsOpen(false)
+          setConfigOpen(true)
         }}
         onOpenAbout={() => {
           setSettingsOpen(false)
@@ -1059,6 +1159,16 @@ export const App: Component = () => {
         onCopy={copyPath}
         onClose={() => setArtifactsOpen(false)}
       />
+      <SkillsPanel
+        open={skillsOpen()}
+        skills={skills()?.data ?? []}
+        onInsert={(name) => {
+          setPrompt(`/${name} `)
+          setSkillsOpen(false)
+        }}
+        onClose={() => setSkillsOpen(false)}
+      />
+      <ConfigPanel open={configOpen()} serverUrl={serverUrl()} onClose={() => setConfigOpen(false)} />
     </div>
   )
 }

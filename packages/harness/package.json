@@ -10,6 +10,7 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "bun test src",
+    "test:e2e": "playwright test",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
     "solid-js": "catalog:"
   },
   "devDependencies": {
+    "@playwright/test": "catalog:",
     "@tailwindcss/vite": "catalog:",
     "@types/bun": "catalog:",
     "@types/qrcode": "1.5.5",

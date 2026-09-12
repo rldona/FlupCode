@@ -54,6 +54,17 @@ export const RemotePanel: Component<RemotePanelProps> = (props) => {
         <p class="fc-modal-license">
           {t("To expose on the network:")} OPENCODE_SERVER_PASSWORD=… opencode serve --hostname 0.0.0.0 --port 4096
         </p>
+        <div class="fc-tunnel">
+          <span class="fc-section-label">{t("Tunnel")}</span>
+          <code>cloudflared tunnel --url http://localhost:4096</code>
+          <button
+            class="fc-button"
+            type="button"
+            onClick={() => void navigator.clipboard?.writeText("cloudflared tunnel --url http://localhost:4096")}
+          >
+            {t("Copy command")}
+          </button>
+        </div>
       </div>
     </div>
   )
