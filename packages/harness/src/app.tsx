@@ -58,6 +58,7 @@ export const App: Component = () => {
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
   )
+  const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, 280))
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
@@ -430,6 +431,23 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.sidebarCollapsed, next)
   }
 
+  const updateSidebarWidth = (width: number) => {
+    const next = Math.max(200, Math.min(480, Math.round(width)))
+    setSidebarWidth(next)
+    writeStorage(STORAGE_KEYS.sidebarWidth, next)
+  }
+
+  createEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault()
+        toggleSidebar()
+      }
+    }
+    document.addEventListener("keydown", handler)
+    onCleanup(() => document.removeEventListener("keydown", handler))
+  })
+
   const updateDisplayName = (value: string) => {
     setDisplayName(value)
     writeStorage(STORAGE_KEYS.displayName, value)
@@ -691,8 +709,8 @@ export const App: Component = () => {
     }, t("Session compacted"))
   }
 
-  const renameSession = () => {
-    const sessionID = selected()
+  const renameSession = (id?: string) => {
+    const sessionID = id ?? selected()
     if (!sessionID) return
     const currentTitle = sessionList()?.find((session) => session.id === sessionID)?.title ?? ""
     const title = window.prompt(t("New title"), currentTitle)
@@ -701,6 +719,26 @@ export const App: Component = () => {
       await current.session.rename({ sessionID, title })
       return undefined
     }, t("Session renamed"))
+  }
+
+  const deleteProject = (directory: string) => {
+    const sessions = (sessionList() ?? []).filter((session) => (session.location?.directory ?? "") === directory)
+    if (sessions.length === 0) return
+    if (!window.confirm(t("Delete this project and its sessions?"))) return
+    void (async () => {
+      setBusy(true)
+      try {
+        const current = createClient(serverUrl())
+        for (const session of sessions) await current.session.remove({ sessionID: session.id })
+        if (sessions.some((session) => session.id === selected())) setSelected(undefined)
+        toast(t("Project deleted"), "success")
+        void refetchSessions()
+      } catch (cause) {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+      } finally {
+        setBusy(false)
+      }
+    })()
   }
 
   const moveSession = (directory: string) => {
@@ -977,6 +1015,7 @@ export const App: Component = () => {
     <div class="fc-app">
       <Sidebar
         collapsed={collapsed()}
+        width={sidebarWidth()}
         displayName={displayName()}
         sessions={sessionList()}
         sessionsLoading={sessions.loading}
@@ -989,6 +1028,11 @@ export const App: Component = () => {
         onNewSession={newSession}
         onSelectSession={selectSession}
         onDeleteSession={deleteSession}
+        onRenameSession={renameSession}
+        onDeleteProject={deleteProject}
+        onResize={updateSidebarWidth}
+        onCollapse={toggleSidebar}
+        onCopyPath={copyPath}
         onRefresh={refresh}
         onAbout={() => setAboutOpen(true)}
         onSettings={() => setSettingsOpen(true)}
