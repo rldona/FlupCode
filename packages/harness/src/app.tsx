@@ -152,11 +152,20 @@ export const App: Component = () => {
       const sessionID = selected()
       return sessionID ? { url: serverUrl(), sessionID } : undefined
     },
-    async (source) => createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" }),
+    async (source) => {
+      const result = await createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" })
+      return { sessionID: source.sessionID, data: result.data, cursor: result.cursor }
+    },
   )
+  const activeMessages = () => {
+    const value = messages()
+    if (!value || value.sessionID !== selected()) return undefined
+    return value.data
+  }
+  const messagesLoading = () => messages.loading || (selected() !== undefined && messages()?.sessionID !== selected())
   const generating = () => {
     if (busy()) return true
-    const list = messages()?.data ?? []
+    const list = activeMessages() ?? []
     const last = list[list.length - 1]
     if (!last) return false
     if (last.type === "user") return true
@@ -165,7 +174,7 @@ export const App: Component = () => {
     return time !== undefined && time.completed === undefined
   }
   const liveUsage = () => {
-    const list = messages()?.data ?? []
+    const list = activeMessages() ?? []
     const last = list[list.length - 1]
     if (last?.type === "assistant") {
       const assistant = last as SessionMessageAssistant
@@ -176,7 +185,7 @@ export const App: Component = () => {
     return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
   }
   const generationStartedAt = () => {
-    const list = messages()?.data ?? []
+    const list = activeMessages() ?? []
     const last = list[list.length - 1]
     if (last?.type === "user") return (last as { time?: { created?: number } }).time?.created
     if (last?.type === "assistant") return (last as SessionMessageAssistant).time?.created
@@ -191,7 +200,7 @@ export const App: Component = () => {
   )
 
   const todos = () => {
-    const data = messages()?.data ?? []
+    const data = activeMessages() ?? []
     const assistants = [...data].reverse().flatMap((message) =>
       message.type === "assistant" ? [message] : [],
     )
@@ -481,7 +490,7 @@ export const App: Component = () => {
 
   const artifacts = () => {
     const files = new Set<string>()
-    for (const message of messages()?.data ?? []) {
+    for (const message of activeMessages() ?? []) {
       if (message.type !== "assistant") continue
       for (const file of message.snapshot?.files ?? []) files.add(file)
       for (const part of message.content) {
@@ -787,7 +796,7 @@ export const App: Component = () => {
 
   const newSession = (directory?: string) => {
     const sessionID = selected()
-    if (sessionID && !messages.loading && (messages()?.data ?? []).length === 0) {
+    if (sessionID && !messagesLoading() && (activeMessages() ?? []).length === 0) {
       void createClient(serverUrl())
         .session.remove({ sessionID })
         .then(() => refetchSessions())
@@ -995,7 +1004,7 @@ export const App: Component = () => {
   const undo = () => {
     const sessionID = selected()
     if (!sessionID) return
-    const lastUser = [...(messages()?.data ?? [])].reverse().find((message) => message.type === "user")
+    const lastUser = [...(activeMessages() ?? [])].reverse().find((message) => message.type === "user")
     if (!lastUser) {
       toast(t("Nothing to undo"), "info")
       return
@@ -1031,7 +1040,7 @@ export const App: Component = () => {
     const sessionID = selected()
     if (!sessionID) return
     const lines: string[] = [`# ${selectedSession()?.title ?? sessionID}`, ""]
-    for (const message of messages()?.data ?? []) {
+    for (const message of activeMessages() ?? []) {
       if (message.type === "user") {
         lines.push("## User", "", (message as { text?: string }).text ?? "", "")
         continue
@@ -1297,8 +1306,8 @@ export const App: Component = () => {
           }
         >
           <SessionView
-            messages={messages()?.data}
-            loading={messages.loading}
+            messages={activeMessages()}
+            loading={messagesLoading()}
             busy={generating()}
             usage={liveUsage()}
             startedAt={generationStartedAt()}
