@@ -2,7 +2,7 @@
 
 Goal: a native-feeling mobile experience on top of the existing server. See ADR-0007.
 
-## F6-1 — PWA + responsive layout · P1 · todo
+## F6-1 — PWA + responsive layout · P1 · done
 
 **Acceptance**
 - Harness installs as a PWA.

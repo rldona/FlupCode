@@ -100,7 +100,7 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F6-1 | P1 | PWA + responsive mobile layout | todo |
+| F6-1 | P1 | PWA + responsive mobile layout | done |
 | F6-2 | P1 | QR pairing + auth flow for LAN access | todo |
 | F6-3 | P2 | Push notifications | todo |
 | F6-4 | P2 | In-app serve/tunnel management | todo |
@@ -110,7 +110,7 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
 | F7-1 | P1 | E2E, accessibility, i18n coverage | todo |
-| F7-2 | P1 | User documentation | todo |
+| F7-2 | P1 | User documentation | done |
 | F7-3 | P1 | v1.0 release | todo |
 
 ---

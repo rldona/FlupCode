@@ -69,6 +69,7 @@ bun run dev:desktop      # start the upstream desktop app (reference)
 | Document | Purpose |
 | --- | --- |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the monorepo fits together and where OpenHarness lives |
+| [docs/USAGE.md](docs/USAGE.md) | Install, run, keyboard shortcuts and troubleshooting |
 | [docs/UPSTREAM.md](docs/UPSTREAM.md) | Branch model, syncing with `anomalyco/opencode` |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system and the Claude Code–style harness direction |
 | [docs/PARITY.md](docs/PARITY.md) | TUI ↔ Web feature parity matrix |

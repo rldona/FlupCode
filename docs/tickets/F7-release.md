@@ -9,7 +9,7 @@ Goal: stable, documented v1.0.
 - Axe/contrast pass; keyboard-only pass.
 - All user-facing strings go through i18n; English complete.
 
-## F7-2 — User documentation · P1 · todo
+## F7-2 — User documentation · P1 · done
 
 **Acceptance**
 - Install, quickstart, concepts, keyboard shortcuts, troubleshooting.
