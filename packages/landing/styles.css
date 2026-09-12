@@ -120,7 +120,7 @@ p {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 64px;
+  height: 84px;
   gap: 16px;
 }
 
@@ -135,8 +135,15 @@ p {
 
 .brand-logo {
   display: inline-block;
-  width: 24px;
-  height: 24px;
+  width: 65px;
+  height: 65px;
+  object-fit: contain;
+}
+
+.footer-logo {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
   object-fit: contain;
 }
 
