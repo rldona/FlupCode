@@ -2,7 +2,7 @@ import { For, Show, createEffect, createResource, createSignal, onCleanup, type 
 import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import type { Attachment, CommandOption, McpConfig } from "./types"
+import type { Attachment, CommandOption, McpConfig, StashedPrompt } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
@@ -17,6 +17,7 @@ import { SessionToolbar } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
 import { TodoDock } from "./components/TodoDock"
 import { McpManager } from "./components/McpManager"
+import { StashDialog } from "./components/StashDialog"
 
 type Client = ReturnType<typeof createClient>
 
@@ -25,6 +26,8 @@ const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "compact", description: "Compactar la sesión actual" },
   { name: "steps", description: "Mostrar u ocultar los pasos de herramientas" },
   { name: "mcp", description: "Servidores MCP" },
+  { name: "stash", description: "Guardar el prompt actual" },
+  { name: "stashes", description: "Ver prompts guardados" },
   { name: "about", description: "Acerca de OpenHarness" },
 ]
 
@@ -47,6 +50,10 @@ export const App: Component = () => {
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   const [showTools, setShowTools] = createSignal(true)
   const [mcpOpen, setMcpOpen] = createSignal(false)
+  const [stashOpen, setStashOpen] = createSignal(false)
+  const [stashes, setStashes] = createSignal<StashedPrompt[]>(
+    readStorage<StashedPrompt[]>(STORAGE_KEYS.stashedPrompts, []),
+  )
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -144,6 +151,14 @@ export const App: Component = () => {
     }
     if (name === "mcp") {
       setMcpOpen(true)
+      return
+    }
+    if (name === "stash") {
+      stashPrompt(prompt(), true)
+      return
+    }
+    if (name === "stashes") {
+      setStashOpen(true)
       return
     }
     setPrompt(`/${name} `)
@@ -302,6 +317,37 @@ export const App: Component = () => {
   const removeAttachment = (uri: string) => {
     setAttachments((list) => list.filter((item) => item.uri !== uri))
   }
+
+  const newId = () =>
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`
+
+  const persistStashes = (next: StashedPrompt[]) => {
+    setStashes(next)
+    writeStorage(STORAGE_KEYS.stashedPrompts, next)
+  }
+
+  const stashPrompt = (text: string, clear: boolean) => {
+    const value = text.trim()
+    if (!value) {
+      toast("No hay prompt que guardar", "info")
+      return
+    }
+    persistStashes([{ id: newId(), text: value, createdAt: Date.now() }, ...stashes()])
+    if (clear) setPrompt("")
+    toast("Prompt guardado", "success")
+  }
+
+  const restoreStash = (id: string) => {
+    const item = stashes().find((entry) => entry.id === id)
+    if (!item) return
+    setPrompt(item.text)
+    persistStashes(stashes().filter((entry) => entry.id !== id))
+    setStashOpen(false)
+  }
+
+  const removeStash = (id: string) => persistStashes(stashes().filter((entry) => entry.id !== id))
 
   const run = async (
     action: (current: Client) => Promise<string | undefined>,
@@ -549,6 +595,16 @@ export const App: Component = () => {
         setMcpOpen(true)
         return
       }
+      if (name === "stash") {
+        stashPrompt(args, false)
+        if (args) setPrompt("")
+        return
+      }
+      if (name === "stashes") {
+        setPrompt("")
+        setStashOpen(true)
+        return
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -706,6 +762,7 @@ export const App: Component = () => {
           onRemoveAttachment={removeAttachment}
           searchFiles={searchFiles}
           onPasteText={collapsePaste}
+          onStash={() => stashPrompt(prompt(), true)}
         />
       </main>
       <Toaster />
@@ -730,6 +787,13 @@ export const App: Component = () => {
         onClose={() => setMcpOpen(false)}
       />
       <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
+      <StashDialog
+        open={stashOpen()}
+        items={stashes()}
+        onRestore={restoreStash}
+        onRemove={removeStash}
+        onClose={() => setStashOpen(false)}
+      />
     </div>
   )
 }
