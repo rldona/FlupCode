@@ -77,8 +77,8 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | todo |
-| F4-2 | P1 | Multi-project workspaces + pinned items | todo |
+| F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | done |
+| F4-2 | P1 | Multi-project workspaces + pinned items | doing |
 | F4-3 | P1 | Unified "Personalizar" settings surface | todo |
 | F4-4 | P2 | Activity heatmap + usage comparisons | todo |
 | F4-5 | P2 | Artifacts | todo |
