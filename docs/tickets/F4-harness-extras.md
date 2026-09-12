@@ -29,7 +29,7 @@ current streak, longest streak, peak hour, favorite model.
 - Contribution-style heatmap over a rolling year.
 - Fun comparison line ("used ~N× more tokens than …").
 
-## F4-5 — Artifacts · P2 · todo
+## F4-5 — Artifacts · P2 · done
 
 **Acceptance**
 - Generated/collected artifacts are listed and openable.
