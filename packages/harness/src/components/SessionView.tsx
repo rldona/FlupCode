@@ -18,6 +18,8 @@ type SessionViewProps = {
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
+  liveText?: string
+  liveReasoning?: string
   showTools: boolean
   onEditUser: (messageID: string, text: string) => void
 }
@@ -380,6 +382,20 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     return index
   })
 
+  const [visibleCount, setVisibleCount] = createSignal(80)
+  let firstMessageID: string | undefined
+  createEffect(() => {
+    const first = props.messages?.[0]?.id
+    if (first !== firstMessageID) {
+      firstMessageID = first
+      setVisibleCount(80)
+    }
+  })
+  const total = () => props.messages?.length ?? 0
+  const offset = () => Math.max(0, total() - visibleCount())
+  const visibleMessages = () => (props.messages ?? []).slice(offset())
+  const fullIndex = (index: number) => offset() + index
+
   createEffect(() => {
     props.messages
     props.busy
@@ -418,7 +434,19 @@ export const SessionView: Component<SessionViewProps> = (props) => {
             </div>
           }
         >
-          <For each={props.messages}>
+          <Show when={offset() > 0}>
+            <button
+              class="fc-load-earlier"
+              type="button"
+              onClick={() => {
+                setStick(false)
+                setVisibleCount((value) => value + 80)
+              }}
+            >
+              {t("Load earlier messages")}
+            </button>
+          </Show>
+          <For each={visibleMessages()}>
             {(message, index) => (
               <Show
                 when={message.type === "user"}
@@ -427,13 +455,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                     <AssistantMessage
                       message={message as SessionMessageAssistant}
                       showTools={props.showTools}
-                      showRole={index() === 0 || props.messages?.[index() - 1]?.type !== "assistant"}
-                      live={index() >= lastTurnStart()}
+                      showRole={fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"}
+                      live={fullIndex(index()) >= lastTurnStart()}
                     />
-                    <Show when={isTurnEnd(index())}>
+                    <Show when={isTurnEnd(fullIndex(index()))}>
                       <TurnFooter
-                        {...turnMeta(index())}
-                        commit={turnCommit(props.messages ?? [], index())}
+                        {...turnMeta(fullIndex(index()))}
+                        commit={turnCommit(props.messages ?? [], fullIndex(index()))}
                         modelName={props.modelName}
                       />
                     </Show>
@@ -454,6 +482,16 @@ export const SessionView: Component<SessionViewProps> = (props) => {
               </Show>
             )}
           </For>
+          <Show when={props.busy && (props.liveText || props.liveReasoning)}>
+            <div class="fc-message fc-message-assistant fc-message-live">
+              <Show when={props.liveReasoning}>
+                <div class="fc-reasoning-text">{props.liveReasoning}</div>
+              </Show>
+              <Show when={props.liveText}>
+                <Markdown class="fc-message-text" text={props.liveText ?? ""} />
+              </Show>
+            </div>
+          </Show>
           <Show when={props.busy}>
             <div class="fc-message fc-message-assistant fc-message-pending">
               <Loader tokens={props.usage?.tokens} cost={props.usage?.cost} startedAt={props.startedAt} />
