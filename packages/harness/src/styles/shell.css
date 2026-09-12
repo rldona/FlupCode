@@ -2278,7 +2278,7 @@ button.fc-row-main {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 10px;
-  margin-bottom: var(--fc-space-4);
+  margin: var(--fc-space-4) 0 0;
 }
 
 .fc-action {
