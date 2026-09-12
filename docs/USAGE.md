@@ -55,6 +55,13 @@ bun run dev:harness-desktop  # Electron window
 The desktop main process starts a local server automatically if none is reachable. Set
 `FLUPCODE_NO_SERVER=1` to disable that, or `FLUPCODE_DEV_URL` to point at another renderer.
 
+Downloaded builds are unsigned. On macOS, if the app reports it is “damaged”, remove the
+quarantine flag and open again:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/FlupCode.app
+```
+
 ## Layout
 
 - **Sidebar** — New session, navigation (Artifacts, Routines, Personalize), projects with quick

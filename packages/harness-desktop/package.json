@@ -27,6 +27,7 @@
       "package.json"
     ],
     "executableName": "flupcode",
+    "afterPack": "scripts/after-pack.cjs",
     "npmRebuild": false,
     "publish": [
       {
