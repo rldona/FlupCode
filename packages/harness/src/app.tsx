@@ -1134,7 +1134,7 @@ export const App: Component = () => {
   }
 
   return (
-    <div class="fc-app">
+    <div class="fc-app" style={{ "--fc-content-left": collapsed() ? "0px" : `${sidebarWidth()}px` }}>
       <Sidebar
         collapsed={collapsed()}
         width={sidebarWidth()}
