@@ -2,6 +2,7 @@ import { BrowserWindow, app } from "electron"
 import { join } from "node:path"
 import { setApplicationMenu } from "./menu"
 import { ensureServer, stopServer } from "./server"
+import { initAutoUpdate, checkForUpdates } from "./updater"
 import { loadBounds, saveBounds } from "./window-state"
 
 const DEV_URL = process.env.FLUPCODE_DEV_URL ?? "http://localhost:4444"
@@ -36,7 +37,8 @@ function createWindow() {
 }
 
 app.whenReady().then(async () => {
-  setApplicationMenu({ onNewWindow: createWindow })
+  setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
+  initAutoUpdate()
   await ensureServer()
   createWindow()
 
