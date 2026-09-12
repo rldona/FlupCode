@@ -1174,7 +1174,13 @@ export const App: Component = () => {
   }
 
   return (
-    <div class="fc-app" style={{ "--fc-content-left": collapsed() ? "0px" : `${sidebarWidth()}px` }}>
+    <div
+      class="fc-app"
+      style={{
+        "--fc-content-left": collapsed() ? "0px" : `${sidebarWidth()}px`,
+        "--fc-content-right": `${(panels().length > 0 ? workspaceWidth() : 0) + (selectedSession() ? 300 : 0)}px`,
+      }}
+    >
       <Sidebar
         collapsed={collapsed()}
         width={sidebarWidth()}
