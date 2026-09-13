@@ -22,6 +22,7 @@ export const STORAGE_KEYS = {
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",
+  remotePush: "flupcode.remotePush",
   stashedPrompts: "flupcode.stashedPrompts",
   theme: "flupcode.theme",
   routines: "flupcode.routines",
