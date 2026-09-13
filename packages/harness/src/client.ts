@@ -279,6 +279,10 @@ export function createClient(baseUrl = resolveServerUrl()) {
       find: (input: { query: string; limit?: number }) =>
         unwrap(client.v2.fs.find({ query: input.query, limit: input.limit !== undefined ? String(input.limit) : undefined })),
     },
+    vcs: {
+      get: (directory: string) => unwrap(client.vcs.get({ directory })),
+      status: (directory: string) => unwrap(client.vcs.status({ directory })),
+    },
     mcp: {
       list: async () => ({ data: [] as McpServer[] }),
       add: async (_input?: { server: string; config: unknown }) => {},
