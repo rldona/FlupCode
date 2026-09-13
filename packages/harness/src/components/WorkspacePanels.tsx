@@ -126,6 +126,9 @@ const TITLES: Record<string, string> = {
   terminal: "Terminal",
 }
 
+/** The panels' width until the reader drags it; double-clicking their edge goes back to it. */
+export const WORKSPACE_WIDTH_DEFAULT = 420
+
 export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
   const [container, setContainer] = createSignal<HTMLElement>()
 
@@ -134,6 +137,8 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
       <section class="fc-workspace" style={{ width: `${props.width}px` }} ref={setContainer}>
         <div
           class="fc-workspace-resizer"
+          title={t("Drag to resize, double-click to reset")}
+          onDblClick={() => props.onResize(WORKSPACE_WIDTH_DEFAULT)}
           onPointerDown={(event) => {
             const target = event.currentTarget
             target.setPointerCapture(event.pointerId)

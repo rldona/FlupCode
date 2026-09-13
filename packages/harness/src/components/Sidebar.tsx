@@ -8,6 +8,9 @@ import { Loader } from "./Loader"
 import { ViewTabs } from "./Topbar"
 import logo from "../assets/flupcode-logo.png"
 
+/** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
+export const SIDEBAR_WIDTH_DEFAULT = 280
+
 type ProjectGroup = {
   id: string
   name: string
@@ -210,6 +213,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       >
         <div
           class="fc-sidebar-resizer"
+          title={t("Drag to resize, double-click to reset")}
+          onDblClick={() => props.onResize(SIDEBAR_WIDTH_DEFAULT)}
           onPointerDown={(event) => {
             const target = event.currentTarget
             target.setPointerCapture(event.pointerId)
@@ -233,10 +238,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
 
         <div class="fc-sidebar-top">
           <div class="fc-sidebar-brand">
-            <span class="fc-sidebar-brand-name">
-              <img src={logo} alt="" />
-              FlupCode
-            </span>
+            <span class="fc-sidebar-brand-name">FlupCode</span>
             <ViewTabs view={props.view} onChange={props.onViewChange} />
           </div>
           <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
