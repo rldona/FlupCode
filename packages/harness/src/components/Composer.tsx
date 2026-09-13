@@ -206,12 +206,22 @@ export const Composer: Component<ComposerProps> = (props) => {
     onCleanup(() => clearTimeout(handle))
   })
 
-  // Escape or a click outside closes the / and @ menus; typing opens them again.
+  // Escape or a click outside closes the / and @ menus. Closing the command menu drops the unfinished
+  // "/command" (it is all the input holds then); the @ menu keeps the text and stays closed only until
+  // the text changes, so deleting and typing again opens it.
   const [dismissedAt, setDismissedAt] = createSignal<string>()
-  const menusDismissed = () => dismissedAt() === props.value
+  createEffect(() => {
+    const dismissed = dismissedAt()
+    if (dismissed !== undefined && props.value !== dismissed) setDismissedAt(undefined)
+  })
+  const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
   const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
   const mentionMenuOpen = () =>
     !menusDismissed() && commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0
+  const closeMenus = () => {
+    if (commandMenuOpen()) props.onInput("")
+    else setDismissedAt(props.value)
+  }
   let menu: HTMLDivElement | undefined
   let inputWrap: HTMLDivElement | undefined
   onMount(() => {
@@ -219,7 +229,7 @@ export const Composer: Component<ComposerProps> = (props) => {
       if (!commandMenuOpen() && !mentionMenuOpen()) return
       const target = event.target as Node
       if (menu?.contains(target) || inputWrap?.contains(target)) return
-      setDismissedAt(props.value)
+      closeMenus()
     }
     document.addEventListener("mousedown", onPointer)
     onCleanup(() => document.removeEventListener("mousedown", onPointer))
@@ -387,7 +397,7 @@ export const Composer: Component<ComposerProps> = (props) => {
               }
               if (event.key === "Escape" && (commandMenuOpen() || mentionMenuOpen())) {
                 event.preventDefault()
-                setDismissedAt(props.value)
+                closeMenus()
                 return
               }
               if (event.key === "Escape" && historyIndex() !== undefined) {
