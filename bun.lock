@@ -513,6 +513,7 @@
       "name": "@flupcode/harness",
       "version": "1.0.8",
       "dependencies": {
+        "@flupcode/remote": "workspace:*",
         "@opencode-ai/sdk": "workspace:*",
         "@opencode-ai/session-ui": "workspace:*",
         "@opencode-ai/ui": "workspace:*",

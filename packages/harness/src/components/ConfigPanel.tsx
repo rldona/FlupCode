@@ -1,6 +1,7 @@
 import { createEffect, createSignal, type Component, Show } from "solid-js"
 import { t } from "../i18n"
 import { toast } from "../toast"
+import { engineFetch } from "../transport"
 
 type ConfigPanelProps = {
   open: boolean
@@ -18,7 +19,7 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
   const load = async () => {
     setLoading(true)
     try {
-      const response = await fetch(`${base()}/config`)
+      const response = await engineFetch(`${base()}/config`)
       setText(JSON.stringify(await response.json(), null, 2))
     } catch {
       setText("{}")
@@ -40,7 +41,7 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
       return
     }
     try {
-      const response = await fetch(`${base()}/config`, {
+      const response = await engineFetch(`${base()}/config`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(parsed),

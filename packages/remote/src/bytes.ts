@@ -44,6 +44,7 @@ export function equal(a: Uint8Array, b: Uint8Array) {
 /** Normalises any binary WebSocket payload into bytes. */
 export async function asBytes(data: ArrayBuffer | ArrayBufferView | Blob): Promise<Bytes> {
   if (data instanceof ArrayBuffer) return new Uint8Array(data)
-  if (ArrayBuffer.isView(data)) return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer)
+  if (ArrayBuffer.isView(data))
+    return new Uint8Array(data.buffer.slice(data.byteOffset, data.byteOffset + data.byteLength) as ArrayBuffer)
   return new Uint8Array(await data.arrayBuffer())
 }
