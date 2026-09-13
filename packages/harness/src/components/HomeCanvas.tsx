@@ -12,7 +12,6 @@ type HomeCanvasProps = {
   comparison: { ratio: number; name: string } | undefined
   error: string | undefined
   onRangeChange: (range: UsageRange) => void
-  onAction: (prompt: string) => void
 }
 
 const RANGES: Array<{ id: UsageRange; label: string }> = [
@@ -97,33 +96,6 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
     { label: t("Favorite model"), value: props.metrics.favoriteModel },
   ]
 
-  const actions = () => [
-    {
-      icon: "⌕",
-      tone: "blue",
-      title: t("Explore and understand code"),
-      prompt: t("Explore this repository and explain its architecture and main modules."),
-    },
-    {
-      icon: "✎",
-      tone: "violet",
-      title: t("Create a new function, app or tool"),
-      prompt: t("Create a new feature from scratch. Ask me for details first."),
-    },
-    {
-      icon: "↻",
-      tone: "green",
-      title: t("Review code and suggest changes"),
-      prompt: t("Review the recent changes and suggest improvements."),
-    },
-    {
-      icon: "⚑",
-      tone: "orange",
-      title: t("Fix problems and bugs"),
-      prompt: t("Find and fix problems and bugs in this project."),
-    },
-  ]
-
   return (
     <section class="fc-canvas">
       <h1 class="fc-greeting">{greeting()}</h1>
@@ -196,19 +168,6 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           </div>
           <ActivityHeatmap days={props.activity} comparison={comparisonText()} />
         </Show>
-      </div>
-
-      <div class="fc-actions">
-        <For each={actions()}>
-          {(action) => (
-            <button class="fc-action" type="button" onClick={() => props.onAction(action.prompt)}>
-              <span class="fc-action-icon" data-tone={action.tone}>
-                {action.icon}
-              </span>
-              <span class="fc-action-title">{action.title}</span>
-            </button>
-          )}
-        </For>
       </div>
     </section>
   )
