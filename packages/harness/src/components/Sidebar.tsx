@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
+import { cssPx } from "../text-size"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
 import logo from "../assets/flupcode-logo.png"
@@ -187,7 +188,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 target.removeEventListener("pointermove", move)
                 return
               }
-              props.onResize(moveEvent.clientX)
+              props.onResize(cssPx(moveEvent.clientX))
             }
             const up = () => {
               target.removeEventListener("pointermove", move)
