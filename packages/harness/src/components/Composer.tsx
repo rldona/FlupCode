@@ -176,7 +176,13 @@ export const Composer: Component<ComposerProps> = (props) => {
         <select
           class="fc-folder-select"
           aria-label={t("Folder")}
-          value={props.targetDirectory ?? ""}
+          ref={(element: HTMLSelectElement) => {
+            createEffect(() => {
+              props.projects
+              const value = props.targetDirectory ?? ""
+              if (element.value !== value) element.value = value
+            })
+          }}
           onChange={(event) => {
             const value = event.currentTarget.value
             if (value === "__open__") {
