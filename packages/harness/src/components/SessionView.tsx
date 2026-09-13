@@ -107,9 +107,9 @@ function formatThoughtDuration(ms: number) {
   return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
 }
 
-const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (props) => {
+const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning; streaming: boolean }> = (props) => {
   const [open, setOpen] = createSignal(false)
-  const completed = () => props.part.time?.completed !== undefined
+  const completed = () => !props.streaming || props.part.time?.completed !== undefined
   const duration = () => {
     const time = props.part.time
     if (!time?.completed) return undefined
@@ -317,6 +317,7 @@ const AssistantMessage: Component<{
   showTools: boolean
   showRole: boolean
   live: boolean
+  streaming: boolean
 }> = (
   props,
 ) => (
@@ -334,7 +335,7 @@ const AssistantMessage: Component<{
                 when={part.type === "reasoning"}
                 fallback={<Markdown class="fc-message-text" text={(part as SessionMessageAssistantText).text} />}
               >
-                <ReasoningBlock part={part as SessionMessageAssistantReasoning} />
+                <ReasoningBlock part={part as SessionMessageAssistantReasoning} streaming={props.streaming} />
               </Show>
             }
           >
@@ -467,6 +468,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       showTools={props.showTools}
                       showRole={fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"}
                       live={fullIndex(index()) >= lastTurnStart()}
+                      streaming={props.busy && fullIndex(index()) === (props.messages?.length ?? 0) - 1}
                     />
                     <Show when={isTurnEnd(fullIndex(index()))}>
                       <TurnFooter
