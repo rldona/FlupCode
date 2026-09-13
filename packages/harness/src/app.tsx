@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
-import type { PermissionV2Request, QuestionV2Request } from "./engine-types"
+import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } from "./engine-types"
 import type { SessionMessageAssistant } from "./engine-types"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
@@ -168,6 +168,36 @@ export const App: Component = () => {
   )
   const [providerAuth] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).provider.auth())
   const [commands] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).command.list())
+  const [linkedProviders, setLinkedProviders] = createSignal<string[]>([])
+  createEffect(() => {
+    const url = ready() ? serverUrl() : undefined
+    const providers = providerDirectory()?.all ?? []
+    if (!url || providers.length === 0) return
+    const pending = providers.filter(
+      (provider): provider is ProviderDirectoryInfo & { key: string } =>
+        provider.source === "api" && !!provider.key && !linkedProviders().includes(`${url}::${provider.id}`),
+    )
+    if (pending.length === 0) return
+    setLinkedProviders((previous) => [...previous, ...pending.map((provider) => `${url}::${provider.id}`)])
+    const current = createClient(url)
+    void current.integration
+      .list()
+      .then((integrations) =>
+        Promise.all(
+          pending.map(async (provider) => {
+            const connected = integrations.data
+              .find((item) => item.id === provider.id)
+              ?.connections?.some((connection) => connection.type === "credential")
+            if (connected) return
+            await current.integration
+              .connectKey({ integrationID: provider.id, key: provider.key, label: provider.id })
+              .catch(() => undefined)
+          }),
+        ),
+      )
+      .then(() => void refetchModels())
+      .catch(() => undefined)
+  })
 
   const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
   const vcsKey = () => {
