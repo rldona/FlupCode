@@ -2,7 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Comp
 import { createResource } from "./resource"
 import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } from "./engine-types"
 import type { SessionMessageAssistant } from "./engine-types"
-import { createClient, resolveServerUrl } from "./client"
+import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import type { ModelInfo } from "./engine-types"
@@ -565,6 +565,14 @@ export const App: Component = () => {
               if (type === "question.v2.asked") notify(t("Question asked"), "")
               void refetchQuestions()
             } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
+              if (type.startsWith("message.")) {
+                const legacy = event as {
+                  data?: { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
+                }
+                invalidateLegacyHistory(
+                  legacy.data?.sessionID ?? legacy.data?.info?.sessionID ?? legacy.data?.part?.sessionID,
+                )
+              }
               scheduleRefetch(true, type === "session.next.step.ended")
             } else if (type.startsWith("session.")) {
               scheduleRefetch(false, true)
