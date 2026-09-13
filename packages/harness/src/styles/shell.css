@@ -5043,3 +5043,8 @@ button.fc-row-main {
 .fc-transcript-body {
   zoom: var(--fc-chat-zoom, 1);
 }
+
+/* Widths inside a zoomed element are zoomed too: keep the conversation as wide as the dock. */
+.fc-transcript > .fc-transcript-body {
+  max-width: calc(820px / var(--fc-chat-zoom, 1));
+}
