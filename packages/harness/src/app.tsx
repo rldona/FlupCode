@@ -172,6 +172,11 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).integration.list(),
   )
+  createEffect(() => {
+    if (!providersOpen()) return
+    void refetchProviderDirectory()
+    void refetchIntegrations()
+  })
   const [linkedProviders, setLinkedProviders] = createSignal<string[]>([])
   createEffect(() => {
     const url = ready() ? serverUrl() : undefined
@@ -1209,10 +1214,16 @@ export const App: Component = () => {
       .then(() => undefined)
 
   const finishOAuth = () => {
-    void refetchProviderDirectory()
-    void refetchModelDirectory()
-    void refetchModels()
-    void refetchIntegrations()
+    const refresh = () => {
+      void refetchProviderDirectory()
+      void refetchModelDirectory()
+      void refetchModels()
+      void refetchIntegrations()
+    }
+    refresh()
+    // The engine marks the attempt complete just before persisting the
+    // credential, so refresh again once it has landed.
+    setTimeout(refresh, 800)
   }
 
   const editMessage = (messageID: string, text: string) => {

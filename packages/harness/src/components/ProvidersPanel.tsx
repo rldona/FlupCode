@@ -163,17 +163,24 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
                       <Show when={methods().some((method) => method.type === "oauth") && oauth().length === 0}>
                         <span class="fc-chip">{t("OAuth available")}</span>
                       </Show>
-                      <Show when={oauth().length > 0 && !connectedInV2(provider.id)}>
+                      <Show when={oauth().length > 0}>
                         <button
                           class="fc-button"
                           type="button"
-                          disabled={props.busy || attemptProvider() === provider.id}
+                          disabled={props.busy || connectedInV2(provider.id) || attemptProvider() === provider.id}
                           onClick={() => {
                             const method = oauth()[0]
                             if (method) void startOAuth(provider.id, method.id)
                           }}
                         >
-                          <Show when={attemptProvider() === provider.id && !attempt()} fallback={t("Sign in")}>
+                          <Show
+                            when={attemptProvider() === provider.id && !attempt()}
+                            fallback={
+                              <Show when={connectedInV2(provider.id)} fallback={t("Sign in")}>
+                                {t("Signed in")}
+                              </Show>
+                            }
+                          >
                             <span class="fc-spinner">◐</span> {t("Signing in…")}
                           </Show>
                         </button>
