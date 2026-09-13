@@ -1,7 +1,6 @@
-# Fly.io deployment for the FlupCode relay. Deploy from the repository root:
-#   fly deploy --config packages/relay/fly.toml --dockerfile packages/relay/Dockerfile
+# Fly.io deployment for the FlupCode relay. Deploy with packages/relay/script/deploy.sh.
 app = "flupcode-relay"
-primary_region = "mad"
+primary_region = "cdg"
 
 [env]
   PORT = "8787"
