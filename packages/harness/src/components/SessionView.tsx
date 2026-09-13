@@ -1,7 +1,6 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
-  SessionMessageAssistantReasoning,
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionMessageInfo,
@@ -99,47 +98,6 @@ function toolTitle(tool: SessionMessageAssistantTool) {
   if (tool.name === "websearch") return stringField(input, "query")
   if (tool.name === "task") return stringField(input, "description", "prompt")
   return undefined
-}
-
-function formatThoughtDuration(ms: number) {
-  if (ms < 1000) return `${Math.round(ms)}ms`
-  const seconds = ms / 1000
-  if (seconds < 60) return `${seconds.toFixed(1)}s`
-  return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`
-}
-
-const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning; streaming: boolean }> = (props) => {
-  const [open, setOpen] = createSignal(false)
-  const completed = () => !props.streaming || props.part.time?.completed !== undefined
-  const duration = () => {
-    const time = props.part.time
-    if (!time?.completed) return undefined
-    return formatThoughtDuration(time.completed - time.created)
-  }
-  return (
-    <div class="fc-reasoning">
-      <button class="fc-reasoning-toggle" type="button" onClick={() => setOpen((value) => !value)}>
-        <Show
-          when={!completed()}
-          fallback={<span class="fc-thought-mark">{open() ? "−" : "+"}</span>}
-        >
-          <span class="fc-thought-spinner" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        </Show>
-        <span class="fc-thought-label">{completed() ? t("Thought") : t("Thinking")}</span>
-        <Show when={duration()}>
-          <span class="fc-thought-sep">:</span>
-          <span class="fc-thought-time">{duration()}</span>
-        </Show>
-      </button>
-      <Show when={open()}>
-        <div class="fc-reasoning-text">{props.part.text}</div>
-      </Show>
-    </div>
-  )
 }
 
 const DiffView: Component<{ oldText: string; newText: string; lang: string }> = (props) => {
@@ -413,6 +371,9 @@ function assistantSegments(message: SessionMessageAssistant, showTools: boolean)
       else segments.push({ kind: "tools", parts: [part as SessionMessageAssistantTool] })
       continue
     }
+    // Like Claude Code, the model's reasoning stays out of the conversation; the status line says
+    // "Thinking…" while it happens.
+    if (part.type === "reasoning") continue
     segments.push({ kind: "part", part })
   }
   return segments
@@ -422,8 +383,6 @@ const AssistantMessage: Component<{
   message: SessionMessageAssistant
   showTools: boolean
   showRole: boolean
-  live: boolean
-  streaming: boolean
 }> = (
   props,
 ) => (
@@ -437,20 +396,10 @@ const AssistantMessage: Component<{
         <Show
           when={segment().kind === "tools"}
           fallback={
-            <Show
-              when={(segment() as { part: { type: string } }).part.type === "reasoning"}
-              fallback={
-                <Markdown
-                  class="fc-message-text"
-                  text={((segment() as { part: SessionMessageAssistantText }).part.text ?? "")}
-                />
-              }
-            >
-              <ReasoningBlock
-                part={(segment() as { part: SessionMessageAssistantReasoning }).part}
-                streaming={props.streaming}
-              />
-            </Show>
+            <Markdown
+              class="fc-message-text"
+              text={(segment() as { part: SessionMessageAssistantText }).part.text ?? ""}
+            />
           }
         >
           <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
@@ -699,8 +648,6 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       message={message as SessionMessageAssistant}
                       showTools={props.showTools}
                       showRole={fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"}
-                      live={fullIndex(index()) >= lastTurnStart()}
-                      streaming={props.busy && fullIndex(index()) === (props.messages?.length ?? 0) - 1}
                     />
                     <Show when={isTurnEnd(fullIndex(index()))}>
                       <TurnFooter
@@ -726,14 +673,9 @@ export const SessionView: Component<SessionViewProps> = (props) => {
               </Show>
             )}
           </For>
-          <Show when={props.busy && (props.liveText || props.liveReasoning)}>
+          <Show when={props.busy && props.liveText}>
             <div class="fc-message fc-message-assistant fc-message-live">
-              <Show when={props.liveReasoning}>
-                <div class="fc-reasoning-text">{props.liveReasoning}</div>
-              </Show>
-              <Show when={props.liveText}>
-                <Markdown class="fc-message-text" text={props.liveText ?? ""} />
-              </Show>
+              <Markdown class="fc-message-text" text={props.liveText ?? ""} />
             </div>
           </Show>
           <Show when={props.busy}>

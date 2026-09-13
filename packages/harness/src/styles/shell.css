@@ -1688,55 +1688,6 @@ button.fc-row-main {
   color: var(--fc-danger);
 }
 
-.fc-reasoning {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.fc-reasoning-toggle {
-  align-self: flex-start;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  border: none;
-  background: transparent;
-  color: #d9a441;
-  font-size: var(--fc-text-xs);
-  padding: 0;
-}
-
-.fc-reasoning-toggle:hover {
-  color: #e6b95c;
-}
-
-.fc-thought-mark {
-  font-weight: 600;
-}
-
-.fc-thought-spinner {
-  display: inline-flex;
-  align-items: center;
-  gap: 2px;
-}
-
-.fc-thought-spinner i {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.25;
-  animation: fc-thought-dot 1s ease-in-out infinite;
-}
-
-.fc-thought-spinner i:nth-child(2) {
-  animation-delay: 0.15s;
-}
-
-.fc-thought-spinner i:nth-child(3) {
-  animation-delay: 0.3s;
-}
-
 @keyframes fc-thought-dot {
   0%,
   100% {
@@ -1745,27 +1696,6 @@ button.fc-row-main {
   50% {
     opacity: 1;
   }
-}
-
-.fc-thought-sep {
-  color: color-mix(in srgb, #d9a441 65%, transparent);
-}
-
-.fc-thought-time {
-  color: color-mix(in srgb, #d9a441 80%, var(--fc-text-muted));
-  font-variant-numeric: tabular-nums;
-}
-
-.fc-reasoning-text {
-  white-space: pre-wrap;
-  font-style: italic;
-  padding: 10px 12px;
-  border-left: 2px solid var(--fc-border);
-  border-radius: 0 var(--fc-radius-sm) var(--fc-radius-sm) 0;
-  background: color-mix(in srgb, var(--fc-border) 25%, transparent);
-  color: var(--fc-text-muted);
-  font-size: 13px;
-  line-height: 1.5;
 }
 
 .fc-tool {
