@@ -17,6 +17,12 @@ export type RelayMessage =
   | { t: "ready" }
   | { t: "open"; channel: number }
   | { t: "close"; channel: number }
+  /** Host asks the relay to deliver an already encrypted Web Push body (ADR-0011). */
+  | { t: "push"; id: number; endpoint: string; body: string; ttl: number; urgency: PushUrgency }
+  | { t: "push-result"; id: number; status: number }
+
+export type PushUrgency = "very-low" | "low" | "normal" | "high"
+const URGENCIES = new Set(["very-low", "low", "normal", "high"])
 
 export function encodeRelayMessage(message: RelayMessage) {
   return JSON.stringify(message)
@@ -38,6 +44,24 @@ export function decodeRelayMessage(raw: string): RelayMessage | undefined {
   if (message.t === "ready") return { t: "ready" }
   if ((message.t === "open" || message.t === "close") && Number.isInteger(message.channel))
     return { t: message.t, channel: message.channel as number }
+  if (
+    message.t === "push" &&
+    Number.isInteger(message.id) &&
+    typeof message.endpoint === "string" &&
+    typeof message.body === "string" &&
+    Number.isInteger(message.ttl) &&
+    URGENCIES.has(message.urgency as string)
+  )
+    return {
+      t: "push",
+      id: message.id as number,
+      endpoint: message.endpoint,
+      body: message.body,
+      ttl: message.ttl as number,
+      urgency: message.urgency as PushUrgency,
+    }
+  if (message.t === "push-result" && Number.isInteger(message.id) && Number.isInteger(message.status))
+    return { t: "push-result", id: message.id as number, status: message.status as number }
   return undefined
 }
 

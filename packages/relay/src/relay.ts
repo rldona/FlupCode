@@ -2,10 +2,15 @@ import {
   createChallenge,
   decodeRelayMessage,
   encodeRelayMessage,
+  fromBase64Url,
+  isPushServiceEndpoint,
   RelayClose,
   splitChannel,
+  vapidAuthorization,
   verifyHostAnswer,
   withChannel,
+  type RelayMessage,
+  type VapidKeys,
 } from "@flupcode/remote"
 import type { Server, ServerWebSocket } from "bun"
 
@@ -26,8 +31,21 @@ export type RelayOptions = {
   authTimeout?: number
   /** Read the client IP from this header (e.g. `fly-client-ip`) when behind a proxy. */
   ipHeader?: string
+  /** VAPID keys and contact (`mailto:` or `https:`) to deliver Web Push for hosts (ADR-0011). */
+  push?: {
+    keys: VapidKeys
+    subject: string
+    /** Pushes each host may send per minute. */
+    perMinute?: number
+    /** Which endpoints may be delivered to; defaults to the browser push services. */
+    allowEndpoint?: (endpoint: string) => boolean
+    fetch?: typeof globalThis.fetch
+  }
   log?: (message: string) => void
 }
+
+/** Largest encrypted push body accepted from a host (push services cap bodies at 4096 bytes). */
+const MAX_PUSH_BODY = 4096
 
 type HostData = { role: "host"; hostId: string; ip: string; nonce: string; authed: boolean; timer?: Timer }
 type ClientData = { role: "client"; hostId: string; ip: string; channel: number }
@@ -43,6 +61,33 @@ export function startRelay(options: RelayOptions = {}) {
   const maxBuffered = options.maxBufferedBytes ?? 16 * 1024 * 1024
   const log = options.log ?? (() => {})
   const hosts = new Map<string, HostEntry>()
+  const pushBudget = new Map<string, { windowStart: number; count: number }>()
+
+  const deliverPush = async (hostId: string, request: Extract<RelayMessage, { t: "push" }>) => {
+    const push = options.push
+    if (!push) return 501
+    if (!(push.allowEndpoint ?? isPushServiceEndpoint)(request.endpoint)) return 400
+    const body = fromBase64Url(request.body)
+    if (body.byteLength === 0 || body.byteLength > MAX_PUSH_BODY) return 413
+    const now = Date.now()
+    const budget = pushBudget.get(hostId)
+    const current = budget && now - budget.windowStart < 60_000 ? budget : { windowStart: now, count: 0 }
+    if (current.count >= (push.perMinute ?? 30)) return 429
+    pushBudget.set(hostId, { ...current, count: current.count + 1 })
+    const response = await (push.fetch ?? globalThis.fetch)(request.endpoint, {
+      method: "POST",
+      headers: {
+        authorization: await vapidAuthorization({ endpoint: request.endpoint, keys: push.keys, subject: push.subject }),
+        "content-encoding": "aes128gcm",
+        "content-type": "application/octet-stream",
+        ttl: String(Math.max(0, Math.min(request.ttl, 24 * 60 * 60))),
+        urgency: request.urgency,
+      },
+      body,
+      signal: AbortSignal.timeout(10_000),
+    }).catch(() => undefined)
+    return response?.status ?? 502
+  }
   const perIp = new Map<string, number>()
 
   const deliver = (socket: Socket, data: string | Uint8Array) => {
@@ -67,6 +112,12 @@ export function startRelay(options: RelayOptions = {}) {
     fetch(request, server) {
       const url = new URL(request.url)
       if (url.pathname === "/health") return Response.json({ ok: true })
+      if (url.pathname === "/push/key") {
+        // Public: phones fetch it from the web app origin to subscribe.
+        const headers = { "access-control-allow-origin": "*", "cache-control": "public, max-age=3600" }
+        if (!options.push) return Response.json({ error: "Push is not configured" }, { status: 404, headers })
+        return Response.json({ publicKey: options.push.keys.publicKey }, { headers })
+      }
       const ip =
         (options.ipHeader && request.headers.get(options.ipHeader)) || server.requestIP(request)?.address || "unknown"
       const role = url.pathname === "/host" ? "host" : url.pathname === "/client" ? "client" : undefined
@@ -132,6 +183,11 @@ export function startRelay(options: RelayOptions = {}) {
         if (entry?.socket !== socket) return
         if (typeof message === "string") {
           const parsed = decodeRelayMessage(message)
+          if (parsed?.t === "push") {
+            const status = await deliverPush(data.hostId, parsed)
+            if (socket.readyState === 1) socket.send(encodeRelayMessage({ t: "push-result", id: parsed.id, status }))
+            return
+          }
           if (parsed?.t !== "close") return
           const client = entry.clients.get(parsed.channel)
           entry.clients.delete(parsed.channel)
