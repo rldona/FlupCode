@@ -19,6 +19,7 @@ export const STORAGE_KEYS = {
   pinnedProjects: "flupcode.pinnedProjects",
   displayName: "flupcode.displayName",
   sidebarCollapsed: "flupcode.sidebarCollapsed",
+  contextPanelHidden: "flupcode.contextPanelHidden",
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",

@@ -10,6 +10,8 @@ type TopbarProps = {
   onBack: () => void
   onForward: () => void
   onToggleSidebar: () => void
+  /** The session's right-hand context panel, when a session is open. */
+  contextPanel?: { open: boolean; onToggle: () => void }
   onOpenPalette: () => void
   workspace: string[]
   onTogglePanel: (kind: string) => void
@@ -110,6 +112,33 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           {status()}
         </span>
+        <Show when={props.contextPanel}>
+          {(panel) => (
+            <button
+              class="fc-nav-arrow"
+              classList={{ "fc-icon-button-active": panel().open }}
+              type="button"
+              title={t("Toggle context panel")}
+              aria-label={t("Toggle context panel")}
+              aria-pressed={panel().open}
+              onClick={panel().onToggle}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <rect
+                  x="3.5"
+                  y="4.5"
+                  width="17"
+                  height="15"
+                  rx="2.5"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.8"
+                />
+                <path d="M15 4.5v15" fill="none" stroke="currentColor" stroke-width="1.8" />
+              </svg>
+            </button>
+          )}
+        </Show>
       </div>
     </header>
   )

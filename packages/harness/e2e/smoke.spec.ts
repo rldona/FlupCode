@@ -69,7 +69,7 @@ test("sends a prompt and receives an answer", async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto("/")
   await page.getByRole("button", { name: /New/ }).first().click()
-  const composer = page.getByPlaceholder(/Describe a task or ask a question/i)
+  const composer = page.getByPlaceholder(/Type \/ for commands/i)
   await composer.fill("Reply with exactly: ok")
   await composer.press("Enter")
   await expect(page.locator(".fc-message-assistant").filter({ hasText: "ok" }).first()).toBeVisible({
