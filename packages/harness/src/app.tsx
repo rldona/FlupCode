@@ -1786,7 +1786,6 @@ export const App: Component = () => {
             onToggleSidebar={toggleSidebar}
             contextPanel={selectedSession() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined}
             onOpenPalette={() => setPaletteOpen(true)}
-            workspace={panels()}
             onTogglePanel={togglePanel}
             remote={
               remote.activeHost()
