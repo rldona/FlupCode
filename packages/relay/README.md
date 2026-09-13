@@ -22,6 +22,17 @@ It listens on `ws://localhost:8787`. Point the desktop at it with
 | `RELAY_MAX_CLIENTS_PER_HOST` | `16` | Simultaneous phones per desktop |
 | `RELAY_MAX_CONNECTIONS_PER_IP` | `64` | Simultaneous sockets per IP |
 | `RELAY_IP_HEADER` | — | Header with the real client IP behind a proxy (e.g. `fly-client-ip`) |
+| `RELAY_VAPID_PUBLIC_KEY` | — | VAPID public key (base64url) to deliver push notifications (ADR-0011) |
+| `RELAY_VAPID_PRIVATE_KEY` | — | VAPID private key as a JWK JSON string |
+| `RELAY_VAPID_SUBJECT` | `mailto:hello@flupcode.com` | Contact the push services can reach |
+
+Without the VAPID variables the relay works but does not deliver notifications. Generate a key pair
+once and keep it: rotating it invalidates every phone's subscription.
+
+```bash
+bun -e 'import { createVapidKeys } from "./packages/remote/src"; const k = await createVapidKeys(); console.log(k.publicKey); console.log(JSON.stringify(k.privateKey))'
+fly secrets set --app flupcode-relay RELAY_VAPID_PUBLIC_KEY=<public> RELAY_VAPID_PRIVATE_KEY='<private json>'
+```
 
 ## Deploy
 
@@ -56,3 +67,4 @@ region; `fly.toml` uses Paris (`cdg`).
 - `WS /host?id=<hostId>` — desktop; must answer a signed challenge proving it owns `hostId`.
 - `WS /client?host=<hostId>` — phone; closed with `4404` if the host is offline, `4429` over the
   client limit.
+- `GET /push/key` — the VAPID public key phones subscribe with; `404` when push is not configured.

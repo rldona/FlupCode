@@ -86,11 +86,20 @@ function ago(timestamp: number) {
   return hours < 48 ? `${hours} h ago` : new Date(timestamp).toLocaleDateString()
 }
 
-function printDevices(devices: Array<{ name: string; id: string; lastSeen: number; connected?: boolean }>) {
+function printDevices(
+  devices: Array<{
+    name: string
+    id: string
+    lastSeen: number
+    connected?: boolean
+    notifications?: boolean
+    push?: unknown
+  }>,
+) {
   if (devices.length === 0) return console.log(dim("No paired devices."))
   devices.forEach((device, index) =>
     console.log(
-      `  ${index + 1}. ${bold(device.name)} ${dim(device.id)}  ${device.connected ? green("connected") : dim(`last seen ${ago(device.lastSeen)}`)}`,
+      `  ${index + 1}. ${bold(device.name)} ${dim(device.id)}  ${device.connected ? green("connected") : dim(`last seen ${ago(device.lastSeen)}`)}${device.notifications || device.push ? dim("  notifications on") : ""}`,
     ),
   )
 }
@@ -179,6 +188,8 @@ async function runHost(options: { engine: string; relay?: string; app: string; s
         if (!before) return
         if (device.name !== before.name) console.log(green(`Paired ${device.name}`))
         if (device.connected && !before.connected) console.log(green(`${device.name} connected`))
+        if (device.notifications !== before.notifications)
+          console.log(dim(`${device.name}: notifications ${device.notifications ? "on" : "off"}`))
         if (!device.connected && before.connected) console.log(dim(`${device.name} disconnected`))
       })
       if (previous?.pairing && !state.pairing && state.devices.length === previous.devices.length)

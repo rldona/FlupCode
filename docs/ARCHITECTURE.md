@@ -91,6 +91,8 @@ FlupCode must respect upstream's layering:
 - The harness sends every engine call through `src/transport.ts`, which the remote client swaps for
   the tunnel. On touch devices controlling a computer it renders the phone layout
   (`components/RemoteHome.tsx`).
+- Push notifications (ADR-0011): the host watches engine events and encrypts a Web Push for each
+  subscribed phone; the relay signs VAPID and delivers it; `public/sw.js` shows it.
 - Deployments: `app.flupcode.com` and `flupcode.com` on Vercel from `power`; the relay on Fly.io.
 
 ## 4. Package conventions
@@ -113,3 +115,4 @@ FlupCode must respect upstream's layering:
 - ADR-0008 — Language and code conventions
 - ADR-0009 — Engine API layer uses the SDK v2 client
 - ADR-0010 — Remote control through an end-to-end encrypted relay
+- ADR-0011 — Push notifications for remote control
