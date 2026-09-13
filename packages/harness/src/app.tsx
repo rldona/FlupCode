@@ -37,6 +37,7 @@ import { SkillsPanel } from "./components/SkillsPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
+import { MobileComposer } from "./components/MobileComposer"
 import { engineFetch } from "./transport"
 
 type Client = ReturnType<typeof createClient>
@@ -1020,6 +1021,8 @@ export const App: Component = () => {
     const apply = () => {
       const dark = mode === "dark" || (mode === "system" && media.matches)
       document.documentElement.classList.toggle("fc-dark", dark)
+      // The browser and installed app paint their status bar with this colour.
+      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f0f0f" : "#ffffff")
     }
     apply()
     media.addEventListener("change", apply)
@@ -1867,46 +1870,74 @@ export const App: Component = () => {
               )}
             </For>
           </div>
-          <Composer
-            value={prompt()}
-            sending={busy()}
-            modelLabel={modelLabel()}
-            variants={variants()}
-            variantKey={variantKey()}
-            usage={contextUsage()}
-            repo={
-              vcsDirectory()
-                ? {
-                    directory: vcsDirectory()!,
-                    branch: vcsInfo()?.branch,
-                    additions: vcsTotals().additions,
-                    deletions: vcsTotals().deletions,
-                    onCommit: commitChanges,
-                  }
-                : undefined
+          <Show
+            when={!mobileRemote()}
+            fallback={
+              <MobileComposer
+                value={prompt()}
+                sending={busy()}
+                attachments={attachments()}
+                models={modelList()}
+                modelKey={modelKey()}
+                modelLabel={modelLabel()}
+                favorites={favorites()}
+                variants={variants()}
+                variantKey={variantKey()}
+                agents={agents()?.data ?? []}
+                agent={agent()}
+                permissionMode={permissionModeId()}
+                onInput={setPrompt}
+                onSend={send}
+                onAttach={addAttachments}
+                onRemoveAttachment={removeAttachment}
+                onModelChange={pickModel}
+                onVariantChange={changeVariant}
+                onAgentChange={changeAgent}
+                onPermissionModeChange={changePermissionMode}
+              />
             }
-            attachments={attachments()}
-            commands={commandOptions()}
-            projects={projects()}
-            targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
-            agents={agents()?.data ?? []}
-            agent={agent()}
-            permissionMode={permissionModeId()}
-            onInput={setPrompt}
-            onSend={send}
-            onCommandPick={(name) => setPrompt(`/${name} `)}
-            onOpenModelPicker={() => setModelPickerOpen(true)}
-            onVariantChange={changeVariant}
-            onAttach={addAttachments}
-            onRemoveAttachment={removeAttachment}
-            searchFiles={searchFiles}
-            onPasteText={collapsePaste}
-            onStash={() => stashPrompt(prompt(), true)}
-            onTargetChange={changeTargetDirectory}
-            onOpenFolder={() => setFolderOpen(true)}
-            onAgentChange={changeAgent}
-            onPermissionModeChange={changePermissionMode}
-          />
+          >
+            <Composer
+              value={prompt()}
+              sending={busy()}
+              modelLabel={modelLabel()}
+              variants={variants()}
+              variantKey={variantKey()}
+              usage={contextUsage()}
+              repo={
+                vcsDirectory()
+                  ? {
+                      directory: vcsDirectory()!,
+                      branch: vcsInfo()?.branch,
+                      additions: vcsTotals().additions,
+                      deletions: vcsTotals().deletions,
+                      onCommit: commitChanges,
+                    }
+                  : undefined
+              }
+              attachments={attachments()}
+              commands={commandOptions()}
+              projects={projects()}
+              targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
+              agents={agents()?.data ?? []}
+              agent={agent()}
+              permissionMode={permissionModeId()}
+              onInput={setPrompt}
+              onSend={send}
+              onCommandPick={(name) => setPrompt(`/${name} `)}
+              onOpenModelPicker={() => setModelPickerOpen(true)}
+              onVariantChange={changeVariant}
+              onAttach={addAttachments}
+              onRemoveAttachment={removeAttachment}
+              searchFiles={searchFiles}
+              onPasteText={collapsePaste}
+              onStash={() => stashPrompt(prompt(), true)}
+              onTargetChange={changeTargetDirectory}
+              onOpenFolder={() => setFolderOpen(true)}
+              onAgentChange={changeAgent}
+              onPermissionModeChange={changePermissionMode}
+            />
+          </Show>
         </Show>
       </main>
       <Show when={!mobileRemote()}>
