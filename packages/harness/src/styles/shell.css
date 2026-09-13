@@ -5011,8 +5011,8 @@ button.fc-row-main {
 /* Scrollbars: a slim rounded thumb on a transparent track everywhere, like the macOS overlay
    scrollbars, instead of the browser's light rectangular track on hover. */
 ::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
+  width: var(--fc-scrollbar-size);
+  height: var(--fc-scrollbar-size);
   background: transparent;
 }
 
@@ -5116,23 +5116,24 @@ button.fc-row-main {
   opacity: 1;
 }
 
-/* Conversation navigator (Claude Code's chapters): ticks pinned to the top-left of the chat. */
+/* Conversation navigator (Claude Code's chapters): pinned to the chat's top-left corner with the
+   same 16px inset as the top bar's buttons. The anchor sticks at the transcript's padding edge. */
 .fc-transcript > .fc-chapters-anchor {
   position: sticky;
-  top: 16px;
+  top: 0;
   z-index: 6;
   align-self: stretch;
   width: auto;
   max-width: none;
   height: 0;
-  /* Sits 16px from the top without adding the transcript's gap below it. */
-  margin: -8px 0 calc(-1 * var(--fc-space-3));
+  margin-bottom: calc(-1 * var(--fc-space-3));
 }
 
 .fc-chapters {
   position: absolute;
-  top: 0;
-  left: calc(-1 * var(--fc-space-6) + 10px);
+  /* Offsets cancel the transcript padding and the ticks button's own padding (6px 4px). */
+  top: calc(16px - var(--fc-space-5) - 6px);
+  left: calc(16px - var(--fc-scrollbar-size) - var(--fc-chat-inset) - 4px);
 }
 
 .fc-chapters-ticks {
@@ -5231,7 +5232,7 @@ button.fc-row-main {
 /* Back to the end: a round button centred over the bottom of the chat while reading older turns. */
 .fc-transcript > .fc-scroll-end-anchor {
   position: sticky;
-  bottom: 12px;
+  bottom: 0;
   z-index: 6;
   align-self: stretch;
   width: auto;
@@ -5243,7 +5244,8 @@ button.fc-row-main {
 
 .fc-scroll-end {
   position: absolute;
-  bottom: 0;
+  /* The anchor sticks at the transcript's bottom padding: sit 6px above the dock instead. */
+  bottom: calc(6px - var(--fc-space-5));
   left: 50%;
   width: 36px;
   height: 36px;
@@ -5360,4 +5362,28 @@ button.fc-row-main {
   .fc-chapters-item-mark {
     transition: none;
   }
+}
+
+/* The chat and the dock share one column: the same side inset, with the transcript's scrollbar
+   gutter reserved on both sides so text starts exactly where the dock does. */
+:root {
+  --fc-chat-inset: var(--fc-space-6);
+  --fc-scrollbar-size: 10px;
+}
+
+@media (max-width: 720px) {
+  :root {
+    --fc-chat-inset: var(--fc-space-3);
+  }
+}
+
+.fc-transcript {
+  padding-left: var(--fc-chat-inset);
+  padding-right: var(--fc-chat-inset);
+  scrollbar-gutter: stable both-edges;
+}
+
+.fc-composer {
+  padding-left: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
+  padding-right: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
 }
