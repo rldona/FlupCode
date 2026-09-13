@@ -4741,6 +4741,11 @@ button.fc-row-main {
   color: var(--fc-text-muted);
 }
 
+/* The context ring sits right under the send / stop button: same 32px width, same centre line. */
+.fc-composer .fc-composer-right .fc-context {
+  margin-right: 9px;
+}
+
 .fc-dock-text,
 .fc-composer .fc-mode-button,
 .fc-composer .fc-effort-button,
