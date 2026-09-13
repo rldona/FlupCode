@@ -223,7 +223,10 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> 
     <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error" }}>
       <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
         <span class="fc-tool-chevron">{open() ? "▾" : "▸"}</span>
-        <span class="fc-tool-name">{props.part.name}</span>
+        {/* A command speaks for itself; other tools keep their name before the title. */}
+        <Show when={!(props.part.name === "bash" && toolTitle(props.part))}>
+          <span class="fc-tool-name">{props.part.name}</span>
+        </Show>
         <Show when={toolTitle(props.part)}>{(value) => <span class="fc-tool-title">{value()}</span>}</Show>
         <span class={`fc-tool-status fc-tool-status-${status()}`}>{status()}</span>
       </button>
@@ -382,11 +385,9 @@ const TurnFooter: Component<{
         <span class="fc-turn-icon">▣</span>
         <span>{props.agent}</span>
         <Show when={model()}>
-          <span class="fc-turn-sep">·</span>
           <span>{model()}</span>
         </Show>
         <Show when={props.duration}>
-          <span class="fc-turn-sep">·</span>
           <span>{props.duration}</span>
         </Show>
       </div>
