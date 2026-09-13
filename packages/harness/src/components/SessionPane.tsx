@@ -153,6 +153,13 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     const ref = modelRef()
     return ref ? props.models.find((model) => model.providerID === ref.providerID && model.id === ref.id) : undefined
   }
+  const variants = () => currentModel()?.variants ?? []
+  /** The model with its effort level only when this project's engine offers that level. */
+  const validModel = () => {
+    const ref = modelRef()
+    if (!ref?.variant || variants().some((variant) => variant.id === ref.variant)) return ref
+    return { providerID: ref.providerID, id: ref.id }
+  }
   const lastAssistant = () =>
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
   const usage = () => {
@@ -203,7 +210,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           text: body,
           system: CHAT_SYSTEM,
           files: fileRefs,
-          ...(modelRef() ? { model: modelRef()! } : {}),
+          ...(validModel() ? { model: validModel()! } : {}),
         })
       } else {
         await current.session.setPermission({
@@ -344,8 +351,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         favorites={props.favorites}
         onModelChange={(providerID, id) => switchModel({ providerID, id })}
         modelLabel={currentModel()?.name ?? t("Default model")}
-        variants={currentModel()?.variants ?? []}
-        variantKey={modelRef()?.variant}
+        variants={variants()}
+        variantKey={validModel()?.variant}
         usage={usage()}
         attachments={attachments()}
         commands={[]}
