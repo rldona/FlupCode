@@ -1,6 +1,6 @@
 # ADR-0007: Remote and mobile
 
-- **Status:** Accepted
+- **Status:** Accepted (connectivity amended by ADR-0010)
 - **Date:** 2026-09-12
 
 ## Context
