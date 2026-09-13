@@ -85,7 +85,10 @@ export const App: Component = () => {
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
   const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string } | undefined>(
-    readStorage<{ providerID: string; id: string; variant?: string } | undefined>(STORAGE_KEYS.selectedModel, undefined),
+    readStorage<{ providerID: string; id: string; variant?: string } | undefined>(
+      STORAGE_KEYS.selectedModel,
+      undefined,
+    ),
   )
   const [noFolderSessions, setNoFolderSessions] = createSignal<string[]>(
     readStorage<string[]>(STORAGE_KEYS.noFolderSessions, []),
@@ -147,8 +150,9 @@ export const App: Component = () => {
   })
   const serverStatus = () =>
     health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
-  const [sessions, { refetch: refetchSessions }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
-    createClient(url).session.list(),
+  const [sessions, { refetch: refetchSessions }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).session.list(),
   )
   const sessionList = () => sessions()?.data
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
@@ -162,8 +166,9 @@ export const App: Component = () => {
       return createClient(url).model.list(directory ? { location: { directory } } : undefined)
     },
   )
-  const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
-    createClient(url).model.directory(),
+  const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).model.directory(),
   )
   const [lastModels, setLastModels] = createSignal<ModelInfo[]>([])
   createEffect(() => {
@@ -174,14 +179,30 @@ export const App: Component = () => {
     const data = models()?.data
     return data && data.length > 0 ? data : lastModels()
   })
-  const [agents] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).agent.list())
-  const [skills] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).skill.list())
-  const [mcp, { refetch: refetchMcp }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).mcp.list())
-  const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
-    createClient(url).provider.directory(),
+  const [agents] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).agent.list(),
   )
-  const [providerAuth] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).provider.auth())
-  const [commands] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).command.list())
+  const [skills] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).skill.list(),
+  )
+  const [mcp, { refetch: refetchMcp }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).mcp.list(),
+  )
+  const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).provider.directory(),
+  )
+  const [providerAuth] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).provider.auth(),
+  )
+  const [commands] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).command.list(),
+  )
   const [integrations, { refetch: refetchIntegrations }] = createResource(
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).integration.list(),
@@ -326,14 +347,12 @@ export const App: Component = () => {
       const sessionID = selected()
       return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
     },
-    async     (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
+    async (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
   )
 
   const todos = () => {
     const data = activeMessages() ?? []
-    const assistants = [...data].reverse().flatMap((message) =>
-      message.type === "assistant" ? [message] : [],
-    )
+    const assistants = [...data].reverse().flatMap((message) => (message.type === "assistant" ? [message] : []))
     for (const message of assistants) {
       const parts = [...message.content]
         .reverse()
@@ -922,9 +941,7 @@ export const App: Component = () => {
   }
 
   const newId = () =>
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID()
-      : `${Date.now()}-${Math.random()}`
+    typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
 
   const persistStashes = (next: StashedPrompt[]) => {
     setStashes(next)
@@ -958,15 +975,14 @@ export const App: Component = () => {
   }
 
   const addRoutine = (input: { name: string; prompt: string; intervalMinutes: number }) => {
-    persistRoutines([
-      ...routines(),
-      { id: newId(), ...input, enabled: true, createdAt: Date.now() },
-    ])
+    persistRoutines([...routines(), { id: newId(), ...input, enabled: true, createdAt: Date.now() }])
     toast(t("Routine created"), "success")
   }
 
   const toggleRoutine = (id: string) => {
-    persistRoutines(routines().map((routine) => (routine.id === id ? { ...routine, enabled: !routine.enabled } : routine)))
+    persistRoutines(
+      routines().map((routine) => (routine.id === id ? { ...routine, enabled: !routine.enabled } : routine)),
+    )
   }
 
   const removeRoutine = (id: string) => {
@@ -974,9 +990,7 @@ export const App: Component = () => {
   }
 
   const markRoutineRun = (id: string) => {
-    persistRoutines(
-      routines().map((routine) => (routine.id === id ? { ...routine, lastRunAt: Date.now() } : routine)),
-    )
+    persistRoutines(routines().map((routine) => (routine.id === id ? { ...routine, lastRunAt: Date.now() } : routine)))
   }
 
   const executeRoutine = (routine: Routine) => {
@@ -1018,10 +1032,7 @@ export const App: Component = () => {
     onCleanup(() => clearInterval(timer))
   })
 
-  const run = async (
-    action: (current: Client) => Promise<string | undefined>,
-    successMessage?: string,
-  ) => {
+  const run = async (action: (current: Client) => Promise<string | undefined>, successMessage?: string) => {
     setBusy(true)
     setError(undefined)
     try {
@@ -1322,7 +1333,8 @@ export const App: Component = () => {
       if (message.type !== "assistant") continue
       for (const part of message.content) {
         if (part.type === "text") lines.push(part.text, "")
-        else if (part.type === "reasoning") lines.push("<details><summary>Reasoning</summary>", "", part.text, "", "</details>", "")
+        else if (part.type === "reasoning")
+          lines.push("<details><summary>Reasoning</summary>", "", part.text, "", "</details>", "")
         else if (part.type === "tool") lines.push(`> Tool: ${part.name}`, "")
       }
     }
@@ -1559,12 +1571,7 @@ export const App: Component = () => {
           sessionTitle={
             <Show when={selectedSession()}>
               {(session) => (
-                <SessionTitle
-                  session={session()}
-                  tags={currentTags()}
-                  onAddTag={addTag}
-                  onRemoveTag={removeTag}
-                />
+                <SessionTitle session={session()} tags={currentTags()} onAddTag={addTag} onRemoveTag={removeTag} />
               )}
             </Show>
           }
@@ -1633,11 +1640,7 @@ export const App: Component = () => {
         <div class="fc-docks">
           <For each={permissions()?.data ?? []}>
             {(request) => (
-              <PermissionDock
-                request={request}
-                busy={busy()}
-                onReply={(reply) => replyPermission(request, reply)}
-              />
+              <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
             )}
           </For>
           <For each={questions()?.data ?? []}>
@@ -1701,9 +1704,7 @@ export const App: Component = () => {
         onClose={closePanel}
       />
       <Show when={selectedSession()}>
-        {(session) => (
-          <RightAside session={session()} models={modelList()} todos={todos()} />
-        )}
+        {(session) => <RightAside session={session()} models={modelList()} todos={todos()} />}
       </Show>
       <CommandPalette
         open={paletteOpen()}
