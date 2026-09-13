@@ -253,7 +253,10 @@ export const Composer: Component<ComposerProps> = (props) => {
                       when={attachment.uri.startsWith("data:image/")}
                       fallback={
                         <span class="fc-dock-attachment-file">
-                          <DockIcon path="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5" size={22} />
+                          <DockIcon
+                            path="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5"
+                            size={22}
+                          />
                           <span class="fc-dock-attachment-name">{attachment.name}</span>
                         </span>
                       }
