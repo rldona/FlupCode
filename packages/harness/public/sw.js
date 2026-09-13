@@ -10,7 +10,7 @@ async function precache() {
     const cache = await caches.open(CACHE)
     await cache.put("/", response.clone())
     const html = await response.text()
-    const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((match) => match[1])
+    const assets = [...html.matchAll(/(?:src|href)="(\/(?:assets\/[^"]+|boot\.js))"/g)].map((match) => match[1])
     await Promise.all(
       assets.map((asset) =>
         fetch(asset).then((assetResponse) => (assetResponse.ok ? cache.put(asset, assetResponse) : undefined)),
