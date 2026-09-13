@@ -27,16 +27,16 @@ _Last updated: 2026-09-13._
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 58 | all F0–F7 tickets except F3-14, F3-16 and F5-4; F8-1, F8-2, F8-3, F8-6, F8-7, F8-8 |
-| doing | 2 | F8-4 (relay deploy), F8-5 (Electron validation) |
+| done | 59 | all F0–F7 tickets except F3-14, F3-16 and F5-4; F8-1 … F8-4, F8-6, F8-7, F8-8 |
+| doing | 1 | F8-5 (Electron validation) |
 | blocked | 3 | F3-14, F3-16, F5-4 |
 | todo | 1 | F8-9 |
 | **total** | **64** | |
 
 ### What remains
 
-F8 (remote control, ADR-0010) is implemented; the relay still has to be deployed and the desktop
-host validated in the packaged app. The other open items are blocked on external constraints:
+F8 (remote control, ADR-0010) is implemented and the relay runs at `wss://relay.flupcode.com`; the
+desktop host still has to be validated in the packaged app. The other open items are blocked on external constraints:
 
 - **F3-14 MCP manager** — the vendored client (`1.17.13`) calls `/api/mcp`, removed in the current
   server (`1.18.30`); configure MCP through the engine config for now.
@@ -148,7 +148,7 @@ host validated in the packaged app. The other open items are blocked on external
 | F8-1 | P0 | Design: ADR-0010 and tickets | done |
 | F8-2 | P0 | Secure channel (`@flupcode/remote`) | done |
 | F8-3 | P0 | Tunnel multiplexer (`@flupcode/remote`) | done |
-| F8-4 | P0 | Relay server (`@flupcode/relay`) | doing |
+| F8-4 | P0 | Relay server (`@flupcode/relay`) | done |
 | F8-5 | P0 | Desktop host: identity, pairing, devices | doing |
 | F8-6 | P0 | Harness transport for all engine traffic | done |
 | F8-7 | P0 | Remote control UI (desktop and phone) | done |
