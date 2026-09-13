@@ -20,19 +20,31 @@ How FlupCode is versioned and released.
 
 ## Cutting a release
 
-1. Update the versions (`harness`, `harness-desktop`, `remote`, `relay`, `flupcode-cli`):
+1. Update the versions (`harness`, `harness-desktop`, `remote`, `relay`, `flupcode-cli`) and the
+   lockfile on a branch, and open a pull request: `power` is protected, so nothing is pushed to it
+   directly.
 
    ```bash
-   # set both package.json versions and commit
-   git commit -am "chore: release vX.Y.Z"
+   git switch -c release-X.Y.Z origin/power
+   # set the five package.json versions, then:
+   npm_config_registry="https://registry.npmjs.org/" bun install
+   git commit -am "chore: bump version to X.Y.Z"
+   git push -u origin release-X.Y.Z
+   gh pr create --base power --title "chore: bump version to X.Y.Z"
    ```
 
-2. Push `power`, then tag and push:
+2. Once CI is green, merge it with rebase, then tag the merged commit on `origin/power` (never a
+   local commit) and push the tag:
 
    ```bash
-   git tag flupcode-vX.Y.Z
+   gh pr merge <number> --rebase
+   git fetch origin
+   git tag flupcode-vX.Y.Z origin/power
    git push origin flupcode-vX.Y.Z
    ```
+
+   Stop at the first failure (for example with `set -eo pipefail` in a script): a tag pushed after
+   a rejected push starts a release from a commit that is not on `power`.
 
 3. `.github/workflows/release.yml` runs on the tag: build the web bundle, package the desktop app
    (macOS arm64/x64, Windows, Linux), compile the `flupcode` CLI binaries and create a GitHub Release
