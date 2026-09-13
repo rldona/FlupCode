@@ -4582,6 +4582,8 @@ button.fc-row-main {
 }
 
 .fc-composer .fc-repo-bar {
+  /* Cards above the input have no border, like Claude Code's: just a lifted surface. */
+  border: none;
   min-height: 44px;
   padding: 6px 8px 6px 14px;
   border-radius: var(--fc-radius-md);
