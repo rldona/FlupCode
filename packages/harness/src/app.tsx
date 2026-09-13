@@ -115,6 +115,19 @@ export const App: Component = () => {
   const client = () => createClient(serverUrl())
   const [health, { refetch: refetchHealth }] = createResource(serverUrl, async (url) => createClient(url).health.get())
   const ready = () => health()?.healthy === true
+
+  createEffect(() => {
+    const timer = setInterval(() => void refetchHealth(), 10000)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  createEffect(() => {
+    if (!ready()) return
+    void refetchSessions()
+    void refetchModels()
+    void refetchModelDirectory()
+    void refetchProviderDirectory()
+  })
   const serverStatus = () =>
     health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
   const [sessions, { refetch: refetchSessions }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
@@ -1529,6 +1542,7 @@ export const App: Component = () => {
         favorites={favorites()}
         onSelect={pickModel}
         onToggleFavorite={toggleFavoriteModel}
+        onRetry={() => void refetchModels()}
         onClose={() => setModelPickerOpen(false)}
       />
       <About
