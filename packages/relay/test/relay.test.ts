@@ -5,6 +5,7 @@ import {
   connectRelayClient,
   createHostIdentity,
   createTunnelClient,
+  HandshakeError,
   loadHostIdentity,
   random,
   RelayClose,
@@ -77,6 +78,37 @@ describe("relay", () => {
     expect(await response.json()).toEqual({ healthy: true, auth: "Basic abc" })
     tunnel.close()
     await waitFor(() => relay.stats().clients === 0)
+    host.stop()
+    await waitFor(() => relay.stats().hosts === 0)
+  })
+
+  test("a rejected pairing surfaces as a handshake error in browsers", async () => {
+    const statuses: RelayHostStatus[] = []
+    const host = startRelayHost({
+      relay: relay.url,
+      identity: await createHostIdentity(),
+      onStatus: (status) => statuses.push(status),
+      onChannel: (wire) => void acceptChannel(wire, () => undefined).catch(() => undefined),
+    })
+    await waitFor(() => statuses.at(-1) === "online")
+    const hostId = await host.hostId
+    // Browsers throw when a script closes a WebSocket with a protocol code such as 1008.
+    const browserSocket = (url: string) => {
+      const socket = new WebSocket(url)
+      const close = socket.close.bind(socket)
+      socket.close = (code?: number, reason?: string) => {
+        if (code !== undefined && code !== 1000 && (code < 3000 || code > 4999))
+          throw new DOMException(`The close code must be either 1000, or between 3000 and 4999. ${code} is neither.`)
+        close(code, reason)
+      }
+      return socket
+    }
+    const wire = await connectRelayClient({ relay: relay.url, hostId, createSocket: browserSocket })
+    const error = await connectChannel(wire, { mode: "pair", id: "unknown", psk: random(32) }).catch(
+      (cause: unknown) => cause,
+    )
+    expect(error).toBeInstanceOf(HandshakeError)
+    expect((error as HandshakeError).message).toBe("Rejected by host")
     host.stop()
     await waitFor(() => relay.stats().hosts === 0)
   })
