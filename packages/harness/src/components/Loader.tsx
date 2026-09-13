@@ -7,6 +7,8 @@ type LoaderProps = {
   startedAt?: number
   class?: string
   label?: string
+  /** Tool calls in progress, shown as "1 running task". */
+  tasks?: number
 }
 
 const phrases = ["Thinking…", "Generating…", "Writing…", "Working…", "Loading information…"]
@@ -48,6 +50,12 @@ export const Loader: Component<LoaderProps> = (props) => {
       <Show when={total() !== undefined}>
         <span class="fc-loader-sep">·</span>
         <span class="fc-loader-meta">{formatTokens(total()!)} {t("tokens")}</span>
+      </Show>
+      <Show when={(props.tasks ?? 0) > 0}>
+        <span class="fc-loader-sep">·</span>
+        <span class="fc-loader-meta">
+          {props.tasks === 1 ? t("1 running task") : t("{n} running tasks", { n: props.tasks ?? 0 })}
+        </span>
       </Show>
       <Show when={props.cost !== undefined && props.cost > 0}>
         <span class="fc-loader-sep">·</span>
