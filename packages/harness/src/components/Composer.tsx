@@ -119,7 +119,8 @@ export const Composer: Component<ComposerProps> = (props) => {
     input.style.height = `${Math.min(input.scrollHeight, 240)}px`
   })
 
-  const showStop = () => props.generating && props.value.trim().length === 0 && props.attachments.length === 0
+  // While the model works, Stop takes the send button's place (Enter still sends); it returns when the run ends.
+  const showStop = () => props.generating
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -326,8 +327,9 @@ export const Composer: Component<ComposerProps> = (props) => {
               aria-label={t("Stop")}
               onClick={props.onStop}
             >
-              <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
-                <rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor" />
+              <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+                <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.8" />
+                <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" />
               </svg>
             </button>
           </Show>
