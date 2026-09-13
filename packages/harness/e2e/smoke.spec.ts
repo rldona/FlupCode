@@ -42,6 +42,14 @@ test("completes onboarding", async ({ page }) => {
   await expect(page.getByText(/Welcome to FlupCode/i)).toHaveCount(0)
 })
 
+test("serves the app shell offline after the service worker installs", async ({ page, context }) => {
+  await page.goto("/")
+  await page.evaluate(() => navigator.serviceWorker.ready)
+  await context.setOffline(true)
+  await page.reload()
+  await expect(page.locator(".fc-app")).toBeVisible()
+})
+
 test("opens the command palette", async ({ page }) => {
   test.skip(process.env.FLUPCODE_E2E_SERVER !== "1", "set FLUPCODE_E2E_SERVER=1 with a running OpenCode server")
   await page.goto("/")

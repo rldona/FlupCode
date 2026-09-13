@@ -1,31 +1,90 @@
-const CACHE = "flupcode-v1"
+// Bump this whenever the caching strategy changes so old caches are dropped on activate.
+const CACHE = "flupcode-v2"
 
-self.addEventListener("install", () => {
-  self.skipWaiting()
+// The shell plus its hashed assets are precached on install. Parsing the built HTML keeps the
+// precache correct across deploys without a generated manifest.
+async function precache() {
+  try {
+    const response = await fetch("/", { cache: "reload" })
+    if (!response.ok) return
+    const cache = await caches.open(CACHE)
+    await cache.put("/", response.clone())
+    const html = await response.text()
+    const assets = [...html.matchAll(/(?:src|href)="(\/assets\/[^"]+)"/g)].map((match) => match[1])
+    await Promise.all(
+      assets.map((asset) =>
+        fetch(asset).then((assetResponse) => (assetResponse.ok ? cache.put(asset, assetResponse) : undefined)),
+      ),
+    )
+  } catch {
+    // Offline installs still succeed; the next load fills the cache.
+  }
+}
+
+self.addEventListener("install", (event) => {
+  event.waitUntil(precache().then(() => self.skipWaiting()))
 })
 
 self.addEventListener("activate", (event) => {
-  event.waitUntil(self.clients.claim())
+  event.waitUntil(
+    caches
+      .keys()
+      .then((keys) =>
+        Promise.all(
+          keys
+            .filter((key) => key !== CACHE && (key.startsWith("flupcode-") || key.startsWith("openharness-")))
+            .map((key) => caches.delete(key)),
+        ),
+      )
+      .then(() => self.clients.claim()),
+  )
 })
+
+async function handleNavigation(request) {
+  try {
+    const response = await fetch(request)
+    if (response.ok) cacheResponse("/", response.clone())
+    return response
+  } catch {
+    // Never surface a blank error page: fall back to the precached shell when the network is down.
+    const shell = await caches.match("/")
+    return shell ?? Response.error()
+  }
+}
+
+async function handleAsset(request) {
+  const url = new URL(request.url)
+  // Vite asset filenames are content-hashed, so cached copies are safe to serve forever.
+  if (url.pathname.startsWith("/assets/")) {
+    const cached = await caches.match(request)
+    if (cached) return cached
+  }
+  try {
+    const response = await fetch(request)
+    if (response.ok && response.type === "basic") cacheResponse(request, response.clone())
+    return response
+  } catch {
+    return (await caches.match(request)) ?? Response.error()
+  }
+}
+
+function cacheResponse(key, response) {
+  caches
+    .open(CACHE)
+    .then((cache) => cache.put(key, response))
+    .catch(() => {})
+}
 
 self.addEventListener("fetch", (event) => {
   const request = event.request
   if (request.method !== "GET") return
   const url = new URL(request.url)
   if (url.origin !== self.location.origin) return
+  // Never buffer the engine's event stream.
+  if (request.headers.get("accept")?.includes("text/event-stream")) return
 
-  event.respondWith(
-    fetch(request)
-      .then((response) => {
-        const copy = response.clone()
-        caches
-          .open(CACHE)
-          .then((cache) => cache.put(request, copy))
-          .catch(() => {})
-        return response
-      })
-      .catch(() => caches.match(request).then((cached) => cached ?? Response.error())),
-  )
+  if (request.mode === "navigate") return event.respondWith(handleNavigation(request))
+  event.respondWith(handleAsset(request))
 })
 
 // Remote control notifications (ADR-0011). The host encrypts the payload for this browser; the
