@@ -5,6 +5,7 @@ import { type Model } from "@opencode-ai/llm"
 import * as AnthropicMessages from "@opencode-ai/llm/protocols/anthropic-messages"
 import * as OpenAICompatibleChat from "@opencode-ai/llm/protocols/openai-compatible-chat"
 import * as OpenAIResponses from "@opencode-ai/llm/protocols/openai-responses"
+import { GitHubCopilot } from "@opencode-ai/llm/providers"
 import { Auth, type AnyRoute } from "@opencode-ai/llm/route"
 import { Context, Effect, Layer, Schema } from "effect"
 import { produce } from "immer"
@@ -151,6 +152,15 @@ export const fromCatalogModel = (
       withDefaults(resolved, AnthropicMessages.route)
         .with({ auth: key === undefined ? Auth.none : Auth.header("x-api-key", key) })
         .model({ id: resolved.api.id }),
+    )
+  }
+  if (resolved.api.type === "aisdk" && resolved.api.package === "@ai-sdk/github-copilot") {
+    return Effect.succeed(
+      GitHubCopilot.configure({
+        baseURL: resolved.api.url ?? "https://api.githubcopilot.com",
+        auth: key === undefined ? Auth.none : Auth.bearer(key),
+        headers: resolved.request.headers,
+      }).model(resolved.api.id),
     )
   }
   if (resolved.api.type === "aisdk" && resolved.api.package === "@ai-sdk/openai-compatible" && resolved.api.url) {
