@@ -34,10 +34,21 @@ How FlupCode is versioned and released.
    git push origin flupcode-vX.Y.Z
    ```
 
-3. `.github/workflows/release.yml` runs on the tag: install, typecheck, test, build the harness,
-   package `flupcode-web.zip` and create a GitHub Release with generated notes.
+3. `.github/workflows/release.yml` runs on the tag: build the web bundle, package the desktop app
+   (macOS arm64/x64, Windows, Linux), compile the `flupcode` CLI binaries and create a GitHub Release
+   with generated notes. It takes about 20 minutes, mostly the Windows installer.
 
-4. Verify with:
+4. Add a short user-facing summary above the generated notes (what changed, how to update, and
+   the unsigned-build note for macOS):
+
+   ```bash
+   gh release edit flupcode-vX.Y.Z --notes-file notes.md
+   ```
+
+   The web app (`app.flupcode.com`) and the landing deploy from `power` on merge, independently of
+   releases.
+
+5. Verify with:
 
    ```bash
    gh release view flupcode-vX.Y.Z
@@ -56,6 +67,7 @@ gh release create flupcode-vX.Y.Z flupcode-web.zip --title "FlupCode vX.Y.Z" --g
 
 ## Desktop
 
-Desktop packaging and auto-update are wired (F5-1…F5-3) but installing on end-user machines requires
-code signing and notarization (F5-4, blocked on certificates). Until then, desktop users can run
-from source with `dev:harness-desktop`.
+Installers are published on every release and the app auto-updates from GitHub Releases
+(`electron-updater`). They are **not signed or notarized** (F5-4, blocked on Apple and Windows
+certificates): macOS shows "FlupCode Not Opened" and needs **Open Anyway** or removing the quarantine
+flag, and Windows shows SmartScreen. See [USAGE.md](USAGE.md#installing-a-release).

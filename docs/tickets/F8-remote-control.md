@@ -79,6 +79,8 @@ of the desktop UI.
   prompt-focused composer. The browser back button returns home.
 - Desktop browsers controlling a computer keep the full layout.
 - A failed request never freezes the UI (resources keep their last value).
+- The phone always opens on the home, never on the last session.
+- The installed web app (PWA) uses FlupCode icons (`any` and `maskable`) on the app's dark ground.
 
 ## F8-11 — `flupcode remote` terminal host · P1 · done
 

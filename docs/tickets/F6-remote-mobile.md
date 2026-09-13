@@ -2,6 +2,10 @@
 
 Goal: a native-feeling mobile experience on top of the existing server. See ADR-0007.
 
+> **Superseded for connectivity by F8 (ADR-0010).** The QR of a server URL (F6-2) and the manual
+> tunnel command (F6-4) are replaced by pairing through the end-to-end encrypted relay; they remain
+> as "Local network (without relay)" in the Remote control panel.
+
 ## F6-1 — PWA + responsive layout · P1 · done
 
 **Acceptance**

@@ -66,12 +66,26 @@ bun run dev:harness-desktop  # Electron window
 The desktop main process starts a local server automatically if none is reachable. Set
 `FLUPCODE_NO_SERVER=1` to disable that, or `FLUPCODE_DEV_URL` to point at another renderer.
 
-Downloaded builds are unsigned. On macOS, if the app reports it is “damaged”, remove the
-quarantine flag and open again:
+### Installing a release
 
-```bash
-xattr -dr com.apple.quarantine /Applications/FlupCode.app
-```
+Download `FlupCode-mac-arm64.dmg` (Apple Silicon), `FlupCode-mac-x64.dmg`, `FlupCode-win-x64.exe` or
+`FlupCode-linux-x64.AppImage` from the [latest release](https://github.com/rldona/FlupCode/releases/latest).
+The app checks for updates on start and every 6 hours.
+
+Builds are **not signed or notarized** yet (F5-4). The first time you open the app on macOS it shows
+"FlupCode Not Opened" ("No se ha abierto FlupCode"). Do not move it to the Bin; click **Done**, then
+either:
+
+- open **System Settings → Privacy & Security**, scroll to the FlupCode notice and click
+  **Open Anyway**, or
+- remove the quarantine flag and open it again:
+
+  ```bash
+  xattr -dr com.apple.quarantine /Applications/FlupCode.app
+  ```
+
+An update may bring the prompt back; repeat the same step. On Windows, SmartScreen shows "Windows
+protected your PC": click **More info → Run anyway**.
 
 ## Layout
 
@@ -146,31 +160,46 @@ opencode attach http://localhost:4096
 
 ## Remote control
 
-Drive your computer's sessions from a phone, on any network. The desktop app connects out to a
-relay and the phone talks to it through that relay; everything is end-to-end encrypted, so the
-relay cannot read your sessions (ADR-0010).
+Drive your computer's sessions from a phone, on any network, like Claude Code's remote control.
+The desktop app (1.0.10 or later) connects out to a relay and the phone talks to it through that
+relay; everything is end-to-end encrypted, so the relay cannot read your sessions (ADR-0010).
 
 1. In the desktop app, open **Remote control** (sidebar menu, Settings or the command palette) and
    turn **Allow remote control** on. Wait for **Online**.
-2. Click **Pair a device** and scan the QR code with the phone's camera. The code works once and
-   expires after 10 minutes.
-3. The phone opens FlupCode (`https://app.flupcode.com`), pairs and shows your sessions: tap one to
-   follow it, answer permission requests or send prompts, or start a **New session** in a project.
-   Add the page to the home screen to use it as an app.
+2. Click **Pair a device** and scan the QR code with the phone's camera. Open the link **in your
+   browser** (in Google Lens, use ⋮ → *Open in Chrome*): pairing is stored in the browser that opens
+   it. The code works once and expires after 10 minutes. **Copy link** sends it another way.
+3. The phone opens FlupCode (`https://app.flupcode.com`) and pairs. It shows the phone view:
+   - **Code** (home): your paired computers with their state, **Add device**, and your sessions
+     with their state (working, needs your input, idle), `project · branch` and last activity,
+     filtered by All / Active.
+   - Tap a session to follow it, answer permission requests or send prompts; ← returns home.
+   - **New session** asks for a project and starts a session there.
+
+   The app always opens on the home. To use it as an app, install it from Chrome (⋮ → *Install
+   app* / *Add to Home screen*) or Safari (Share → *Add to Home Screen*).
 
 Paired phones reconnect on their own. Remove a phone from **Paired devices** on the computer to
-revoke it immediately. The computer must stay awake with FlupCode open.
+revoke it immediately. The computer must stay awake with FlupCode open (or `flupcode remote`
+running). A desktop browser that pairs keeps the full desktop layout.
 
 ### From a terminal: `flupcode remote`
 
-Without the desktop app, host remote control from a terminal (like `claude remote-control`).
-Download the `flupcode` binary for your platform from the
-[latest release](https://github.com/rldona/FlupCode/releases/latest) and run it:
+Without the desktop app — on a headless machine, over SSH, or if you live in the terminal — host
+remote control with `flupcode remote` (like `claude remote-control`). Install the binary for your
+platform from the [latest release](https://github.com/rldona/FlupCode/releases/latest)
+(`flupcode-darwin-arm64`, `-darwin-x64`, `-linux-x64`, `-linux-arm64`, `-windows-x64.exe`). On a Mac
+with Apple Silicon, into a directory on your `PATH`:
 
 ```bash
-chmod +x flupcode-darwin-arm64 && xattr -d com.apple.quarantine flupcode-darwin-arm64
-./flupcode-darwin-arm64 remote
+mkdir -p ~/.local/bin
+curl -fL -o ~/.local/bin/flupcode https://github.com/rldona/FlupCode/releases/latest/download/flupcode-darwin-arm64
+chmod +x ~/.local/bin/flupcode
+flupcode remote
 ```
+
+Downloaded with `curl` the binary is not quarantined; if you download it from a browser, run
+`xattr -d com.apple.quarantine ~/.local/bin/flupcode` first.
 
 It exposes the OpenCode server at `http://127.0.0.1:4096` (starting `opencode serve` if needed),
 prints a QR code to scan, and keeps running until you type `q`. While it runs, type `p` for a new
@@ -178,6 +207,10 @@ pairing code, `d` to list devices and `r <n>` to remove one. `flupcode remote de
 `flupcode remote revoke <n>` work when it is stopped. The identity and paired devices live in
 `~/.config/flupcode/remote.json` (readable only by you, not encrypted with the keychain). From the
 repository, run `bun packages/flupcode-cli/src/index.ts remote`.
+
+The terminal host has its own identity, separate from the desktop app: a phone paired with one
+does not appear in the other, and the phone lists them as two computers. Do not run both hosts
+against the same engine at the same time.
 
 ### Self-hosting the relay
 
@@ -213,6 +246,21 @@ server.
 - **Install fails with 401 / private registry** — force the public registry as shown above.
 - **"Sin conexión" in the top bar** — check the server URL and that `opencode serve` is running.
 - **Empty model selector** — connect a provider or leave **Auto** enabled to use the server default.
+- **"FlupCode Not Opened" on macOS** — the build is unsigned; see
+  [Installing a release](#installing-a-release).
 - **Remote control stays "Connecting"** — check that the relay URL is reachable (`/health`) and uses
   `wss://`. On the phone, "The computer is offline" means the desktop app is closed, asleep or has
   remote control turned off.
+- **The phone asks for my name or a server after scanning** — the QR link opened in another browser
+  (for example Google Lens' built-in viewer), which stored the pairing there. Remove the device on
+  the computer, create a new code and open the link in Chrome or Safari.
+- **The phone shows the desktop layout** — it is still running an older version of the web app:
+  reload the page, or close the tab and open `app.flupcode.com` again. Also turn off Chrome's
+  *Desktop site*.
+- **"The pairing code expired or was already used"** — codes work once for 10 minutes; create a new
+  one on the computer.
+- **The installed phone app still shows an old icon** — uninstall it and install it again; browsers
+  keep the icon of an installed app.
+- **The phone disconnected after I started another FlupCode** — two hosts with the same identity
+  (for example a development build and the installed app) replace each other on the relay. Keep
+  one running and toggle **Allow remote control** off and on.
