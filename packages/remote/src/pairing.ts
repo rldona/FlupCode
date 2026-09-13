@@ -31,7 +31,8 @@ export function parsePairingHash(hash: string): PairingLink | undefined {
   try {
     const link = JSON.parse(text(fromBase64Url(value))) as Partial<PairingLink>
     if (link.v !== 1) return undefined
-    if (![link.relay, link.host, link.id, link.secret, link.name].every((part) => typeof part === "string")) return undefined
+    if (![link.relay, link.host, link.id, link.secret, link.name].every((part) => typeof part === "string"))
+      return undefined
     if (!/^wss?:\/\//.test(link.relay!)) return undefined
     return link as PairingLink
   } catch {

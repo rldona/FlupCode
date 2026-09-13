@@ -1,11 +1,25 @@
 import { describe, expect, test } from "bun:test"
-import { acceptChannel, concat, connectChannel, HandshakeError, random, text, utf8, Wire, wirePair, type Bytes } from "../src"
+import {
+  acceptChannel,
+  concat,
+  connectChannel,
+  HandshakeError,
+  random,
+  text,
+  utf8,
+  Wire,
+  wirePair,
+  type Bytes,
+} from "../src"
 
 function tap(wire: Wire, mutate: (data: Bytes) => Bytes | undefined) {
-  return new Wire((data) => {
-    const next = mutate(data)
-    if (next) wire.send(next)
-  }, (code, reason) => wire.close(code, reason))
+  return new Wire(
+    (data) => {
+      const next = mutate(data)
+      if (next) wire.send(next)
+    },
+    (code, reason) => wire.close(code, reason),
+  )
 }
 
 describe("secure channel", () => {

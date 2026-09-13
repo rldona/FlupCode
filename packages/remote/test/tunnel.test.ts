@@ -10,7 +10,9 @@ const engine = Bun.serve<string | null>({
     const url = new URL(request.url)
     seen.push({ authorization: request.headers.get("authorization"), origin: request.headers.get("origin") })
     if (url.pathname === "/echo")
-      return request.text().then((body) => Response.json({ method: request.method, body, query: url.search }, { status: 201 }))
+      return request
+        .text()
+        .then((body) => Response.json({ method: request.method, body, query: url.search }, { status: 201 }))
     if (url.pathname === "/empty") return new Response(null, { status: 204 })
     if (url.pathname === "/event") {
       let count = 0
@@ -112,7 +114,9 @@ describe("tunnel", () => {
         socket.send(new Uint8Array([1, 2, 3]))
       }
       socket.onmessage = (event) => {
-        messages.push(typeof event.data === "string" ? event.data : Array.from(new Uint8Array(event.data as ArrayBuffer)))
+        messages.push(
+          typeof event.data === "string" ? event.data : Array.from(new Uint8Array(event.data as ArrayBuffer)),
+        )
         if (messages.length === 3) resolve()
       }
     })

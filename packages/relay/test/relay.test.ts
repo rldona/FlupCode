@@ -19,7 +19,8 @@ const engine = Bun.serve({
   port: 0,
   fetch(request) {
     const url = new URL(request.url)
-    if (url.pathname === "/global/health") return Response.json({ healthy: true, auth: request.headers.get("authorization") })
+    if (url.pathname === "/global/health")
+      return Response.json({ healthy: true, auth: request.headers.get("authorization") })
     return new Response("not found", { status: 404 })
   },
 })
@@ -52,7 +53,9 @@ async function onlineHost(psk: Uint8Array<ArrayBuffer>) {
     onStatus: (status) => statuses.push(status),
     onChannel: (wire) =>
       void acceptChannel(wire, () => psk)
-        .then((accepted) => serveTunnel(accepted.channel, { target: `http://127.0.0.1:${engine.port}`, credentials: "abc" }))
+        .then((accepted) =>
+          serveTunnel(accepted.channel, { target: `http://127.0.0.1:${engine.port}`, credentials: "abc" }),
+        )
         .catch(() => undefined),
   })
   await waitFor(() => statuses.at(-1) === "online")
@@ -80,7 +83,9 @@ describe("relay", () => {
 
   test("closes clients with 4404 when the host is offline", async () => {
     const identity = await loadHostIdentity(await createHostIdentity())
-    const error = await connectRelayClient({ relay: relay.url, hostId: identity.hostId }).catch((cause: unknown) => cause)
+    const error = await connectRelayClient({ relay: relay.url, hostId: identity.hostId }).catch(
+      (cause: unknown) => cause,
+    )
     expect(error).toBeInstanceOf(RelayConnectError)
     expect((error as RelayConnectError).code).toBe(RelayClose.hostOffline)
   })
@@ -91,7 +96,8 @@ describe("relay", () => {
     const attacker = await loadHostIdentity(await createHostIdentity())
     socket.onmessage = (event) => {
       const message = JSON.parse(String(event.data)) as { t: string; nonce: string }
-      if (message.t === "challenge") void attacker.answer(message.nonce).then((answer) => socket.send(JSON.stringify(answer)))
+      if (message.t === "challenge")
+        void attacker.answer(message.nonce).then((answer) => socket.send(JSON.stringify(answer)))
     }
     const code = await new Promise<number>((resolve) => (socket.onclose = (event) => resolve(event.code)))
     expect(code).toBe(RelayClose.unauthorized)
@@ -116,7 +122,12 @@ describe("relay", () => {
     const wire = await connectRelayClient({ relay: relay.url, hostId })
     const closed = new Promise<void>((resolve) => wire.onClose(resolve))
     const statuses: RelayHostStatus[] = []
-    const replacement = startRelayHost({ relay: relay.url, identity, onChannel: () => {}, onStatus: (status) => statuses.push(status) })
+    const replacement = startRelayHost({
+      relay: relay.url,
+      identity,
+      onChannel: () => {},
+      onStatus: (status) => statuses.push(status),
+    })
     await closed
     await waitFor(() => statuses.at(-1) === "online")
     expect(relay.stats().hosts).toBe(1)

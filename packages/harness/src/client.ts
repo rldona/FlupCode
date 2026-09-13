@@ -2,6 +2,7 @@ import type { ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import type { AssistantMessage, Message, Part, ReasoningPart, TextPart, ToolPart, ToolState } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
+import { engineFetch } from "./transport"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 
@@ -12,7 +13,7 @@ export function resolveServerUrl() {
 }
 
 async function* subscribeEvents(baseUrl: string, signal?: AbortSignal) {
-  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/event`, {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/api/event`, {
     headers: { Accept: "text/event-stream" },
     signal,
   })
@@ -102,7 +103,7 @@ function fromLegacy(entries: Array<{ info: Message; parts: Part[] }>): SessionMe
 }
 
 export function createClient(baseUrl = resolveServerUrl()) {
-  const client = createOpencodeClient({ baseUrl })
+  const client = createOpencodeClient({ baseUrl, fetch: ((request: Request) => engineFetch(request)) as typeof fetch })
 
   return {
     health: {
@@ -162,7 +163,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
       }) => {
         const base = baseUrl.replace(/\/$/, "")
         const query = input.directory ? `?directory=${encodeURIComponent(input.directory)}` : ""
-        const response = await fetch(`${base}/session/${input.sessionID}${query}`, {
+        const response = await engineFetch(`${base}/session/${input.sessionID}${query}`, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ permission: input.permission }),

@@ -1,5 +1,13 @@
 import { asBytes } from "./bytes"
-import { decodeRelayMessage, encodeRelayMessage, loadHostIdentity, RelayClose, splitChannel, withChannel, type HostIdentity } from "./relay"
+import {
+  decodeRelayMessage,
+  encodeRelayMessage,
+  loadHostIdentity,
+  RelayClose,
+  splitChannel,
+  withChannel,
+  type HostIdentity,
+} from "./relay"
 import { Wire } from "./wire"
 
 /** WebSocket connections to the relay, as a client (phone) or as the host (desktop). */

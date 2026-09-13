@@ -2,6 +2,8 @@ import { onCleanup, onMount, type Component } from "solid-js"
 import { Terminal as XTerm } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import "@xterm/xterm/css/xterm.css"
+import type { EngineSocket } from "@flupcode/remote"
+import { engineFetch, engineSocket } from "../transport"
 
 type TerminalPanelProps = {
   serverUrl: string
@@ -12,7 +14,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
   let container: HTMLDivElement | undefined
   let term: XTerm | undefined
   let fit: FitAddon | undefined
-  let socket: WebSocket | undefined
+  let socket: EngineSocket | undefined
   let ptyID: string | undefined
   let disposed = false
 
@@ -24,7 +26,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     const cols = term?.cols
     const rows = term?.rows
     if (!cols || !rows) return
-    void fetch(`${base()}/pty/${ptyID}${query()}`, {
+    void engineFetch(`${base()}/pty/${ptyID}${query()}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ size: { rows, cols } }),
@@ -55,12 +57,12 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     observer.observe(container)
 
     term.onData((data) => {
-      if (socket?.readyState === WebSocket.OPEN) socket.send(data)
+      if (socket?.readyState === 1) socket.send(data)
     })
 
     void (async () => {
       try {
-        const created = (await fetch(`${base()}/pty${query()}`, {
+        const created = (await engineFetch(`${base()}/pty${query()}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ ...(props.directory ? { cwd: props.directory } : {}) }),
@@ -69,7 +71,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
         if (!created.id) throw new Error("PTY session could not be created")
         ptyID = created.id
         const socketUrl = `${base().replace(/^http/, "ws")}/pty/${ptyID}/connect${query()}`
-        socket = new WebSocket(socketUrl)
+        socket = engineSocket(socketUrl)
         socket.binaryType = "arraybuffer"
         socket.onopen = () => {
           sendSize()
@@ -97,7 +99,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
       observer.disconnect()
       socket?.close()
       if (ptyID)
-        void fetch(`${base()}/pty/${ptyID}${query()}`, { method: "DELETE" }).catch(() => undefined)
+        void engineFetch(`${base()}/pty/${ptyID}${query()}`, { method: "DELETE" }).catch(() => undefined)
       term?.dispose()
     })
   })

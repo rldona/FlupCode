@@ -67,7 +67,8 @@ export function startRelay(options: RelayOptions = {}) {
     fetch(request, server) {
       const url = new URL(request.url)
       if (url.pathname === "/health") return Response.json({ ok: true })
-      const ip = (options.ipHeader && request.headers.get(options.ipHeader)) || server.requestIP(request)?.address || "unknown"
+      const ip =
+        (options.ipHeader && request.headers.get(options.ipHeader)) || server.requestIP(request)?.address || "unknown"
       const role = url.pathname === "/host" ? "host" : url.pathname === "/client" ? "client" : undefined
       if (!role) return new Response("Not found", { status: 404 })
       const hostId = url.searchParams.get(role === "host" ? "id" : "host") ?? ""
@@ -88,7 +89,10 @@ export function startRelay(options: RelayOptions = {}) {
       open(socket) {
         const data = socket.data
         if (data.role === "host") {
-          data.timer = setTimeout(() => socket.close(RelayClose.unauthorized, "Authentication timeout"), options.authTimeout ?? 10_000)
+          data.timer = setTimeout(
+            () => socket.close(RelayClose.unauthorized, "Authentication timeout"),
+            options.authTimeout ?? 10_000,
+          )
           return void socket.send(encodeRelayMessage({ t: "challenge", nonce: data.nonce }))
         }
         const entry = hosts.get(data.hostId)
@@ -104,7 +108,8 @@ export function startRelay(options: RelayOptions = {}) {
         if (data.role === "client") {
           if (typeof message === "string") return
           const entry = hosts.get(data.hostId)
-          if (!entry || entry.clients.get(data.channel) !== socket) return socket.close(RelayClose.hostGone, "Host gone")
+          if (!entry || entry.clients.get(data.channel) !== socket)
+            return socket.close(RelayClose.hostGone, "Host gone")
           return deliver(entry.socket, withChannel(data.channel, message))
         }
         if (!data.authed) {
@@ -158,7 +163,10 @@ export function startRelay(options: RelayOptions = {}) {
   return {
     server,
     url: `ws://${server.hostname === "0.0.0.0" ? "127.0.0.1" : server.hostname}:${server.port}`,
-    stats: () => ({ hosts: hosts.size, clients: [...hosts.values()].reduce((sum, entry) => sum + entry.clients.size, 0) }),
+    stats: () => ({
+      hosts: hosts.size,
+      clients: [...hosts.values()].reduce((sum, entry) => sum + entry.clients.size, 0),
+    }),
     stop: () => server.stop(true),
   }
 }
