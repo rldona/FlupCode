@@ -1,0 +1,31 @@
+# Fly.io deployment for the FlupCode relay. Deploy from the repository root:
+#   fly deploy --config packages/relay/fly.toml --dockerfile packages/relay/Dockerfile
+app = "flupcode-relay"
+primary_region = "mad"
+
+[env]
+  PORT = "8787"
+  RELAY_IP_HEADER = "fly-client-ip"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # WebSockets are long-lived: keep the machine running.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 2000
+    hard_limit = 4000
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    method = "GET"
+    path = "/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"
