@@ -4,15 +4,19 @@ import {
   connectChannel,
   connectRelayClient,
   createHostIdentity,
+  createRemoteHost,
   createTunnelClient,
+  fromBase64Url,
   HandshakeError,
   loadHostIdentity,
+  parsePairingHash,
   random,
   RelayClose,
   RelayConnectError,
   serveTunnel,
   startRelayHost,
   type RelayHostStatus,
+  type RemoteHostStore,
 } from "@flupcode/remote"
 import { startRelay } from "../src/relay"
 
@@ -186,5 +190,62 @@ describe("relay", () => {
     await waitFor(() => statuses.at(-1) === "online" && second.stats().hosts === 1, 5000)
     host.stop()
     second.stop()
+  })
+})
+
+describe("remote host", () => {
+  test("pairs a device, lets it reconnect, and rejects it once revoked", async () => {
+    let store: RemoteHostStore = { enabled: true, devices: [] }
+    const host = createRemoteHost({
+      load: () => store,
+      save: (next) => (store = structuredClone(next)),
+      engine: `http://127.0.0.1:${engine.port}`,
+      engineCredentials: "abc",
+      defaultRelay: relay.url,
+      appUrl: "https://app.flupcode.test/",
+      hostName: "test-mac",
+      secureStorage: false,
+    })
+    await host.ready
+    await waitFor(() => host.state().connection === "online")
+
+    const link = parsePairingHash(new URL((await host.createPairing()).pairing!.url).hash)!
+    expect(link.name).toBe("test-mac")
+    const paired = createTunnelClient(
+      await connectChannel(await connectRelayClient({ relay: relay.url, hostId: link.host }), {
+        mode: "pair",
+        id: link.id,
+        psk: fromBase64Url(link.secret),
+      }),
+    )
+    const enrolled = await new Promise<{ deviceId: string; deviceKey: string }>((resolve) =>
+      paired.onControl((message) =>
+        resolve({ deviceId: String(message.deviceId), deviceKey: String(message.deviceKey) }),
+      ),
+    )
+    expect(host.state().pairing).toBeUndefined()
+    expect(store.devices.map((device) => device.id)).toEqual([enrolled.deviceId])
+    paired.close()
+
+    const reconnect = async () =>
+      createTunnelClient(
+        await connectChannel(await connectRelayClient({ relay: relay.url, hostId: link.host }), {
+          mode: "device",
+          id: enrolled.deviceId,
+          psk: fromBase64Url(enrolled.deviceKey),
+        }),
+      )
+    const device = await reconnect()
+    const response = await device.fetch("https://remote.invalid/global/health")
+    expect(await response.json()).toEqual({ healthy: true, auth: "Basic abc" })
+    await waitFor(() => host.state().devices[0]?.connected === true)
+
+    const closed = new Promise<void>((resolve) => device.onClose(resolve))
+    host.revokeDevice(enrolled.deviceId)
+    await closed
+    expect(await reconnect().catch((error: unknown) => error)).toBeInstanceOf(HandshakeError)
+
+    host.stop()
+    await waitFor(() => relay.stats().hosts === 0)
   })
 })

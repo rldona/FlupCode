@@ -154,12 +154,30 @@ relay cannot read your sessions (ADR-0010).
    turn **Allow remote control** on. Wait for **Online**.
 2. Click **Pair a device** and scan the QR code with the phone's camera. The code works once and
    expires after 10 minutes.
-3. The phone opens FlupCode (`https://app.flupcode.com`), pairs and connects. A **Remote: <computer>**
-   badge in the top bar shows the connection; tap it to disconnect or switch computers. Add the
-   page to the home screen to use it as an app.
+3. The phone opens FlupCode (`https://app.flupcode.com`), pairs and shows your sessions: tap one to
+   follow it, answer permission requests or send prompts, or start a **New session** in a project.
+   Add the page to the home screen to use it as an app.
 
 Paired phones reconnect on their own. Remove a phone from **Paired devices** on the computer to
 revoke it immediately. The computer must stay awake with FlupCode open.
+
+### From a terminal: `flupcode remote`
+
+Without the desktop app, host remote control from a terminal (like `claude remote-control`).
+Download the `flupcode` binary for your platform from the
+[latest release](https://github.com/rldona/FlupCode/releases/latest) and run it:
+
+```bash
+chmod +x flupcode-darwin-arm64 && xattr -d com.apple.quarantine flupcode-darwin-arm64
+./flupcode-darwin-arm64 remote
+```
+
+It exposes the OpenCode server at `http://127.0.0.1:4096` (starting `opencode serve` if needed),
+prints a QR code to scan, and keeps running until you type `q`. While it runs, type `p` for a new
+pairing code, `d` to list devices and `r <n>` to remove one. `flupcode remote devices` and
+`flupcode remote revoke <n>` work when it is stopped. The identity and paired devices live in
+`~/.config/flupcode/remote.json` (readable only by you, not encrypted with the keychain). From the
+repository, run `bun packages/flupcode-cli/src/index.ts remote`.
 
 ### Self-hosting the relay
 

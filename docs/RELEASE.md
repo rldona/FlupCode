@@ -15,11 +15,12 @@ How FlupCode is versioned and released.
 | Artifact | Source | Status |
 | --- | --- | --- |
 | Web bundle (`flupcode-web.zip`) | `packages/harness/dist` | published by CI |
-| Desktop installers | `packages/harness-desktop` | blocked on signing (F5-4) |
+| Desktop installers (unsigned) | `packages/harness-desktop` | published by CI; signing blocked (F5-4) |
+| `flupcode` CLI binaries | `packages/flupcode-cli` | published by CI |
 
 ## Cutting a release
 
-1. Update the versions:
+1. Update the versions (`harness`, `harness-desktop`, `remote`, `relay`, `flupcode-cli`):
 
    ```bash
    # set both package.json versions and commit
