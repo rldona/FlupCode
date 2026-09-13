@@ -37,6 +37,9 @@ declare global {
   }
 }
 
+/** Touch-first devices (phones, tablets) get the mobile remote layout. */
+export const touchDevice = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true
+
 /** The desktop app hosts remote control; everywhere else the harness can act as a client. */
 export function desktopRemote() {
   return typeof window !== "undefined" ? window.flupcode?.remote : undefined

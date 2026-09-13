@@ -1,5 +1,6 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { touchDevice } from "../remote"
 import logo from "../assets/flupcode-logo.png"
 
 type OnboardingProps = {
@@ -19,8 +20,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
   const origin = () => (typeof window === "undefined" ? "http://localhost:4444" : window.location.origin)
   const command = () => `opencode serve --port 4096 --cors ${origin()}`
   // On touch devices the engine rarely runs locally, so controlling a computer comes first.
-  const touch = typeof window !== "undefined" && window.matchMedia?.("(pointer: coarse)").matches === true
-  const remoteFirst = () => props.remoteClient && touch
+  const remoteFirst = () => props.remoteClient && touchDevice
 
   const nameField = () => (
     <label class="fc-settings-row">

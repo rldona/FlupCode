@@ -32,11 +32,10 @@ Deployed on Fly.io (Paris) at `wss://relay.flupcode.com`.
 - Frame size, client count and per-IP limits; pings; host replacement; `4404` when offline.
 - Dockerfile and a deploy guide; tests with real sockets.
 
-## F8-5 — Desktop host · P0 · doing
+## F8-5 — Desktop host · P0 · done
 
-Implemented and exercised headlessly (the same host code runs in `script/dev-host.ts` and the
-Playwright test). Remaining: manual validation in the packaged Electron app (keychain storage, IPC,
-QR pairing with a real phone).
+Validated in the packaged app (keychain storage, relay, pairing, tunnel) and with a real Android
+phone; shipped in `flupcode-v1.0.9`.
 
 **Acceptance**
 - Persistent identity key and paired devices (encrypted with `safeStorage` when available).
@@ -66,6 +65,29 @@ QR pairing with a real phone).
 - USAGE and ARCHITECTURE updated; relay deployment documented.
 - Automated test: relay + host + tunnel client against a fake engine (`packages/relay/test`,
   `packages/harness/e2e/remote.spec.ts`).
+
+## F8-10 — Phone layout for remote sessions · P1 · done
+
+Like the Claude Code mobile view: a phone controlling a computer gets a home with devices and
+sessions (state, project · branch, last activity) and a focused session screen, instead of a mirror
+of the desktop UI.
+
+**Acceptance**
+- Home: paired computers with connection state, "Add device", sessions with busy / needs input /
+  idle state and an All / Active filter, and a "New session" action that picks a project.
+- Session screen: back, title and project header; transcript, permission and question docks and a
+  prompt-focused composer. The browser back button returns home.
+- Desktop browsers controlling a computer keep the full layout.
+- A failed request never freezes the UI (resources keep their last value).
+
+## F8-11 — `flupcode remote` terminal host · P1 · todo
+
+Like `claude remote-control`: host remote control from a terminal, without the desktop app.
+
+**Acceptance**
+- Starts the host next to a running engine, prints the pairing QR in the terminal, remembers the
+  identity and paired devices, and lists and revokes devices.
+- Documented in USAGE.
 
 ## F8-9 — Web Push while locked · P2 · todo
 
