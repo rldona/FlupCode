@@ -40,6 +40,8 @@ const ES: Record<string, string> = {
   "Suggest replies": "Sugerir respuestas",
   "History {n}/{total}": "Historial {n}/{total}",
   Chat: "Chat",
+  "Split view": "Vista dividida",
+  "Close pane": "Cerrar panel",
   Stopped: "Detenido",
   View: "Vista",
   Chats: "Chats",

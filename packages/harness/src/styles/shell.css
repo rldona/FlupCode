@@ -5807,3 +5807,95 @@ button.fc-row-main {
   margin-left: 0;
   flex-shrink: 0;
 }
+
+/* Split view: sessions side by side, each with its own header, transcript and input. */
+.fc-split {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-x: auto;
+}
+
+.fc-pane {
+  flex: 1 1 0;
+  min-width: 360px;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-pane + .fc-pane {
+  border-left: 1px solid var(--fc-border);
+}
+
+.fc-pane-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  height: 40px;
+  padding: 0 8px 0 14px;
+  border-bottom: 1px solid var(--fc-border);
+  color: var(--fc-text-muted);
+  transition: color var(--fc-motion-fast);
+}
+
+.fc-pane-focused .fc-pane-header {
+  color: var(--fc-text);
+}
+
+.fc-pane-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fc-pane-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  color: var(--fc-text-muted);
+  font-size: 11px;
+}
+
+.fc-pane-close {
+  flex-shrink: 0;
+  margin-left: auto;
+  color: var(--fc-text-muted);
+}
+
+.fc-pane:not(.fc-pane-focused) .fc-transcript-body {
+  opacity: 0.86;
+  transition: opacity var(--fc-motion-fast);
+}
+
+/* Sessions open in another pane. */
+.fc-session-row-split {
+  background: color-mix(in srgb, var(--fc-accent-soft) 45%, transparent);
+  border-radius: var(--fc-radius-sm);
+}
+
+/* Narrow panes: a long model name shortens instead of running into the effort menu. */
+.fc-pane .fc-composer-right {
+  min-width: 0;
+}
+
+.fc-pane .fc-composer-right .fc-dock-menu:first-child {
+  min-width: 0;
+  flex-shrink: 1;
+}
+
+.fc-pane .fc-dock-text {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.fc-pane .fc-dock-text-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

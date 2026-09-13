@@ -199,3 +199,48 @@ test("the Chat tab shows its own home, input and top bar, and is remembered", as
   await expect(page.getByRole("button", { name: "Files changed" })).toBeVisible()
   await expect(page.locator(".fc-chat-greeting")).toHaveCount(0)
 })
+
+test("split view opens a second session from the sidebar menu and closes back to one", async ({ page }) => {
+  const now = Date.now()
+  const session = (id: string, title: string) => ({
+    id,
+    projectID: "p",
+    title,
+    cost: 0,
+    tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: now, updated: now },
+    location: { directory: "/work/demo" },
+  })
+  const sessions = [session("ses_a", "First session"), session("ses_b", "Second session")]
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.expandedProjects", JSON.stringify({ "/work/demo": true }))
+  })
+  // A minimal engine: healthy, two sessions, empty transcripts and requests.
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(message|permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await page.locator(".fc-session-row", { hasText: "First session" }).click()
+  await page.locator(".fc-session-row", { hasText: "Second session" }).click({ button: "right" })
+  await page.locator(".fc-menu").getByText("Split view", { exact: true }).click()
+
+  const panes = page.locator(".fc-pane")
+  await expect(panes).toHaveCount(2)
+  await expect(page.locator(".fc-pane-title")).toHaveText(["First session", "Second session"])
+  // Each pane has its own input, and the new one is focused.
+  await expect(panes.locator("textarea.fc-input")).toHaveCount(2)
+  await expect(panes.nth(1)).toHaveClass(/fc-pane-focused/)
+  await panes.nth(0).locator(".fc-pane-header").click()
+  await expect(panes.nth(0)).toHaveClass(/fc-pane-focused/)
+
+  await panes.nth(1).getByRole("button", { name: "Close pane" }).click()
+  await expect(panes).toHaveCount(0)
+  await expect(page.locator(".fc-session-row-active")).toContainText("First session")
+})

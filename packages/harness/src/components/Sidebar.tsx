@@ -35,6 +35,10 @@ type SidebarProps = {
   onToggleProject: (id: string) => void
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
+  /** Opens the session next to the open one (split view). */
+  onSplitSession: (id: string) => void
+  /** Sessions shown side by side right now, empty when not split. */
+  splitSessions: string[]
   onDeleteSession: (id: string) => void
   onRenameSession: (id: string) => void
   onDeleteProject: (directory: string) => void
@@ -116,6 +120,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       y: event.clientY,
       items: [
         { label: t("Open"), icon: "↗", onSelect: () => props.onSelectSession(session.id) },
+        ...(session.id === props.selectedSession || props.splitSessions.includes(session.id)
+          ? []
+          : [{ label: t("Split view"), icon: "◫", onSelect: () => props.onSplitSession(session.id) }]),
         {
           label: pinned ? t("Unpin") : t("Pin"),
           icon: pinned ? "★" : "☆",
@@ -158,7 +165,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   const SessionRow: Component<{ session: SessionInfo }> = (row) => (
     <div
       class="fc-session-row"
-      classList={{ "fc-session-row-active": props.selectedSession === row.session.id }}
+      classList={{
+        "fc-session-row-active": props.selectedSession === row.session.id,
+        "fc-session-row-split": props.selectedSession !== row.session.id && props.splitSessions.includes(row.session.id),
+      }}
       onContextMenu={(event) => openSessionMenu(event, row.session)}
     >
       <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
