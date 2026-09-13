@@ -16,6 +16,8 @@ type SettingsPanelProps = {
   modelKey: string | undefined
   showTools: boolean
   replySuggestions: boolean
+  /** "provider/model" for suggestions, or "" for the automatic small model. */
+  suggestionModel: string
   notifications: boolean
   paletteKey: string
   onTheme: (value: string) => void
@@ -26,6 +28,7 @@ type SettingsPanelProps = {
   onModelChange: (key: string) => void
   onToggleTools: () => void
   onToggleReplySuggestions: () => void
+  onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
   onPaletteKey: (value: string) => void
   onOpenMcp: () => void
@@ -174,7 +177,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             <div class="fc-settings-row">
               <span class="fc-settings-usage">
                 <span>{t("Suggest replies")}</span>
-                <span class="fc-settings-hint">{t("After each answer a small model suggests your next message; Tab accepts it.")}</span>
+                <span class="fc-settings-hint">{t("After each answer a model suggests your next message; Tab accepts it.")}</span>
               </span>
               <button
                 class="fc-chip fc-chip-button"
@@ -185,6 +188,27 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 {props.replySuggestions ? t("Yes") : t("No")}
               </button>
             </div>
+            <Show when={props.replySuggestions}>
+              <label class="fc-settings-row">
+                <span>{t("Suggestion model")}</span>
+                <select
+                  class="fc-toolbar-select"
+                  value={props.suggestionModel}
+                  onChange={(event) => props.onSuggestionModel(event.currentTarget.value)}
+                >
+                  <option value="">{t("Automatic (small model)")}</option>
+                  <For each={groupModels(props.models)}>
+                    {(group) => (
+                      <optgroup label={group.providerID}>
+                        <For each={group.items}>
+                          {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                        </For>
+                      </optgroup>
+                    )}
+                  </For>
+                </select>
+              </label>
+            </Show>
           </section>
 
           <section class="fc-settings-section">
