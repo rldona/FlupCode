@@ -13,6 +13,10 @@ type ContextMenuProps = {
   /** Viewport pixels, as from pointer events or getBoundingClientRect(). */
   x: number
   y: number
+  /** "above" opens the menu upwards with its bottom edge at `y`. */
+  placement?: "below" | "above"
+  /** Viewport pixels; defaults to the menu's own width. */
+  width?: number
   items: MenuItem[]
   onClose: () => void
 }
@@ -40,7 +44,13 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
   return (
     <div
       class="fc-menu"
-      style={{ left: `${cssPx(props.x)}px`, top: `${cssPx(props.y)}px` }}
+      style={{
+        left: `${cssPx(props.x)}px`,
+        ...(props.placement === "above"
+          ? { bottom: `${cssPx(window.innerHeight - props.y)}px` }
+          : { top: `${cssPx(props.y)}px` }),
+        ...(props.width ? { width: `${cssPx(props.width)}px` } : {}),
+      }}
       onMouseDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
     >
