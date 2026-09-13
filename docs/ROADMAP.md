@@ -27,16 +27,16 @@ _Last updated: 2026-09-13._
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 61 | all F0–F7 tickets except F3-14, F3-16 and F5-4; F8-1 … F8-8, F8-10 |
+| done | 62 | all F0–F7 tickets except F3-14, F3-16 and F5-4; F8-1 … F8-8, F8-10, F8-11 |
 | doing | 0 | — |
 | blocked | 3 | F3-14, F3-16, F5-4 |
-| todo | 2 | F8-9, F8-11 |
+| todo | 1 | F8-9 |
 | **total** | **66** | |
 
 ### What remains
 
 F8 (remote control, ADR-0010) shipped in `flupcode-v1.0.9`, with the relay at
-`wss://relay.flupcode.com`. Next: the `flupcode remote` terminal host (F8-11) and Web Push (F8-9).
+`wss://relay.flupcode.com`. Next: Web Push while the phone is locked (F8-9).
 
 The other open items are blocked on external constraints:
 
@@ -157,7 +157,7 @@ The other open items are blocked on external constraints:
 | F8-8 | P1 | Docs and end-to-end test | done |
 | F8-9 | P2 | Web Push while locked | todo |
 | F8-10 | P1 | Phone layout for remote sessions | done |
-| F8-11 | P1 | `flupcode remote` terminal host | todo |
+| F8-11 | P1 | `flupcode remote` terminal host | done |
 
 ---
 

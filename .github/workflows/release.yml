@@ -43,6 +43,41 @@ jobs:
           name: web
           path: flupcode-web.zip
 
+  cli:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Test
+        run: |
+          bun run --cwd packages/flupcode-cli typecheck
+          bun run --cwd packages/flupcode-cli test
+
+      - name: Compile flupcode binaries
+        run: |
+          mkdir -p cli
+          for target in darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64; do
+            extension=""
+            if [ "$target" = "windows-x64" ]; then extension=".exe"; fi
+            bun build packages/flupcode-cli/src/index.ts --compile --target="bun-$target" \
+              --outfile "cli/flupcode-$target$extension"
+          done
+
+      - name: Upload CLI binaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli
+          path: cli/*
+
   desktop:
     strategy:
       fail-fast: false
@@ -83,7 +118,7 @@ jobs:
             packages/harness-desktop/release/latest*.yml
 
   publish:
-    needs: [web, desktop]
+    needs: [web, desktop, cli]
     if: always() && needs.web.result == 'success'
     runs-on: ubuntu-latest
     steps:
