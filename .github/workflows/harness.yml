@@ -5,6 +5,9 @@ on:
     branches: [power]
     paths:
       - "packages/harness/**"
+      - "packages/harness-desktop/**"
+      - "packages/remote/**"
+      - "packages/relay/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/harness.yml"
@@ -12,6 +15,9 @@ on:
     branches: [power]
     paths:
       - "packages/harness/**"
+      - "packages/harness-desktop/**"
+      - "packages/remote/**"
+      - "packages/relay/**"
       - "package.json"
       - "bun.lock"
       - ".github/workflows/harness.yml"
@@ -40,7 +46,16 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Typecheck
-        run: bun run --cwd packages/harness typecheck
+        run: |
+          bun run --cwd packages/harness typecheck
+          bun run --cwd packages/harness-desktop typecheck
+          bun run --cwd packages/remote typecheck
+          bun run --cwd packages/relay typecheck
+
+      - name: Test remote control
+        run: |
+          bun run --cwd packages/remote test
+          bun run --cwd packages/relay test
 
       - name: Build
         run: bun run --cwd packages/harness build
