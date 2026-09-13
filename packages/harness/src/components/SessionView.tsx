@@ -118,12 +118,7 @@ const DiffView: Component<{ oldText: string; newText: string; lang: string }> = 
     </div>
   )
   return (
-    <Show
-      when={!huge()}
-      fallback={
-        <pre class="fc-diff-view" innerHTML={highlightDiff(unified())} />
-      }
-    >
+    <Show when={!huge()} fallback={<pre class="fc-diff-view" innerHTML={highlightDiff(unified())} />}>
       <div class="fc-diff2">
         <For each={rows()}>
           {(row) => (
@@ -281,7 +276,14 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
           <span class="fc-toolgroup-failed">{t("error")}</span>
         </Show>
         <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-          <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          <path
+            d="m9 6 6 6-6 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
         </svg>
       </button>
       <Show when={open()}>
@@ -638,131 +640,140 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   })
 
   return (
-    <section
-      class="fc-transcript"
-      ref={container}
-      onScroll={() => {
-        if (!container) return
-        trackChapter()
-        const distance = container.scrollHeight - container.scrollTop - container.clientHeight
-        const movedUp = container.scrollTop < lastScrollTop
-        lastScrollTop = container.scrollTop
-        setAwayFromEnd(distance > 200)
-        // Only the reader scrolling up leaves the end; content changing height never does.
-        if (distance < 120) setStick(true)
-        else if (movedUp && performance.now() - readerInput < 1000) setStick(false)
-      }}
-      onWheel={markReaderInput}
-      onTouchMove={markReaderInput}
-      onPointerDown={markReaderInput}
-      onKeyDown={markReaderInput}
-    >
-      <Show when={chapters().length > 1}>
-        <div class="fc-chapters-anchor">
-          <ChapterNav chapters={chapters()} activeId={activeChapter()} onJump={jumpToChapter} />
-        </div>
-      </Show>
-      <Show
-        when={!props.loading || (props.messages?.length ?? 0) > 0}
-        fallback={
-          <div class="fc-loading-center">
-            <Loader />
-          </div>
-        }
+    // The navigator and the back-to-end button float over the chat from this frame, outside the
+    // scrolling area, so they stay still while it scrolls or bounces.
+    <div class="fc-transcript-frame">
+      <section
+        class="fc-transcript"
+        ref={container}
+        onScroll={() => {
+          if (!container) return
+          trackChapter()
+          const distance = container.scrollHeight - container.scrollTop - container.clientHeight
+          const movedUp = container.scrollTop < lastScrollTop
+          lastScrollTop = container.scrollTop
+          setAwayFromEnd(distance > 200)
+          // Only the reader scrolling up leaves the end; content changing height never does.
+          if (distance < 120) setStick(true)
+          else if (movedUp && performance.now() - readerInput < 1000) setStick(false)
+        }}
+        onWheel={markReaderInput}
+        onTouchMove={markReaderInput}
+        onPointerDown={markReaderInput}
+        onKeyDown={markReaderInput}
       >
-        <div class="fc-transcript-body" ref={observeBody}>
         <Show
-          when={props.messages && props.messages.length > 0}
+          when={!props.loading || (props.messages?.length ?? 0) > 0}
           fallback={
-            <div class="fc-empty-state">
-              <span class="fc-empty-title">{t("No messages yet")}</span>
-              <span class="fc-empty-hint">{t("Write below to start")}</span>
+            <div class="fc-loading-center">
+              <Loader />
             </div>
           }
         >
-          <Show when={offset() > 0}>
-            <button
-              class="fc-load-earlier"
-              type="button"
-              onClick={() => {
-                setStick(false)
-                setVisibleCount((value) => value + 80)
-              }}
+          <div class="fc-transcript-body" ref={observeBody}>
+            <Show
+              when={props.messages && props.messages.length > 0}
+              fallback={
+                <div class="fc-empty-state">
+                  <span class="fc-empty-title">{t("No messages yet")}</span>
+                  <span class="fc-empty-hint">{t("Write below to start")}</span>
+                </div>
+              }
             >
-              {t("Load earlier messages")}
-            </button>
-          </Show>
-          <For each={visibleMessages()}>
-            {(message, index) => (
-              <Show
-                when={message.type === "user"}
-                fallback={
-                  <Show when={message.type === "assistant"}>
-                    <AssistantMessage
-                      message={message as SessionMessageAssistant}
-                      showTools={props.showTools}
-                      showRole={fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"}
-                      toolRuns={toolRuns()}
-                    />
-                    <Show when={isTurnEnd(fullIndex(index()))}>
-                      <TurnFooter
-                        {...turnMeta(fullIndex(index()))}
-                        commit={turnCommit(props.messages ?? [], fullIndex(index()))}
-                        modelName={props.modelName}
-                      />
-                    </Show>
-                  </Show>
-                }
-              >
-                <div class="fc-message fc-message-user" data-chapter={message.id}>
-                <div class="fc-message-role">{t("You")}</div>
-                <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
-                  <button
-                    class="fc-message-edit"
-                    type="button"
-                    onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+              <Show when={offset() > 0}>
+                <button
+                  class="fc-load-earlier"
+                  type="button"
+                  onClick={() => {
+                    setStick(false)
+                    setVisibleCount((value) => value + 80)
+                  }}
+                >
+                  {t("Load earlier messages")}
+                </button>
+              </Show>
+              <For each={visibleMessages()}>
+                {(message, index) => (
+                  <Show
+                    when={message.type === "user"}
+                    fallback={
+                      <Show when={message.type === "assistant"}>
+                        <AssistantMessage
+                          message={message as SessionMessageAssistant}
+                          showTools={props.showTools}
+                          showRole={
+                            fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"
+                          }
+                          toolRuns={toolRuns()}
+                        />
+                        <Show when={isTurnEnd(fullIndex(index()))}>
+                          <TurnFooter
+                            {...turnMeta(fullIndex(index()))}
+                            commit={turnCommit(props.messages ?? [], fullIndex(index()))}
+                            modelName={props.modelName}
+                          />
+                        </Show>
+                      </Show>
+                    }
                   >
-                    {t("Edit")}
-                  </button>
+                    <div class="fc-message fc-message-user" data-chapter={message.id}>
+                      <div class="fc-message-role">{t("You")}</div>
+                      <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
+                      <button
+                        class="fc-message-edit"
+                        type="button"
+                        onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+                      >
+                        {t("Edit")}
+                      </button>
+                    </div>
+                  </Show>
+                )}
+              </For>
+              <Show when={props.busy && props.liveText}>
+                <div class="fc-message fc-message-assistant fc-message-live">
+                  <Markdown class="fc-message-text" text={props.liveText ?? ""} />
                 </div>
               </Show>
-            )}
-          </For>
-          <Show when={props.busy && props.liveText}>
-            <div class="fc-message fc-message-assistant fc-message-live">
-              <Markdown class="fc-message-text" text={props.liveText ?? ""} />
-            </div>
-          </Show>
-          <Show when={props.busy}>
-            <div class="fc-message fc-message-assistant fc-message-pending">
-              <Loader
-                tokens={props.usage?.tokens}
-                cost={props.usage?.cost}
-                startedAt={props.startedAt}
-                tasks={activity().tasks}
-                label={activity().label}
-              />
-            </div>
-          </Show>
+              <Show when={props.busy}>
+                <div class="fc-message fc-message-assistant fc-message-pending">
+                  <Loader
+                    tokens={props.usage?.tokens}
+                    cost={props.usage?.cost}
+                    startedAt={props.startedAt}
+                    tasks={activity().tasks}
+                    label={activity().label}
+                  />
+                </div>
+              </Show>
+            </Show>
+          </div>
         </Show>
-        </div>
+      </section>
+      <Show when={chapters().length > 1}>
+        <ChapterNav chapters={chapters()} activeId={activeChapter()} onJump={jumpToChapter} />
       </Show>
-      <div class="fc-scroll-end-anchor">
-        <button
-          class="fc-scroll-end"
-          classList={{ "fc-scroll-end-visible": awayFromEnd() }}
-          type="button"
-          tabIndex={awayFromEnd() ? 0 : -1}
-          aria-hidden={!awayFromEnd()}
-          title={t("Scroll to the end")}
-          aria-label={t("Scroll to the end")}
-          onClick={scrollToEnd}
-        >
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-            <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
-          </svg>
-        </button>
-      </div>
-    </section>
+      <button
+        class="fc-scroll-end"
+        classList={{ "fc-scroll-end-visible": awayFromEnd() }}
+        type="button"
+        tabIndex={awayFromEnd() ? 0 : -1}
+        aria-hidden={!awayFromEnd()}
+        title={t("Scroll to the end")}
+        aria-label={t("Scroll to the end")}
+        onClick={scrollToEnd}
+      >
+        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+          <path
+            d="m6 9 6 6 6-6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+    </div>
   )
 }
