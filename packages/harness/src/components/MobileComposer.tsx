@@ -37,6 +37,20 @@ type Sheet = "context" | "mode" | "agent" | "model" | "effort"
 
 const key = (model: ModelInfo) => `${model.providerID}/${model.id}`
 
+const EFFORT_LABELS: Record<string, string> = {
+  none: "None",
+  minimal: "Minimal",
+  low: "Low",
+  medium: "Medium",
+  high: "High",
+  xhigh: "Extra",
+  max: "Max",
+}
+
+/** A readable name for an effort variant id (`xhigh` → "Extra"). */
+export const effortLabel = (id: string) =>
+  EFFORT_LABELS[id] ? t(EFFORT_LABELS[id]!) : id.charAt(0).toUpperCase() + id.slice(1)
+
 const Icon: Component<{ path: string; size?: number }> = (props) => (
   <svg viewBox="0 0 24 24" width={props.size ?? 22} height={props.size ?? 22} aria-hidden="true">
     <path
@@ -108,8 +122,10 @@ const Option: Component<{ label: string; detail?: string; active?: boolean; badg
   </button>
 )
 
-const Row: Component<{ icon: string; label: string; value: string; onClick: () => void }> = (props) => (
-  <button class="fc-sheet-row" type="button" onClick={props.onClick}>
+const Row: Component<{ icon: string; label: string; value: string; disabled?: boolean; onClick: () => void }> = (
+  props,
+) => (
+  <button class="fc-sheet-row" type="button" disabled={props.disabled} onClick={props.onClick}>
     <span class="fc-sheet-row-icon">
       <Icon path={props.icon} />
     </span>
@@ -172,7 +188,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
       .filter((model) => !needle || `${model.name} ${model.id} ${model.providerID}`.toLowerCase().includes(needle))
       .slice(0, 60)
   })
-  const effortLabel = () => props.variantKey || t("Default")
+  const currentEffort = () => (props.variantKey ? effortLabel(props.variantKey) : t("Default"))
   const canSend = () => !props.sending && (props.value.trim().length > 0 || props.attachments.length > 0)
 
   const modelOption = (model: ModelInfo) => (
@@ -232,6 +248,9 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
           </button>
           <button class="fc-mobile-pill" type="button" aria-label={t("Model")} onClick={() => setSheet("model")}>
             <span class="fc-mobile-pill-label">{props.modelLabel}</span>
+            <Show when={props.variantKey}>
+              {(variant) => <span class="fc-mobile-pill-effort">{effortLabel(variant())}</span>}
+            </Show>
           </button>
           <span class="fc-mobile-spacer" />
           <Show when={speechRecognition()}>
@@ -331,14 +350,13 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
           <div class="fc-sheet-group">
             <For each={featured()}>{modelOption}</For>
           </div>
-          <Show when={props.variants.length > 0}>
-            <Row
-              icon="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4"
-              label={t("Effort")}
-              value={effortLabel()}
-              onClick={() => setSheet("effort")}
-            />
-          </Show>
+          <Row
+            icon="M12 7v5l3 2M4 12a8 8 0 1 0 2.3-5.7M4 4v4h4"
+            label={t("Effort")}
+            value={props.variants.length > 0 ? currentEffort() : t("Not available for this model")}
+            disabled={props.variants.length === 0}
+            onClick={() => setSheet("effort")}
+          />
           <span class="fc-sheet-section">{t("Other models")}</span>
           <input
             class="fc-sheet-search"
@@ -366,7 +384,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
             <For each={props.variants}>
               {(variant) => (
                 <Option
-                  label={variant.id}
+                  label={effortLabel(variant.id)}
                   active={props.variantKey === variant.id}
                   onClick={() => {
                     props.onVariantChange(variant.id)
