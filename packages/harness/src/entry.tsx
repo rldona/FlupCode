@@ -3,9 +3,12 @@
 import { ErrorBoundary, render } from "solid-js/web"
 import { App } from "./app"
 import "./index.css"
+import { trackScrolling } from "./scrollbars"
 
 const root = document.getElementById("root")
 if (!(root instanceof HTMLElement)) throw new Error("FlupCode root element not found")
+
+trackScrolling()
 
 // An error that takes the whole app down is handed to the startup guard (public/boot.js), which
 // shows it with reload and reset instead of leaving a blank page.
