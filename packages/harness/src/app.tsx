@@ -65,7 +65,10 @@ export const App: Component = () => {
     return host ? remoteBaseUrl(host.hostId) : localServerUrl()
   }
   const [selected, setSelected] = createSignal<string | undefined>(
-    readStorage<string>(STORAGE_KEYS.selectedSession, "") || undefined,
+    // Phones controlling a computer always start on the sessions home, not the last open session.
+    touchDevice && !desktopRemote() && remote.activeHost()
+      ? undefined
+      : readStorage<string>(STORAGE_KEYS.selectedSession, "") || undefined,
   )
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
