@@ -20,6 +20,8 @@ type SidebarProps = {
   sessions: SessionInfo[] | undefined
   sessionsLoading: boolean
   selectedSession?: string
+  /** Sessions the engine is working on right now. */
+  runningSessions: string[]
   pinnedSessions: string[]
   expandedProjects: Record<string, boolean>
   noFolderSessions: string[]
@@ -47,7 +49,13 @@ type SidebarProps = {
 
 export const Sidebar: Component<SidebarProps> = (props) => {
   const [filter, setFilter] = createSignal("")
-  const [menu, setMenu] = createSignal<{ x: number; y: number; placement?: "below" | "above"; width?: number; items: MenuItem[] }>()
+  const [menu, setMenu] = createSignal<{
+    x: number
+    y: number
+    placement?: "below" | "above"
+    width?: number
+    items: MenuItem[]
+  }>()
 
   const sortedSessions = createMemo(() => {
     const query = filter().trim().toLowerCase()
@@ -145,6 +153,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       onContextMenu={(event) => openSessionMenu(event, row.session)}
     >
       <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
+        <span
+          class="fc-session-dot"
+          classList={{ "fc-session-dot-running": props.runningSessions.includes(row.session.id) }}
+          aria-hidden="true"
+        />
         <span class="fc-session-title">{row.session.title || row.session.id.slice(0, 8)}</span>
       </button>
       <button
@@ -259,18 +272,25 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   <div class="fc-project-group">
                     <div class="fc-project-row" onContextMenu={(event) => openProjectMenu(event, group)}>
                       <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
-                        <span class="fc-chevron">{isExpanded(group) ? "⌄" : "›"}</span>
                         <span class="fc-project-name">{group.name}</span>
                         <span class="fc-project-count">{group.sessions.length}</span>
                       </button>
                       <button
-                        class="fc-icon-button"
+                        class="fc-icon-button fc-project-new"
                         type="button"
                         title={t("New session")}
                         aria-label={t("New session")}
                         onClick={() => props.onNewSession(group.directory)}
                       >
-                        +
+                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                          <path
+                            d="M12 5v14M5 12h14"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="2.4"
+                            stroke-linecap="round"
+                          />
+                        </svg>
                       </button>
                     </div>
                     <Show when={isExpanded(group)}>

@@ -1707,6 +1707,7 @@ export const App: Component = () => {
           sessions={sessionList()}
           sessionsLoading={sessions.loading}
           selectedSession={selected()}
+          runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
           pinnedSessions={pinned()}
           expandedProjects={expanded()}
           noFolderSessions={noFolderSessions()}
