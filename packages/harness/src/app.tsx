@@ -66,6 +66,7 @@ export const App: Component = () => {
   const [liveReasoning, setLiveReasoning] = createSignal("")
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
+  const [narrow, setNarrow] = createSignal(typeof window !== "undefined" && window.innerWidth < 768)
   const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
@@ -460,6 +461,18 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.noFolderSessions, noFolderSessions())
   })
 
+  createEffect(() => {
+    const query = window.matchMedia("(max-width: 768px)")
+    const update = () => setNarrow(query.matches)
+    update()
+    query.addEventListener("change", update)
+    onCleanup(() => query.removeEventListener("change", update))
+  })
+
+  createEffect(() => {
+    if (narrow()) setCollapsed(true)
+  })
+
   const modelLabel = () => currentModel()?.name ?? t("Default model")
   const modelName = (ref: { providerID: string; id: string }) =>
     modelList().find((entry) => entry.providerID === ref.providerID && entry.id === ref.id)?.name ?? ref.id
@@ -576,6 +589,7 @@ export const App: Component = () => {
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
   const selectSession = (id: string) => {
+    if (narrow()) setCollapsed(true)
     setSelected(id)
     if (history()[historyIndex()] === id) return
     const next = history().slice(0, historyIndex() + 1)
@@ -1289,6 +1303,9 @@ export const App: Component = () => {
         "--fc-content-right": `${(panels().length > 0 ? workspaceWidth() : 0) + (selectedSession() ? 300 : 0)}px`,
       }}
     >
+      <Show when={narrow() && !collapsed()}>
+        <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
+      </Show>
       <Sidebar
         collapsed={collapsed()}
         width={sidebarWidth()}

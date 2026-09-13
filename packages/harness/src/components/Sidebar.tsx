@@ -170,7 +170,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
 
   return (
     <Show when={!props.collapsed}>
-      <aside class="fc-sidebar" style={{ width: `${props.width}px` }}>
+      <aside
+        class="fc-sidebar"
+        classList={{ "fc-sidebar-collapsed": props.collapsed }}
+        style={{ "--fc-sidebar-width": `${props.width}px` }}
+      >
         <div
           class="fc-sidebar-resizer"
           onPointerDown={(event) => {
