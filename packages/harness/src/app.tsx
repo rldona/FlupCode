@@ -117,7 +117,10 @@ export const App: Component = () => {
   const ready = () => health()?.healthy === true
 
   createEffect(() => {
-    const timer = setInterval(() => void refetchHealth(), 10000)
+    const timer = setInterval(() => {
+      void refetchHealth()
+      if (ready() && (models()?.data?.length ?? 0) === 0) void refetchModels()
+    }, 10000)
     onCleanup(() => clearInterval(timer))
   })
 
@@ -148,7 +151,15 @@ export const App: Component = () => {
   const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) =>
     createClient(url).model.directory(),
   )
-  const modelList = createMemo(() => models()?.data ?? [])
+  const [lastModels, setLastModels] = createSignal<ModelInfo[]>([])
+  createEffect(() => {
+    const data = models()?.data
+    if (data && data.length > 0) setLastModels(data)
+  })
+  const modelList = createMemo(() => {
+    const data = models()?.data
+    return data && data.length > 0 ? data : lastModels()
+  })
   const [agents] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).agent.list())
   const [skills] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).skill.list())
   const [mcp, { refetch: refetchMcp }] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).mcp.list())
