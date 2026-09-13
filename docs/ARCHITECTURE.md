@@ -98,3 +98,5 @@ FlupCode must respect upstream's layering:
 - ADR-0006 — Definition of parity
 - ADR-0007 — Remote/mobile
 - ADR-0008 — Language and code conventions
+- ADR-0009 — Engine API layer uses the SDK v2 client
+- ADR-0010 — Remote control through an end-to-end encrypted relay
