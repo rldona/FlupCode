@@ -1,6 +1,7 @@
 import { BrowserWindow, app, dialog, ipcMain } from "electron"
 import { join } from "node:path"
 import { setApplicationMenu } from "./menu"
+import { initRemoteHost } from "./remote"
 import { ensureServer, stopServer } from "./server"
 import { initAutoUpdate, checkForUpdates } from "./updater"
 import { loadBounds, saveBounds } from "./window-state"
@@ -40,9 +41,12 @@ function createWindow() {
   void window.loadFile(join(app.getAppPath(), "out", "renderer", "index.html"))
 }
 
+let remote: ReturnType<typeof initRemoteHost> | undefined
+
 app.whenReady().then(async () => {
   setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
   initAutoUpdate()
+  remote = initRemoteHost()
   await ensureServer()
   createWindow()
 
@@ -61,4 +65,7 @@ ipcMain.handle("flupcode:choose-folder", async () => {
   return result.filePaths[0]
 })
 
-app.on("before-quit", () => stopServer())
+app.on("before-quit", () => {
+  remote?.stop()
+  stopServer()
+})
