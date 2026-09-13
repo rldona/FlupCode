@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
@@ -384,28 +384,28 @@ export const SessionView: Component<SessionViewProps> = (props) => {
 
   const [visibleCount, setVisibleCount] = createSignal(80)
   let firstMessageID: string | undefined
-  createEffect(() => {
-    const first = props.messages?.[0]?.id
-    if (first !== firstMessageID) {
-      firstMessageID = first
-      setVisibleCount(80)
-    }
-  })
   const total = () => props.messages?.length ?? 0
   const offset = () => Math.max(0, total() - visibleCount())
   const visibleMessages = () => (props.messages ?? []).slice(offset())
   const fullIndex = (index: number) => offset() + index
 
-  createEffect(() => {
-    props.messages
-    props.busy
-    if (stick() && container) queueMicrotask(() => (container!.scrollTop = container!.scrollHeight))
-  })
+  const scrollToBottom = () => {
+    if (container) container.scrollTop = container.scrollHeight
+  }
 
   createEffect(() => {
-    props.messages
-    setStick(true)
-    if (container) queueMicrotask(() => (container!.scrollTop = container!.scrollHeight))
+    const first = props.messages?.[0]?.id
+    props.busy
+    const switched = first !== firstMessageID
+    if (switched) {
+      firstMessageID = first
+      setVisibleCount(80)
+      setStick(true)
+    }
+    if (!stick()) return
+    requestAnimationFrame(scrollToBottom)
+    const timers = [setTimeout(scrollToBottom, 80), setTimeout(scrollToBottom, 320)]
+    onCleanup(() => timers.forEach((timer) => clearTimeout(timer)))
   })
 
   return (
