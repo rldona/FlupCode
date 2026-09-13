@@ -5,6 +5,7 @@ import { t } from "../i18n"
 type ModelPickerProps = {
   open: boolean
   models: ModelInfo[]
+  loading?: boolean
   selectedKey: string | undefined
   favorites: string[]
   onSelect: (providerID: string, id: string) => void
@@ -52,7 +53,9 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
           <div class="fc-model-picker">
-            <For each={groups()}>
+            <Show when={!props.loading || groups().length > 0} fallback={<div class="fc-palette-empty">{t("Loading models…")}</div>}>
+              <Show when={groups().length > 0} fallback={<div class="fc-palette-empty">{t("No models")}</div>}>
+                <For each={groups()}>
               {(group) => (
                 <div class="fc-model-group">
                   <div class="fc-model-group-label">{group.providerID}</div>
@@ -83,6 +86,8 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
                 </div>
               )}
             </For>
+              </Show>
+            </Show>
           </div>
         </div>
       </div>

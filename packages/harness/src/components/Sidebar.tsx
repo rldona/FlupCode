@@ -3,6 +3,7 @@ import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
+import logo from "../assets/flupcode-logo.png"
 
 type ProjectGroup = {
   id: string
@@ -301,7 +302,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             }}
           >
             <span class="fc-avatar">
-              <img src="/flupcode-logo.png" alt="" />
+              <img src={logo} alt="" />
             </span>
             <span class="fc-profile-name">{props.displayName.trim() || t("Local")}</span>
             <span class="fc-chevron">⌄</span>

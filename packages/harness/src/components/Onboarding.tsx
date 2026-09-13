@@ -1,5 +1,6 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import logo from "../assets/flupcode-logo.png"
 
 type OnboardingProps = {
   open: boolean
@@ -21,7 +22,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Welcome to FlupCode")}>
           <div class="fc-onboarding">
             <div class="fc-onboarding-brand">
-              <img src="/flupcode-logo.png" alt="" width="40" height="40" />
+              <img src={logo} alt="" width="40" height="40" />
               <span class="fc-onboarding-logo">FlupCode</span>
             </div>
             <h2 class="fc-onboarding-title">{t("Welcome to FlupCode")}</h2>
