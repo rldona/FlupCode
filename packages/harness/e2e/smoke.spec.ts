@@ -13,6 +13,18 @@ test("loads the harness shell", async ({ page }) => {
   await expect(page.getByText("FlupCode").first()).toBeVisible()
 })
 
+test("installs as a FlupCode-branded app", async ({ page, request }) => {
+  const manifest = await (await request.get("/site.webmanifest")).json()
+  expect(manifest.icons.map((icon: { purpose: string }) => icon.purpose)).toEqual(["any", "any", "maskable"])
+  for (const icon of manifest.icons as Array<{ src: string; sizes: string }>) {
+    const response = await request.get(icon.src)
+    expect(response.headers()["content-type"]).toBe("image/png")
+  }
+  await page.goto("/")
+  const touchIcon = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href")
+  expect((await request.get(touchIcon!)).ok()).toBe(true)
+})
+
 test("completes onboarding", async ({ page }) => {
   await page.addInitScript(() => {
     window.localStorage.removeItem("flupcode.onboarded")
@@ -22,7 +34,10 @@ test("completes onboarding", async ({ page }) => {
   await page.route(/\/(api|global)\/health/, (route) => route.fulfill({ json: { healthy: true, version: "e2e" } }))
   await page.goto("/")
   await expect(page.getByText(/Welcome to FlupCode/i)).toBeVisible()
-  await page.locator(".fc-onboarding").getByPlaceholder(/Your name/i).fill("Raúl")
+  await page
+    .locator(".fc-onboarding")
+    .getByPlaceholder(/Your name/i)
+    .fill("Raúl")
   await page.getByRole("button", { name: /Get started/i }).click()
   await expect(page.getByText(/Welcome to FlupCode/i)).toHaveCount(0)
 })

@@ -64,7 +64,7 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
 
   return (
     <div class="fc-remote-home">
-      <h1 class="fc-remote-home-title">FlupCode</h1>
+      <h1 class="fc-remote-home-title">{t("Code")}</h1>
 
       <section class="fc-remote-home-section">
         <h2 class="fc-remote-home-heading">{t("Devices")}</h2>
