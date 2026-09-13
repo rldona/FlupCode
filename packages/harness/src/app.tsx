@@ -219,6 +219,23 @@ export const App: Component = () => {
     if (chars <= 0) return undefined
     return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
   }
+  const contextUsage = () => {
+    const session = selectedSession()
+    const limit = currentModel()?.limit?.context ?? 0
+    const list = activeMessages() ?? []
+    const last = [...list].reverse().find((message) => message.type === "assistant") as
+      | SessionMessageAssistant
+      | undefined
+    const tokens = last?.tokens
+    const used = tokens ? tokens.input + (tokens.cache?.read ?? 0) : (session?.tokens?.input ?? 0)
+    return {
+      used,
+      limit,
+      cost: session?.cost,
+      tokens: tokens ? { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning } : undefined,
+    }
+  }
+
   const generationStartedAt = () => {
     const list = activeMessages() ?? []
     const last = list[list.length - 1]
@@ -1475,6 +1492,7 @@ export const App: Component = () => {
           modelLabel={modelLabel()}
           variants={variants()}
           variantKey={variantKey()}
+          usage={contextUsage()}
           attachments={attachments()}
           commands={commandOptions()}
           projects={projects()}

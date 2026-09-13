@@ -4,6 +4,8 @@ import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { ModeMenu } from "./ModeMenu"
 import { FolderMenu } from "./FolderMenu"
+import { EffortMenu } from "./EffortMenu"
+import { ContextMeter } from "./ContextMeter"
 
 type ComposerProps = {
   value: string
@@ -11,6 +13,7 @@ type ComposerProps = {
   modelLabel: string
   variants: ModelVariant[]
   variantKey: string | undefined
+  usage: { used: number; limit: number; cost?: number; tokens?: { input: number; output: number; reasoning: number } }
   attachments: Attachment[]
   commands: CommandOption[]
   projects: ProjectItem[]
@@ -247,6 +250,25 @@ export const Composer: Component<ComposerProps> = (props) => {
             }
           }}
         />
+        <button
+          class="fc-input-send"
+          type="button"
+          title={t("Send")}
+          aria-label={t("Send")}
+          onClick={props.onSend}
+          disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
+        >
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path
+              d="M9 4v7a4 4 0 0 0 4 4h7M15 11l4 4-4 4"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </button>
       </div>
 
       <div class="fc-composer-bottom">
@@ -322,40 +344,13 @@ export const Composer: Component<ComposerProps> = (props) => {
           >
             <span class="fc-model-button-label">{props.modelLabel}</span>
           </button>
-          <select
-            class="fc-model-select"
-            ref={(element: HTMLSelectElement) => {
-              createEffect(() => {
-                props.variants
-                element.value = props.variantKey ?? ""
-              })
-            }}
+          <EffortMenu
+            value={props.variantKey}
+            variants={props.variants}
             disabled={props.variants.length === 0}
-            aria-label={t("Variant")}
-            onChange={(event) => props.onVariantChange(event.currentTarget.value)}
-          >
-            <option value="">{t("Default")}</option>
-            <For each={props.variants}>{(variant) => <option value={variant.id}>{variant.id}</option>}</For>
-          </select>
-          <button
-            class="fc-send"
-            type="button"
-            title={t("Send")}
-            aria-label={t("Send")}
-            onClick={props.onSend}
-            disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path
-                d="M12 19V5M12 5l-6 6M12 5l6 6"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2.2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
-              />
-            </svg>
-          </button>
+            onChange={props.onVariantChange}
+          />
+          <ContextMeter used={props.usage.used} limit={props.usage.limit} cost={props.usage.cost} tokens={props.usage.tokens} />
         </div>
       </div>
       </div>
