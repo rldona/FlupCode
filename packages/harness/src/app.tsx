@@ -168,6 +168,10 @@ export const App: Component = () => {
   )
   const [providerAuth] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).provider.auth())
   const [commands] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).command.list())
+  const [integrations, { refetch: refetchIntegrations }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).integration.list(),
+  )
   const [linkedProviders, setLinkedProviders] = createSignal<string[]>([])
   createEffect(() => {
     const url = ready() ? serverUrl() : undefined
@@ -1169,6 +1173,7 @@ export const App: Component = () => {
       void refetchProviderDirectory()
       void refetchModelDirectory()
       void refetchModels()
+      void refetchIntegrations()
       return undefined
     }, t("Provider saved"))
 
@@ -1184,8 +1189,31 @@ export const App: Component = () => {
       void refetchProviderDirectory()
       void refetchModelDirectory()
       void refetchModels()
+      void refetchIntegrations()
       return undefined
     }, t("Provider removed"))
+
+  const startOAuth = (providerID: string, methodID?: string) =>
+    client()
+      .integration.oauth({ integrationID: providerID, methodID, label: providerID })
+      .then((result) => result.data)
+
+  const oAuthStatus = (attemptID: string) =>
+    client()
+      .integration.attempt.status(attemptID)
+      .then((result) => result.data)
+
+  const cancelOAuth = (attemptID: string) =>
+    client()
+      .integration.attempt.cancel(attemptID)
+      .then(() => undefined)
+
+  const finishOAuth = () => {
+    void refetchProviderDirectory()
+    void refetchModelDirectory()
+    void refetchModels()
+    void refetchIntegrations()
+  }
 
   const editMessage = (messageID: string, text: string) => {
     const sessionID = selected()
@@ -1648,9 +1676,14 @@ export const App: Component = () => {
         providers={providerDirectory()?.all ?? []}
         auth={providerAuth() ?? {}}
         connected={providerDirectory()?.connected ?? []}
+        integrations={integrations()?.data ?? []}
         busy={busy()}
         onSave={saveProvider}
         onRemove={removeProvider}
+        onOAuth={startOAuth}
+        onOAuthStatus={oAuthStatus}
+        onOAuthCancel={cancelOAuth}
+        onOAuthDone={finishOAuth}
         onClose={() => setProvidersOpen(false)}
       />
       <ModelPicker

@@ -1,5 +1,12 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js"
-import type { ProviderAuthMethod, ProviderDirectoryInfo } from "../engine-types"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
+import type {
+  IntegrationAttempt,
+  IntegrationAttemptStatus,
+  IntegrationInfo,
+  IntegrationOAuthMethod,
+  ProviderAuthMethod,
+  ProviderDirectoryInfo,
+} from "../engine-types"
 import { t } from "../i18n"
 
 type ProvidersPanelProps = {
@@ -7,17 +14,36 @@ type ProvidersPanelProps = {
   providers: ProviderDirectoryInfo[]
   auth: Record<string, ProviderAuthMethod[]>
   connected: string[]
+  integrations: IntegrationInfo[]
   busy: boolean
   onSave: (providerID: string, key: string) => void
   onRemove: (providerID: string) => void
+  onOAuth: (providerID: string, methodID?: string) => Promise<IntegrationAttempt>
+  onOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
+  onOAuthCancel: (attemptID: string) => Promise<void>
+  onOAuthDone: () => void
   onClose: () => void
 }
 
 export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
   const [drafts, setDrafts] = createSignal<Record<string, string>>({})
   const [query, setQuery] = createSignal("")
+  const [attempt, setAttempt] = createSignal<IntegrationAttempt | undefined>()
+  const [attemptProvider, setAttemptProvider] = createSignal<string | undefined>()
+  const [attemptState, setAttemptState] = createSignal<IntegrationAttemptStatus | undefined>()
+  const [attemptError, setAttemptError] = createSignal<string | undefined>()
 
   const setDraft = (id: string, value: string) => setDrafts((current) => ({ ...current, [id]: value }))
+
+  const integrationFor = (providerID: string) =>
+    props.integrations.find((integration) => integration.id === providerID)
+  const oauthMethods = (providerID: string) =>
+    (integrationFor(providerID)?.methods ?? []).filter(
+      (method): method is IntegrationOAuthMethod => method.type === "oauth",
+    )
+  const isConnected = (providerID: string) =>
+    props.connected.includes(providerID) || (integrationFor(providerID)?.connections.length ?? 0) > 0
+  const connectedInV2 = (providerID: string) => (integrationFor(providerID)?.connections.length ?? 0) > 0
 
   const list = createMemo(() => {
     const value = query().trim().toLowerCase()
@@ -26,15 +52,70 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
       return `${provider.name} ${provider.id} ${provider.env.join(" ")}`.toLowerCase().includes(value)
     })
     return [...filtered].sort((a, b) => {
-      const ca = props.connected.includes(a.id) ? 0 : 1
-      const cb = props.connected.includes(b.id) ? 0 : 1
+      const ca = isConnected(a.id) ? 0 : 1
+      const cb = isConnected(b.id) ? 0 : 1
       if (ca !== cb) return ca - cb
       return a.name.localeCompare(b.name)
     })
   })
 
+  const startOAuth = async (providerID: string, methodID: string) => {
+    setAttemptError(undefined)
+    setAttemptState(undefined)
+    setAttemptProvider(providerID)
+    try {
+      const started = await props.onOAuth(providerID, methodID)
+      setAttempt(started)
+      setAttemptState({ status: "pending", time: started.time })
+    } catch (cause) {
+      setAttemptError(cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  const closeOAuth = () => {
+    const current = attempt()
+    if (current) void props.onOAuthCancel(current.attemptID).catch(() => undefined)
+    setAttempt(undefined)
+    setAttemptProvider(undefined)
+    setAttemptState(undefined)
+    setAttemptError(undefined)
+  }
+
+  createEffect(() => {
+    const current = attempt()
+    if (!current) return
+    const timer = setInterval(async () => {
+      try {
+        const status = await props.onOAuthStatus(current.attemptID)
+        setAttemptState(status)
+        if (status.status === "complete") {
+          clearInterval(timer)
+          props.onOAuthDone()
+          setAttempt(undefined)
+          setAttemptProvider(undefined)
+        }
+        if (status.status === "failed") {
+          clearInterval(timer)
+          setAttemptError(status.message)
+        }
+        if (status.status === "expired") {
+          clearInterval(timer)
+          setAttemptError(t("The sign-in request expired. Try again."))
+        }
+      } catch (cause) {
+        clearInterval(timer)
+        setAttemptError(cause instanceof Error ? cause.message : String(cause))
+      }
+    }, 2000)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  const providerName = (providerID: string | undefined) =>
+    props.providers.find((provider) => provider.id === providerID)?.name ?? providerID ?? ""
+
   return (
-    <Show when={props.open}>
+    <>
+      <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
         <div class="fc-modal fc-modal-xl" role="dialog" aria-modal="true" aria-label={t("Providers & API keys")} onClick={(event) => event.stopPropagation()}>
           <div class="fc-modal-header">
@@ -62,10 +143,10 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
             <ul class="fc-provider-list">
               <For each={list()}>
                 {(provider) => {
-                  const configured = () => props.connected.includes(provider.id)
+                  const configured = () => isConnected(provider.id)
                   const models = () => Object.keys(provider.models ?? {}).length
                   const methods = () => props.auth[provider.id] ?? []
-                  const hasOauth = () => methods().some((method) => method.type === "oauth")
+                  const oauth = () => oauthMethods(provider.id)
                   return (
                     <li class="fc-provider-row">
                       <div class="fc-provider-info">
@@ -78,8 +159,21 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
                       <span class="fc-chip" classList={{ "fc-chip-active": configured() }}>
                         {configured() ? t("Configured") : t("Not configured")}
                       </span>
-                      <Show when={hasOauth()}>
+                      <Show when={methods().some((method) => method.type === "oauth") && oauth().length === 0}>
                         <span class="fc-chip">{t("OAuth available")}</span>
+                      </Show>
+                      <Show when={oauth().length > 0 && !connectedInV2(provider.id)}>
+                        <button
+                          class="fc-button"
+                          type="button"
+                          disabled={props.busy || attemptProvider() === provider.id}
+                          onClick={() => {
+                            const method = oauth()[0]
+                            if (method) void startOAuth(provider.id, method.id)
+                          }}
+                        >
+                          {t("Sign in")}
+                        </button>
                       </Show>
                       <input
                         class="fc-question-custom"
@@ -118,5 +212,43 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
         </div>
       </div>
     </Show>
+    <Show when={attempt()}>
+      {(current) => (
+        <div class="fc-modal-backdrop" onClick={closeOAuth}>
+          <div
+            class="fc-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={t("Sign in to {name}", { name: providerName(attemptProvider()) })}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div class="fc-modal-header">
+              <span>{t("Sign in to {name}", { name: providerName(attemptProvider()) })}</span>
+              <button class="fc-icon-button" type="button" aria-label={t("Cancel")} onClick={closeOAuth}>
+                ×
+              </button>
+            </div>
+            <p class="fc-modal-line">{current().instructions}</p>
+            <p class="fc-modal-line">
+              <a class="fc-link" href={current().url} target="_blank" rel="noreferrer">
+                {current().url}
+              </a>
+            </p>
+            <Show when={attemptError()}>
+              <p class="fc-modal-error">{attemptError()}</p>
+            </Show>
+            <div class="fc-modal-actions">
+              <span class="fc-status-line">
+                {attemptState()?.status === "pending" ? t("Waiting for authorization…") : ""}
+              </span>
+              <button class="fc-button" type="button" onClick={closeOAuth}>
+                {t("Cancel")}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </Show>
+    </>
   )
 }

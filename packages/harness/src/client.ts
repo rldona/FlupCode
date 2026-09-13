@@ -264,6 +264,19 @@ export function createClient(baseUrl = resolveServerUrl()) {
             label: input.label,
           }),
         ),
+      oauth: (input: { integrationID: string; methodID?: string; inputs?: Record<string, string>; label?: string }) =>
+        unwrap(
+          client.v2.integration.connect.oauth({
+            integrationID: input.integrationID,
+            methodID: input.methodID,
+            inputs: input.inputs ?? {},
+            label: input.label,
+          }),
+        ),
+      attempt: {
+        status: (attemptID: string) => unwrap(client.v2.integration.attempt.status({ attemptID })),
+        cancel: (attemptID: string) => unwrap(client.v2.integration.attempt.cancel({ attemptID })),
+      },
       disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
     },
     agent: {
