@@ -218,6 +218,27 @@ const ClientView: Component = () => {
 
   return (
     <>
+      <Show when={remote.pairing()}>
+        {(current) => (
+          <section class="fc-settings-section" aria-live="polite">
+            <Show
+              when={current().error}
+              fallback={<p class="fc-settings-status">{t("Pairing with {name}…", { name: current().name })}</p>}
+            >
+              {(code) => (
+                <>
+                  <p class="fc-remote-error">{t(ERRORS[code()])}</p>
+                  <div class="fc-modal-links">
+                    <button class="fc-button" type="button" onClick={() => remote.dismissPairing()}>
+                      {t("Close")}
+                    </button>
+                  </div>
+                </>
+              )}
+            </Show>
+          </section>
+        )}
+      </Show>
       <p class="fc-modal-line">
         {t(
           "Drive a computer's sessions from here. On the computer, open FlupCode → Remote control → Pair a device, and scan the code with this device.",

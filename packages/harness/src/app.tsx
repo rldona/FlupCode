@@ -813,13 +813,19 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.displayName, value)
   }
 
-  const pairFromLink = () =>
-    void remote.consumePairingLink()?.then((paired) => {
-      if (!paired) return setRemoteOpen(true)
+  const pairFromLink = () => {
+    const pairing = remote.consumePairingLink()
+    if (!pairing) return
+    // The panel shows progress and, if pairing fails, why.
+    setRemoteOpen(true)
+    void pairing.then((paired) => {
+      if (!paired) return
+      setRemoteOpen(false)
       toast(t("Connected to {name}", { name: remote.activeHost()?.name ?? "" }), "success")
       setOnboarded(true)
       writeStorage(STORAGE_KEYS.onboarded, true)
     })
+  }
   remote.resume()
   pairFromLink()
   window.addEventListener("hashchange", pairFromLink)
@@ -1823,7 +1829,12 @@ export const App: Component = () => {
         onClose={() => setFolderOpen(false)}
       />
       <Onboarding
-        open={!onboarded() && !remote.activeHost() && remote.status() !== "connecting"}
+        open={!onboarded() && !remote.activeHost() && !remote.pairing() && remote.status() !== "connecting"}
+        remoteClient={!desktopRemote()}
+        onRemote={(name) => {
+          completeOnboarding(name)
+          setRemoteOpen(true)
+        }}
         serverHealthy={health()?.healthy}
         serverInput={serverInput()}
         onServerInput={setServerInput}
@@ -1836,7 +1847,10 @@ export const App: Component = () => {
       <RemotePanel
         open={remoteOpen()}
         initialUrl={serverUrl()}
-        onClose={() => setRemoteOpen(false)}
+        onClose={() => {
+          setRemoteOpen(false)
+          remote.dismissPairing()
+        }}
         onBack={() => {
           setRemoteOpen(false)
           setSettingsOpen(true)
