@@ -8,6 +8,7 @@ type ModelPickerProps = {
   loading?: boolean
   selectedKey: string | undefined
   favorites: string[]
+  onRetry?: () => void
   onSelect: (providerID: string, id: string) => void
   onToggleFavorite: (key: string) => void
   onClose: () => void
@@ -54,7 +55,19 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
           />
           <div class="fc-model-picker">
             <Show when={!props.loading || groups().length > 0} fallback={<div class="fc-palette-empty">{t("Loading models…")}</div>}>
-              <Show when={groups().length > 0} fallback={<div class="fc-palette-empty">{t("No models")}</div>}>
+              <Show
+                  when={groups().length > 0}
+                  fallback={
+                    <div class="fc-palette-empty">
+                      <span>{t("No models")}</span>
+                      <Show when={props.onRetry}>
+                        <button class="fc-button" type="button" onClick={props.onRetry}>
+                          {t("Retry")}
+                        </button>
+                      </Show>
+                    </div>
+                  }
+                >
                 <For each={groups()}>
               {(group) => (
                 <div class="fc-model-group">
