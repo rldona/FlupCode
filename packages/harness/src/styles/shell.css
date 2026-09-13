@@ -172,15 +172,17 @@ select:focus-visible,
   width: 100%;
   height: var(--fc-control-md);
   padding: 0 var(--fc-space-3);
-  border: 1px solid var(--fc-border);
+  border: none;
   border-radius: var(--fc-radius-sm);
-  background: var(--fc-bg-elevated);
+  background: transparent;
   font-weight: 500;
   text-align: left;
+  transition: background var(--fc-motion-fast);
 }
 
+/* Like the navigation below it: no border, a shade only on hover. */
 .fc-new:hover {
-  border-color: color-mix(in srgb, var(--fc-border) 60%, var(--fc-text-muted));
+  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
 }
 
 .fc-new-icon {
@@ -5741,11 +5743,6 @@ button.fc-row-main {
   font-weight: 800;
   letter-spacing: -0.01em;
   white-space: nowrap;
-}
-
-.fc-sidebar-brand-name img {
-  width: 32px;
-  height: 32px;
 }
 
 .fc-sidebar-brand .fc-view-tabs {
