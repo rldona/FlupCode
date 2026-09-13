@@ -5054,23 +5054,22 @@ button.fc-row-main {
 }
 
 /* Conversation navigator (Claude Code's chapters): pinned to the chat's top-left corner with the
-   same 16px inset as the top bar's buttons. The anchor sticks at the transcript's padding edge. */
-.fc-transcript > .fc-chapters-anchor {
-  position: sticky;
-  top: 0;
-  z-index: 6;
-  align-self: stretch;
-  width: auto;
-  max-width: none;
-  height: 0;
-  margin-bottom: calc(-1 * var(--fc-space-3));
+   same 16px inset as the top bar's buttons, over the chat rather than inside its scroll. */
+.fc-transcript-frame {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .fc-chapters {
   position: absolute;
-  /* Offsets cancel the transcript padding and the ticks button's own padding (6px 4px). */
-  top: calc(16px - var(--fc-space-5) - 6px);
-  left: calc(16px - var(--fc-scrollbar-size) - var(--fc-chat-inset) - 4px);
+  z-index: 6;
+  /* The ticks button has 6px 4px of padding around the first tick. */
+  top: calc(16px - 6px);
+  left: calc(16px - 4px);
 }
 
 .fc-chapters-ticks {
@@ -5162,28 +5161,17 @@ button.fc-row-main {
   scroll-margin-top: 16px;
 }
 
-.fc-mobile-remote .fc-chapters-anchor {
+.fc-mobile-remote .fc-chapters {
   display: none;
 }
 
 /* Back to the end: a round button centred over the bottom of the chat while reading older turns. */
-.fc-transcript > .fc-scroll-end-anchor {
-  position: sticky;
-  bottom: 0;
-  z-index: 6;
-  align-self: stretch;
-  width: auto;
-  max-width: none;
-  height: 0;
-  margin-top: calc(-1 * var(--fc-space-3));
-  pointer-events: none;
-}
-
 .fc-scroll-end {
   position: absolute;
-  /* The anchor sticks at the transcript's bottom padding: sit 6px above the dock instead. */
-  bottom: calc(6px - var(--fc-space-5));
+  z-index: 6;
+  bottom: 6px;
   left: 50%;
+  pointer-events: none;
   width: 36px;
   height: 36px;
   display: inline-flex;
