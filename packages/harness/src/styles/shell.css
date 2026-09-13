@@ -5603,3 +5603,39 @@ button.fc-row-main {
   flex-shrink: 0;
   gap: 8px;
 }
+
+/* Modals: the backdrop fades in and the dialog rises and scales into place. */
+@keyframes fc-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fc-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fc-modal-backdrop {
+  animation: fc-backdrop-in 160ms ease-out;
+}
+
+.fc-modal-backdrop > * {
+  animation: fc-modal-in 220ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-modal-backdrop,
+  .fc-modal-backdrop > * {
+    animation: none;
+  }
+}
