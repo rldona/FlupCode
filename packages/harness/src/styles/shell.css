@@ -2382,6 +2382,9 @@ button.fc-row-main {
   gap: var(--fc-space-4);
   max-height: 60vh;
   overflow-y: auto;
+  /* Room between the content and the scrollbar. */
+  padding-right: var(--fc-space-4);
+  margin-right: calc(-1 * var(--fc-space-2));
 }
 
 .fc-settings-section {
@@ -4946,7 +4949,7 @@ button.fc-row-main {
 }
 
 /* Scrollbars: a slim rounded thumb on a transparent track everywhere, like the macOS overlay
-   scrollbars, instead of the browser's light rectangular track on hover. */
+   scrollbars, shown only while the element scrolls (see scrollbars.ts). */
 ::-webkit-scrollbar {
   width: var(--fc-scrollbar-size);
   height: var(--fc-scrollbar-size);
@@ -4961,17 +4964,25 @@ button.fc-row-main {
 ::-webkit-scrollbar-thumb {
   border: 3px solid transparent;
   border-radius: 999px;
-  background-color: color-mix(in srgb, var(--fc-text-muted) 38%, transparent);
+  background-color: transparent;
   background-clip: content-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
-  background-color: color-mix(in srgb, var(--fc-text-muted) 65%, transparent);
+.fc-scrolling::-webkit-scrollbar-thumb {
+  background-color: color-mix(in srgb, var(--fc-text-muted) 45%, transparent);
+}
+
+.fc-scrolling::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fc-text-muted) 70%, transparent);
 }
 
 @supports not selector(::-webkit-scrollbar) {
   * {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  .fc-scrolling {
     scrollbar-color: color-mix(in srgb, var(--fc-text-muted) 45%, transparent) transparent;
   }
 }
