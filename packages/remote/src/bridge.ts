@@ -8,6 +8,8 @@ export type RemoteDevice = {
   createdAt: number
   lastSeen: number
   connected: boolean
+  /** Whether the device registered for push notifications. */
+  notifications: boolean
 }
 
 export type RemotePairing = {
@@ -42,3 +44,5 @@ export type RemoteHostBridge = {
 export type RemoteControl =
   | { type: "enrolled"; deviceId: string; deviceKey: string; hostName: string }
   | { type: "device"; name: string }
+  /** The phone's Web Push subscription, or null to stop notifications (ADR-0011). */
+  | { type: "push-subscription"; subscription: { endpoint: string; keys: { p256dh: string; auth: string } } | null }

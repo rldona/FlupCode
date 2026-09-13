@@ -6,13 +6,29 @@ import { PAIRING_TTL, pairingUrl } from "./pairing"
 import { createHostIdentity, type HostIdentity } from "./relay"
 import { serveTunnel } from "./tunnel"
 import type { Wire } from "./wire"
+import { watchEngineEvents, type EngineNotification } from "./notifier"
+import {
+  encodePushNotification,
+  encryptPushPayload,
+  isPushSubscription,
+  type PushNotification,
+  type PushSubscriptionKeys,
+} from "./webpush"
 
 /**
  * A remote control host: relay connection, one-time pairing, paired devices and the engine tunnel.
  * Runtime-agnostic; the desktop app and the `flupcode remote` CLI supply storage and presentation.
  */
 
-export type StoredDevice = { id: string; name: string; key: string; createdAt: number; lastSeen: number }
+export type StoredDevice = {
+  id: string
+  name: string
+  key: string
+  createdAt: number
+  lastSeen: number
+  /** Web Push subscription the phone registered for notifications (ADR-0011). */
+  push?: PushSubscriptionKeys
+}
 
 export type RemoteHostStore = { enabled: boolean; relay?: string; identity?: HostIdentity; devices: StoredDevice[] }
 
@@ -30,6 +46,10 @@ export type RemoteHostOptions = {
   /** Whether `save` encrypts secrets at rest; shown to the user. */
   secureStorage: boolean
   onChange?: (state: RemoteHostState) => void
+  /** Engine requests for notifications; tests inject it. */
+  fetch?: typeof globalThis.fetch
+  /** Delay before a turn counts as finished, in milliseconds. */
+  finishDelay?: number
 }
 
 export function createRemoteHost(options: RemoteHostOptions) {
@@ -40,6 +60,7 @@ export function createRemoteHost(options: RemoteHostOptions) {
   let pairing: { id: string; secret: Uint8Array<ArrayBuffer>; expiresAt: number; url: string } | undefined
   let pairingTimer: ReturnType<typeof setTimeout> | undefined
   let relayHost: ReturnType<typeof startRelayHost> | undefined
+  let watcher: ReturnType<typeof watchEngineEvents> | undefined
   const live = new Map<string, Set<SecureChannel>>()
 
   const relay = () => stored.relay ?? options.defaultRelay
@@ -58,6 +79,7 @@ export function createRemoteHost(options: RemoteHostOptions) {
       createdAt: device.createdAt,
       lastSeen: device.lastSeen,
       connected: (live.get(device.id)?.size ?? 0) > 0,
+      notifications: device.push !== undefined,
     })),
     pairing: pairing && { url: pairing.url, expiresAt: pairing.expiresAt },
     secureStorage: options.secureStorage,
@@ -71,6 +93,36 @@ export function createRemoteHost(options: RemoteHostOptions) {
   }
 
   const findDevice = (id: string) => stored.devices.find((device) => device.id === id)
+
+  /** Sends a notification to every device that registered for push; drops expired subscriptions. */
+  const broadcast = (notification: EngineNotification) => {
+    const id = hostId
+    const sender = relayHost
+    if (!id || !sender) return
+    const payload: PushNotification = { ...notification, host: id, hostName: options.hostName }
+    stored.devices
+      .filter((device) => device.push)
+      .forEach((device) => {
+        const subscription = device.push!
+        void encryptPushPayload(subscription, encodePushNotification(payload))
+          .then((body) =>
+            sender.sendPush({
+              endpoint: subscription.endpoint,
+              body: toBase64Url(body),
+              ttl: notification.kind === "finished" ? 60 * 60 : 12 * 60 * 60,
+              urgency: notification.kind === "permission" || notification.kind === "question" ? "high" : "normal",
+            }),
+          )
+          .then((status) => {
+            if (status !== 404 && status !== 410) return
+            if (device.push?.endpoint !== subscription.endpoint) return
+            device.push = undefined
+            save()
+            notify()
+          })
+          .catch(() => undefined)
+      })
+  }
 
   const track = (deviceId: string, channel: SecureChannel) => {
     const channels = live.get(deviceId) ?? new Set()
@@ -119,8 +171,20 @@ export function createRemoteHost(options: RemoteHostOptions) {
             hostName: options.hostName,
           } satisfies RemoteControl)
         tunnel.onControl((message) => {
-          if (message.type !== "device" || typeof message.name !== "string") return
-          device.name = message.name.slice(0, 64) || device.name
+          if (message.type === "device" && typeof message.name === "string") {
+            device.name = message.name.slice(0, 64) || device.name
+            save()
+            return notify()
+          }
+          if (message.type !== "push-subscription") return
+          const subscription = isPushSubscription(message.subscription) ? message.subscription : undefined
+          if (message.subscription !== null && !subscription) return
+          if (device.push?.endpoint === subscription?.endpoint && device.push?.keys.auth === subscription?.keys.auth)
+            return
+          device.push = subscription && {
+            endpoint: subscription.endpoint,
+            keys: { p256dh: subscription.keys.p256dh, auth: subscription.keys.auth },
+          }
           save()
           notify()
         })
@@ -146,12 +210,21 @@ export function createRemoteHost(options: RemoteHostOptions) {
       hostId = id
       notify()
     })
+    watcher = watchEngineEvents({
+      engine: options.engine,
+      credentials: options.engineCredentials,
+      fetch: options.fetch,
+      finishDelay: options.finishDelay,
+      onNotification: broadcast,
+    })
   }
 
   const stop = () => {
     clearPairing()
     relayHost?.stop()
     relayHost = undefined
+    watcher?.stop()
+    watcher = undefined
     live.forEach((channels) => channels.forEach((channel) => channel.close()))
     connection = "offline"
     detail = undefined
