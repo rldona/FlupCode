@@ -53,6 +53,8 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         role="separator"
         aria-orientation="vertical"
         aria-label={t("Resize context panel")}
+        title={t("Drag to resize, double-click to reset")}
+        onDblClick={() => props.onResize(CONTEXT_PANEL_WIDTH.default)}
         onPointerDown={(event) => {
           const target = event.currentTarget
           const right = target.parentElement!.getBoundingClientRect().right
