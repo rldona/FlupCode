@@ -354,6 +354,9 @@ const AssistantMessage: Component<{
 export const SessionView: Component<SessionViewProps> = (props) => {
   let container: HTMLElement | undefined
   const [stick, setStick] = createSignal(true)
+  // Far enough from the end to offer the "back to the end" button.
+  const [awayFromEnd, setAwayFromEnd] = createSignal(false)
+  const motion = () => (window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth")
 
   const turnMeta = (index: number) => {
     const list = props.messages ?? []
@@ -442,6 +445,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     // Render older messages first when the prompt is above the loaded window.
     if (index < offset()) setVisibleCount(total() - index + 20)
     setActiveChapter(id)
+    const rendered = index >= offset()
     // Messages above render lazily (content-visibility), so their real heights shift the target
     // after the first jump: keep aligning it for a few frames until it stays put.
     let frames = 0
@@ -454,13 +458,23 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       }
       if (++frames < 30) requestAnimationFrame(align)
     }
-    requestAnimationFrame(align)
+    const target = rendered ? body?.querySelector<HTMLElement>(`[data-chapter="${CSS.escape(id)}"]`) : undefined
+    if (!target || motion() === "auto") return requestAnimationFrame(align)
+    // Glide to a prompt that is already rendered, then settle any shift from lazy rendering.
+    target.scrollIntoView({ block: "start", behavior: "smooth" })
+    setTimeout(() => requestAnimationFrame(align), 500)
+  }
+
+  const scrollToEnd = () => {
+    setStick(true)
+    container?.scrollTo({ top: container.scrollHeight, behavior: motion() })
   }
 
   // Follows the end while content grows (streaming, tool output, refreshed history). The body only
   // exists once the transcript has loaded and is recreated on reload, so it is observed from its ref.
   const growth = new ResizeObserver(() => {
     if (stick()) requestAnimationFrame(scrollToBottom)
+    else if (container) setAwayFromEnd(container.scrollHeight - container.scrollTop - container.clientHeight > 200)
   })
   onCleanup(() => growth.disconnect())
   const observeBody = (element: HTMLDivElement) => {
@@ -494,6 +508,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
         const distance = container.scrollHeight - container.scrollTop - container.clientHeight
         const movedUp = container.scrollTop < lastScrollTop
         lastScrollTop = container.scrollTop
+        setAwayFromEnd(distance > 200)
         // Only the reader scrolling up leaves the end; content changing height never does.
         if (distance < 120) setStick(true)
         else if (movedUp && performance.now() - readerInput < 1000) setStick(false)
@@ -593,6 +608,22 @@ export const SessionView: Component<SessionViewProps> = (props) => {
         </Show>
         </div>
       </Show>
+      <div class="fc-scroll-end-anchor">
+        <button
+          class="fc-scroll-end"
+          classList={{ "fc-scroll-end-visible": awayFromEnd() }}
+          type="button"
+          tabIndex={awayFromEnd() ? 0 : -1}
+          aria-hidden={!awayFromEnd()}
+          title={t("Scroll to the end")}
+          aria-label={t("Scroll to the end")}
+          onClick={scrollToEnd}
+        >
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+          </svg>
+        </button>
+      </div>
     </section>
   )
 }
