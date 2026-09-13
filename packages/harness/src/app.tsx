@@ -34,6 +34,7 @@ import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
+import { desktopRemote, remote, remoteBaseUrl } from "./remote"
 
 type Client = ReturnType<typeof createClient>
 
@@ -54,8 +55,12 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
 ]
 
 export const App: Component = () => {
-  const [serverUrl, setServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
-  const [serverInput, setServerInput] = createSignal(serverUrl())
+  const [localServerUrl, setLocalServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
+  const [serverInput, setServerInput] = createSignal(localServerUrl())
+  const serverUrl = () => {
+    const host = remote.activeHost()
+    return host ? remoteBaseUrl(host.hostId) : localServerUrl()
+  }
   const [selected, setSelected] = createSignal<string | undefined>(
     readStorage<string>(STORAGE_KEYS.selectedSession, "") || undefined,
   )
@@ -122,6 +127,10 @@ export const App: Component = () => {
       if (ready() && (models()?.data?.length ?? 0) === 0) void refetchModels()
     }, 10000)
     onCleanup(() => clearInterval(timer))
+  })
+
+  createEffect(() => {
+    if (remote.status() === "connected") void refetchHealth()
   })
 
   createEffect(() => {
@@ -469,40 +478,45 @@ export const App: Component = () => {
     const controller = new AbortController()
     onCleanup(() => controller.abort())
     void (async () => {
-      try {
-        for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
-          const type = event.type ?? ""
-          const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
-          if (type === "session.next.step.started") {
-            if (payload?.sessionID === selected()) {
-              setStreamedChars(0)
-              setLiveText("")
-              setLiveReasoning("")
+      for (let attempt = 0; !controller.signal.aborted; attempt++) {
+        try {
+          for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
+            attempt = 0
+            const type = event.type ?? ""
+            const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
+            if (type === "session.next.step.started") {
+              if (payload?.sessionID === selected()) {
+                setStreamedChars(0)
+                setLiveText("")
+                setLiveReasoning("")
+              }
+              scheduleRefetch(true, false)
+            } else if (type.endsWith(".delta")) {
+              const delta = payload?.delta
+              if (payload?.sessionID === selected() && typeof delta === "string") {
+                setStreamedChars((value) => value + delta.length)
+                if (type.includes("reasoning")) setLiveReasoning((value) => value + delta)
+                else if (type.includes("text")) setLiveText((value) => value + delta)
+              }
+              continue
             }
-            scheduleRefetch(true, false)
-          } else if (type.endsWith(".delta")) {
-            const delta = payload?.delta
-            if (payload?.sessionID === selected() && typeof delta === "string") {
-              setStreamedChars((value) => value + delta.length)
-              if (type.includes("reasoning")) setLiveReasoning((value) => value + delta)
-              else if (type.includes("text")) setLiveText((value) => value + delta)
+            if (type.startsWith("permission.")) {
+              if (type === "permission.v2.asked") notify(t("Permission needed"), "")
+              void refetchPermissions()
+            } else if (type.startsWith("question.")) {
+              if (type === "question.v2.asked") notify(t("Question asked"), "")
+              void refetchQuestions()
+            } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
+              scheduleRefetch(true, type === "session.next.step.ended")
+            } else if (type.startsWith("session.")) {
+              scheduleRefetch(false, true)
             }
-            continue
           }
-          if (type.startsWith("permission.")) {
-            if (type === "permission.v2.asked") notify(t("Permission needed"), "")
-            void refetchPermissions()
-          } else if (type.startsWith("question.")) {
-            if (type === "question.v2.asked") notify(t("Question asked"), "")
-            void refetchQuestions()
-          } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
-            scheduleRefetch(true, type === "session.next.step.ended")
-          } else if (type.startsWith("session.")) {
-            scheduleRefetch(false, true)
-          }
+        } catch {
+          if (controller.signal.aborted) return
         }
-      } catch {
-        return
+        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+        if (!controller.signal.aborted) scheduleRefetch(true, true)
       }
     })()
   })
@@ -794,6 +808,18 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.displayName, value)
   }
 
+  const pairFromLink = () =>
+    void remote.consumePairingLink()?.then((paired) => {
+      if (!paired) return setRemoteOpen(true)
+      toast(t("Connected to {name}", { name: remote.activeHost()?.name ?? "" }), "success")
+      setOnboarded(true)
+      writeStorage(STORAGE_KEYS.onboarded, true)
+    })
+  remote.resume()
+  pairFromLink()
+  window.addEventListener("hashchange", pairFromLink)
+  onCleanup(() => window.removeEventListener("hashchange", pairFromLink))
+
   const completeOnboarding = (name: string) => {
     if (name.trim()) updateDisplayName(name.trim())
     setOnboarded(true)
@@ -820,7 +846,8 @@ export const App: Component = () => {
   const commitServer = () => {
     const next = serverInput().trim()
     if (!next) return
-    setServerUrl(next)
+    if (remote.activeHost()) remote.disconnect()
+    setLocalServerUrl(next)
     writeStorage(STORAGE_KEYS.serverUrl, next)
   }
 
@@ -1782,7 +1809,7 @@ export const App: Component = () => {
         onClose={() => setFolderOpen(false)}
       />
       <Onboarding
-        open={!onboarded()}
+        open={!onboarded() && !remote.activeHost() && remote.status() !== "connecting"}
         serverHealthy={health()?.healthy}
         serverInput={serverInput()}
         onServerInput={setServerInput}

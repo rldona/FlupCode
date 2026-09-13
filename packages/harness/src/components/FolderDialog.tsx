@@ -1,12 +1,6 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 
-declare global {
-  interface Window {
-    flupcode?: { chooseFolder: () => Promise<string | undefined> }
-  }
-}
-
 type FolderDialogProps = {
   open: boolean
   initial?: string
@@ -19,7 +13,7 @@ export const FolderDialog: Component<FolderDialogProps> = (props) => {
   const native = () => typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function"
 
   const choose = async () => {
-    const path = await window.flupcode?.chooseFolder()
+    const path = await window.flupcode?.chooseFolder?.()
     if (path) props.onOpen(path)
   }
 

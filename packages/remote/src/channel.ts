@@ -59,7 +59,9 @@ function bytesField(value: Record<string, unknown>, name: string, size: number) 
 }
 
 async function ephemeral() {
-  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"])) as KeyPair
+  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, [
+    "deriveBits",
+  ])) as KeyPair
   return { pair, raw: new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)) }
 }
 
@@ -75,7 +77,9 @@ async function derive(input: {
   nonceH: Bytes
 }) {
   const peer = await crypto.subtle.importKey("raw", input.peer, { name: "ECDH", namedCurve: "P-256" }, false, [])
-  const shared = new Uint8Array(await crypto.subtle.deriveBits({ name: "ECDH", public: peer }, input.own.privateKey, 256))
+  const shared = new Uint8Array(
+    await crypto.subtle.deriveBits({ name: "ECDH", public: peer }, input.own.privateKey, 256),
+  )
   const transcript = concat(
     utf8(LABEL),
     Uint8Array.of(0),
@@ -91,7 +95,12 @@ async function derive(input: {
   const material = await crypto.subtle.importKey("raw", concat(input.psk, shared), "HKDF", false, ["deriveBits"])
   const bits = new Uint8Array(
     await crypto.subtle.deriveBits(
-      { name: "HKDF", hash: "SHA-256", salt: await crypto.subtle.digest("SHA-256", transcript), info: utf8(`${LABEL} keys`) },
+      {
+        name: "HKDF",
+        hash: "SHA-256",
+        salt: await crypto.subtle.digest("SHA-256", transcript),
+        info: utf8(`${LABEL} keys`),
+      },
       material,
       32 * 4 * 8,
     ),
@@ -128,18 +137,20 @@ function seal(wire: Wire, outbound: Key, inbound: Key): SecureChannel {
   const backlog: Bytes[] = []
 
   wire.listen((data) => {
-    receiving = receiving.then(async () => {
-      if (wire.closed) return
-      if (data[0] !== Kind.sealed) return wire.close(1002, "Unexpected frame")
-      const counter = receiveCounter++
-      const plain = await crypto.subtle
-        .decrypt({ name: "AES-GCM", iv: iv(counter) }, inbound, data.subarray(1))
-        .then((buffer) => new Uint8Array(buffer))
-        .catch(() => undefined)
-      if (!plain) return wire.close(1002, "Invalid frame")
-      if (listener) return listener(plain)
-      backlog.push(plain)
-    }).catch(() => wire.close(1011, "Protocol error"))
+    receiving = receiving
+      .then(async () => {
+        if (wire.closed) return
+        if (data[0] !== Kind.sealed) return wire.close(1002, "Unexpected frame")
+        const counter = receiveCounter++
+        const plain = await crypto.subtle
+          .decrypt({ name: "AES-GCM", iv: iv(counter) }, inbound, data.subarray(1))
+          .then((buffer) => new Uint8Array(buffer))
+          .catch(() => undefined)
+        if (!plain) return wire.close(1002, "Invalid frame")
+        if (listener) return listener(plain)
+        backlog.push(plain)
+      })
+      .catch(() => wire.close(1011, "Protocol error"))
   })
 
   return {
@@ -169,10 +180,12 @@ function seal(wire: Wire, outbound: Key, inbound: Key): SecureChannel {
 
 function withTimeout<T>(wire: Wire, work: Promise<T>) {
   const timer = setTimeout(() => wire.close(1008, "Handshake timeout"), HANDSHAKE_TIMEOUT)
-  return work.finally(() => clearTimeout(timer)).catch((error: unknown) => {
-    wire.close(1008, "Handshake failed")
-    throw error instanceof HandshakeError ? error : new HandshakeError(String(error))
-  })
+  return work
+    .finally(() => clearTimeout(timer))
+    .catch((error: unknown) => {
+      wire.close(1008, "Handshake failed")
+      throw error instanceof HandshakeError ? error : new HandshakeError(String(error))
+    })
 }
 
 /** Client side: open a channel to a host with a pairing secret or a device key. */
@@ -182,7 +195,9 @@ export function connectChannel(wire: Wire, input: { mode: ChannelMode; id: strin
     (async () => {
       const own = await ephemeral()
       const nonceC = random(32)
-      wire.send(json(Kind.hello, { mode: input.mode, id: input.id, eph: toBase64Url(own.raw), nonce: toBase64Url(nonceC) }))
+      wire.send(
+        json(Kind.hello, { mode: input.mode, id: input.id, eph: toBase64Url(own.raw), nonce: toBase64Url(nonceC) }),
+      )
       const welcome = parse(await wire.next(), Kind.welcome)
       const ephH = bytesField(welcome, "eph", 65)
       const nonceH = bytesField(welcome, "nonce", 32)

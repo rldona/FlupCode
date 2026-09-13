@@ -43,7 +43,12 @@ function readStore(): Stored {
       ? safeStorage.decryptString(Buffer.from(envelope.data, "base64"))
       : Buffer.from(envelope.data, "base64").toString("utf8")
     const stored = JSON.parse(json) as Partial<Stored>
-    return { enabled: stored.enabled === true, relay: stored.relay, identity: stored.identity, devices: stored.devices ?? [] }
+    return {
+      enabled: stored.enabled === true,
+      relay: stored.relay,
+      identity: stored.identity,
+      devices: stored.devices ?? [],
+    }
   } catch {
     return EMPTY
   }
@@ -71,7 +76,9 @@ export function initRemoteHost() {
   let connection: RelayHostStatus = "offline"
   let detail: string | undefined
   let hostId: string | undefined
-  let pairing: { id: string; secret: Uint8Array<ArrayBuffer>; expiresAt: number; url: string; timer: NodeJS.Timeout } | undefined
+  let pairing:
+    | { id: string; secret: Uint8Array<ArrayBuffer>; expiresAt: number; url: string; timer: NodeJS.Timeout }
+    | undefined
   let relayHost: ReturnType<typeof startRelayHost> | undefined
   const live = new Map<string, Set<SecureChannel>>()
 
@@ -122,7 +129,8 @@ export function initRemoteHost() {
 
   const handleChannel = (wire: Parameters<Parameters<typeof startRelayHost>[0]["onChannel"]>[0]) =>
     void acceptChannel(wire, (mode, id) => {
-      if (mode === "pair") return pairing && pairing.id === id && pairing.expiresAt > Date.now() ? pairing.secret : undefined
+      if (mode === "pair")
+        return pairing && pairing.id === id && pairing.expiresAt > Date.now() ? pairing.secret : undefined
       const device = stored.devices.find((entry) => entry.id === id)
       return device ? fromBase64Url(device.key) : undefined
     })
@@ -143,7 +151,12 @@ export function initRemoteHost() {
                 }
                 stored.devices.push(device)
                 save()
-                tunnel.sendControl({ type: "enrolled", deviceId: device.id, deviceKey: device.key, hostName: hostname() } satisfies RemoteControl)
+                tunnel.sendControl({
+                  type: "enrolled",
+                  deviceId: device.id,
+                  deviceKey: device.key,
+                  hostName: hostname(),
+                } satisfies RemoteControl)
                 return device.id
               })()
         tunnel.onControl((message) => {

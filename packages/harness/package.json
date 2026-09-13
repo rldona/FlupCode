@@ -15,6 +15,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@flupcode/remote": "workspace:*",
     "@opencode-ai/sdk": "workspace:*",
     "@opencode-ai/session-ui": "workspace:*",
     "@opencode-ai/ui": "workspace:*",
