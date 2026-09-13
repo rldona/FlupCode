@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "FlupCode desktop \u2014 a Claude Code\u2013style harness for OpenCode.",
+  "description": "FlupCode desktop — a Claude Code–style harness for OpenCode.",
   "author": "FlupCode",
   "main": "./out/main/index.js",
   "scripts": {
@@ -18,7 +18,7 @@
   "build": {
     "appId": "com.flupcode.desktop",
     "productName": "FlupCode",
-    "copyright": "Copyright \u00a9 2026 FlupCode",
+    "copyright": "Copyright © 2026 FlupCode",
     "directories": {
       "output": "release"
     },
@@ -85,6 +85,7 @@
     }
   },
   "devDependencies": {
+    "@flupcode/remote": "workspace:*",
     "@types/node": "catalog:",
     "@typescript/native-preview": "catalog:",
     "electron": "42.3.3",

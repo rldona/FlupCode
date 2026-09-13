@@ -18,6 +18,9 @@ const Kind = {
 
 export class HandshakeError extends Error {}
 
+type Key = Awaited<ReturnType<typeof crypto.subtle.importKey>>
+type KeyPair = { privateKey: Key; publicKey: Key }
+
 export type SecureChannel = {
   send(data: Bytes): void
   onMessage(listener: (data: Bytes) => void): void
@@ -56,7 +59,7 @@ function bytesField(value: Record<string, unknown>, name: string, size: number) 
 }
 
 async function ephemeral() {
-  const pair = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"])
+  const pair = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, false, ["deriveBits"])) as KeyPair
   return { pair, raw: new Uint8Array(await crypto.subtle.exportKey("raw", pair.publicKey)) }
 }
 
@@ -64,7 +67,7 @@ async function derive(input: {
   mode: ChannelMode
   id: string
   psk: Bytes
-  own: CryptoKeyPair
+  own: KeyPair
   peer: Bytes
   ephC: Bytes
   nonceC: Bytes
@@ -106,7 +109,7 @@ async function derive(input: {
   }
 }
 
-async function prove(key: CryptoKey, transcript: Bytes) {
+async function prove(key: Key, transcript: Bytes) {
   return new Uint8Array(await crypto.subtle.sign("HMAC", key, transcript))
 }
 
@@ -116,7 +119,7 @@ function iv(counter: bigint) {
   return bytes
 }
 
-function seal(wire: Wire, outbound: CryptoKey, inbound: CryptoKey): SecureChannel {
+function seal(wire: Wire, outbound: Key, inbound: Key): SecureChannel {
   let sendCounter = 0n
   let receiveCounter = 0n
   let sending = Promise.resolve()
@@ -136,7 +139,7 @@ function seal(wire: Wire, outbound: CryptoKey, inbound: CryptoKey): SecureChanne
       if (!plain) return wire.close(1002, "Invalid frame")
       if (listener) return listener(plain)
       backlog.push(plain)
-    })
+    }).catch(() => wire.close(1011, "Protocol error"))
   })
 
   return {
