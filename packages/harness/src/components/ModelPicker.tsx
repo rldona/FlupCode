@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import type { ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 
@@ -16,6 +16,10 @@ type ModelPickerProps = {
 
 export const ModelPicker: Component<ModelPickerProps> = (props) => {
   const [query, setQuery] = createSignal("")
+  // Each opening starts with an empty search.
+  createEffect(() => {
+    if (!props.open) setQuery("")
+  })
   const key = (model: ModelInfo) => `${model.providerID}/${model.id}`
   const groups = createMemo(() => {
     const needle = query().trim().toLowerCase()
