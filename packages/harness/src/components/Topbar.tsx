@@ -37,6 +37,8 @@ export const TopIcon: Component<{ d: string }> = (props) => (
 
 export const TopbarIcons = {
   sidebar: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM9 4v16",
+  // The left sidebar's icon, mirrored.
+  contextPanel: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM15 4v16",
   back: "M19 12H5M11 6l-6 6 6 6",
   forward: "M5 12h14M13 6l6 6-6 6",
   files: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8ZM14 3v5h5M9 13h6M9 17h4",
@@ -151,26 +153,13 @@ export const Topbar: Component<TopbarProps> = (props) => {
           {(panel) => (
             <button
               class="fc-nav-arrow"
-              classList={{ "fc-icon-button-active": panel().open }}
               type="button"
               title={t("Toggle context panel")}
               aria-label={t("Toggle context panel")}
               aria-pressed={panel().open}
               onClick={panel().onToggle}
             >
-              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                <rect
-                  x="3.5"
-                  y="4.5"
-                  width="17"
-                  height="15"
-                  rx="2.5"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="1.8"
-                />
-                <path d="M15 4.5v15" fill="none" stroke="currentColor" stroke-width="1.8" />
-              </svg>
+              <TopIcon d={TopbarIcons.contextPanel} />
             </button>
           )}
         </Show>
