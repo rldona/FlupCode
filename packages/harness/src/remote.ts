@@ -15,6 +15,7 @@ import {
 } from "@flupcode/remote"
 import { readStorage, STORAGE_KEYS, writeStorage } from "./storage"
 import { setEngineTransport, type EngineTransport } from "./transport"
+import { currentSubscription, disablePush, enablePush } from "./push"
 
 /** Remote control client (ADR-0010): pairs with a desktop and routes engine traffic through it. */
 
@@ -138,6 +139,10 @@ function attach(next: TunnelClient, host: RemoteHost, current: number) {
   tunnel = next
   attempt = 0
   next.sendControl({ type: "device", name: deviceName() })
+  // Keep the host's copy of this phone's push subscription current (it may have rotated).
+  void currentSubscription(host.relay).then((subscription) => {
+    if (subscription && tunnel === next) next.sendControl({ type: "push-subscription", subscription })
+  })
   setEngineTransport(remoteTransport)
   waiters.splice(0).forEach((waiter) => waiter.resolve(next))
   setErrorCode(undefined)
@@ -235,6 +240,19 @@ export const remote = {
   errorCode,
   pairing,
   activeHost: () => hosts().find((host) => host.hostId === activeHostId()),
+
+  /** Turns notifications on for the connected computer (call from a tap). */
+  async enableNotifications() {
+    const host = remote.activeHost()
+    if (!host) return
+    const subscription = await enablePush(host.relay)
+    if (subscription) tunnel?.sendControl({ type: "push-subscription", subscription })
+  },
+
+  async disableNotifications() {
+    tunnel?.sendControl({ type: "push-subscription", subscription: null })
+    await disablePush()
+  },
 
   connect(hostId: string) {
     saveActive(hostId)

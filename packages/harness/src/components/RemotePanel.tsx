@@ -4,6 +4,7 @@ import type { RemoteHostState } from "@flupcode/remote"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { desktopRemote, remote, type RemoteErrorCode } from "../remote"
+import { RemoteNotifications } from "./RemoteNotifications"
 
 type RemotePanelProps = {
   open: boolean
@@ -165,6 +166,11 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                     <span class="fc-status" classList={{ "fc-status-on": device.connected }}>
                       {device.connected ? t("Connected") : relativeTime(device.lastSeen)}
                     </span>
+                    <Show when={device.notifications}>
+                      <span class="fc-status" title={t("Notifications on")} aria-label={t("Notifications on")}>
+                        🔔
+                      </span>
+                    </Show>
                     <button
                       class="fc-button fc-button-danger"
                       type="button"
@@ -260,6 +266,7 @@ const ClientView: Component = () => {
               </span>
             </div>
             <Show when={remote.errorCode()}>{(code) => <p class="fc-settings-status">{t(ERRORS[code()])}</p>}</Show>
+            <RemoteNotifications compact />
             <div class="fc-modal-links">
               <Show when={remote.status() !== "connected"}>
                 <button class="fc-button" type="button" onClick={() => remote.retry()}>
