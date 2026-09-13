@@ -222,7 +222,6 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> 
   return (
     <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error" }}>
       <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
-        <span class="fc-tool-chevron">{open() ? "▾" : "▸"}</span>
         {/* A command speaks for itself; other tools keep their name before the title. */}
         <Show when={!(props.part.name === "bash" && toolTitle(props.part))}>
           <span class="fc-tool-name">{props.part.name}</span>
