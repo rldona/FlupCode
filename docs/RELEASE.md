@@ -46,7 +46,7 @@ How FlupCode is versioned and released.
    ```
 
    The web app (`app.flupcode.com`) and the landing deploy from `power` on merge, independently of
-   releases.
+   releases (see "Merging" and "Deploys" in [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 5. Verify with:
 
