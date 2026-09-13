@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, Schedule } from "effect"
 import type { IntegrationOAuthMethodRegistration } from "@opencode-ai/plugin/v2/effect/integration"
 import { Credential } from "../../credential"
 import { InstallationVersion } from "../../installation/version"
@@ -43,7 +43,7 @@ const oauth = {
         method: "POST",
         headers: headers("application/json"),
         body: JSON.stringify({ client_id: clientID }),
-      })
+      }).pipe(Effect.retry({ times: 8, schedule: Schedule.spaced("1500 millis") }))
       return {
         mode: "auto" as const,
         url: device.verification_uri,
@@ -123,7 +123,7 @@ function poll(device: Device): Effect.Effect<Credential.OAuth, unknown> {
           device_code: device.device_code,
           grant_type: "urn:ietf:params:oauth:grant-type:device_code",
         }),
-      })
+      }).pipe(Effect.retry({ times: 3, schedule: Schedule.spaced("1500 millis") }))
       if (result.access_token) return credential(result.access_token)
       if (result.error === "authorization_pending") return yield* loop(interval)
       if (result.error === "slow_down") {
