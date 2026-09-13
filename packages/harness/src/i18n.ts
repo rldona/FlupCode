@@ -36,6 +36,7 @@ const ES: Record<string, string> = {
   "App text size": "Tamaño del texto de la app",
   "Chat text size": "Tamaño del texto del chat",
   "Jump to a prompt": "Ir a un prompt",
+  "Scroll to the end": "Ir al final",
   Attachments: "Adjuntos",
   Small: "Pequeño",
   Large: "Grande",
