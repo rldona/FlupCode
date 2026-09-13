@@ -3,6 +3,7 @@ import type { AgentInfo, FileSystemEntry, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { ModeMenu } from "./ModeMenu"
+import { FolderMenu } from "./FolderMenu"
 
 type ComposerProps = {
   value: string
@@ -35,10 +36,6 @@ type ComposerProps = {
 
 function primaryAgents(agents: AgentInfo[]) {
   return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
-}
-
-function projectLabel(project: ProjectItem) {
-  return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
 
 type SpeechRecognitionResult = {
@@ -172,42 +169,7 @@ export const Composer: Component<ComposerProps> = (props) => {
         handleFiles(event.dataTransfer?.files ?? null)
       }}
     >
-      <div class="fc-composer-chips">
-        <select
-          class="fc-folder-select"
-          aria-label={t("Folder")}
-          ref={(element: HTMLSelectElement) => {
-            createEffect(() => {
-              props.projects
-              const value = props.targetDirectory ?? ""
-              if (element.value !== value) element.value = value
-            })
-          }}
-          onChange={(event) => {
-            const value = event.currentTarget.value
-            if (value === "__open__") {
-              event.currentTarget.value = props.targetDirectory ?? ""
-              props.onOpenFolder()
-              return
-            }
-            props.onTargetChange(value || undefined)
-          }}
-        >
-          <option value="">{t("No folder")}</option>
-          <For each={props.projects}>
-            {(project) => <option value={project.directory}>{projectLabel(project)}</option>}
-          </For>
-          <Show when={props.targetDirectory && !props.projects.some((p) => p.directory === props.targetDirectory)}>
-            <option value={props.targetDirectory}>
-              {props.targetDirectory?.split("/").filter(Boolean).at(-1) ?? props.targetDirectory}
-            </option>
-          </Show>
-          <option value="__open__">{t("Open folder…")}</option>
-        </select>
-        <Show when={props.value.startsWith("!")}>
-          <span class="fc-chip fc-chip-active">{t("Shell")}</span>
-        </Show>
-      </div>
+      <div class="fc-composer-inner">
 
       <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
         <div class="fc-command-menu">
@@ -289,8 +251,17 @@ export const Composer: Component<ComposerProps> = (props) => {
 
       <div class="fc-composer-bottom">
         <div class="fc-composer-left">
+          <FolderMenu
+            value={props.targetDirectory}
+            projects={props.projects}
+            onSelect={props.onTargetChange}
+            onOpenFolder={props.onOpenFolder}
+          />
+          <Show when={props.value.startsWith("!")}>
+            <span class="fc-chip fc-chip-active">{t("Shell")}</span>
+          </Show>
           <button
-            class="fc-icon-button"
+            class="fc-tool-button"
             type="button"
             title={t("Attach")}
             aria-label={t("Attach")}
@@ -299,7 +270,7 @@ export const Composer: Component<ComposerProps> = (props) => {
             +
           </button>
           <button
-            class="fc-icon-button"
+            class="fc-tool-button"
             classList={{ "fc-icon-button-active": listening() }}
             type="button"
             title={t("Voice dictation")}
@@ -386,6 +357,7 @@ export const Composer: Component<ComposerProps> = (props) => {
             </svg>
           </button>
         </div>
+      </div>
       </div>
 
       <input
