@@ -168,7 +168,7 @@ select:focus-visible,
 .fc-new {
   display: flex;
   align-items: center;
-  gap: var(--fc-space-2);
+  gap: 6px;
   width: 100%;
   height: var(--fc-control-md);
   padding: 0 var(--fc-space-3);
@@ -185,10 +185,14 @@ select:focus-visible,
   background: color-mix(in srgb, var(--fc-border) 40%, transparent);
 }
 
+/* Same 16px icon column and gap as the navigation items, so icons and labels line up. */
 .fc-new-icon {
+  display: inline-block;
+  width: 16px;
   color: var(--fc-text-muted);
   font-size: 16px;
   line-height: 1;
+  text-align: center;
 }
 
 .fc-nav {
@@ -3008,10 +3012,11 @@ button.fc-row-main {
 .fc-rightaside-body {
   flex: 1;
   min-width: 0;
-  padding: var(--fc-space-4);
+  padding: var(--fc-space-5) var(--fc-space-4) var(--fc-space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--fc-space-5);
+  /* Context and Tasks read as separate blocks. */
+  gap: 40px;
   overflow-y: auto;
 }
 
@@ -3032,11 +3037,11 @@ button.fc-row-main {
 .fc-aside-section {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 12px;
 }
 
 .fc-aside-title {
-  margin: 0 0 2px;
+  margin: 0 0 4px;
   font-size: var(--fc-text-xs);
   font-weight: 600;
   text-transform: uppercase;
@@ -3050,6 +3055,7 @@ button.fc-row-main {
   display: flex;
   justify-content: space-between;
   font-size: 13px;
+  line-height: 20px;
 }
 
 .fc-aside-count {
@@ -3058,6 +3064,7 @@ button.fc-row-main {
 
 .fc-meter {
   height: 6px;
+  margin: -2px 0 4px;
   border-radius: var(--fc-radius-pill);
   background: color-mix(in srgb, var(--fc-border) 60%, transparent);
   overflow: hidden;
