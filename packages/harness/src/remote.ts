@@ -111,7 +111,18 @@ let generation = 0
 function saveHosts(next: RemoteHost[]) {
   setHosts(next)
   writeStorage(STORAGE_KEYS.remoteHosts, next)
+  if (next.length > 0) keepStorage()
 }
+
+/** Asks the browser not to evict saved data under storage pressure, which would drop the pairing. */
+function keepStorage() {
+  void navigator.storage
+    ?.persisted?.()
+    .then((persisted) => persisted || navigator.storage.persist())
+    .catch(() => false)
+}
+
+if (hosts().length > 0) keepStorage()
 
 function saveActive(hostId: string | undefined) {
   setActiveHostId(hostId)
