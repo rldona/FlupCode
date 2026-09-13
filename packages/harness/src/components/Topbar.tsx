@@ -1,4 +1,4 @@
-import type { JSX, Component } from "solid-js"
+import { Show, type JSX, type Component } from "solid-js"
 import { t } from "../i18n"
 
 type TopbarProps = {
@@ -15,6 +15,8 @@ type TopbarProps = {
   onTogglePanel: (kind: string) => void
   sessionTitle?: JSX.Element
   sessionActions?: JSX.Element
+  /** Set when this device is controlling a remote computer. */
+  remote?: { name: string; connected: boolean; onOpen: () => void }
 }
 
 export const Topbar: Component<TopbarProps> = (props) => {
@@ -86,6 +88,19 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           ⌕
         </button>
+        <Show when={props.remote}>
+          {(remote) => (
+            <button
+              class="fc-status fc-status-remote"
+              classList={{ "fc-status-on": remote().connected, "fc-status-off": !remote().connected }}
+              type="button"
+              title={t("Remote control")}
+              onClick={remote().onOpen}
+            >
+              {t("Remote: {name}", { name: remote().name })}
+            </button>
+          )}
+        </Show>
         <span
           class="fc-status"
           classList={{
