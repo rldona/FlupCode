@@ -361,14 +361,47 @@ const TurnFooter: Component<{
   )
 }
 
-function assistantSegments(message: SessionMessageAssistant, showTools: boolean): AssistantSegment[] {
+/**
+ * A run of tool calls can span several assistant messages (each model step is one), with only
+ * reasoning between them. Each run renders once, as a single line, in the message where it starts.
+ */
+type ToolRuns = Map<string, { first: boolean; parts: SessionMessageAssistantTool[] }>
+
+const toolKey = (message: SessionMessageAssistant, part: SessionMessageAssistantTool) => `${message.id}:${part.id}`
+
+function collectToolRuns(messages: SessionMessageInfo[]): ToolRuns {
+  const runs: ToolRuns = new Map()
+  let current: SessionMessageAssistantTool[] | undefined
+  for (const message of messages) {
+    if (message.type !== "assistant") {
+      current = undefined
+      continue
+    }
+    for (const part of (message as SessionMessageAssistant).content) {
+      if (part.type === "reasoning") continue
+      if (part.type !== "tool") {
+        current = undefined
+        continue
+      }
+      const tool = part as SessionMessageAssistantTool
+      const first = !current
+      if (!current) current = []
+      current.push(tool)
+      runs.set(toolKey(message as SessionMessageAssistant, tool), { first, parts: current })
+    }
+  }
+  return runs
+}
+
+function assistantSegments(message: SessionMessageAssistant, showTools: boolean, runs: ToolRuns): AssistantSegment[] {
   const segments: AssistantSegment[] = []
   for (const part of message.content) {
     if (part.type === "tool") {
       if (!showTools) continue
-      const last = segments[segments.length - 1]
-      if (last?.kind === "tools") last.parts.push(part as SessionMessageAssistantTool)
-      else segments.push({ kind: "tools", parts: [part as SessionMessageAssistantTool] })
+      const run = runs.get(toolKey(message, part as SessionMessageAssistantTool))
+      // Later calls of a run are drawn by the line where the run starts.
+      if (run?.first) segments.push({ kind: "tools", parts: run.parts })
+      else if (!run) segments.push({ kind: "tools", parts: [part as SessionMessageAssistantTool] })
       continue
     }
     // Like Claude Code, the model's reasoning stays out of the conversation; the status line says
@@ -383,34 +416,39 @@ const AssistantMessage: Component<{
   message: SessionMessageAssistant
   showTools: boolean
   showRole: boolean
-}> = (
-  props,
-) => (
-  <div class="fc-message fc-message-assistant">
-    <Show when={props.showRole}>
-      <div class="fc-message-role">{props.message.agent}</div>
-    </Show>
-    {/* Index keeps each group mounted while the message streams, so an opened group stays open. */}
-    <Index each={assistantSegments(props.message, props.showTools)}>
-      {(segment) => (
-        <Show
-          when={segment().kind === "tools"}
-          fallback={
-            <Markdown
-              class="fc-message-text"
-              text={(segment() as { part: SessionMessageAssistantText }).part.text ?? ""}
-            />
-          }
-        >
-          <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+  toolRuns: ToolRuns
+}> = (props) => {
+  const segments = () => assistantSegments(props.message, props.showTools, props.toolRuns)
+  return (
+    // A message that only continues an earlier run of tools has nothing of its own to show.
+    <Show when={segments().length > 0 || props.message.error || props.showRole}>
+      <div class="fc-message fc-message-assistant">
+        <Show when={props.showRole}>
+          <div class="fc-message-role">{props.message.agent}</div>
         </Show>
-      )}
-    </Index>
-    <Show when={props.message.error}>
-      <div class="fc-message-error">{t("Error generating the response")}</div>
+        {/* Index keeps each group mounted while the message streams, so an opened group stays open. */}
+        <Index each={segments()}>
+          {(segment) => (
+            <Show
+              when={segment().kind === "tools"}
+              fallback={
+                <Markdown
+                  class="fc-message-text"
+                  text={(segment() as { part: SessionMessageAssistantText }).part.text ?? ""}
+                />
+              }
+            >
+              <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+            </Show>
+          )}
+        </Index>
+        <Show when={props.message.error}>
+          <div class="fc-message-error">{t("Error generating the response")}</div>
+        </Show>
+      </div>
     </Show>
-  </div>
-)
+  )
+}
 
 export const SessionView: Component<SessionViewProps> = (props) => {
   let container: HTMLElement | undefined
@@ -474,6 +512,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const total = () => props.messages?.length ?? 0
   const offset = () => Math.max(0, total() - visibleCount())
   const visibleMessages = () => (props.messages ?? []).slice(offset())
+  const toolRuns = createMemo(() => collectToolRuns(visibleMessages()))
   const fullIndex = (index: number) => offset() + index
 
   let body: HTMLDivElement | undefined
@@ -648,6 +687,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       message={message as SessionMessageAssistant}
                       showTools={props.showTools}
                       showRole={fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"}
+                      toolRuns={toolRuns()}
                     />
                     <Show when={isTurnEnd(fullIndex(index()))}>
                       <TurnFooter
