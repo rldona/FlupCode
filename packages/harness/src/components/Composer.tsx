@@ -206,6 +206,25 @@ export const Composer: Component<ComposerProps> = (props) => {
     onCleanup(() => clearTimeout(handle))
   })
 
+  // Escape or a click outside closes the / and @ menus; typing opens them again.
+  const [dismissedAt, setDismissedAt] = createSignal<string>()
+  const menusDismissed = () => dismissedAt() === props.value
+  const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
+  const mentionMenuOpen = () =>
+    !menusDismissed() && commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0
+  let menu: HTMLDivElement | undefined
+  let inputWrap: HTMLDivElement | undefined
+  onMount(() => {
+    const onPointer = (event: MouseEvent) => {
+      if (!commandMenuOpen() && !mentionMenuOpen()) return
+      const target = event.target as Node
+      if (menu?.contains(target) || inputWrap?.contains(target)) return
+      setDismissedAt(props.value)
+    }
+    document.addEventListener("mousedown", onPointer)
+    onCleanup(() => document.removeEventListener("mousedown", onPointer))
+  })
+
   const insertMention = (path: string) => {
     const value = props.value
     const at = value.lastIndexOf("@")
@@ -256,8 +275,8 @@ export const Composer: Component<ComposerProps> = (props) => {
       <div class="fc-composer-inner">
         <Show when={props.repo}>{(repo) => <RepoBar {...repo()} />}</Show>
 
-        <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
-          <div class="fc-command-menu">
+        <Show when={commandMenuOpen()}>
+          <div class="fc-command-menu" ref={menu}>
             <For each={filteredCommands()}>
               {(command) => (
                 <button class="fc-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
@@ -271,8 +290,8 @@ export const Composer: Component<ComposerProps> = (props) => {
           </div>
         </Show>
 
-        <Show when={commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0}>
-          <div class="fc-command-menu">
+        <Show when={mentionMenuOpen()}>
+          <div class="fc-command-menu" ref={menu}>
             <For each={fileResults()}>
               {(file) => (
                 <button class="fc-command-item" type="button" onClick={() => insertMention(file.path)}>
@@ -284,7 +303,11 @@ export const Composer: Component<ComposerProps> = (props) => {
           </div>
         </Show>
 
-        <div class="fc-input-wrap" classList={{ "fc-input-wrap-history": historyIndex() !== undefined }}>
+        <div
+          class="fc-input-wrap"
+          classList={{ "fc-input-wrap-history": historyIndex() !== undefined }}
+          ref={inputWrap}
+        >
           <Show when={historyIndex() !== undefined}>
             <div class="fc-input-history" aria-live="polite">
               {t("History {n}/{total}", { n: historyIndex()! + 1, total: props.history.length })}
@@ -361,6 +384,11 @@ export const Composer: Component<ComposerProps> = (props) => {
                   if (browseHistory(event.key === "ArrowUp" ? "up" : "down")) event.preventDefault()
                   return
                 }
+              }
+              if (event.key === "Escape" && (commandMenuOpen() || mentionMenuOpen())) {
+                event.preventDefault()
+                setDismissedAt(props.value)
+                return
               }
               if (event.key === "Escape" && historyIndex() !== undefined) {
                 event.preventDefault()
