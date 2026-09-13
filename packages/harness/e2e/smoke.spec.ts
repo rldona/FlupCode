@@ -261,24 +261,30 @@ test("double-clicking a sidebar edge restores its original width", async ({ page
   expect(await page.evaluate(() => localStorage.getItem("flupcode.sidebarWidth"))).toBe("280")
 })
 
-test("the slash command menu closes with Escape or a click outside, and typing opens it again", async ({ page }) => {
+test("the slash command menu closes with Escape or a click outside, and opens again", async ({ page }) => {
   await page.goto("/")
   const input = page.locator(".fc-composer textarea.fc-input")
   const menu = page.locator(".fc-command-menu")
   await input.fill("/")
   await expect(menu).toBeVisible()
+  // Closing drops the unfinished command.
   await input.press("Escape")
   await expect(menu).toHaveCount(0)
-  await expect(input).toHaveValue("/")
+  await expect(input).toHaveValue("")
 
-  await input.pressSequentially("s")
+  await input.pressSequentially("/se")
   await expect(menu).toBeVisible()
   await page.locator(".fc-greeting").click()
   await expect(menu).toHaveCount(0)
+  await expect(input).toHaveValue("")
 
-  await input.pressSequentially("e")
+  // Typing / again opens it, every time.
+  await input.pressSequentially("/")
   await expect(menu).toBeVisible()
-  // Picking a command still works.
+  await input.press("Escape")
+  await input.pressSequentially("/")
+  await expect(menu).toBeVisible()
+  await input.pressSequentially("se")
   await menu.getByText("/settings").click()
   await expect(input).toHaveValue("/settings ")
 })
