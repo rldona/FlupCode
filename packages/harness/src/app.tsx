@@ -349,6 +349,7 @@ export const App: Component = () => {
   // each finished turn. See reply-suggestion.ts and client.suggest.
   const [suggestionsOn, setSuggestionsOn] = createSignal(readStorage(STORAGE_KEYS.replySuggestions, true))
   const [suggestion, setSuggestion] = createSignal<{ sessionID: string; text: string }>()
+  const [suggestionModel, setSuggestionModel] = createSignal(readStorage(STORAGE_KEYS.suggestionModel, ""))
   let suggestedFor: string | undefined
   let suggestionRun = 0
   createEffect(() => {
@@ -379,8 +380,13 @@ export const App: Component = () => {
       const run = ++suggestionRun
       void (async () => {
         const client = createClient(serverUrl())
-        const configured = await client.suggest.smallModel().catch(() => undefined)
-        const model = pickSuggestionModel(configured, modelRef(), modelList())
+        // A model picked in Settings wins; otherwise the configured or a cheap small model.
+        const chosen = suggestionModel()
+        const slash = chosen.indexOf("/")
+        const model =
+          slash > 0
+            ? { providerID: chosen.slice(0, slash), id: chosen.slice(slash + 1) }
+            : pickSuggestionModel(await client.suggest.smallModel().catch(() => undefined), modelRef(), modelList())
         if (!model) return
         const raw = await client.suggest
           .reply({
@@ -2141,6 +2147,11 @@ export const App: Component = () => {
         showTools={showTools()}
         replySuggestions={suggestionsOn()}
         onToggleReplySuggestions={toggleSuggestions}
+        suggestionModel={suggestionModel()}
+        onSuggestionModel={(key) => {
+          setSuggestionModel(key)
+          writeStorage(STORAGE_KEYS.suggestionModel, key)
+        }}
         notifications={notifications()}
         paletteKey={paletteKey()}
         onTheme={updateTheme}
