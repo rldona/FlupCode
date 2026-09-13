@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
+import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
@@ -8,6 +8,7 @@ import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
+import { stepHistory } from "../prompt-history"
 
 type ComposerProps = {
   value: string
@@ -41,6 +42,8 @@ type ComposerProps = {
   permissionMode: string
   /** Suggested next message, shown greyed while the input is empty; Tab accepts it. */
   suggestion?: string
+  /** Prompts sent before, oldest first; ↑ and ↓ walk through them. */
+  history: string[]
   onInput: (value: string) => void
   onSend: () => void
   onOpenModelPicker: () => void
@@ -99,6 +102,33 @@ export const Composer: Component<ComposerProps> = (props) => {
   const [listening, setListening] = createSignal(false)
   const [dragging, setDragging] = createSignal(false)
   const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
+  // Browsing sent prompts: the one shown, and the draft to return to past the newest.
+  const [historyIndex, setHistoryIndex] = createSignal<number>()
+  let historyDraft = ""
+
+  // Editing or sending the recalled prompt leaves the history.
+  createEffect(() => {
+    const index = historyIndex()
+    if (index !== undefined && props.value !== props.history[index]) setHistoryIndex(undefined)
+  })
+
+  const browseHistory = (direction: "up" | "down") => {
+    const current = historyIndex()
+    const next = stepHistory(props.history.length, current, direction)
+    if (next === current) return false
+    if (current === undefined) historyDraft = props.value
+    batch(() => {
+      setHistoryIndex(next)
+      props.onInput(next === undefined ? historyDraft : props.history[next]!)
+    })
+    const caret = direction === "up" ? 0 : undefined
+    requestAnimationFrame(() => {
+      if (!input) return
+      const at = caret ?? input.value.length
+      input.setSelectionRange(at, at)
+    })
+    return true
+  }
 
   onCleanup(() => recognition?.stop())
 
@@ -246,7 +276,12 @@ export const Composer: Component<ComposerProps> = (props) => {
           </div>
         </Show>
 
-        <div class="fc-input-wrap">
+        <div class="fc-input-wrap" classList={{ "fc-input-wrap-history": historyIndex() !== undefined }}>
+          <Show when={historyIndex() !== undefined}>
+            <div class="fc-input-history" aria-live="polite">
+              {t("History {n}/{total}", { n: historyIndex()! + 1, total: props.history.length })}
+            </div>
+          </Show>
           <Show when={props.attachments.length > 0}>
             <div class="fc-dock-attachments">
               <For each={props.attachments}>
@@ -305,6 +340,26 @@ export const Composer: Component<ComposerProps> = (props) => {
               if (event.key === "Tab" && !event.shiftKey && props.suggestion && !props.value) {
                 event.preventDefault()
                 props.onInput(props.suggestion)
+                return
+              }
+              const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !event.isComposing
+              if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
+                const target = event.currentTarget
+                const collapsed = target.selectionStart === target.selectionEnd
+                const browsing = historyIndex() !== undefined
+                // Like a shell: ↑ recalls from the first line, and while browsing both arrows keep walking.
+                const onFirstLine = collapsed && !target.value.slice(0, target.selectionStart).includes("\n")
+                if (event.key === "ArrowUp" ? browsing || onFirstLine : browsing) {
+                  if (browseHistory(event.key === "ArrowUp" ? "up" : "down")) event.preventDefault()
+                  return
+                }
+              }
+              if (event.key === "Escape" && historyIndex() !== undefined) {
+                event.preventDefault()
+                batch(() => {
+                  setHistoryIndex(undefined)
+                  props.onInput(historyDraft)
+                })
                 return
               }
               if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {

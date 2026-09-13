@@ -5682,3 +5682,16 @@ button.fc-row-main {
   pointer-events: none;
   animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
 }
+
+/* Prompt history (↑/↓ in the input), like Claude Code's "History 3/12" */
+.fc-input-history {
+  padding: 10px 16px 0;
+  color: var(--fc-text-muted);
+  font: 500 12px/16px var(--fc-font-ui);
+  user-select: none;
+  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.fc-input-wrap-history .fc-input {
+  padding-top: 4px;
+}
