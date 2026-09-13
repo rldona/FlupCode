@@ -121,12 +121,11 @@ export const Composer: Component<ComposerProps> = (props) => {
       setHistoryIndex(next)
       props.onInput(next === undefined ? historyDraft : props.history[next]!)
     })
-    const caret = direction === "up" ? 0 : undefined
-    requestAnimationFrame(() => {
-      if (!input) return
-      const at = caret ?? input.value.length
+    // The batch has already written the value, so the caret moves before the next key can land.
+    if (input) {
+      const at = direction === "up" ? 0 : input.value.length
       input.setSelectionRange(at, at)
-    })
+    }
     return true
   }
 
