@@ -575,7 +575,7 @@ button.fc-row-main {
 .fc-chip {
   display: inline-flex;
   align-items: center;
-  height: 24px;
+  height: var(--fc-control-h);
   padding: 0 10px;
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-pill);
@@ -911,14 +911,15 @@ button.fc-row-main {
 .fc-modal-backdrop {
   position: fixed;
   inset: 0;
-  left: var(--fc-content-left, 0px);
-  right: var(--fc-content-right, 0px);
   z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: var(--fc-space-4);
-  background: rgb(0 0 0 / 0.35);
+  padding-left: calc(var(--fc-space-4) + var(--fc-content-left, 0px));
+  padding-right: calc(var(--fc-space-4) + var(--fc-content-right, 0px));
+  background: rgb(0 0 0 / 0.5);
+  backdrop-filter: blur(2px);
 }
 
 .fc-modal {
