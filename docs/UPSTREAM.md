@@ -21,8 +21,14 @@ fighting merge conflicts.
 > Upstream's default branch is `dev` (not `main`), so our mirror is `dev` too. There is no `main`.
 
 `power` contains only additive changes plus a small number of deliberately-owned files
-(`README.md`, `docs/**`, `packages/harness/**`, `.github/workflows/upstream-sync.yml`). Because we
-never edit upstream packages, merges are almost always clean.
+(`README.md`, `CONTRIBUTING.md`, `SECURITY.md`, `docs/**`, `packages/harness/**`,
+`.github/workflows/upstream-sync.yml`). Because we never edit upstream packages, merges are almost
+always clean.
+
+Some upstream root files are removed on `power` because they describe OpenCode, not FlupCode: the
+README translations (`README.*.md`) and `STATS.md`. If an upstream change touches one of them, the
+merge reports a modify/delete conflict; resolve it by keeping them deleted (`git rm <file>`). The
+package READMEs under `packages/` stay: they document upstream code we still ship.
 
 ## Sync workflow
 
