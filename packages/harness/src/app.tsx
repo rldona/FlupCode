@@ -6,7 +6,14 @@ import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./clien
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
-import { SUGGESTION_SYSTEM, buildSuggestionPrompt, cleanSuggestion, pickSuggestionModel } from "./reply-suggestion"
+import {
+  SUGGESTION_SESSION_TTL,
+  SUGGESTION_SYSTEM,
+  buildSuggestionPrompt,
+  cleanSuggestion,
+  isSuggestionSession,
+  pickSuggestionModel,
+} from "./reply-suggestion"
 import { promptHistory, recordPrompt } from "./prompt-history"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import type { ModelInfo } from "./engine-types"
@@ -195,7 +202,8 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).session.list(),
   )
-  const sessionList = () => sessions()?.data
+  // Reply suggestions run in throwaway child sessions that are never shown.
+  const sessionList = () => sessions()?.data?.filter((session) => !isSuggestionSession(session))
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
   // Chat / Code tabs. Chats are sessions in the engine's state folder; see chat.ts.
   const [view, setView] = createSignal<AppView>(readStorage<AppView>(STORAGE_KEYS.view, "code"))
@@ -495,6 +503,25 @@ export const App: Component = () => {
     },
     async (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
   )
+  const subagents = () => children()?.data?.filter((session) => !isSuggestionSession(session))
+
+  // A tab closed while a suggestion ran leaves its session behind: delete those once they are stale.
+  const removedSuggestions = new Set<string>()
+  createEffect(() => {
+    if (!ready()) return
+    const stale = [...(sessions()?.data ?? []), ...(children()?.data ?? [])].filter(
+      (session) =>
+        isSuggestionSession(session) &&
+        Date.now() - session.time.created > SUGGESTION_SESSION_TTL &&
+        !removedSuggestions.has(session.id),
+    )
+    if (stale.length === 0) return
+    const current = createClient(serverUrl())
+    for (const session of stale) {
+      removedSuggestions.add(session.id)
+      void current.session.remove({ sessionID: session.id }).catch(() => undefined)
+    }
+  })
 
   const allTodos = () => {
     const data = activeMessages() ?? []
@@ -2050,7 +2077,7 @@ export const App: Component = () => {
             </button>
           </div>
         </Show>
-        <SubagentList sessions={children()?.data} onOpen={selectSession} />
+        <SubagentList sessions={subagents()} onOpen={selectSession} />
         <Show
           when={selected()}
           fallback={
