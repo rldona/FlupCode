@@ -21,6 +21,29 @@ type TopbarProps = {
   remote?: { name: string; connected: boolean; onOpen: () => void }
 }
 
+/** Top bar icons share one size and stroke so every button reads the same. */
+export const TopIcon: Component<{ d: string }> = (props) => (
+  <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+    <path
+      d={props.d}
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+  </svg>
+)
+
+export const TopbarIcons = {
+  sidebar: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM9 4v16",
+  back: "M19 12H5M11 6l-6 6 6 6",
+  forward: "M5 12h14M13 6l6 6-6 6",
+  files: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8ZM14 3v5h5M9 13h6M9 17h4",
+  browser: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM3 9h18",
+  menu: "M5 12h.01M12 12h.01M19 12h.01",
+}
+
 export const Topbar: Component<TopbarProps> = (props) => {
   const status = () => {
     if (props.healthLoading) return t("Connecting")
@@ -33,10 +56,10 @@ export const Topbar: Component<TopbarProps> = (props) => {
     <header class="fc-topbar">
       <div class="fc-topbar-left">
         <button class="fc-nav-arrow" type="button" title={t("Toggle sidebar")} onClick={props.onToggleSidebar}>
-          ▤
+          <TopIcon d={TopbarIcons.sidebar} />
         </button>
         <button class="fc-nav-arrow" type="button" title={t("Back")} disabled={!props.canGoBack} onClick={props.onBack}>
-          ←
+          <TopIcon d={TopbarIcons.back} />
         </button>
         <button
           class="fc-nav-arrow"
@@ -45,7 +68,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
           disabled={!props.canGoForward}
           onClick={props.onForward}
         >
-          →
+          <TopIcon d={TopbarIcons.forward} />
         </button>
         {props.sessionTitle}
       </div>
@@ -59,7 +82,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
           aria-label={t("Files changed")}
           onClick={() => props.onTogglePanel("diff")}
         >
-          ▤
+          <TopIcon d={TopbarIcons.files} />
         </button>
         <button
           class="fc-nav-arrow"
@@ -69,7 +92,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
           aria-label={t("Browser")}
           onClick={() => props.onTogglePanel("browser")}
         >
-          ◱
+          <TopIcon d={TopbarIcons.browser} />
         </button>
         <button
           class="fc-nav-arrow"
