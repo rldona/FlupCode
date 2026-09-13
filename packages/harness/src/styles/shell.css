@@ -33,9 +33,26 @@ textarea {
   font: inherit;
 }
 
+:root {
+  /* One focus look everywhere: the dock's grey border, never the accent blue. */
+  --fc-focus-border: color-mix(in srgb, var(--fc-text-muted) 60%, var(--fc-border));
+}
+
 :focus-visible {
-  outline: 2px solid var(--fc-accent);
+  outline: 2px solid var(--fc-focus-border);
   outline-offset: 2px;
+}
+
+/* Text fields show focus with their border, like the dock's input. */
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]):focus,
+input:not([type="checkbox"], [type="radio"], [type="range"], [type="color"]):focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+[contenteditable="true"]:focus-visible {
+  outline: none;
+  border-color: var(--fc-focus-border);
 }
 
 .fc-app {
@@ -635,6 +652,7 @@ button.fc-row-main {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: var(--fc-space-3);
+  margin-top: var(--fc-space-3);
   max-height: min(60vh, 520px);
   overflow-y: auto;
 }
@@ -735,8 +753,8 @@ button.fc-row-main {
 }
 
 .fc-input:focus {
-  outline: 2px solid var(--fc-accent);
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--fc-focus-border);
 }
 
 .fc-send {
@@ -4696,7 +4714,7 @@ button.fc-row-main {
 }
 
 .fc-composer .fc-input-wrap:focus-within {
-  border-color: color-mix(in srgb, var(--fc-text-muted) 60%, var(--fc-border));
+  border-color: var(--fc-focus-border);
 }
 
 .fc-composer .fc-input {
