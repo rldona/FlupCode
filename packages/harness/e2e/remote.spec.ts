@@ -55,6 +55,19 @@ test.beforeAll(async () => {
     if (request.url?.startsWith("/api/session?") || request.url === "/api/session")
       return response.end(JSON.stringify({ data: [e2eSession], cursor: {} }))
     if (request.url?.startsWith("/vcs?")) return response.end(JSON.stringify({ branch: "main" }))
+    if (request.url?.startsWith("/api/model"))
+      return response.end(
+        JSON.stringify({
+          data: [
+            {
+              id: "e2e-model",
+              providerID: "e2e",
+              name: "E2E Model",
+              variants: [{ id: "low" }, { id: "high" }, { id: "xhigh" }],
+            },
+          ],
+        }),
+      )
     if (request.url?.startsWith("/permission?"))
       return response.end(JSON.stringify([{ id: "per_1", sessionID: e2eSession.id }]))
     response.statusCode = 404
@@ -208,6 +221,15 @@ test.describe("on a phone", () => {
     await expect(sheet.getByRole("button", { name: "Camera" })).toBeVisible()
     await sheet.getByRole("button", { name: "Close" }).click()
     await expect(sheet).toHaveCount(0)
+    // Effort sits next to the model, with readable levels, and shows in the model pill.
+    await dock.getByRole("button", { name: "Model" }).click()
+    const models = page.getByRole("dialog", { name: "Select model" })
+    await expect(models.getByRole("button", { name: /E2E Model/ })).toBeVisible()
+    await models.getByRole("button", { name: /Effort/ }).click()
+    const effort = page.getByRole("dialog", { name: "Effort" })
+    await expect(effort.locator(".fc-sheet-option-label")).toHaveText(["Default", "Low", "High", "Extra"])
+    await effort.getByRole("button", { name: "High" }).click()
+    await expect(dock.getByRole("button", { name: "Model" })).toContainText("E2E ModelHigh")
     await page.getByRole("button", { name: "Back" }).click()
     await expect(home).toBeVisible()
 
