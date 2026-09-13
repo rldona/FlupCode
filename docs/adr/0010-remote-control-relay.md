@@ -106,7 +106,9 @@ Frames: `[type u8][stream u32][payload]`.
 - Works across networks with no inbound ports, and the relay operator cannot read sessions.
 - New operational surface: the relay must be deployed (Docker; Fly.io, Railway or a VPS) and its URL
   configured (`FLUPCODE_RELAY_URL`, default `wss://relay.flupcode.com`). Users can self-host it.
-- A paired phone has the same power as the local UI; revocation is the control.
+- A paired phone has the same power as the local UI; revocation is the control. Its device key
+  lives in the web app's `localStorage`, so an XSS on the app origin could steal it: keep the app's
+  Content Security Policy strict and never render untrusted HTML unsanitised.
 - WebCrypto needs a secure context: the phone must load the harness over HTTPS (or `localhost`).
 - The harness must route every engine call through the transport; raw `fetch`/`WebSocket` to the
   engine is no longer allowed.

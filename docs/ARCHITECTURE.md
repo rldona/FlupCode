@@ -76,9 +76,16 @@ FlupCode must respect upstream's layering:
                             └── HTTP + SSE ──▶ opencode server
  Web mode
    └── browser ── packages/harness ── HTTP + SSE ──▶ opencode serve (LAN/localhost)
- Mobile (later)
-   └── PWA ── same client ── HTTP + SSE ──▶ same server over LAN/mDNS
+ Remote control (ADR-0010)
+   phone PWA ── tunnel transport ══ E2E encrypted ══▶ relay ══▶ desktop main (host)
+                                                               └── HTTP + SSE + WS ──▶ opencode server
 ```
+
+- `packages/remote` — protocol shared by the three sides: secure channel, tunnel, relay framing,
+  pairing links and the desktop↔renderer bridge types.
+- `packages/relay` — the Bun relay server (Docker/Fly.io); it routes opaque frames only.
+- The harness sends every engine call through `src/transport.ts`, which the remote client swaps for
+  the tunnel.
 
 ## 4. Package conventions
 
