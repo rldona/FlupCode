@@ -6,7 +6,7 @@ import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./clien
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import type { ModelInfo } from "./engine-types"
-import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, SessionTags, StashedPrompt } from "./types"
+import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
@@ -20,7 +20,7 @@ import { CommandPalette } from "./components/CommandPalette"
 import { SessionView } from "./components/SessionView"
 import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
-import { RightAside } from "./components/RightAside"
+import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
 import { WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
 import { ModelPicker } from "./components/ModelPicker"
@@ -79,6 +79,9 @@ export const App: Component = () => {
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, false))
+  const [contextWidth, setContextWidth] = createSignal(
+    readStorage(STORAGE_KEYS.contextPanelWidth, CONTEXT_PANEL_WIDTH.default),
+  )
   const [narrow, setNarrow] = createSignal(typeof window !== "undefined" && window.innerWidth < 768)
   // Phones controlling a computer get their own layout: a sessions home and a focused session screen.
   const mobileRemote = () => touchDevice && !desktopRemote() && !!remote.activeHost()
@@ -142,7 +145,6 @@ export const App: Component = () => {
   const [artifactsOpen, setArtifactsOpen] = createSignal(false)
   const [skillsOpen, setSkillsOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
-  const [tags, setTags] = createSignal<SessionTags>(readStorage<SessionTags>(STORAGE_KEYS.sessionTags, {}))
   const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
   const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
   const [targetDirectory, setTargetDirectory] = createSignal<string>()
@@ -932,6 +934,11 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.contextPanelHidden, next)
   }
   const contextPanelShown = () => !!selectedSession() && !contextHidden()
+  const updateContextWidth = (width: number) => {
+    const next = Math.max(CONTEXT_PANEL_WIDTH.min, Math.min(CONTEXT_PANEL_WIDTH.max, Math.round(width)))
+    setContextWidth(next)
+    writeStorage(STORAGE_KEYS.contextPanelWidth, next)
+  }
 
   const updateSidebarWidth = (width: number) => {
     const next = Math.max(200, Math.min(480, Math.round(width)))
@@ -1054,24 +1061,6 @@ export const App: Component = () => {
   const copyPath = (path: string) => {
     void navigator.clipboard?.writeText(path)
     toast(t("Path copied"), "success")
-  }
-
-  const currentTags = () => tags()[selected() ?? ""] ?? []
-
-  const addTag = (value: string) => {
-    const sessionID = selected()
-    if (!sessionID) return
-    const next = { ...tags(), [sessionID]: [...(tags()[sessionID] ?? []), value] }
-    setTags(next)
-    writeStorage(STORAGE_KEYS.sessionTags, next)
-  }
-
-  const removeTag = (value: string) => {
-    const sessionID = selected()
-    if (!sessionID) return
-    const next = { ...tags(), [sessionID]: (tags()[sessionID] ?? []).filter((entry) => entry !== value) }
-    setTags(next)
-    writeStorage(STORAGE_KEYS.sessionTags, next)
   }
 
   const toggleNotifications = () => {
@@ -1687,7 +1676,7 @@ export const App: Component = () => {
         "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
         "--fc-content-right": mobileRemote()
           ? "0px"
-          : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? 300 : 0)}px`,
+          : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
       }}
     >
       <Show when={!mobileRemote()}>
@@ -1788,7 +1777,7 @@ export const App: Component = () => {
             sessionTitle={
               <Show when={selectedSession()}>
                 {(session) => (
-                  <SessionTitle session={session()} tags={currentTags()} onAddTag={addTag} onRemoveTag={removeTag} />
+                  <SessionTitle session={session()} />
                 )}
               </Show>
             }
@@ -1977,7 +1966,16 @@ export const App: Component = () => {
           onClose={closePanel}
         />
         <Show when={contextPanelShown() && selectedSession()}>
-          {(session) => <RightAside session={session()} models={modelList()} todos={todos()} />}
+          {(session) => (
+            <RightAside
+              session={session()}
+              models={modelList()}
+              todos={todos()}
+              width={contextWidth()}
+              onResize={updateContextWidth}
+              onHide={toggleContextPanel}
+            />
+          )}
         </Show>
       </Show>
       <CommandPalette
