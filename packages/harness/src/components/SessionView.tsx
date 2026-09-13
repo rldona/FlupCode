@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
@@ -247,6 +247,87 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> 
   )
 }
 
+const TOOL_KINDS: Record<string, "command" | "read" | "edit" | "search" | "fetch" | "tasks"> = {
+  bash: "command",
+  read: "read",
+  write: "edit",
+  edit: "edit",
+  multiedit: "edit",
+  apply_patch: "edit",
+  grep: "search",
+  glob: "search",
+  list: "search",
+  websearch: "search",
+  webfetch: "fetch",
+  todowrite: "tasks",
+}
+
+/** Claude Code-style summary of a run of tool calls: "Read 2 files, ran a command". */
+function toolGroupSummary(parts: SessionMessageAssistantTool[]) {
+  const counts = new Map<string, number>()
+  for (const part of parts) {
+    const kind = TOOL_KINDS[part.name] ?? "other"
+    counts.set(kind, (counts.get(kind) ?? 0) + 1)
+  }
+  const phrase = (kind: string, n: number) => {
+    const one = n === 1
+    switch (kind) {
+      case "command":
+        return one ? t("Ran a command") : t("Ran {n} commands", { n })
+      case "read":
+        return one ? t("Read a file") : t("Read {n} files", { n })
+      case "edit":
+        return one ? t("Edited a file") : t("Edited {n} files", { n })
+      case "search":
+        return one ? t("Searched once") : t("Searched {n} times", { n })
+      case "fetch":
+        return one ? t("Fetched a page") : t("Fetched {n} pages", { n })
+      case "tasks":
+        return t("Updated tasks")
+      default:
+        return one ? t("Used a tool") : t("Used {n} tools", { n })
+    }
+  }
+  return [...counts.entries()]
+    .map(([kind, n], index) => {
+      const text = phrase(kind, n)
+      return index === 0 ? text : text.charAt(0).toLowerCase() + text.slice(1)
+    })
+    .join(", ")
+}
+
+/**
+ * Consecutive tool calls collapse into one line that shimmers while they run. The line opens the
+ * list of calls, and each call opens its detail.
+ */
+const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) => {
+  const [open, setOpen] = createSignal(false)
+  const running = () => props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
+  const failed = () => props.parts.some((part) => part.state.status === "error")
+  return (
+    <div class="fc-toolgroup" classList={{ "fc-toolgroup-running": running(), "fc-toolgroup-open": open() }}>
+      <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
+        <span class="fc-toolgroup-label">{toolGroupSummary(props.parts)}</span>
+        <Show when={failed()}>
+          <span class="fc-toolgroup-failed">{t("error")}</span>
+        </Show>
+        <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" />
+        </svg>
+      </button>
+      <Show when={open()}>
+        <div class="fc-toolgroup-list">
+          <Index each={props.parts}>{(part) => <ToolCall part={part()} live={false} />}</Index>
+        </div>
+      </Show>
+    </div>
+  )
+}
+
+type AssistantSegment =
+  | { kind: "part"; part: SessionMessageAssistant["content"][number] }
+  | { kind: "tools"; parts: SessionMessageAssistantTool[] }
+
 function formatDuration(ms: number) {
   const seconds = Math.round(ms / 1000)
   if (seconds < 60) return `${seconds}s`
@@ -313,6 +394,21 @@ const TurnFooter: Component<{
   )
 }
 
+function assistantSegments(message: SessionMessageAssistant, showTools: boolean): AssistantSegment[] {
+  const segments: AssistantSegment[] = []
+  for (const part of message.content) {
+    if (part.type === "tool") {
+      if (!showTools) continue
+      const last = segments[segments.length - 1]
+      if (last?.kind === "tools") last.parts.push(part as SessionMessageAssistantTool)
+      else segments.push({ kind: "tools", parts: [part as SessionMessageAssistantTool] })
+      continue
+    }
+    segments.push({ kind: "part", part })
+  }
+  return segments
+}
+
 const AssistantMessage: Component<{
   message: SessionMessageAssistant
   showTools: boolean
@@ -326,25 +422,32 @@ const AssistantMessage: Component<{
     <Show when={props.showRole}>
       <div class="fc-message-role">{props.message.agent}</div>
     </Show>
-    <For each={props.message.content}>
-      {(part) => (
-        <Show when={props.showTools || part.type !== "tool"}>
-          <Show
-            when={part.type === "tool"}
-            fallback={
-              <Show
-                when={part.type === "reasoning"}
-                fallback={<Markdown class="fc-message-text" text={(part as SessionMessageAssistantText).text} />}
-              >
-                <ReasoningBlock part={part as SessionMessageAssistantReasoning} streaming={props.streaming} />
-              </Show>
-            }
-          >
-            <ToolCall part={part as SessionMessageAssistantTool} live={props.live} />
-          </Show>
+    {/* Index keeps each group mounted while the message streams, so an opened group stays open. */}
+    <Index each={assistantSegments(props.message, props.showTools)}>
+      {(segment) => (
+        <Show
+          when={segment().kind === "tools"}
+          fallback={
+            <Show
+              when={(segment() as { part: { type: string } }).part.type === "reasoning"}
+              fallback={
+                <Markdown
+                  class="fc-message-text"
+                  text={((segment() as { part: SessionMessageAssistantText }).part.text ?? "")}
+                />
+              }
+            >
+              <ReasoningBlock
+                part={(segment() as { part: SessionMessageAssistantReasoning }).part}
+                streaming={props.streaming}
+              />
+            </Show>
+          }
+        >
+          <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
         </Show>
       )}
-    </For>
+    </Index>
     <Show when={props.message.error}>
       <div class="fc-message-error">{t("Error generating the response")}</div>
     </Show>
