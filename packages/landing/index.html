@@ -308,24 +308,24 @@
           <div class="steps">
             <div class="step reveal">
               <span class="step-no">01</span>
-              <h3>Install</h3>
-              <p>Clone the repo and install with Bun.</p>
-              <pre class="codeblock"><code>bun install</code><button class="copy" data-copy="#s1">Copy</button></pre>
-              <span id="s1" hidden>git clone https://github.com/rldona/FlupCode &amp;&amp; cd FlupCode &amp;&amp; bun install</span>
+              <h3>Install the engine</h3>
+              <p>Install the OpenCode CLI for your platform — or grab the desktop app.</p>
+              <pre class="codeblock"><code>https://opencode.ai/docs</code><button class="copy" data-copy="#s1">Copy</button></pre>
+              <span id="s1" hidden>https://opencode.ai/docs</span>
             </div>
             <div class="step reveal">
               <span class="step-no">02</span>
               <h3>Run the engine</h3>
-              <p>Start the OpenCode server on a port.</p>
-              <pre class="codeblock"><code>opencode serve --port 4096</code><button class="copy" data-copy="#s2">Copy</button></pre>
-              <span id="s2" hidden>opencode serve --port 4096</span>
+              <p>Start the OpenCode server and allow the hosted origin.</p>
+              <pre class="codeblock"><code>opencode serve --port 4096 --cors https://app.flupcode.com</code><button class="copy" data-copy="#s2">Copy</button></pre>
+              <span id="s2" hidden>opencode serve --port 4096 --cors https://app.flupcode.com</span>
             </div>
             <div class="step reveal">
               <span class="step-no">03</span>
               <h3>Open the harness</h3>
-              <p>Launch the web app — or the desktop app — and connect.</p>
-              <pre class="codeblock"><code>bun run dev:harness</code><button class="copy" data-copy="#s3">Copy</button></pre>
-              <span id="s3" hidden>bun run dev:harness   # web · bun run dev:desktop for Electron</span>
+              <p>Open the web app, or launch the desktop app, and connect.</p>
+              <pre class="codeblock"><code>https://app.flupcode.com</code><button class="copy" data-copy="#s3">Copy</button></pre>
+              <span id="s3" hidden>https://app.flupcode.com   # or download the desktop app</span>
             </div>
           </div>
         </div>
