@@ -50,6 +50,9 @@ import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { MobileComposer } from "./components/MobileComposer"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
+import { SessionPane } from "./components/SessionPane"
+import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
+import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
 
 type Client = ReturnType<typeof createClient>
@@ -700,6 +703,7 @@ export const App: Component = () => {
             const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
             trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
             if (type === "session.next.step.started") {
+              if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
               if (payload?.sessionID === selected()) {
                 setStreamedChars(0)
                 setLiveText("")
@@ -708,6 +712,14 @@ export const App: Component = () => {
               scheduleRefetch(true, false)
             } else if (type.endsWith(".delta")) {
               const delta = payload?.delta
+              if (payload?.sessionID && typeof delta === "string" && (type.includes("text") || type.includes("reasoning"))) {
+                publishSessionEvent({
+                  kind: "live",
+                  sessionID: payload.sessionID,
+                  field: type.includes("reasoning") ? "reasoning" : "text",
+                  delta,
+                })
+              }
               if (payload?.sessionID === selected() && typeof delta === "string") {
                 setStreamedChars((value) => value + delta.length)
                 if (type.includes("reasoning")) setLiveReasoning((value) => value + delta)
@@ -715,7 +727,10 @@ export const App: Component = () => {
               }
               continue
             }
-            if (type.startsWith("permission.") || type.startsWith("question.")) setActivityTick((value) => value + 1)
+            if (type.startsWith("permission.") || type.startsWith("question.")) {
+              setActivityTick((value) => value + 1)
+              publishSessionEvent({ kind: "requests" })
+            }
             if (type.startsWith("permission.")) {
               if (type === "permission.v2.asked") notify(t("Permission needed"), "")
               void refetchPermissions()
@@ -731,6 +746,13 @@ export const App: Component = () => {
                   legacy.data?.sessionID ?? legacy.data?.info?.sessionID ?? legacy.data?.part?.sessionID,
                 )
               }
+              const changed = event as {
+                data?: { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
+              }
+              publishSessionEvent({
+                kind: "changed",
+                sessionID: changed.data?.sessionID ?? changed.data?.info?.sessionID ?? changed.data?.part?.sessionID,
+              })
               scheduleRefetch(true, type === "session.next.step.ended")
             } else if (type.startsWith("session.")) {
               scheduleRefetch(false, true)
@@ -740,7 +762,10 @@ export const App: Component = () => {
           if (controller.signal.aborted) return
         }
         await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
-        if (!controller.signal.aborted) scheduleRefetch(true, true)
+        if (!controller.signal.aborted) {
+          scheduleRefetch(true, true)
+          publishSessionEvent({ kind: "changed" })
+        }
       }
     })()
   })
@@ -754,6 +779,8 @@ export const App: Component = () => {
     onCleanup(() => controller.abort())
     // Text and reasoning deltas both say `field: "text"`; the part's type comes with its first update.
     const partTypes = new Map<string, string>()
+    // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
+    const lastUserMessage = new Map<string, string>()
     void (async () => {
       for (let attempt = 0; !controller.signal.aborted; attempt++) {
         try {
@@ -769,7 +796,7 @@ export const App: Component = () => {
                   delta?: string
                   status?: { type?: string }
                   partID?: string
-                  info?: { sessionID?: string; role?: string }
+                  info?: { id?: string; sessionID?: string; role?: string }
                   part?: { id?: string; sessionID?: string; type?: string }
                 }
               }
@@ -777,9 +804,12 @@ export const App: Component = () => {
             trackActivity(type, data)
             const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
             if (type === "message.part.delta") {
+              const part = partTypes.get(data?.partID ?? "")
+              if (sessionID && typeof data?.delta === "string" && (part === "text" || part === "reasoning")) {
+                publishSessionEvent({ kind: "live", sessionID, field: part, delta: data.delta })
+              }
               if (sessionID === selected() && typeof data?.delta === "string") {
                 const delta = data.delta
-                const part = partTypes.get(data.partID ?? "")
                 setStreamedChars((value) => value + delta.length)
                 if (part === "reasoning") setLiveReasoning((value) => value + delta)
                 else if (part === "text") setLiveText((value) => value + delta)
@@ -791,7 +821,18 @@ export const App: Component = () => {
             }
             if (type.startsWith("message.")) {
               // A new user message starts a turn: drop what streamed for the previous one.
-              if (type === "message.updated" && data?.info?.role === "user" && sessionID === selected()) {
+              const newTurn =
+                type === "message.updated" &&
+                data?.info?.role === "user" &&
+                !!sessionID &&
+                !!data.info.id &&
+                lastUserMessage.get(sessionID) !== data.info.id
+              if (newTurn && sessionID && data?.info?.id) {
+                lastUserMessage.set(sessionID, data.info.id)
+                publishSessionEvent({ kind: "turn", sessionID })
+              }
+              publishSessionEvent({ kind: "changed", sessionID })
+              if (newTurn && sessionID === selected()) {
                 setLiveText("")
                 setLiveReasoning("")
                 setStreamedChars(0)
@@ -1106,6 +1147,51 @@ export const App: Component = () => {
     setHistoryIndex(next.length - 1)
   }
 
+  // Split view: sessions side by side. The focused pane is the selected session; see split.ts.
+  const [splitPanes, setSplitPanes] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.splitPanes, []))
+  const splitActive = () => splitPanes().length >= 2 && !mobileRemote() && !narrow()
+  createEffect(() => writeStorage(STORAGE_KEYS.splitPanes, splitPanes()))
+  let paneFocus = untrack(() => (splitPanes().includes(selected() ?? "") ? selected() : undefined))
+  const openSplit = (id: string) => {
+    const next = openInSplit({ panes: splitActive() ? splitPanes() : [], focus: selected() }, id)
+    paneFocus = next.focus
+    setSplitPanes(next.panes)
+    if (next.focus) selectSession(next.focus)
+  }
+  const closeSplitPane = (id: string) => {
+    const next = closePane({ panes: splitPanes(), focus: selected() }, id)
+    paneFocus = next.focus
+    setSplitPanes(next.panes)
+    if (next.focus && next.focus !== selected()) selectSession(next.focus)
+  }
+  // Whatever opens a session while split (sidebar, palette, history) shows it in the focused pane;
+  // leaving the session (New, the other tab) leaves split view.
+  createEffect(() => {
+    const id = selected()
+    const panes = untrack(splitPanes)
+    if (panes.length < 2) return
+    if (!id) {
+      setSplitPanes([])
+      return
+    }
+    if (panes.includes(id)) {
+      paneFocus = id
+      return
+    }
+    const next = showInFocusedPane({ panes, focus: paneFocus }, id)
+    paneFocus = next.focus
+    setSplitPanes(next.panes)
+  })
+  createEffect(() => {
+    const list = sessions()?.data
+    const panes = splitPanes()
+    if (!list || sessions.loading || panes.length === 0) return
+    const next = keepExisting({ panes, focus: untrack(selected) }, (id) => list.some((session) => session.id === id))
+    if (next.panes.length === panes.length) return
+    paneFocus = next.focus
+    setSplitPanes(next.panes)
+    if (next.focus !== untrack(selected)) setSelected(next.focus)
+  })
   const changeTargetDirectory = (directory: string | undefined) => {
     setTargetDirectory(directory)
     if (!directory) {
@@ -1301,6 +1387,19 @@ export const App: Component = () => {
     setPaletteKey(value)
     writeStorage(STORAGE_KEYS.paletteKey, value)
   }
+
+  const readAttachments = (files: File[]) =>
+    Promise.all(
+      files.map(
+        (file) =>
+          new Promise<Attachment>((resolve) => {
+            const reader = new FileReader()
+            reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
+            reader.onerror = () => resolve({ uri: "", name: file.name })
+            reader.readAsDataURL(file)
+          }),
+      ),
+    ).then((items) => items.filter((item) => item.uri))
 
   const addAttachments = (files: File[]) => {
     void Promise.all(
@@ -1961,6 +2060,8 @@ export const App: Component = () => {
           onToggleProject={toggleProject}
           onNewSession={newSession}
           onSelectSession={selectSession}
+          onSplitSession={openSplit}
+          splitSessions={splitActive() ? splitPanes() : []}
           onDeleteSession={deleteSession}
           onRenameSession={renameSession}
           onDeleteProject={deleteProject}
@@ -2043,9 +2144,11 @@ export const App: Component = () => {
                   }
                 : undefined
             }
-            sessionTitle={<Show when={selectedSession()}>{(session) => <SessionTitle session={session()} />}</Show>}
+            sessionTitle={
+              <Show when={!splitActive() && selectedSession()}>{(session) => <SessionTitle session={session()} />}</Show>
+            }
             sessionActions={
-              <Show when={selectedSession()}>
+              <Show when={!splitActive() && selectedSession()}>
                 {(session) => (
                   <SessionActions
                     session={session()}
@@ -2077,161 +2180,205 @@ export const App: Component = () => {
             </button>
           </div>
         </Show>
-        <SubagentList sessions={subagents()} onOpen={selectSession} />
         <Show
-          when={selected()}
+          when={!splitActive()}
           fallback={
-            mobileRemote() ? (
-              mobileComposing() ? (
-                <div class="fc-mobile-new">
-                  <p class="fc-onboarding-text">
-                    {chatView() ? t("Write a message to start a chat.") : t("Describe a task to start a new session.")}
-                  </p>
-                </div>
-              ) : (
-                <RemoteHome
-                  view={view()}
-                  onViewChange={changeView}
-                  sessions={remoteSessions()}
-                  loading={sessions.loading}
-                  projects={projects()}
-                  onOpen={openMobileSession}
-                  onNew={startMobileSession}
-                  onAddDevice={() => setRemoteOpen(true)}
-                />
-              )
-            ) : chatView() ? (
-              <ChatHero displayName={displayName()} />
-            ) : (
-              <HomeCanvas
-                displayName={displayName()}
-                range={range()}
-                metrics={metrics()}
-                messages={messageCount()}
-                activity={activity()}
-                comparison={comparisonLine()}
-                error={error()}
-                onRangeChange={setRange}
-              />
-            )
+            <div class="fc-split">
+              {/* Keyed by id: the session list refreshes while sessions run, and a pane must keep its state. */}
+              <For each={splitPanes()}>
+                {(id) => (
+                  <Show when={sessionList()?.find((session) => session.id === id)}>
+                    {(session) => (
+                      <SessionPane
+                        session={session()}
+                        serverUrl={serverUrl()}
+                        focused={selected() === session().id}
+                        running={!!runState()[session().id]}
+                        chat={isChat(session())}
+                        chatsDirectory={chatsDirectory()}
+                        showTools={showTools()}
+                        models={modelList()}
+                        defaultModel={modelRef()}
+                        favorites={favorites()}
+                        agents={agents()?.data ?? []}
+                        agent={agent()}
+                        permissionModeId={permissionModeId()}
+                        projects={projects()}
+                        history={promptHistory()}
+                        modelName={modelName}
+                        searchFiles={searchFiles}
+                        collapsePaste={collapsePaste}
+                        expandPastes={expandPastes}
+                        readFiles={readAttachments}
+                        onFocus={() => selectSession(session().id)}
+                        onClose={() => closeSplitPane(session().id)}
+                        onOpenModelPicker={() => setModelPickerOpen(true)}
+                        onAgentChange={changeAgent}
+                        onPermissionModeChange={changePermissionMode}
+                      />
+                    )}
+                  </Show>
+                )}
+              </For>
+            </div>
           }
         >
-          <SessionView
-            messages={activeMessages()}
-            loading={messagesLoading()}
-            busy={generating()}
-            usage={liveUsage()}
-            startedAt={generationStartedAt()}
-            modelName={modelName}
-            liveText={liveText()}
-            liveReasoning={liveReasoning()}
-            showTools={showTools()}
-            chat={chatView()}
-            onEditUser={editMessage}
-          />
-        </Show>
-        <Show when={!mobileRemote() || mobileScreen() === "session"}>
-          <div class="fc-docks">
-            <For each={permissions()?.data ?? []}>
-              {(request) => (
-                <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
-              )}
-            </For>
-            <For each={questions()?.data ?? []}>
-              {(request) => (
-                <QuestionDock
-                  request={request}
-                  busy={busy()}
-                  onReply={(answers) => replyQuestion(request, answers)}
-                  onReject={() => rejectQuestion(request)}
-                />
-              )}
-            </For>
-          </div>
+          <SubagentList sessions={subagents()} onOpen={selectSession} />
           <Show
-            when={!mobileRemote()}
+            when={selected()}
             fallback={
-              <MobileComposer
+              mobileRemote() ? (
+                mobileComposing() ? (
+                  <div class="fc-mobile-new">
+                    <p class="fc-onboarding-text">
+                      {chatView() ? t("Write a message to start a chat.") : t("Describe a task to start a new session.")}
+                    </p>
+                  </div>
+                ) : (
+                  <RemoteHome
+                    view={view()}
+                    onViewChange={changeView}
+                    sessions={remoteSessions()}
+                    loading={sessions.loading}
+                    projects={projects()}
+                    onOpen={openMobileSession}
+                    onNew={startMobileSession}
+                    onAddDevice={() => setRemoteOpen(true)}
+                  />
+                )
+              ) : chatView() ? (
+                <ChatHero displayName={displayName()} />
+              ) : (
+                <HomeCanvas
+                  displayName={displayName()}
+                  range={range()}
+                  metrics={metrics()}
+                  messages={messageCount()}
+                  activity={activity()}
+                  comparison={comparisonLine()}
+                  error={error()}
+                  onRangeChange={setRange}
+                />
+              )
+            }
+          >
+            <SessionView
+              messages={activeMessages()}
+              loading={messagesLoading()}
+              busy={generating()}
+              usage={liveUsage()}
+              startedAt={generationStartedAt()}
+              modelName={modelName}
+              liveText={liveText()}
+              liveReasoning={liveReasoning()}
+              showTools={showTools()}
+              chat={chatView()}
+              onEditUser={editMessage}
+            />
+          </Show>
+          <Show when={!mobileRemote() || mobileScreen() === "session"}>
+            <div class="fc-docks">
+              <For each={permissions()?.data ?? []}>
+                {(request) => (
+                  <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
+                )}
+              </For>
+              <For each={questions()?.data ?? []}>
+                {(request) => (
+                  <QuestionDock
+                    request={request}
+                    busy={busy()}
+                    onReply={(answers) => replyQuestion(request, answers)}
+                    onReject={() => rejectQuestion(request)}
+                  />
+                )}
+              </For>
+            </div>
+            <Show
+              when={!mobileRemote()}
+              fallback={
+                <MobileComposer
+                  mode={view()}
+                  value={prompt()}
+                  sending={busy()}
+                  attachments={attachments()}
+                  models={modelList()}
+                  modelKey={modelKey()}
+                  modelLabel={modelLabel()}
+                  favorites={favorites()}
+                  variants={variants()}
+                  variantKey={variantKey()}
+                  agents={agents()?.data ?? []}
+                  agent={agent()}
+                  permissionMode={permissionModeId()}
+                  onInput={setPrompt}
+                  onSend={send}
+                  onAttach={addAttachments}
+                  onRemoveAttachment={removeAttachment}
+                  onModelChange={pickModel}
+                  onVariantChange={changeVariant}
+                  onAgentChange={changeAgent}
+                  onPermissionModeChange={changePermissionMode}
+                />
+              }
+            >
+              <Composer
                 mode={view()}
                 value={prompt()}
                 sending={busy()}
-                attachments={attachments()}
+                generating={!!selected() && generating()}
+                onStop={stopSession}
                 models={modelList()}
                 modelKey={modelKey()}
-                modelLabel={modelLabel()}
                 favorites={favorites()}
+                onModelChange={pickModel}
+                modelLabel={modelLabel()}
                 variants={variants()}
                 variantKey={variantKey()}
+                usage={contextUsage()}
+                repo={
+                  vcsDirectory() && !chatView()
+                    ? {
+                        directory: vcsDirectory()!,
+                        branch: vcsInfo()?.branch,
+                        additions: vcsTotals().additions,
+                        deletions: vcsTotals().deletions,
+                        onCommit: commitChanges,
+                        onClear: !selected() && targetDirectory() ? () => changeTargetDirectory(undefined) : undefined,
+                      }
+                    : undefined
+                }
+                attachments={attachments()}
+                commands={commandOptions()}
+                projects={projects()}
+                targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
                 agents={agents()?.data ?? []}
                 agent={agent()}
                 permissionMode={permissionModeId()}
-                onInput={setPrompt}
+                suggestion={currentSuggestion()}
+                history={promptHistory()}
+                onInput={(value) => {
+                  setPrompt(value)
+                  if (value) setSuggestion(undefined)
+                }}
                 onSend={send}
+                onCommandPick={(name) => setPrompt(`/${name} `)}
+                onOpenModelPicker={() => setModelPickerOpen(true)}
+                onVariantChange={changeVariant}
                 onAttach={addAttachments}
                 onRemoveAttachment={removeAttachment}
-                onModelChange={pickModel}
-                onVariantChange={changeVariant}
+                searchFiles={searchFiles}
+                onPasteText={collapsePaste}
+                onStash={() => stashPrompt(prompt(), true)}
+                onTargetChange={changeTargetDirectory}
+                onOpenFolder={() => setFolderOpen(true)}
                 onAgentChange={changeAgent}
                 onPermissionModeChange={changePermissionMode}
               />
-            }
-          >
-            <Composer
-              mode={view()}
-              value={prompt()}
-              sending={busy()}
-              generating={!!selected() && generating()}
-              onStop={stopSession}
-              models={modelList()}
-              modelKey={modelKey()}
-              favorites={favorites()}
-              onModelChange={pickModel}
-              modelLabel={modelLabel()}
-              variants={variants()}
-              variantKey={variantKey()}
-              usage={contextUsage()}
-              repo={
-                vcsDirectory() && !chatView()
-                  ? {
-                      directory: vcsDirectory()!,
-                      branch: vcsInfo()?.branch,
-                      additions: vcsTotals().additions,
-                      deletions: vcsTotals().deletions,
-                      onCommit: commitChanges,
-                      onClear: !selected() && targetDirectory() ? () => changeTargetDirectory(undefined) : undefined,
-                    }
-                  : undefined
-              }
-              attachments={attachments()}
-              commands={commandOptions()}
-              projects={projects()}
-              targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
-              agents={agents()?.data ?? []}
-              agent={agent()}
-              permissionMode={permissionModeId()}
-              suggestion={currentSuggestion()}
-              history={promptHistory()}
-              onInput={(value) => {
-                setPrompt(value)
-                if (value) setSuggestion(undefined)
-              }}
-              onSend={send}
-              onCommandPick={(name) => setPrompt(`/${name} `)}
-              onOpenModelPicker={() => setModelPickerOpen(true)}
-              onVariantChange={changeVariant}
-              onAttach={addAttachments}
-              onRemoveAttachment={removeAttachment}
-              searchFiles={searchFiles}
-              onPasteText={collapsePaste}
-              onStash={() => stashPrompt(prompt(), true)}
-              onTargetChange={changeTargetDirectory}
-              onOpenFolder={() => setFolderOpen(true)}
-              onAgentChange={changeAgent}
-              onPermissionModeChange={changePermissionMode}
-            />
-          </Show>
-          <Show when={chatView() && !selected() && !mobileRemote()}>
-            <ChatStarters onPick={(text) => setPrompt(text)} />
+            </Show>
+            <Show when={chatView() && !selected() && !mobileRemote()}>
+              <ChatStarters onPick={(text) => setPrompt(text)} />
+            </Show>
           </Show>
         </Show>
       </main>
