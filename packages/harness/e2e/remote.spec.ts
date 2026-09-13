@@ -199,6 +199,15 @@ test.describe("on a phone", () => {
     // The fake engine answers 404 for the transcript: the session screen must still open.
     await card.click()
     await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow")
+    // The phone dock: "+" opens attachments and settings as a bottom sheet.
+    const dock = page.locator(".fc-mobile-dock")
+    await expect(dock.getByPlaceholder("Type / for commands")).toBeVisible()
+    await expect(page.locator(".fc-composer")).toHaveCount(0)
+    await dock.getByRole("button", { name: "Add context" }).click()
+    const sheet = page.getByRole("dialog", { name: "Add context" })
+    await expect(sheet.getByRole("button", { name: "Camera" })).toBeVisible()
+    await sheet.getByRole("button", { name: "Close" }).click()
+    await expect(sheet).toHaveCount(0)
     await page.getByRole("button", { name: "Back" }).click()
     await expect(home).toBeVisible()
 
