@@ -5702,3 +5702,126 @@ button.fc-row-main {
   min-height: 42px;
   padding-top: 10px;
 }
+
+/* Chat / Code tabs, like Claude's: two icon tabs in one pill. */
+.fc-view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+  padding: 2px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+}
+
+.fc-view-tab {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--fc-text-muted);
+  transition:
+    background var(--fc-motion-fast),
+    color var(--fc-motion-fast);
+}
+
+.fc-view-tab:hover {
+  color: var(--fc-text);
+}
+
+.fc-view-tab-active {
+  background: color-mix(in srgb, var(--fc-text) 14%, var(--fc-bg-elevated));
+  color: var(--fc-text);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+/* The empty Chat tab: greeting, input and starters centred in the window. */
+.fc-main-chat-home .fc-chat-hero {
+  flex: 1 1 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  min-height: 0;
+  padding: 0 var(--fc-space-4) 28px;
+}
+
+.fc-chat-greeting {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
+  font-size: 34px;
+  font-weight: 400;
+  letter-spacing: -0.01em;
+  text-align: center;
+  animation: fc-rise-in 240ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.fc-chat-greeting-logo {
+  width: 34px;
+  height: 34px;
+}
+
+.fc-main-chat-home .fc-composer {
+  border-top: none;
+}
+
+.fc-chat-starters {
+  flex: 1 1 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-content: flex-start;
+  justify-content: center;
+  gap: 8px;
+  min-height: 0;
+  padding: 6px var(--fc-space-4) 0;
+}
+
+.fc-chat-starter {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--fc-border);
+  border-radius: 9px;
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text-muted);
+  font-size: 13px;
+  transition:
+    color var(--fc-motion-fast),
+    border-color var(--fc-motion-fast);
+}
+
+.fc-chat-starter:hover {
+  color: var(--fc-text);
+  border-color: color-mix(in srgb, var(--fc-text) 25%, var(--fc-border));
+}
+
+/* Phones: the tabs sit next to the home title. */
+.fc-remote-home-top {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+}
+
+.fc-remote-home-top .fc-view-tabs {
+  margin-bottom: 6px;
+}
+
+.fc-remote-home-top .fc-view-tab {
+  width: 40px;
+  height: 32px;
+}
+
+.fc-message-stopped {
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}

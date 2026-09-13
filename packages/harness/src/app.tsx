@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type Component } from "solid-js"
 import { createResource } from "./resource"
 import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } from "./engine-types"
 import type { SessionMessageAssistant } from "./engine-types"
@@ -8,6 +8,7 @@ import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRan
 import { usageResetAt } from "./usage-reset"
 import { SUGGESTION_SYSTEM, buildSuggestionPrompt, cleanSuggestion, pickSuggestionModel } from "./reply-suggestion"
 import { promptHistory, recordPrompt } from "./prompt-history"
+import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
@@ -41,6 +42,7 @@ import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { MobileComposer } from "./components/MobileComposer"
+import { ChatHero, ChatStarters } from "./components/ChatHome"
 import { engineFetch } from "./transport"
 
 type Client = ReturnType<typeof createClient>
@@ -195,6 +197,41 @@ export const App: Component = () => {
   )
   const sessionList = () => sessions()?.data
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
+  // Chat / Code tabs. Chats are sessions in the engine's state folder; see chat.ts.
+  const [view, setView] = createSignal<AppView>(readStorage<AppView>(STORAGE_KEYS.view, "code"))
+  const chatView = () => view() === "chat"
+  const [enginePaths] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    (url) =>
+      createClient(url)
+        .paths()
+        .catch(() => undefined),
+  )
+  const chatsDirectory = () => enginePaths()?.state
+  const isChat = (session: { location?: { directory?: string } } | undefined) =>
+    !!session && isChatSession(session, chatsDirectory())
+  const viewSessions = () => sessionList()?.filter((session) => isChat(session) === chatView())
+  const changeView = (next: AppView) => {
+    if (next === view()) return
+    setView(next)
+    writeStorage(STORAGE_KEYS.view, next)
+    // The open session belongs to the other tab: start from this tab's home.
+    if (selected() && isChat(selectedSession()) !== (next === "chat")) {
+      setSelected(undefined)
+      setTargetDirectory(undefined)
+      setMobileComposing(false)
+    }
+  }
+  // Opening a session from anywhere (palette, history, a notification) shows its tab.
+  createEffect(() => {
+    const session = selectedSession()
+    if (!session || !chatsDirectory()) return
+    const kind: AppView = isChat(session) ? "chat" : "code"
+    if (kind !== untrack(view)) {
+      setView(kind)
+      writeStorage(STORAGE_KEYS.view, kind)
+    }
+  })
   const modelLocation = () => targetDirectory() ?? selectedSession()?.location?.directory
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
@@ -681,6 +718,73 @@ export const App: Component = () => {
     })()
   })
 
+  // Chats run through the legacy prompt, whose deltas and status only stream on their folder's events.
+  createEffect(() => {
+    const directory = chatsDirectory()
+    if (!ready() || !directory) return
+    const url = serverUrl()
+    const controller = new AbortController()
+    onCleanup(() => controller.abort())
+    // Text and reasoning deltas both say `field: "text"`; the part's type comes with its first update.
+    const partTypes = new Map<string, string>()
+    void (async () => {
+      for (let attempt = 0; !controller.signal.aborted; attempt++) {
+        try {
+          const stream = createClient(url).event.subscribeDirectory(directory, { signal: controller.signal })
+          for await (const event of stream) {
+            attempt = 0
+            const type = event.type ?? ""
+            const data = (
+              event as {
+                data?: {
+                  sessionID?: string
+                  field?: string
+                  delta?: string
+                  status?: { type?: string }
+                  partID?: string
+                  info?: { sessionID?: string; role?: string }
+                  part?: { id?: string; sessionID?: string; type?: string }
+                }
+              }
+            ).data
+            trackActivity(type, data)
+            const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
+            if (type === "message.part.delta") {
+              if (sessionID === selected() && typeof data?.delta === "string") {
+                const delta = data.delta
+                const part = partTypes.get(data.partID ?? "")
+                setStreamedChars((value) => value + delta.length)
+                if (part === "reasoning") setLiveReasoning((value) => value + delta)
+                else if (part === "text") setLiveText((value) => value + delta)
+              }
+              continue
+            }
+            if (type === "message.part.updated" && data?.part?.id && data.part.type) {
+              partTypes.set(data.part.id, data.part.type)
+            }
+            if (type.startsWith("message.")) {
+              // A new user message starts a turn: drop what streamed for the previous one.
+              if (type === "message.updated" && data?.info?.role === "user" && sessionID === selected()) {
+                setLiveText("")
+                setLiveReasoning("")
+                setStreamedChars(0)
+              }
+              invalidateLegacyHistory(sessionID)
+              scheduleRefetch(true, false)
+            } else if (type === "session.idle") {
+              scheduleRefetch(true, true)
+            } else if (type.startsWith("session.")) {
+              scheduleRefetch(false, true)
+            }
+          }
+        } catch {
+          if (controller.signal.aborted) return
+        }
+        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+      }
+    })()
+  })
+
   createEffect(() => {
     selected()
     setLiveText("")
@@ -812,7 +916,7 @@ export const App: Component = () => {
     const map = new Map<string, ProjectItem>()
     for (const session of sessionList() ?? []) {
       const directory = session.location?.directory
-      if (!directory) continue
+      if (!directory || isChat(session)) continue
       if (map.has(directory)) continue
       map.set(directory, {
         id: session.projectID || directory,
@@ -875,7 +979,7 @@ export const App: Component = () => {
     const activity = remoteActivity.latest
     const runs = runState()
     return (sessionList() ?? [])
-      .filter((session) => !session.parentID && !session.time.archived)
+      .filter((session) => !session.parentID && !session.time.archived && isChat(session) === chatView())
       .sort((a, b) => b.time.updated - a.time.updated)
       .map((session) => {
         const directory = session.location?.directory
@@ -883,7 +987,7 @@ export const App: Component = () => {
         return {
           id: session.id,
           title: session.title,
-          project: directory?.split("/").filter(Boolean).at(-1),
+          project: isChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
           branch: directory ? activity?.branches[directory] : undefined,
           updated: session.time.updated,
           state: activity?.waiting.has(session.id) ? "waiting" : running ? "busy" : "idle",
@@ -1336,8 +1440,10 @@ export const App: Component = () => {
   const stopSession = () => {
     const sessionID = selected()
     if (!sessionID) return
+    const chatsFolder = chatsDirectory()
     void run(async (current) => {
-      await current.session.interrupt({ sessionID })
+      if (chatsFolder && isChat(selectedSession())) await current.session.abort({ sessionID, directory: chatsFolder })
+      else await current.session.interrupt({ sessionID })
       return undefined
     })
   }
@@ -1612,11 +1718,43 @@ export const App: Component = () => {
     return line.length > 60 ? `${line.slice(0, 57)}…` : line
   }
 
+  // Chats have no commands or shell: everything typed is the message.
+  const sendChat = (text: string, files: Attachment[]) => {
+    const directory = chatsDirectory()
+    if (!directory) {
+      setError(t("Chats are not available: the engine did not report its folders"))
+      return
+    }
+    void run(async (current) => {
+      const model = selectedModel()
+      const existing = selected()
+      const sessionID =
+        existing ?? (await current.session.create({ ...(model ? { model } : {}), location: { directory } })).id
+      if (!existing) {
+        await current.session.rename({ sessionID, title: titleFromText(text) })
+        await current.session.setPermission({ sessionID, permission: CHAT_PERMISSION, directory })
+      }
+      await current.session.chat({
+        sessionID,
+        directory,
+        text: expandPastes(text),
+        system: CHAT_SYSTEM,
+        files: files.map(({ uri, name }) => ({ uri, name })),
+        ...(model ? { model } : {}),
+      })
+      setStreamedChars(0)
+      setPrompt("")
+      setAttachments([])
+      return sessionID
+    }, t("Message sent"))
+  }
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
     if (!text && files.length === 0) return
     recordPrompt(text)
+    if (chatView()) return sendChat(text, files)
 
     if (text.startsWith("/")) {
       const [rawName, ...rest] = text.slice(1).split(/\s+/)
@@ -1769,7 +1907,7 @@ export const App: Component = () => {
       classList={{ "fc-mobile-remote": mobileRemote() }}
       style={{
         "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
-        "--fc-content-right": mobileRemote()
+        "--fc-content-right": mobileRemote() || chatView()
           ? "0px"
           : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
       }}
@@ -1782,8 +1920,9 @@ export const App: Component = () => {
           collapsed={collapsed()}
           width={sidebarWidth()}
           displayName={displayName()}
-          sessions={sessionList()}
-          sessionsLoading={sessions.loading}
+          view={view()}
+          sessions={viewSessions()}
+          sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
           selectedSession={selected()}
           runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
           pinnedSessions={pinned()}
@@ -1811,7 +1950,7 @@ export const App: Component = () => {
           onMcp={() => setMcpOpen(true)}
         />
       </Show>
-      <main class="fc-main">
+      <main class="fc-main" classList={{ "fc-main-chat-home": chatView() && !selected() && !mobileRemote() }}>
         <Show
           when={!mobileRemote()}
           fallback={
@@ -1828,9 +1967,11 @@ export const App: Component = () => {
                   ←
                 </button>
                 <span class="fc-mobile-heading">
-                  <span class="fc-mobile-title">{selectedSession()?.title || t("New session")}</span>
+                  <span class="fc-mobile-title">
+                    {selectedSession()?.title || (chatView() ? t("New chat") : t("New session"))}
+                  </span>
                   <Show
-                    when={(targetDirectory() ?? selectedSession()?.location?.directory)
+                    when={!chatView() && (targetDirectory() ?? selectedSession()?.location?.directory)
                       ?.split("/")
                       .filter(Boolean)
                       .at(-1)}
@@ -1857,7 +1998,11 @@ export const App: Component = () => {
             onBack={goBack}
             onForward={goForward}
             onToggleSidebar={toggleSidebar}
-            contextPanel={selectedSession() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined}
+            view={view()}
+            onViewChange={changeView}
+            contextPanel={
+              selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
+            }
             onOpenPalette={() => setPaletteOpen(true)}
             onTogglePanel={togglePanel}
             remote={
@@ -1910,10 +2055,14 @@ export const App: Component = () => {
             mobileRemote() ? (
               mobileComposing() ? (
                 <div class="fc-mobile-new">
-                  <p class="fc-onboarding-text">{t("Describe a task to start a new session.")}</p>
+                  <p class="fc-onboarding-text">
+                    {chatView() ? t("Write a message to start a chat.") : t("Describe a task to start a new session.")}
+                  </p>
                 </div>
               ) : (
                 <RemoteHome
+                  view={view()}
+                  onViewChange={changeView}
                   sessions={remoteSessions()}
                   loading={sessions.loading}
                   projects={projects()}
@@ -1922,6 +2071,8 @@ export const App: Component = () => {
                   onAddDevice={() => setRemoteOpen(true)}
                 />
               )
+            ) : chatView() ? (
+              <ChatHero displayName={displayName()} />
             ) : (
               <HomeCanvas
                 displayName={displayName()}
@@ -1947,6 +2098,7 @@ export const App: Component = () => {
             liveText={liveText()}
             liveReasoning={liveReasoning()}
             showTools={showTools()}
+            chat={chatView()}
             onEditUser={editMessage}
           />
         </Show>
@@ -1972,6 +2124,7 @@ export const App: Component = () => {
             when={!mobileRemote()}
             fallback={
               <MobileComposer
+                mode={view()}
                 value={prompt()}
                 sending={busy()}
                 attachments={attachments()}
@@ -1996,6 +2149,7 @@ export const App: Component = () => {
             }
           >
             <Composer
+              mode={view()}
               value={prompt()}
               sending={busy()}
               generating={!!selected() && generating()}
@@ -2009,7 +2163,7 @@ export const App: Component = () => {
               variantKey={variantKey()}
               usage={contextUsage()}
               repo={
-                vcsDirectory()
+                vcsDirectory() && !chatView()
                   ? {
                       directory: vcsDirectory()!,
                       branch: vcsInfo()?.branch,
@@ -2048,9 +2202,12 @@ export const App: Component = () => {
               onPermissionModeChange={changePermissionMode}
             />
           </Show>
+          <Show when={chatView() && !selected() && !mobileRemote()}>
+            <ChatStarters onPick={(text) => setPrompt(text)} />
+          </Show>
         </Show>
       </main>
-      <Show when={!mobileRemote()}>
+      <Show when={!mobileRemote() && !chatView()}>
         <WorkspacePanels
           panels={panels()}
           serverUrl={serverUrl()}

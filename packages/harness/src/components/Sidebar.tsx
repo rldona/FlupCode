@@ -1,6 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
+import type { AppView } from "../chat"
 import { cssPx } from "../text-size"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
@@ -17,6 +18,8 @@ type SidebarProps = {
   collapsed: boolean
   width: number
   displayName: string
+  /** Chat lists conversations flat; Code groups sessions by project. */
+  view: AppView
   sessions: SessionInfo[] | undefined
   sessionsLoading: boolean
   selectedSession?: string
@@ -117,11 +120,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           onSelect: () => props.onToggleSessionPin(session.id),
         },
         { label: t("Rename"), icon: "✎", onSelect: () => props.onRenameSession(session.id) },
-        {
-          label: t("Copy path"),
-          icon: "⧉",
-          onSelect: () => props.onCopyPath(session.location?.directory ?? ""),
-        },
+        ...(props.view === "code"
+          ? [
+              {
+                label: t("Copy path"),
+                icon: "⧉",
+                onSelect: () => props.onCopyPath(session.location?.directory ?? ""),
+              },
+            ]
+          : []),
         { label: t("Delete"), icon: "×", danger: true, onSelect: () => props.onDeleteSession(session.id) },
       ],
     })
@@ -218,14 +225,16 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             <span>{t("New")}</span>
           </button>
           <nav class="fc-nav">
-            <button class="fc-nav-item" type="button" onClick={props.onArtifacts}>
-              <span class="fc-nav-icon">▤</span>
-              {t("Artifacts")}
-            </button>
-            <button class="fc-nav-item" type="button" onClick={props.onRoutines}>
-              <span class="fc-nav-icon">↻</span>
-              {t("Routines")}
-            </button>
+            <Show when={props.view === "code"}>
+              <button class="fc-nav-item" type="button" onClick={props.onArtifacts}>
+                <span class="fc-nav-icon">▤</span>
+                {t("Artifacts")}
+              </button>
+              <button class="fc-nav-item" type="button" onClick={props.onRoutines}>
+                <span class="fc-nav-icon">↻</span>
+                {t("Routines")}
+              </button>
+            </Show>
             <button class="fc-nav-item" type="button" onClick={props.onSettings}>
               <span class="fc-nav-icon">⚙</span>
               {t("Customize")}
@@ -236,8 +245,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         <input
           class="fc-filter-input"
           value={filter()}
-          placeholder={t("Filter projects")}
-          aria-label={t("Filter projects")}
+          placeholder={props.view === "chat" ? t("Search chats") : t("Filter projects")}
+          aria-label={props.view === "chat" ? t("Search chats") : t("Filter projects")}
           onInput={(event) => setFilter(event.currentTarget.value)}
         />
 
@@ -247,58 +256,82 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             <For each={pinned()}>{(session) => <SessionRow session={session} />}</For>
           </Show>
 
-          <div class="fc-section-header">
-            <span class="fc-section-label">{t("Projects")}</span>
-            <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
-              ↻
-            </button>
-          </div>
-
-          <Show
-            when={!props.sessionsLoading || groups().length > 0}
-            fallback={<Loader class="fc-loader-inline" label={t("Loading sessions")} />}
-          >
+          <Show when={props.view === "chat"}>
+            <div class="fc-section-header">
+              <span class="fc-section-label">{t("Chats")}</span>
+            </div>
             <Show
-              when={groups().length > 0}
-              fallback={
-                <div class="fc-empty-state">
-                  <span class="fc-empty-title">{t("No sessions")}</span>
-                  <span class="fc-empty-hint">{t("Create one with New")}</span>
-                </div>
-              }
+              when={!props.sessionsLoading || sortedSessions().length > 0}
+              fallback={<Loader class="fc-loader-inline" label={t("Loading chats")} />}
             >
-              <For each={groups()}>
-                {(group) => (
-                  <div class="fc-project-group">
-                    <div class="fc-project-row" onContextMenu={(event) => openProjectMenu(event, group)}>
-                      <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
-                        <span class="fc-project-name">{group.name}</span>
-                        <span class="fc-project-count">{group.sessions.length}</span>
-                      </button>
-                      <button
-                        class="fc-icon-button fc-project-new"
-                        type="button"
-                        title={t("New session")}
-                        aria-label={t("New session")}
-                        onClick={() => props.onNewSession(group.directory)}
-                      >
-                        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-                          <path
-                            d="M12 5v14M5 12h14"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="2.4"
-                            stroke-linecap="round"
-                          />
-                        </svg>
-                      </button>
-                    </div>
-                    <Show when={isExpanded(group)}>
-                      <For each={group.sessions}>{(session) => <SessionRow session={session} />}</For>
-                    </Show>
+              <Show
+                when={sortedSessions().length > 0}
+                fallback={
+                  <div class="fc-empty-state">
+                    <span class="fc-empty-title">{filter().trim() ? t("No chats found") : t("No chats yet")}</span>
+                    <span class="fc-empty-hint">{t("Start one with New")}</span>
                   </div>
-                )}
-              </For>
+                }
+              >
+                <For each={sortedSessions()}>{(session) => <SessionRow session={session} />}</For>
+              </Show>
+            </Show>
+          </Show>
+
+          <Show when={props.view === "code"}>
+            <div class="fc-section-header">
+              <span class="fc-section-label">{t("Projects")}</span>
+              <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
+                ↻
+              </button>
+            </div>
+
+            <Show
+              when={!props.sessionsLoading || groups().length > 0}
+              fallback={<Loader class="fc-loader-inline" label={t("Loading sessions")} />}
+            >
+              <Show
+                when={groups().length > 0}
+                fallback={
+                  <div class="fc-empty-state">
+                    <span class="fc-empty-title">{t("No sessions")}</span>
+                    <span class="fc-empty-hint">{t("Create one with New")}</span>
+                  </div>
+                }
+              >
+                <For each={groups()}>
+                  {(group) => (
+                    <div class="fc-project-group">
+                      <div class="fc-project-row" onContextMenu={(event) => openProjectMenu(event, group)}>
+                        <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
+                          <span class="fc-project-name">{group.name}</span>
+                          <span class="fc-project-count">{group.sessions.length}</span>
+                        </button>
+                        <button
+                          class="fc-icon-button fc-project-new"
+                          type="button"
+                          title={t("New session")}
+                          aria-label={t("New session")}
+                          onClick={() => props.onNewSession(group.directory)}
+                        >
+                          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                            <path
+                              d="M12 5v14M5 12h14"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2.4"
+                              stroke-linecap="round"
+                            />
+                          </svg>
+                        </button>
+                      </div>
+                      <Show when={isExpanded(group)}>
+                        <For each={group.sessions}>{(session) => <SessionRow session={session} />}</For>
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </Show>
             </Show>
           </Show>
         </div>

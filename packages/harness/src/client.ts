@@ -11,6 +11,7 @@ import type {
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
 import { engineFetch } from "./transport"
+import { chatFileParts } from "./chat"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 
@@ -20,8 +21,8 @@ export function resolveServerUrl() {
   return DEFAULT_SERVER_URL
 }
 
-async function* subscribeEvents(baseUrl: string, signal?: AbortSignal) {
-  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/api/event`, {
+async function* subscribeEvents(baseUrl: string, signal?: AbortSignal, path = "/api/event") {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     headers: { Accept: "text/event-stream" },
     signal,
   })
@@ -44,7 +45,11 @@ async function* subscribeEvents(baseUrl: string, signal?: AbortSignal) {
         .join("\n")
       if (data) {
         try {
-          yield JSON.parse(data) as { type?: string }
+          const event = JSON.parse(data) as { type?: string; data?: unknown; properties?: unknown }
+          // Folder streams use the legacy shape, with the payload under `properties`.
+          yield (event.data === undefined && event.properties !== undefined
+            ? { ...event, data: event.properties }
+            : event) as { type?: string }
         } catch {
           // ignore malformed frames
         }
@@ -105,6 +110,7 @@ function fromLegacy(entries: Array<{ info: Message; parts: Part[] }>): SessionMe
       type: "assistant",
       time: info.time,
       agent: info.agent,
+      model: info.modelID ? { providerID: info.providerID, id: info.modelID } : undefined,
       content,
       error: info.error,
     } as unknown as SessionMessageInfo
@@ -152,6 +158,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     event: {
       subscribe: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal),
+      /** One folder's full event stream: legacy runs (chats) only stream their deltas and status here. */
+      subscribeDirectory: (directory: string, options?: { signal?: AbortSignal }) =>
+        subscribeEvents(baseUrl, options?.signal, `/event?directory=${encodeURIComponent(directory)}`),
+    },
+    /** The engine's own folders; chats live in `state`, which always exists on the engine's machine. */
+    paths: async () => {
+      const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/path`)
+      if (!response.ok) throw new Error("Request failed")
+      return (await response.json()) as { home: string; state: string; config: string; directory: string }
     },
     session: {
       list: (input?: { order?: "asc" | "desc"; limit?: number }) =>
@@ -188,6 +203,32 @@ export function createClient(baseUrl = resolveServerUrl()) {
       wait: (input: { sessionID: string }) => unwrap(client.v2.session.wait({ sessionID: input.sessionID })),
       compact: (input: { sessionID: string }) => unwrap(client.v2.session.compact({ sessionID: input.sessionID })),
       interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
+      /** Sends a chat message: the legacy prompt is the one that takes a system prompt. See chat.ts. */
+      chat: (input: {
+        sessionID: string
+        directory: string
+        text: string
+        system: string
+        files?: Array<{ uri: string; name?: string }>
+        model?: { providerID: string; id: string; variant?: string }
+      }) =>
+        unwrap(
+          client.session.promptAsync({
+            sessionID: input.sessionID,
+            directory: input.directory,
+            system: input.system,
+            ...(input.model
+              ? {
+                  model: { providerID: input.model.providerID, modelID: input.model.id },
+                  ...(input.model.variant ? { variant: input.model.variant } : {}),
+                }
+              : {}),
+            parts: [{ type: "text", text: input.text }, ...chatFileParts(input.files ?? [])],
+          }),
+        ),
+      /** Stops a chat's legacy run. */
+      abort: (input: { sessionID: string; directory: string }) =>
+        unwrap(client.session.abort({ sessionID: input.sessionID, directory: input.directory })),
       switchModel: (input: { sessionID: string; model: { id: string; providerID: string; variant?: string } }) =>
         unwrap(client.v2.session.switchModel({ sessionID: input.sessionID, model: input.model })),
       switchAgent: (input: { sessionID: string; agent: string }) =>

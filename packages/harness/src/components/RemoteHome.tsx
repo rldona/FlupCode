@@ -2,6 +2,8 @@ import { For, Index, Show, createMemo, createSignal, onCleanup, type Component }
 import { t } from "../i18n"
 import { remote } from "../remote"
 import { RemoteNotifications } from "./RemoteNotifications"
+import { ViewTabs } from "./Topbar"
+import type { AppView } from "../chat"
 import type { ProjectItem } from "../types"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
@@ -18,6 +20,9 @@ export type RemoteSessionItem = {
 }
 
 type RemoteHomeProps = {
+  view: AppView
+  onViewChange: (view: AppView) => void
+  /** This tab's sessions: chats or code sessions. */
   sessions: RemoteSessionItem[]
   loading: boolean
   projects: ProjectItem[]
@@ -65,7 +70,10 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
 
   return (
     <div class="fc-remote-home">
-      <h1 class="fc-remote-home-title">{t("Code")}</h1>
+      <div class="fc-remote-home-top">
+        <h1 class="fc-remote-home-title">{props.view === "chat" ? t("Chats") : t("Code")}</h1>
+        <ViewTabs view={props.view} onChange={props.onViewChange} />
+      </div>
 
       <section class="fc-remote-home-section">
         <h2 class="fc-remote-home-heading">{t("Devices")}</h2>
@@ -103,7 +111,7 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
 
       <section class="fc-remote-home-section">
         <div class="fc-remote-home-row">
-          <h2 class="fc-remote-home-heading">{t("Sessions")}</h2>
+          <h2 class="fc-remote-home-heading">{props.view === "chat" ? t("Chats") : t("Sessions")}</h2>
           <select
             class="fc-remote-filter"
             aria-label={t("Filter sessions")}
@@ -119,7 +127,13 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
           <Show
             when={visible().length > 0}
             fallback={
-              <p class="fc-remote-empty">{filter() === "active" ? t("No active sessions") : t("No sessions")}</p>
+              <p class="fc-remote-empty">
+                {filter() === "active"
+                  ? t("No active sessions")
+                  : props.view === "chat"
+                    ? t("No chats yet")
+                    : t("No sessions")}
+              </p>
             }
           >
             <Index each={visible()}>
@@ -147,8 +161,12 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
         </Show>
       </section>
 
-      <button class="fc-remote-fab" type="button" onClick={() => setPicking(true)}>
-        <span aria-hidden="true">+</span> {t("New session")}
+      <button
+        class="fc-remote-fab"
+        type="button"
+        onClick={() => (props.view === "chat" ? props.onNew(undefined) : setPicking(true))}
+      >
+        <span aria-hidden="true">+</span> {props.view === "chat" ? t("New chat") : t("New session")}
       </button>
 
       <Show when={picking()}>
