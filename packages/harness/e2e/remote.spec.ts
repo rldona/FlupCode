@@ -220,6 +220,133 @@ test.describe("on a phone", () => {
     host.stop()
   })
 
+  test("turns on notifications, shows pushes and opens their session", async ({ page, context, baseURL }) => {
+    const pairingId = toBase64Url(random(16))
+    const secret = random(32)
+    const deviceKey = random(32)
+    const statuses: string[] = []
+    const controls: Array<Record<string, unknown>> = []
+    const host = startRelayHost({
+      relay: relayUrl,
+      identity: await createHostIdentity(),
+      onStatus: (status) => statuses.push(status),
+      onChannel: (wire) =>
+        void acceptChannel(wire, (mode, id) =>
+          mode === "pair" && id === pairingId
+            ? secret
+            : mode === "device" && id === "e2e-phone"
+              ? deviceKey
+              : undefined,
+        )
+          .then((accepted) => {
+            const tunnel = serveTunnel(accepted.channel, { target: engineUrl })
+            tunnel.onControl((message) => controls.push(message))
+            if (accepted.mode === "pair")
+              tunnel.sendControl({
+                type: "enrolled",
+                deviceId: "e2e-phone",
+                deviceKey: toBase64Url(deviceKey),
+                hostName: "e2e-mac",
+              })
+          })
+          .catch(() => undefined),
+    })
+    await expect.poll(() => statuses.at(-1)).toBe("online")
+    const hostId = await host.hostId
+
+    // Headless Chromium has no push service: fake the relay key and the browser subscription.
+    await context.grantPermissions(["notifications"], { origin: baseURL })
+    await page.route("**/push/key", (route) => route.fulfill({ json: { publicKey: toBase64Url(random(65)) } }))
+    await page.addInitScript(() => {
+      localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+      PushManager.prototype.subscribe = async function (options) {
+        return {
+          endpoint: "https://fcm.googleapis.com/fcm/send/e2e",
+          options,
+          toJSON: () => ({ endpoint: "https://fcm.googleapis.com/fcm/send/e2e", keys: { p256dh: "p", auth: "a" } }),
+          unsubscribe: async () => true,
+        } as unknown as PushSubscription
+      }
+      PushManager.prototype.getSubscription = async () => null
+      // Headless Chromium reports notifications as denied even when granted.
+      Object.defineProperty(Notification, "permission", { get: () => "granted" })
+      Notification.requestPermission = async () => "granted"
+    })
+    await page.goto(
+      pairingUrl(`${baseURL}/`, {
+        v: 1,
+        relay: relayUrl,
+        host: hostId,
+        id: pairingId,
+        secret: toBase64Url(secret),
+        name: "e2e-mac",
+      }),
+    )
+    const home = page.locator(".fc-remote-home")
+    await expect(home).toBeVisible({ timeout: 15_000 })
+    await home.getByRole("button", { name: "Turn on" }).click()
+    await expect(home.getByText("Notifications on")).toBeVisible()
+    await expect
+      .poll(() => controls.find((message) => message.type === "push-subscription"))
+      .toMatchObject({
+        subscription: { endpoint: "https://fcm.googleapis.com/fcm/send/e2e", keys: { p256dh: "p", auth: "a" } },
+      })
+
+    // Deliver a push to the service worker with no window open, as when the phone is locked. Headless
+    // Chromium cannot display notifications, so record what the worker asks to show.
+    const worker = context.serviceWorkers()[0] ?? (await context.waitForEvent("serviceworker"))
+    await worker.evaluate(() => {
+      const scope = self as unknown as { __shown: unknown[]; registration: ServiceWorkerRegistration }
+      scope.__shown = []
+      scope.registration.showNotification = async (title, options) => {
+        scope.__shown.push({
+          title,
+          body: options?.body,
+          tag: options?.tag,
+          url: (options?.data as { url?: string })?.url,
+        })
+      }
+    })
+    const cdp = await context.newCDPSession(page)
+    const registered = new Promise<string>((resolve) =>
+      cdp.on("ServiceWorker.workerRegistrationUpdated", (event) => {
+        const registration = event.registrations.find((entry) => entry.scopeURL === `${baseURL}/`)
+        if (registration) resolve(registration.registrationId)
+      }),
+    )
+    await cdp.send("ServiceWorker.enable")
+    const registrationId = await registered
+    await page.goto("about:blank")
+    await cdp.send("ServiceWorker.deliverPushMessage", {
+      origin: baseURL!,
+      registrationId,
+      data: JSON.stringify({
+        kind: "permission",
+        host: hostId,
+        hostName: "e2e-mac",
+        sessionID: "ses_e2e",
+        session: "Fix the login flow",
+        detail: "bash: rm -rf dist",
+      }),
+    })
+    await expect
+      .poll(() => worker.evaluate(() => (self as unknown as { __shown: unknown[] }).__shown))
+      .toEqual([
+        {
+          title: "Fix the login flow",
+          body: "Needs your permission: bash: rm -rf dist",
+          tag: `${hostId}:ses_e2e`,
+          url: `/?session=ses_e2e&host=${hostId}`,
+        },
+      ])
+
+    // Tapping it opens /?session=…&host=…, which lands on that session.
+    await page.goto(`${baseURL}/?session=ses_e2e&host=${hostId}`)
+    await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow", { timeout: 15_000 })
+    await expect(page).not.toHaveURL(/session=/)
+    host.stop()
+  })
+
   test("the welcome screen offers to control a computer first", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
     await page.goto("/")
