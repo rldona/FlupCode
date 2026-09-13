@@ -2824,7 +2824,7 @@ button.fc-row-main {
   position: relative;
 }
 
-.fc-composer > *:not(.fc-mascot) {
+.fc-composer > * {
   width: 100%;
   max-width: 820px;
   margin: 0 auto;
@@ -2832,61 +2832,6 @@ button.fc-row-main {
 
 .fc-input-wrap {
   position: relative;
-}
-
-.fc-mascot {
-  position: absolute;
-  bottom: calc(100% - 4px);
-  right: 14px;
-  height: 96px;
-  width: auto;
-  padding: 0;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  z-index: 2;
-  transform-origin: 50% 100%;
-  animation: fc-mascot-idle 3.2s ease-in-out infinite;
-}
-
-.fc-mascot-image {
-  display: block;
-  height: 100%;
-  width: auto;
-  image-rendering: pixelated;
-  pointer-events: none;
-}
-
-.fc-mascot-play {
-  animation: fc-mascot-hop 0.9s cubic-bezier(0.3, 0.8, 0.3, 1);
-}
-
-@keyframes fc-mascot-idle {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-2px);
-  }
-}
-
-@keyframes fc-mascot-hop {
-  0% {
-    transform: translateY(0) rotate(0);
-  }
-  25% {
-    transform: translateY(-10px) rotate(-12deg);
-  }
-  50% {
-    transform: translateY(0) rotate(8deg);
-  }
-  75% {
-    transform: translateY(-6px) rotate(-6deg);
-  }
-  100% {
-    transform: translateY(0) rotate(0);
-  }
 }
 
 .fc-composer-bottom {
