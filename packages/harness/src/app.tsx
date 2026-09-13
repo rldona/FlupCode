@@ -1774,13 +1774,7 @@ export const App: Component = () => {
                   }
                 : undefined
             }
-            sessionTitle={
-              <Show when={selectedSession()}>
-                {(session) => (
-                  <SessionTitle session={session()} />
-                )}
-              </Show>
-            }
+            sessionTitle={<Show when={selectedSession()}>{(session) => <SessionTitle session={session()} />}</Show>}
             sessionActions={
               <Show when={selectedSession()}>
                 {(session) => (
