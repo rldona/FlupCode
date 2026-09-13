@@ -417,16 +417,6 @@ button.fc-row-main {
   max-width: 40vw;
 }
 
-.fc-session-heading .fc-session-tags {
-  width: auto;
-  flex-wrap: nowrap;
-  flex-shrink: 0;
-}
-
-.fc-session-heading .fc-tag-input {
-  min-width: 90px;
-}
-
 .fc-nav-arrow {
   border: 1px solid var(--fc-border);
   background: var(--fc-bg-elevated);
@@ -2763,45 +2753,6 @@ button.fc-row-main {
   line-height: 1.5;
 }
 
-.fc-session-tags {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  width: 100%;
-}
-
-.fc-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  height: 22px;
-  padding: 0 4px 0 8px;
-  border-radius: var(--fc-radius-pill);
-  background: var(--fc-accent-soft);
-  color: var(--fc-text);
-  font-size: var(--fc-text-xs);
-}
-
-.fc-tag-remove {
-  border: none;
-  background: transparent;
-  color: var(--fc-text-muted);
-  line-height: 1;
-  padding: 0 2px;
-}
-
-.fc-tag-input {
-  height: 24px;
-  min-width: 120px;
-  padding: 0 8px;
-  border: 1px dashed var(--fc-border);
-  border-radius: var(--fc-radius-sm);
-  background: transparent;
-  color: var(--fc-text);
-  font-size: var(--fc-text-xs);
-}
-
 .fc-keycap {
   height: 28px;
   min-width: 90px;
@@ -3197,14 +3148,35 @@ button.fc-row-main {
 }
 
 .fc-rightaside {
+  position: relative;
   width: 300px;
   flex-shrink: 0;
+  display: flex;
   border-left: 1px solid var(--fc-border);
+}
+
+.fc-rightaside-body {
+  flex: 1;
+  min-width: 0;
   padding: var(--fc-space-4);
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-5);
   overflow-y: auto;
+}
+
+.fc-rightaside-resizer {
+  position: absolute;
+  top: 0;
+  left: -3px;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  z-index: 5;
+}
+
+.fc-rightaside-resizer:hover {
+  background: color-mix(in srgb, var(--fc-accent) 40%, transparent);
 }
 
 .fc-aside-section {
@@ -5034,4 +5006,35 @@ button.fc-row-main {
 .fc-composer .fc-folder-item {
   position: relative;
   padding-right: 28px;
+}
+
+/* Scrollbars: a slim rounded thumb on a transparent track everywhere, like the macOS overlay
+   scrollbars, instead of the browser's light rectangular track on hover. */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+  background: transparent;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-color: color-mix(in srgb, var(--fc-text-muted) 38%, transparent);
+  background-clip: content-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--fc-text-muted) 65%, transparent);
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--fc-text-muted) 45%, transparent) transparent;
+  }
 }
