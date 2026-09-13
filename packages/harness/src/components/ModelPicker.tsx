@@ -49,7 +49,6 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
           <input
             class="fc-filter-input"
             value={query()}
-            autofocus
             placeholder={t("Search models")}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />

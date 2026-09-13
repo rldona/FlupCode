@@ -96,3 +96,20 @@ test("shows the startup error instead of a blank page and resets without losing 
   const stored = await page.evaluate(() => Object.keys(window.localStorage))
   expect(stored).toContain("flupcode.remoteHosts")
 })
+
+test("settings change the app and chat text size and remember them", async ({ page }) => {
+  await page.goto("/")
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText("Settings", { exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Customize" })
+  await dialog.getByLabel("App text size").selectOption("large")
+  await dialog.getByLabel("Chat text size").selectOption("xlarge")
+  const applied = () =>
+    page.evaluate(() => ({
+      zoom: document.documentElement.style.zoom,
+      chat: document.documentElement.style.getPropertyValue("--fc-chat-zoom"),
+    }))
+  expect(await applied()).toEqual({ zoom: "1.1", chat: "1.25" })
+  await page.reload()
+  expect(await applied()).toEqual({ zoom: "1.1", chat: "1.25" })
+})
