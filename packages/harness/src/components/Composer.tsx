@@ -6,6 +6,7 @@ import { ModeMenu } from "./ModeMenu"
 import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
+import { RepoBar } from "./RepoBar"
 
 type ComposerProps = {
   value: string
@@ -14,6 +15,7 @@ type ComposerProps = {
   variants: ModelVariant[]
   variantKey: string | undefined
   usage: { used: number; limit: number; cost?: number; tokens?: { input: number; output: number; reasoning: number } }
+  repo?: { directory: string; branch?: string; additions: number; deletions: number; onCommit: () => void }
   attachments: Attachment[]
   commands: CommandOption[]
   projects: ProjectItem[]
@@ -173,6 +175,7 @@ export const Composer: Component<ComposerProps> = (props) => {
       }}
     >
       <div class="fc-composer-inner">
+        <Show when={props.repo}>{(repo) => <RepoBar {...repo()} />}</Show>
 
       <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
         <div class="fc-command-menu">
