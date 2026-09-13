@@ -3,191 +3,18 @@
   const $ = (s, r = document) => r.querySelector(s)
   const $$ = (s, r = document) => [...r.querySelectorAll(s)]
 
-  /* ---------- i18n ---------- */
-  const ES = {
-    "nav.cockpit": "Cabina",
-    "nav.tour": "Tour",
-    "nav.control": "Control",
-    "nav.download": "Descargar",
-    "nav.open": "Abrir la app",
-    "hero.eyebrow": "<i></i> Código abierto · MIT · Sobre el motor OpenCode",
-    "hero.h1":
-      '\n        <span class="w" style="animation-delay:.05s">Tu</span>\n        <span class="w" style="animation-delay:.12s">agente,</span>\n        <span class="w" style="animation-delay:.19s">en</span>\n        <span class="w" style="animation-delay:.26s">una</span>\n        <span class="w grad" style="animation-delay:.33s">cabina</span>\n        <span class="w grad" style="animation-delay:.40s">de verdad.</span>\n      ',
-    "hero.lead":
-      "\n        FlupCode es un harness web y de escritorio para <strong>OpenCode</strong>: chat con diffs lado a lado,\n        terminal integrado, modos de permisos y paneles de uso. El motor no se toca. Todo lo que tocas tú, mejora.\n      ",
-    "hero.try": "Pruébalo en el navegador",
-    "hero.star":
-      '\n          <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5C5.6.5.5 5.6.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.6 18.4.5 12 .5z"/></svg>\n          Estrella en GitHub\n        ',
-    "quick.desktop": "App de escritorio",
-    "quick.browser": "Navegador",
-    "quick.source": "Desde el código",
-    "quick.desktop.p":
-      "Descarga FlupCode para tu plataforma. Arranca el motor OpenCode por ti si el CLI está instalado, y te guía si no lo está.",
-    "quick.seeall": "Ver todos",
-    "quick.browser.p":
-      'Arranca el motor permitiendo el origen alojado y abre <a href="https://app.flupcode.com" target="_blank" rel="noreferrer" style="color:var(--sky)">app.flupcode.com</a>.',
-    "quick.source.p": "Clona el monorepo y lanza el harness en modo desarrollo.",
-    copy: "Copiar",
-    "frame.title": "opencode-ui-power · Mover el panel de proveedores a un diálogo",
-    "frame.conn": "<i></i> Conectado · localhost:4096",
-    "side.new": "＋ Nueva sesión",
-    "side.projects": "Proyectos",
-    "side.s1": 'Mover el panel de proveedores… <span class="pin">★</span>',
-    "side.s2": "Arreglar el badge del README",
-    "side.s3": "Añadir heatmap de uso",
-    "side.s4": "Post sobre beneficios",
-    "side.today": "Hoy",
-    "side.spent": "Gasto",
-    "why.badge": "Agente = Motor + Cabina",
-    "why.formula": "Cabina",
-    "why.h2": "te mantiene al mando mientras el agente trabaja",
-    "why.p":
-      "El motor es el cerebro. La cabina es donde lees, decides y pilotas. FlupCode reconstruye solo la cabina, sobre el motor OpenCode que ya usas.",
-    "why.c1.h": "El motor, intacto",
-    "why.c1.p":
-      "FlupCode habla con la misma API HTTP y SSE que usa cualquier cliente de OpenCode. Sin backend nuevo, sin fork del bucle del agente, upstream sigue siendo mergeable.",
-    "why.c2.h": "Una cabina que se lee",
-    "why.c2.p":
-      "Diffs lado a lado, razonamiento plegable, salida de herramientas expandible, un pie de turno claro. Lo que el terminal imprime, FlupCode lo maqueta.",
-    "why.c3.h": "Controles que significan algo",
-    "why.c3.p":
-      "Modos de permisos, plan frente a build, selectores de modelo y esfuerzo. Las reglas viven en el motor, así que la UI nunca miente sobre lo que el agente puede hacer.",
-    "tour.h2": "Todo lo que hace el terminal. En una UI de verdad.",
-    "tour.s1.h": "Chat con diffs de verdad",
-    "tour.s1.p":
-      "Cada edición se muestra como un diff lado a lado, cada comando con su salida. El razonamiento se pliega; nada queda escondido en un scrollback.",
-    "tour.s2.h": "Un terminal integrado",
-    "tour.s2.p":
-      "Un PTY real en un panel del workspace, conectado al motor. Redimensiónalo, escribe en él, lanza tus tests junto a la conversación. Sin cambiar de contexto.",
-    "tour.s3.h": "Un inicio que enseña tu semana",
-    "tour.s3.p":
-      "Sesiones, mensajes, tokens, rachas y un heatmap de actividad de todos tus proyectos. El coste queda a un vistazo, no a un panel de distancia.",
-    "tour.s4.h": "Modos de permisos por sesión",
-    "tour.s4.p":
-      "Pasa de <code>Manual</code>, donde cada cambio se confirma, a <code>Bypass</code> para ejecuciones desatendidas. El chip del compositor siempre dice la verdad.",
-    "scene.chat": "Sesión · chat",
-    "scene.chat.u": "Añade un campo de búsqueda al diálogo de proveedores.",
-    "scene.term": "Workspace · terminal",
-    "scene.term.a": "Los tests pasan. ¿Abro una PR contra <code>dev</code>?",
-    "scene.term.u": "Sí, una sola PR, rebase cuando CI esté en verde.",
-    "scene.dash": "Inicio · uso",
-    "home.h": "¿Qué sigue, Raúl?",
-    "home.sub": "Resumen de tu actividad en FlupCode.",
-    "home.sg1": '<i style="color:var(--sky)">⌕</i>Explora y comprende código',
-    "home.sg2": '<i style="color:var(--violet)">✎</i>Crea una nueva función o herramienta',
-    "home.sg3": '<i style="color:var(--mint)">↻</i>Revisa código y sugiere cambios',
-    "home.sg4": '<i style="color:var(--amber)">⚑</i>Corrige problemas y fallos',
-    "home.tabs": '<span class="on">Resumen</span><span>Modelos</span><span class="rng"><b>Todo</b> 30d 7d</span>',
-    "home.t1": "Sesiones",
-    "home.t2": "Mensajes",
-    "home.t3": "Tokens totales",
-    "home.t4": "Días activos",
-    "home.t5": "Racha actual",
-    "home.t6": "Racha más larga",
-    "home.t7": "Hora pico",
-    "home.t8": "Modelo favorito",
-    "home.note": "Usaste ~19.454× más tokens que <em>1984</em>.",
-    "scene.modes": "Sesión · modo de permisos",
-    "scene.m1": "Auto <em>· el motor clasifica cada llamada</em>",
-    "scene.m2": "Manual <em>· pregunta antes de cada cambio</em>",
-    "scene.m3": "Accept edits <em>· acepta ediciones de archivos</em>",
-    "scene.m4": "Bypass <em>· acepta todos los permisos</em>",
-    "scene.needs": "requiere aprobación",
-    "scene.allow":
-      'Permitir una vez <span class="chip on" style="font-family:var(--ui)">Permitir</span> <span class="chip" style="font-family:var(--ui)">Siempre en esta sesión</span> <span class="chip" style="font-family:var(--ui)">Denegar</span>',
-    "ctl.badge": "Pruébalo",
-    "ctl.h2": "Decide cuánto puede hacer el agente",
-    "ctl.p":
-      "Elige un modo. Mira qué harían las mismas tres acciones en esa sesión. Son las reglas reales, no una capa por encima.",
-    "ctl.lbl": "Modo de permisos",
-    "ctl.auto.s": "El motor decide en cada llamada",
-    "ctl.manual.s": "Pregunta antes de cada cambio",
-    "ctl.edits.s": "Acepta ediciones de archivos",
-    "ctl.bypass.s": "Acepta todos los permisos",
-    "ctl.note":
-      "Cambia de modo a mitad de sesión con el chip del compositor o con <kbd>⇧ Tab</kbd>. La elección se guarda por sesión, no globalmente.",
-    "surf.badge": "Superficies",
-    "surf.h2": "La misma cabina en todas partes",
-    "surf.p": "Navegador, escritorio o junto al terminal que ya te gusta. Los tres hablan con el mismo motor.",
-    "surf.web.p":
-      'Abre <a href="https://app.flupcode.com" target="_blank" rel="noreferrer">app.flupcode.com</a> y apúntala a tu servidor. Empareja un móvil con un QR y dirige la misma sesión en remoto.',
-    "surf.desk.h": "Escritorio",
-    "surf.term.p":
-      "Quédate con el TUI de OpenCode. FlupCode lo complementa con paridad función a función, seguida en una matriz viva.",
-    "dl.h2": "Descarga la app de escritorio",
-    "dl.p": "Builds preview gratuitas publicadas en GitHub Releases. Resaltamos la de la máquina en la que estás.",
-    "dl.win": "Instalador · .exe",
-    "dl.note":
-      "\n        Las builds no están firmadas por ahora. En macOS, si dice “FlupCode está dañado”, ejecuta\n        <code>xattr -dr com.apple.quarantine /Applications/FlupCode.app</code> o clic derecho → Abrir. En Windows elige “Más información → Ejecutar de todas formas”.\n      ",
-    "surf.desk.p":
-      'Una app Electron que arranca el motor por ti. Notificaciones nativas y un badge en el dock mientras el agente trabaja. <a href="#download">Descargar</a>',
-    "final.h2": "Tu motor. Una cabina mejor.",
-    "final.p": "Clónalo, conéctalo a OpenCode y sigue publicando. Independiente, MIT, upstream primero.",
-    "final.get": "Consigue FlupCode",
-    "final.docs": "Lee la documentación",
-    "final.parity": "Matriz de paridad con el TUI",
-    "foot.note":
-      '© <span id="year">2026</span> FlupCode. Un fork independiente de OpenCode. No está afiliado, respaldado ni desarrollado por OpenCode ni Anthropic. “OpenCode” es un proyecto de Anomaly; “Claude Code” es un producto de Anthropic.',
-  }
-  const EN = {}
-  $$("[data-i18n]").forEach((el) => {
-    if (!(el.dataset.i18n in EN)) EN[el.dataset.i18n] = el.innerHTML
-  })
   const STR = {
-    en: {
-      placeholder: "Describe a task or ask a question",
-      prompt: "Move the provider panel into a dialog and add a search field.",
-      thinking: "Reading the panel and its tests",
-      dl: "Download for ",
-      dlAny: "Download the app",
-      run: "runs",
-      ask: "asks you",
-    },
-    es: {
-      placeholder: "Describe una tarea o haz una pregunta",
-      prompt: "Mueve el panel de proveedores a un diálogo y añade un campo de búsqueda.",
-      thinking: "Leyendo el panel y sus tests",
-      dl: "Descargar para ",
-      dlAny: "Descargar la app",
-      run: "se ejecuta",
-      ask: "te pregunta",
-    },
+    placeholder: "Describe a task or ask a question",
+    prompt: "Move the provider panel into a dialog and add a search field.",
+    thinking: "Reading the panel and its tests",
+    run: "runs",
+    ask: "asks you",
   }
-  let lang = "en"
-  try {
-    lang =
-      localStorage.getItem("flupcode.lang") || ((navigator.language || "").toLowerCase().startsWith("es") ? "es" : "en")
-  } catch {
-    lang = (navigator.language || "").toLowerCase().startsWith("es") ? "es" : "en"
-  }
-  const L = () => STR[lang]
-  const hooks = [
-    () => {
-      const y = $("#year")
-      if (y) y.textContent = new Date().getFullYear()
-    },
-  ]
-  function setLang(next) {
-    lang = next
-    document.documentElement.lang = lang
-    document.title =
-      lang === "es" ? "FlupCode — Tu agente, en una cabina de verdad" : "FlupCode — Your agent, in a real cockpit"
-    try {
-      localStorage.setItem("flupcode.lang", lang)
-    } catch {}
-    $$("[data-i18n]").forEach((el) => {
-      const k = el.dataset.i18n
-      const v = lang === "es" ? ES[k] : EN[k]
-      if (v != null && el.innerHTML !== v) el.innerHTML = v
-    })
-    $$("#lang span").forEach((x) => x.classList.toggle("on", x.dataset.l === lang))
-    hooks.forEach((h) => h())
-  }
-  $("#lang").addEventListener("click", () => setLang(lang === "es" ? "en" : "es"))
 
   /* nav */
   const nav = $("#nav")
   const onScroll = () => nav.classList.toggle("scrolled", scrollY > 24)
+  $("#year").textContent = new Date().getFullYear()
   onScroll()
   addEventListener("scroll", onScroll, { passive: true })
 
@@ -399,16 +226,16 @@
   }
   async function run() {
     while (true) {
-      const PROMPT = L().prompt
+      const PROMPT = STR.prompt
       thread.innerHTML = ""
-      composer.innerHTML = `<span class="ph">${L().placeholder}</span>`
+      composer.innerHTML = `<span class="ph">${STR.placeholder}</span>`
       await sleep(1400)
       await type(PROMPT)
-      composer.innerHTML = `<span class="ph">${L().placeholder}</span>`
+      composer.innerHTML = `<span class="ph">${STR.placeholder}</span>`
       await add(el(`<div class="u">${PROMPT}</div>`), 700)
-      const think = el(`<div class="a">${L().thinking} <span class="think"><i></i><i></i><i></i></span></div>`)
+      const think = el(`<div class="a">${STR.thinking} <span class="think"><i></i><i></i><i></i></span></div>`)
       await add(think, 1500)
-      think.textContent = L().thinking
+      think.textContent = STR.thinking
       await add(
         el(
           `<div class="tool"><div class="tool-h"><span class="badge read">read</span> src/components/ProvidersPanel.tsx <span class="st run">running</span></div></div>`,
@@ -483,62 +310,47 @@
   const MODES = {
     auto: {
       t: "Auto",
-      s: {
-        en: "The engine classifies each call. Reads and safe commands run, writes outside the workspace and anything that leaves the machine ask first.",
-        es: "El motor clasifica cada llamada. Lecturas y comandos seguros se ejecutan; escrituras fuera del workspace y todo lo que salga de la máquina preguntan antes.",
-      },
+      s: "The engine classifies each call. Reads and safe commands run, writes outside the workspace and anything that leaves the machine ask first.",
       edit: "run",
       bash: "run",
       push: "ask",
     },
     manual: {
       t: "Manual",
-      s: {
-        en: "Every write and every command waits for you. Best for unfamiliar repos and first sessions.",
-        es: "Cada escritura y cada comando esperan tu aprobación. Ideal para repos desconocidos y primeras sesiones.",
-      },
+      s: "Every write and every command waits for you. Best for unfamiliar repos and first sessions.",
       edit: "ask",
       bash: "ask",
       push: "ask",
     },
     edits: {
       t: "Accept edits",
-      s: {
-        en: "File edits inside the workspace go through. Commands still ask, so nothing runs that you didn't see.",
-        es: "Las ediciones de archivos dentro del workspace pasan. Los comandos siguen preguntando, así que no se ejecuta nada que no hayas visto.",
-      },
+      s: "File edits inside the workspace go through. Commands still ask, so nothing runs that you didn't see.",
       edit: "run",
       bash: "ask",
       push: "ask",
     },
     bypass: {
       t: "Bypass",
-      s: {
-        en: "Everything runs without prompts. For unattended, scripted or sandboxed sessions only.",
-        es: "Todo se ejecuta sin preguntar. Solo para sesiones desatendidas, automatizadas o en sandbox.",
-      },
+      s: "Everything runs without prompts. For unattended, scripted or sandboxed sessions only.",
       edit: "run",
       bash: "run",
       push: "run",
     },
   }
-  let mode = "manual"
   function setMode(m) {
-    mode = m
     const d = MODES[m]
     $$(".mode-btn").forEach((b) => b.setAttribute("aria-pressed", b.dataset.mode === m))
     $("#demo-title").textContent = d.t
-    $("#demo-sub").textContent = d.s[lang]
+    $("#demo-sub").textContent = d.s
     modeChip.textContent = d.t + " ▾"
     $$(".act").forEach((a) => {
       const v = d[a.dataset.act]
       const p = $(".pill", a)
       p.className = "pill " + v
-      p.textContent = L()[v]
+      p.textContent = STR[v]
       a.classList.toggle("asks", v === "ask")
     })
   }
-  hooks.push(() => setMode(mode))
   $$(".mode-btn").forEach((b) => b.addEventListener("click", () => setMode(b.dataset.mode)))
   setMode("manual")
 
@@ -555,9 +367,5 @@
           : null
   const names = { win: "Windows", linux: "Linux", "mac-arm": "macOS" }
   if (os) $(`#dl a[data-os="${os}"]`).classList.add("yours")
-  const dlLabel = () => {
-    $("#hero-dl").lastChild.textContent = " " + (os ? L().dl + names[os] : L().dlAny)
-  }
-  hooks.push(dlLabel)
-  setLang(lang)
+  if (os) $("#hero-dl").lastChild.textContent = " Download for " + names[os]
 })()
