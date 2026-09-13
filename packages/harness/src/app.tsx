@@ -668,6 +668,21 @@ export const App: Component = () => {
     setHistoryIndex(next.length - 1)
   }
 
+  const changeTargetDirectory = (directory: string | undefined) => {
+    setTargetDirectory(directory)
+    if (!directory) {
+      setSelected(undefined)
+      return
+    }
+    const sessions = (sessionList() ?? []).filter((session) => session.location?.directory === directory)
+    const latest = [...sessions].sort((a, b) => b.time.updated - a.time.updated)[0]
+    if (latest) {
+      if (latest.id !== selected()) selectSession(latest.id)
+      return
+    }
+    setSelected(undefined)
+  }
+
   const goBack = () => {
     if (!canGoBack()) return
     const index = historyIndex() - 1
@@ -1555,7 +1570,7 @@ export const App: Component = () => {
           searchFiles={searchFiles}
           onPasteText={collapsePaste}
           onStash={() => stashPrompt(prompt(), true)}
-          onTargetChange={setTargetDirectory}
+          onTargetChange={changeTargetDirectory}
           onOpenFolder={() => setFolderOpen(true)}
           onAgentChange={changeAgent}
           onPermissionModeChange={changePermissionMode}
