@@ -495,7 +495,7 @@
     },
     "packages/flupcode-cli": {
       "name": "@flupcode/cli",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "bin": {
         "flupcode": "./src/index.ts",
       },
@@ -529,7 +529,7 @@
     },
     "packages/harness": {
       "name": "@flupcode/harness",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "dependencies": {
         "@flupcode/remote": "workspace:*",
         "@opencode-ai/sdk": "workspace:*",
@@ -557,7 +557,7 @@
     },
     "packages/harness-desktop": {
       "name": "@flupcode/desktop",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "dependencies": {
         "electron-updater": "6.8.9",
       },
@@ -795,7 +795,7 @@
     },
     "packages/relay": {
       "name": "@flupcode/relay",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "dependencies": {
         "@flupcode/remote": "workspace:*",
       },
@@ -808,7 +808,7 @@
     },
     "packages/remote": {
       "name": "@flupcode/remote",
-      "version": "1.0.10",
+      "version": "1.0.11",
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
