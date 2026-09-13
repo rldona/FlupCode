@@ -26,7 +26,6 @@ export type Routine = {
   lastRunAt?: number
 }
 
-export type SessionTags = Record<string, string[]>
 
 export type ProjectItem = {
   id: string
