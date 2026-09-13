@@ -11,6 +11,7 @@ import type {
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
 import { engineFetch } from "./transport"
+import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
@@ -361,7 +362,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
           client.session.create({
             parentID: input.parentID,
             directory: input.directory,
-            title: "Reply suggestion",
+            title: SUGGESTION_SESSION_TITLE,
             permission: [{ permission: "*", pattern: "*", action: "deny" }],
           }),
         )) as { id: string }

@@ -1,5 +1,15 @@
 /** Helpers for suggesting the user's next message after a turn (shown greyed in the input, Tab accepts). */
 
+/** Title of the throwaway child session each suggestion runs in (see client.suggest.reply). */
+export const SUGGESTION_SESSION_TITLE = "Reply suggestion"
+
+/** A suggestion takes seconds; one older than this was left behind by a closed tab. */
+export const SUGGESTION_SESSION_TTL = 2 * 60_000
+
+export function isSuggestionSession(session: { title?: string; parentID?: string }) {
+  return !!session.parentID && session.title === SUGGESTION_SESSION_TITLE
+}
+
 export const SUGGESTION_SYSTEM = [
   "You predict the next message a user will send to a coding assistant.",
   "Reply with only that message: one short line in the user's language, at most 15 words.",
