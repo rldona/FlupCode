@@ -38,6 +38,7 @@ const ES: Record<string, string> = {
   "Jump to a prompt": "Ir a un prompt",
   "Scroll to the end": "Ir al final",
   "Suggest replies": "Sugerir respuestas",
+  "History {n}/{total}": "Historial {n}/{total}",
   "Suggestion model": "Modelo de las sugerencias",
   "Automatic (small model)": "Automático (modelo pequeño)",
   "After each answer a model suggests your next message; Tab accepts it.": "Tras cada respuesta, un modelo sugiere tu siguiente mensaje; Tab lo acepta.",

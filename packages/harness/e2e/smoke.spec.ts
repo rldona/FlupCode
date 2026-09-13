@@ -130,3 +130,36 @@ test("settings reset the summary counters and can count everything again", async
   await dialog.getByRole("button", { name: "Count all again" }).click()
   await expect(dialog.getByText("Counting every session")).toBeVisible()
 })
+
+test("arrow keys walk through sent prompts and return to the draft", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.promptHistory", JSON.stringify(["first prompt", "second\nprompt"]))
+  })
+  await page.goto("/")
+  const input = page.locator(".fc-composer textarea.fc-input")
+  await input.fill("my draft")
+  await input.press("Home")
+  await input.press("ArrowUp")
+  await expect(input).toHaveValue("second\nprompt")
+  await expect(page.locator(".fc-input-history")).toHaveText("History 2/2")
+  await input.press("ArrowUp")
+  await expect(input).toHaveValue("first prompt")
+  await expect(page.locator(".fc-input-history")).toHaveText("History 1/2")
+  await input.press("ArrowDown")
+  await input.press("ArrowDown")
+  await expect(input).toHaveValue("my draft")
+  await expect(page.locator(".fc-input-history")).toHaveCount(0)
+
+  // Editing a recalled prompt leaves the history and keeps the text.
+  await input.press("ArrowUp")
+  // The caret lands at the start, so ↑ keeps walking back.
+  await input.pressSequentially("!")
+  await expect(input).toHaveValue("!second\nprompt")
+  await expect(page.locator(".fc-input-history")).toHaveCount(0)
+
+  // Escape brings the draft back.
+  await input.fill("")
+  await input.press("ArrowUp")
+  await input.press("Escape")
+  await expect(input).toHaveValue("")
+})

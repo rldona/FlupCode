@@ -7,6 +7,7 @@ import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
 import { SUGGESTION_SYSTEM, buildSuggestionPrompt, cleanSuggestion, pickSuggestionModel } from "./reply-suggestion"
+import { promptHistory, recordPrompt } from "./prompt-history"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
@@ -1615,6 +1616,7 @@ export const App: Component = () => {
     const text = prompt().trim()
     const files = attachments()
     if (!text && files.length === 0) return
+    recordPrompt(text)
 
     if (text.startsWith("/")) {
       const [rawName, ...rest] = text.slice(1).split(/\s+/)
@@ -2026,6 +2028,7 @@ export const App: Component = () => {
               agent={agent()}
               permissionMode={permissionModeId()}
               suggestion={currentSuggestion()}
+              history={promptHistory()}
               onInput={(value) => {
                 setPrompt(value)
                 if (value) setSuggestion(undefined)
