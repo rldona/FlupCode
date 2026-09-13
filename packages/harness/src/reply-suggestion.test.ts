@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { buildSuggestionPrompt, cleanSuggestion, pickSuggestionModel } from "./reply-suggestion"
+import { buildSuggestionPrompt, cleanSuggestion, isSuggestionSession, pickSuggestionModel } from "./reply-suggestion"
 
 describe("cleanSuggestion", () => {
   test("keeps the first line without quotes or a role prefix", () => {
@@ -40,4 +40,12 @@ test("buildSuggestionPrompt keeps the end of long messages", () => {
   const prompt = buildSuggestionPrompt("hola", "a".repeat(5000) + "¿Hago el merge?")
   expect(prompt).toContain("¿Hago el merge?")
   expect(prompt.length).toBeLessThan(3300)
+})
+
+describe("isSuggestionSession", () => {
+  test("is a child session with the suggestion title", () => {
+    expect(isSuggestionSession({ title: "Reply suggestion", parentID: "ses_1" })).toBe(true)
+    expect(isSuggestionSession({ title: "Reply suggestion" })).toBe(false)
+    expect(isSuggestionSession({ title: "Explore the repo", parentID: "ses_1" })).toBe(false)
+  })
 })
