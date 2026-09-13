@@ -9,6 +9,8 @@ type RightAsideProps = {
   session: SessionInfo | undefined
   models: ModelInfo[]
   todos: TodoItem[]
+  /** Hides completed tasks by their text. */
+  onClearTodos: (contents: string[]) => void
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -101,8 +103,23 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           <h3 class="fc-aside-title">
             {t("Tasks")}
             <Show when={props.todos.length > 0}>
-              <span class="fc-aside-count">
-                {completed()}/{props.todos.length}
+              <span class="fc-aside-title-actions">
+                <Show when={completed() > 0}>
+                  <button
+                    class="fc-aside-clear"
+                    type="button"
+                    onClick={() =>
+                      props.onClearTodos(
+                        props.todos.filter((todo) => todo.status === "completed").map((todo) => todo.content),
+                      )
+                    }
+                  >
+                    {t("Clear completed")}
+                  </button>
+                </Show>
+                <span class="fc-aside-count">
+                  {completed()}/{props.todos.length}
+                </span>
               </span>
             </Show>
           </h3>
@@ -112,7 +129,18 @@ export const RightAside: Component<RightAsideProps> = (props) => {
                 {(todo) => (
                   <li class="fc-aside-todo" classList={{ "fc-aside-todo-done": todo.status === "completed" }}>
                     <span class="fc-aside-todo-mark">{mark(todo.status)}</span>
-                    <span>{todo.content}</span>
+                    <span class="fc-aside-todo-text">{todo.content}</span>
+                    <Show when={todo.status === "completed"}>
+                      <button
+                        class="fc-aside-todo-remove"
+                        type="button"
+                        title={t("Remove task")}
+                        aria-label={`${t("Remove task")}: ${todo.content}`}
+                        onClick={() => props.onClearTodos([todo.content])}
+                      >
+                        ×
+                      </button>
+                    </Show>
                   </li>
                 )}
               </For>
