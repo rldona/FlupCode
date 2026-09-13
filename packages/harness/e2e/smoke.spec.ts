@@ -163,3 +163,32 @@ test("arrow keys walk through sent prompts and return to the draft", async ({ pa
   await input.press("Escape")
   await expect(input).toHaveValue("")
 })
+
+test("the Chat tab shows its own home, input and top bar, and is remembered", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.displayName", JSON.stringify("Raúl"))
+  })
+  await page.goto("/")
+  const files = page.getByRole("button", { name: "Files changed" })
+  await expect(files).toBeVisible()
+
+  await page.getByRole("tab", { name: "Chat" }).click()
+  await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
+  await expect(page.locator(".fc-chat-greeting")).toContainText("Raúl")
+  // Chats have no workspace panels, folder, agent or permission controls.
+  await expect(files).toHaveCount(0)
+  await expect(page.getByRole("button", { name: "Terminal" })).toHaveCount(0)
+  await expect(page.locator(".fc-composer .fc-folder-button")).toHaveCount(0)
+  const input = page.locator(".fc-composer textarea.fc-input")
+  await expect(input).toHaveAttribute("placeholder", "Write a message…")
+
+  // A starter fills the input.
+  await page.locator(".fc-chat-starter", { hasText: "Write" }).click()
+  await expect(input).toHaveValue("Help me write ")
+
+  await page.reload()
+  await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
+  await page.getByRole("tab", { name: "Code" }).click()
+  await expect(page.getByRole("button", { name: "Files changed" })).toBeVisible()
+  await expect(page.locator(".fc-chat-greeting")).toHaveCount(0)
+})
