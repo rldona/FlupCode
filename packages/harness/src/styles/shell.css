@@ -5840,7 +5840,7 @@ button.fc-row-main {
 .fc-sidebar-brand-name {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   min-width: 0;
   font-size: 18px;
   font-weight: 600;
@@ -5849,8 +5849,8 @@ button.fc-row-main {
 }
 
 .fc-sidebar-brand-name img {
-  width: 22px;
-  height: 22px;
+  width: 32px;
+  height: 32px;
 }
 
 .fc-sidebar-brand .fc-view-tabs {
