@@ -17,24 +17,26 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | **M3 Desktop** | F5 | Packaged, signed, auto-updating desktop app |
 | **M4 Remote/mobile** | F6 | PWA, QR pairing, push |
 | **M5 v1.0** | F7 | Stable, documented, released |
+| **M6 Remote control** | F8 | Phone drives a desktop session through an E2E encrypted relay |
 
 ---
 
 ## Status summary
 
-_Last updated: 2026-09-12._
+_Last updated: 2026-09-13._
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 52 | all tickets except F3-14, F3-16 and F5-4 |
+| done | 53 | all F0–F7 tickets except F3-14, F3-16 and F5-4; F8-1 |
 | doing | 0 | — |
 | blocked | 3 | F3-14, F3-16, F5-4 |
-| todo | 0 | — |
-| **total** | **55** | |
+| todo | 8 | F8-2 … F8-9 |
+| **total** | **64** | |
 
 ### What remains
 
-All feasible tickets are done. The only open items are blocked on external constraints:
+F8 (remote control, ADR-0010) is in progress. The other open items are blocked on external
+constraints:
 
 - **F3-14 MCP manager** — the vendored client (`1.17.13`) calls `/api/mcp`, removed in the current
   server (`1.18.30`); configure MCP through the engine config for now.
@@ -139,6 +141,20 @@ All feasible tickets are done. The only open items are blocked on external const
 | F7-2 | P1 | User documentation | done |
 | F7-3 | P1 | v1.0 release | done |
 
+## F8 — Remote control
+
+| ID | P | Ticket | Status |
+| --- | --- | --- | --- |
+| F8-1 | P0 | Design: ADR-0010 and tickets | done |
+| F8-2 | P0 | Secure channel (`@flupcode/remote`) | todo |
+| F8-3 | P0 | Tunnel multiplexer (`@flupcode/remote`) | todo |
+| F8-4 | P0 | Relay server (`@flupcode/relay`) | todo |
+| F8-5 | P0 | Desktop host: identity, pairing, devices | todo |
+| F8-6 | P0 | Harness transport for all engine traffic | todo |
+| F8-7 | P0 | Remote control UI (desktop and phone) | todo |
+| F8-8 | P1 | Docs and end-to-end test | todo |
+| F8-9 | P2 | Web Push while locked | todo |
+
 ---
 
 ## Sequencing rules
@@ -148,6 +164,7 @@ All feasible tickets are done. The only open items are blocked on external const
 3. F4 only after F3 parity passes the matrix in `docs/PARITY.md`.
 4. F5 can start once F2 stabilises; desktop reuses the web renderer.
 5. F6 is independent of F5 and can run in parallel once the web app is responsive.
+6. F8: protocol (F8-2, F8-3) before relay and host; harness transport (F8-6) before the UI.
 
 ---
 
