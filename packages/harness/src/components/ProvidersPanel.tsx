@@ -173,7 +173,9 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
                             if (method) void startOAuth(provider.id, method.id)
                           }}
                         >
-                          {t("Sign in")}
+                          <Show when={attemptProvider() === provider.id && !attempt()} fallback={t("Sign in")}>
+                            <span class="fc-spinner">◐</span> {t("Signing in…")}
+                          </Show>
                         </button>
                       </Show>
                       <input
