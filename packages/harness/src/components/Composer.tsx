@@ -52,7 +52,7 @@ type SpeechRecognitionEventLike = {
   results: ArrayLike<SpeechRecognitionResult>
 }
 
-type SpeechRecognitionLike = {
+export type SpeechRecognitionLike = {
   lang: string
   continuous: boolean
   interimResults: boolean
@@ -65,7 +65,7 @@ type SpeechRecognitionLike = {
 
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
 
-function speechRecognition(): SpeechRecognitionConstructor | undefined {
+export function speechRecognition(): SpeechRecognitionConstructor | undefined {
   if (typeof window === "undefined") return
   const scope = window as unknown as {
     SpeechRecognition?: SpeechRecognitionConstructor
