@@ -2,6 +2,7 @@ import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import { existsSync } from "node:fs"
 import { join } from "node:path"
 import { app, dialog, shell } from "electron"
+import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
 export const OPENCODE_DOCS = "https://opencode.ai/docs/"
@@ -72,6 +73,8 @@ function promptInstall() {
 
 export async function ensureServer() {
   if (process.env.FLUPCODE_NO_SERVER === "1") return
+  // Before any engine starts: plugins load at startup (an engine already running picks them up on restart).
+  await installEnginePlugins()
   if (await isServerHealthy()) return
 
   const engine = resolveEngine()
