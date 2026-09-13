@@ -168,29 +168,6 @@ button {
   gap: 8px;
   align-items: center;
 }
-.lang {
-  display: inline-flex;
-  background: color-mix(in srgb, #fff 6%, transparent);
-  border: 1px solid var(--line-2);
-  border-radius: 999px;
-  padding: 2px;
-  cursor: pointer;
-  font-family: var(--mono);
-  font-size: 11px;
-  letter-spacing: 0.06em;
-}
-.lang span {
-  padding: 4px 9px;
-  border-radius: 999px;
-  color: var(--muted);
-}
-.lang span.on {
-  background: #fff;
-  color: #0b0d15;
-}
-html[lang="es"] .dl a.yours::before {
-  content: "Tu plataforma";
-}
 
 /* ---------- buttons ---------- */
 .btn {
