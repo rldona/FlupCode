@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
@@ -391,17 +391,27 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const fullIndex = (index: number) => offset() + index
 
   let body: HTMLDivElement | undefined
+  let lastScrollTop = 0
+  // When the reader last touched the transcript (wheel, touch, keys, scrollbar).
+  let readerInput = 0
+  const markReaderInput = () => {
+    readerInput = performance.now()
+  }
   const scrollToBottom = () => {
     if (container) container.scrollTop = container.scrollHeight
   }
 
-  onMount(() => {
-    const observer = new ResizeObserver(() => {
-      if (stick()) requestAnimationFrame(scrollToBottom)
-    })
-    if (body) observer.observe(body)
-    onCleanup(() => observer.disconnect())
+  // Follows the end while content grows (streaming, tool output, refreshed history). The body only
+  // exists once the transcript has loaded and is recreated on reload, so it is observed from its ref.
+  const growth = new ResizeObserver(() => {
+    if (stick()) requestAnimationFrame(scrollToBottom)
   })
+  onCleanup(() => growth.disconnect())
+  const observeBody = (element: HTMLDivElement) => {
+    if (body) growth.unobserve(body)
+    body = element
+    growth.observe(element)
+  }
 
   createEffect(() => {
     const first = props.messages?.[0]?.id
@@ -424,8 +434,17 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       ref={container}
       onScroll={() => {
         if (!container) return
-        setStick(container.scrollHeight - container.scrollTop - container.clientHeight < 120)
+        const distance = container.scrollHeight - container.scrollTop - container.clientHeight
+        const movedUp = container.scrollTop < lastScrollTop
+        lastScrollTop = container.scrollTop
+        // Only the reader scrolling up leaves the end; content changing height never does.
+        if (distance < 120) setStick(true)
+        else if (movedUp && performance.now() - readerInput < 1000) setStick(false)
       }}
+      onWheel={markReaderInput}
+      onTouchMove={markReaderInput}
+      onPointerDown={markReaderInput}
+      onKeyDown={markReaderInput}
     >
       <Show
         when={!props.loading || (props.messages?.length ?? 0) > 0}
@@ -435,7 +454,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           </div>
         }
       >
-        <div class="fc-transcript-body" ref={body}>
+        <div class="fc-transcript-body" ref={observeBody}>
         <Show
           when={props.messages && props.messages.length > 0}
           fallback={
