@@ -5560,3 +5560,16 @@ button.fc-row-main {
 .fc-project-new:hover {
   color: var(--fc-text);
 }
+
+/* Stop: Claude Code's outlined circle with a centre mark, in place of the send button. */
+.fc-composer .fc-input-stop {
+  background: transparent;
+  color: var(--fc-text);
+  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.fc-composer .fc-input-stop:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  color: var(--fc-text);
+  opacity: 1;
+}
