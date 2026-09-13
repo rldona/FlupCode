@@ -5664,3 +5664,21 @@ button.fc-row-main {
     animation: none;
   }
 }
+
+/* Suggested next message: the placeholder shows it, with a Tab hint next to the send button. */
+.fc-composer .fc-input-suggesting::placeholder {
+  color: color-mix(in srgb, var(--fc-text-muted) 85%, transparent);
+}
+
+.fc-input-tab-hint {
+  position: absolute;
+  right: 50px;
+  bottom: 16px;
+  padding: 1px 6px;
+  border: 1px solid var(--fc-border);
+  border-radius: 5px;
+  color: var(--fc-text-muted);
+  font: 500 11px/16px var(--fc-font-ui);
+  pointer-events: none;
+  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
