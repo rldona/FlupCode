@@ -13,6 +13,8 @@ type TopbarProps = {
   onToggleSidebar: () => void
   view: AppView
   onViewChange: (view: AppView) => void
+  /** The Chat / Code tabs live at the top of the sidebar; while it is hidden they show here. */
+  sidebarCollapsed: boolean
   /** The session's right-hand context panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
   onOpenPalette: () => void
@@ -106,7 +108,9 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           <TopIcon d={TopbarIcons.forward} />
         </button>
-        <ViewTabs view={props.view} onChange={props.onViewChange} />
+        <Show when={props.sidebarCollapsed}>
+          <ViewTabs view={props.view} onChange={props.onViewChange} />
+        </Show>
         {props.sessionTitle}
       </div>
       <div class="fc-topbar-right">

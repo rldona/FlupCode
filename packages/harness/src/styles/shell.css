@@ -5753,7 +5753,7 @@ button.fc-row-main {
 .fc-chat-greeting {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 6px;
   margin: 0;
   font-family: ui-serif, Georgia, "Times New Roman", serif;
   font-size: 34px;
@@ -5764,8 +5764,8 @@ button.fc-row-main {
 }
 
 .fc-chat-greeting-logo {
-  width: 34px;
-  height: 34px;
+  width: 62px;
+  height: 62px;
 }
 
 .fc-main-chat-home .fc-composer {
@@ -5824,4 +5824,36 @@ button.fc-row-main {
 .fc-message-stopped {
   font-size: var(--fc-text-sm);
   color: var(--fc-text-muted);
+}
+
+/* Sidebar header: the FlupCode name with the Chat / Code tabs on its right, like Claude's. */
+.fc-sidebar-brand {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-2);
+  min-height: 32px;
+  margin-bottom: 10px;
+  padding: 0 2px 0 4px;
+}
+
+.fc-sidebar-brand-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.fc-sidebar-brand-name img {
+  width: 22px;
+  height: 22px;
+}
+
+.fc-sidebar-brand .fc-view-tabs {
+  margin-left: 0;
+  flex-shrink: 0;
 }
