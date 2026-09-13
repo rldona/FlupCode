@@ -2794,9 +2794,6 @@ button.fc-row-main {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-left: 14px;
-  padding-left: 6px;
-  border-left: 1px solid var(--fc-border);
 }
 
 .fc-session-row-active {
@@ -2807,6 +2804,9 @@ button.fc-row-main {
 .fc-session-main {
   flex: 1;
   min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 5px 6px;
   border: none;
   border-radius: var(--fc-radius-sm);
@@ -5510,4 +5510,53 @@ button.fc-row-main {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+/* Sessions in the sidebar: a small ring like Claude Code's, green and pulsing while working. */
+.fc-session-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  box-sizing: border-box;
+  border: 1.5px solid color-mix(in srgb, var(--fc-text-muted) 70%, transparent);
+  border-radius: 50%;
+}
+
+.fc-session-row-active .fc-session-dot {
+  border-color: var(--fc-text);
+}
+
+.fc-session-dot-running {
+  border-color: var(--fc-success-soft);
+  background: var(--fc-success-soft);
+  animation: fc-remote-pulse 1.4s ease-in-out infinite;
+}
+
+.fc-session-row-active .fc-session-dot-running {
+  border-color: var(--fc-success-soft);
+}
+
+.fc-session-title {
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-session-dot-running {
+    animation: none;
+  }
+}
+
+.fc-project-new {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-project-new:hover {
+  color: var(--fc-text);
 }
