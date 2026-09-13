@@ -144,7 +144,41 @@ Alternatively, keep FlupCode's server and attach the TUI to it, so both share th
 opencode attach http://localhost:4096
 ```
 
-## Remote / mobile
+## Remote control
+
+Drive your computer's sessions from a phone, on any network. The desktop app connects out to a
+relay and the phone talks to it through that relay; everything is end-to-end encrypted, so the
+relay cannot read your sessions (ADR-0010).
+
+1. In the desktop app, open **Remote control** (sidebar menu, Settings or the command palette) and
+   turn **Allow remote control** on. Wait for **Online**.
+2. Click **Pair a device** and scan the QR code with the phone's camera. The code works once and
+   expires after 10 minutes.
+3. The phone opens FlupCode (`https://app.flupcode.com`), pairs and connects. A **Remote: <computer>**
+   badge in the top bar shows the connection; tap it to disconnect or switch computers. Add the
+   page to the home screen to use it as an app.
+
+Paired phones reconnect on their own. Remove a phone from **Paired devices** on the computer to
+revoke it immediately. The computer must stay awake with FlupCode open.
+
+### Self-hosting the relay
+
+The desktop app uses `wss://relay.flupcode.com` by default. To use your own relay, deploy
+`packages/relay` (see its README) and set it under **Remote control → Advanced → Relay**, or start
+the app with `FLUPCODE_RELAY_URL`. Set `FLUPCODE_APP_URL` if you host the web app elsewhere.
+
+### Developing remote control
+
+```bash
+bun run --cwd packages/relay dev
+bun packages/remote/script/dev-host.ts --relay ws://localhost:8787 --app http://localhost:4444/
+```
+
+The second command is a headless host (no Electron) that tunnels to the engine on `:4096` and
+prints a pairing link. Open it in a browser on `localhost`: remote control needs a secure context,
+so a phone must load the app over HTTPS.
+
+### Local network without a relay
 
 Serve the engine on your LAN and open the harness from a phone:
 
@@ -153,11 +187,14 @@ OPENCODE_SERVER_PASSWORD=secret bun run --cwd packages/opencode src/index.ts ser
   --hostname 0.0.0.0 --port 4096
 ```
 
-Open `http://<your-computer>:4096` on the phone (the engine serves the built web UI), or point a
-harness instance at it. Always set a password when exposing the server.
+Point a harness instance at `http://<your-computer>:4096`. Always set a password when exposing the
+server.
 
 ## Troubleshooting
 
 - **Install fails with 401 / private registry** — force the public registry as shown above.
 - **"Sin conexión" in the top bar** — check the server URL and that `opencode serve` is running.
 - **Empty model selector** — connect a provider or leave **Auto** enabled to use the server default.
+- **Remote control stays "Connecting"** — check that the relay URL is reachable (`/health`) and uses
+  `wss://`. On the phone, "The computer is offline" means the desktop app is closed, asleep or has
+  remote control turned off.
