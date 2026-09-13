@@ -183,7 +183,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 {t("MCP servers")}
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenRemote}>
-                {t("Remote access (QR)")}
+                {t("Remote control")}
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenConfig}>
                 {t("Config (advanced)")}

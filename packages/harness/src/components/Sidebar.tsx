@@ -299,7 +299,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   { label: t("Routines"), icon: "↻", onSelect: props.onRoutines },
                   { label: t("MCP servers"), icon: "◫", onSelect: props.onMcp },
                   { label: t("Config (advanced)"), icon: "{}", onSelect: props.onConfig },
-                  { label: t("Remote access (QR)"), icon: "◉", onSelect: props.onRemote },
+                  { label: t("Remote control"), icon: "◉", onSelect: props.onRemote },
                   { label: t("About"), icon: "i", onSelect: props.onAbout },
                 ],
               })

@@ -121,7 +121,6 @@ const ES: Record<string, string> = {
   Server: "Servidor",
   Integrations: "Integraciones",
   "MCP servers": "Servidores MCP",
-  "Remote access (QR)": "Acceso remoto (QR)",
   "Open FlupCode on your phone by scanning the code.": "Abre FlupCode desde el móvil escaneando el código.",
   URL: "URL",
   "Copy URL": "Copiar URL",
@@ -208,7 +207,7 @@ const ES: Record<string, string> = {
   "View saved prompts": "Ver prompts guardados",
   "Customize FlupCode": "Personalizar FlupCode",
   "Scheduled tasks": "Tareas programadas",
-  "Remote access / mobile": "Acceso remoto / móvil",
+  "Remote control / mobile": "Control remoto / móvil",
   "Search commands, sessions and files": "Buscar comandos, sesiones y archivos",
   "No results": "Sin resultados",
 
@@ -326,6 +325,46 @@ const ES: Record<string, string> = {
   "Routine created": "Rutina creada",
   'Routine "{name}" executed': 'Rutina "{name}" ejecutada',
   "Delete this session?": "¿Eliminar esta sesión?",
+
+  // Remote control
+  "Remote control": "Control remoto",
+  "Control this computer's sessions from your phone, on any network. Traffic is end-to-end encrypted.":
+    "Controla las sesiones de este ordenador desde el móvil, desde cualquier red. El tráfico va cifrado de extremo a extremo.",
+  "Allow remote control": "Permitir control remoto",
+  Online: "En línea",
+  "Pair a device": "Emparejar un dispositivo",
+  "Show a QR code and scan it with your phone's camera.": "Muestra un código QR y escanéalo con la cámara del móvil.",
+  "Scan with your phone. The code works once and expires in {time}.":
+    "Escanéalo con el móvil. El código sirve una vez y caduca en {time}.",
+  "Copy link": "Copiar enlace",
+  "Paired devices": "Dispositivos emparejados",
+  "No devices yet": "Aún no hay dispositivos",
+  Advanced: "Avanzado",
+  Relay: "Relay",
+  "The system keychain is unavailable: device keys are stored unencrypted on disk.":
+    "El llavero del sistema no está disponible: las claves de los dispositivos se guardan sin cifrar en disco.",
+  "just now": "ahora mismo",
+  "{count} min ago": "hace {count} min",
+  "{count} h ago": "hace {count} h",
+  Reconnecting: "Reconectando",
+  Error: "Error",
+  Forget: "Olvidar",
+  "Drive a computer's sessions from here. On the computer, open FlupCode → Remote control → Pair a device, and scan the code with this device.":
+    "Controla desde aquí las sesiones de un ordenador. En el ordenador, abre FlupCode → Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
+  "Connected to {name}": "Conectado a {name}",
+  "Paired computers": "Ordenadores emparejados",
+  "No computers yet": "Aún no hay ordenadores",
+  "Local network (without relay)": "Red local (sin relay)",
+  "Remote control needs HTTPS. Open FlupCode from its secure address.":
+    "El control remoto necesita HTTPS. Abre FlupCode desde su dirección segura.",
+  "The computer is offline or remote control is turned off.":
+    "El ordenador está desconectado o tiene el control remoto desactivado.",
+  "This device was removed on the computer. Pair it again.":
+    "Este dispositivo se eliminó en el ordenador. Vuelve a emparejarlo.",
+  "The pairing code expired or was already used. Create a new one on the computer.":
+    "El código de emparejamiento caducó o ya se usó. Crea uno nuevo en el ordenador.",
+  "Could not connect to the computer.": "No se pudo conectar con el ordenador.",
+  "Remote: {name}": "Remoto: {name}",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
