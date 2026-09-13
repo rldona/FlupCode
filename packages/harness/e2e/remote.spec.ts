@@ -20,6 +20,15 @@ let relay: ChildProcess
 let engine: Server
 let engineUrl = ""
 const engineHits: string[] = []
+const e2eSession = {
+  id: "ses_e2e",
+  projectID: "project",
+  cost: 0,
+  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  time: { created: Date.now() - 60_000, updated: Date.now() - 60_000 },
+  title: "Fix the login flow",
+  location: { directory: "/work/flupcode" },
+}
 
 async function waitForRelay() {
   const deadline = Date.now() + 15_000
@@ -43,6 +52,11 @@ test.beforeAll(async () => {
     response.setHeader("content-type", "application/json")
     if (request.url?.startsWith("/api/health") || request.url?.startsWith("/global/health"))
       return response.end(JSON.stringify({ healthy: true, version: "e2e" }))
+    if (request.url?.startsWith("/api/session?") || request.url === "/api/session")
+      return response.end(JSON.stringify({ data: [e2eSession], cursor: {} }))
+    if (request.url?.startsWith("/vcs?")) return response.end(JSON.stringify({ branch: "main" }))
+    if (request.url?.startsWith("/permission?"))
+      return response.end(JSON.stringify([{ id: "per_1", sessionID: e2eSession.id }]))
     response.statusCode = 404
     response.end(JSON.stringify({ message: "not found" }))
   })
@@ -138,6 +152,65 @@ test("an expired pairing link explains the error instead of showing the welcome 
 
 test.describe("on a phone", () => {
   test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test("controlling a computer shows the sessions home and a focused session screen", async ({ page, baseURL }) => {
+    const pairingId = toBase64Url(random(16))
+    const secret = random(32)
+    const statuses: string[] = []
+    const host = startRelayHost({
+      relay: relayUrl,
+      identity: await createHostIdentity(),
+      onStatus: (status) => statuses.push(status),
+      onChannel: (wire) =>
+        void acceptChannel(wire, (mode, id) => (mode === "pair" && id === pairingId ? secret : undefined))
+          .then((accepted) => {
+            const tunnel = serveTunnel(accepted.channel, { target: engineUrl })
+            tunnel.sendControl({
+              type: "enrolled",
+              deviceId: "e2e-phone",
+              deviceKey: toBase64Url(random(32)),
+              hostName: "e2e-mac",
+            })
+          })
+          .catch(() => undefined),
+    })
+    await expect.poll(() => statuses.at(-1)).toBe("online")
+    await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
+    await page.goto(
+      pairingUrl(`${baseURL}/`, {
+        v: 1,
+        relay: relayUrl,
+        host: await host.hostId,
+        id: pairingId,
+        secret: toBase64Url(secret),
+        name: "e2e-mac",
+      }),
+    )
+
+    const home = page.locator(".fc-remote-home")
+    await expect(home).toBeVisible({ timeout: 15_000 })
+    await expect(home.getByRole("button", { name: /e2e-mac/ })).toBeVisible()
+    const card = home.getByRole("button", { name: /Fix the login flow/ })
+    await expect(card).toContainText("flupcode · main")
+    await expect(card.getByRole("img", { name: "Needs your input" })).toBeVisible()
+    await expect(page.locator(".fc-sidebar")).toHaveCount(0)
+
+    // The fake engine answers 404 for the transcript: the session screen must still open.
+    await card.click()
+    await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow")
+    await page.getByRole("button", { name: "Back" }).click()
+    await expect(home).toBeVisible()
+
+    await home.getByRole("button", { name: "New session" }).click()
+    await page
+      .getByRole("dialog", { name: "New session" })
+      .getByRole("button", { name: /flupcode/ })
+      .click()
+    await expect(page.locator(".fc-mobile-header")).toContainText("New session")
+    await page.goBack()
+    await expect(home).toBeVisible()
+    host.stop()
+  })
 
   test("the welcome screen offers to control a computer first", async ({ page }) => {
     await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))

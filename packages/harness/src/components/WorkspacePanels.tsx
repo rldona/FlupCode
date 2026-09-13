@@ -1,4 +1,5 @@
-import { For, Show, Suspense, createResource, createSignal, lazy, type Component } from "solid-js"
+import { For, Show, Suspense, createSignal, lazy, type Component } from "solid-js"
+import { createResource } from "../resource"
 import type { FileDiffInfo, SessionInfo } from "../engine-types"
 import { createClient } from "../client"
 import { t } from "../i18n"
