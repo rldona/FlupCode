@@ -306,10 +306,19 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
   const [open, setOpen] = createSignal(false)
   const running = () => props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
   const failed = () => props.parts.some((part) => part.state.status === "error")
+  const done = () =>
+    props.parts.filter((part) => part.state.status === "completed" || part.state.status === "error").length
   return (
     <div class="fc-toolgroup" classList={{ "fc-toolgroup-running": running(), "fc-toolgroup-open": open() }}>
       <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
         <span class="fc-toolgroup-label">{toolGroupSummary(props.parts)}</span>
+        <span
+          class="fc-toolgroup-count"
+          title={t("{n} tools in this block", { n: props.parts.length })}
+          aria-label={t("{n} tools in this block", { n: props.parts.length })}
+        >
+          {running() ? `${done()}/${props.parts.length}` : props.parts.length}
+        </span>
         <Show when={failed()}>
           <span class="fc-toolgroup-failed">{t("error")}</span>
         </Show>
@@ -488,6 +497,27 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     while (index >= 0 && list[index]?.type !== "assistant") index--
     while (index > 0 && list[index - 1]?.type === "assistant") index--
     return index
+  })
+
+  // What the running turn is doing right now, for the status line under the conversation.
+  const activity = createMemo(() => {
+    const list = props.messages ?? []
+    const start = Math.max(0, lastTurnStart())
+    let runningTools = 0
+    let lastPart: { type: string; time?: { completed?: number } } | undefined
+    for (let index = start; index < list.length; index++) {
+      const message = list[index]
+      if (message?.type !== "assistant") continue
+      for (const part of (message as SessionMessageAssistant).content) {
+        if (part.type === "tool" && (part.state.status === "running" || part.state.status === "pending")) runningTools++
+        lastPart = part as typeof lastPart
+      }
+    }
+    if (runningTools > 0) return { tasks: runningTools, label: t("Running tools…") }
+    if (props.liveReasoning || (lastPart?.type === "reasoning" && lastPart.time?.completed === undefined))
+      return { tasks: 0, label: t("Thinking…") }
+    if (props.liveText) return { tasks: 0, label: t("Writing…") }
+    return { tasks: 0, label: t("Waiting for FlupCode…") }
   })
 
   const [visibleCount, setVisibleCount] = createSignal(80)
@@ -708,7 +738,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           </Show>
           <Show when={props.busy}>
             <div class="fc-message fc-message-assistant fc-message-pending">
-              <Loader tokens={props.usage?.tokens} cost={props.usage?.cost} startedAt={props.startedAt} />
+              <Loader
+                tokens={props.usage?.tokens}
+                cost={props.usage?.cost}
+                startedAt={props.startedAt}
+                tasks={activity().tasks}
+                label={activity().label}
+              />
             </div>
           </Show>
         </Show>
