@@ -1,7 +1,8 @@
-import { For, type Component, Show } from "solid-js"
+import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
 import type { ModelInfo } from "../engine-types"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
+import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
 
 type SettingsPanelProps = {
@@ -43,6 +44,21 @@ function groupModels(models: ModelInfo[]) {
 }
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
+  // Resetting asks for a second click within a few seconds.
+  const [confirmReset, setConfirmReset] = createSignal(false)
+  let confirmTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(confirmTimer))
+  const reset = () => {
+    if (!confirmReset()) {
+      setConfirmReset(true)
+      clearTimeout(confirmTimer)
+      confirmTimer = setTimeout(() => setConfirmReset(false), 4000)
+      return
+    }
+    clearTimeout(confirmTimer)
+    setConfirmReset(false)
+    resetUsage()
+  }
   return (
     <Show when={props.open}>
     <div class="fc-modal-backdrop" onClick={props.onClose}>
@@ -152,6 +168,35 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               >
                 {props.showTools ? t("Yes") : t("No")}
               </button>
+            </div>
+          </section>
+
+          <section class="fc-settings-section">
+            <h3 class="fc-settings-title">{t("Usage")}</h3>
+            <div class="fc-settings-row">
+              <span class="fc-settings-usage">
+                <span>{t("Summary counters")}</span>
+                <span class="fc-settings-hint">
+                  {usageResetAt()
+                    ? t("Counting sessions since {date}", { date: new Date(usageResetAt()).toLocaleString() })
+                    : t("Counting every session")}
+                </span>
+              </span>
+              <span class="fc-settings-actions">
+                <Show when={usageResetAt()}>
+                  <button class="fc-button" type="button" onClick={restoreUsage}>
+                    {t("Count all again")}
+                  </button>
+                </Show>
+                <button
+                  class="fc-button"
+                  classList={{ "fc-button-danger": confirmReset() }}
+                  type="button"
+                  onClick={reset}
+                >
+                  {confirmReset() ? t("Click again to reset") : t("Reset counters")}
+                </button>
+              </span>
             </div>
           </section>
 
