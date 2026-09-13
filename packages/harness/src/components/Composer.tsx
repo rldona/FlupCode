@@ -1,5 +1,5 @@
-import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { AgentInfo, FileSystemEntry, ModelVariant } from "../engine-types"
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
+import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { ModeMenu } from "./ModeMenu"
@@ -7,18 +7,34 @@ import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
+import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 
 type ComposerProps = {
   value: string
   sending: boolean
+  /** The model is working on the open session: the send button becomes Stop while the input is empty. */
+  generating: boolean
+  onStop: () => void
+  models: ModelInfo[]
+  modelKey: string | undefined
+  favorites: string[]
+  onModelChange: (providerID: string, id: string) => void
   modelLabel: string
   variants: ModelVariant[]
   variantKey: string | undefined
   usage: { used: number; limit: number; cost?: number; tokens?: { input: number; output: number; reasoning: number } }
-  repo?: { directory: string; branch?: string; additions: number; deletions: number; onCommit: () => void }
+  repo?: {
+    directory: string
+    branch?: string
+    additions: number
+    deletions: number
+    onCommit: () => void
+    onClear?: () => void
+  }
   attachments: Attachment[]
   commands: CommandOption[]
   projects: ProjectItem[]
+  /** The folder of the open session, or the one picked for a new session. The picker only shows without one. */
   targetDirectory: string | undefined
   agents: AgentInfo[]
   agent: string
@@ -76,12 +92,34 @@ export function speechRecognition(): SpeechRecognitionConstructor | undefined {
 
 export const Composer: Component<ComposerProps> = (props) => {
   let fileInput: HTMLInputElement | undefined
+  let input: HTMLTextAreaElement | undefined
   let recognition: SpeechRecognitionLike | undefined
   const [listening, setListening] = createSignal(false)
   const [dragging, setDragging] = createSignal(false)
   const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
 
   onCleanup(() => recognition?.stop())
+
+  onMount(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "u") {
+        event.preventDefault()
+        fileInput?.click()
+      }
+    }
+    window.addEventListener("keydown", onKey)
+    onCleanup(() => window.removeEventListener("keydown", onKey))
+  })
+
+  // The input grows with its text up to a limit, like Claude Code's.
+  createEffect(() => {
+    props.value
+    if (!input) return
+    input.style.height = "auto"
+    input.style.height = `${Math.min(input.scrollHeight, 240)}px`
+  })
+
+  const showStop = () => props.generating && props.value.trim().length === 0 && props.attachments.length === 0
 
   const handleFiles = (files: FileList | null) => {
     if (!files || files.length === 0) return
@@ -177,185 +215,175 @@ export const Composer: Component<ComposerProps> = (props) => {
       <div class="fc-composer-inner">
         <Show when={props.repo}>{(repo) => <RepoBar {...repo()} />}</Show>
 
-      <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
-        <div class="fc-command-menu">
-          <For each={filteredCommands()}>
-            {(command) => (
-              <button class="fc-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
-                <span class="fc-command-name">/{command.name}</span>
-                <Show when={command.description}>
-                  <span class="fc-command-desc">{command.description}</span>
-                </Show>
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      <Show when={commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0}>
-        <div class="fc-command-menu">
-          <For each={fileResults()}>
-            {(file) => (
-              <button class="fc-command-item" type="button" onClick={() => insertMention(file.path)}>
-                <span class="fc-command-name">@{file.path}</span>
-                <span class="fc-command-desc">{file.type}</span>
-              </button>
-            )}
-          </For>
-        </div>
-      </Show>
-
-      <Show when={props.attachments.length > 0}>
-        <div class="fc-attachments">
-          <For each={props.attachments}>
-            {(attachment) => (
-              <span class="fc-attachment">
-                <span class="fc-attachment-name">{attachment.name}</span>
-                <button
-                  class="fc-attachment-remove"
-                  type="button"
-                  aria-label={`${t("Remove")} ${attachment.name}`}
-                  onClick={() => props.onRemoveAttachment(attachment.uri)}
-                >
-                  ×
+        <Show when={commandQuery() !== undefined && filteredCommands().length > 0}>
+          <div class="fc-command-menu">
+            <For each={filteredCommands()}>
+              {(command) => (
+                <button class="fc-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
+                  <span class="fc-command-name">/{command.name}</span>
+                  <Show when={command.description}>
+                    <span class="fc-command-desc">{command.description}</span>
+                  </Show>
                 </button>
-              </span>
-            )}
-          </For>
-        </div>
-      </Show>
+              )}
+            </For>
+          </div>
+        </Show>
 
-      <div class="fc-input-wrap">
-        <textarea
-          class="fc-input"
-          rows={1}
-          placeholder={t("Describe a task or ask a question")}
-          value={props.value}
-          onInput={(event) => props.onInput(event.currentTarget.value)}
-          onPaste={(event) => {
-            const files = event.clipboardData?.files
-            if (files && files.length > 0) {
-              event.preventDefault()
-              handleFiles(files)
-              return
-            }
-            const raw = event.clipboardData?.getData("text")
-            if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
-              event.preventDefault()
-              const token = props.onPasteText(raw)
-              props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
-            }
-          }}
-          onKeyDown={(event) => {
-            if (event.key === "Enter" && !event.shiftKey) {
-              event.preventDefault()
-              props.onSend()
-            }
-          }}
-        />
-        <button
-          class="fc-input-send"
-          type="button"
-          title={t("Send")}
-          aria-label={t("Send")}
-          onClick={props.onSend}
-          disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              d="M9 4v7a4 4 0 0 0 4 4h7M15 11l4 4-4 4"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
-      </div>
+        <Show when={commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0}>
+          <div class="fc-command-menu">
+            <For each={fileResults()}>
+              {(file) => (
+                <button class="fc-command-item" type="button" onClick={() => insertMention(file.path)}>
+                  <span class="fc-command-name">@{file.path}</span>
+                  <span class="fc-command-desc">{file.type}</span>
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
 
-      <div class="fc-composer-bottom">
-        <div class="fc-composer-left">
-          <FolderMenu
-            value={props.targetDirectory}
-            projects={props.projects}
-            onSelect={props.onTargetChange}
-            onOpenFolder={props.onOpenFolder}
-          />
-          <Show when={props.value.startsWith("!")}>
-            <span class="fc-chip fc-chip-active">{t("Shell")}</span>
-          </Show>
-          <button
-            class="fc-tool-button"
-            type="button"
-            title={t("Attach")}
-            aria-label={t("Attach")}
-            onClick={() => fileInput?.click()}
-          >
-            +
-          </button>
-          <button
-            class="fc-tool-button"
-            classList={{ "fc-icon-button-active": listening() }}
-            type="button"
-            title={t("Voice dictation")}
-            aria-label={t("Voice dictation")}
-            disabled={!speechRecognition()}
-            onClick={toggleVoice}
-          >
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-              <path
-                d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3Z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-              />
-              <path
-                d="M5 11a7 7 0 0 0 14 0M12 18v3"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.8"
-                stroke-linecap="round"
-              />
-            </svg>
-          </button>
-          <Show when={primaryAgents(props.agents).length > 0}>
-            <div class="fc-segment">
-              <For each={primaryAgents(props.agents)}>
-                {(entry) => (
+        <Show when={props.attachments.length > 0}>
+          <div class="fc-attachments">
+            <For each={props.attachments}>
+              {(attachment) => (
+                <span class="fc-attachment">
+                  <span class="fc-attachment-name">{attachment.name}</span>
                   <button
-                    class="fc-segment-item"
-                    classList={{ "fc-segment-item-active": props.agent === entry.id }}
+                    class="fc-attachment-remove"
                     type="button"
-                    onClick={() => props.onAgentChange(entry.id)}
+                    aria-label={`${t("Remove")} ${attachment.name}`}
+                    onClick={() => props.onRemoveAttachment(attachment.uri)}
                   >
-                    {entry.id}
+                    ×
                   </button>
-                )}
-              </For>
-            </div>
+                </span>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        <div class="fc-input-wrap">
+          <textarea
+            ref={input}
+            class="fc-input"
+            rows={1}
+            placeholder={t("Type / for commands")}
+            value={props.value}
+            onInput={(event) => props.onInput(event.currentTarget.value)}
+            onPaste={(event) => {
+              const files = event.clipboardData?.files
+              if (files && files.length > 0) {
+                event.preventDefault()
+                handleFiles(files)
+                return
+              }
+              const raw = event.clipboardData?.getData("text")
+              if (raw && (raw.length > 2000 || raw.split("\n").length > 20)) {
+                event.preventDefault()
+                const token = props.onPasteText(raw)
+                props.onInput(`${props.value}${props.value ? " " : ""}${token}`)
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                event.preventDefault()
+                props.onSend()
+              }
+            }}
+          />
+          <Show
+            when={showStop()}
+            fallback={
+              <button
+                class="fc-input-send"
+                type="button"
+                title={t("Send")}
+                aria-label={t("Send")}
+                onClick={props.onSend}
+                disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
+              >
+                <DockIcon path="M12 19V5M6 11l6-6 6 6" size={18} />
+              </button>
+            }
+          >
+            <button
+              class="fc-input-send fc-input-stop"
+              type="button"
+              title={t("Stop")}
+              aria-label={t("Stop")}
+              onClick={props.onStop}
+            >
+              <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true">
+                <rect x="5" y="5" width="14" height="14" rx="2.5" fill="currentColor" />
+              </svg>
+            </button>
           </Show>
-          <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
         </div>
 
-        <div class="fc-composer-right">
-          <button
-            class="fc-model-button"
-            type="button"
-            aria-label={t("Model")}
-            onClick={props.onOpenModelPicker}
-          >
-            <span class="fc-model-button-label">{props.modelLabel}</span>
-          </button>
-          <EffortMenu
-            value={props.variantKey}
-            variants={props.variants}
-            disabled={props.variants.length === 0}
-            onChange={props.onVariantChange}
-          />
-          <ContextMeter used={props.usage.used} limit={props.usage.limit} cost={props.usage.cost} tokens={props.usage.tokens} />
+        <div class="fc-composer-bottom">
+          <div class="fc-composer-left">
+            <AddMenu
+              canAddFolder={!props.targetDirectory}
+              onAddFiles={() => fileInput?.click()}
+              onAddFolder={props.onOpenFolder}
+              onSlashCommands={() => {
+                if (!props.value.startsWith("/")) props.onInput("/")
+                input?.focus()
+              }}
+            />
+            <button
+              class="fc-dock-icon"
+              classList={{ "fc-dock-listening": listening() }}
+              type="button"
+              title={t("Voice dictation")}
+              aria-label={t("Voice dictation")}
+              aria-pressed={listening()}
+              disabled={!speechRecognition()}
+              onClick={toggleVoice}
+            >
+              <DockIcon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
+            </button>
+            <Show when={!props.targetDirectory}>
+              <FolderMenu
+                value={props.targetDirectory}
+                projects={props.projects}
+                onSelect={props.onTargetChange}
+                onOpenFolder={props.onOpenFolder}
+              />
+            </Show>
+            <Show when={props.value.startsWith("!")}>
+              <span class="fc-chip fc-chip-active">{t("Shell")}</span>
+            </Show>
+            <Show when={primaryAgents(props.agents).length > 1}>
+              <AgentMenu agents={primaryAgents(props.agents)} value={props.agent} onChange={props.onAgentChange} />
+            </Show>
+            <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
+          </div>
+
+          <div class="fc-composer-right">
+            <ModelMenu
+              label={props.modelLabel}
+              models={props.models}
+              selectedKey={props.modelKey}
+              favorites={props.favorites}
+              onSelect={props.onModelChange}
+              onMore={props.onOpenModelPicker}
+            />
+            <EffortMenu
+              value={props.variantKey}
+              variants={props.variants}
+              disabled={props.variants.length === 0}
+              onChange={props.onVariantChange}
+            />
+            <ContextMeter
+              used={props.usage.used}
+              limit={props.usage.limit}
+              cost={props.usage.cost}
+              tokens={props.usage.tokens}
+            />
+          </div>
         </div>
-      </div>
       </div>
 
       <input

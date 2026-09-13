@@ -1,6 +1,7 @@
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type { ModelVariant } from "../engine-types"
 import { t } from "../i18n"
+import { effortLabel } from "../effort"
 
 type EffortMenuProps = {
   value: string | undefined
@@ -23,7 +24,7 @@ export const EffortMenu: Component<EffortMenuProps> = (props) => {
 
   const steps = () => ["", ...props.variants.map((variant) => variant.id)]
   const index = () => Math.max(0, steps().indexOf(props.value ?? ""))
-  const current = () => props.value || t("Default")
+  const current = () => (props.value ? effortLabel(props.value) : t("Default"))
 
   return (
     <div class="fc-effort" ref={root}>
@@ -42,10 +43,17 @@ export const EffortMenu: Component<EffortMenuProps> = (props) => {
             <span class="fc-effort-title">{t("Effort")}</span>
             <span class="fc-effort-value">{current()}</span>
           </div>
+          <div class="fc-effort-ends">
+            <span>{t("Faster")}</span>
+            <span>{t("Smarter")}</span>
+          </div>
           <div class="fc-effort-track">
-            <span class="fc-effort-end">{t("Faster")}</span>
+            <span class="fc-effort-dots" aria-hidden="true">
+              <For each={steps()}>{() => <span />}</For>
+            </span>
             <input
               class="fc-effort-range"
+              aria-label={t("Effort")}
               type="range"
               min="0"
               max={Math.max(0, steps().length - 1)}
@@ -53,7 +61,6 @@ export const EffortMenu: Component<EffortMenuProps> = (props) => {
               value={index()}
               onInput={(event) => props.onChange(steps()[Number(event.currentTarget.value)] ?? "")}
             />
-            <span class="fc-effort-end">{t("Smarter")}</span>
           </div>
         </div>
       </Show>

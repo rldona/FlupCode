@@ -4646,3 +4646,392 @@ button.fc-row-main {
 .fc-sheet-row:disabled {
   opacity: 0.55;
 }
+
+/* Desktop prompt dock, laid out like Claude Code's: context cards above a roomy input, and
+   borderless text and icon controls below it. The phone uses MobileComposer instead. */
+.fc-composer {
+  border-top: none;
+  padding: var(--fc-space-2) var(--fc-space-4) var(--fc-space-4);
+}
+
+.fc-composer .fc-composer-inner {
+  gap: 10px;
+}
+
+.fc-composer .fc-repo-bar {
+  min-height: 44px;
+  padding: 6px 8px 6px 14px;
+  border-radius: var(--fc-radius-md);
+  font-size: 14px;
+}
+
+.fc-composer .fc-repo-name {
+  color: var(--fc-text-muted);
+  font-weight: 400;
+}
+
+.fc-composer .fc-repo-branch {
+  color: var(--fc-text);
+}
+
+.fc-composer .fc-repo-branch::before {
+  content: none;
+}
+
+.fc-composer .fc-repo-add,
+.fc-composer .fc-repo-del {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-composer .fc-repo-right {
+  gap: 10px;
+}
+
+.fc-composer .fc-repo-commit {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  font-size: 13px;
+}
+
+.fc-composer .fc-repo-commit:hover {
+  background: color-mix(in srgb, var(--fc-border) 50%, transparent);
+}
+
+.fc-repo-clear {
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 18px;
+  line-height: 1;
+}
+
+.fc-repo-clear:hover {
+  background: color-mix(in srgb, var(--fc-border) 50%, transparent);
+  color: var(--fc-text);
+}
+
+.fc-composer .fc-input-wrap {
+  border: 1px solid var(--fc-border);
+  border-radius: 14px;
+  background: var(--fc-bg-elevated);
+  transition: border-color var(--fc-motion-fast);
+}
+
+.fc-composer .fc-input-wrap:focus-within {
+  border-color: color-mix(in srgb, var(--fc-text-muted) 60%, var(--fc-border));
+}
+
+.fc-composer .fc-input {
+  display: block;
+  min-height: 52px;
+  max-height: 240px;
+  padding: 15px 56px 15px 16px;
+  border: none;
+  border-radius: 14px;
+  background: transparent;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.fc-composer .fc-input:focus {
+  outline: none;
+}
+
+.fc-composer .fc-input::placeholder {
+  color: var(--fc-text-muted);
+}
+
+.fc-composer .fc-input-send {
+  right: 10px;
+  bottom: 10px;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: var(--fc-text);
+  color: var(--fc-bg);
+}
+
+.fc-composer .fc-input-send:hover:not(:disabled) {
+  color: var(--fc-bg);
+  opacity: 0.88;
+}
+
+.fc-composer .fc-input-send:disabled {
+  background: color-mix(in srgb, var(--fc-border) 80%, transparent);
+  color: var(--fc-text-muted);
+}
+
+.fc-composer .fc-composer-bottom {
+  padding: 0 2px;
+}
+
+.fc-composer .fc-composer-left,
+.fc-composer .fc-composer-right {
+  gap: 2px;
+  min-width: 0;
+}
+
+.fc-composer .fc-mode-caret {
+  display: none;
+}
+
+.fc-dock-menu {
+  position: relative;
+  min-width: 0;
+}
+
+.fc-dock-icon,
+.fc-dock-text,
+.fc-composer .fc-mode-button,
+.fc-composer .fc-effort-button,
+.fc-composer .fc-folder-button,
+.fc-composer .fc-context-button {
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text);
+  font-size: 14px;
+  white-space: nowrap;
+  transition:
+    background var(--fc-motion-fast),
+    color var(--fc-motion-fast);
+}
+
+.fc-dock-icon,
+.fc-composer .fc-context-button {
+  width: 32px;
+  padding: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-dock-text,
+.fc-composer .fc-mode-button,
+.fc-composer .fc-effort-button,
+.fc-composer .fc-folder-button {
+  padding: 0 10px;
+}
+
+.fc-dock-icon:hover:not(:disabled),
+.fc-dock-text:hover:not(:disabled),
+.fc-dock-open,
+.fc-composer .fc-mode-button:hover,
+.fc-composer .fc-effort-button:hover:not(:disabled),
+.fc-composer .fc-folder-button:hover,
+.fc-composer .fc-context-button:hover {
+  background: color-mix(in srgb, var(--fc-border) 55%, transparent);
+  color: var(--fc-text);
+}
+
+.fc-dock-icon:disabled,
+.fc-composer .fc-effort-button:disabled {
+  color: var(--fc-text-muted);
+  opacity: 0.55;
+}
+
+.fc-dock-listening {
+  color: var(--fc-danger);
+}
+
+.fc-composer .fc-folder-button {
+  max-width: 220px;
+  border: 1px dashed var(--fc-border);
+  color: var(--fc-text-muted);
+}
+
+.fc-dock-text-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-dock-capitalize {
+  text-transform: capitalize;
+}
+
+.fc-dock-popover,
+.fc-composer .fc-mode-popover,
+.fc-composer .fc-folder-popover,
+.fc-composer .fc-effort-popover,
+.fc-composer .fc-context-popover {
+  bottom: calc(100% + 8px);
+  border-radius: var(--fc-radius-md);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 0.4);
+  font-size: 14px;
+}
+
+.fc-dock-popover {
+  position: absolute;
+  left: 0;
+  z-index: 50;
+  min-width: 240px;
+  max-width: min(360px, 90vw);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  border: 1px solid var(--fc-border);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-dock-popover-right {
+  left: auto;
+  right: 0;
+}
+
+.fc-dock-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text);
+  font-size: 14px;
+  text-align: left;
+}
+
+.fc-dock-item:hover {
+  background: color-mix(in srgb, var(--fc-border) 55%, transparent);
+}
+
+.fc-dock-item-icon {
+  display: inline-flex;
+  color: var(--fc-text-muted);
+}
+
+.fc-dock-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-dock-item-hint {
+  color: var(--fc-text-muted);
+  font-size: 13px;
+}
+
+.fc-dock-item-check {
+  color: var(--fc-accent);
+}
+
+.fc-dock-separator {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--fc-border);
+}
+
+.fc-composer .fc-mode-item,
+.fc-composer .fc-folder-item {
+  font-size: 14px;
+}
+
+.fc-composer .fc-effort-popover {
+  width: 280px;
+  padding: 12px 14px 14px;
+  gap: 12px;
+}
+
+.fc-composer .fc-effort-head {
+  justify-content: flex-start;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.fc-composer .fc-effort-value {
+  font-weight: 500;
+}
+
+.fc-effort-ends {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--fc-text-muted);
+}
+
+/* The slider: a rounded track with a dot per level under a light thumb. */
+.fc-composer .fc-effort-track {
+  position: relative;
+  height: 22px;
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--fc-border) 90%, transparent);
+}
+
+.fc-effort-dots {
+  position: absolute;
+  inset: 0 11px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.fc-effort-dots span {
+  width: 4px;
+  height: 4px;
+  margin: 0 -2px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--fc-text-muted) 80%, transparent);
+}
+
+.fc-composer .fc-effort-range {
+  position: relative;
+  display: block;
+  width: 100%;
+  height: 22px;
+  margin: 0;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+}
+
+.fc-composer .fc-effort-range::-webkit-slider-thumb {
+  width: 22px;
+  height: 22px;
+  appearance: none;
+  border-radius: 50%;
+  background: var(--fc-text);
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.4);
+}
+
+.fc-composer .fc-effort-range::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 50%;
+  background: var(--fc-text);
+}
+
+.fc-composer .fc-context-popover {
+  width: 320px;
+  padding: 12px 14px;
+}
+
+.fc-composer .fc-chip {
+  height: 32px;
+  font-size: 13px;
+}
+
+.fc-composer .fc-folder-popover > * {
+  flex-shrink: 0;
+}
+
+.fc-composer .fc-folder-item {
+  position: relative;
+  padding-right: 28px;
+}

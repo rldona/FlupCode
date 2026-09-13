@@ -78,6 +78,7 @@ export const App: Component = () => {
   const [liveReasoning, setLiveReasoning] = createSignal("")
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
+  const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, false))
   const [narrow, setNarrow] = createSignal(typeof window !== "undefined" && window.innerWidth < 768)
   // Phones controlling a computer get their own layout: a sessions home and a focused session screen.
   const mobileRemote = () => touchDevice && !desktopRemote() && !!remote.activeHost()
@@ -925,6 +926,13 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.sidebarCollapsed, next)
   }
 
+  const toggleContextPanel = () => {
+    const next = !contextHidden()
+    setContextHidden(next)
+    writeStorage(STORAGE_KEYS.contextPanelHidden, next)
+  }
+  const contextPanelShown = () => !!selectedSession() && !contextHidden()
+
   const updateSidebarWidth = (width: number) => {
     const next = Math.max(200, Math.min(480, Math.round(width)))
     setSidebarWidth(next)
@@ -951,9 +959,11 @@ export const App: Component = () => {
 
   createEffect(() => {
     const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "b") {
+      if ((event.metaKey || event.ctrlKey) && event.code === "KeyB") {
         event.preventDefault()
-        toggleSidebar()
+        // ⌘B toggles the left sidebar, ⌥⌘B the session's context panel.
+        if (event.altKey) toggleContextPanel()
+        else toggleSidebar()
       }
     }
     document.addEventListener("keydown", handler)
@@ -1239,6 +1249,15 @@ export const App: Component = () => {
       void refetchQuestions()
       return undefined
     })
+
+  const stopSession = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.interrupt({ sessionID })
+      return undefined
+    })
+  }
 
   const forkSession = () => {
     const sessionID = selected()
@@ -1668,7 +1687,7 @@ export const App: Component = () => {
         "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
         "--fc-content-right": mobileRemote()
           ? "0px"
-          : `${(panels().length > 0 ? workspaceWidth() : 0) + (selectedSession() ? 300 : 0)}px`,
+          : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? 300 : 0)}px`,
       }}
     >
       <Show when={!mobileRemote()}>
@@ -1753,6 +1772,7 @@ export const App: Component = () => {
             onBack={goBack}
             onForward={goForward}
             onToggleSidebar={toggleSidebar}
+            contextPanel={selectedSession() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined}
             onOpenPalette={() => setPaletteOpen(true)}
             workspace={panels()}
             onTogglePanel={togglePanel}
@@ -1900,6 +1920,12 @@ export const App: Component = () => {
             <Composer
               value={prompt()}
               sending={busy()}
+              generating={!!selected() && generating()}
+              onStop={stopSession}
+              models={modelList()}
+              modelKey={modelKey()}
+              favorites={favorites()}
+              onModelChange={pickModel}
               modelLabel={modelLabel()}
               variants={variants()}
               variantKey={variantKey()}
@@ -1912,6 +1938,7 @@ export const App: Component = () => {
                       additions: vcsTotals().additions,
                       deletions: vcsTotals().deletions,
                       onCommit: commitChanges,
+                      onClear: !selected() && targetDirectory() ? () => changeTargetDirectory(undefined) : undefined,
                     }
                   : undefined
               }
@@ -1949,7 +1976,7 @@ export const App: Component = () => {
           onResize={updateWorkspaceWidth}
           onClose={closePanel}
         />
-        <Show when={selectedSession()}>
+        <Show when={contextPanelShown() && selectedSession()}>
           {(session) => <RightAside session={session()} models={modelList()} todos={todos()} />}
         </Show>
       </Show>

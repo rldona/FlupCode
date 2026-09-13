@@ -7,6 +7,8 @@ type RepoBarProps = {
   additions: number
   deletions: number
   onCommit: () => void
+  /** Clears the folder picked for a new session. */
+  onClear?: () => void
 }
 
 export const RepoBar: Component<RepoBarProps> = (props) => {
@@ -25,9 +27,22 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
           <span class="fc-repo-add">+{props.additions.toLocaleString()}</span>
           <span class="fc-repo-del">-{props.deletions.toLocaleString()}</span>
         </Show>
-        <button class="fc-repo-commit" type="button" disabled={!hasChanges()} onClick={props.onCommit}>
-          {t("Commit changes")}
-        </button>
+        <Show when={hasChanges()}>
+          <button class="fc-repo-commit" type="button" onClick={props.onCommit}>
+            {t("Commit changes")}
+          </button>
+        </Show>
+        <Show when={props.onClear}>
+          <button
+            class="fc-repo-clear"
+            type="button"
+            aria-label={t("Remove folder")}
+            title={t("Remove folder")}
+            onClick={() => props.onClear?.()}
+          >
+            ×
+          </button>
+        </Show>
       </div>
     </div>
   )
