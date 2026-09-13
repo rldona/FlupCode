@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
@@ -389,9 +389,18 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const visibleMessages = () => (props.messages ?? []).slice(offset())
   const fullIndex = (index: number) => offset() + index
 
+  let body: HTMLDivElement | undefined
   const scrollToBottom = () => {
     if (container) container.scrollTop = container.scrollHeight
   }
+
+  onMount(() => {
+    const observer = new ResizeObserver(() => {
+      if (stick()) requestAnimationFrame(scrollToBottom)
+    })
+    if (body) observer.observe(body)
+    onCleanup(() => observer.disconnect())
+  })
 
   createEffect(() => {
     const first = props.messages?.[0]?.id
@@ -425,6 +434,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           </div>
         }
       >
+        <div class="fc-transcript-body" ref={body}>
         <Show
           when={props.messages && props.messages.length > 0}
           fallback={
@@ -498,6 +508,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
             </div>
           </Show>
         </Show>
+        </div>
       </Show>
     </section>
   )
