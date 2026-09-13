@@ -773,6 +773,19 @@
         "@typescript/native-preview": "catalog:",
       },
     },
+    "packages/relay": {
+      "name": "@flupcode/relay",
+      "version": "1.0.8",
+      "dependencies": {
+        "@flupcode/remote": "workspace:*",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/remote": {
       "name": "@flupcode/remote",
       "version": "1.0.8",
@@ -1705,6 +1718,8 @@
     "@flupcode/desktop": ["@flupcode/desktop@workspace:packages/harness-desktop"],
 
     "@flupcode/harness": ["@flupcode/harness@workspace:packages/harness"],
+
+    "@flupcode/relay": ["@flupcode/relay@workspace:packages/relay"],
 
     "@flupcode/remote": ["@flupcode/remote@workspace:packages/remote"],
 
