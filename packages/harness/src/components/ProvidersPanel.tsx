@@ -68,6 +68,7 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
       setAttempt(started)
       setAttemptState({ status: "pending", time: started.time })
     } catch (cause) {
+      setAttemptProvider(undefined)
       setAttemptError(cause instanceof Error ? cause.message : String(cause))
     }
   }
@@ -248,6 +249,25 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
           </div>
         </div>
       )}
+    </Show>
+    <Show when={attemptError() && !attempt()}>
+      <div class="fc-modal-backdrop" onClick={() => setAttemptError(undefined)}>
+        <div class="fc-modal" role="alertdialog" aria-modal="true" aria-label={t("Sign in failed")} onClick={(event) => event.stopPropagation()}>
+          <div class="fc-modal-header">
+            <span>{t("Sign in failed")}</span>
+            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setAttemptError(undefined)}>
+              ×
+            </button>
+          </div>
+          <p class="fc-modal-error">{attemptError()}</p>
+          <div class="fc-modal-actions">
+            <span />
+            <button class="fc-button" type="button" onClick={() => setAttemptError(undefined)}>
+              {t("Close")}
+            </button>
+          </div>
+        </div>
+      </div>
     </Show>
     </>
   )
