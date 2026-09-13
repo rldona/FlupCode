@@ -3,6 +3,7 @@ import { createResource } from "../resource"
 import type { FileDiffInfo, SessionInfo } from "../engine-types"
 import { createClient } from "../client"
 import { t } from "../i18n"
+import { cssPx } from "../text-size"
 import { Loader } from "./Loader"
 
 const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
@@ -139,7 +140,7 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
             const move = (moveEvent: PointerEvent) => {
               const rect = container()?.getBoundingClientRect()
               if (!rect) return
-              props.onResize(rect.right - moveEvent.clientX)
+              props.onResize(cssPx(rect.right - moveEvent.clientX))
             }
             const up = () => {
               target.removeEventListener("pointermove", move)
