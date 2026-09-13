@@ -70,7 +70,11 @@ The desktop main process starts a local server automatically if none is reachabl
 
 Download `FlupCode-mac-arm64.dmg` (Apple Silicon), `FlupCode-mac-x64.dmg`, `FlupCode-win-x64.exe` or
 `FlupCode-linux-x64.AppImage` from the [latest release](https://github.com/rldona/FlupCode/releases/latest).
-The app checks for updates on start and every 6 hours.
+The app checks for updates on start and every 6 hours, downloads them and offers **Restart now**
+(or installs on quit). On macOS, while builds are unsigned, FlupCode replaces its own bundle after
+quitting (Squirrel.Mac rejects unsigned updates); it needs the app in a folder you can write to,
+such as Applications. Versions up to 1.0.13 cannot install updates on macOS: install 1.0.14 by hand
+once.
 
 Builds are **not signed or notarized** yet (F5-4). The first time you open the app on macOS it shows
 "FlupCode Not Opened" ("No se ha abierto FlupCode"). Do not move it to the Bin; click **Done**, then
