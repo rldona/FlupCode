@@ -2,6 +2,7 @@ import { AISDK } from "@opencode-ai/core/aisdk"
 import { describe, expect } from "bun:test"
 import { Effect } from "effect"
 import { Catalog } from "@opencode-ai/core/catalog"
+import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
@@ -17,7 +18,8 @@ const addPlugin = Effect.fn(function* () {
   const plugin = yield* PluginV2.Service
   const aisdk = yield* AISDK.Service
   const host = yield* PluginHost.make(plugin)
-  yield* GithubCopilotPlugin.effect(host)
+  const integrations = yield* Integration.Service
+  yield* GithubCopilotPlugin.effect(host).pipe(Effect.provideService(Integration.Service, integrations))
 })
 
 function required<T>(value: T | undefined): T {
@@ -39,6 +41,19 @@ function fakeSelectorSdk(calls: string[]) {
 }
 
 describe("GithubCopilotPlugin", () => {
+  it.effect("registers a GitHub Copilot device OAuth method", () =>
+    Effect.gen(function* () {
+      yield* addPlugin()
+      expect((yield* (yield* Integration.Service).get(Integration.ID.make("github-copilot")))?.methods).toEqual([
+        {
+          id: Integration.MethodID.make("device"),
+          type: "oauth",
+          label: "Login with GitHub Copilot",
+        },
+      ])
+    }),
+  )
+
   it.effect("creates the bundled Copilot SDK for the GitHub Copilot package", () =>
     Effect.gen(function* () {
       const plugin = yield* PluginV2.Service
