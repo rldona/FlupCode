@@ -4,6 +4,7 @@ import type { Attachment } from "../types"
 import { t } from "../i18n"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
+import type { AppView } from "../chat"
 import { speechRecognition, type SpeechRecognitionLike } from "./Composer"
 
 /**
@@ -12,6 +13,8 @@ import { speechRecognition, type SpeechRecognitionLike } from "./Composer"
  */
 
 type MobileComposerProps = {
+  /** Chats hide the permission and agent rows. */
+  mode: AppView
   value: string
   sending: boolean
   attachments: Attachment[]
@@ -216,7 +219,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
         <textarea
           class="fc-mobile-input"
           rows={1}
-          placeholder={t("Type / for commands")}
+          placeholder={props.mode === "chat" ? t("Write a message…") : t("Type / for commands")}
           value={props.value}
           onInput={(event) => {
             props.onInput(event.currentTarget.value)
@@ -279,13 +282,15 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               <span>{t("Files")}</span>
             </button>
           </div>
-          <Row
-            icon="M13 2L4 14h7l-1 8 9-12h-7z"
-            label={t("Permission")}
-            value={t(permissionMode(props.permissionMode).label)}
-            onClick={() => setSheet("mode")}
-          />
-          <Show when={primaryAgents().length > 0}>
+          <Show when={props.mode === "code"}>
+            <Row
+              icon="M13 2L4 14h7l-1 8 9-12h-7z"
+              label={t("Permission")}
+              value={t(permissionMode(props.permissionMode).label)}
+              onClick={() => setSheet("mode")}
+            />
+          </Show>
+          <Show when={props.mode === "code" && primaryAgents().length > 0}>
             <Row
               icon="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z"
               label={t("Agent")}

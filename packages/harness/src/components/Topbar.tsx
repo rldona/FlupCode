@@ -1,5 +1,6 @@
 import { Show, type JSX, type Component } from "solid-js"
 import { t } from "../i18n"
+import type { AppView } from "../chat"
 
 type TopbarProps = {
   healthLoading: boolean
@@ -10,6 +11,8 @@ type TopbarProps = {
   onBack: () => void
   onForward: () => void
   onToggleSidebar: () => void
+  view: AppView
+  onViewChange: (view: AppView) => void
   /** The session's right-hand context panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
   onOpenPalette: () => void
@@ -43,7 +46,39 @@ export const TopbarIcons = {
   files: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8ZM14 3v5h5M9 13h6M9 17h4",
   browser: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM3 9h18",
   menu: "M5 12h.01M12 12h.01M19 12h.01",
+  chat: "M7 17.5 3.5 20V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2Z",
+  code: "m9 8-4 4 4 4M15 8l4 4-4 4",
 }
+
+/** Chat / Code switch, like Claude's: two icon tabs in one pill. */
+export const ViewTabs: Component<{ view: AppView; onChange: (view: AppView) => void }> = (props) => (
+  <div class="fc-view-tabs" role="tablist" aria-label={t("View")}>
+    <button
+      class="fc-view-tab"
+      classList={{ "fc-view-tab-active": props.view === "chat" }}
+      type="button"
+      role="tab"
+      aria-selected={props.view === "chat"}
+      title={t("Chat")}
+      aria-label={t("Chat")}
+      onClick={() => props.onChange("chat")}
+    >
+      <TopIcon d={TopbarIcons.chat} />
+    </button>
+    <button
+      class="fc-view-tab"
+      classList={{ "fc-view-tab-active": props.view === "code" }}
+      type="button"
+      role="tab"
+      aria-selected={props.view === "code"}
+      title={t("Code")}
+      aria-label={t("Code")}
+      onClick={() => props.onChange("code")}
+    >
+      <TopIcon d={TopbarIcons.code} />
+    </button>
+  </div>
+)
 
 export const Topbar: Component<TopbarProps> = (props) => {
   const status = () => {
@@ -71,46 +106,49 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           <TopIcon d={TopbarIcons.forward} />
         </button>
+        <ViewTabs view={props.view} onChange={props.onViewChange} />
         {props.sessionTitle}
       </div>
       <div class="fc-topbar-right">
         {props.sessionActions}
-        <button
-          class="fc-nav-arrow"
-          type="button"
-          title={t("Files changed")}
-          aria-label={t("Files changed")}
-          onClick={() => props.onTogglePanel("diff")}
-        >
-          <TopIcon d={TopbarIcons.files} />
-        </button>
-        <button
-          class="fc-nav-arrow"
-          type="button"
-          title={t("Browser")}
-          aria-label={t("Browser")}
-          onClick={() => props.onTogglePanel("browser")}
-        >
-          <TopIcon d={TopbarIcons.browser} />
-        </button>
-        <button
-          class="fc-nav-arrow"
-          type="button"
-          title={t("Terminal")}
-          aria-label={t("Terminal")}
-          onClick={() => props.onTogglePanel("terminal")}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <path
-              d="m5 7 5 5-5 5M12 18h7"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-        </button>
+        <Show when={props.view === "code"}>
+          <button
+            class="fc-nav-arrow"
+            type="button"
+            title={t("Files changed")}
+            aria-label={t("Files changed")}
+            onClick={() => props.onTogglePanel("diff")}
+          >
+            <TopIcon d={TopbarIcons.files} />
+          </button>
+          <button
+            class="fc-nav-arrow"
+            type="button"
+            title={t("Browser")}
+            aria-label={t("Browser")}
+            onClick={() => props.onTogglePanel("browser")}
+          >
+            <TopIcon d={TopbarIcons.browser} />
+          </button>
+          <button
+            class="fc-nav-arrow"
+            type="button"
+            title={t("Terminal")}
+            aria-label={t("Terminal")}
+            onClick={() => props.onTogglePanel("terminal")}
+          >
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+              <path
+                d="m5 7 5 5-5 5M12 18h7"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              />
+            </svg>
+          </button>
+        </Show>
         <button
           class="fc-nav-arrow"
           type="button"
