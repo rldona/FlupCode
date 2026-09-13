@@ -97,7 +97,10 @@ export const Topbar: Component<TopbarProps> = (props) => {
           aria-label={t("Command palette")}
           onClick={props.onOpenPalette}
         >
-          ⌕
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2" />
+            <path d="m20 20-4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+          </svg>
         </button>
         <Show when={props.remote}>
           {(remote) => (
