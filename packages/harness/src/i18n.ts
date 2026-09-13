@@ -37,6 +37,8 @@ const ES: Record<string, string> = {
   "Chat text size": "Tamaño del texto del chat",
   "Jump to a prompt": "Ir a un prompt",
   "Scroll to the end": "Ir al final",
+  "Suggest replies": "Sugerir respuestas",
+  "After each answer a small model suggests your next message; Tab accepts it.": "Tras cada respuesta, un modelo pequeño sugiere tu siguiente mensaje; Tab lo acepta.",
   "Summary counters": "Contadores del resumen",
   "Counting sessions since {date}": "Contando sesiones desde {date}",
   "Counting every session": "Contando todas las sesiones",

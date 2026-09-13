@@ -25,6 +25,7 @@ export const STORAGE_KEYS = {
   chatTextSize: "flupcode.chatTextSize",
   clearedTodos: "flupcode.clearedTodos",
   usageResetAt: "flupcode.usageResetAt",
+  replySuggestions: "flupcode.replySuggestions",
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",
