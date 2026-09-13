@@ -40,24 +40,16 @@
           FlupCode <span class="pre">PREVIEW</span>
         </a>
         <nav class="nav-links" aria-label="Main">
-          <a href="#cockpit" data-i18n="nav.cockpit">Cockpit</a>
-          <a href="#tour" data-i18n="nav.tour">Tour</a>
-          <a href="#control" data-i18n="nav.control">Control</a>
-          <a href="#download" data-i18n="nav.download">Download</a>
+          <a href="#cockpit">Cockpit</a>
+          <a href="#tour">Tour</a>
+          <a href="#control">Control</a>
+          <a href="#download">Download</a>
         </nav>
         <div class="nav-actions">
-          <button class="lang" type="button" id="lang" aria-label="Language">
-            <span data-l="es">ES</span><span data-l="en">EN</span>
-          </button>
           <a class="btn btn-quiet btn-sm" href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer"
             >GitHub</a
           >
-          <a
-            class="btn btn-light btn-sm"
-            href="https://app.flupcode.com"
-            target="_blank"
-            rel="noreferrer"
-            data-i18n="nav.open"
+          <a class="btn btn-light btn-sm" href="https://app.flupcode.com" target="_blank" rel="noreferrer"
             >Open the app</a
           >
         </div>
@@ -73,8 +65,8 @@
         <div class="hero-fade" aria-hidden="true"></div>
 
         <div class="container hero-inner">
-          <span class="eyebrow" data-i18n="hero.eyebrow"><i></i> Open source · MIT · Built on the OpenCode engine</span>
-          <h1 data-i18n="hero.h1">
+          <span class="eyebrow"><i></i> Open source · MIT · Built on the OpenCode engine</span>
+          <h1>
             <span class="w" style="animation-delay: 0.05s">Your</span>
             <span class="w" style="animation-delay: 0.12s">agent,</span>
             <span class="w" style="animation-delay: 0.19s">in</span>
@@ -82,7 +74,7 @@
             <span class="w grad" style="animation-delay: 0.33s">real</span>
             <span class="w grad" style="animation-delay: 0.4s">cockpit.</span>
           </h1>
-          <p class="lead" data-i18n="hero.lead">
+          <p class="lead">
             FlupCode is a web and desktop harness for <strong>OpenCode</strong>: rich chat with side-by-side diffs, an
             embedded terminal, permission modes and dashboards. The engine stays untouched. Everything you touch gets
             better.
@@ -101,21 +93,10 @@
               </svg>
               Download the app
             </a>
-            <a
-              class="btn btn-glass btn-lg"
-              href="https://app.flupcode.com"
-              target="_blank"
-              rel="noreferrer"
-              data-i18n="hero.try"
+            <a class="btn btn-glass btn-lg" href="https://app.flupcode.com" target="_blank" rel="noreferrer"
               >Try it in the browser</a
             >
-            <a
-              class="btn btn-glass btn-lg"
-              href="https://github.com/rldona/FlupCode"
-              target="_blank"
-              rel="noreferrer"
-              data-i18n="hero.star"
-            >
+            <a class="btn btn-glass btn-lg" href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer">
               <svg viewBox="0 0 24 24" fill="currentColor">
                 <path
                   d="M12 .5C5.6.5.5 5.6.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.4-3.9-1.4-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.4 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.2c0 .3.2.7.8.6 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.6 18.4.5 12 .5z"
@@ -134,23 +115,23 @@
 
           <div class="quick" id="quick">
             <div class="quick-tabs" role="tablist">
-              <button role="tab" aria-selected="true" data-tab="desktop" data-i18n="quick.desktop">Desktop app</button>
-              <button role="tab" aria-selected="false" data-tab="browser" data-i18n="quick.browser">Browser</button>
-              <button role="tab" aria-selected="false" data-tab="source" data-i18n="quick.source">From source</button>
+              <button role="tab" aria-selected="true" data-tab="desktop">Desktop app</button>
+              <button role="tab" aria-selected="false" data-tab="browser">Browser</button>
+              <button role="tab" aria-selected="false" data-tab="source">From source</button>
             </div>
             <div class="quick-body on" data-panel="desktop">
-              <p data-i18n="quick.desktop.p">
+              <p>
                 Download FlupCode for your platform. It starts the OpenCode engine for you if the CLI is installed, and
                 guides you if it isn't.
               </p>
               <div class="cmd">
                 <span class="ps">↓</span
                 ><code id="q1">FlupCode-mac-arm64.dmg · FlupCode-win-x64.exe · FlupCode-linux-x64.AppImage</code
-                ><a class="copy" href="#download" data-i18n="quick.seeall">See all</a>
+                ><a class="copy" href="#download">See all</a>
               </div>
             </div>
             <div class="quick-body" data-panel="browser">
-              <p data-i18n="quick.browser.p">
+              <p>
                 Run the engine with the hosted origin allowed, then open
                 <a href="https://app.flupcode.com" target="_blank" rel="noreferrer" style="color: var(--sky)"
                   >app.flupcode.com</a
@@ -158,17 +139,17 @@
               </p>
               <div class="cmd">
                 <span class="ps">$</span><code id="q2">opencode serve --port 4096 --cors https://app.flupcode.com</code
-                ><button class="copy" type="button" data-copy="#q2" data-i18n="copy">Copy</button>
+                ><button class="copy" type="button" data-copy="#q2">Copy</button>
               </div>
             </div>
             <div class="quick-body" data-panel="source">
-              <p data-i18n="quick.source.p">Clone the monorepo and launch the harness in dev mode.</p>
+              <p>Clone the monorepo and launch the harness in dev mode.</p>
               <div class="cmd">
                 <span class="ps">$</span
                 ><code id="q3"
                   >git clone https://github.com/rldona/FlupCode && cd FlupCode && bun install && bun run
                   dev:harness</code
-                ><button class="copy" type="button" data-copy="#q3" data-i18n="copy">Copy</button>
+                ><button class="copy" type="button" data-copy="#q3">Copy</button>
               </div>
             </div>
           </div>
@@ -179,29 +160,27 @@
           <div class="frame" id="frame">
             <div class="frame-bar">
               <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span>
-              <span class="title" data-i18n="frame.title"
-                >opencode-ui-power · Move the provider panel into a dialog</span
-              >
-              <span class="conn" data-i18n="frame.conn"><i></i> Connected · localhost:4096</span>
+              <span class="title">opencode-ui-power · Move the provider panel into a dialog</span>
+              <span class="conn"><i></i> Connected · localhost:4096</span>
             </div>
             <div class="app">
               <aside class="side" aria-hidden="true">
-                <div class="new" data-i18n="side.new">＋ New session</div>
-                <div class="grp" data-i18n="side.projects">Projects</div>
+                <div class="new">＋ New session</div>
+                <div class="grp">Projects</div>
                 <ul>
                   <li class="proj">opencode-ui-power <span class="n">3</span></li>
-                  <li class="sess on" data-i18n="side.s1">Move the provider panel… <span class="pin">★</span></li>
-                  <li class="sess" data-i18n="side.s2">Fix stale README badge</li>
-                  <li class="sess" data-i18n="side.s3">Add usage heatmap</li>
+                  <li class="sess on">Move the provider panel… <span class="pin">★</span></li>
+                  <li class="sess">Fix stale README badge</li>
+                  <li class="sess">Add usage heatmap</li>
                   <li class="proj">plazoleta <span class="n">2</span></li>
-                  <li class="sess" data-i18n="side.s4">Blog post on benefits</li>
+                  <li class="sess">Blog post on benefits</li>
                   <li class="proj">radiovision <span class="n">2</span></li>
                   <li class="proj">flapo-html <span class="n">1</span></li>
                 </ul>
-                <div class="grp" style="margin-top: 22px" data-i18n="side.today">Today</div>
+                <div class="grp" style="margin-top: 22px">Today</div>
                 <ul>
                   <li><span>Tokens</span><span class="n">1.4M</span></li>
-                  <li><span data-i18n="side.spent">Spent</span><span class="n">$0.62</span></li>
+                  <li><span>Spent</span><span class="n">$0.62</span></li>
                 </ul>
               </aside>
               <div class="main">
@@ -225,10 +204,10 @@
       <section class="section" id="why">
         <div class="container">
           <div class="section-head reveal">
-            <span class="badge-mono" data-i18n="why.badge">Agent = Engine + Cockpit</span>
-            <div class="formula" style="margin-top: 22px" data-i18n="nav.cockpit">Cockpit</div>
-            <h2 data-i18n="why.h2">keeps you in command while the agent works</h2>
-            <p data-i18n="why.p">
+            <span class="badge-mono">Agent = Engine + Cockpit</span>
+            <div class="formula" style="margin-top: 22px">Cockpit</div>
+            <h2>keeps you in command while the agent works</h2>
+            <p>
               The engine is the brain. The cockpit is where you read, decide and steer. FlupCode rebuilds only the
               cockpit, on top of the OpenCode engine you already run.
             </p>
@@ -241,8 +220,8 @@
                   <path d="M8 10h8M8 14h5" />
                 </svg>
               </div>
-              <h3 data-i18n="why.c1.h">The engine, untouched</h3>
-              <p data-i18n="why.c1.p">
+              <h3>The engine, untouched</h3>
+              <p>
                 FlupCode talks to the same HTTP and SSE API every OpenCode client uses. No new backend, no fork of the
                 agent loop, upstream stays mergeable.
               </p>
@@ -254,8 +233,8 @@
                   <circle cx="18" cy="18" r="2.5" />
                 </svg>
               </div>
-              <h3 data-i18n="why.c2.h">A cockpit you can read</h3>
-              <p data-i18n="why.c2.p">
+              <h3>A cockpit you can read</h3>
+              <p>
                 Side-by-side diffs, collapsible reasoning, expandable tool output, a clear turn footer. What the
                 terminal prints, FlupCode lays out.
               </p>
@@ -266,8 +245,8 @@
                   <path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 15.6 7.1 18.2l.9-5.5-4-3.9L9.5 8z" />
                 </svg>
               </div>
-              <h3 data-i18n="why.c3.h">Controls that mean something</h3>
-              <p data-i18n="why.c3.p">
+              <h3>Controls that mean something</h3>
+              <p>
                 Permission modes, plan versus build, model and effort pickers. The rules live in the engine, so the UI
                 never lies about what the agent may do.
               </p>
@@ -285,17 +264,17 @@
         <div class="container story">
           <div>
             <div class="story-head reveal">
-              <span class="badge-mono" data-i18n="nav.tour">Tour</span>
-              <h2 style="margin-top: 16px" data-i18n="tour.h2">Everything the terminal does. In a real UI.</h2>
+              <span class="badge-mono">Tour</span>
+              <h2 style="margin-top: 16px">Everything the terminal does. In a real UI.</h2>
             </div>
             <div class="steps" id="steps">
               <div class="step on" data-scene="chat">
                 <h3>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                     <path d="M4 5h16v11H8l-4 4z" /></svg
-                  ><span data-i18n="tour.s1.h">Rich chat with real diffs</span>
+                  ><span>Rich chat with real diffs</span>
                 </h3>
-                <p data-i18n="tour.s1.p">
+                <p>
                   Every edit shows as a side-by-side diff, every command with its output. Reasoning collapses out of the
                   way; nothing is hidden behind a scrollback.
                 </p>
@@ -305,9 +284,9 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                     <rect x="3" y="4" width="18" height="16" rx="2" />
                     <path d="m7 9 3 3-3 3M13 15h4" /></svg
-                  ><span data-i18n="tour.s2.h">An embedded terminal</span>
+                  ><span>An embedded terminal</span>
                 </h3>
-                <p data-i18n="tour.s2.p">
+                <p>
                   A real PTY in a workspace panel, wired to the engine. Resize it, type in it, run your tests next to
                   the conversation. No context switch.
                 </p>
@@ -316,9 +295,9 @@
                 <h3>
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                     <path d="M4 20V10M10 20V4M16 20v-7M22 20H2" /></svg
-                  ><span data-i18n="tour.s3.h">Home that shows your week</span>
+                  ><span>Home that shows your week</span>
                 </h3>
-                <p data-i18n="tour.s3.p">
+                <p>
                   Sessions, messages, tokens, streaks and an activity heatmap across every project. Cost stays one
                   glance away, not one dashboard away.
                 </p>
@@ -328,9 +307,9 @@
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
                     <path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6z" />
                     <path d="m9 12 2 2 4-4" /></svg
-                  ><span data-i18n="tour.s4.h">Permission modes per session</span>
+                  ><span>Permission modes per session</span>
                 </h3>
-                <p data-i18n="tour.s4.p">
+                <p>
                   Switch from <code>Manual</code>, where every change is confirmed, to <code>Bypass</code> for
                   unattended runs. The chip in the composer always tells the truth.
                 </p>
@@ -342,11 +321,11 @@
               <div class="scene on" data-scene="chat">
                 <div class="frame-bar">
                   <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span
-                  ><span class="title" data-i18n="scene.chat">Session · rich chat</span>
+                  ><span class="title">Session · rich chat</span>
                 </div>
                 <div class="body">
                   <div class="thread" style="padding: 18px 20px">
-                    <div class="u" data-i18n="scene.chat.u">Add a search field to the providers dialog.</div>
+                    <div class="u">Add a search field to the providers dialog.</div>
                     <div class="tool">
                       <div class="tool-h">
                         <span class="badge read">read</span> src/components/ProvidersPanel.tsx
@@ -389,7 +368,7 @@
               <div class="scene" data-scene="term">
                 <div class="frame-bar">
                   <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span
-                  ><span class="title" data-i18n="scene.term">Workspace · terminal</span>
+                  ><span class="title">Workspace · terminal</span>
                 </div>
                 <div class="body split2">
                   <div>
@@ -425,10 +404,8 @@
                   </div>
                   <div>
                     <div class="thread">
-                      <div class="a" data-i18n="scene.term.a">
-                        Tests pass. Want me to open a PR against <code>dev</code>?
-                      </div>
-                      <div class="u" data-i18n="scene.term.u">Yes, one PR, rebase after CI is green.</div>
+                      <div class="a">Tests pass. Want me to open a PR against <code>dev</code>?</div>
+                      <div class="u">Yes, one PR, rebase after CI is green.</div>
                       <div class="tool">
                         <div class="tool-h">
                           <span class="badge bash">bash</span> gh pr create --base dev
@@ -442,12 +419,12 @@
               <div class="scene" data-scene="dash">
                 <div class="frame-bar">
                   <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span
-                  ><span class="title" data-i18n="scene.dash">Home · usage</span>
+                  ><span class="title">Home · usage</span>
                 </div>
                 <div class="body home">
                   <div class="home-side">
-                    <div class="new" data-i18n="side.new">＋ New session</div>
-                    <div class="grp" data-i18n="side.projects">Projects</div>
+                    <div class="new">＋ New session</div>
+                    <div class="grp">Projects</div>
                     <ul>
                       <li class="proj">opencode-ui-power <span class="n">3</span></li>
                       <li class="proj">plazoleta <span class="n">2</span></li>
@@ -457,30 +434,30 @@
                     </ul>
                   </div>
                   <div class="home-main">
-                    <h4 data-i18n="home.h">What's next, Raúl?</h4>
-                    <p class="home-sub" data-i18n="home.sub">A summary of your activity in FlupCode.</p>
+                    <h4>What's next, Raúl?</h4>
+                    <p class="home-sub">A summary of your activity in FlupCode.</p>
                     <div class="sugg">
-                      <div data-i18n="home.sg1"><i style="color: var(--sky)">⌕</i>Explore and understand code</div>
-                      <div data-i18n="home.sg2"><i style="color: var(--violet)">✎</i>Build a new feature or tool</div>
-                      <div data-i18n="home.sg3"><i style="color: var(--mint)">↻</i>Review code and suggest changes</div>
-                      <div data-i18n="home.sg4"><i style="color: var(--amber)">⚑</i>Fix problems and failures</div>
+                      <div><i style="color: var(--sky)">⌕</i>Explore and understand code</div>
+                      <div><i style="color: var(--violet)">✎</i>Build a new feature or tool</div>
+                      <div><i style="color: var(--mint)">↻</i>Review code and suggest changes</div>
+                      <div><i style="color: var(--amber)">⚑</i>Fix problems and failures</div>
                     </div>
                     <div class="usage">
-                      <div class="usage-tabs" data-i18n="home.tabs">
+                      <div class="usage-tabs">
                         <span class="on">Summary</span><span>Models</span><span class="rng"><b>All</b> 30d 7d</span>
                       </div>
                       <div class="tiles">
-                        <div><strong>11</strong><span data-i18n="home.t1">Sessions</span></div>
-                        <div><strong>4,310</strong><span data-i18n="home.t2">Messages</span></div>
-                        <div><strong>1,750.9M</strong><span data-i18n="home.t3">Total tokens</span></div>
-                        <div><strong>3</strong><span data-i18n="home.t4">Active days</span></div>
-                        <div><strong>1d</strong><span data-i18n="home.t5">Current streak</span></div>
-                        <div><strong>1d</strong><span data-i18n="home.t6">Longest streak</span></div>
-                        <div><strong>8:00</strong><span data-i18n="home.t7">Peak hour</span></div>
-                        <div><strong>deepseek-flash</strong><span data-i18n="home.t8">Favourite model</span></div>
+                        <div><strong>11</strong><span>Sessions</span></div>
+                        <div><strong>4,310</strong><span>Messages</span></div>
+                        <div><strong>1,750.9M</strong><span>Total tokens</span></div>
+                        <div><strong>3</strong><span>Active days</span></div>
+                        <div><strong>1d</strong><span>Current streak</span></div>
+                        <div><strong>1d</strong><span>Longest streak</span></div>
+                        <div><strong>8:00</strong><span>Peak hour</span></div>
+                        <div><strong>deepseek-flash</strong><span>Favourite model</span></div>
                       </div>
                       <div class="heat" id="heat" aria-hidden="true"></div>
-                      <p class="heat-note" data-i18n="home.note">You used ~19,454× more tokens than <em>1984</em>.</p>
+                      <p class="heat-note">You used ~19,454× more tokens than <em>1984</em>.</p>
                     </div>
                   </div>
                 </div>
@@ -488,36 +465,32 @@
               <div class="scene" data-scene="modes">
                 <div class="frame-bar">
                   <span class="dot r"></span><span class="dot y"></span><span class="dot g"></span
-                  ><span class="title" data-i18n="scene.modes">Session · permission mode</span>
+                  ><span class="title">Session · permission mode</span>
                 </div>
                 <div class="body modes-scene">
                   <div class="mode-row">
-                    <span data-i18n="scene.m1">Auto <em>· engine classifies each call</em></span
+                    <span>Auto <em>· engine classifies each call</em></span
                     ><kbd>⇧⇥</kbd>
                   </div>
                   <div class="mode-row on">
-                    <span data-i18n="scene.m2">Manual <em>· always ask before changes</em></span
+                    <span>Manual <em>· always ask before changes</em></span
                     ><kbd>⇧⇥</kbd>
                   </div>
                   <div class="mode-row">
-                    <span data-i18n="scene.m3">Accept edits <em>· auto-accept file edits</em></span
+                    <span>Accept edits <em>· auto-accept file edits</em></span
                     ><kbd>⇧⇥</kbd>
                   </div>
                   <div class="mode-row">
-                    <span data-i18n="scene.m4">Bypass <em>· accept all permissions</em></span
+                    <span>Bypass <em>· accept all permissions</em></span
                     ><kbd>⇧⇥</kbd>
                   </div>
                   <div class="thread" style="padding: 10px 0 0">
                     <div class="tool">
                       <div class="tool-h">
                         <span class="badge bash">bash</span> git push origin power
-                        <span class="st run" data-i18n="scene.needs">needs approval</span>
+                        <span class="st run">needs approval</span>
                       </div>
-                      <div
-                        class="out"
-                        style="color: var(--muted); display: flex; gap: 8px; align-items: center"
-                        data-i18n="scene.allow"
-                      >
+                      <div class="out" style="color: var(--muted); display: flex; gap: 8px; align-items: center">
                         Allow once <span class="chip on" style="font-family: var(--ui)">Allow</span>
                         <span class="chip" style="font-family: var(--ui)">Always for this session</span>
                         <span class="chip" style="font-family: var(--ui)">Deny</span>
@@ -535,27 +508,27 @@
       <section class="section" id="control">
         <div class="container">
           <div class="section-head reveal">
-            <span class="badge-mono" data-i18n="ctl.badge">Try it</span>
-            <h2 data-i18n="ctl.h2">Decide how much the agent can do</h2>
-            <p data-i18n="ctl.p">
+            <span class="badge-mono">Try it</span>
+            <h2>Decide how much the agent can do</h2>
+            <p>
               Pick a mode. See what the same three actions would do in that session. This is the real rule set, not a
               wrapper on top.
             </p>
           </div>
           <div class="demo reveal" id="demo">
             <div class="demo-modes" role="group" aria-label="Permission mode">
-              <div class="lbl" data-i18n="ctl.lbl">Permission mode</div>
+              <div class="lbl">Permission mode</div>
               <button class="mode-btn" type="button" data-mode="auto" aria-pressed="false">
-                <b>Auto</b><span data-i18n="ctl.auto.s">The engine decides per call</span>
+                <b>Auto</b><span>The engine decides per call</span>
               </button>
               <button class="mode-btn" type="button" data-mode="manual" aria-pressed="true">
-                <b>Manual</b><span data-i18n="ctl.manual.s">Always ask before changes</span>
+                <b>Manual</b><span>Always ask before changes</span>
               </button>
               <button class="mode-btn" type="button" data-mode="edits" aria-pressed="false">
-                <b>Accept edits</b><span data-i18n="ctl.edits.s">Auto-accept file edits</span>
+                <b>Accept edits</b><span>Auto-accept file edits</span>
               </button>
               <button class="mode-btn" type="button" data-mode="bypass" aria-pressed="false">
-                <b>Bypass</b><span data-i18n="ctl.bypass.s">Accept all permissions</span>
+                <b>Bypass</b><span>Accept all permissions</span>
               </button>
             </div>
             <div class="demo-preview">
@@ -575,7 +548,7 @@
                   <span class="k">bash</span><span class="v">git push origin power</span><span class="pill">—</span>
                 </div>
               </div>
-              <p class="demo-note" data-i18n="ctl.note">
+              <p class="demo-note">
                 Switch modes mid-session with the chip in the composer or <kbd>⇧ Tab</kbd>. The choice is stored per
                 session, not globally.
               </p>
@@ -588,11 +561,9 @@
       <section class="section" id="surfaces" style="padding-top: 0">
         <div class="container">
           <div class="section-head reveal">
-            <span class="badge-mono" data-i18n="surf.badge">Surfaces</span>
-            <h2 data-i18n="surf.h2">The same cockpit everywhere</h2>
-            <p data-i18n="surf.p">
-              Browser, desktop or next to the terminal you already love. All three talk to the same engine.
-            </p>
+            <span class="badge-mono">Surfaces</span>
+            <h2>The same cockpit everywhere</h2>
+            <p>Browser, desktop or next to the terminal you already love. All three talk to the same engine.</p>
           </div>
           <div class="surfaces">
             <article class="surface reveal">
@@ -603,7 +574,7 @@
               </div>
               <div class="txt">
                 <h3>Web</h3>
-                <p data-i18n="surf.web.p">
+                <p>
                   Open <a href="https://app.flupcode.com" target="_blank" rel="noreferrer">app.flupcode.com</a> and
                   point it at your server. Pair a phone with a QR code and drive the same session remotely.
                 </p>
@@ -616,8 +587,8 @@
                 </div>
               </div>
               <div class="txt">
-                <h3 data-i18n="surf.desk.h">Desktop</h3>
-                <p data-i18n="surf.desk.p">
+                <h3>Desktop</h3>
+                <p>
                   An Electron shell that starts the engine for you. Native notifications, a dock badge while the agent
                   works. <a href="#download">Download</a>
                 </p>
@@ -627,7 +598,7 @@
               <div class="vis"><div class="mini term"></div></div>
               <div class="txt">
                 <h3>Terminal</h3>
-                <p data-i18n="surf.term.p">
+                <p>
                   Keep the OpenCode TUI. FlupCode complements it with feature-for-feature parity, tracked in a living
                   matrix.
                 </p>
@@ -641,11 +612,9 @@
       <section class="section" id="download" style="padding-top: 0">
         <div class="container">
           <div class="section-head reveal">
-            <span class="badge-mono" data-i18n="nav.download">Download</span>
-            <h2 data-i18n="dl.h2">Get the desktop app</h2>
-            <p data-i18n="dl.p">
-              Free preview builds published to GitHub Releases. We highlight the one for the machine you're on.
-            </p>
+            <span class="badge-mono">Download</span>
+            <h2>Get the desktop app</h2>
+            <p>Free preview builds published to GitHub Releases. We highlight the one for the machine you're on.</p>
           </div>
           <div class="dl reveal" id="dl">
             <a
@@ -657,7 +626,7 @@
               ><strong>macOS</strong><span>Intel · .dmg</span><span class="sz">x64</span></a
             >
             <a data-os="win" href="https://github.com/rldona/FlupCode/releases/latest/download/FlupCode-win-x64.exe"
-              ><strong>Windows</strong><span data-i18n="dl.win">Installer · .exe</span><span class="sz">x64</span></a
+              ><strong>Windows</strong><span>Installer · .exe</span><span class="sz">x64</span></a
             >
             <a
               data-os="linux"
@@ -665,7 +634,7 @@
               ><strong>Linux</strong><span>AppImage</span><span class="sz">x64</span></a
             >
           </div>
-          <p class="dl-note reveal" data-i18n="dl.note">
+          <p class="dl-note reveal">
             Builds are unsigned for now. On macOS, if it says “FlupCode is damaged”, run
             <code>xattr -dr com.apple.quarantine /Applications/FlupCode.app</code> or right-click → Open. On Windows
             pick “More info → Run anyway”.
@@ -678,17 +647,10 @@
         <canvas id="stars2" aria-hidden="true"></canvas>
         <div class="container reveal">
           <img class="mark" src="/assets/flupcode-logo.png" alt="" width="128" height="128" />
-          <h2 data-i18n="final.h2">Your engine. A better cockpit.</h2>
-          <p data-i18n="final.p">
-            Clone it, connect it to OpenCode, and keep shipping. Independent, MIT, upstream-first.
-          </p>
+          <h2>Your engine. A better cockpit.</h2>
+          <p>Clone it, connect it to OpenCode, and keep shipping. Independent, MIT, upstream-first.</p>
           <div class="pills" style="margin: 0">
-            <a
-              class="btn btn-light btn-lg"
-              href="https://github.com/rldona/FlupCode"
-              target="_blank"
-              rel="noreferrer"
-              data-i18n="final.get"
+            <a class="btn btn-light btn-lg" href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer"
               >Get FlupCode</a
             >
             <a
@@ -696,7 +658,6 @@
               href="https://github.com/rldona/FlupCode/blob/power/docs/USAGE.md"
               target="_blank"
               rel="noreferrer"
-              data-i18n="final.docs"
               >Read the docs</a
             >
             <a
@@ -704,7 +665,6 @@
               href="https://github.com/rldona/FlupCode/blob/power/docs/PARITY.md"
               target="_blank"
               rel="noreferrer"
-              data-i18n="final.parity"
               >TUI parity matrix</a
             >
           </div>
@@ -720,13 +680,12 @@
             FlupCode</span
           >
           <nav class="footer-links" aria-label="Footer">
-            <a href="#tour" data-i18n="nav.tour">Tour</a><a href="#control" data-i18n="nav.control">Control</a
-            ><a href="#download" data-i18n="nav.download">Download</a>
+            <a href="#tour">Tour</a><a href="#control">Control</a><a href="#download">Download</a>
             <a href="https://github.com/rldona/FlupCode" target="_blank" rel="noreferrer">GitHub</a>
             <a href="https://github.com/rldona/FlupCode/blob/power/LICENSE" target="_blank" rel="noreferrer">MIT</a>
           </nav>
         </div>
-        <p class="footer-note" data-i18n="foot.note">
+        <p class="footer-note">
           © <span id="year">2026</span> FlupCode. An independent fork of OpenCode. Not affiliated with, endorsed by, or
           built by OpenCode or Anthropic. “OpenCode” is a project by Anomaly; “Claude Code” is a product of Anthropic.
         </p>
