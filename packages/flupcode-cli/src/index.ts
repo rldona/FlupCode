@@ -5,6 +5,7 @@ import { homedir, hostname } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { createRemoteHost, PAIRING_TTL, type RemoteHostState, type RemoteHostStore } from "@flupcode/remote"
+import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import QRCode from "qrcode"
 import pkg from "../package.json"
 
@@ -126,7 +127,13 @@ async function engineHealthy(engine: string, credentials: string | undefined) {
 }
 
 async function ensureEngine(engine: string, credentials: string | undefined, serve: boolean) {
-  if (await engineHealthy(engine, credentials)) return undefined
+  // Plugins live in this computer's OpenCode config, so they only matter for a local engine.
+  const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
+  const plugins = local ? await installEnginePlugins() : undefined
+  if (await engineHealthy(engine, credentials)) {
+    if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins (reasoning effort levels)."))
+    return undefined
+  }
   const hint = `start it with "opencode serve --port ${new URL(engine).port || 4096}" or pass --engine`
   if (!serve) fail(`no OpenCode server at ${engine}; ${hint}`)
   if (spawnSync("opencode", ["--version"], { stdio: "ignore", shell: process.platform === "win32" }).error)
