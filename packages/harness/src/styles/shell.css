@@ -1113,6 +1113,14 @@ button.fc-status {
   font-size: 13px;
 }
 
+.fc-dock-step {
+  margin-left: 2px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
 .fc-dock-preview {
   flex: 1;
   min-width: 0;
