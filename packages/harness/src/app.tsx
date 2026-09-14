@@ -2268,7 +2268,6 @@ export const App: Component = () => {
                 : undefined
             }
             hostRemote={hostRemotePill()}
-            onConnection={() => setRemoteOpen(true)}
             sessionTitle={
               <Show when={!splitActive() && selectedSession()}>{(session) => <SessionTitle session={session()} />}</Show>
             }

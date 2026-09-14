@@ -439,8 +439,10 @@ const ES: Record<string, string> = {
   Reconnecting: "Reconectando",
   Error: "Error",
   Forget: "Olvidar",
-  "Drive a computer's sessions from here. On the computer, open FlupCode → Remote control → Pair a device, and scan the code with this device.":
-    "Controla desde aquí las sesiones de un ordenador. En el ordenador, abre FlupCode → Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
+  "This browser is the remote control, not the controlled computer. The computer must have the FlupCode desktop app open with remote control turned on.":
+    "Este navegador es el mando, no el ordenador controlado. El ordenador debe tener abierta la app de escritorio de FlupCode con el control remoto activado.",
+  "On the computer, open FlupCode → Remote control → Pair a device and scan the code with this device.":
+    "En el ordenador, abre FlupCode → Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
   "Connected to {name}": "Conectado a {name}",
   "Paired computers": "Ordenadores emparejados",
   "No computers yet": "Aún no hay ordenadores",
