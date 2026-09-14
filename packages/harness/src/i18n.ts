@@ -365,6 +365,8 @@ const ES: Record<string, string> = {
   "Error generating the response": "Error al generar la respuesta",
   You: "Tú",
   Fork: "Fork",
+  Copied: "Copiado",
+  "Fork from here": "Bifurcar desde aquí",
   Compact: "Compactar",
   Undo: "Deshacer",
   Redo: "Rehacer",

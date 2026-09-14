@@ -2585,17 +2585,38 @@ button.fc-row-main {
   flex-shrink: 0;
 }
 
-.fc-message-edit {
-  align-self: flex-start;
+/* Prompt actions stay out of the way until the reader hovers the message or focuses a button. */
+.fc-message-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 18px;
+  opacity: 0;
+  transition: opacity var(--fc-motion-fast);
+}
+
+.fc-message-user:hover .fc-message-actions,
+.fc-message-user:focus-within .fc-message-actions {
+  opacity: 1;
+}
+
+.fc-message-action {
+  display: inline-flex;
+  align-items: center;
+  padding: 0;
   border: none;
   background: transparent;
   color: var(--fc-text-muted);
-  font-size: var(--fc-text-xs);
-  padding: 0;
 }
 
-.fc-message-edit:hover {
+.fc-message-action:hover {
   color: var(--fc-text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-message-actions {
+    transition: none;
+  }
 }
 
 .fc-qr {
