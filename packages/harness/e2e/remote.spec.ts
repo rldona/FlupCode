@@ -70,6 +70,17 @@ test.beforeAll(async () => {
       )
     if (request.url?.startsWith("/permission?"))
       return response.end(JSON.stringify([{ id: "per_1", sessionID: e2eSession.id }]))
+    // Two prompts so the transcript grows a conversation navigator and flips to its narrow column.
+    if (new RegExp(`^/(api/)?session/${e2eSession.id}/message`).test(request.url ?? ""))
+      return response.end(
+        JSON.stringify({
+          data: [
+            { id: "msg_e2e_1", type: "user", text: "First prompt", time: { created: Date.now() - 120_000 } },
+            { id: "msg_e2e_3", type: "user", text: "Second prompt", time: { created: Date.now() - 60_000 } },
+          ],
+          cursor: {},
+        }),
+      )
     response.statusCode = 404
     response.end(JSON.stringify({ message: "not found" }))
   })
@@ -218,6 +229,15 @@ test.describe("on a phone", () => {
     // The fake engine answers 404 for the transcript: the session screen must still open.
     await card.click()
     await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow")
+    // The chat shares the dock's column, even in the narrow layout with the chapter rail.
+    await expect(page.locator(".fc-transcript-frame")).toHaveClass(/fc-chat-narrow/)
+    const body = page.locator(".fc-transcript-body")
+    await expect(body).toBeVisible()
+    const [bodyLeft, fieldLeft] = await page.evaluate(() => [
+      document.querySelector(".fc-transcript-body")!.getBoundingClientRect().left,
+      document.querySelector(".fc-mobile-field")!.getBoundingClientRect().left,
+    ])
+    expect(Math.round(bodyLeft)).toBe(Math.round(fieldLeft))
     // The phone dock: "+" opens attachments and settings as a bottom sheet.
     const dock = page.locator(".fc-mobile-dock")
     await expect(dock.getByPlaceholder("Type / for commands")).toBeVisible()
