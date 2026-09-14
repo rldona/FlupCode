@@ -667,25 +667,38 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   onCleanup(() => frameWidth.disconnect())
   const observeFrame = (element: HTMLDivElement) => frameWidth.observe(element)
 
-  // Land at the end once per session switch, then leave the transcript alone. Content growing below
-  // never drags the reader back, so scrolling up stays where the reader left it. The delayed
-  // attempts cover lazy rendering; `scrollToBottom` still re-checks `stick`, so scrolling during
-  // that window wins. They live outside the effect so a message update cannot cancel them.
+  // Land at the end once per session switch, once per prompt sent, and once when the turn delivers
+  // its final answer; content growing below never drags the reader back in between. The delayed
+  // attempts cover lazy rendering; `scrollToBottom` re-checks `stick`, so scrolling during that
+  // window wins. The timers live outside the effect so a message update cannot cancel them.
   let settleTimers: Array<ReturnType<typeof setTimeout>> = []
   const clearSettleTimers = () => {
     settleTimers.forEach((timer) => clearTimeout(timer))
     settleTimers = []
   }
   onCleanup(clearSettleTimers)
-  createEffect(() => {
-    const first = props.messages?.[0]?.id
-    if (first === firstMessageID) return
-    firstMessageID = first
-    setVisibleCount(80)
+  const landAtEnd = () => {
     setStick(true)
     clearSettleTimers()
     scrollToBottom()
     settleTimers = [setTimeout(scrollToBottom, 80), setTimeout(scrollToBottom, 320)]
+  }
+  let lastPendingID: string | undefined
+  let wasBusy = false
+  createEffect(() => {
+    const first = props.messages?.[0]?.id
+    const newest = props.pending?.at(-1)?.id
+    const busy = props.busy
+    const switched = first !== firstMessageID
+    const sent = newest !== undefined && newest !== lastPendingID
+    // The run state spans every step of a turn, so going idle means the final answer is in.
+    const finished = wasBusy && !busy
+    wasBusy = busy
+    if (!switched && !sent && !finished) return
+    firstMessageID = first
+    if (sent) lastPendingID = newest
+    if (switched) setVisibleCount(80)
+    landAtEnd()
   })
 
   return (
