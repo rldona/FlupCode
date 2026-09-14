@@ -173,10 +173,10 @@ export const Topbar: Component<TopbarProps> = (props) => {
               class="fc-status fc-status-remote"
               classList={{ "fc-status-on": pill().connected, "fc-status-off": !pill().connected }}
               type="button"
-              title={t("Remote control")}
+              title={t("Remote: {name}", { name: pill().name })}
               onClick={pill().onOpen}
             >
-              {t("Remote: {name}", { name: pill().name })}
+              {t(pill().connected ? "Connected" : "Disconnected")}
             </button>
           )}
         </Show>
