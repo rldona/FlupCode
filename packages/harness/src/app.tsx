@@ -57,6 +57,7 @@ import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
+import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
@@ -77,6 +78,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "stash", descriptionKey: "Save the current prompt" },
   { name: "stashes", descriptionKey: "View saved prompts" },
   { name: "skills", descriptionKey: "Skills" },
+  { name: "memory", descriptionKey: "Memory" },
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
   { name: "routines", descriptionKey: "Scheduled tasks" },
@@ -167,7 +169,9 @@ export const App: Component = () => {
   const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "build"))
   const [permissionModeId, setPermissionModeId] = createSignal(readStorage(STORAGE_KEYS.permissionMode, "auto"))
   const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
-  const [workspaceWidth, setWorkspaceWidth] = createSignal(readStorage(STORAGE_KEYS.workspaceWidth, WORKSPACE_WIDTH_DEFAULT))
+  const [workspaceWidth, setWorkspaceWidth] = createSignal(
+    readStorage(STORAGE_KEYS.workspaceWidth, WORKSPACE_WIDTH_DEFAULT),
+  )
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
@@ -212,6 +216,7 @@ export const App: Component = () => {
   const [folderOpen, setFolderOpen] = createSignal(false)
   const [artifactsOpen, setArtifactsOpen] = createSignal(false)
   const [skillsOpen, setSkillsOpen] = createSignal(false)
+  const [memoryOpen, setMemoryOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
   const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
   const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
@@ -675,7 +680,8 @@ export const App: Component = () => {
 
   // Prompts shown before the engine projects their message, reconciled by id once it does. The ones
   // sent while a turn was already running offer "Send now".
-  const pendingForSession = () => pendingPrompts.forSession(selected(), activeMessages() ?? [], expandPastes, serverUrl())
+  const pendingForSession = () =>
+    pendingPrompts.forSession(selected(), activeMessages() ?? [], expandPastes, serverUrl())
 
   // Once a real message replaces its optimistic prompt, forget it so the list cannot grow.
   createEffect(() => pendingPrompts.reconcile(new Set((activeMessages() ?? []).map((message) => message.id))))
@@ -724,6 +730,10 @@ export const App: Component = () => {
     }
     if (name === "skills") {
       setSkillsOpen(true)
+      return
+    }
+    if (name === "memory") {
+      setMemoryOpen(true)
       return
     }
     if (name === "config") {
@@ -819,7 +829,11 @@ export const App: Component = () => {
               scheduleRefetch(true, false)
             } else if (type.endsWith(".delta")) {
               const delta = payload?.delta
-              if (payload?.sessionID && typeof delta === "string" && (type.includes("text") || type.includes("reasoning"))) {
+              if (
+                payload?.sessionID &&
+                typeof delta === "string" &&
+                (type.includes("text") || type.includes("reasoning"))
+              ) {
                 publishSessionEvent({
                   kind: "live",
                   sessionID: payload.sessionID,
@@ -2131,6 +2145,11 @@ export const App: Component = () => {
         setSkillsOpen(true)
         return
       }
+      if (name === "memory") {
+        setPrompt("")
+        setMemoryOpen(true)
+        return
+      }
       if (name === "config") {
         setPrompt("")
         setConfigOpen(true)
@@ -2224,9 +2243,10 @@ export const App: Component = () => {
       classList={{ "fc-mobile-remote": mobileRemote() }}
       style={{
         "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
-        "--fc-content-right": mobileRemote() || chatView()
-          ? "0px"
-          : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
+        "--fc-content-right":
+          mobileRemote() || chatView()
+            ? "0px"
+            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
       }}
     >
       <Show when={!mobileRemote()}>
@@ -2291,10 +2311,10 @@ export const App: Component = () => {
                     {selectedSession()?.title || (chatView() ? t("New chat") : t("New session"))}
                   </span>
                   <Show
-                    when={!chatView() && (targetDirectory() ?? selectedSession()?.location?.directory)
-                      ?.split("/")
-                      .filter(Boolean)
-                      .at(-1)}
+                    when={
+                      !chatView() &&
+                      (targetDirectory() ?? selectedSession()?.location?.directory)?.split("/").filter(Boolean).at(-1)
+                    }
                   >
                     {(project) => <span class="fc-mobile-subtitle">{project()}</span>}
                   </Show>
@@ -2337,7 +2357,9 @@ export const App: Component = () => {
             }
             hostRemote={hostRemotePill()}
             sessionTitle={
-              <Show when={!splitActive() && selectedSession()}>{(session) => <SessionTitle session={session()} />}</Show>
+              <Show when={!splitActive() && selectedSession()}>
+                {(session) => <SessionTitle session={session()} />}
+              </Show>
             }
             sessionActions={
               <Show when={!splitActive() && selectedSession()}>
@@ -2423,7 +2445,9 @@ export const App: Component = () => {
                 mobileComposing() ? (
                   <div class="fc-mobile-new">
                     <p class="fc-onboarding-text">
-                      {chatView() ? t("Write a message to start a chat.") : t("Describe a task to start a new session.")}
+                      {chatView()
+                        ? t("Write a message to start a chat.")
+                        : t("Describe a task to start a new session.")}
                     </p>
                   </div>
                 ) : (
@@ -2474,7 +2498,11 @@ export const App: Component = () => {
             <div class="fc-docks">
               <For each={permissionData}>
                 {(request) => (
-                  <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
+                  <PermissionDock
+                    request={request}
+                    busy={busy()}
+                    onReply={(reply) => replyPermission(request, reply)}
+                  />
                 )}
               </For>
               <For each={questionData}>
@@ -2599,6 +2627,8 @@ export const App: Component = () => {
             width={contextWidth()}
             onResize={updateContextWidth}
             onHide={toggleContextPanel}
+            serverUrl={serverUrl()}
+            sessionID={selected()}
           />
         </Show>
       </Show>
@@ -2780,6 +2810,7 @@ export const App: Component = () => {
         }}
         onClose={() => setSkillsOpen(false)}
       />
+      <MemoryPanel open={memoryOpen()} serverUrl={serverUrl()} onClose={() => setMemoryOpen(false)} />
       <ConfigPanel
         open={configOpen()}
         serverUrl={serverUrl()}

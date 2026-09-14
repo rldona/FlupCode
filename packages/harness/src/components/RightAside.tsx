@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { TodoItem } from "./TodoDock"
+import { MemoryInspector } from "./MemoryInspector"
 import { formatTokens } from "../metrics"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
@@ -14,6 +15,8 @@ type RightAsideProps = {
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
   onHide: () => void
+  serverUrl: string
+  sessionID?: string
 }
 
 export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: 300 }
@@ -84,6 +87,8 @@ export const RightAside: Component<RightAsideProps> = (props) => {
             <span>${props.usage.cost.toFixed(2)}</span>
           </div>
         </section>
+
+        <MemoryInspector serverUrl={props.serverUrl} sessionID={props.sessionID} />
 
         <section class="fc-aside-section">
           <h3 class="fc-aside-title">
