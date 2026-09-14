@@ -5856,3 +5856,174 @@ button.fc-row-main {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* Folder browser (Open folder dialog) */
+.fc-folder {
+  max-height: min(80vh, 720px);
+}
+
+.fc-folder-native {
+  align-self: flex-start;
+}
+
+.fc-folder-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+}
+
+.fc-folder-section-title {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fc-folder-recents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.fc-folder-recent {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  max-width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: var(--fc-text);
+  text-align: left;
+}
+
+.fc-folder-recent:hover {
+  background: var(--fc-accent-soft);
+}
+
+.fc-folder-recent-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.fc-folder-recent-path {
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-folder-address {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-folder-input {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fc-folder-crumbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-folder-crumb {
+  padding: 2px 6px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text-muted);
+}
+
+.fc-folder-crumb:hover {
+  background: var(--fc-accent-soft);
+  color: var(--fc-text);
+}
+
+.fc-folder-crumb-current {
+  color: var(--fc-text);
+  font-weight: 600;
+}
+
+.fc-folder-crumb-sep {
+  color: var(--fc-text-muted);
+}
+
+.fc-folder-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-3);
+}
+
+.fc-folder-filter {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-folder-hidden {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  white-space: nowrap;
+}
+
+.fc-folder-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  min-height: 160px;
+  max-height: 40vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 4px;
+}
+
+.fc-folder-row .fc-folder-item {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-folder-row .fc-folder-item:hover {
+  background: var(--fc-accent-soft);
+}
+
+.fc-folder-item-open {
+  height: 26px;
+  padding: 0 8px;
+  font-size: var(--fc-text-xs);
+  opacity: 0;
+}
+
+.fc-folder-row:hover .fc-folder-item-open,
+.fc-folder-row:focus-within .fc-folder-item-open {
+  opacity: 1;
+}
+
+@media (pointer: coarse) {
+  .fc-folder-item-open {
+    opacity: 1;
+  }
+}
