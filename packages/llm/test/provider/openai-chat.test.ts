@@ -462,17 +462,27 @@ describe("OpenAI Chat route", () => {
     }),
   )
 
-  it.effect("lowers reasoning-only assistant history", () =>
+  it.effect("drops reasoning-only assistant history", () =>
     Effect.gen(function* () {
       const prepared = yield* LLMClient.prepare<OpenAIChat.OpenAIChatBody>(
         LLM.request({
           id: "req_reasoning",
           model,
-          messages: [Message.assistant({ type: "reasoning", text: "hidden" })],
+          messages: [
+            Message.user("hi"),
+            Message.assistant({ type: "reasoning", text: "hidden" }),
+            Message.user("still there?"),
+          ],
         }),
       )
 
-      expect(prepared.body.messages).toEqual([{ role: "assistant", content: null, reasoning_content: "hidden" }])
+      // A reasoning-only turn has no content or tool_calls: replaying it would be rejected by the
+      // provider ("Invalid assistant message: content or tool_calls must be set") and would poison
+      // every later turn, so it is dropped instead.
+      expect(prepared.body.messages).toEqual([
+        { role: "user", content: "hi" },
+        { role: "user", content: "still there?" },
+      ])
     }),
   )
 

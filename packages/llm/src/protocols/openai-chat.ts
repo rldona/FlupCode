@@ -286,7 +286,14 @@ const lowerToolMessages = Effect.fn("OpenAIChat.lowerToolMessages")(function* (m
 
 const lowerMessage = Effect.fn("OpenAIChat.lowerMessage")(function* (message: OpenAIChatRequestMessage) {
   if (message.role === "user") return [yield* lowerUserMessage(message)]
-  if (message.role === "assistant") return [yield* lowerAssistantMessage(message)]
+  if (message.role === "assistant") {
+    const lowered = yield* lowerAssistantMessage(message)
+    // A turn that only produced reasoning has neither content nor tool_calls. The OpenAI Chat shape
+    // requires one of them, so replaying it (an interrupted run, a model that stopped after
+    // thinking) makes the provider reject the whole request. Drop it instead of poisoning history.
+    if (lowered.content === null && lowered.tool_calls === undefined) return []
+    return [lowered]
+  }
   return (yield* lowerToolMessages(message)).messages
 })
 
