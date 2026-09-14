@@ -333,6 +333,8 @@ const ES: Record<string, string> = {
   Reject: "Rechazar",
   Question: "Pregunta",
   Respond: "Responder",
+  Next: "Siguiente",
+  Previous: "Anterior",
   Skip: "Omitir",
   Collapse: "Contraer",
   Expand: "Expandir",
