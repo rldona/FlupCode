@@ -2,6 +2,7 @@ import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type 
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
+import { toast } from "../toast"
 import { ModeMenu } from "./ModeMenu"
 import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
@@ -9,6 +10,7 @@ import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { stepHistory } from "../prompt-history"
+import { dictationAvailable, startDictation } from "../dictation"
 import type { AppView } from "../chat"
 
 type ComposerProps = {
@@ -71,41 +73,10 @@ function primaryAgents(agents: AgentInfo[]) {
   return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
 }
 
-type SpeechRecognitionResult = {
-  0: { transcript: string }
-  isFinal: boolean
-}
-
-type SpeechRecognitionEventLike = {
-  results: ArrayLike<SpeechRecognitionResult>
-}
-
-export type SpeechRecognitionLike = {
-  lang: string
-  continuous: boolean
-  interimResults: boolean
-  start: () => void
-  stop: () => void
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null
-  onend: (() => void) | null
-  onerror: (() => void) | null
-}
-
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike
-
-export function speechRecognition(): SpeechRecognitionConstructor | undefined {
-  if (typeof window === "undefined") return
-  const scope = window as unknown as {
-    SpeechRecognition?: SpeechRecognitionConstructor
-    webkitSpeechRecognition?: SpeechRecognitionConstructor
-  }
-  return scope.SpeechRecognition ?? scope.webkitSpeechRecognition
-}
-
 export const Composer: Component<ComposerProps> = (props) => {
   let fileInput: HTMLInputElement | undefined
   let input: HTMLTextAreaElement | undefined
-  let recognition: SpeechRecognitionLike | undefined
+  let stopDictation: (() => void) | undefined
   const [listening, setListening] = createSignal(false)
   const [dragging, setDragging] = createSignal(false)
   const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
@@ -138,7 +109,7 @@ export const Composer: Component<ComposerProps> = (props) => {
     return true
   }
 
-  onCleanup(() => recognition?.stop())
+  onCleanup(() => stopDictation?.())
 
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -268,25 +239,23 @@ export const Composer: Component<ComposerProps> = (props) => {
 
   const toggleVoice = () => {
     if (listening()) {
-      recognition?.stop()
+      stopDictation?.()
+      stopDictation = undefined
       return
     }
-    const Ctor = speechRecognition()
-    if (!Ctor) return
-    recognition = new Ctor()
-    recognition.lang = navigator.language || "en-US"
-    recognition.continuous = true
-    recognition.interimResults = false
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .filter((result) => result.isFinal)
-        .map((result) => result[0].transcript)
-        .join(" ")
-      if (transcript.trim()) props.onInput(`${props.value} ${transcript}`.trim())
-    }
-    recognition.onend = () => setListening(false)
-    recognition.onerror = () => setListening(false)
-    recognition.start()
+    const base = props.value
+    const stop = startDictation({
+      lang: navigator.language,
+      onTranscript: (text) => props.onInput(`${base} ${text}`.trim()),
+      onError: (code) =>
+        toast(code ? `${t("Voice dictation failed")} (${code})` : t("Voice dictation failed"), "error"),
+      onEnd: () => {
+        stopDictation = undefined
+        setListening(false)
+      },
+    })
+    if (!stop) return
+    stopDictation = stop
     setListening(true)
   }
 
@@ -314,14 +283,18 @@ export const Composer: Component<ComposerProps> = (props) => {
               {(command, index) => (
                 <button
                   class="fc-command-item"
-                  classList={{ "fc-command-item-active": commandIndex() === index() }}
+                  classList={{ "fc-command-item-active": commandIndex() === index() && !command.disabled }}
                   type="button"
+                  disabled={command.disabled}
                   onMouseEnter={() => setCommandIndex(index())}
                   onClick={() => props.onCommandPick(command.name)}
                 >
                   <span class="fc-command-name">/{command.name}</span>
                   <Show when={command.description}>
                     <span class="fc-command-desc">{command.description}</span>
+                  </Show>
+                  <Show when={command.disabled}>
+                    <span class="fc-command-soon">{t("Soon")}</span>
                   </Show>
                 </button>
               )}
@@ -429,7 +402,7 @@ export const Composer: Component<ComposerProps> = (props) => {
                 }
                 if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
                   const command = filteredCommands()[commandIndex()]
-                  if (command) {
+                  if (command && !command.disabled) {
                     event.preventDefault()
                     props.onCommandRun(command.name)
                     return
@@ -523,7 +496,7 @@ export const Composer: Component<ComposerProps> = (props) => {
               title={t("Voice dictation")}
               aria-label={t("Voice dictation")}
               aria-pressed={listening()}
-              disabled={!speechRecognition()}
+              disabled={!dictationAvailable()}
               onClick={toggleVoice}
             >
               <DockIcon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />

@@ -18,6 +18,8 @@ type MessageFile = { uri: string; mime?: string; name?: string }
 
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
+  /** Resets scroll/follow state when the viewed session changes; the view instance is reused. */
+  sessionKey?: string
   loading: boolean
   busy: boolean
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
@@ -301,7 +303,6 @@ function toolGroupSummary(parts: SessionMessageAssistantTool[]) {
 const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) => {
   const [open, setOpen] = createSignal(false)
   const running = () => props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
-  const failed = () => props.parts.some((part) => part.state.status === "error")
   const done = () =>
     props.parts.filter((part) => part.state.status === "completed" || part.state.status === "error").length
   return (
@@ -315,9 +316,6 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
         >
           {running() ? `${done()}/${props.parts.length}` : props.parts.length}
         </span>
-        <Show when={failed()}>
-          <span class="fc-toolgroup-failed">{t("error")}</span>
-        </Show>
         <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
           <path
             d="m9 6 6 6-6 6"
@@ -585,7 +583,9 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   })
 
   const [visibleCount, setVisibleCount] = createSignal(80)
-  let firstMessageID: string | undefined
+  let lastSessionKey: string | undefined
+  // Last end distance, to tell the reader scrolling away from following the run apart.
+  let lastDistance = 0
   const total = () => props.messages?.length ?? 0
   const offset = () => Math.max(0, total() - visibleCount())
   const visibleMessages = () => (props.messages ?? []).slice(offset())
@@ -769,18 +769,28 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   let lastPendingID: string | undefined
   let wasBusy = false
   createEffect(() => {
-    const first = props.messages?.[0]?.id
+    const key = props.sessionKey
     const newest = props.pending?.at(-1)?.id
     const busy = props.busy
-    const switched = first !== firstMessageID
+    const switched = key !== lastSessionKey
     const sent = newest !== undefined && newest !== lastPendingID
     // The run state spans every step of a turn, so going idle means the final answer is in.
     const finished = wasBusy && !busy
     wasBusy = busy
     if (!switched && !sent && !finished) return
-    firstMessageID = first
+    if (switched) {
+      lastSessionKey = key
+      // The view instance is reused across sessions: drop the previous session's scroll state so
+      // its position and input can't stick the new session elsewhere or fight its landing.
+      readerInput = 0
+      lastDistance = 0
+      jumpedTo = undefined
+      jumpedAt = 0
+      setAwayFromEnd(false)
+      setActiveChapter(undefined)
+      setVisibleCount(80)
+    }
     if (sent) lastPendingID = newest
-    if (switched) setVisibleCount(80)
     // A reader who scrolled up keeps their place when the turn ends.
     if (switched || sent || stick()) landAtEnd()
   })
@@ -801,10 +811,16 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           trackChapter()
           const distance = container.scrollHeight - container.scrollTop - container.clientHeight
           setAwayFromEnd(distance > 200)
-          // The reader's own input (wheel, touch, keys, scrollbar) leaves the end; content growing
-          // never does, so a recent input is what unsticks, not the direction of this scroll event.
-          if (distance < 120) setStick(true)
-          else if (performance.now() - readerInput < 1000) setStick(false)
+          // Content growing never fires scroll; only the reader's own input (wheel, touch, keys,
+          // scrollbar) or the smooth glide to the end does. A recent input moving away from the end
+          // breaks following at once, so lazy message heights can't yank the reader back down.
+          const recent = performance.now() - readerInput < 1000
+          if (recent && distance > lastDistance) {
+            clearSettleTimers()
+            setStick(false)
+          } else if (distance < 120) setStick(true)
+          else if (recent) setStick(false)
+          lastDistance = distance
         }}
         onWheel={markReaderInput}
         onTouchMove={markReaderInput}

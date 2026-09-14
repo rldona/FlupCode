@@ -332,6 +332,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
 
       <SessionView
         messages={list()}
+        sessionKey={sessionID()}
         loading={messages.loading && !list()}
         busy={generating()}
         usage={liveUsage()}

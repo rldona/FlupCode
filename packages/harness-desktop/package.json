@@ -9,11 +9,11 @@
   "author": "FlupCode",
   "main": "./out/main/index.js",
   "scripts": {
-    "dev": "electron-vite dev",
-    "build": "electron-vite build",
+    "dev": "bash scripts/build-speech.sh && electron-vite dev",
+    "build": "bash scripts/build-speech.sh && electron-vite build",
     "typecheck": "tsgo --noEmit",
     "renderer": "bun scripts/renderer.mjs",
-    "dist": "bun run renderer && electron-vite build && electron-builder --publish never"
+    "dist": "bun run renderer && bash scripts/build-speech.sh && electron-vite build && electron-builder --publish never"
   },
   "build": {
     "appId": "com.flupcode.desktop",
@@ -24,6 +24,7 @@
     },
     "files": [
       "out/**",
+      "!out/speech",
       "package.json"
     ],
     "executableName": "flupcode",
@@ -56,7 +57,17 @@
       "category": "public.app-category.developer-tools",
       "identity": null,
       "artifactName": "FlupCode-mac-${arch}.${ext}",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "extendInfo": {
+        "NSMicrophoneUsageDescription": "FlupCode uses the microphone for voice dictation.",
+        "NSSpeechRecognitionUsageDescription": "FlupCode turns your voice into text with Apple speech recognition."
+      },
+      "extraResources": [
+        {
+          "from": "out/speech",
+          "to": "speech"
+        }
+      ]
     },
     "win": {
       "target": [
