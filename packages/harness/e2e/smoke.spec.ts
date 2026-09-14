@@ -462,3 +462,57 @@ test("the slash menu walks with the arrow keys and Enter runs the chosen command
   await expect(menu).toHaveCount(0)
   await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
 })
+
+test("a local preview linked from the transcript opens in the browser panel", async ({ page }) => {
+  const now = Date.now()
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_preview"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "ses_preview",
+              projectID: "p",
+              title: "Preview",
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now, updated: now },
+              location: { directory: "/work/demo" },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/(api\/)?session\/ses_preview\/message$/.test(url.pathname))
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "msg_preview",
+              type: "user",
+              text: "Servidor levantado en http://localhost:4444",
+              time: { created: now },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/(api\/)?session\/[^/]+\/message/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  const link = page.getByRole("link", { name: "http://localhost:4444" })
+  await expect(link).toBeVisible()
+  await link.click()
+  // The integrated browser opens on the linked URL instead of a new tab.
+  await expect(page.locator(".fc-browser-url")).toHaveValue(/localhost:4444/)
+})
