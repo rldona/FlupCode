@@ -463,6 +463,16 @@ export function createClient(baseUrl = resolveServerUrl()) {
         unwrap(
           client.v2.fs.find({ query: input.query, limit: input.limit !== undefined ? String(input.limit) : undefined }),
         ),
+      /**
+       * Lists one directory level. The engine only lists inside a location, so the folder browser
+       * passes the folder it browses from as the location and walks it with relative paths.
+       */
+      list: async (input: { directory: string; path?: string }) => {
+        const result = await unwrap(
+          client.v2.fs.list({ location: { directory: input.directory }, path: input.path || undefined }),
+        )
+        return result.data
+      },
     },
     vcs: {
       get: (directory: string) => unwrap(client.vcs.get({ directory })),
