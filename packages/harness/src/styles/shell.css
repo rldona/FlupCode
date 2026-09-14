@@ -5242,9 +5242,17 @@ button.fc-row-main {
   scrollbar-gutter: stable both-edges;
 }
 
-.fc-composer {
+.fc-composer,
+.fc-docks {
   padding-left: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
   padding-right: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
+}
+
+/* Permission and question cards keep the transcript's and the composer's column. */
+.fc-docks > * {
+  width: 100%;
+  max-width: 820px;
+  margin: 0 auto;
 }
 
 /* Completed tasks can be removed from the context panel, all at once or one by one. */
