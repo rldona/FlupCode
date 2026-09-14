@@ -1,4 +1,4 @@
-import type { SessionInfo } from "./engine-types"
+import type { ModelInfo, SessionInfo, SessionMessageAssistant, SessionMessageInfo } from "./engine-types"
 
 export type UsageRange = "all" | "30d" | "7d"
 
@@ -166,6 +166,39 @@ export function computeMetrics(filtered: SessionInfo[]): UsageMetrics {
     modelUsage,
     weeks,
   }
+}
+
+/**
+ * What an assistant step cost, priced like the legacy engine: per million tokens, with the largest
+ * context tier the step went over, and reasoning at the output rate.
+ */
+export function stepCost(tokens: NonNullable<SessionMessageAssistant["tokens"]>, prices: ModelInfo["cost"] = []) {
+  const context = tokens.input + tokens.cache.read + tokens.cache.write
+  const price =
+    prices.filter((entry) => entry.tier && context > entry.tier.size).sort((a, b) => b.tier!.size - a.tier!.size)[0] ??
+    prices.find((entry) => !entry.tier)
+  if (!price) return 0
+  return (
+    (tokens.input * price.input +
+      (tokens.output + tokens.reasoning) * price.output +
+      tokens.cache.read * price.cache.read +
+      tokens.cache.write * price.cache.write) /
+    1_000_000
+  )
+}
+
+/**
+ * What a session has spent. The engine only adds legacy history to the session's cost; v2 steps carry
+ * their tokens with a cost of 0, so those are priced here from their model.
+ */
+export function sessionCost(session: SessionInfo | undefined, messages: SessionMessageInfo[], models: ModelInfo[]) {
+  return messages.reduce((sum, message) => {
+    const step = message as SessionMessageAssistant
+    if (message.type !== "assistant" || !step.tokens) return sum
+    if (step.cost) return sum + step.cost
+    const model = models.find((entry) => entry.providerID === step.model?.providerID && entry.id === step.model?.id)
+    return sum + stepCost(step.tokens, model?.cost)
+  }, session?.cost ?? 0)
 }
 
 export function formatTokens(value: number) {
