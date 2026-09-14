@@ -535,14 +535,15 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const fullIndex = (index: number) => offset() + index
 
   let body: HTMLDivElement | undefined
-  let lastScrollTop = 0
   // When the reader last touched the transcript (wheel, touch, keys, scrollbar).
   let readerInput = 0
   const markReaderInput = () => {
     readerInput = performance.now()
   }
+  // Auto-scroll is queued in a frame/timer, so it must re-check `stick` when it runs: otherwise it
+  // can land after the reader has scrolled away and drag the transcript back to the bottom.
   const scrollToBottom = () => {
-    if (container) container.scrollTop = container.scrollHeight
+    if (container && stick()) container.scrollTop = container.scrollHeight
   }
 
   // One chapter per prompt, for the navigator at the top of the chat.
@@ -667,12 +668,11 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           if (!container) return
           trackChapter()
           const distance = container.scrollHeight - container.scrollTop - container.clientHeight
-          const movedUp = container.scrollTop < lastScrollTop
-          lastScrollTop = container.scrollTop
           setAwayFromEnd(distance > 200)
-          // Only the reader scrolling up leaves the end; content changing height never does.
+          // The reader's own input (wheel, touch, keys, scrollbar) leaves the end; content growing
+          // never does, so a recent input is what unsticks, not the direction of this scroll event.
           if (distance < 120) setStick(true)
-          else if (movedUp && performance.now() - readerInput < 1000) setStick(false)
+          else if (performance.now() - readerInput < 1000) setStick(false)
         }}
         onWheel={markReaderInput}
         onTouchMove={markReaderInput}
