@@ -18,6 +18,12 @@ Valid types are `feat`, `fix`, `docs`, `chore`, `refactor`, and `test`. Scopes a
 
 Examples: `fix(tui): simplify thinking toggle styling`, `docs: update contributing guide`, `chore(sdk): regenerate types`.
 
+## Deployments
+
+- Never trigger Vercel preview deployments: they consume paid quota. Work through GitHub only.
+- Production reaches Vercel later, from `power`, through the normal merge flow. Do not run the `vercel` CLI to deploy a preview.
+- Both `packages/harness/vercel.json` and `packages/landing/vercel.json` disable deployments for every branch except `power` (`git.deploymentEnabled`).
+
 ## Style Guide
 
 ### General Principles
