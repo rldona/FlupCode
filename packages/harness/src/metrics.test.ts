@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelInfo, SessionInfo, SessionMessageInfo } from "./engine-types"
-import { computeMetrics, filterByRange, formatTokens, activityByDay, sessionCost, stepCost } from "./metrics"
+import { computeMetrics, contextFigures, filterByRange, formatTokens, activityByDay, sessionCost, stepCost } from "./metrics"
 
 const DAY = 86_400_000
 
@@ -116,5 +116,39 @@ describe("sessionCost", () => {
       step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }, 0.25),
     ]
     expect(sessionCost(legacy, messages, models)).toBeCloseTo(0.5 + 1 + 0.25)
+  })
+})
+
+describe("contextFigures", () => {
+  const step = (tokens: { input: number; output?: number; reasoning?: number; read?: number }) =>
+    ({
+      type: "assistant",
+      tokens: {
+        input: tokens.input,
+        output: tokens.output ?? 0,
+        reasoning: tokens.reasoning ?? 0,
+        cache: { read: tokens.read ?? 0, write: 0 },
+      },
+    }) as unknown as SessionMessageInfo
+
+  test("keeps the last step that reported tokens while the running step has none", () => {
+    const messages = [
+      step({ input: 90_000, read: 3_000 }),
+      { type: "assistant", content: [] } as unknown as SessionMessageInfo,
+    ]
+    expect(contextFigures(session(Date.now(), 0), messages, [], 200_000).used).toBe(93_000)
+  })
+
+  test("skips all-zero readings", () => {
+    const empty = {
+      type: "assistant",
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+    } as unknown as SessionMessageInfo
+    expect(contextFigures(session(Date.now(), 0), [step({ input: 50_000 }), empty], [], 200_000).used).toBe(50_000)
+  })
+
+  test("falls back to the session totals when no step reported tokens", () => {
+    const messages = [{ type: "user" } as unknown as SessionMessageInfo]
+    expect(contextFigures(session(Date.now(), 100), messages, [], 200_000).used).toBe(100)
   })
 })

@@ -4,7 +4,7 @@ import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } fr
 import type { SessionMessageAssistant } from "./engine-types"
 import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import { activityByDay, comparison, computeMetrics, filterByRange, sessionCost, type UsageRange } from "./metrics"
+import { activityByDay, comparison, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
 import {
   SUGGESTION_SESSION_TTL,
@@ -234,6 +234,9 @@ export const App: Component = () => {
   // Chat / Code tabs. Chats are sessions in the engine's state folder; see chat.ts.
   const [view, setView] = createSignal<AppView>(readStorage<AppView>(STORAGE_KEYS.view, "code"))
   const chatView = () => view() === "chat"
+  // Each tab keeps its own open session, keyed by the session's kind, so leaving a tab and coming
+  // back lands on the session that was active instead of that tab's home.
+  const [openSessions, setOpenSessions] = createSignal<Partial<Record<AppView, string>>>({})
   const [enginePaths] = createResource(
     () => (ready() ? serverUrl() : undefined),
     (url) =>
@@ -247,15 +250,39 @@ export const App: Component = () => {
   const viewSessions = () => sessionList()?.filter((session) => isChat(session) === chatView())
   const changeView = (next: AppView) => {
     if (next === view()) return
+    const leaving = selected()
     setView(next)
     writeStorage(STORAGE_KEYS.view, next)
-    // The open session belongs to the other tab: start from this tab's home.
-    if (selected() && isChat(selectedSession()) !== (next === "chat")) {
+    const candidate = openSessions()[next]
+    const sessionsList = sessionList()
+    // Before the list loads there is nothing to validate against, so trust the remembered session.
+    if (candidate && (!sessionsList || sessionsList.some((session) => session.id === candidate))) {
+      setSelected(candidate)
+      setTargetDirectory(undefined)
+      setMobileComposing(false)
+      return
+    }
+    // No session to return to: this tab starts from its home.
+    if (leaving) {
       setSelected(undefined)
       setTargetDirectory(undefined)
       setMobileComposing(false)
     }
   }
+  // Remember the open session under its own kind, so a tab switch can restore it.
+  createEffect(() => {
+    if (!chatsDirectory()) return
+    const session = selectedSession()
+    if (session) {
+      const kind: AppView = isChat(session) ? "chat" : "code"
+      setOpenSessions((previous) => (previous[kind] === session.id ? previous : { ...previous, [kind]: session.id }))
+      return
+    }
+    // A selected id that is not in the list yet (loading, stale) must not erase the memory.
+    if (selected()) return
+    const kind = untrack(view)
+    setOpenSessions((previous) => (previous[kind] === undefined ? previous : { ...previous, [kind]: undefined }))
+  })
   // Opening a session from anywhere (palette, history, a notification) shows its tab.
   createEffect(() => {
     const session = selectedSession()
@@ -501,22 +528,8 @@ export const App: Component = () => {
     if (chars <= 0) return undefined
     return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
   }
-  const contextUsage = () => {
-    const session = selectedSession()
-    const limit = currentModel()?.limit?.context ?? 0
-    const list = activeMessages() ?? []
-    const last = [...list].reverse().find((message) => message.type === "assistant") as
-      | SessionMessageAssistant
-      | undefined
-    const tokens = last?.tokens
-    const used = tokens ? tokens.input + (tokens.cache?.read ?? 0) : (session?.tokens?.input ?? 0)
-    return {
-      used,
-      limit,
-      cost: sessionCost(session, list, modelList()),
-      tokens: tokens ? { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning } : undefined,
-    }
-  }
+  const contextUsage = () =>
+    contextFigures(selectedSession(), activeMessages() ?? [], modelList(), currentModel()?.limit?.context ?? 0)
 
   const generationStartedAt = () => {
     const list = activeMessages() ?? []

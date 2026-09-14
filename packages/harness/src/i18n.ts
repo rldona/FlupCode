@@ -306,6 +306,8 @@ const ES: Record<string, string> = {
   Question: "Pregunta",
   Respond: "Responder",
   "Custom answer": "Respuesta personalizada",
+  Other: "Otra",
+  "Type your own answer": "Escribe tu propia respuesta",
   Tasks: "Tareas",
   "No tasks": "Sin tareas",
   Context: "Contexto",
