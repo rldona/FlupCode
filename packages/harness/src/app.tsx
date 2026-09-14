@@ -29,6 +29,7 @@ import { pendingPrompts } from "./pending-prompts"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
+import { UNAVAILABLE_FEATURES } from "./features"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
 import { toast } from "./toast"
@@ -48,6 +49,7 @@ import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/Workspace
 import { McpManager } from "./components/McpManager"
 import { ModelPicker } from "./components/ModelPicker"
 import { FolderDialog } from "./components/FolderDialog"
+import { RenameDialog } from "./components/RenameDialog"
 import { permissionMode } from "./permission-modes"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
@@ -225,6 +227,7 @@ export const App: Component = () => {
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [stashOpen, setStashOpen] = createSignal(false)
+  const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string }>()
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
     readStorage<StashedPrompt[]>(STORAGE_KEYS.stashedPrompts, []),
   )
@@ -658,7 +661,11 @@ export const App: Component = () => {
   }
 
   const commandOptions = (): CommandOption[] => [
-    ...BUILTIN_COMMANDS.map((command) => ({ name: command.name, description: t(command.descriptionKey) })),
+    ...BUILTIN_COMMANDS.map((command) => ({
+      name: command.name,
+      description: t(command.descriptionKey),
+      disabled: UNAVAILABLE_FEATURES.has(command.name),
+    })),
     ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
     ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
   ]
@@ -692,6 +699,10 @@ export const App: Component = () => {
   }
 
   const runCommand = (name: string) => {
+    if (UNAVAILABLE_FEATURES.has(name)) {
+      toast(t("Coming soon"), "info")
+      return
+    }
     if (name === "new" || name === "clear") {
       newSession()
       return
@@ -1062,8 +1073,21 @@ export const App: Component = () => {
     onCleanup(() => query.removeEventListener("change", update))
   })
 
+  // Narrow windows auto-collapse the sidebar; unlike the right panel (pure CSS, so it
+  // reappears on its own), this writes a signal that would stick. Remember the wide preference
+  // and put it back when the window grows again. Untracked: opening the drawer while narrow is
+  // the reader's own doing and must not re-trigger the auto-collapse.
+  let wideCollapsed: boolean | undefined
   createEffect(() => {
-    if (narrow()) setCollapsed(true)
+    if (narrow()) {
+      if (wideCollapsed === undefined) wideCollapsed = untrack(collapsed)
+      setCollapsed(true)
+      return
+    }
+    if (wideCollapsed === undefined) return
+    setCollapsed(wideCollapsed)
+    writeStorage(STORAGE_KEYS.sidebarCollapsed, wideCollapsed)
+    wideCollapsed = undefined
   })
 
   const modelLabel = () => currentModel()?.name ?? t("Default model")
@@ -1789,10 +1813,15 @@ export const App: Component = () => {
     const sessionID = id ?? selected()
     if (!sessionID) return
     const currentTitle = sessionList()?.find((session) => session.id === sessionID)?.title ?? ""
-    const title = window.prompt(t("New title"), currentTitle)
-    if (!title) return
+    setRenameTarget({ id: sessionID, title: currentTitle })
+  }
+
+  const commitRename = (title: string) => {
+    const target = renameTarget()
+    if (!target) return
+    setRenameTarget(undefined)
     void run(async (current) => {
-      await current.session.rename({ sessionID, title })
+      await current.session.rename({ sessionID: target.id, title })
       return undefined
     }, t("Session renamed"))
   }
@@ -2080,6 +2109,11 @@ export const App: Component = () => {
       const [rawName, ...rest] = text.slice(1).split(/\s+/)
       const name = rawName ?? ""
       const args = rest.join(" ").trim()
+      if (UNAVAILABLE_FEATURES.has(name)) {
+        setPrompt("")
+        toast(t("Coming soon"), "info")
+        return
+      }
       if (name === "new" || name === "clear") {
         setPrompt("")
         newSession()
@@ -2480,6 +2514,7 @@ export const App: Component = () => {
           >
             <SessionView
               messages={activeMessages()}
+              sessionKey={selected()}
               loading={messagesLoading()}
               busy={generating()}
               usage={liveUsage()}
@@ -2696,6 +2731,13 @@ export const App: Component = () => {
         onRestore={restoreStash}
         onRemove={removeStash}
         onClose={() => setStashOpen(false)}
+      />
+      <RenameDialog
+        open={!!renameTarget()}
+        title={t("Rename")}
+        initial={renameTarget()?.title ?? ""}
+        onSave={commitRename}
+        onClose={() => setRenameTarget(undefined)}
       />
       <SettingsPanel
         open={settingsOpen()}

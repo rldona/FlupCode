@@ -40,6 +40,26 @@ export type RemoteHostBridge = {
   onChange(listener: (state: RemoteHostState) => void): () => void
 }
 
+/** Events streamed by the desktop's native speech recognizer (`window.flupcode.speech`). */
+export type SpeechEvent =
+  | { type: "ready" }
+  | { type: "partial"; text: string }
+  | { type: "final"; text: string }
+  | { type: "end" }
+  | { type: "error"; code?: string; message: string }
+
+/**
+ * Desktop dictation over the OS speech recognizer. The Web Speech API does not work in Electron
+ * (Chromium's cloud service is Chrome-only and the on-device binder is missing), so the desktop
+ * main process bridges macOS `SFSpeechRecognizer` instead.
+ */
+export type SpeechBridge = {
+  start(lang?: string): Promise<void>
+  stop(): Promise<void>
+  cancel(): Promise<void>
+  onEvent(listener: (event: SpeechEvent) => void): () => void
+}
+
 /** Control messages exchanged on stream 0 of the tunnel. */
 export type RemoteControl =
   | { type: "enrolled"; deviceId: string; deviceKey: string; hostName: string }

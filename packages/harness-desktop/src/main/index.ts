@@ -3,6 +3,7 @@ import { join } from "node:path"
 import { setApplicationMenu } from "./menu"
 import { initRemoteHost } from "./remote"
 import { ensureServer, stopServer } from "./server"
+import { initSpeech, speechAvailable, stopSpeech } from "./speech"
 import { initAutoUpdate, checkForUpdates } from "./updater"
 import { loadBounds, saveBounds } from "./window-state"
 
@@ -27,6 +28,8 @@ function createWindow() {
       sandbox: false,
       // The packaged app loads from file:// and talks to the local engine over HTTP.
       webSecurity: false,
+      // The preload only exposes the native speech bridge when the helper is present.
+      additionalArguments: speechAvailable() ? ["--flupcode-speech"] : [],
     },
   })
 
@@ -46,6 +49,7 @@ let remote: ReturnType<typeof initRemoteHost> | undefined
 app.whenReady().then(async () => {
   setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
   initAutoUpdate()
+  initSpeech()
   remote = initRemoteHost()
   await ensureServer()
   createWindow()
@@ -67,5 +71,6 @@ ipcMain.handle("flupcode:choose-folder", async () => {
 
 app.on("before-quit", () => {
   remote?.stop()
+  stopSpeech()
   stopServer()
 })

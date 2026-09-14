@@ -119,7 +119,8 @@ protected your PC": click **More info → Run anyway**.
 - Start with `!` to run a shell command.
 - Paste a large block of text to collapse it into `[Pasted ~N lines]`; it expands on send.
 - Attach files with the `+` button, drag and drop, or paste an image.
-- Use the **Voz** button for dictation where the browser supports the Web Speech API.
+- Use the **Voz** button for dictation: the desktop app uses macOS speech recognition, and the web
+  build uses the Web Speech API where the browser supports it.
 - **Guardar** stashes the current prompt; `/stashes` restores them.
 
 Built-in commands: `/new`, `/compact`, `/steps`, `/mcp`, `/stash`, `/stashes`, `/settings`,
