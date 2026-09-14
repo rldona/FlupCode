@@ -74,12 +74,16 @@ export type Error =
 
 export interface Interface {
   readonly resolve: (session: SessionSchema.Info) => Effect.Effect<Model, Error>
+  readonly resolveRef: (ref: ModelV2.Ref) => Effect.Effect<Model, Error>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/SessionRunnerModel") {}
 
 /** Test or embedding seam for supplying a model resolver directly. */
-export const layerWith = (resolve: Interface["resolve"]) => Layer.succeed(Service, Service.of({ resolve }))
+export const layerWith = (
+  resolve: Interface["resolve"],
+  resolveRef: Interface["resolveRef"] = () => Effect.die("resolveRef is not available in this layer"),
+) => Layer.succeed(Service, Service.of({ resolve, resolveRef }))
 
 const apiKey = (model: ModelV2.Info, credential?: Credential.Value) => {
   if (credential?.type === "key") return Auth.value(credential.key)
@@ -217,6 +221,20 @@ export const locationLayer = Layer.effect(
         )
         return yield* resolve(
           session,
+          selected,
+          connection ? yield* integrations.connection.resolve(connection) : undefined,
+        )
+      }),
+      resolveRef: Effect.fn("SessionRunnerModel.resolveRef")(function* (ref) {
+        const selected = (yield* catalog.model.available()).find(
+          (model) => model.providerID === ref.providerID && model.id === ref.id,
+        )
+        if (!selected) return yield* new ModelUnavailableError({ providerID: ref.providerID, modelID: ref.id })
+        const provider = yield* catalog.provider.get(selected.providerID)
+        const connection = yield* integrations.connection.active(
+          provider?.integrationID ?? Integration.ID.make(selected.providerID),
+        )
+        return yield* fromCatalogModel(
           selected,
           connection ? yield* integrations.connection.resolve(connection) : undefined,
         )

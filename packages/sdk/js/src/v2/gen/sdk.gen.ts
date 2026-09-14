@@ -111,6 +111,8 @@ import type {
   McpRemoteConfig,
   McpStatusErrors,
   McpStatusResponses,
+  MemoryCreatePayload,
+  MemoryUpdatePayload,
   ModelRef,
   MoveSessionDestination,
   OutputFormat,
@@ -297,6 +299,20 @@ import type {
   V2IntegrationListResponses,
   V2LocationGetErrors,
   V2LocationGetResponses,
+  V2MemoryCreateErrors,
+  V2MemoryCreateResponses,
+  V2MemoryGetErrors,
+  V2MemoryGetResponses,
+  V2MemoryListErrors,
+  V2MemoryListResponses,
+  V2MemoryRemoveErrors,
+  V2MemoryRemoveResponses,
+  V2MemoryUpdateErrors,
+  V2MemoryUpdateResponses,
+  V2MemoryUsedErrors,
+  V2MemoryUsedResponses,
+  V2MemoryVerifyErrors,
+  V2MemoryVerifyResponses,
   V2ModelListErrors,
   V2ModelListResponses,
   V2PermissionRequestListErrors,
@@ -6522,6 +6538,186 @@ export class Command2 extends HeyApiClient {
   }
 }
 
+export class Memory extends HeyApiClient {
+  /**
+   * List memories
+   *
+   * List durable memories for a location, optionally filtered by text, scope, or status.
+   */
+  public list<ThrowOnError extends boolean = false>(
+    parameters?: {
+      location?: {
+        directory?: string
+        workspace?: string
+      }
+      text?: string
+      scope?: "global" | "project" | "agent" | "session"
+      status?: "candidate" | "active" | "stale" | "archived"
+      sessionID?: string
+      agent?: string
+      limit?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "query", key: "location" },
+            { in: "query", key: "text" },
+            { in: "query", key: "scope" },
+            { in: "query", key: "status" },
+            { in: "query", key: "sessionID" },
+            { in: "query", key: "agent" },
+            { in: "query", key: "limit" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).get<V2MemoryListResponses, V2MemoryListErrors, ThrowOnError>({
+      url: "/api/memory",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Create memory
+   *
+   * Create a durable memory, merging it with an equivalent existing memory.
+   */
+  public create<ThrowOnError extends boolean = false>(
+    parameters: {
+      memoryCreatePayload: MemoryCreatePayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ key: "memoryCreatePayload", map: "body" }] }])
+    return (options?.client ?? this.client).post<V2MemoryCreateResponses, V2MemoryCreateErrors, ThrowOnError>({
+      url: "/api/memory",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Remove memory
+   *
+   * Permanently forget a durable memory.
+   */
+  public remove<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).delete<V2MemoryRemoveResponses, V2MemoryRemoveErrors, ThrowOnError>({
+      url: "/api/memory/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Get memory
+   *
+   * Retrieve one durable memory by ID.
+   */
+  public get<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).get<V2MemoryGetResponses, V2MemoryGetErrors, ThrowOnError>({
+      url: "/api/memory/{id}",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * Update memory
+   *
+   * Edit a memory's content, metadata, or status.
+   */
+  public update<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+      memoryUpdatePayload: MemoryUpdatePayload
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "id" },
+            { key: "memoryUpdatePayload", map: "body" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).patch<V2MemoryUpdateResponses, V2MemoryUpdateErrors, ThrowOnError>({
+      url: "/api/memory/{id}",
+      ...options,
+      ...params,
+      headers: {
+        "Content-Type": "application/json",
+        ...options?.headers,
+        ...params.headers,
+      },
+    })
+  }
+
+  /**
+   * Verify memory
+   *
+   * Re-check the file, command, and URL anchors referenced by a memory.
+   */
+  public verify<ThrowOnError extends boolean = false>(
+    parameters: {
+      id: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "id" }] }])
+    return (options?.client ?? this.client).post<V2MemoryVerifyResponses, V2MemoryVerifyErrors, ThrowOnError>({
+      url: "/api/memory/{id}/verify",
+      ...options,
+      ...params,
+    })
+  }
+
+  /**
+   * List memories used in a session
+   *
+   * List the memories retrieved for a session, for the context inspector.
+   */
+  public used<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams([parameters], [{ args: [{ in: "path", key: "sessionID" }] }])
+    return (options?.client ?? this.client).get<V2MemoryUsedResponses, V2MemoryUsedErrors, ThrowOnError>({
+      url: "/api/memory/session/{sessionID}",
+      ...options,
+      ...params,
+    })
+  }
+}
+
 export class Skill extends HeyApiClient {
   /**
    * List skills
@@ -7041,6 +7237,11 @@ export class V2 extends HeyApiClient {
   private _command?: Command2
   get command(): Command2 {
     return (this._command ??= new Command2({ client: this.client }))
+  }
+
+  private _memory?: Memory
+  get memory(): Memory {
+    return (this._memory ??= new Memory({ client: this.client }))
   }
 
   private _skill?: Skill

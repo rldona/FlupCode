@@ -233,6 +233,44 @@ const modelSwitchedMessage = {
   model: { id: "claude", providerID: "anthropic" },
 }
 
+test("memories.list decodes the location envelope", async () => {
+  const httpClient = HttpClient.make((request) =>
+    Effect.succeed(
+      HttpClientResponse.fromWeb(
+        request,
+        Response.json({
+          location: { directory: "/project", project: { id: "prj_test", directory: "/project" } },
+          data: [
+            {
+              id: "mem_test",
+              scope: "project",
+              scopeID: "prj_test",
+              kind: "procedure",
+              title: "Deploy",
+              content: "Production deploy uses ./scripts/release.sh",
+              tags: ["deploy"],
+              source: "agent_discovery",
+              status: "active",
+              confidence: 0.8,
+              importance: 3,
+              createdBy: "extractor",
+              timeCreated: 1_717_171_717_000,
+              timeUpdated: 1_717_171_717_000,
+              useCount: 0,
+            },
+          ],
+        }),
+      ),
+    ),
+  )
+  const result = await Effect.gen(function* () {
+    const client = yield* OpenCode.make({ baseUrl: "http://localhost:3000" })
+    return yield* client.memories.list({ scope: "project" })
+  }).pipe(Effect.provideService(HttpClient.HttpClient, httpClient), Effect.runPromise)
+
+  expect(result.data[0]?.title).toBe("Deploy")
+  expect(DateTime.toEpochMillis(result.data[0]!.timeCreated)).toBe(1_717_171_717_000)
+})
 const modelSwitchedEvent = {
   id: "evt_model",
   type: "session.next.model.switched",

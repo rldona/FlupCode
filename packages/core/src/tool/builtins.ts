@@ -7,6 +7,7 @@ import { ApplyPatchTool } from "./apply-patch"
 import { EditTool } from "./edit"
 import { GlobTool } from "./glob"
 import { GrepTool } from "./grep"
+import { MemoryTool } from "./memory"
 import { PlanExitTool } from "./plan-exit"
 import { QuestionTool } from "./question"
 import { ReadTool } from "./read"
@@ -38,6 +39,7 @@ export const node = makeLocationNode({
     EditTool.node,
     GlobTool.node,
     GrepTool.node,
+    MemoryTool.node,
     PlanExitTool.node,
     QuestionTool.node,
     ReadTool.node,
