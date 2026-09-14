@@ -13,6 +13,7 @@ import {
 import { createResource } from "../resource"
 import type { FileDiffInfo, SessionInfo } from "../engine-types"
 import { createClient } from "../client"
+import { browser } from "../browser"
 import { t } from "../i18n"
 import { parsePatch } from "../highlight"
 import { cssPx } from "../text-size"
@@ -70,6 +71,13 @@ const BrowserPanel: Component = () => {
     setPosition(position() + offset)
     setInput(url())
   }
+
+  // A local preview linked from the transcript navigates this panel (see browser.ts).
+  createEffect(
+    on(browser.request, (pending) => {
+      if (pending) open(pending.url)
+    }),
+  )
 
   // A no-cors request resolves once the server answers and rejects on connection refused, which is
   // enough to tell a running dev server apart from a closed port.
