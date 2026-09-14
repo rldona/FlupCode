@@ -2489,6 +2489,10 @@ export const App: Component = () => {
                 }}
                 onSend={send}
                 onCommandPick={(name) => setPrompt(`/${name} `)}
+                onCommandRun={(name) => {
+                  setPrompt(`/${name} `)
+                  send()
+                }}
                 onOpenModelPicker={() => setModelPickerOpen(true)}
                 onVariantChange={changeVariant}
                 onAttach={addAttachments}

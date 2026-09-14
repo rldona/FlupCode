@@ -439,3 +439,26 @@ test("the slash command menu closes with Escape or a click outside, and opens ag
   await menu.getByText("/settings").click()
   await expect(input).toHaveValue("/settings ")
 })
+
+test("the slash menu walks with the arrow keys and Enter runs the chosen command", async ({ page }) => {
+  await page.goto("/")
+  const input = page.locator(".fc-composer textarea.fc-input")
+  const menu = page.locator(".fc-command-menu")
+  const activeName = menu.locator(".fc-command-item-active .fc-command-name")
+
+  await input.fill("/s")
+  await expect(menu).toBeVisible()
+  // The first match starts highlighted; the arrows move it around the list.
+  await expect(activeName).toHaveText("/steps")
+  await input.press("ArrowDown")
+  await expect(activeName).toHaveText("/stash")
+  await input.press("ArrowUp")
+  await expect(activeName).toHaveText("/steps")
+
+  // Enter runs the highlighted command instead of sending the half-typed text.
+  await input.fill("/sett")
+  await expect(activeName).toHaveText("/settings")
+  await input.press("Enter")
+  await expect(menu).toHaveCount(0)
+  await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
+})
