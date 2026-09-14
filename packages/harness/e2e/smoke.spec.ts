@@ -245,6 +245,55 @@ test("split view opens a second session from the sidebar menu and closes back to
   await expect(page.locator(".fc-session-row-active")).toContainText("First session")
 })
 
+test("a long session shows its newest messages past the engine's first page", async ({ page }) => {
+  const now = Date.now()
+  const messages = Array.from({ length: 250 }, (_, index) => ({
+    id: `msg_${String(index).padStart(3, "0")}`,
+    type: "user",
+    text: `Message ${index}`,
+    time: { created: now + index },
+  }))
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_long"))
+  })
+  // The engine pages messages: at most `limit`, then the rest through `cursor`.
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "ses_long",
+              projectID: "p",
+              title: "Long session",
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now, updated: now },
+              location: { directory: "/work/demo" },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (url.pathname === "/api/session/ses_long/message") {
+      const start = url.searchParams.has("cursor") ? Number(url.searchParams.get("cursor")) : 0
+      const limit = Number(url.searchParams.get("limit") ?? 50)
+      return route.fulfill({
+        json: { data: messages.slice(start, start + limit), cursor: { next: String(start + limit) } },
+      })
+    }
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await expect(page.getByText("Message 249", { exact: true })).toBeVisible()
+})
+
 test("double-clicking a sidebar edge restores its original width", async ({ page }) => {
   await page.goto("/")
   const sidebar = page.locator(".fc-sidebar")
