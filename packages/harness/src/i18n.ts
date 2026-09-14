@@ -379,6 +379,8 @@ const ES: Record<string, string> = {
   // Toasts
   "Session created": "Sesión creada",
   "Message sent": "Mensaje enviado",
+  Queued: "En cola",
+  "Send now": "Enviar ya",
   "Session forked": "Sesión bifurcada",
   "Session compacted": "Sesión compactada",
   "Session renamed": "Sesión renombrada",

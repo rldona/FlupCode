@@ -16,6 +16,7 @@ import {
 } from "./reply-suggestion"
 import { promptHistory, recordPrompt } from "./prompt-history"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
+import { messageID } from "./ids"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
@@ -56,6 +57,16 @@ import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
 
 type Client = ReturnType<typeof createClient>
+
+/** A prompt shown in the transcript before the engine projects its message. `queued` marks the ones
+ *  sent while a turn was already running, so they can offer "Send now". */
+type PendingPrompt = {
+  id: string
+  sessionID: string
+  text: string
+  files: Attachment[]
+  queued: boolean
+}
 
 const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "new", descriptionKey: "New session…" },
@@ -171,6 +182,7 @@ export const App: Component = () => {
   const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
   const [favorites, setFavorites] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.favoriteModels, []))
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
+  const [pendingPrompts, setPendingPrompts] = createSignal<PendingPrompt[]>([])
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   const [showTools, setShowTools] = createSignal(true)
@@ -624,6 +636,57 @@ export const App: Component = () => {
     for (const [token, full] of pastes) result = result.split(token).join(full)
     return result
   }
+
+  // Prompts shown before the engine projects their message, reconciled by id once it does. The ones
+  // sent while a turn was already running offer "Send now".
+  const pendingForSession = () => {
+    const sessionID = selected()
+    if (!sessionID) return []
+    const messages = activeMessages() ?? []
+    return pendingPrompts().flatMap((entry) => {
+      if (entry.sessionID !== sessionID || messages.some((message) => message.id === entry.id)) return []
+      return [
+        {
+          id: entry.id,
+          text: entry.text,
+          queued: entry.queued,
+          sendNow: entry.queued ? () => sendNow(entry) : undefined,
+        },
+      ]
+    })
+  }
+
+  const dispatchPrompt = (entry: PendingPrompt) => {
+    void createClient(serverUrl())
+      .session.prompt({
+        sessionID: entry.sessionID,
+        id: entry.id,
+        text: expandPastes(entry.text),
+        ...(entry.files.length > 0 ? { files: entry.files.map(({ uri, name }) => ({ uri, name })) } : {}),
+        delivery: "steer",
+      })
+      .then(() => refetchSessions())
+      .catch((cause) => {
+        setPendingPrompts((list) => list.filter((item) => item.id !== entry.id))
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+      })
+  }
+
+  // Interrupting ends the running turn; re-sending the same prompt id reconciles the already
+  // admitted input and wakes the run so it starts as soon as the turn stops.
+  const sendNow = (entry: PendingPrompt) => {
+    setPendingPrompts((list) => list.map((item) => (item.id === entry.id ? { ...item, queued: false } : item)))
+    void createClient(serverUrl())
+      .session.interrupt({ sessionID: entry.sessionID })
+      .catch(() => undefined)
+      .then(() => dispatchPrompt(entry))
+  }
+
+  // Once a real message replaces its optimistic prompt, forget it so the list cannot grow.
+  createEffect(() => {
+    const ids = new Set((activeMessages() ?? []).map((message) => message.id))
+    setPendingPrompts((list) => (list.some((entry) => ids.has(entry.id)) ? list.filter((entry) => !ids.has(entry.id)) : list))
+  })
 
   const searchFiles = async (query: string) => {
     const response = await createClient(serverUrl()).file.find({ query, limit: 8 })
@@ -2047,6 +2110,8 @@ export const App: Component = () => {
       return
     }
 
+    const queued = generating()
+    const id = messageID()
     void run(async (current) => {
       const model = selectedModel()
       const location = targetDirectory()
@@ -2070,14 +2135,22 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
       })
       forgetRun(sessionID)
-      await current.session.prompt({
-        sessionID,
-        text: expandPastes(text),
-        ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-      })
+      setPendingPrompts((list) => [...list, { id, sessionID, text, files, queued }])
       setStreamedChars(0)
       setPrompt("")
       setAttachments([])
+      try {
+        await current.session.prompt({
+          sessionID,
+          id,
+          text: expandPastes(text),
+          ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
+          delivery: "steer",
+        })
+      } catch (cause) {
+        setPendingPrompts((list) => list.filter((entry) => entry.id !== id))
+        throw cause
+      }
       return sessionID
     }, t("Message sent"))
   }
@@ -2333,6 +2406,7 @@ export const App: Component = () => {
               liveReasoning={liveReasoning()}
               showTools={showTools()}
               chat={chatView()}
+              pending={pendingForSession()}
               onEditUser={editMessage}
             />
           </Show>

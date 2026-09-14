@@ -1551,6 +1551,38 @@ button.fc-row-main {
   background: color-mix(in srgb, var(--fc-border) 35%, transparent);
 }
 
+/* A prompt shown before the engine projects its message. While the current turn still runs it is
+   queued, so it can be forced with "Send now". */
+.fc-message-optimistic {
+  opacity: 0.85;
+}
+
+.fc-message-queue {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc-message-queue-badge {
+  padding: 1px 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-message-send-now {
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fc-accent);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-message-send-now:hover {
+  text-decoration: underline;
+}
+
 .fc-message-pending {
   color: var(--fc-text-muted);
   font-size: 13px;
