@@ -120,15 +120,17 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
                     </button>
                   )}
                 </For>
-                <button
-                  class="fc-option"
-                  classList={{ "fc-option-selected": other[index()] }}
-                  type="button"
-                  onClick={() => toggleOther(index(), question.multiple)}
-                >
-                  <span class="fc-option-label">{t("Other")}</span>
-                  <span class="fc-option-desc">{t("Type your own answer")}</span>
-                </button>
+                <Show when={question.custom !== false}>
+                  <button
+                    class="fc-option"
+                    classList={{ "fc-option-selected": other[index()] }}
+                    type="button"
+                    onClick={() => toggleOther(index(), question.multiple)}
+                  >
+                    <span class="fc-option-label">{t("Other")}</span>
+                    <span class="fc-option-desc">{t("Type your own answer")}</span>
+                  </button>
+                </Show>
               </div>
               <Show when={other[index()]}>
                 <input

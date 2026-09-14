@@ -6,6 +6,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
+import { openImagePreview } from "../image-preview"
 import { toast } from "../toast"
 import { diffLines, escapeHtml, highlight, highlightDiff, sideBySideDiff } from "../highlight"
 import { Loader } from "./Loader"
@@ -43,7 +44,21 @@ const MessageFiles: Component<{ files?: MessageFile[] }> = (props) => (
             when={file.mime?.startsWith("image/") || file.uri.startsWith("data:image/")}
             fallback={<span class="fc-message-file">{file.name ?? file.uri}</span>}
           >
-            <img class="fc-message-image" src={file.uri} alt={file.name ?? t("Attachments")} loading="lazy" />
+            <button
+              class="fc-message-image-button"
+              type="button"
+              aria-label={t("Open image")}
+              onClick={() => openImagePreview({ uri: file.uri, name: file.name })}
+            >
+              <img class="fc-message-image" src={file.uri} alt={file.name ?? t("Attachments")} loading="lazy" />
+              <span class="fc-message-image-zoom" aria-hidden="true">
+                <svg viewBox="0 0 24 24" width="30" height="30">
+                  <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+                  <path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path d="M10.5 7.5v6M7.5 10.5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                </svg>
+              </span>
+            </button>
           </Show>
         )}
       </For>
