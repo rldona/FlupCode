@@ -127,7 +127,9 @@ export class TransportReason extends Schema.Class<TransportReason>("LLM.Error.Tr
   http: Schema.optional(HttpContext),
 }) {
   get retryable() {
-    return false
+    // A connection reset, a DNS hiccup or a timeout can succeed on another attempt. Encoding,
+    // decoding and URL construction are deterministic, so retrying those only wastes time.
+    return this.kind === undefined || this.kind === "Timeout" || this.kind === "TransportError"
   }
 }
 
