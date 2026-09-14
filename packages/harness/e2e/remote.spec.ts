@@ -129,11 +129,11 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
   await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
   await page.goto(link)
 
-  await expect(page.getByRole("button", { name: /Remote: e2e-host/ })).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator(".fc-topbar .fc-status-remote")).toBeVisible({ timeout: 15_000 })
   await expect(page).not.toHaveURL(/#remote=/)
   // The remote pill replaces the engine's "Connected": one honest indicator opens the panel.
   await expect(page.locator(".fc-topbar .fc-status:not(.fc-status-remote)")).toHaveCount(0)
-  await page.getByRole("button", { name: /Remote: e2e-host/ }).click()
+  await page.locator(".fc-topbar .fc-status-remote").click()
   const panel = page.getByRole("dialog", { name: "Remote control" })
   await expect(panel).toBeVisible()
   await panel.getByRole("button", { name: "Close" }).first().click()
@@ -142,9 +142,9 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
   const hosts = await page.evaluate(() => JSON.parse(localStorage.getItem("flupcode.remoteHosts") ?? "[]"))
   expect(hosts).toMatchObject([{ name: "e2e-host", deviceId: "e2e-device" }])
 
-  await page.getByRole("button", { name: /Remote: e2e-host/ }).click()
+  await page.locator(".fc-topbar .fc-status-remote").click()
   await page.getByRole("button", { name: "Disconnect" }).click()
-  await expect(page.getByRole("button", { name: /Remote: e2e-host/ })).toHaveCount(0)
+  await expect(page.locator(".fc-topbar .fc-status-remote")).toHaveCount(0)
   host.stop()
 })
 
