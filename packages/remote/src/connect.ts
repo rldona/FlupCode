@@ -41,21 +41,49 @@ export class RelayConnectError extends Error {
   }
 }
 
+/** How long a client waits for the relay's `ready` before giving up and retrying. */
+const CONNECT_TIMEOUT = 15_000
+
 /** Opens a client channel to `hostId`. Resolves once the relay reports the host is reachable. */
-export function connectRelayClient(input: { relay: string; hostId: string; createSocket?: SocketFactory }) {
+export function connectRelayClient(input: {
+  relay: string
+  hostId: string
+  createSocket?: SocketFactory
+  /** Override the wait for tests; defaults to {@link CONNECT_TIMEOUT}. */
+  timeout?: number
+}) {
   return new Promise<Wire>((resolve, reject) => {
     const socket = (input.createSocket ?? defaultSocket)(endpoint(input.relay, "client", { host: input.hostId }))
     socket.binaryType = "arraybuffer"
     let wire: Wire | undefined
     let queue = Promise.resolve()
+    let settled = false
+    // A socket that opens but never answers would otherwise leave the caller waiting forever.
+    const timer = setTimeout(() => {
+      if (settled) return
+      settled = true
+      socket.close()
+      reject(new RelayConnectError("Relay connection timed out", 0))
+    }, input.timeout ?? CONNECT_TIMEOUT)
+    const succeed = (next: Wire) => {
+      settled = true
+      clearTimeout(timer)
+      resolve(next)
+    }
+    const fail = (error: RelayConnectError) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      reject(error)
+    }
     socket.onmessage = (event) => {
       if (typeof event.data === "string") {
-        if (wire || decodeRelayMessage(event.data)?.t !== "ready") return
+        if (wire || settled || decodeRelayMessage(event.data)?.t !== "ready") return
         wire = new Wire(
           (data) => socket.send(data),
           (code, reason) => socket.close(socketCloseCode(code), reason),
         )
-        return resolve(wire)
+        return succeed(wire)
       }
       const current = wire
       if (!current) return
@@ -63,7 +91,7 @@ export function connectRelayClient(input: { relay: string; hostId: string; creat
     }
     socket.onclose = (event) => {
       if (wire) return void queue.then(() => wire?.end())
-      reject(new RelayConnectError(event.reason || "Relay connection closed", event.code))
+      fail(new RelayConnectError(event.reason || "Relay connection closed", event.code))
     }
     socket.onerror = () => undefined
   })
@@ -102,12 +130,26 @@ export function startRelayHost(input: {
     channels.clear()
   }
 
+  const retry = (reason?: string) => {
+    if (stopped) return input.onStatus?.("offline")
+    const delay = Math.min(30_000, 1000 * 2 ** attempt++) * (0.75 + Math.random() * 0.5)
+    input.onStatus?.("connecting", reason)
+    timer = setTimeout(() => void connect(), delay)
+  }
+
   const connect = async () => {
     if (stopped) return
     input.onStatus?.("connecting")
-    const identity = await loaded
-    if (stopped) return
-    const current = (input.createSocket ?? defaultSocket)(endpoint(input.relay, "host", { id: identity.hostId }))
+    let current: WebSocket
+    let identity: Awaited<typeof loaded>
+    try {
+      identity = await loaded
+      if (stopped) return
+      current = (input.createSocket ?? defaultSocket)(endpoint(input.relay, "host", { id: identity.hostId }))
+    } catch (error) {
+      // A bad relay URL or an unavailable WebSocket must retry, not stall the host offline forever.
+      return retry(error instanceof Error ? error.message : "Relay connection failed")
+    }
     socket = current
     current.binaryType = "arraybuffer"
     let queue = Promise.resolve()
@@ -163,9 +205,7 @@ export function startRelayHost(input: {
         stopped = true
         return input.onStatus?.("offline", "This host connected to the relay from another place")
       }
-      const delay = Math.min(30_000, 1000 * 2 ** attempt++) * (0.75 + Math.random() * 0.5)
-      input.onStatus?.("connecting", event.reason || `Relay closed (${event.code})`)
-      timer = setTimeout(() => void connect(), delay)
+      retry(event.reason || `Relay closed (${event.code})`)
     }
     current.onerror = () => undefined
   }

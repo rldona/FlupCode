@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type Component } from "solid-js"
+import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
 import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } from "./engine-types"
 import type { SessionMessageAssistant } from "./engine-types"
@@ -180,6 +181,24 @@ export const App: Component = () => {
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
   const [remoteOpen, setRemoteOpen] = createSignal(false)
+  // The desktop app hosts remote control; tracking its bridge keeps the top bar honest about the
+  // relay connection instead of showing the local engine's "Connected".
+  const [hostRemote, setHostRemote] = createSignal<RemoteHostState>()
+  createEffect(() => {
+    const bridge = desktopRemote()
+    if (!bridge) return
+    void bridge.state().then(setHostRemote)
+    onCleanup(bridge.onChange(setHostRemote))
+  })
+  const hostRemotePill = () => {
+    const state = hostRemote()
+    if (!desktopRemote() || !state) return undefined
+    return {
+      name: state.hostName,
+      connected: state.enabled && state.connection === "online",
+      onOpen: () => setRemoteOpen(true),
+    }
+  }
   const [providersOpen, setProvidersOpen] = createSignal(false)
   const [folderOpen, setFolderOpen] = createSignal(false)
   const [artifactsOpen, setArtifactsOpen] = createSignal(false)
@@ -2248,6 +2267,8 @@ export const App: Component = () => {
                   }
                 : undefined
             }
+            hostRemote={hostRemotePill()}
+            onConnection={() => setRemoteOpen(true)}
             sessionTitle={
               <Show when={!splitActive() && selectedSession()}>{(session) => <SessionTitle session={session()} />}</Show>
             }
