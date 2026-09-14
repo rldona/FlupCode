@@ -2860,6 +2860,159 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+.fc-memory-badge {
+  margin-left: 8px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--fc-accent, #6d5efc);
+  color: #fff;
+  font-size: var(--fc-text-xs);
+  font-weight: 500;
+}
+
+.fc-memory-filters {
+  display: flex;
+  gap: 8px;
+  margin: 12px 0;
+}
+
+.fc-memory-search {
+  flex: 1;
+}
+
+.fc-memory-select {
+  min-width: 130px;
+}
+
+.fc-memory-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-subtle, transparent);
+}
+
+.fc-memory-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fc-memory-textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+}
+
+.fc-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 60vh;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-memory-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-memory-row-editing {
+  border-color: var(--fc-accent, #6d5efc);
+}
+
+.fc-memory-row-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc-memory-title {
+  flex: 1;
+  font-weight: 600;
+}
+
+.fc-memory-content {
+  margin: 0;
+  color: var(--fc-text);
+  white-space: pre-wrap;
+}
+
+.fc-memory-scope,
+.fc-memory-status {
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--fc-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fc-memory-scope {
+  background: var(--fc-bg-subtle, rgba(127, 127, 127, 0.15));
+  color: var(--fc-text-muted);
+}
+
+.fc-memory-status-active {
+  background: rgba(46, 160, 67, 0.15);
+  color: #2ea043;
+}
+
+.fc-memory-status-candidate {
+  background: rgba(210, 153, 34, 0.18);
+  color: #b7791f;
+}
+
+.fc-memory-status-stale,
+.fc-memory-status-archived {
+  background: rgba(207, 34, 46, 0.15);
+  color: #cf222e;
+}
+
+.fc-memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-memory-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fc-aside-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-aside-memory-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc-aside-memory-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fc-config-editor {
   width: 100%;
   min-height: 320px;

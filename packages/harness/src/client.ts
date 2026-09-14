@@ -1,4 +1,4 @@
-import type { ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
+import type { MemoryInfo, ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import type {
   AssistantMessage,
   Message,
@@ -50,9 +50,9 @@ async function* subscribeEvents(baseUrl: string, signal?: AbortSignal, path = "/
         try {
           const event = JSON.parse(data) as { type?: string; data?: unknown; properties?: unknown }
           // Folder streams use the legacy shape, with the payload under `properties`.
-          yield (event.data === undefined && event.properties !== undefined
-            ? { ...event, data: event.properties }
-            : event) as { type?: string }
+          yield (
+            event.data === undefined && event.properties !== undefined ? { ...event, data: event.properties } : event
+          ) as { type?: string }
         } catch {
           // ignore malformed frames
         }
@@ -456,6 +456,69 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     skill: {
       list: (input?: LocationInput) => unwrap(client.v2.skill.list(input)),
+    },
+    memory: {
+      list: (input?: {
+        location?: { directory?: string }
+        text?: string
+        scope?: MemoryInfo["scope"]
+        status?: MemoryInfo["status"]
+        sessionID?: string
+        agent?: string
+        limit?: number
+      }) =>
+        unwrap(
+          client.v2.memory.list({
+            ...(input?.location ? { location: input.location } : {}),
+            ...(input?.text ? { text: input.text } : {}),
+            ...(input?.scope ? { scope: input.scope } : {}),
+            ...(input?.status ? { status: input.status } : {}),
+            ...(input?.sessionID ? { sessionID: input.sessionID } : {}),
+            ...(input?.agent ? { agent: input.agent } : {}),
+            ...(input?.limit !== undefined ? { limit: String(input.limit) } : {}),
+          }),
+        ),
+      get: (input: { id: string }) => unwrap(client.v2.memory.get({ id: input.id })),
+      create: (input: {
+        scope?: MemoryInfo["scope"]
+        kind?: MemoryInfo["kind"]
+        title: string
+        content: string
+        tags?: string[]
+        status?: MemoryInfo["status"]
+        confidence?: number
+        importance?: number
+        source?: MemoryInfo["source"]
+        sessionID?: string
+        agent?: string
+      }) => unwrap(client.v2.memory.create({ memoryCreatePayload: input })),
+      update: (input: {
+        id: string
+        title?: string
+        content?: string
+        kind?: MemoryInfo["kind"]
+        tags?: string[]
+        status?: MemoryInfo["status"]
+        confidence?: number
+        importance?: number
+      }) =>
+        unwrap(
+          client.v2.memory.update({
+            id: input.id,
+            memoryUpdatePayload: {
+              ...(input.title !== undefined ? { title: input.title } : {}),
+              ...(input.content !== undefined ? { content: input.content } : {}),
+              ...(input.kind !== undefined ? { kind: input.kind } : {}),
+              ...(input.tags !== undefined ? { tags: input.tags } : {}),
+              ...(input.status !== undefined ? { status: input.status } : {}),
+              ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+              ...(input.importance !== undefined ? { importance: input.importance } : {}),
+            },
+          }),
+        ),
+      remove: (input: { id: string }) => unwrap(client.v2.memory.remove({ id: input.id })),
+      verify: (input: { id: string }) => unwrap(client.v2.memory.verify({ id: input.id })),
+      used: (input: { sessionID: string }) => unwrap(client.v2.memory.used({ sessionID: input.sessionID })),
     },
     file: {
       find: (input: { query: string; limit?: number }) =>
