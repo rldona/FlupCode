@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import type { SessionInfo } from "./engine-types"
-import { computeMetrics, filterByRange, formatTokens, activityByDay } from "./metrics"
+import type { ModelInfo, SessionInfo, SessionMessageInfo } from "./engine-types"
+import { computeMetrics, filterByRange, formatTokens, activityByDay, sessionCost, stepCost } from "./metrics"
 
 const DAY = 86_400_000
 
@@ -74,5 +74,47 @@ describe("activityByDay", () => {
     const days = activityByDay([session(now)], 7)
     expect(days).toHaveLength(7)
     expect(days.at(-1)?.count).toBe(1)
+  })
+})
+
+describe("sessionCost", () => {
+  const prices = [
+    { input: 1, output: 4, cache: { read: 0.1, write: 2 } },
+    { tier: { type: "context" as const, size: 3_000_000 }, input: 2, output: 8, cache: { read: 0.2, write: 4 } },
+  ]
+  const models = [{ providerID: "p", id: "m", cost: prices }] as unknown as ModelInfo[]
+  const step = (tokens: { input: number; output: number; reasoning: number; read: number }, cost = 0) =>
+    ({
+      type: "assistant",
+      model: { providerID: "p", id: "m" },
+      cost,
+      tokens: {
+        input: tokens.input,
+        output: tokens.output,
+        reasoning: tokens.reasoning,
+        cache: { read: tokens.read, write: 0 },
+      },
+    }) as unknown as SessionMessageInfo
+
+  test("prices reasoning at the output rate and cache reads at their own", () => {
+    expect(
+      stepCost({ input: 1_000_000, output: 500_000, reasoning: 500_000, cache: { read: 1_000_000, write: 0 } }, prices),
+    ).toBeCloseTo(1 + 4 + 0.1)
+  })
+
+  test("uses the largest context tier a step went over", () => {
+    expect(
+      stepCost({ input: 2_000_000, output: 0, reasoning: 0, cache: { read: 2_000_000, write: 0 } }, prices),
+    ).toBeCloseTo(4 + 0.4)
+  })
+
+  test("adds priced v2 steps to the legacy total and keeps a cost the engine recorded", () => {
+    const legacy = { ...session(Date.now()), cost: 0.5 }
+    const messages = [
+      { type: "user" } as unknown as SessionMessageInfo,
+      step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }),
+      step({ input: 1_000_000, output: 0, reasoning: 0, read: 0 }, 0.25),
+    ]
+    expect(sessionCost(legacy, messages, models)).toBeCloseTo(0.5 + 1 + 0.25)
   })
 })
