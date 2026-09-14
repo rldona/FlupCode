@@ -23,6 +23,10 @@ type TopbarProps = {
   sessionActions?: JSX.Element
   /** Set when this device is controlling a remote computer. */
   remote?: { name: string; connected: boolean; onOpen: () => void }
+  /** Set when this app is the computer hosting remote control. */
+  hostRemote?: { name: string; connected: boolean; onOpen: () => void }
+  /** Makes the engine status pill open the Remote control panel. */
+  onConnection?: () => void
 }
 
 /** Top bar icons share one size and stroke so every button reads the same. */
@@ -165,28 +169,52 @@ export const Topbar: Component<TopbarProps> = (props) => {
             <path d="m20 20-4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
           </svg>
         </button>
-        <Show when={props.remote}>
-          {(remote) => (
+        <Show when={props.remote ?? props.hostRemote}>
+          {(pill) => (
             <button
               class="fc-status fc-status-remote"
-              classList={{ "fc-status-on": remote().connected, "fc-status-off": !remote().connected }}
+              classList={{ "fc-status-on": pill().connected, "fc-status-off": !pill().connected }}
               type="button"
               title={t("Remote control")}
-              onClick={remote().onOpen}
+              onClick={pill().onOpen}
             >
-              {t("Remote: {name}", { name: remote().name })}
+              {t("Remote: {name}", { name: pill().name })}
             </button>
           )}
         </Show>
-        <span
-          class="fc-status"
-          classList={{
-            "fc-status-on": props.healthHealthy === true,
-            "fc-status-off": props.healthError,
-          }}
-        >
-          {status()}
-        </span>
+        {/* The host's remote pill replaces the engine pill: "Connected" there is the local engine,
+            not the remote control connection the reader is watching. */}
+        <Show when={!props.hostRemote}>
+          <Show
+            when={props.onConnection}
+            fallback={
+              <span
+                class="fc-status"
+                classList={{
+                  "fc-status-on": props.healthHealthy === true,
+                  "fc-status-off": props.healthError,
+                }}
+              >
+                {status()}
+              </span>
+            }
+          >
+            {(open) => (
+              <button
+                class="fc-status"
+                classList={{
+                  "fc-status-on": props.healthHealthy === true,
+                  "fc-status-off": props.healthError,
+                }}
+                type="button"
+                title={t("Remote control")}
+                onClick={open()}
+              >
+                {status()}
+              </button>
+            )}
+          </Show>
+        </Show>
         <Show when={props.contextPanel}>
           {(panel) => (
             <button

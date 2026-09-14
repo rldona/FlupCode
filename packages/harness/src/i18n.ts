@@ -449,6 +449,7 @@ const ES: Record<string, string> = {
     "El control remoto necesita HTTPS. Abre FlupCode desde su dirección segura.",
   "The computer is offline or remote control is turned off.":
     "El ordenador está desconectado o tiene el control remoto desactivado.",
+  "Computer offline": "Ordenador desconectado",
   "This device was removed on the computer. Pair it again.":
     "Este dispositivo se eliminó en el ordenador. Vuelve a emparejarlo.",
   "The pairing code expired or was already used. Create a new one on the computer.":
