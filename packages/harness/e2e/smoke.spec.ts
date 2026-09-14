@@ -317,6 +317,85 @@ test("a long session shows its newest messages past the engine's first page", as
   await expect(page.getByText("Message 249", { exact: true })).toBeVisible()
 })
 
+test("the stop button stays while a run goes on between its steps", async ({ page }) => {
+  const now = Date.now()
+  let active = true
+  let streams = 0
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_run"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "ses_run",
+              projectID: "p",
+              title: "Running session",
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now, updated: now },
+              location: { directory: "/work/demo" },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (url.pathname === "/api/session/active")
+      return route.fulfill({ json: { data: active ? { ses_run: { type: "running" } } : {} } })
+    // One step has ended and the next has not started: the transcript alone looks finished.
+    if (url.pathname === "/api/session/ses_run/message")
+      return route.fulfill({
+        json: {
+          data: [
+            { id: "msg_1", type: "user", text: "Fix it", time: { created: now } },
+            {
+              id: "msg_2",
+              type: "assistant",
+              agent: "build",
+              model: { providerID: "p", id: "m" },
+              content: [{ type: "text", text: "Reading the files" }],
+              finish: "tool-calls",
+              time: { created: now + 1, completed: now + 2 },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (url.pathname === "/api/event") {
+      const events =
+        streams++ === 0
+          ? [
+              { type: "session.next.step.started", data: { sessionID: "ses_run" } },
+              { type: "session.next.step.ended", data: { sessionID: "ses_run", finish: "tool-calls" } },
+            ]
+          : []
+      return route.fulfill({
+        headers: { "content-type": "text/event-stream" },
+        body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      })
+    }
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  const stop = page.getByRole("button", { name: "Stop" })
+  await expect(page.getByText("Reading the files")).toBeVisible()
+  await expect(stop).toBeVisible()
+  await page.waitForTimeout(3500)
+  await expect(stop).toBeVisible()
+
+  // The engine finished the run.
+  active = false
+  await expect(page.getByRole("button", { name: "Send" })).toBeVisible({ timeout: 5000 })
+})
+
 test("double-clicking a sidebar edge restores its original width", async ({ page }) => {
   await page.goto("/")
   const sidebar = page.locator(".fc-sidebar")
