@@ -516,3 +516,60 @@ test("a local preview linked from the transcript opens in the browser panel", as
   // The integrated browser opens on the linked URL instead of a new tab.
   await expect(page.locator(".fc-browser-url")).toHaveValue(/localhost:4444/)
 })
+
+test("a prompt keeps its attached image in the transcript", async ({ page }) => {
+  const now = Date.now()
+  // A 1x1 PNG: the transcript must show the attached image above the prompt's text.
+  const image =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_files"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "ses_files",
+              projectID: "p",
+              title: "Files",
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now, updated: now },
+              location: { directory: "/work/demo" },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/(api\/)?session\/ses_files\/message/.test(url.pathname))
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "msg_file",
+              type: "user",
+              text: "¿Lo ves?",
+              files: [{ uri: image, mime: "image/png", name: "captura.png" }],
+              time: { created: now },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/(api\/)?session\/[^/]+\/message/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  const attached = page.locator(".fc-message-image")
+  await expect(attached).toBeVisible()
+  await expect(attached).toHaveAttribute("src", /^data:image\/png;base64,/)
+  await expect(page.getByText("¿Lo ves?")).toBeVisible()
+})
