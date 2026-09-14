@@ -1,8 +1,15 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type Component } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
-import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } from "./engine-types"
-import type { SessionMessageAssistant } from "./engine-types"
+import { createReconciledList } from "./reconciled"
+import type {
+  PermissionV2Request,
+  ProviderDirectoryInfo,
+  QuestionV2Request,
+  SessionMessageAssistant,
+  SessionMessageInfo,
+} from "./engine-types"
 import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
@@ -23,6 +30,7 @@ import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
+import { ImagePreview } from "./image-preview"
 import { toast } from "./toast"
 import { SIDEBAR_WIDTH_DEFAULT, Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
@@ -315,6 +323,13 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.view, kind)
     }
   })
+  // The Build/Plan switch follows the open session's agent. `untrack` keeps the effect from
+  // fighting the optimistic update when the reader picks an agent in the dock.
+  createEffect(() => {
+    const next = selectedSession()?.agent
+    if (!next || next === untrack(agent)) return
+    setAgent(next)
+  })
   const modelLocation = () => targetDirectory() ?? selectedSession()?.location?.directory
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
@@ -450,10 +465,21 @@ export const App: Component = () => {
       return { sessionID: source.sessionID, data: result.data, cursor: result.cursor }
     },
   )
-  const activeMessages = () => {
+  // Resources hand back fresh objects on every refetch while a run streams. These stores merge the
+  // new payloads by id so the transcript, the tool groups and the question dock keep their mounted
+  // state (an opened tool, a half-typed "Other" answer) instead of being rebuilt under the reader.
+  const [messageData, setMessageData] = createStore<{ sessionID?: string; data: SessionMessageInfo[] }>({ data: [] })
+  const permissionData = createReconciledList<PermissionV2Request>(() => permissions()?.data)
+  const questionData = createReconciledList<QuestionV2Request>(() => questions()?.data)
+
+  createEffect(() => {
     const value = messages()
-    if (!value || value.sessionID !== selected()) return undefined
-    return value.data
+    setMessageData(reconcile({ sessionID: value?.sessionID, data: value?.data ?? [] }, { key: "id" }))
+  })
+
+  const activeMessages = () => {
+    if (messageData.sessionID !== selected()) return undefined
+    return messageData.data
   }
   const messagesLoading = () => messages.loading || (selected() !== undefined && messages()?.sessionID !== selected())
   const generating = () => {
@@ -486,7 +512,7 @@ export const App: Component = () => {
       return
     }
     if (!last || last.type !== "assistant" || last.id === suggestedFor) return
-    if ((permissions()?.data?.length ?? 0) > 0 || (questions()?.data?.length ?? 0) > 0) return
+    if (permissionData.length > 0 || questionData.length > 0) return
     let userIndex = list.length - 1
     while (userIndex >= 0 && list[userIndex]?.type !== "user") userIndex--
     const userText = ((list[userIndex] as { text?: string } | undefined)?.text ?? "").trim()
@@ -828,8 +854,19 @@ export const App: Component = () => {
                 )
               }
               const changed = event as {
-                data?: { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
+                data?: {
+                  sessionID?: string
+                  agent?: string
+                  info?: { sessionID?: string }
+                  part?: { sessionID?: string }
+                }
               }
+              // An agent switch from the engine (the Plan agent's plan_exit) moves the dock at once.
+              const switchedAgent =
+                type.startsWith("session.next.agent.switched") && changed.data?.sessionID === selected()
+                  ? changed.data?.agent
+                  : undefined
+              if (switchedAgent) setAgent(switchedAgent)
               publishSessionEvent({
                 kind: "changed",
                 sessionID: changed.data?.sessionID ?? changed.data?.info?.sessionID ?? changed.data?.part?.sessionID,
@@ -2435,12 +2472,12 @@ export const App: Component = () => {
           </Show>
           <Show when={!mobileRemote() || mobileScreen() === "session"}>
             <div class="fc-docks">
-              <For each={permissions()?.data ?? []}>
+              <For each={permissionData}>
                 {(request) => (
                   <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
                 )}
               </For>
-              <For each={questions()?.data ?? []}>
+              <For each={questionData}>
                 {(request) => (
                   <QuestionDock
                     request={request}
@@ -2752,6 +2789,7 @@ export const App: Component = () => {
           setSettingsOpen(true)
         }}
       />
+      <ImagePreview />
     </div>
   )
 }
