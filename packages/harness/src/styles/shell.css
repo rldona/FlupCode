@@ -485,12 +485,18 @@ button.fc-row-main {
   align-items: center;
   height: 24px;
   padding: 0 10px;
+  border: none;
   border-radius: var(--fc-radius-pill);
   font-size: var(--fc-text-xs);
   font-weight: 500;
   background: color-mix(in srgb, var(--fc-border) 50%, transparent);
   color: var(--fc-text-muted);
   white-space: nowrap;
+}
+
+/* Status pills that open a panel are buttons; keep them flat like the desktop host pill. */
+button.fc-status {
+  cursor: pointer;
 }
 
 .fc-status-on {
@@ -3957,7 +3963,6 @@ button.fc-row-main {
 }
 
 .fc-status-remote {
-  border: none;
   cursor: pointer;
   max-width: 180px;
   overflow: hidden;
