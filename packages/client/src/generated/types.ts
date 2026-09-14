@@ -82,6 +82,14 @@ export type PermissionNotFoundError = {
 export const isPermissionNotFoundError = (value: unknown): value is PermissionNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PermissionNotFoundError"
 
+export type MemoryNotFoundError = {
+  readonly _tag: "MemoryNotFoundError"
+  readonly memoryID: string
+  readonly message: string
+}
+export const isMemoryNotFoundError = (value: unknown): value is MemoryNotFoundError =>
+  typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "MemoryNotFoundError"
+
 export type PtyNotFoundError = { readonly _tag: "PtyNotFoundError"; readonly ptyID: string; readonly message: string }
 export const isPtyNotFoundError = (value: unknown): value is PtyNotFoundError =>
   typeof value === "object" && value !== null && "_tag" in value && value["_tag"] === "PtyNotFoundError"
@@ -262,6 +270,11 @@ export type SessionsListOutput = {
         readonly patch: string
       }>
     }
+    readonly permission?: ReadonlyArray<{
+      readonly permission: string
+      readonly pattern: string
+      readonly action: "allow" | "deny" | "ask"
+    }>
   }>
   readonly cursor: { readonly previous?: string | null; readonly next?: string | null }
 }
@@ -324,6 +337,11 @@ export type SessionsCreateOutput = {
         readonly patch: string
       }>
     }
+    readonly permission?: ReadonlyArray<{
+      readonly permission: string
+      readonly pattern: string
+      readonly action: "allow" | "deny" | "ask"
+    }>
   }
 }["data"]
 
@@ -362,6 +380,11 @@ export type SessionsGetOutput = {
         readonly patch: string
       }>
     }
+    readonly permission?: ReadonlyArray<{
+      readonly permission: string
+      readonly pattern: string
+      readonly action: "allow" | "deny" | "ask"
+    }>
   }
 }["data"]
 
@@ -2514,6 +2537,940 @@ export type CommandsListOutput = {
     readonly agent?: string
     readonly model?: { readonly id: string; readonly providerID: string; readonly variant?: string }
     readonly subtask?: boolean
+  }>
+}
+
+export type MemoriesListInput = {
+  readonly location?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["location"]
+  readonly text?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["text"]
+  readonly scope?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["scope"]
+  readonly status?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["status"]
+  readonly sessionID?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["sessionID"]
+  readonly agent?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["agent"]
+  readonly limit?: {
+    readonly location?: { readonly directory?: string | undefined; readonly workspace?: string | undefined } | undefined
+    readonly text?: string | undefined
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+    readonly limit?: string | undefined
+  }["limit"]
+}
+
+export type MemoriesListOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly id: string
+    readonly scope: "global" | "project" | "agent" | "session"
+    readonly scopeID: string
+    readonly kind:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+    readonly title: string
+    readonly content: string
+    readonly tags: ReadonlyArray<string>
+    readonly source:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+    readonly sourceRef?: {
+      readonly sessionID?: string
+      readonly messageID?: string
+      readonly toolCallID?: string
+      readonly path?: string
+      readonly url?: string
+    }
+    readonly status: "candidate" | "active" | "stale" | "archived"
+    readonly confidence: number
+    readonly importance: number
+    readonly createdBy: string
+    readonly directory?: string
+    readonly validatedAt?: number
+    readonly validation?: {
+      readonly anchors: ReadonlyArray<{
+        readonly kind: "file" | "directory" | "command" | "url" | "script" | "config"
+        readonly value: string
+        readonly ok: boolean
+        readonly checkedAt?: number
+      }>
+    }
+    readonly supersededBy?: string
+    readonly timeCreated: number
+    readonly timeUpdated: number
+    readonly timeLastUsed?: number
+    readonly useCount: number
+  }>
+}
+
+export type MemoriesGetInput = { readonly id: { readonly id: string }["id"] }
+
+export type MemoriesGetOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly id: string
+    readonly scope: "global" | "project" | "agent" | "session"
+    readonly scopeID: string
+    readonly kind:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+    readonly title: string
+    readonly content: string
+    readonly tags: ReadonlyArray<string>
+    readonly source:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+    readonly sourceRef?: {
+      readonly sessionID?: string
+      readonly messageID?: string
+      readonly toolCallID?: string
+      readonly path?: string
+      readonly url?: string
+    }
+    readonly status: "candidate" | "active" | "stale" | "archived"
+    readonly confidence: number
+    readonly importance: number
+    readonly createdBy: string
+    readonly directory?: string
+    readonly validatedAt?: number
+    readonly validation?: {
+      readonly anchors: ReadonlyArray<{
+        readonly kind: "file" | "directory" | "command" | "url" | "script" | "config"
+        readonly value: string
+        readonly ok: boolean
+        readonly checkedAt?: number
+      }>
+    }
+    readonly supersededBy?: string
+    readonly timeCreated: number
+    readonly timeUpdated: number
+    readonly timeLastUsed?: number
+    readonly useCount: number
+  }
+}
+
+export type MemoriesCreateInput = {
+  readonly scope?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["scope"]
+  readonly kind?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["kind"]
+  readonly title: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["title"]
+  readonly content: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["content"]
+  readonly tags?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["tags"]
+  readonly status?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["status"]
+  readonly confidence?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["confidence"]
+  readonly importance?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["importance"]
+  readonly source?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["source"]
+  readonly sessionID?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["sessionID"]
+  readonly agent?: {
+    readonly scope?: "global" | "project" | "agent" | "session" | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly title: string
+    readonly content: string
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+    readonly source?:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+      | undefined
+    readonly sessionID?: string | undefined
+    readonly agent?: string | undefined
+  }["agent"]
+}
+
+export type MemoriesCreateOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly id: string
+    readonly scope: "global" | "project" | "agent" | "session"
+    readonly scopeID: string
+    readonly kind:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+    readonly title: string
+    readonly content: string
+    readonly tags: ReadonlyArray<string>
+    readonly source:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+    readonly sourceRef?: {
+      readonly sessionID?: string
+      readonly messageID?: string
+      readonly toolCallID?: string
+      readonly path?: string
+      readonly url?: string
+    }
+    readonly status: "candidate" | "active" | "stale" | "archived"
+    readonly confidence: number
+    readonly importance: number
+    readonly createdBy: string
+    readonly directory?: string
+    readonly validatedAt?: number
+    readonly validation?: {
+      readonly anchors: ReadonlyArray<{
+        readonly kind: "file" | "directory" | "command" | "url" | "script" | "config"
+        readonly value: string
+        readonly ok: boolean
+        readonly checkedAt?: number
+      }>
+    }
+    readonly supersededBy?: string
+    readonly timeCreated: number
+    readonly timeUpdated: number
+    readonly timeLastUsed?: number
+    readonly useCount: number
+  }
+}
+
+export type MemoriesUpdateInput = {
+  readonly id: { readonly id: string }["id"]
+  readonly title?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["title"]
+  readonly content?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["content"]
+  readonly kind?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["kind"]
+  readonly tags?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["tags"]
+  readonly status?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["status"]
+  readonly confidence?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["confidence"]
+  readonly importance?: {
+    readonly title?: string | undefined
+    readonly content?: string | undefined
+    readonly kind?:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+      | undefined
+    readonly tags?: ReadonlyArray<string> | undefined
+    readonly status?: "candidate" | "active" | "stale" | "archived" | undefined
+    readonly confidence?: number | undefined
+    readonly importance?: number | undefined
+  }["importance"]
+}
+
+export type MemoriesUpdateOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly id: string
+    readonly scope: "global" | "project" | "agent" | "session"
+    readonly scopeID: string
+    readonly kind:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+    readonly title: string
+    readonly content: string
+    readonly tags: ReadonlyArray<string>
+    readonly source:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+    readonly sourceRef?: {
+      readonly sessionID?: string
+      readonly messageID?: string
+      readonly toolCallID?: string
+      readonly path?: string
+      readonly url?: string
+    }
+    readonly status: "candidate" | "active" | "stale" | "archived"
+    readonly confidence: number
+    readonly importance: number
+    readonly createdBy: string
+    readonly directory?: string
+    readonly validatedAt?: number
+    readonly validation?: {
+      readonly anchors: ReadonlyArray<{
+        readonly kind: "file" | "directory" | "command" | "url" | "script" | "config"
+        readonly value: string
+        readonly ok: boolean
+        readonly checkedAt?: number
+      }>
+    }
+    readonly supersededBy?: string
+    readonly timeCreated: number
+    readonly timeUpdated: number
+    readonly timeLastUsed?: number
+    readonly useCount: number
+  }
+}
+
+export type MemoriesRemoveInput = { readonly id: { readonly id: string }["id"] }
+
+export type MemoriesRemoveOutput = void
+
+export type MemoriesVerifyInput = { readonly id: { readonly id: string }["id"] }
+
+export type MemoriesVerifyOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: {
+    readonly id: string
+    readonly scope: "global" | "project" | "agent" | "session"
+    readonly scopeID: string
+    readonly kind:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+    readonly title: string
+    readonly content: string
+    readonly tags: ReadonlyArray<string>
+    readonly source:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+    readonly sourceRef?: {
+      readonly sessionID?: string
+      readonly messageID?: string
+      readonly toolCallID?: string
+      readonly path?: string
+      readonly url?: string
+    }
+    readonly status: "candidate" | "active" | "stale" | "archived"
+    readonly confidence: number
+    readonly importance: number
+    readonly createdBy: string
+    readonly directory?: string
+    readonly validatedAt?: number
+    readonly validation?: {
+      readonly anchors: ReadonlyArray<{
+        readonly kind: "file" | "directory" | "command" | "url" | "script" | "config"
+        readonly value: string
+        readonly ok: boolean
+        readonly checkedAt?: number
+      }>
+    }
+    readonly supersededBy?: string
+    readonly timeCreated: number
+    readonly timeUpdated: number
+    readonly timeLastUsed?: number
+    readonly useCount: number
+  }
+}
+
+export type MemoriesUsedInput = { readonly sessionID: { readonly sessionID: string }["sessionID"] }
+
+export type MemoriesUsedOutput = {
+  readonly location: {
+    readonly directory: string
+    readonly workspaceID?: string
+    readonly project: { readonly id: string; readonly directory: string }
+  }
+  readonly data: ReadonlyArray<{
+    readonly id: string
+    readonly scope: "global" | "project" | "agent" | "session"
+    readonly scopeID: string
+    readonly kind:
+      | "fact"
+      | "convention"
+      | "procedure"
+      | "preference"
+      | "constraint"
+      | "workflow"
+      | "decision"
+      | "issue"
+      | "solution"
+    readonly title: string
+    readonly content: string
+    readonly tags: ReadonlyArray<string>
+    readonly source:
+      | "explicit_user"
+      | "agent_tool"
+      | "agent_discovery"
+      | "repository_file"
+      | "conversation"
+      | "tool_result"
+      | "manual"
+      | "import"
+    readonly sourceRef?: {
+      readonly sessionID?: string
+      readonly messageID?: string
+      readonly toolCallID?: string
+      readonly path?: string
+      readonly url?: string
+    }
+    readonly status: "candidate" | "active" | "stale" | "archived"
+    readonly confidence: number
+    readonly importance: number
+    readonly createdBy: string
+    readonly directory?: string
+    readonly validatedAt?: number
+    readonly validation?: {
+      readonly anchors: ReadonlyArray<{
+        readonly kind: "file" | "directory" | "command" | "url" | "script" | "config"
+        readonly value: string
+        readonly ok: boolean
+        readonly checkedAt?: number
+      }>
+    }
+    readonly supersededBy?: string
+    readonly timeCreated: number
+    readonly timeUpdated: number
+    readonly timeLastUsed?: number
+    readonly useCount: number
   }>
 }
 

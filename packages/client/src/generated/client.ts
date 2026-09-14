@@ -83,6 +83,20 @@ import type {
   FilesFindOutput,
   CommandsListInput,
   CommandsListOutput,
+  MemoriesListInput,
+  MemoriesListOutput,
+  MemoriesGetInput,
+  MemoriesGetOutput,
+  MemoriesCreateInput,
+  MemoriesCreateOutput,
+  MemoriesUpdateInput,
+  MemoriesUpdateOutput,
+  MemoriesRemoveInput,
+  MemoriesRemoveOutput,
+  MemoriesVerifyInput,
+  MemoriesVerifyOutput,
+  MemoriesUsedInput,
+  MemoriesUsedOutput,
   SkillsListInput,
   SkillsListOutput,
   EventsSubscribeOutput,
@@ -787,6 +801,116 @@ export function make(options: ClientOptions) {
             method: "GET",
             path: `/api/command`,
             query: { location: input?.["location"] },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+    },
+    memories: {
+      list: (input?: MemoriesListInput, requestOptions?: RequestOptions) =>
+        request<MemoriesListOutput>(
+          {
+            method: "GET",
+            path: `/api/memory`,
+            query: {
+              location: input?.["location"],
+              text: input?.["text"],
+              scope: input?.["scope"],
+              status: input?.["status"],
+              sessionID: input?.["sessionID"],
+              agent: input?.["agent"],
+              limit: input?.["limit"],
+            },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      get: (input: MemoriesGetInput, requestOptions?: RequestOptions) =>
+        request<MemoriesGetOutput>(
+          {
+            method: "GET",
+            path: `/api/memory/${encodeURIComponent(input.id)}`,
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      create: (input: MemoriesCreateInput, requestOptions?: RequestOptions) =>
+        request<MemoriesCreateOutput>(
+          {
+            method: "POST",
+            path: `/api/memory`,
+            body: {
+              scope: input["scope"],
+              kind: input["kind"],
+              title: input["title"],
+              content: input["content"],
+              tags: input["tags"],
+              status: input["status"],
+              confidence: input["confidence"],
+              importance: input["importance"],
+              source: input["source"],
+              sessionID: input["sessionID"],
+              agent: input["agent"],
+            },
+            successStatus: 200,
+            declaredStatuses: [401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      update: (input: MemoriesUpdateInput, requestOptions?: RequestOptions) =>
+        request<MemoriesUpdateOutput>(
+          {
+            method: "PATCH",
+            path: `/api/memory/${encodeURIComponent(input.id)}`,
+            body: {
+              title: input["title"],
+              content: input["content"],
+              kind: input["kind"],
+              tags: input["tags"],
+              status: input["status"],
+              confidence: input["confidence"],
+              importance: input["importance"],
+            },
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      remove: (input: MemoriesRemoveInput, requestOptions?: RequestOptions) =>
+        request<MemoriesRemoveOutput>(
+          {
+            method: "DELETE",
+            path: `/api/memory/${encodeURIComponent(input.id)}`,
+            successStatus: 204,
+            declaredStatuses: [401, 400],
+            empty: true,
+          },
+          requestOptions,
+        ),
+      verify: (input: MemoriesVerifyInput, requestOptions?: RequestOptions) =>
+        request<MemoriesVerifyOutput>(
+          {
+            method: "POST",
+            path: `/api/memory/${encodeURIComponent(input.id)}/verify`,
+            successStatus: 200,
+            declaredStatuses: [404, 401, 400],
+            empty: false,
+          },
+          requestOptions,
+        ),
+      used: (input: MemoriesUsedInput, requestOptions?: RequestOptions) =>
+        request<MemoriesUsedOutput>(
+          {
+            method: "GET",
+            path: `/api/memory/session/${encodeURIComponent(input.sessionID)}`,
             successStatus: 200,
             declaredStatuses: [401, 400],
             empty: false,
