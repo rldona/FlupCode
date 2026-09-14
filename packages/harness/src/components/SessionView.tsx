@@ -23,6 +23,8 @@ type SessionViewProps = {
   showTools: boolean
   /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
   chat?: boolean
+  /** Prompts sent before the engine projects their message; queued ones offer "Send now". */
+  pending?: Array<{ id: string; text: string; queued: boolean; sendNow?: () => void }>
   onEditUser: (messageID: string, text: string) => void
 }
 
@@ -749,6 +751,24 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       </Show>
                     </div>
                   </Show>
+                )}
+              </For>
+              <For each={props.pending ?? []}>
+                {(item) => (
+                  <div class="fc-message fc-message-user fc-message-optimistic">
+                    <div class="fc-message-role">{t("You")}</div>
+                    <Markdown class="fc-message-text" text={item.text} />
+                    <Show when={item.queued}>
+                      <div class="fc-message-queue">
+                        <span class="fc-message-queue-badge">{t("Queued")}</span>
+                        <Show when={item.sendNow}>
+                          <button class="fc-message-send-now" type="button" onClick={() => item.sendNow?.()}>
+                            {t("Send now")}
+                          </button>
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
                 )}
               </For>
               <Show when={props.busy && props.liveText}>
