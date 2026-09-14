@@ -84,6 +84,10 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
           </p>
           <section class="fc-settings-section">
             <div class="fc-settings-row">
+              <span>{t("This computer")}</span>
+              <span class="fc-settings-status">{current().hostName}</span>
+            </div>
+            <div class="fc-settings-row">
               <span>{t("Allow remote control")}</span>
               <span class="fc-remote-actions">
                 <span
