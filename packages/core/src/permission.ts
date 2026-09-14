@@ -141,11 +141,14 @@ const layer = Layer.effect(
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionV2.NotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
-      // Session-level rules override the resolved agent's permissions.
+      // The resolved agent is the capability floor: session-level rules decide how an action is
+      // approved, but they never turn an agent's own denial into an approval. Without this, a
+      // session-level `*: allow` (FlupCode's permission modes) would let the Plan agent edit files.
+      const floor = agent?.permissions ?? missingAgentPermissions
       const overrides = (session.permission ?? []).map(
         (rule): Permission.Rule => ({ action: rule.permission, resource: rule.pattern, effect: rule.action }),
       )
-      return merge(agent?.permissions ?? missingAgentPermissions, overrides)
+      return { rules: merge(floor, overrides), floor }
     })
 
     function denied(input: AssertInput, rules: Permission.Ruleset) {
@@ -157,8 +160,8 @@ const layer = Layer.effect(
     }
 
     const evaluateInput = EffectRuntime.fnUntraced(function* (input: AssertInput) {
-      const rules = yield* configured(input.sessionID, input.agent)
-      if (denied(input, rules)) return { effect: "deny" as const, rules }
+      const { rules, floor } = yield* configured(input.sessionID, input.agent)
+      if (denied(input, floor) || denied(input, rules)) return { effect: "deny" as const, rules }
       const all = [...rules, ...(yield* savedRules())]
       const effects = input.resources.map((resource) => evaluate(input.action, resource, all).effect)
       const effect: Permission.Effect = effects.includes("deny") ? "deny" : effects.includes("ask") ? "ask" : "allow"
@@ -265,12 +268,12 @@ const layer = Layer.effect(
           const rememberedRules = yield* savedRules()
           for (const [id, item] of pending) {
             const input = { ...item.request }
-            const rules = yield* configured(item.request.sessionID, item.agent).pipe(
+            const current = yield* configured(item.request.sessionID, item.agent).pipe(
               EffectRuntime.catchTag("Session.NotFoundError", () => EffectRuntime.succeed(undefined)),
             )
-            if (!rules) continue
-            if (denied(input, rules)) continue
-            const effective = [...rules, ...rememberedRules]
+            if (!current) continue
+            if (denied(input, current.floor) || denied(input, current.rules)) continue
+            const effective = [...current.rules, ...rememberedRules]
             if (
               !item.request.resources.every(
                 (resource) => evaluate(item.request.action, resource, effective).effect === "allow",
