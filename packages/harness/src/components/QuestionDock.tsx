@@ -15,6 +15,11 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
   const [custom, setCustom] = createStore<string[]>(props.request.questions.map(() => ""))
   const [other, setOther] = createStore<boolean[]>(props.request.questions.map(() => false))
   const [collapsed, setCollapsed] = createSignal(false)
+  const [step, setStep] = createSignal(0)
+
+  const total = () => props.request.questions.length
+  const active = () => props.request.questions[step()]
+  const last = () => step() >= total() - 1
 
   const toggle = (questionIndex: number, label: string, multiple?: boolean) => {
     const current = selected[questionIndex] ?? []
@@ -47,14 +52,39 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
 
   const canSubmit = () => answers().every((values) => values.length > 0)
 
+  const answered = (index: number) => (answers()[index]?.length ?? 0) > 0
+
   // Skipping settles the question with no answer so the agent keeps going: the tool reports it back
   // as "Unanswered" instead of failing.
   const skip = () => props.onReply(props.request.questions.map(() => []))
 
+  const back = () => {
+    if (step() > 0) setStep(step() - 1)
+  }
+
+  // Steps are gated on their own answer so the request is only ever submitted once every question is
+  // settled; going back keeps the earlier answers intact.
+  const next = () => {
+    if (!answered(step())) return
+    if (last()) {
+      if (canSubmit()) props.onReply(answers())
+      return
+    }
+    setStep(step() + 1)
+  }
+
   return (
     <div class="fc-dock fc-dock-question">
       <div class="fc-dock-header">
-        <span class="fc-dock-title">{t("Question")}</span>
+        <span class="fc-dock-title">
+          {t("Question")}
+          <Show when={total() > 1}>
+            <span class="fc-dock-step">
+              {" · "}
+              {step() + 1}/{total()}
+            </span>
+          </Show>
+        </span>
         <Show when={collapsed()}>
           <span class="fc-dock-preview">
             {props.request.questions.map((question) => question.question).join(" · ")}
@@ -101,56 +131,61 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
         </div>
       </div>
       <Show when={!collapsed()}>
-        <For each={props.request.questions}>
-          {(question, index) => (
+        <Show when={active()}>
+          {(question) => (
             <div class="fc-question">
-              <div class="fc-question-header">{question.header}</div>
-              <div class="fc-question-text">{question.question}</div>
+              <div class="fc-question-header">{question().header}</div>
+              <div class="fc-question-text">{question().question}</div>
               <div class="fc-question-options">
-                <For each={question.options}>
+                <For each={question().options}>
                   {(option) => (
                     <button
                       class="fc-option"
-                      classList={{ "fc-option-selected": (selected[index()] ?? []).includes(option.label) }}
+                      classList={{ "fc-option-selected": (selected[step()] ?? []).includes(option.label) }}
                       type="button"
-                      onClick={() => toggle(index(), option.label, question.multiple)}
+                      onClick={() => toggle(step(), option.label, question().multiple)}
                     >
                       <span class="fc-option-label">{option.label}</span>
                       <span class="fc-option-desc">{option.description}</span>
                     </button>
                   )}
                 </For>
-                <Show when={question.custom !== false}>
+                <Show when={question().custom !== false}>
                   <button
                     class="fc-option"
-                    classList={{ "fc-option-selected": other[index()] }}
+                    classList={{ "fc-option-selected": other[step()] }}
                     type="button"
-                    onClick={() => toggleOther(index(), question.multiple)}
+                    onClick={() => toggleOther(step(), question().multiple)}
                   >
                     <span class="fc-option-label">{t("Other")}</span>
                     <span class="fc-option-desc">{t("Type your own answer")}</span>
                   </button>
                 </Show>
               </div>
-              <Show when={other[index()]}>
+              <Show when={other[step()]}>
                 <input
                   class="fc-question-custom"
                   placeholder={t("Custom answer")}
-                  value={custom[index()] ?? ""}
-                  onInput={(event) => setCustom(index(), event.currentTarget.value)}
+                  value={custom[step()] ?? ""}
+                  onInput={(event) => setCustom(step(), event.currentTarget.value)}
                 />
               </Show>
             </div>
           )}
-        </For>
+        </Show>
         <div class="fc-dock-actions">
+          <Show when={step() > 0}>
+            <button class="fc-button" type="button" disabled={props.busy} onClick={back}>
+              {t("Previous")}
+            </button>
+          </Show>
           <button
             class="fc-button fc-button-primary"
             type="button"
-            disabled={props.busy || !canSubmit()}
-            onClick={() => props.onReply(answers())}
+            disabled={props.busy || !answered(step())}
+            onClick={next}
           >
-            {t("Respond")}
+            {t(last() ? "Respond" : "Next")}
           </button>
           <button class="fc-button" type="button" disabled={props.busy} onClick={skip}>
             {t("Skip")}
