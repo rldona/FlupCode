@@ -247,7 +247,7 @@ const ClientView: Component = () => {
       </Show>
       <p class="fc-modal-line">
         {t(
-          "Drive a computer's sessions from here. On the computer, open FlupCode → Remote control → Pair a device, and scan the code with this device.",
+          "This browser is the remote control, not the controlled computer. The computer must have the FlupCode desktop app open with remote control turned on.",
         )}
       </p>
       <Show when={remote.activeHost()}>
@@ -285,7 +285,19 @@ const ClientView: Component = () => {
       </Show>
       <section class="fc-settings-section">
         <h3 class="fc-settings-title">{t("Paired computers")}</h3>
-        <Show when={remote.hosts().length > 0} fallback={<p class="fc-settings-status">{t("No computers yet")}</p>}>
+        <Show
+          when={remote.hosts().length > 0}
+          fallback={
+            <>
+              <p class="fc-settings-status">{t("No computers yet")}</p>
+              <p class="fc-settings-status">
+                {t(
+                  "On the computer, open FlupCode → Remote control → Pair a device and scan the code with this device.",
+                )}
+              </p>
+            </>
+          }
+        >
           <For each={remote.hosts()}>
             {(host) => (
               <div class="fc-mcp-row">
