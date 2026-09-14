@@ -201,6 +201,42 @@ export function sessionCost(session: SessionInfo | undefined, messages: SessionM
   }, session?.cost ?? 0)
 }
 
+export type ContextFigures = {
+  used: number
+  limit: number
+  cost: number
+  tokens?: { input: number; output: number; reasoning: number }
+}
+
+const hasTokens = (tokens: SessionMessageAssistant["tokens"]) =>
+  !!tokens && tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write > 0
+
+/**
+ * The context window in use and the session's spend. The step that is still running carries no
+ * tokens yet, so the latest step that reported them is used instead: the figure stays put while the
+ * model thinks instead of dropping to zero, and grows as new steps finish.
+ */
+export function contextFigures(
+  session: SessionInfo | undefined,
+  messages: SessionMessageInfo[],
+  models: ModelInfo[],
+  limit: number,
+): ContextFigures {
+  const tokens = [...messages]
+    .reverse()
+    .map((message) => (message.type === "assistant" ? (message as SessionMessageAssistant).tokens : undefined))
+    .find(hasTokens)
+  const used = tokens
+    ? tokens.input + tokens.cache.read
+    : (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0)
+  return {
+    used,
+    limit,
+    cost: sessionCost(session, messages, models),
+    tokens: tokens ? { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning } : undefined,
+  }
+}
+
 export function formatTokens(value: number) {
   if (value >= 1_000_000) return `${(value / 1_000_000).toFixed(1)}M`
   if (value >= 1_000) return `${(value / 1_000).toFixed(1)}k`
