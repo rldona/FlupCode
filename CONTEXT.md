@@ -198,6 +198,44 @@ _Avoid_: Response envelope
 - **Managed Tool Output Files** use globally unique names in one shared flat directory. Their absolute paths are readable and searchable by ordinary tools; other absolute paths remain outside Location-scoped filesystem authority.
 - Provider-executed tool results remain provider-native transcript facts outside generic Tool Registry bounding. Their context control requires provider-aware pruning or compaction because some providers require exact structured round-trip payloads.
 
+## Memory
+
+**Memory**:
+Durable learned knowledge about the user, a project or repository, an agent, or a session, written by
+explicit user instruction, an agent tool call, or background extraction, and retrieved by relevance.
+_Avoid_: conversation history, instruction, skill
+
+**Memory Scope**:
+Where a memory applies: `global` (the user), `project` (repository/worktree), `agent`
+(`projectID:agentID`), or `session`. Repository knowledge is project memory anchored by directory.
+_Avoid_: category, folder
+
+**Memory Candidate**:
+A memory proposed by background extraction that is not injected until reviewed and approved.
+_Avoid_: draft, suggestion
+
+**Memory Anchor**:
+A verifiable reference inside memory content (file, directory, command, or URL). A missing anchor
+marks the memory **stale**.
+_Avoid_: link, pointer
+
+**Memory Retrieval**:
+The deterministic, local selection of a bounded set of memories for one provider turn by lexical
+overlap, scope, importance, confidence, and recency.
+_Avoid_: memory search, semantic recall
+
+- Memory **informs** the agent; it never overrides a permission or a current instruction. Conflicts
+  are surfaced to the user rather than merged.
+- Memory is not a **System Context** source: relevance depends on the pending prompt, which the
+  runner promotes after baseline initialization, so retrieval augments each provider turn instead of
+  producing durable mid-conversation messages.
+- A **Memory** is deduplicated per scope by a content fingerprint; a repeated discovery merges
+  evidence instead of inserting a duplicate.
+- A **Memory Candidate** becomes active only through explicit approval or an explicit user
+  instruction.
+- **Memory Retrieval** records one durable use per turn so the session inspector can show what the
+  agent relied on.
+
 ## Client contract architecture
 
 Semantic values that mean the same thing internally and publicly live in the lightweight Schema leaf. Core consumes Schema for domain behavior; Protocol composes Schema values into paths, payloads, envelopes, errors, cursors, and streams; Server imports both, hosts Protocol's exact groups, and owns protocol/domain adaptation. The root Promise client remains zero-Effect, `/effect` depends on Effect plus Schema and Protocol, and `@opencode-ai/sdk-next` composes the scoped in-process host above Client, Core, and Server.
