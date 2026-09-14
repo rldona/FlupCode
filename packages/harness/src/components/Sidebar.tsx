@@ -326,7 +326,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                       <div class="fc-project-row" onContextMenu={(event) => openProjectMenu(event, group)}>
                         <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
                           <span class="fc-project-name">{group.name}</span>
-                          <span class="fc-project-count">{group.sessions.length}</span>
                         </button>
                         <button
                           class="fc-icon-button fc-project-new"
