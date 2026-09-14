@@ -6,6 +6,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
+import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
 import { toast } from "../toast"
 import { diffLines, escapeHtml, highlight, highlightDiff, sideBySideDiff } from "../highlight"
@@ -497,12 +498,22 @@ const AssistantMessage: Component<{
           )}
         </Index>
         <Show when={props.message.error}>
-          <Show
-            when={stoppedByUser(props.message.error)}
-            fallback={<div class="fc-message-error">{t("Error generating the response")}</div>}
-          >
-            <div class="fc-message-stopped">{t("Stopped")}</div>
-          </Show>
+          {(error) => (
+            <Show
+              when={stoppedByUser(error())}
+              fallback={
+                <div class="fc-message-error">
+                  <div class="fc-message-error-label">{t("Error generating the response")}</div>
+                  {/* The provider's own sentence explains the failure; the raw envelope stays in the tooltip. */}
+                  <div class="fc-message-error-detail" title={error().message}>
+                    {errorDetail(error().message)}
+                  </div>
+                </div>
+              }
+            >
+              <div class="fc-message-stopped">{t("Stopped")}</div>
+            </Show>
+          )}
         </Show>
       </div>
     </Show>

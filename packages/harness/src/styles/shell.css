@@ -1907,8 +1907,23 @@ button.fc-status {
 }
 
 .fc-message-error {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: var(--fc-text-sm);
   color: var(--fc-danger);
+}
+
+.fc-message-error-label {
+  font-weight: 600;
+}
+
+/* Provider messages can be long JSON blobs: wrap them instead of widening the transcript. */
+.fc-message-error-detail {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 @keyframes fc-thought-dot {
