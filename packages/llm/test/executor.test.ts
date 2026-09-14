@@ -1,7 +1,7 @@
 import { describe, expect } from "bun:test"
 import { Effect, Fiber, Layer, Random, Ref } from "effect"
 import * as TestClock from "effect/testing/TestClock"
-import { Headers, HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
+import { Headers, HttpClient, HttpClientError, HttpClientRequest, HttpClientResponse } from "effect/unstable/http"
 import { LLM, LLMError } from "../src"
 import { LLMClient, RequestExecutor } from "../src/route"
 import * as OpenAIChat from "../src/protocols/openai-chat"
@@ -51,6 +51,32 @@ const countedResponsesLayer = (attempts: Ref.Ref<number>, responses: ReadonlyArr
                 yield* Ref.update(attempts, (value) => value + 1)
                 const index = yield* Ref.getAndUpdate(cursor, (value) => value + 1)
                 return HttpClientResponse.fromWeb(request, responses[index] ?? responses[responses.length - 1])
+              }),
+            ),
+          )
+        }),
+      ),
+    ),
+  )
+
+const failingFirstCallLayer = (
+  attempts: Ref.Ref<number>,
+  failure: (request: HttpClientRequest.HttpClientRequest) => HttpClientError.HttpClientError,
+  responses: ReadonlyArray<Response>,
+) =>
+  RequestExecutor.layer.pipe(
+    Layer.provide(
+      Layer.unwrap(
+        Effect.gen(function* () {
+          const cursor = yield* Ref.make(0)
+          return Layer.succeed(
+            HttpClient.HttpClient,
+            HttpClient.make((request) =>
+              Effect.gen(function* () {
+                const index = yield* Ref.getAndUpdate(cursor, (value) => value + 1)
+                yield* Ref.update(attempts, (value) => value + 1)
+                if (index === 0) return yield* Effect.fail(failure(request))
+                return HttpClientResponse.fromWeb(request, responses[index - 1] ?? responses[responses.length - 1])
               }),
             ),
           )
@@ -423,6 +449,62 @@ describe("RequestExecutor", () => {
         ),
       )
     }).pipe(Effect.provideService(Random.Random, randomMidpoint)),
+  )
+
+  it.effect("retries transient transport failures", () =>
+    Effect.gen(function* () {
+      const attempts = yield* Ref.make(0)
+      return yield* Effect.gen(function* () {
+        const executor = yield* RequestExecutor.Service
+        const fiber = yield* executor.execute(request).pipe(Effect.forkChild)
+
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(attempts)).toBe(1)
+
+        yield* TestClock.adjust(500)
+        const response = yield* Fiber.join(fiber)
+
+        expect(response.status).toBe(200)
+        expect(yield* Ref.get(attempts)).toBe(2)
+      }).pipe(
+        Effect.provide(
+          failingFirstCallLayer(
+            attempts,
+            (request) =>
+              new HttpClientError.HttpClientError({
+                reason: new HttpClientError.TransportError({ request, description: "connection reset" }),
+              }),
+            [new Response("ok", { status: 200 })],
+          ),
+        ),
+      )
+    }).pipe(Effect.provideService(Random.Random, randomMidpoint)),
+  )
+
+  it.effect("does not retry deterministic transport failures", () =>
+    Effect.gen(function* () {
+      const attempts = yield* Ref.make(0)
+      return yield* Effect.gen(function* () {
+        const executor = yield* RequestExecutor.Service
+        const error = yield* executor.execute(request).pipe(Effect.flip)
+
+        expectLLMError(error)
+        expect(error.reason).toMatchObject({ _tag: "Transport", kind: "InvalidUrlError" })
+        expect(error.retryable).toBe(false)
+        expect(yield* Ref.get(attempts)).toBe(1)
+      }).pipe(
+        Effect.provide(
+          failingFirstCallLayer(
+            attempts,
+            (request) =>
+              new HttpClientError.HttpClientError({
+                reason: new HttpClientError.InvalidUrlError({ request, description: "invalid url" }),
+              }),
+            [new Response("never", { status: 200 })],
+          ),
+        ),
+      )
+    }),
   )
 
   it.effect("does not retry after a successful response reaches stream parsing", () =>
