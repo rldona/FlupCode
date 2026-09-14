@@ -15,6 +15,8 @@ import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
+/** The largest page of v2 messages the engine returns. */
+const MESSAGE_PAGE = 200
 
 export function resolveServerUrl() {
   const configured = import.meta.env.VITE_OPENCODE_SERVER_URL
@@ -325,8 +327,24 @@ export function createClient(baseUrl = resolveServerUrl()) {
           legacyHistory.get(key) ??
           unwrap(client.session.messages({ sessionID: input.sessionID })).then((entries) => fromLegacy(entries ?? []))
         legacyHistory.set(key, cached)
+        // The engine pages v2 messages (50 by default, 200 at most) and every tool step is a message,
+        // so read every page: a first page alone hides the newest turns of a long session.
+        const allV2 = async () => {
+          const first = await unwrap(
+            client.v2.session.messages({ sessionID: input.sessionID, order: input.order, limit: MESSAGE_PAGE }),
+          )
+          const data = [...(first?.data ?? [])]
+          let page = first
+          while (page?.data.length === MESSAGE_PAGE && page.cursor.next) {
+            page = await unwrap(
+              client.v2.session.messages({ sessionID: input.sessionID, cursor: page.cursor.next, limit: MESSAGE_PAGE }),
+            )
+            data.push(...(page?.data ?? []))
+          }
+          return first && { ...first, data }
+        }
         const [v2, legacy] = await Promise.all([
-          unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order })),
+          allV2(),
           cached.catch(() => {
             // Retry on the next refetch instead of caching the failure.
             if (legacyHistory.get(key) === cached) legacyHistory.delete(key)
