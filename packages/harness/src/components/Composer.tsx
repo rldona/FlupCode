@@ -56,6 +56,8 @@ type ComposerProps = {
   onAttach: (files: File[]) => void
   onRemoveAttachment: (uri: string) => void
   onCommandPick: (name: string) => void
+  /** Runs the command highlighted in the slash menu when the reader presses Enter. */
+  onCommandRun: (name: string) => void
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
   onPasteText: (text: string) => string
   onStash: () => void
@@ -109,6 +111,8 @@ export const Composer: Component<ComposerProps> = (props) => {
   const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
   // Browsing sent prompts: the one shown, and the draft to return to past the newest.
   const [historyIndex, setHistoryIndex] = createSignal<number>()
+  // The command highlighted in the slash menu (arrows move it, Enter runs it).
+  const [commandIndex, setCommandIndex] = createSignal(0)
   let historyDraft = ""
 
   // Editing or sending the recalled prompt leaves the history.
@@ -180,6 +184,18 @@ export const Composer: Component<ComposerProps> = (props) => {
     return props.commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
   }
 
+  // The highlighted command is the first match of every new query.
+  createEffect(() => {
+    filteredCommands()
+    setCommandIndex(0)
+  })
+
+  const moveCommand = (delta: number) => {
+    const count = filteredCommands().length
+    if (count === 0) return
+    setCommandIndex((index) => (index + delta + count) % count)
+  }
+
   const mentionToken = () => {
     const value = props.value
     if (chat()) return
@@ -235,6 +251,13 @@ export const Composer: Component<ComposerProps> = (props) => {
     onCleanup(() => document.removeEventListener("mousedown", onPointer))
   })
 
+  // Keep the highlighted command in view while the arrows walk the menu.
+  createEffect(() => {
+    const index = commandIndex()
+    if (!commandMenuOpen()) return
+    menu?.querySelectorAll<HTMLElement>(".fc-command-item")[index]?.scrollIntoView({ block: "nearest" })
+  })
+
   const insertMention = (path: string) => {
     const value = props.value
     const at = value.lastIndexOf("@")
@@ -288,8 +311,14 @@ export const Composer: Component<ComposerProps> = (props) => {
         <Show when={commandMenuOpen()}>
           <div class="fc-command-menu" ref={menu}>
             <For each={filteredCommands()}>
-              {(command) => (
-                <button class="fc-command-item" type="button" onClick={() => props.onCommandPick(command.name)}>
+              {(command, index) => (
+                <button
+                  class="fc-command-item"
+                  classList={{ "fc-command-item-active": commandIndex() === index() }}
+                  type="button"
+                  onMouseEnter={() => setCommandIndex(index())}
+                  onClick={() => props.onCommandPick(command.name)}
+                >
                   <span class="fc-command-name">/{command.name}</span>
                   <Show when={command.description}>
                     <span class="fc-command-desc">{command.description}</span>
@@ -390,6 +419,23 @@ export const Composer: Component<ComposerProps> = (props) => {
                 return
               }
               const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !event.isComposing
+              // With the slash menu open the arrows walk it (not the prompt history) and Enter runs
+              // the highlighted command instead of sending the half-typed text.
+              if (commandMenuOpen()) {
+                if ((event.key === "ArrowDown" || event.key === "ArrowUp") && !event.isComposing) {
+                  event.preventDefault()
+                  moveCommand(event.key === "ArrowDown" ? 1 : -1)
+                  return
+                }
+                if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                  const command = filteredCommands()[commandIndex()]
+                  if (command) {
+                    event.preventDefault()
+                    props.onCommandRun(command.name)
+                    return
+                  }
+                }
+              }
               if (plain && (event.key === "ArrowUp" || event.key === "ArrowDown")) {
                 const target = event.currentTarget
                 const collapsed = target.selectionStart === target.selectionEnd
