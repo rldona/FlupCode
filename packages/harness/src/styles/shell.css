@@ -3145,12 +3145,6 @@ button.fc-status {
   font-size: 13px;
 }
 
-.fc-project-count {
-  flex-shrink: 0;
-  font-size: var(--fc-text-xs);
-  color: var(--fc-text-muted);
-}
-
 .fc-session-row {
   display: flex;
   align-items: center;
