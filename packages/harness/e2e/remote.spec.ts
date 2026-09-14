@@ -121,6 +121,12 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
   await expect(page.getByRole("button", { name: /Remote: e2e-host/ })).toBeVisible({ timeout: 15_000 })
   await expect(page).not.toHaveURL(/#remote=/)
   await expect(page.locator(".fc-topbar .fc-status:not(.fc-status-remote)")).toHaveText("Connected")
+  // The connection pill opens the remote control panel.
+  await page.locator(".fc-topbar .fc-status:not(.fc-status-remote)").click()
+  const panel = page.getByRole("dialog", { name: "Remote control" })
+  await expect(panel).toBeVisible()
+  await panel.getByRole("button", { name: "Close" }).first().click()
+  await expect(panel).toHaveCount(0)
   await expect.poll(() => engineHits.some((url) => url.includes("health"))).toBe(true)
   const hosts = await page.evaluate(() => JSON.parse(localStorage.getItem("flupcode.remoteHosts") ?? "[]"))
   expect(hosts).toMatchObject([{ name: "e2e-host", deviceId: "e2e-device" }])
