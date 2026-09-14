@@ -1025,8 +1025,10 @@ button.fc-status {
   font-size: var(--fc-text-xs);
 }
 
-/* The prompt image, alone and as large as the viewport allows. */
+/* The prompt image, alone and as large as the viewport allows. It ignores the sidebar content
+   offsets the shared backdrop uses so it always centers on the whole window. */
 .fc-image-preview-backdrop {
+  padding: var(--fc-space-4);
   background: rgb(0 0 0 / 0.8);
 }
 
@@ -1042,7 +1044,9 @@ button.fc-status {
 .fc-image-preview-image {
   display: block;
   max-width: 100%;
-  max-height: 100%;
+  /* The flex parent hugs the image, so a percentage max-height has nothing definite to resolve
+     against: measure against the window minus the backdrop's own padding instead. */
+  max-height: calc(100vh - 2 * var(--fc-space-4));
   border-radius: var(--fc-radius-md);
   background: var(--fc-bg-elevated);
   object-fit: contain;
