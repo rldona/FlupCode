@@ -17,6 +17,7 @@ export type PendingPrompt = {
 export type SessionPending = {
   id: string
   text: string
+  files: Attachment[]
   queued: boolean
   sendNow?: () => void
 }
@@ -73,6 +74,7 @@ const forSession = (
       {
         id: entry.id,
         text: entry.text,
+        files: entry.files,
         queued: entry.queued,
         sendNow: entry.queued ? () => sendNow(entry, expand, serverUrl) : undefined,
       },

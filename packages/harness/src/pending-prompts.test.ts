@@ -8,7 +8,7 @@ describe("pendingPrompts", () => {
   test("shows prompts that have no real message yet, keyed by session", () => {
     pendingPrompts.add({ id: "msg_a", sessionID: "ses_1", text: "one", files: [], queued: false })
     expect(pendingPrompts.forSession("ses_1", [], expand, serverUrl)).toEqual([
-      { id: "msg_a", text: "one", queued: false },
+      { id: "msg_a", text: "one", files: [], queued: false },
     ])
     expect(pendingPrompts.forSession("ses_2", [], expand, serverUrl)).toEqual([])
     pendingPrompts.remove("msg_a")
