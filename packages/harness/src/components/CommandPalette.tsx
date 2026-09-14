@@ -4,7 +4,7 @@ import type { CommandOption } from "../types"
 import { t } from "../i18n"
 
 type PaletteItem =
-  | { kind: "command"; id: string; name: string; description?: string }
+  | { kind: "command"; id: string; name: string; description?: string; disabled?: boolean }
   | { kind: "session"; id: string; title: string; subtitle: string }
   | { kind: "file"; id: string; path: string }
 
@@ -59,6 +59,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
         id: `command:${command.name}`,
         name: command.name,
         description: command.description,
+        disabled: command.disabled,
       }))
     const sessions = props.sessions
       .filter((session) => (session.title || session.id).toLowerCase().includes(value))
@@ -77,8 +78,10 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
 
   const select = (item: PaletteItem | undefined) => {
     if (!item) return
-    if (item.kind === "command") props.onCommand(item.name)
-    else if (item.kind === "session") props.onSession(item.id)
+    if (item.kind === "command") {
+      if (item.disabled) return
+      props.onCommand(item.name)
+    } else if (item.kind === "session") props.onSession(item.id)
     else props.onFile(item.path)
     props.onClose()
   }
@@ -128,8 +131,11 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
                   <li>
                     <button
                       class="fc-palette-item"
-                      classList={{ "fc-palette-item-active": active() === index() }}
+                      classList={{
+                        "fc-palette-item-active": active() === index() && !(item.kind === "command" && item.disabled),
+                      }}
                       type="button"
+                      disabled={item.kind === "command" && item.disabled}
                       onMouseEnter={() => setActive(index())}
                       onClick={() => select(item)}
                     >

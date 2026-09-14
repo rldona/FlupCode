@@ -32,7 +32,11 @@ export const Loader: Component<LoaderProps> = (props) => {
   })
 
   const label = () => props.label ?? t(phrases[index()] ?? phrases[0]!)
-  const elapsed = () => `${Math.max(0, Math.round((now() - started()) / 1000))}s`
+  const elapsed = () => {
+    const seconds = Math.max(0, Math.round((now() - started()) / 1000))
+    if (seconds < 60) return `${seconds}s`
+    return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+  }
   const total = () => {
     const tokens = props.tokens
     if (!tokens) return undefined

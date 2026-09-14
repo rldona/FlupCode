@@ -229,15 +229,23 @@ test.describe("on a phone", () => {
     // The fake engine answers 404 for the transcript: the session screen must still open.
     await card.click()
     await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow")
-    // The chat shares the dock's column, even in the narrow layout with the chapter rail.
+    // The chat text is centred even in the narrow layout with the chapter rail: the scrollbar
+    // gutter is reserved on both sides, so its left inset matches its right one.
     await expect(page.locator(".fc-transcript-frame")).toHaveClass(/fc-chat-narrow/)
     const body = page.locator(".fc-transcript-body")
     await expect(body).toBeVisible()
-    const [bodyLeft, fieldLeft] = await page.evaluate(() => [
-      document.querySelector(".fc-transcript-body")!.getBoundingClientRect().left,
-      document.querySelector(".fc-mobile-field")!.getBoundingClientRect().left,
-    ])
-    expect(Math.round(bodyLeft)).toBe(Math.round(fieldLeft))
+    const [bodyLeft, bodyRight, fieldLeft, width] = await page.evaluate(() => {
+      const bodyRect = document.querySelector(".fc-transcript-body")!.getBoundingClientRect()
+      return [
+        bodyRect.left,
+        bodyRect.right,
+        document.querySelector(".fc-mobile-field")!.getBoundingClientRect().left,
+        window.innerWidth,
+      ]
+    })
+    expect(Math.round(bodyLeft)).toBe(Math.round(width - bodyRight))
+    // The reserved gutter keeps the chat clear of the edge, inside the dock's own inset.
+    expect(Math.round(bodyLeft)).toBeGreaterThan(Math.round(fieldLeft))
     // The phone dock: "+" opens attachments and settings as a bottom sheet.
     const dock = page.locator(".fc-mobile-dock")
     await expect(dock.getByPlaceholder("Type / for commands")).toBeVisible()

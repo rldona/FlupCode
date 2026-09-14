@@ -6,6 +6,7 @@ export type MenuItem = {
   icon?: string
   shortcut?: string
   danger?: boolean
+  disabled?: boolean
   onSelect: () => void
 }
 
@@ -60,6 +61,7 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
             class="fc-menu-item"
             classList={{ "fc-menu-item-danger": item.danger }}
             type="button"
+            disabled={item.disabled}
             onClick={() => {
               item.onSelect()
               close()

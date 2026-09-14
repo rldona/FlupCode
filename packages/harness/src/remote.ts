@@ -11,6 +11,7 @@ import {
   type ChannelMode,
   type PairingLink,
   type RemoteHostBridge,
+  type SpeechBridge,
   type TunnelClient,
 } from "@flupcode/remote"
 import { readStorage, STORAGE_KEYS, writeStorage } from "./storage"
@@ -34,7 +35,7 @@ export type RemoteErrorCode = "insecure" | "offline" | "revoked" | "expired" | "
 
 declare global {
   interface Window {
-    flupcode?: { chooseFolder?: () => Promise<string | undefined>; remote?: RemoteHostBridge }
+    flupcode?: { chooseFolder?: () => Promise<string | undefined>; remote?: RemoteHostBridge; speech?: SpeechBridge }
   }
 }
 
