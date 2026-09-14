@@ -476,7 +476,7 @@ const AssistantMessage: Component<{
   return (
     // A message that only continues an earlier run of tools has nothing of its own to show.
     <Show when={segments().length > 0 || props.message.error || props.showRole}>
-      <div class="fc-message fc-message-assistant">
+      <div class="fc-message fc-message-assistant" data-message-id={props.message.id}>
         <Show when={props.showRole}>
           <div class="fc-message-role">{props.message.agent}</div>
         </Show>
@@ -676,11 +676,47 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     container.scrollTo({ top: container.scrollHeight, behavior: motion() })
   }
 
-  // Growing content never follows on its own: streaming, tool output and refreshed history only tell
-  // the "back to end" button whether the reader has fallen behind. The body exists once the
-  // transcript has loaded and is recreated on reload, so it is observed from its ref.
+  // Older messages are prepended above the loaded window. Native scroll anchoring cannot be relied
+  // on there (the "Load earlier" button at the top keeps the view pinned to the start), so the first
+  // visible message is remembered and put back after the page renders: the reader stays in place,
+  // with the new messages waiting above.
+  const loadEarlier = () => {
+    if (!container || !body) return
+    const viewport = container.getBoundingClientRect()
+    const anchor = [...body.querySelectorAll<HTMLElement>("[data-message-id]")].find(
+      (element) => element.getBoundingClientRect().bottom > viewport.top,
+    )
+    const id = anchor?.dataset.messageId
+    const top = anchor?.getBoundingClientRect().top
+    setStick(false)
+    setVisibleCount((value) => value + 80)
+    if (id === undefined || top === undefined) return
+    // The prepended page renders lazily, so its height is still settling for a few frames: keep
+    // putting the anchor back until it stays there.
+    let frames = 0
+    const align = () => {
+      const moved = body?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
+      if (moved && container) {
+        const shift = moved.getBoundingClientRect().top - top
+        if (shift !== 0) container.scrollTop += shift
+        if (Math.abs(shift) < 1 && frames > 2) return
+      }
+      if (++frames < 30) requestAnimationFrame(align)
+    }
+    requestAnimationFrame(align)
+  }
+
+  // A reader who is at the end follows the run as it grows: live text, tool output and the status
+  // line. Scrolling away unsticks (see the scroll handler), so following stops until they come
+  // back. The body exists once the transcript has loaded and is recreated on reload, so it is
+  // observed from its ref.
   const growth = new ResizeObserver(() => {
     if (!container) return
+    if (stick()) {
+      scrollToBottom()
+      setAwayFromEnd(false)
+      return
+    }
     setAwayFromEnd(container.scrollHeight - container.scrollTop - container.clientHeight > 200)
   })
   onCleanup(() => growth.disconnect())
@@ -702,10 +738,11 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   onCleanup(() => frameWidth.disconnect())
   const observeFrame = (element: HTMLDivElement) => frameWidth.observe(element)
 
-  // Land at the end once per session switch, once per prompt sent, and once when the turn delivers
-  // its final answer; content growing below never drags the reader back in between. The delayed
-  // attempts cover lazy rendering; `scrollToBottom` re-checks `stick`, so scrolling during that
-  // window wins. The timers live outside the effect so a message update cannot cancel them.
+  // Land at the end once per session switch and once per prompt sent. A finished turn only lands
+  // there for a reader who is still following, so scrolling up to read is not undone when the
+  // answer arrives. The delayed attempts cover lazy rendering; `scrollToBottom` re-checks `stick`,
+  // so scrolling during that window wins. The timers live outside the effect so a message update
+  // cannot cancel them.
   let settleTimers: Array<ReturnType<typeof setTimeout>> = []
   const clearSettleTimers = () => {
     settleTimers.forEach((timer) => clearTimeout(timer))
@@ -733,7 +770,8 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     firstMessageID = first
     if (sent) lastPendingID = newest
     if (switched) setVisibleCount(80)
-    landAtEnd()
+    // A reader who scrolled up keeps their place when the turn ends.
+    if (switched || sent || stick()) landAtEnd()
   })
 
   return (
@@ -781,14 +819,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
               }
             >
               <Show when={offset() > 0}>
-                <button
-                  class="fc-load-earlier"
-                  type="button"
-                  onClick={() => {
-                    setStick(false)
-                    setVisibleCount((value) => value + 80)
-                  }}
-                >
+                <button class="fc-load-earlier" type="button" onClick={loadEarlier}>
                   {t("Load earlier messages")}
                 </button>
               </Show>
@@ -818,7 +849,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       </Show>
                     }
                   >
-                    <div class="fc-message fc-message-user" data-chapter={message.id}>
+                    <div class="fc-message fc-message-user" data-chapter={message.id} data-message-id={message.id}>
                       <div class="fc-message-role">{t("You")}</div>
                       <MessageFiles files={(message as { files?: MessageFile[] }).files} />
                       <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
