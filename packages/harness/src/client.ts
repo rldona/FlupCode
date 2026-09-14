@@ -206,6 +206,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
       wait: (input: { sessionID: string }) => unwrap(client.v2.session.wait({ sessionID: input.sessionID })),
       compact: (input: { sessionID: string }) => unwrap(client.v2.session.compact({ sessionID: input.sessionID })),
       interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
+      /** Sessions whose run is still going, across all of its steps. */
+      active: async () => new Set(Object.keys((await unwrap(client.v2.session.active()))?.data ?? {})),
       /** Sends a chat message: the legacy prompt is the one that takes a system prompt. See chat.ts. */
       chat: (input: {
         sessionID: string
