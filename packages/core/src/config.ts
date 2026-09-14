@@ -18,6 +18,7 @@ import { ConfigExperimental } from "./config/experimental"
 import { ConfigFormatter } from "./config/formatter"
 import { ConfigLSP } from "./config/lsp"
 import { ConfigMCP } from "./config/mcp"
+import { ConfigMemory } from "./config/memory"
 import { ConfigPlugin } from "./config/plugin"
 import { ConfigProvider } from "./config/provider"
 import { ConfigReference } from "./config/reference"
@@ -35,6 +36,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   model: Schema.String.pipe(Schema.optional).annotate({
     description: "Default model to use when no session or agent model is selected",
+  }),
+  small_model: Schema.String.pipe(Schema.optional).annotate({
+    description: "Small model used for background tasks such as title generation and memory extraction",
   }),
   default_agent: Schema.String.pipe(Schema.optional).annotate({
     description: "Default primary agent to use when no session agent is selected",
@@ -86,6 +90,9 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   compaction: ConfigCompaction.Info.pipe(Schema.optional).annotate({
     description: "Conversation compaction behavior",
+  }),
+  memory: ConfigMemory.Info.pipe(Schema.optional).annotate({
+    description: "Persistent memory capture, retrieval, and extraction behavior",
   }),
   skills: Schema.String.pipe(Schema.Array, Schema.optional).annotate({
     description: "Additional paths or URLs to discover skills from",
