@@ -1247,7 +1247,8 @@ button.fc-status {
   text-align: left;
 }
 
-.fc-command-item:hover {
+.fc-command-item:hover,
+.fc-command-item-active {
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
 }
 
