@@ -124,7 +124,8 @@ Merges happen on GitHub, never from Vercel, and one PR at a time:
 - **Web:** Vercel deploys production from `power` only; other branches get no preview deployments.
   Each Vercel project skips its build when a push did not touch it: `packages/landing` for the
   landing, and `packages/harness` or the packages it builds from for the app (`ignoreCommand` in each
-  `vercel.json`).
+  `vercel.json`). It compares against the project's last deployed commit, and builds when Vercel's
+  shallow clone no longer holds that commit.
 - **Checking the web deploy:** `app.flupcode.com` updates a few minutes after a merge. Confirm it by
   fetching the served bundle and looking for something the change added, such as a new class name.
 - **Desktop:** the desktop app only updates with a release; see [docs/RELEASE.md](RELEASE.md).
