@@ -12,6 +12,9 @@ const TRUNCATION_GLOB = path.join(Global.Path.data, "tool-output", "*")
 const BUILD_SYSTEM =
   "You are an AI coding agent. Help the user accomplish software engineering tasks by inspecting the workspace, making targeted changes, and using tools according to the configured permissions."
 
+const PLAN_SYSTEM =
+  "You are in plan mode: research the request by reading and searching the workspace, ask clarifying questions, and design an implementation plan without making changes. When the plan is ready, present it and call the plan_exit tool to ask the user whether to switch to the build agent and start implementing."
+
 const PROMPT_EXPLORE = `You are a file search specialist. You excel at thoroughly navigating and exploring codebases.
 
 Your strengths:
@@ -132,6 +135,7 @@ export const Plugin = define({
 
       draft.update(AgentV2.ID.make("plan"), (item) => {
         item.description = "Plan mode. Disallows all edit tools."
+        item.system ??= PLAN_SYSTEM
         item.mode = "primary"
         item.permissions.push(
           ...PermissionV2.merge(defaults, [
