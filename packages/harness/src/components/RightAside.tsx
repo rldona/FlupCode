@@ -1,13 +1,12 @@
 import { For, Show, type Component } from "solid-js"
-import type { ModelInfo, SessionInfo } from "../engine-types"
 import type { TodoItem } from "./TodoDock"
 import { formatTokens } from "../metrics"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
 type RightAsideProps = {
-  session: SessionInfo | undefined
-  models: ModelInfo[]
+  /** The composer's context meter figures: tokens in the window, its size, and what the session spent. */
+  usage: { used: number; limit: number; cost: number }
   todos: TodoItem[]
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
@@ -26,23 +25,8 @@ const mark = (status: string) => {
 }
 
 export const RightAside: Component<RightAsideProps> = (props) => {
-  const model = () =>
-    props.models.find(
-      (entry) => entry.providerID === props.session?.model?.providerID && entry.id === props.session?.model?.id,
-    )
-
-  const tokens = () => {
-    const value = props.session?.tokens
-    if (!value) return 0
-    return value.input + value.output + value.reasoning + value.cache.read + value.cache.write
-  }
-
-  const contextLimit = () => model()?.limit?.context
-  const used = () => {
-    const limit = contextLimit()
-    if (!limit) return undefined
-    return Math.min(100, Math.round((tokens() / limit) * 100))
-  }
+  const used = () =>
+    props.usage.limit > 0 ? Math.min(100, Math.round((props.usage.used / props.usage.limit) * 100)) : undefined
 
   const completed = () => props.todos.filter((todo) => todo.status === "completed").length
 
@@ -84,7 +68,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         <section class="fc-aside-section">
           <h3 class="fc-aside-title">{t("Context")}</h3>
           <div class="fc-aside-row">
-            <span>{formatTokens(tokens())} tokens</span>
+            <span>{formatTokens(props.usage.used)} tokens</span>
           </div>
           <Show when={used() !== undefined}>
             <div class="fc-aside-row">
@@ -97,7 +81,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           </Show>
           <div class="fc-aside-row">
             <span>{t("Spent")}</span>
-            <span>${(props.session?.cost ?? 0).toFixed(2)}</span>
+            <span>${props.usage.cost.toFixed(2)}</span>
           </div>
         </section>
 

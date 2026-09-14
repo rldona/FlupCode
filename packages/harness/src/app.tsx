@@ -4,7 +4,7 @@ import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } fr
 import type { SessionMessageAssistant } from "./engine-types"
 import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
+import { activityByDay, comparison, computeMetrics, filterByRange, sessionCost, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
 import {
   SUGGESTION_SESSION_TTL,
@@ -487,7 +487,7 @@ export const App: Component = () => {
     return {
       used,
       limit,
-      cost: session?.cost,
+      cost: sessionCost(session, list, modelList()),
       tokens: tokens ? { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning } : undefined,
     }
   }
@@ -2397,18 +2397,15 @@ export const App: Component = () => {
           onResize={updateWorkspaceWidth}
           onClose={closePanel}
         />
-        <Show when={contextPanelShown() && selectedSession()}>
-          {(session) => (
-            <RightAside
-              session={session()}
-              models={modelList()}
-              todos={todos()}
-              onClearTodos={clearTodos}
-              width={contextWidth()}
-              onResize={updateContextWidth}
-              onHide={toggleContextPanel}
-            />
-          )}
+        <Show when={contextPanelShown()}>
+          <RightAside
+            usage={contextUsage()}
+            todos={todos()}
+            onClearTodos={clearTodos}
+            width={contextWidth()}
+            onResize={updateContextWidth}
+            onHide={toggleContextPanel}
+          />
         </Show>
       </Show>
       <CommandPalette
