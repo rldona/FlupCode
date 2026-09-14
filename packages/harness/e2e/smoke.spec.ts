@@ -573,3 +573,106 @@ test("a prompt keeps its attached image in the transcript", async ({ page }) => 
   await expect(attached).toHaveAttribute("src", /^data:image\/png;base64,/)
   await expect(page.getByText("¿Lo ves?")).toBeVisible()
 })
+
+test("a prompt image zooms in place and opens in a preview", async ({ page }) => {
+  const now = Date.now()
+  // A 3000x2000 SVG: big enough for the hover badge and to prove the preview scales it down.
+  const image =
+    "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='3000' height='2000'%3E%3Crect width='3000' height='2000' fill='%23c00'/%3E%3C/svg%3E"
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_zoom"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "ses_zoom",
+              projectID: "p",
+              title: "Zoom",
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now, updated: now },
+              location: { directory: "/work/demo" },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/(api\/)?session\/ses_zoom\/message/.test(url.pathname))
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "msg_zoom",
+              type: "user",
+              text: "Mira esto",
+              files: [{ uri: image, mime: "image/svg+xml", name: "captura.svg" }],
+              time: { created: now },
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/(api\/)?session\/[^/]+\/message/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  const thumbnail = page.locator(".fc-message-image-button")
+  await expect(thumbnail).toBeVisible()
+  const badge = page.locator(".fc-message-image-zoom")
+  const badgeOpacity = () => badge.evaluate((element) => getComputedStyle(element).opacity)
+  expect(await badgeOpacity()).toBe("0")
+
+  // Hovering shades the thumbnail and centers the zoom-in badge on it.
+  await thumbnail.hover()
+  await expect.poll(badgeOpacity).toBe("1")
+  const centered = await thumbnail.evaluate((element) => {
+    const button = element.getBoundingClientRect()
+    const badge = element.querySelector(".fc-message-image-zoom")!.getBoundingClientRect()
+    return {
+      dx: Math.abs(badge.left + badge.width / 2 - (button.left + button.width / 2)),
+      dy: Math.abs(badge.top + badge.height / 2 - (button.top + button.height / 2)),
+    }
+  })
+  expect(centered.dx).toBeLessThan(1)
+  expect(centered.dy).toBeLessThan(1)
+
+  // Clicking opens the image alone, and Escape closes it.
+  await thumbnail.click()
+  const dialog = page.getByRole("dialog", { name: "captura.svg" })
+  await expect(dialog).toBeVisible()
+  const preview = dialog.locator(".fc-image-preview-image")
+  await expect(preview).toHaveAttribute("src", image)
+  await expect(dialog.getByText("Mira esto")).toHaveCount(0)
+  // A huge image shrinks to the viewport instead of overflowing it, centred over the chat column.
+  const fit = await preview.evaluate((element) => {
+    const rect = element.getBoundingClientRect()
+    const backdrop = element.closest(".fc-image-preview-backdrop")!
+    const style = getComputedStyle(backdrop)
+    const back = backdrop.getBoundingClientRect()
+    const left = back.left + parseFloat(style.paddingLeft)
+    const right = back.right - parseFloat(style.paddingRight)
+    return {
+      width: rect.width,
+      height: rect.height,
+      center: rect.left + rect.width / 2,
+      columnCenter: (left + right) / 2,
+      viewportWidth: window.innerWidth,
+      viewportHeight: window.innerHeight,
+    }
+  })
+  expect(fit.width).toBeLessThanOrEqual(fit.viewportWidth)
+  expect(fit.height).toBeLessThanOrEqual(fit.viewportHeight)
+  expect(Math.abs(fit.center - fit.columnCenter)).toBeLessThan(2)
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+})

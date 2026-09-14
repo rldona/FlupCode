@@ -102,6 +102,8 @@ const ES: Record<string, string> = {
   "{n} running tasks": "{n} tareas en curso",
   error: "error",
   Attachments: "Adjuntos",
+  "Open image": "Abrir imagen",
+  Image: "Imagen",
   Small: "Pequeño",
   Large: "Grande",
   "Extra large": "Muy grande",
