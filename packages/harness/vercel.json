@@ -4,7 +4,7 @@
   "installCommand": "bun install",
   "buildCommand": "bun run build",
   "outputDirectory": "dist",
-  "ignoreCommand": "git diff --quiet ${VERCEL_GIT_PREVIOUS_SHA:-HEAD^} HEAD -- . ../remote ../sdk ../session-ui ../ui ../core ../../package.json ../../bun.lock",
+  "ignoreCommand": "if git cat-file -e \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}^{commit}\" 2>/dev/null; then git diff --quiet \"${VERCEL_GIT_PREVIOUS_SHA:-HEAD^}\" HEAD -- . ../remote ../sdk ../session-ui ../ui ../core ../../package.json ../../bun.lock; else exit 1; fi",
   "git": { "deploymentEnabled": { "**": false, "power": true } },
   "headers": [
     {
