@@ -6,6 +6,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
+import { toast } from "../toast"
 import { diffLines, escapeHtml, highlight, highlightDiff, sideBySideDiff } from "../highlight"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
@@ -26,6 +27,8 @@ type SessionViewProps = {
   /** Prompts sent before the engine projects their message; queued ones offer "Send now". */
   pending?: Array<{ id: string; text: string; queued: boolean; sendNow?: () => void }>
   onEditUser: (messageID: string, text: string) => void
+  /** Forks a new session from a prompt; omitted in the split panes and for chats. */
+  onForkUser?: (messageID: string) => void
 }
 
 function toolOutput(tool: SessionMessageAssistantTool) {
@@ -478,6 +481,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const [awayFromEnd, setAwayFromEnd] = createSignal(false)
   const motion = () => (window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth")
 
+  const copyText = (text: string) => {
+    void navigator.clipboard
+      ?.writeText(text)
+      .then(() => toast(t("Copied"), "success"))
+      .catch(() => undefined)
+  }
+
   const turnMeta = (index: number) => {
     const list = props.messages ?? []
     const start = turnStart(list, index)
@@ -756,15 +766,56 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                     <div class="fc-message fc-message-user" data-chapter={message.id}>
                       <div class="fc-message-role">{t("You")}</div>
                       <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
-                      <Show when={!props.chat}>
+                      <div class="fc-message-actions">
                         <button
-                          class="fc-message-edit"
+                          class="fc-message-action"
                           type="button"
-                          onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+                          title={t("Copy")}
+                          aria-label={t("Copy")}
+                          onClick={() => copyText((message as { text?: string }).text ?? "")}
                         >
-                          {t("Edit")}
+                          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                            <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
+                            <path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                          </svg>
                         </button>
-                      </Show>
+                        <Show when={!props.chat}>
+                          <button
+                            class="fc-message-action"
+                            type="button"
+                            title={t("Edit")}
+                            aria-label={t("Edit")}
+                            onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+                          >
+                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                              <path
+                                d="M4 10a8 8 0 1 1 2.3 5.7M4 20v-5h5"
+                                fill="none"
+                                stroke="currentColor"
+                                stroke-width="2"
+                                stroke-linecap="round"
+                                stroke-linejoin="round"
+                              />
+                            </svg>
+                          </button>
+                          <Show when={props.onForkUser}>
+                            <button
+                              class="fc-message-action"
+                              type="button"
+                              title={t("Fork from here")}
+                              aria-label={t("Fork from here")}
+                              onClick={() => props.onForkUser?.(message.id)}
+                            >
+                              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+                                <circle cx="7" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
+                                <circle cx="7" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
+                                <circle cx="17" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
+                                <path d="M7 7.5v9M9.4 12h5.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                              </svg>
+                            </button>
+                          </Show>
+                        </Show>
+                      </div>
                     </div>
                   </Show>
                 )}
