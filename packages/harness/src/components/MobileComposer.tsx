@@ -5,6 +5,7 @@ import { t } from "../i18n"
 import { toast } from "../toast"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
+import { primaryAgents } from "../agents"
 import type { AppView } from "../chat"
 import { dictationAvailable, startDictation } from "../dictation"
 
@@ -169,7 +170,6 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
     close()
   }
 
-  const primaryAgents = () => props.agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
   const featured = createMemo(() =>
     props.models.filter((model) => props.favorites.includes(key(model)) || key(model) === props.modelKey),
   )
@@ -292,7 +292,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               onClick={() => setSheet("mode")}
             />
           </Show>
-          <Show when={props.mode === "code" && primaryAgents().length > 0}>
+          <Show when={props.mode === "code" && primaryAgents(props.agents).length > 0}>
             <Row
               icon="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z"
               label={t("Agent")}
@@ -323,7 +323,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
 
       <Show when={sheet() === "agent"}>
         <BottomSheet title={t("Agent")} onClose={close} onBack={() => setSheet("context")}>
-          <For each={primaryAgents()}>
+          <For each={primaryAgents(props.agents)}>
             {(entry) => (
               <Option
                 label={entry.id}

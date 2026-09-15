@@ -180,7 +180,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
         agent?: string
       }) => {
         const body = { ...input }
-        if (!body.model && !body.location && !body.agent) body.agent = "build"
+        if (!body.model && !body.location && !body.agent) body.agent = "plan"
         return (await unwrap(client.v2.session.create(body))).data
       },
       prompt: (input: {
