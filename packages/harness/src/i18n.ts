@@ -261,6 +261,9 @@ const ES: Record<string, string> = {
   "Server offline": "Sin conexión al servidor",
   "Connection blocked by the browser": "Conexión bloqueada por el navegador",
   Troubleshooting: "Solución de problemas",
+  "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.":
+    "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (inicio de sesión de GitHub Copilot, modos de permisos, memoria) no están disponibles.",
+  "How to run FlupCode's engine": "Cómo ejecutar el engine de FlupCode",
   "The engine is running, but the browser refused the connection. Start it with the command below and connect again.":
     "El engine está en marcha, pero el navegador rechazó la conexión. Arrácalo con el comando de abajo y vuelve a conectar.",
   "FlupCode needs the OpenCode engine. Install it once, then start it:":

@@ -1,5 +1,6 @@
 import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
 import type { ModelInfo } from "../engine-types"
+import type { EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
@@ -12,6 +13,7 @@ type SettingsPanelProps = {
   displayName: string
   serverInput: string
   serverStatus: string
+  engineProfile: EngineProfile | undefined
   models: ModelInfo[]
   modelKey: string | undefined
   showTools: boolean
@@ -269,6 +271,13 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <span>{t("Status")}</span>
               <span class="fc-settings-status">{props.serverStatus}</span>
             </div>
+            <Show when={props.engineProfile === "stock"}>
+              <div class="fc-settings-hint">
+                {t(
+                  "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.",
+                )}
+              </div>
+            </Show>
             <div class="fc-settings-row">
               <input
                 class="fc-question-custom"
