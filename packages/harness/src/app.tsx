@@ -2450,9 +2450,6 @@ export const App: Component = () => {
       class="fc-app"
       classList={{
         "fc-mobile-remote": mobileRemote(),
-        // A peek floats over the content, so the top bar has to stay above it to keep its toggle usable.
-        "fc-app-sidebar-peek": sidebarPeek.peeking(),
-        "fc-app-context-peek": contextPeek.peeking(),
       }}
       style={{
         "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
