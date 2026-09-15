@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js"
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js"
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 
@@ -13,6 +13,11 @@ const DockPopover: Component<{
 }> = (props) => {
   const [open, setOpen] = createSignal(false)
   let root: HTMLDivElement | undefined
+
+  // Disabling mid-turn must also drop an already open popover, or the menu stays clickable.
+  createEffect(() => {
+    if (props.disabled) setOpen(false)
+  })
 
   onMount(() => {
     const onPointer = (event: MouseEvent) => {
@@ -166,6 +171,8 @@ export const ModelMenu: Component<{
   models: ModelInfo[]
   selectedKey: string | undefined
   favorites: string[]
+  /** A turn is running: switching the model now would break it. */
+  disabled?: boolean
   onSelect: (providerID: string, id: string) => void
   onMore: () => void
 }> = (props) => {
@@ -180,6 +187,7 @@ export const ModelMenu: Component<{
       class="fc-dock-text"
       title={t("Model")}
       align="right"
+      disabled={props.disabled}
       label={<span class="fc-dock-text-label">{props.label}</span>}
     >
       {(close) => (

@@ -17,6 +17,8 @@ type SettingsPanelProps = {
   engineProfile: EngineProfile | undefined
   engineVersion: string | undefined
   engineVersionMismatch: boolean
+  /** A turn is running: switching the model now would break it, so the model controls are locked. */
+  running: boolean
   models: ModelInfo[]
   modelKey: string | undefined
   showTools: boolean
@@ -160,22 +162,33 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <select
                 class="fc-toolbar-select"
                 value={props.modelKey ?? ""}
+                disabled={props.running}
                 onChange={(event) => props.onModelChange(event.currentTarget.value)}
               >
-                <option value="" disabled>
+                <option value="" disabled selected={!props.modelKey}>
                   {t("Default model")}
                 </option>
                 <For each={groupModels(props.models)}>
                   {(group) => (
                     <optgroup label={group.providerID}>
                       <For each={group.items}>
-                        {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                        {(model) => (
+                          <option
+                            value={`${model.providerID}/${model.id}`}
+                            selected={props.modelKey === `${model.providerID}/${model.id}`}
+                          >
+                            {model.name}
+                          </option>
+                        )}
                       </For>
                     </optgroup>
                   )}
                 </For>
               </select>
             </label>
+            <Show when={props.running}>
+              <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
+            </Show>
           </section>
 
           <section class="fc-settings-section">
@@ -211,20 +224,33 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <select
                   class="fc-toolbar-select"
                   value={props.suggestionModel}
+                  disabled={props.running}
                   onChange={(event) => props.onSuggestionModel(event.currentTarget.value)}
                 >
-                  <option value="">{t("Automatic (small model)")}</option>
+                  <option value="" selected={!props.suggestionModel}>
+                    {t("Automatic (small model)")}
+                  </option>
                   <For each={groupModels(props.models)}>
                     {(group) => (
                       <optgroup label={group.providerID}>
                         <For each={group.items}>
-                          {(model) => <option value={`${model.providerID}/${model.id}`}>{model.name}</option>}
+                          {(model) => (
+                            <option
+                              value={`${model.providerID}/${model.id}`}
+                              selected={props.suggestionModel === `${model.providerID}/${model.id}`}
+                            >
+                              {model.name}
+                            </option>
+                          )}
                         </For>
                       </optgroup>
                     )}
                   </For>
                 </select>
               </label>
+              <Show when={props.running}>
+                <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
+              </Show>
             </Show>
           </section>
 
