@@ -2651,6 +2651,14 @@ button.fc-status {
   gap: 8px;
 }
 
+.fc-dialog-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  align-self: flex-start;
+  font-size: var(--fc-text-sm);
+}
+
 .fc-rename-input {
   width: 100%;
 }
