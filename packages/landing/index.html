@@ -120,8 +120,10 @@
             </div>
             <div class="quick-body on" data-panel="desktop">
               <p>
-                Download FlupCode for your platform. It starts the OpenCode engine for you if the CLI is installed, and
-                guides you if it isn't.
+                Requires the
+                <a href="https://opencode.ai/docs/" target="_blank" rel="noreferrer" style="color: var(--sky)"
+                  >OpenCode CLI</a
+                >. FlupCode starts the engine for you once it's installed; without it the app can't run.
               </p>
               <div class="cmd">
                 <span class="ps">↓</span
@@ -131,7 +133,7 @@
             </div>
             <div class="quick-body" data-panel="browser">
               <p>
-                Run the engine with the hosted origin allowed, then open
+                Needs an OpenCode engine on your machine: run it with the hosted origin allowed, then open
                 <a href="https://app.flupcode.com" target="_blank" rel="noreferrer" style="color: var(--sky)"
                   >app.flupcode.com</a
                 >.
@@ -633,6 +635,13 @@
               ><strong>Linux</strong><span>AppImage</span><span class="sz">x64</span></a
             >
           </div>
+          <p class="dl-note reveal">
+            FlupCode needs the OpenCode engine and doesn't bundle it. Install the
+            <a href="https://opencode.ai/docs/" target="_blank" rel="noreferrer" style="color: var(--sky)"
+              >OpenCode CLI</a
+            >
+            and the app starts it for you.
+          </p>
           <p class="dl-note reveal">
             Builds are unsigned for now. On macOS, if it says “FlupCode is damaged”, run
             <code>xattr -dr com.apple.quarantine /Applications/FlupCode.app</code> or right-click → Open. On Windows

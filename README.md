@@ -28,6 +28,10 @@ terminal-grade feature set and packages it into a first-class **web and desktop 
 a harness layout with a project sidebar, usage dashboard, artifacts, routines and a polished
 composer — modelled on the Anthropic Claude Code desktop app.
 
+> **Requires the OpenCode engine.** FlupCode is a client and does not bundle it: install the
+> [OpenCode CLI](https://opencode.ai/docs/) and the app connects to it. Without an engine reachable,
+> the desktop app, the hosted web app and `flupcode remote` cannot run.
+
 > **Not affiliated with OpenCode or Anthropic.** FlupCode is an independent fork. "OpenCode"
 > is the upstream project by [Anomaly](https://anoma.ly), and "Claude Code" is a product of
 > Anthropic. This fork is not built by, endorsed by, or affiliated with either of them.
@@ -83,6 +87,15 @@ docs/                         # project documentation (this fork)
 ```
 
 ## Install
+
+> **Install the engine first.** FlupCode does not ship OpenCode. Get the
+> [OpenCode CLI](https://opencode.ai/docs/) so the desktop app can start it for you, or run it
+> yourself:
+>
+> ```bash
+> opencode serve --port 4096                                  # desktop
+> opencode serve --port 4096 --cors https://app.flupcode.com  # hosted web app
+> ```
 
 Download the desktop app and the `flupcode` CLI from the
 [latest release](https://github.com/rldona/FlupCode/releases/latest):
