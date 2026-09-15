@@ -1,6 +1,6 @@
 import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
 import type { ModelInfo } from "../engine-types"
-import type { EngineProfile } from "../client"
+import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
@@ -14,6 +14,8 @@ type SettingsPanelProps = {
   serverInput: string
   serverStatus: string
   engineProfile: EngineProfile | undefined
+  engineVersion: string | undefined
+  engineVersionMismatch: boolean
   models: ModelInfo[]
   modelKey: string | undefined
   showTools: boolean
@@ -271,6 +273,20 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <span>{t("Status")}</span>
               <span class="fc-settings-status">{props.serverStatus}</span>
             </div>
+            <div class="fc-settings-row">
+              <span>{t("Engine")}</span>
+              <span class="fc-settings-status">
+                {props.engineVersion === "local" ? t("Source build") : (props.engineVersion ?? t("Unknown"))}
+              </span>
+            </div>
+            <Show when={props.engineVersionMismatch}>
+              <div class="fc-settings-hint">
+                {t(
+                  "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.",
+                  { version: props.engineVersion ?? "", target: engineTargetVersion ?? "" },
+                )}
+              </div>
+            </Show>
             <Show when={props.engineProfile === "stock"}>
               <div class="fc-settings-hint">
                 {t(

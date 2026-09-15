@@ -24,6 +24,15 @@ export function resolveServerUrl() {
   return DEFAULT_SERVER_URL
 }
 
+declare const __FLUPCODE_ENGINE_VERSION__: string | undefined
+
+/**
+ * The engine version this build's client was generated against, injected by Vite from
+ * `@opencode-ai/sdk`. Undefined outside a Vite build (tests), where nothing is compared.
+ */
+export const engineTargetVersion =
+  typeof __FLUPCODE_ENGINE_VERSION__ === "string" ? __FLUPCODE_ENGINE_VERSION__ : undefined
+
 /** Why the engine is unreachable, as far as the browser can tell. */
 export type ServerStatus = "online" | "offline" | "blocked"
 
