@@ -160,6 +160,18 @@ select:focus-visible,
   overflow: hidden;
 }
 
+/* Revealed by hovering its toggle: it floats over the content and over the top bar, so it runs the
+   full height and reads exactly like the pinned panel, covering the toggle that revealed it. It
+   stays below the modal layers (60 and up) so a dialog still covers it. */
+.fc-sidebar-peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 55;
+  box-shadow: 0 0 48px rgb(0 0 0 / 0.45);
+}
+
 .fc-sidebar-top {
   display: flex;
   flex-direction: column;
@@ -3484,6 +3496,18 @@ button.fc-status {
   flex-shrink: 0;
   display: flex;
   border-left: 1px solid var(--fc-border);
+}
+
+/* Same peek as the sidebar, from the right edge: full height, over the content and over the top bar
+   instead of resizing the layout. */
+.fc-rightaside-peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 55;
+  background: var(--fc-bg);
+  box-shadow: 0 0 48px rgb(0 0 0 / 0.45);
 }
 
 .fc-rightaside-body {
