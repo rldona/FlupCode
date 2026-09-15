@@ -4,7 +4,9 @@ How to run and use FlupCode.
 
 ## Requirements
 
-- [Bun](https://bun.sh) 1.3+
+- [Bun](https://bun.sh) 1.3+ (source checkout)
+- The [OpenCode CLI](https://opencode.ai/docs/) — the engine. FlupCode is a client and does not
+  bundle it, so nothing runs until an engine is reachable.
 - A configured model provider (see [Providers](https://opencode.ai/docs/providers/))
 
 ## Install
@@ -68,10 +70,18 @@ bun run dev:harness          # renderer
 bun run dev:harness-desktop  # Electron window
 ```
 
-The desktop main process starts a local server automatically if none is reachable. Set
-`FLUPCODE_NO_SERVER=1` to disable that, or `FLUPCODE_DEV_URL` to point at another renderer.
+The desktop main process starts a local OpenCode server automatically if none is reachable. It
+looks for `FLUPCODE_OPENCODE`, then the engine from this checkout, then `opencode` on the `PATH`;
+when none is found it shows an install prompt. Set `FLUPCODE_NO_SERVER=1` to disable the automatic
+start, `FLUPCODE_SERVER_URL` to point at an engine already running elsewhere (default
+`http://127.0.0.1:4096`), or `FLUPCODE_DEV_URL` to point at another renderer.
 
 ### Installing a release
+
+The installers do **not** bundle the OpenCode engine. Install the
+[OpenCode CLI](https://opencode.ai/docs/) first — the app finds it on the `PATH`, or you can set
+`FLUPCODE_OPENCODE` to a specific binary and `FLUPCODE_SERVER_URL` to an engine already running
+elsewhere. Without an engine the app opens an install prompt instead of a session.
 
 Download `FlupCode-mac-arm64.dmg` (Apple Silicon), `FlupCode-mac-x64.dmg`, `FlupCode-win-x64.exe` or
 `FlupCode-linux-x64.AppImage` from the [latest release](https://github.com/rldona/FlupCode/releases/latest).
