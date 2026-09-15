@@ -5,6 +5,7 @@ import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
+import { isDeprecated } from "../model-catalog"
 
 type SettingsPanelProps = {
   open: boolean
@@ -184,7 +185,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                             value={`${model.providerID}/${model.id}`}
                             selected={props.modelKey === `${model.providerID}/${model.id}`}
                           >
-                            {model.name}
+                            {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
                           </option>
                         )}
                       </For>
@@ -246,7 +247,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                               value={`${model.providerID}/${model.id}`}
                               selected={props.suggestionModel === `${model.providerID}/${model.id}`}
                             >
-                              {model.name}
+                              {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
                             </option>
                           )}
                         </For>

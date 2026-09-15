@@ -1,4 +1,4 @@
-import { For, Show, batch, createEffect, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, batch, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import { createResource } from "../resource"
 import { createReconciledList } from "../reconciled"
@@ -24,8 +24,10 @@ import { subscribeSessionEvents } from "../session-events"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "../model-switch"
+import { hasModel, replacementModel } from "../model-catalog"
 import { Composer } from "./Composer"
 import { ModelSwitchDialog } from "./ModelSwitchDialog"
+import { ModelUnavailableDock } from "./ModelUnavailableDock"
 import { PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
 import { SessionView } from "./SessionView"
@@ -177,6 +179,23 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   const currentModel = () => {
     const ref = modelRef()
     return ref ? props.models.find((model) => model.providerID === ref.providerID && model.id === ref.id) : undefined
+  }
+  // The engine would fail this pane's next turn: its session is pinned to a model the catalog dropped.
+  const missingModel = createMemo(() => {
+    const ref = props.session.model
+    if (!ref || props.models.length === 0 || hasModel(props.models, ref)) return
+    return ref
+  })
+  const missingModelReplacement = createMemo(() => {
+    const ref = missingModel()
+    return ref ? replacementModel(ref, props.models) : undefined
+  })
+  const modelLabel = () => {
+    const model = currentModel()
+    if (model) return model.name
+    // Same as the main composer: an id the catalog no longer serves beats "Default model".
+    if (props.models.length === 0) return t("Default model")
+    return modelRef()?.id ?? t("Default model")
   }
   const variants = () => currentModel()?.variants ?? []
   /** The model with its effort level only when this project's engine offers that level. */
@@ -372,6 +391,17 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       />
 
       <div class="fc-docks">
+        <Show when={missingModel()}>
+          {(ref) => (
+            <ModelUnavailableDock
+              model={ref()}
+              replacement={missingModelReplacement()}
+              disabled={generating()}
+              onUse={(model) => requestModel({ providerID: model.providerID, id: model.id })}
+              onChoose={props.onOpenModelPicker}
+            />
+          )}
+        </Show>
         <For each={permissionData}>
           {(request) => (
             <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
@@ -400,7 +430,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         modelKey={modelRef() ? `${modelRef()!.providerID}/${modelRef()!.id}` : undefined}
         favorites={props.favorites}
         onModelChange={(providerID, id) => requestModel({ providerID, id })}
-        modelLabel={currentModel()?.name ?? t("Default model")}
+        modelLabel={modelLabel()}
         variants={variants()}
         variantKey={validModel()?.variant}
         usage={usage()}
