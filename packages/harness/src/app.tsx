@@ -2070,7 +2070,7 @@ export const App: Component = () => {
   }
 
   // Chats have no commands or shell: everything typed is the message.
-  const sendChat = (text: string, files: Attachment[]) => {
+  const sendChat = (text: string, files: Attachment[], keepDraft = false) => {
     const directory = chatsDirectory()
     if (!directory) {
       setError(t("Chats are not available: the engine did not report its folders"))
@@ -2095,10 +2095,74 @@ export const App: Component = () => {
         ...(model ? { model } : {}),
       })
       setStreamedChars(0)
-      setPrompt("")
-      setAttachments([])
+      if (!keepDraft) {
+        setPrompt("")
+        setAttachments([])
+      }
       return sessionID
     }, t("Message sent"))
+  }
+
+  /** Sends a prompt to the selected session (or a new one); the composer is cleared unless the draft is kept. */
+  const submitPrompt = (text: string, files: Attachment[], keepDraft = false) => {
+    const queued = generating()
+    const id = messageID()
+    void run(async (current) => {
+      const model = selectedModel()
+      const location = targetDirectory()
+      const existing = selected()
+      const sessionID =
+        existing ??
+        (
+          await current.session.create({
+            agent: agent(),
+            ...(model ? { model } : {}),
+            ...(location ? { location: { directory: location } } : {}),
+          })
+        ).id
+      if (!existing) {
+        await current.session.rename({ sessionID, title: titleFromText(text) })
+        if (!location) setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
+      }
+      await current.session.setPermission({
+        sessionID,
+        permission: permissionMode(permissionModeId()).rules,
+        directory: location ?? selectedSession()?.location?.directory,
+      })
+      forgetRun(sessionID)
+      pendingPrompts.add({ id, sessionID, text, files, queued })
+      setStreamedChars(0)
+      if (!keepDraft) {
+        setPrompt("")
+        setAttachments([])
+      }
+      try {
+        await current.session.prompt({
+          sessionID,
+          id,
+          text: expandPastes(text),
+          ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
+          delivery: "steer",
+        })
+      } catch (cause) {
+        pendingPrompts.remove(id)
+        throw cause
+      }
+      return sessionID
+    }, t("Message sent"))
+  }
+
+  /** Resends the prompt that opened a failed turn, leaving whatever is typed in the composer alone. */
+  const retryTurn = (messageID: string) => {
+    const message = activeMessages()?.find((item) => item.id === messageID)
+    if (message?.type !== "user") return
+    const text = (message as { text?: string }).text ?? ""
+    const files = ((message as { files?: Array<{ uri: string; name?: string }> }).files ?? []).map((file) => ({
+      uri: file.uri,
+      name: file.name ?? file.uri,
+    }))
+    if (chatView()) return sendChat(text, files, true)
+    submitPrompt(text, files, true)
   }
 
   const send = () => {
@@ -2224,49 +2288,7 @@ export const App: Component = () => {
       return
     }
 
-    const queued = generating()
-    const id = messageID()
-    void run(async (current) => {
-      const model = selectedModel()
-      const location = targetDirectory()
-      const existing = selected()
-      const sessionID =
-        existing ??
-        (
-          await current.session.create({
-            agent: agent(),
-            ...(model ? { model } : {}),
-            ...(location ? { location: { directory: location } } : {}),
-          })
-        ).id
-      if (!existing) {
-        await current.session.rename({ sessionID, title: titleFromText(text) })
-        if (!location) setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
-      }
-      await current.session.setPermission({
-        sessionID,
-        permission: permissionMode(permissionModeId()).rules,
-        directory: location ?? selectedSession()?.location?.directory,
-      })
-      forgetRun(sessionID)
-      pendingPrompts.add({ id, sessionID, text, files, queued })
-      setStreamedChars(0)
-      setPrompt("")
-      setAttachments([])
-      try {
-        await current.session.prompt({
-          sessionID,
-          id,
-          text: expandPastes(text),
-          ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-          delivery: "steer",
-        })
-      } catch (cause) {
-        pendingPrompts.remove(id)
-        throw cause
-      }
-      return sessionID
-    }, t("Message sent"))
+    submitPrompt(text, files)
   }
 
   const commitChanges = () => {
@@ -2530,6 +2552,7 @@ export const App: Component = () => {
               pending={pendingForSession()}
               onEditUser={editMessage}
               onForkUser={forkSession}
+              onRetry={retryTurn}
             />
           </Show>
           <Show when={!mobileRemote() || mobileScreen() === "session"}>

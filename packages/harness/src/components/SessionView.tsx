@@ -35,6 +35,8 @@ type SessionViewProps = {
   onEditUser: (messageID: string, text: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
   onForkUser?: (messageID: string) => void
+  /** Resends the prompt whose turn failed, with the same model; only the last turn offers it. */
+  onRetry?: (messageID: string) => void
 }
 
 /** Images and file names attached to a prompt, shown above the prompt's text. */
@@ -470,6 +472,7 @@ const AssistantMessage: Component<{
   showTools: boolean
   showRole: boolean
   toolRuns: ToolRuns
+  onRetry?: () => void
 }> = (props) => {
   const segments = () => assistantSegments(props.message, props.showTools, props.toolRuns)
   return (
@@ -506,6 +509,11 @@ const AssistantMessage: Component<{
                   <div class="fc-message-error-detail" title={error().message}>
                     {errorDetail(error().message)}
                   </div>
+                  <Show when={props.onRetry}>
+                    <button class="fc-button fc-message-retry" type="button" onClick={() => props.onRetry?.()}>
+                      {t("Retry")}
+                    </button>
+                  </Show>
                 </div>
               }
             >
@@ -530,6 +538,15 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       ?.writeText(text)
       .then(() => toast(t("Copied"), "success"))
       .catch(() => undefined)
+  }
+
+  // Only the session's last turn can be retried: resending an older prompt would append it at the end.
+  const retryFor = (index: number) => {
+    const list = props.messages ?? []
+    if (!props.onRetry || props.busy || index !== list.length - 1) return undefined
+    const user = list[turnStart(list, index) - 1]
+    if (user?.type !== "user") return undefined
+    return () => props.onRetry?.(user.id)
   }
 
   const turnMeta = (index: number) => {
@@ -864,6 +881,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                             (fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant")
                           }
                           toolRuns={toolRuns()}
+                          onRetry={retryFor(fullIndex(index()))}
                         />
                         <Show when={isTurnEnd(fullIndex(index()))}>
                           <TurnFooter
