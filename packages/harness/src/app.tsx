@@ -10,7 +10,7 @@ import type {
   SessionMessageAssistant,
   SessionMessageInfo,
 } from "./engine-types"
-import { createClient, invalidateLegacyHistory, probeServer, resolveServerUrl } from "./client"
+import { createClient, invalidateLegacyHistory, probeEngineProfile, probeServer, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
@@ -244,6 +244,12 @@ export const App: Component = () => {
     return { ...result, blocked: (await probeServer(url)) === "blocked" }
   })
   const ready = () => health()?.healthy === true
+  // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
+  // stock OpenCode CLI, whose extras (Copilot sign-in, permission modes, memory) are missing.
+  const [engineProfile] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    (url) => probeEngineProfile(url),
+  )
 
   createEffect(() => {
     const timer = setInterval(() => {
@@ -2777,6 +2783,7 @@ export const App: Component = () => {
         displayName={displayName()}
         serverInput={serverInput()}
         serverStatus={serverStatus()}
+        engineProfile={engineProfile()}
         models={modelList()}
         modelKey={modelKey()}
         showTools={showTools()}
@@ -2849,6 +2856,7 @@ export const App: Component = () => {
         }}
         serverHealthy={health()?.healthy}
         serverBlocked={health()?.blocked === true}
+        engineProfile={engineProfile()}
         serverInput={serverInput()}
         onServerInput={setServerInput}
         onConnect={() => {
