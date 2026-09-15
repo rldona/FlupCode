@@ -56,6 +56,7 @@ select:focus-visible,
 }
 
 .fc-app {
+  position: relative;
   display: flex;
   height: 100%;
   background: var(--fc-bg);
@@ -157,6 +158,29 @@ select:focus-visible,
   padding: 0;
   border-right: none;
   overflow: hidden;
+}
+
+/* Revealed by hovering its toggle: it floats over the content instead of resizing the layout, and
+   leaves when the pointer and the focus do. It runs the full height, like the pinned panel. */
+.fc-sidebar-peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 60;
+  box-shadow: 0 0 48px rgb(0 0 0 / 0.45);
+}
+
+/* The top bar stays above a peek so the toggle that opened it can still be clicked to pin it, and
+   the brand row it covers goes away: the top bar already shows those Chat / Code tabs. */
+.fc-app-sidebar-peek .fc-topbar,
+.fc-app-context-peek .fc-topbar {
+  position: relative;
+  z-index: 61;
+}
+
+.fc-sidebar-peek .fc-sidebar-brand {
+  visibility: hidden;
 }
 
 .fc-sidebar-top {
@@ -3483,6 +3507,23 @@ button.fc-status {
   flex-shrink: 0;
   display: flex;
   border-left: 1px solid var(--fc-border);
+}
+
+/* Same peek as the sidebar, from the right edge: full height, over the content instead of resizing
+   the layout, with the top bar above it so its toggle stays clickable. */
+.fc-rightaside-peek {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  z-index: 60;
+  background: var(--fc-bg);
+  box-shadow: 0 0 48px rgb(0 0 0 / 0.45);
+}
+
+/* Its own content keeps clear of that top bar: nothing of the panel is hidden behind it. */
+.fc-rightaside-peek .fc-rightaside-body {
+  padding-top: calc(52px + var(--fc-space-5));
 }
 
 .fc-rightaside-body {

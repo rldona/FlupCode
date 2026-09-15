@@ -32,6 +32,7 @@ import {
 import { promptHistory, recordPrompt } from "./prompt-history"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "./model-switch"
 import { hasModel, replacementModel } from "./model-catalog"
+import { createPanelPeek } from "./panel-peek"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
 import { pendingPrompts } from "./pending-prompts"
@@ -129,6 +130,9 @@ export const App: Component = () => {
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, false))
+  // Hovering a panel's toggle reveals it without pinning it; clicking is what pins. See panel-peek.ts.
+  const sidebarPeek = createPanelPeek()
+  const contextPeek = createPanelPeek()
   const [contextWidth, setContextWidth] = createSignal(
     readStorage(STORAGE_KEYS.contextPanelWidth, CONTEXT_PANEL_WIDTH.default),
   )
@@ -1546,17 +1550,22 @@ export const App: Component = () => {
   }
 
   const toggleSidebar = () => {
+    // The pointer is on the toggle: drop the peek so collapsing lands at once.
+    sidebarPeek.clear()
     const next = !collapsed()
     setCollapsed(next)
     writeStorage(STORAGE_KEYS.sidebarCollapsed, next)
   }
 
   const toggleContextPanel = () => {
+    contextPeek.clear()
     const next = !contextHidden()
     setContextHidden(next)
     writeStorage(STORAGE_KEYS.contextPanelHidden, next)
   }
-  const contextPanelShown = () => !!selectedSession() && !contextHidden()
+  const contextPanelShown = () => contextPanelPinned() || contextPeek.peeking()
+  /** Pinned open: the layout reserves its width, unlike a peek, which floats over the content. */
+  const contextPanelPinned = () => !!selectedSession() && !contextHidden()
   const updateContextWidth = (width: number) => {
     const next = Math.max(CONTEXT_PANEL_WIDTH.min, Math.min(CONTEXT_PANEL_WIDTH.max, Math.round(width)))
     setContextWidth(next)
@@ -2439,13 +2448,18 @@ export const App: Component = () => {
   return (
     <div
       class="fc-app"
-      classList={{ "fc-mobile-remote": mobileRemote() }}
+      classList={{
+        "fc-mobile-remote": mobileRemote(),
+        // A peek floats over the content, so the top bar has to stay above it to keep its toggle usable.
+        "fc-app-sidebar-peek": sidebarPeek.peeking(),
+        "fc-app-context-peek": contextPeek.peeking(),
+      }}
       style={{
         "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
         "--fc-content-right":
           mobileRemote() || chatView()
             ? "0px"
-            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
+            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelPinned() ? contextWidth() : 0)}px`,
       }}
     >
       <Show when={!mobileRemote()}>
@@ -2454,6 +2468,7 @@ export const App: Component = () => {
         </Show>
         <Sidebar
           collapsed={collapsed()}
+          peek={sidebarPeek}
           width={sidebarWidth()}
           displayName={displayName()}
           view={view()}
@@ -2537,11 +2552,14 @@ export const App: Component = () => {
             onBack={goBack}
             onForward={goForward}
             onToggleSidebar={toggleSidebar}
+            sidebarPeek={sidebarPeek}
             view={view()}
             onViewChange={changeView}
             sidebarCollapsed={collapsed()}
             contextPanel={
-              selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
+              selectedSession() && !chatView()
+                ? { open: !contextHidden(), onToggle: toggleContextPanel, peek: contextPeek }
+                : undefined
             }
             onOpenPalette={() => setPaletteOpen(true)}
             onTogglePanel={togglePanel}
@@ -2838,6 +2856,8 @@ export const App: Component = () => {
             todos={todos()}
             onClearTodos={clearTodos}
             width={contextWidth()}
+            pinned={contextPanelPinned()}
+            peek={contextPeek}
             onResize={updateContextWidth}
             onHide={toggleContextPanel}
             serverUrl={serverUrl()}
