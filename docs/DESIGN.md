@@ -119,9 +119,9 @@ Built on `@opencode-ai/ui` primitives where possible.
 Theming has two independent axes, both applied to `<html>`:
 
 - **Mode** (light/dark/system) is the `.fc-dark` class, stored under `flupcode.theme`.
-- **Palette** is the `data-fc-theme` attribute, stored under `flupcode.colorTheme`. The default
-  palette has no attribute; `data-fc-theme="landing"` selects the navy/violet palette taken from
-  `packages/landing/styles.css`.
+- **Palette** is the `data-fc-theme` attribute, stored under `flupcode.colorTheme`. The FlupCode
+  palette (navy/violet, taken from `packages/landing/styles.css`) is the default and has no
+  attribute; `data-fc-theme="classic"` selects the original neutral grey/blue palette.
 
 Each palette defines a light and a dark variant (`.fc-dark`), so the two axes multiply. Palette
 blocks in `tokens.css` come after `.fc-dark` and must be overridden by a
