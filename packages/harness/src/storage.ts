@@ -36,6 +36,7 @@ export const STORAGE_KEYS = {
   view: "flupcode.view",
   splitPanes: "flupcode.splitPanes",
   theme: "flupcode.theme",
+  colorTheme: "flupcode.colorTheme",
   routines: "flupcode.routines",
   onboarded: "flupcode.onboarded",
   locale: "flupcode.locale",

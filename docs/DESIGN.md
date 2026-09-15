@@ -48,8 +48,10 @@ Regions: **window chrome**, **sidebar**, **conversation/home canvas**, **compose
 
 ## 3. Design tokens
 
-Tokens are expressed as CSS custom properties and mapped onto the upstream theme engine
-(`@opencode-ai/ui/theme`) so themes and light/dark switching keep working.
+Tokens are expressed as CSS custom properties. The harness owns them under the `--fc-*` prefix
+(see `packages/harness/src/styles/tokens.css`) and does not render upstream UI components, so a
+palette change re-skins the whole app. The `--oh-*` names below are the historical draft that the
+`--fc-*` tokens replaced; treat the values as illustrative.
 
 ### Colour
 
@@ -114,6 +116,17 @@ Built on `@opencode-ai/ui` primitives where possible.
 
 ## 6. Theming
 
-Keep the upstream theme contract intact. FlupCode supplies a default theme plus any additional
-harness-specific overrides. Users can still install community themes; our tokens are the fallback
-layer, not a replacement for the theme engine.
+Theming has two independent axes, both applied to `<html>`:
+
+- **Mode** (light/dark/system) is the `.fc-dark` class, stored under `flupcode.theme`.
+- **Palette** is the `data-fc-theme` attribute, stored under `flupcode.colorTheme`. The default
+  palette has no attribute; `data-fc-theme="landing"` selects the navy/violet palette taken from
+  `packages/landing/styles.css`.
+
+Each palette defines a light and a dark variant (`.fc-dark`), so the two axes multiply. Palette
+blocks in `tokens.css` come after `.fc-dark` and must be overridden by a
+`[data-fc-theme="…"].fc-dark` block for every token they set.
+
+Settings exposes both axes: **Mode** and **Theme**. `index.html` applies the saved pair before the
+first paint to avoid a flash, so its background colours are duplicated there by design and must stay
+in sync with `--fc-bg`.

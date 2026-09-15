@@ -33,6 +33,15 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     }).catch(() => undefined)
   }
 
+  // xterm needs concrete colours, so read the palette tokens the app already applies to <html>.
+  const xtermTheme = () => {
+    const styles = getComputedStyle(document.documentElement)
+    return {
+      background: styles.getPropertyValue("--fc-terminal-bg").trim(),
+      foreground: styles.getPropertyValue("--fc-terminal-fg").trim(),
+    }
+  }
+
   onMount(() => {
     if (!container) return
     term = new XTerm({
@@ -40,8 +49,13 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
       cursorBlink: true,
       fontSize: 12,
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      theme: { background: "#101014", foreground: "#e6e6e6" },
+      theme: xtermTheme(),
     })
+    // The mode class and the palette attribute are the app's only signals for a theme change.
+    const themeObserver = new MutationObserver(() => {
+      if (term) term.options.theme = xtermTheme()
+    })
+    themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["class", "data-fc-theme"] })
     fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)
@@ -97,6 +111,7 @@ export const TerminalPanel: Component<TerminalPanelProps> = (props) => {
     onCleanup(() => {
       disposed = true
       observer.disconnect()
+      themeObserver.disconnect()
       socket?.close()
       if (ptyID)
         void engineFetch(`${base()}/pty/${ptyID}${query()}`, { method: "DELETE" }).catch(() => undefined)
