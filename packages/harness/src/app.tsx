@@ -10,7 +10,14 @@ import type {
   SessionMessageAssistant,
   SessionMessageInfo,
 } from "./engine-types"
-import { createClient, invalidateLegacyHistory, probeEngineProfile, probeServer, resolveServerUrl } from "./client"
+import {
+  createClient,
+  engineTargetVersion,
+  invalidateLegacyHistory,
+  probeEngineProfile,
+  probeServer,
+  resolveServerUrl,
+} from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
@@ -250,6 +257,12 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     (url) => probeEngineProfile(url),
   )
+  // `/global/health` reports the engine's own version. "local" is a source build (FlupCode's own),
+  // so only a released version is compared against the one this UI was generated from.
+  const engineVersionMismatch = () => {
+    const reported = health()?.version
+    return !!reported && reported !== "local" && !!engineTargetVersion && reported !== engineTargetVersion
+  }
 
   createEffect(() => {
     const timer = setInterval(() => {
@@ -2784,6 +2797,8 @@ export const App: Component = () => {
         serverInput={serverInput()}
         serverStatus={serverStatus()}
         engineProfile={engineProfile()}
+        engineVersion={health()?.version}
+        engineVersionMismatch={engineVersionMismatch()}
         models={modelList()}
         modelKey={modelKey()}
         showTools={showTools()}

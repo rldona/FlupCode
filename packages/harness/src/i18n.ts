@@ -264,6 +264,11 @@ const ES: Record<string, string> = {
   "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.":
     "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (inicio de sesión de GitHub Copilot, modos de permisos, memoria) no están disponibles.",
   "How to run FlupCode's engine": "Cómo ejecutar el engine de FlupCode",
+  Engine: "Engine",
+  "Source build": "Compilación local",
+  Unknown: "Desconocido",
+  "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.":
+    "Este engine ({version}) no coincide con la versión para la que se generó esta build de FlupCode ({target}). Actualiza el engine o FlupCode.",
   "The engine is running, but the browser refused the connection. Start it with the command below and connect again.":
     "El engine está en marcha, pero el navegador rechazó la conexión. Arrácalo con el comando de abajo y vuelve a conectar.",
   "FlupCode needs the OpenCode engine. Install it once, then start it:":
