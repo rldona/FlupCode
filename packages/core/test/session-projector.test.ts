@@ -11,7 +11,10 @@ import { Project } from "@opencode-ai/core/project"
 import { ProjectTable } from "@opencode-ai/core/project/sql"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { AbsolutePath } from "@opencode-ai/core/schema"
+import { SessionV1 } from "@opencode-ai/core/v1/session"
 import { SessionV2 } from "@opencode-ai/core/session"
+import { MemoryTable, MemoryUseTable } from "@opencode-ai/core/memory/sql"
+import { Memory } from "@opencode-ai/schema/memory"
 import { SessionEvent } from "@opencode-ai/core/session/event"
 import { SessionMessage } from "@opencode-ai/core/session/message"
 import { Prompt } from "@opencode-ai/core/session/prompt"
@@ -75,6 +78,82 @@ describe("SessionProjector", () => {
       expect(yield* db.select({ directory: SessionTable.directory }).from(SessionTable).get()).toEqual({
         directory: "/project/subdir",
       })
+    }),
+  )
+
+  it.effect("removes session-scoped memories and usage when the session is deleted", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .run()
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: sessionID,
+          project_id: Project.ID.global,
+          slug: "test",
+          directory: "/project",
+          title: "test",
+          version: "test",
+        })
+        .run()
+      const sessionMemory = Memory.ID.make("mem_session_scope")
+      const projectMemory = Memory.ID.make("mem_project_scope")
+      yield* db
+        .insert(MemoryTable)
+        .values([
+          {
+            id: sessionMemory,
+            scope: "session",
+            scope_id: sessionID,
+            kind: "fact",
+            title: "Session note",
+            content: "Only for this session",
+            tags: [],
+            source: "explicit_user",
+            status: "active",
+            confidence: 0.95,
+            importance: 4,
+            created_by: "user",
+            fingerprint: "fp-session",
+          },
+          {
+            id: projectMemory,
+            scope: "project",
+            scope_id: Project.ID.global,
+            kind: "convention",
+            title: "Project note",
+            content: "Keep across sessions",
+            tags: [],
+            source: "explicit_user",
+            status: "active",
+            confidence: 0.95,
+            importance: 4,
+            created_by: "user",
+            fingerprint: "fp-project",
+          },
+        ])
+        .run()
+      yield* db.insert(MemoryUseTable).values({ session_id: sessionID, memory_id: projectMemory, score: 0.5 }).run()
+
+      const events = yield* EventV2.Service
+      yield* events.publish(SessionV1.Event.Deleted, {
+        sessionID,
+        info: {
+          id: sessionID,
+          slug: "test",
+          projectID: Project.ID.global,
+          directory: "/project",
+          title: "test",
+          version: "test",
+          time: { created: 0, updated: 0 },
+        },
+      })
+
+      expect(yield* db.select({ id: MemoryTable.id }).from(MemoryTable).all()).toEqual([{ id: projectMemory }])
+      expect(yield* db.select().from(MemoryUseTable).all()).toHaveLength(0)
     }),
   )
 
