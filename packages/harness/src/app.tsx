@@ -1564,7 +1564,7 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.contextPanelHidden, next)
   }
   const contextPanelShown = () => contextPanelPinned() || contextPeek.peeking()
-  /** Pinned open: the layout reserves its width, unlike a peek, which floats over the content. */
+  /** Pinned open by the reader, as opposed to revealed by hovering its toggle. */
   const contextPanelPinned = () => !!selectedSession() && !contextHidden()
   const updateContextWidth = (width: number) => {
     const next = Math.max(CONTEXT_PANEL_WIDTH.min, Math.min(CONTEXT_PANEL_WIDTH.max, Math.round(width)))
@@ -2452,11 +2452,12 @@ export const App: Component = () => {
         "fc-mobile-remote": mobileRemote(),
       }}
       style={{
-        "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
+        // A peek takes the collapsed panel's place, so the content shifts for it like a pinned one.
+        "--fc-content-left": (collapsed() && !sidebarPeek.peeking()) || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
         "--fc-content-right":
           mobileRemote() || chatView()
             ? "0px"
-            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelPinned() ? contextWidth() : 0)}px`,
+            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
       }}
     >
       <Show when={!mobileRemote()}>
@@ -2853,7 +2854,6 @@ export const App: Component = () => {
             todos={todos()}
             onClearTodos={clearTodos}
             width={contextWidth()}
-            pinned={contextPanelPinned()}
             peek={contextPeek}
             onResize={updateContextWidth}
             onHide={toggleContextPanel}
