@@ -23,15 +23,40 @@ learned or that you asked it to keep. Memory never overrides instructions or per
 
 ## Scopes
 
-| Scope     | Applies to                | Example                                   |
-| --------- | ------------------------- | ----------------------------------------- |
-| `global`  | you, across every project | `I prefer concise commit messages.`       |
-| `project` | one repository/worktree   | `This project uses pnpm.`                 |
-| `agent`   | one agent in a project    | `The test agent uses Playwright.`         |
-| `session` | the current session only  | `During this session we are migrating X.` |
+Memory lives in the engine's database (`opencode.db` under the engine's data directory), not in a
+session and not in the repository. One engine has a single memory store, shared by every session and
+every project it opens. Each memory carries a scope and, in the database, a `scope_id` that decides
+which turns may retrieve it:
+
+| Scope     | Applies to                | `scope_id`        | Example                                   |
+| --------- | ------------------------- | ----------------- | ----------------------------------------- |
+| `global`  | you, across every project | `global`          | `I prefer concise commit messages.`       |
+| `project` | one repository            | project ID        | `This project uses pnpm.`                 |
+| `agent`   | one agent in a project    | `projectID:agent` | `The test agent uses Playwright.`         |
+| `session` | the current session only  | session ID        | `During this session we are migrating X.` |
 
 Global and project memories are shared by every agent. Agent memories are private to that agent.
-Session memories are never promoted automatically; you can promote one from the manager.
+Session memories are never promoted automatically and are deleted together with their session.
+
+### Persistence
+
+- **Across sessions.** Memory is stored in the engine's database, not in the transcript, so it
+  survives restarts and new sessions.
+- **Across projects.** `global` memories apply to every project on the engine. `project` and `agent`
+  memories are tied to one repository.
+- **Repository, not path.** The project ID is derived from the git remote
+  (`git-remote:<host>/<owner>/<repo>`), then a cached `.opencode` value, then the root commit. Moving
+  or re-cloning the same repository keeps its project memories.
+- **Retrieval per turn.** A turn sees the union of the memories that apply to it: global + the
+  current project + the current agent + the current session, ranked and bounded by
+  `max_injected` / `max_tokens`.
+- **Session cleanup.** Deleting a session removes its `session`-scoped memories and its memory-usage
+  records. Memories in other scopes that the session used are kept.
+- **One engine.** Cross-device sync is not implemented, so two engines working on the same repository
+  do not share memories.
+
+> Two different repositories that share the same origin URL (for example mirrors or forks pointing at
+> the same remote) resolve to the same project ID and therefore share `project` memories.
 
 ## How FlupCode learns
 
