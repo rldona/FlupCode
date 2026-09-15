@@ -155,6 +155,7 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 
 | Document | Purpose |
 | --- | --- |
+| [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) | First run: install the engine per platform, start it and fix a blocked connection |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the monorepo fits together and where FlupCode lives |
 | [docs/USAGE.md](docs/USAGE.md) | Install, run, keyboard shortcuts and troubleshooting |
 | [docs/UPSTREAM.md](docs/UPSTREAM.md) | Branch model, syncing with `anomalyco/opencode` |
