@@ -10,8 +10,18 @@ export type EngineTransport = {
   socket: (url: string) => EngineSocket
 }
 
+/**
+ * A hosted page (https origin) reaching a loopback engine is subject to the browser's mixed-content
+ * and Local Network Access rules. Annotating the request as loopback lets Chromium exempt it;
+ * engines that do not know the option ignore it.
+ */
+function loopback(init: RequestInit | undefined): RequestInit {
+  const extended: RequestInit & { targetAddressSpace: "loopback" } = { ...init, targetAddressSpace: "loopback" }
+  return extended
+}
+
 const local: EngineTransport = {
-  fetch: (input, init) => globalThis.fetch(input, init),
+  fetch: (input, init) => globalThis.fetch(input, loopback(init)),
   socket: (url) => new WebSocket(url),
 }
 
