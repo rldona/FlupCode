@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import type { ModelInfo } from "../engine-types"
 import { t } from "../i18n"
+import { isDeprecated } from "../model-catalog"
 
 type ModelPickerProps = {
   open: boolean
@@ -36,6 +37,8 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
         const aFav = props.favorites.includes(key(a)) ? 0 : 1
         const bFav = props.favorites.includes(key(b)) ? 0 : 1
         if (aFav !== bFav) return aFav - bFav
+        // Models on their way out stay pickable, but below the ones still being released.
+        if (isDeprecated(a) !== isDeprecated(b)) return isDeprecated(a) ? 1 : -1
         return a.name.localeCompare(b.name)
       }),
     }))
@@ -82,7 +85,12 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
                         return (
                           <li class="fc-model-row" classList={{ "fc-model-row-active": selected() }}>
                             <button class="fc-model-main" type="button" onClick={() => props.onSelect(model.providerID, model.id)}>
-                              <span class="fc-model-name">{model.name}</span>
+                              <span class="fc-model-title">
+                                <span class="fc-model-name">{model.name}</span>
+                                <Show when={isDeprecated(model)}>
+                                  <span class="fc-model-badge">{t("Deprecated")}</span>
+                                </Show>
+                              </span>
                               <span class="fc-model-id">{model.id}</span>
                             </button>
                             <button
