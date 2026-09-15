@@ -2824,6 +2824,7 @@ export const App: Component = () => {
         engineProfile={engineProfile()}
         engineVersion={health()?.version}
         engineVersionMismatch={engineVersionMismatch()}
+        running={generating()}
         models={modelList()}
         modelKey={modelKey()}
         showTools={showTools()}

@@ -531,12 +531,18 @@ export const Composer: Component<ComposerProps> = (props) => {
               models={props.models}
               selectedKey={props.modelKey}
               favorites={props.favorites}
+              disabled={props.generating}
               onSelect={props.onModelChange}
               onMore={props.onOpenModelPicker}
             />
             {/* Models without effort levels (here) show no menu, rather than a disabled one. */}
             <Show when={props.variants.length > 0}>
-              <EffortMenu value={props.variantKey} variants={props.variants} onChange={props.onVariantChange} />
+              <EffortMenu
+                value={props.variantKey}
+                variants={props.variants}
+                disabled={props.generating}
+                onChange={props.onVariantChange}
+              />
             </Show>
             <Show when={!chat()}>
               <ContextMeter

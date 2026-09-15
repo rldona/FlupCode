@@ -185,6 +185,7 @@ const ES: Record<string, string> = {
   On: "Activado",
   Off: "Desactivado",
   Conversation: "Conversación",
+  "Locked while a session is running.": "Bloqueado mientras hay una sesión en marcha.",
   "Show tool steps": "Mostrar pasos de herramientas",
   Yes: "Sí",
   No: "No",
