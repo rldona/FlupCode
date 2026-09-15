@@ -1779,7 +1779,11 @@ button.fc-status {
   text-decoration: underline;
 }
 
+/* The running status line is the chat's master line, not one more transcript row: extra air
+   separates it from the last message instead of letting it blend in. */
 .fc-message-pending {
+  margin-top: var(--fc-space-3);
+  padding-top: var(--fc-space-4);
   color: var(--fc-text-muted);
   font-size: 13px;
 }

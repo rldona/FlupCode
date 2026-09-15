@@ -168,7 +168,7 @@ export const App: Component = () => {
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
   )
   const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, SIDEBAR_WIDTH_DEFAULT))
-  const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "build"))
+  const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "plan"))
   const [permissionModeId, setPermissionModeId] = createSignal(readStorage(STORAGE_KEYS.permissionMode, "auto"))
   const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
   const [workspaceWidth, setWorkspaceWidth] = createSignal(

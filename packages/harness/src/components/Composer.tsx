@@ -11,6 +11,7 @@ import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { stepHistory } from "../prompt-history"
 import { dictationAvailable, startDictation } from "../dictation"
+import { primaryAgents } from "../agents"
 import type { AppView } from "../chat"
 
 type ComposerProps = {
@@ -69,10 +70,6 @@ type ComposerProps = {
   onPermissionModeChange: (id: string) => void
 }
 
-function primaryAgents(agents: AgentInfo[]) {
-  return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
-}
-
 export const Composer: Component<ComposerProps> = (props) => {
   let fileInput: HTMLInputElement | undefined
   let input: HTMLTextAreaElement | undefined
@@ -123,11 +120,19 @@ export const Composer: Component<ComposerProps> = (props) => {
     onCleanup(() => window.removeEventListener("keydown", onKey))
   })
 
-  // The input grows with its text up to a limit, like Claude Code's.
+  // The input grows with its text up to a limit, like Claude Code's. A suggestion lives in the
+  // placeholder, which `scrollHeight` ignores, so measure it through the field before restoring.
   createEffect(() => {
-    props.value
+    const value = props.value
+    const suggestion = props.suggestion
     if (!input) return
     input.style.height = "auto"
+    if (!value && suggestion) {
+      input.value = suggestion
+      input.style.height = `${Math.min(input.scrollHeight, 240)}px`
+      input.value = value
+      return
+    }
     input.style.height = `${Math.min(input.scrollHeight, 240)}px`
   })
 
