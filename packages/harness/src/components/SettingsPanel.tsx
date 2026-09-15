@@ -9,6 +9,7 @@ import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize 
 type SettingsPanelProps = {
   open: boolean
   theme: string
+  colorTheme: string
   locale: Locale
   displayName: string
   serverInput: string
@@ -25,6 +26,7 @@ type SettingsPanelProps = {
   notifications: boolean
   paletteKey: string
   onTheme: (value: string) => void
+  onColorTheme: (value: string) => void
   onLocale: (value: Locale) => void
   onDisplayName: (value: string) => void
   onServerInput: (value: string) => void
@@ -83,7 +85,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           <section class="fc-settings-section">
             <h3 class="fc-settings-title">{t("Appearance")}</h3>
             <label class="fc-settings-row">
-              <span>{t("Theme")}</span>
+              <span>{t("Mode")}</span>
               <select
                 class="fc-toolbar-select"
                 value={props.theme}
@@ -92,6 +94,17 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <option value="system">{t("System")}</option>
                 <option value="light">{t("Light")}</option>
                 <option value="dark">{t("Dark")}</option>
+              </select>
+            </label>
+            <label class="fc-settings-row">
+              <span>{t("Theme")}</span>
+              <select
+                class="fc-toolbar-select"
+                value={props.colorTheme}
+                onChange={(event) => props.onColorTheme(event.currentTarget.value)}
+              >
+                <option value="default">{t("Default")}</option>
+                <option value="landing">{t("Landing")}</option>
               </select>
             </label>
             <label class="fc-settings-row">

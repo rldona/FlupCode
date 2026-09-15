@@ -51,9 +51,19 @@
 }
 
 
-/* FlupCode design tokens. See docs/DESIGN.md. */
+/* FlupCode design tokens. See docs/DESIGN.md.
+
+   Two independent axes:
+   - Mode: the `.fc-dark` class on <html>, toggled by the app (light/dark/system).
+   - Palette: the `data-fc-theme` attribute on <html>. No attribute is the default (neutral)
+     palette; `data-fc-theme="landing"` is the navy/violet palette of the landing page.
+
+   Order matters: palette blocks come after `.fc-dark` so a palette overrides the mode defaults.
+   Every token set by a palette must also be set by its `.fc-dark` block, otherwise the light
+   palette would win in dark mode. */
 
 :root {
+  /* Default palette (light). */
   --fc-bg: #ffffff;
   --fc-bg-elevated: #ffffff;
   --fc-sidebar: #f7f7f7;
@@ -62,9 +72,28 @@
   --fc-text-muted: #6b6b6b;
   --fc-accent: #2f6fed;
   --fc-accent-soft: #e7eeff;
+  --fc-on-accent: #ffffff;
   --fc-danger: #b42318;
   --fc-success: #027a48;
   --fc-success-soft: #12b76a;
+
+  /* Semantic accents. Shared by both modes in the default palette, like the hard-coded values
+     they replace. `*-bg` tokens are the tinted backgrounds mixed at a low percentage. */
+  --fc-warning: #d9a441;
+  --fc-favorite: #f5b80c;
+  --fc-diff-add: #7ee2a8;
+  --fc-diff-del: #f19a90;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #7d8799;
+  --fc-syn-string: #7ee2a8;
+  --fc-syn-number: #d9a441;
+  --fc-syn-keyword: #e06c9f;
+  --fc-syn-const: #61b0ff;
+  --fc-code-inline: #e0a370;
+  --fc-terminal-bg: #101014;
+  --fc-terminal-fg: #e6e6e6;
+  --fc-bg-subtle: rgba(127, 127, 127, 0.15);
 
   --fc-radius-sm: 8px;
   --fc-radius-md: 12px;
@@ -107,6 +136,74 @@
   --fc-danger: #f97066;
   --fc-success: #75e0a7;
   --fc-success-soft: #12b76a;
+}
+
+/* Landing palette: the navy/violet colours of the landing page (packages/landing/styles.css),
+   adapted to the harness in both modes. Keep the light and dark blocks in sync token by token. */
+[data-fc-theme="landing"] {
+  --fc-bg: #ffffff;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #f5f6fb;
+  --fc-border: #e2e6f0;
+  --fc-text: #12142a;
+  --fc-text-muted: #5b6075;
+  --fc-accent: #3563d6;
+  --fc-accent-soft: #e8edfb;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #b42318;
+  --fc-success: #0f7a4a;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #8a5a00;
+  --fc-favorite: #b7791f;
+  --fc-diff-add: #0f7a4a;
+  --fc-diff-del: #b42318;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #6b7280;
+  --fc-syn-string: #0f7a4a;
+  --fc-syn-number: #8a5a00;
+  --fc-syn-keyword: #7c3aed;
+  --fc-syn-const: #0a66c2;
+  --fc-code-inline: #6d28d9;
+  --fc-terminal-bg: #05060b;
+  --fc-terminal-fg: #eef0f7;
+  --fc-bg-subtle: rgba(18, 20, 42, 0.05);
+}
+
+[data-fc-theme="landing"].fc-dark {
+  --fc-bg: #05060b;
+  --fc-bg-elevated: #0f121b;
+  --fc-sidebar: #0a0c14;
+  --fc-border: #1f2436;
+  --fc-text: #eef0f7;
+  --fc-text-muted: #8e94ab;
+  --fc-accent: #5b8cff;
+  --fc-accent-soft: #16223f;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #f19a90;
+  --fc-success: #7ee2a8;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #f5b80c;
+  --fc-favorite: #f5b80c;
+  --fc-diff-add: #7ee2a8;
+  --fc-diff-del: #f19a90;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #8e94ab;
+  --fc-syn-string: #7ee2a8;
+  --fc-syn-number: #f5b80c;
+  --fc-syn-keyword: #a78bfa;
+  --fc-syn-const: #4cc9ff;
+  --fc-code-inline: #c4b5fd;
+  --fc-terminal-bg: #05060b;
+  --fc-terminal-fg: #eef0f7;
+  --fc-bg-subtle: rgba(255, 255, 255, 0.06);
+}
+
+/* Before the app bundle loads, the inline script in index.html paints this colour, because the
+   page would otherwise flash white. Keep it in sync when the palette changes at runtime. */
+html {
+  background-color: var(--fc-bg);
 }
 
 @media (prefers-reduced-motion: reduce) {
