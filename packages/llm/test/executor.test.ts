@@ -173,8 +173,9 @@ describe("RequestExecutor", () => {
     }).pipe(
       Effect.provide(
         responsesLayer(
+          // One fresh response per attempt: a reused Response has an already-consumed body.
           Array.from(
-            { length: 3 },
+            { length: 6 },
             () =>
               new Response("rate limited", {
                 status: 429,
@@ -434,11 +435,28 @@ describe("RequestExecutor", () => {
         expect(yield* Ref.get(attempts)).toBe(2)
 
         yield* TestClock.adjust(1)
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(attempts)).toBe(3)
+
+        // Delays keep doubling (2s, 4s, 8s) until the fifth retry, then the error surfaces.
+        yield* TestClock.adjust(2_000)
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(attempts)).toBe(4)
+
+        yield* TestClock.adjust(4_000)
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(attempts)).toBe(5)
+
+        yield* TestClock.adjust(7_999)
+        yield* Effect.yieldNow
+        expect(yield* Ref.get(attempts)).toBe(5)
+
+        yield* TestClock.adjust(1)
         const error = yield* Fiber.join(fiber)
 
         expectLLMError(error)
         expect(error.reason).toMatchObject({ _tag: "ProviderInternal" })
-        expect(yield* Ref.get(attempts)).toBe(3)
+        expect(yield* Ref.get(attempts)).toBe(6)
       }).pipe(
         Effect.provide(
           countedResponsesLayer(attempts, [

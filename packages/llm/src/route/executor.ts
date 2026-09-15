@@ -33,7 +33,10 @@ export interface Interface {
 export class Service extends Context.Service<Service, Interface>()("@opencode/LLM/RequestExecutor") {}
 
 const BODY_LIMIT = 16_384
-const MAX_RETRIES = 2
+// Gateways such as OpenCode Go and Zen reject requests with transient 503 "Inference admission is
+// unavailable" errors under load; two quick retries (~1.5s) surfaced every blip as a failed turn, so
+// the budget now covers about fifteen seconds of backoff before giving up.
+const MAX_RETRIES = 5
 const BASE_DELAY_MS = 500
 const MAX_DELAY_MS = 10_000
 const REDACTED = "<redacted>"
