@@ -2,7 +2,6 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import type { AppView } from "../chat"
-import type { PanelPeek } from "../panel-peek"
 import { cssPx } from "../text-size"
 import { UNAVAILABLE_FEATURES } from "../features"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
@@ -21,10 +20,7 @@ type ProjectGroup = {
 }
 
 type SidebarProps = {
-  /** The reader collapsed it; the hover peek may still reveal it without pinning it. */
   collapsed: boolean
-  /** Revealed by hovering its toggle: floats over the content until the pointer and focus leave. */
-  peek: PanelPeek
   width: number
   displayName: string
   /** Chat lists conversations flat; Code groups sessions by project. */
@@ -210,19 +206,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   )
 
   return (
-    <Show when={!props.collapsed || props.peek.peeking()}>
+    <Show when={!props.collapsed}>
       <aside
         class="fc-sidebar"
-        classList={{
-          // A peek takes the collapsed panel's place: it must not inherit its zero width.
-          "fc-sidebar-collapsed": props.collapsed && !props.peek.peeking(),
-          "fc-sidebar-peek": props.collapsed && props.peek.peeking(),
-        }}
+        classList={{ "fc-sidebar-collapsed": props.collapsed }}
         style={{ "--fc-sidebar-width": `${props.width}px` }}
-        ref={props.peek.panel}
-        onMouseEnter={props.peek.show}
-        onMouseLeave={props.peek.hide}
-        onFocusOut={props.peek.hideUnfocused}
       >
         <div
           class="fc-sidebar-resizer"

@@ -4,7 +4,6 @@ import { MemoryInspector } from "./MemoryInspector"
 import { formatTokens } from "../metrics"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
-import type { PanelPeek } from "../panel-peek"
 
 type RightAsideProps = {
   /** The composer's context meter figures: tokens in the window, its size, and what the session spent. */
@@ -13,10 +12,6 @@ type RightAsideProps = {
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
   width: number
-  /** Pinned open by the reader; a peek instead floats over the content. */
-  pinned: boolean
-  /** Revealed by hovering its toggle: floats over the content until the pointer and focus leave. */
-  peek: PanelPeek
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
   onHide: () => void
@@ -39,15 +34,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
   const completed = () => props.todos.filter((todo) => todo.status === "completed").length
 
   return (
-    <aside
-      class="fc-rightaside"
-      classList={{ "fc-rightaside-peek": !props.pinned && props.peek.peeking() }}
-      style={{ width: `${props.width}px` }}
-      ref={props.peek.panel}
-      onMouseEnter={props.peek.show}
-      onMouseLeave={props.peek.hide}
-      onFocusOut={props.peek.hideUnfocused}
-    >
+    <aside class="fc-rightaside" style={{ width: `${props.width}px` }}>
       <div
         class="fc-rightaside-resizer"
         role="separator"
