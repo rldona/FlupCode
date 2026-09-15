@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js"
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
+import { isDeprecated } from "../model-catalog"
 
 /** A dock button with a menu that opens above it and closes on outside clicks or Escape. */
 const DockPopover: Component<{
@@ -62,6 +63,8 @@ const MenuItem: Component<{
   label: string
   icon?: JSX.Element
   hint?: string
+  /** A short marker before the label, e.g. that the model is deprecated. */
+  badge?: string
   active?: boolean
   onClick: () => void
 }> = (props) => (
@@ -74,6 +77,9 @@ const MenuItem: Component<{
   >
     <Show when={props.icon}>
       <span class="fc-dock-item-icon">{props.icon}</span>
+    </Show>
+    <Show when={props.badge}>
+      <span class="fc-dock-item-badge">{props.badge}</span>
     </Show>
     <span class="fc-dock-item-label">{props.label}</span>
     <Show when={props.hint}>
@@ -196,6 +202,7 @@ export const ModelMenu: Component<{
             {(model) => (
               <MenuItem
                 label={model.name}
+                badge={isDeprecated(model) ? t("Deprecated") : undefined}
                 hint={model.providerID}
                 active={modelKey(model) === props.selectedKey}
                 onClick={() => {

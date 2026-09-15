@@ -8,6 +8,7 @@ import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import { primaryAgents } from "../agents"
 import type { AppView } from "../chat"
 import { dictationAvailable, startDictation } from "../dictation"
+import { isDeprecated } from "../model-catalog"
 
 /**
  * The prompt dock on a phone controlling a computer, modelled on the Claude Code mobile app: a
@@ -175,10 +176,14 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
   )
   const others = createMemo(() => {
     const needle = query().trim().toLowerCase()
-    return props.models
-      .filter((model) => !featured().includes(model))
-      .filter((model) => !needle || `${model.name} ${model.id} ${model.providerID}`.toLowerCase().includes(needle))
-      .slice(0, 60)
+    return (
+      props.models
+        .filter((model) => !featured().includes(model))
+        .filter((model) => !needle || `${model.name} ${model.id} ${model.providerID}`.toLowerCase().includes(needle))
+        // Deprecated models stay pickable, but below the ones still being released (the sort is stable).
+        .sort((a, b) => (isDeprecated(a) ? 1 : 0) - (isDeprecated(b) ? 1 : 0))
+        .slice(0, 60)
+    )
   })
   const currentEffort = () => (props.variantKey ? effortLabel(props.variantKey) : t("Default"))
   const canSend = () => !props.sending && (props.value.trim().length > 0 || props.attachments.length > 0)
@@ -187,6 +192,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
     <Option
       label={model.name}
       detail={model.providerID}
+      badge={isDeprecated(model) ? t("Deprecated") : undefined}
       active={key(model) === props.modelKey}
       onClick={() => {
         props.onModelChange(model.providerID, model.id)

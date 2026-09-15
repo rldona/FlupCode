@@ -31,6 +31,7 @@ import {
 } from "./reply-suggestion"
 import { promptHistory, recordPrompt } from "./prompt-history"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "./model-switch"
+import { hasModel, replacementModel } from "./model-catalog"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
 import { pendingPrompts } from "./pending-prompts"
@@ -58,6 +59,7 @@ import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/Workspace
 import { McpManager } from "./components/McpManager"
 import { ModelPicker } from "./components/ModelPicker"
 import { ModelSwitchDialog } from "./components/ModelSwitchDialog"
+import { ModelUnavailableDock } from "./components/ModelUnavailableDock"
 import { FolderDialog } from "./components/FolderDialog"
 import { RenameDialog } from "./components/RenameDialog"
 import { permissionMode } from "./permission-modes"
@@ -912,6 +914,13 @@ export const App: Component = () => {
               }
               continue
             }
+            // The engine rebuilds its catalog from models.dev on its own schedule (and when an
+            // integration connects). The list it serves moves with it, so the picker must not keep
+            // offering the snapshot taken when the page loaded.
+            if (type === "catalog.updated") {
+              void refetchModels()
+              continue
+            }
             if (type.startsWith("permission.") || type.startsWith("question.")) {
               setActivityTick((value) => value + 1)
               publishSessionEvent({ kind: "requests" })
@@ -1095,6 +1104,38 @@ export const App: Component = () => {
   const variants = () => currentModel()?.variants ?? []
   const variantKey = () => selectedModel()?.variant
 
+  /**
+   * A session carries the model the engine reuses on its next turn. When the catalog drops it that
+   * turn fails with "Model unavailable", so say which one is gone and offer the closest live model
+   * of the same provider.
+   */
+  const missingModel = createMemo(() => {
+    const ref = selectedSession()?.model
+    if (!ref || modelList().length === 0 || hasModel(modelList(), ref)) return
+    return ref
+  })
+  const missingModelReplacement = createMemo(() => {
+    const ref = missingModel()
+    return ref ? replacementModel(ref, modelList()) : undefined
+  })
+
+  // The dock and Customize name the model of the open session, which is the one the engine will
+  // reuse: an older session, or one switched on another device, is not on the app's last pick.
+  // Adopted once per open, so a switch already on its way to the engine is never undone.
+  let syncedSession: string | undefined
+  createEffect(() => {
+    const session = selectedSession()
+    if (!session) {
+      syncedSession = undefined
+      return
+    }
+    if (session.id === syncedSession) return
+    syncedSession = session.id
+    const stored = session.model
+    if (!stored) return
+    setModelRef({ providerID: stored.providerID, id: stored.id, variant: stored.variant })
+  })
+
   createEffect(() => {
     if (modelRef()) return
     const preferred = Object.entries(modelDirectory()?.default ?? {}).find(([providerID, id]) =>
@@ -1143,7 +1184,14 @@ export const App: Component = () => {
     wideCollapsed = undefined
   })
 
-  const modelLabel = () => currentModel()?.name ?? t("Default model")
+  const modelLabel = () => {
+    const model = currentModel()
+    if (model) return model.name
+    // A ref the catalog no longer serves has no name to show, and saying "Default model" would hide
+    // which one is gone. Before the first list arrives, keep the generic label instead of an id.
+    if (modelList().length === 0) return t("Default model")
+    return modelRef()?.id ?? t("Default model")
+  }
   const modelName = (ref: { providerID: string; id: string }) =>
     modelList().find((entry) => entry.providerID === ref.providerID && entry.id === ref.id)?.name ?? ref.id
 
@@ -2650,6 +2698,17 @@ export const App: Component = () => {
           </Show>
           <Show when={!mobileRemote() || mobileScreen() === "session"}>
             <div class="fc-docks">
+              <Show when={missingModel()}>
+                {(ref) => (
+                  <ModelUnavailableDock
+                    model={ref()}
+                    replacement={missingModelReplacement()}
+                    disabled={generating()}
+                    onUse={(model) => pickModel(model.providerID, model.id)}
+                    onChoose={() => setModelPickerOpen(true)}
+                  />
+                )}
+              </Show>
               <For each={permissionData}>
                 {(request) => (
                   <PermissionDock

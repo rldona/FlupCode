@@ -753,13 +753,33 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
 }
 
+.fc-model-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+}
+
 .fc-model-name {
   font-size: var(--fc-text-sm);
   font-weight: 500;
+  min-width: 0;
   max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fc-model-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--fc-text-muted) 40%, transparent);
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .fc-model-id {
@@ -1115,6 +1135,11 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-2);
+}
+
+/* Something the reader must settle before the session can go on, e.g. a model the catalog dropped. */
+.fc-dock-warning {
+  border-color: color-mix(in srgb, var(--fc-warning) 45%, transparent);
 }
 
 .fc-dock-header {
@@ -5303,6 +5328,17 @@ button.fc-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fc-dock-item-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid color-mix(in srgb, var(--fc-text-muted) 40%, transparent);
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .fc-dock-item-hint {
