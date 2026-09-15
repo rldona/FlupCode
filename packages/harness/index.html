@@ -1,11 +1,24 @@
 <!doctype html>
-<html lang="en" style="background-color: var(--fc-bg, #ffffff)">
+<html lang="en" style="background-color: #ffffff">
   <head>
     <meta charset="utf-8" />
     <meta
       name="viewport"
       content="width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover"
     />
+    <script>
+      // Apply the saved theme before the first paint. The dark theme is otherwise applied when the
+      // app mounts, so the white fallback background flashes on reload, clearly visible in Electron.
+      ;(() => {
+        try {
+          const stored = JSON.parse(localStorage.getItem("flupcode.theme") || "null")
+          const mode = stored === "dark" || stored === "light" ? stored : "system"
+          const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
+          document.documentElement.classList.toggle("fc-dark", dark)
+          document.documentElement.style.backgroundColor = dark ? "#0f0f0f" : "#ffffff"
+        } catch {}
+      })()
+    </script>
     <meta name="theme-color" content="#ffffff" />
     <link rel="icon" href="%BASE_URL%icon-192.png" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
