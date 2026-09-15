@@ -79,6 +79,13 @@ import { engineFetch } from "./transport"
 
 type Client = ReturnType<typeof createClient>
 
+// The FlupCode palette is the default, so anything unknown falls back to it. "default" was the
+// neutral palette's id before it was renamed to "classic".
+function readColorTheme() {
+  const saved = readStorage<string>(STORAGE_KEYS.colorTheme, "flupcode")
+  return saved === "classic" || saved === "default" ? "classic" : "flupcode"
+}
+
 const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "new", descriptionKey: "New session…" },
   { name: "compact", descriptionKey: "Compact the current session" },
@@ -233,7 +240,7 @@ export const App: Component = () => {
   const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
-  const [colorTheme, setColorTheme] = createSignal(readStorage(STORAGE_KEYS.colorTheme, "default"))
+  const [colorTheme, setColorTheme] = createSignal(readColorTheme())
   const [stashOpen, setStashOpen] = createSignal(false)
   const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string }>()
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
@@ -1598,7 +1605,8 @@ export const App: Component = () => {
       const root = document.documentElement
       root.classList.toggle("fc-dark", dark)
       // The palette rides alongside the mode class, so it also survives a System mode change.
-      if (palette === "default") delete root.dataset.fcTheme
+      // The default palette needs no attribute: it is what `:root` already declares.
+      if (palette === "flupcode") delete root.dataset.fcTheme
       else root.dataset.fcTheme = palette
       // The index.html bootstrap paints this before the stylesheet loads, which is the only moment
       // the inline value is needed: `html { background-color: var(--fc-bg) }` takes over from here.

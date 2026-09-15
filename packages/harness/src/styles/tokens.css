@@ -55,45 +55,45 @@
 
    Two independent axes:
    - Mode: the `.fc-dark` class on <html>, toggled by the app (light/dark/system).
-   - Palette: the `data-fc-theme` attribute on <html>. No attribute is the default (neutral)
-     palette; `data-fc-theme="landing"` is the navy/violet palette of the landing page.
+   - Palette: the `data-fc-theme` attribute on <html>. No attribute is the FlupCode palette
+     (the default, taken from the landing page); `data-fc-theme="classic"` is the original
+     neutral grey/blue palette.
 
    Order matters: palette blocks come after `.fc-dark` so a palette overrides the mode defaults.
    Every token set by a palette must also be set by its `.fc-dark` block, otherwise the light
    palette would win in dark mode. */
 
 :root {
-  /* Default palette (light). */
+  /* FlupCode palette (light). This is the default, so it needs no attribute. */
   --fc-bg: #ffffff;
   --fc-bg-elevated: #ffffff;
-  --fc-sidebar: #f7f7f7;
-  --fc-border: #ececec;
-  --fc-text: #1a1a1a;
-  --fc-text-muted: #6b6b6b;
-  --fc-accent: #2f6fed;
-  --fc-accent-soft: #e7eeff;
+  --fc-sidebar: #f5f6fb;
+  --fc-border: #e2e6f0;
+  --fc-text: #12142a;
+  --fc-text-muted: #5b6075;
+  --fc-accent: #3563d6;
+  --fc-accent-soft: #e8edfb;
   --fc-on-accent: #ffffff;
   --fc-danger: #b42318;
-  --fc-success: #027a48;
+  --fc-success: #0f7a4a;
   --fc-success-soft: #12b76a;
 
-  /* Semantic accents. Shared by both modes in the default palette, like the hard-coded values
-     they replace. `*-bg` tokens are the tinted backgrounds mixed at a low percentage. */
-  --fc-warning: #d9a441;
-  --fc-favorite: #f5b80c;
-  --fc-diff-add: #7ee2a8;
-  --fc-diff-del: #f19a90;
+  /* Semantic accents. `*-bg` tokens are the tinted backgrounds mixed at a low percentage. */
+  --fc-warning: #8a5a00;
+  --fc-favorite: #b7791f;
+  --fc-diff-add: #0f7a4a;
+  --fc-diff-del: #b42318;
   --fc-diff-add-bg: #2ecc71;
   --fc-diff-del-bg: #e74c3c;
-  --fc-syn-comment: #7d8799;
-  --fc-syn-string: #7ee2a8;
-  --fc-syn-number: #d9a441;
-  --fc-syn-keyword: #e06c9f;
-  --fc-syn-const: #61b0ff;
-  --fc-code-inline: #e0a370;
-  --fc-terminal-bg: #101014;
-  --fc-terminal-fg: #e6e6e6;
-  --fc-bg-subtle: rgba(127, 127, 127, 0.15);
+  --fc-syn-comment: #6b7280;
+  --fc-syn-string: #0f7a4a;
+  --fc-syn-number: #8a5a00;
+  --fc-syn-keyword: #7c3aed;
+  --fc-syn-const: #0a66c2;
+  --fc-code-inline: #6d28d9;
+  --fc-terminal-bg: #05060b;
+  --fc-terminal-fg: #eef0f7;
+  --fc-bg-subtle: rgba(18, 20, 42, 0.05);
 
   --fc-radius-sm: 8px;
   --fc-radius-md: 12px;
@@ -125,52 +125,7 @@
 }
 
 .fc-dark {
-  --fc-bg: #0f0f0f;
-  --fc-bg-elevated: #171717;
-  --fc-sidebar: #141414;
-  --fc-border: #262626;
-  --fc-text: #f2f2f2;
-  --fc-text-muted: #9a9a9a;
-  --fc-accent: #5b8cff;
-  --fc-accent-soft: #16233f;
-  --fc-danger: #f97066;
-  --fc-success: #75e0a7;
-  --fc-success-soft: #12b76a;
-}
-
-/* Landing palette: the navy/violet colours of the landing page (packages/landing/styles.css),
-   adapted to the harness in both modes. Keep the light and dark blocks in sync token by token. */
-[data-fc-theme="landing"] {
-  --fc-bg: #ffffff;
-  --fc-bg-elevated: #ffffff;
-  --fc-sidebar: #f5f6fb;
-  --fc-border: #e2e6f0;
-  --fc-text: #12142a;
-  --fc-text-muted: #5b6075;
-  --fc-accent: #3563d6;
-  --fc-accent-soft: #e8edfb;
-  --fc-on-accent: #ffffff;
-  --fc-danger: #b42318;
-  --fc-success: #0f7a4a;
-  --fc-success-soft: #12b76a;
-  --fc-warning: #8a5a00;
-  --fc-favorite: #b7791f;
-  --fc-diff-add: #0f7a4a;
-  --fc-diff-del: #b42318;
-  --fc-diff-add-bg: #2ecc71;
-  --fc-diff-del-bg: #e74c3c;
-  --fc-syn-comment: #6b7280;
-  --fc-syn-string: #0f7a4a;
-  --fc-syn-number: #8a5a00;
-  --fc-syn-keyword: #7c3aed;
-  --fc-syn-const: #0a66c2;
-  --fc-code-inline: #6d28d9;
-  --fc-terminal-bg: #05060b;
-  --fc-terminal-fg: #eef0f7;
-  --fc-bg-subtle: rgba(18, 20, 42, 0.05);
-}
-
-[data-fc-theme="landing"].fc-dark {
+  /* FlupCode palette (dark). */
   --fc-bg: #05060b;
   --fc-bg-elevated: #0f121b;
   --fc-sidebar: #0a0c14;
@@ -198,6 +153,68 @@
   --fc-terminal-bg: #05060b;
   --fc-terminal-fg: #eef0f7;
   --fc-bg-subtle: rgba(255, 255, 255, 0.06);
+}
+
+/* Classic palette: the original neutral greys and blue accent. Keep the light and dark blocks in
+   sync token by token, and cover every token the light block sets. */
+[data-fc-theme="classic"] {
+  --fc-bg: #ffffff;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #f7f7f7;
+  --fc-border: #ececec;
+  --fc-text: #1a1a1a;
+  --fc-text-muted: #6b6b6b;
+  --fc-accent: #2f6fed;
+  --fc-accent-soft: #e7eeff;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #b42318;
+  --fc-success: #027a48;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #d9a441;
+  --fc-favorite: #f5b80c;
+  --fc-diff-add: #7ee2a8;
+  --fc-diff-del: #f19a90;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #7d8799;
+  --fc-syn-string: #7ee2a8;
+  --fc-syn-number: #d9a441;
+  --fc-syn-keyword: #e06c9f;
+  --fc-syn-const: #61b0ff;
+  --fc-code-inline: #e0a370;
+  --fc-terminal-bg: #101014;
+  --fc-terminal-fg: #e6e6e6;
+  --fc-bg-subtle: rgba(127, 127, 127, 0.15);
+}
+
+[data-fc-theme="classic"].fc-dark {
+  --fc-bg: #0f0f0f;
+  --fc-bg-elevated: #171717;
+  --fc-sidebar: #141414;
+  --fc-border: #262626;
+  --fc-text: #f2f2f2;
+  --fc-text-muted: #9a9a9a;
+  --fc-accent: #5b8cff;
+  --fc-accent-soft: #16233f;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #f97066;
+  --fc-success: #75e0a7;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #d9a441;
+  --fc-favorite: #f5b80c;
+  --fc-diff-add: #7ee2a8;
+  --fc-diff-del: #f19a90;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #7d8799;
+  --fc-syn-string: #7ee2a8;
+  --fc-syn-number: #d9a441;
+  --fc-syn-keyword: #e06c9f;
+  --fc-syn-const: #61b0ff;
+  --fc-code-inline: #e0a370;
+  --fc-terminal-bg: #101014;
+  --fc-terminal-fg: #e6e6e6;
+  --fc-bg-subtle: rgba(127, 127, 127, 0.15);
 }
 
 /* Before the app bundle loads, the inline script in index.html paints this colour, because the

@@ -15,15 +15,17 @@
           const stored = JSON.parse(localStorage.getItem("flupcode.theme") || "null")
           const mode = stored === "dark" || stored === "light" ? stored : "system"
           const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
-          const landing = JSON.parse(localStorage.getItem("flupcode.colorTheme") || "null") === "landing"
+          const palette = JSON.parse(localStorage.getItem("flupcode.colorTheme") || "null")
+          // "default" was the neutral palette's id before it was renamed to "classic".
+          const classic = palette === "classic" || palette === "default"
           document.documentElement.classList.toggle("fc-dark", dark)
-          if (landing) document.documentElement.dataset.fcTheme = "landing"
-          document.documentElement.style.backgroundColor = landing
+          if (classic) document.documentElement.dataset.fcTheme = "classic"
+          document.documentElement.style.backgroundColor = classic
             ? dark
-              ? "#05060b"
+              ? "#0f0f0f"
               : "#ffffff"
             : dark
-              ? "#0f0f0f"
+              ? "#05060b"
               : "#ffffff"
         } catch {}
       })()

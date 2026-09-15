@@ -176,7 +176,7 @@ const ES: Record<string, string> = {
   System: "Sistema",
   Light: "Claro",
   Dark: "Oscuro",
-  Landing: "Landing",
+  Classic: "Clásico",
   Language: "Idioma",
   English: "Inglés",
   Spanish: "Español",
