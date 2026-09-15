@@ -1,4 +1,4 @@
-import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type { ModelVariant } from "../engine-types"
 import { t } from "../i18n"
 import { effortLabel } from "../effort"
@@ -13,6 +13,11 @@ type EffortMenuProps = {
 export const EffortMenu: Component<EffortMenuProps> = (props) => {
   const [open, setOpen] = createSignal(false)
   let root: HTMLDivElement | undefined
+
+  // Disabling mid-turn must also drop an already open popover, or the slider stays usable.
+  createEffect(() => {
+    if (props.disabled) setOpen(false)
+  })
 
   onMount(() => {
     const onDocClick = (event: MouseEvent) => {
