@@ -163,7 +163,14 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 class="fc-toolbar-select"
                 value={props.modelKey ?? ""}
                 disabled={props.running}
-                onChange={(event) => props.onModelChange(event.currentTarget.value)}
+                onChange={(event) => {
+                  const next = event.currentTarget.value
+                  // A native select moves on its own: put it back before asking, or cancelling the
+                  // warning would leave it showing a model the session is not using. Confirming
+                  // moves it again through `modelKey`.
+                  event.currentTarget.value = props.modelKey ?? ""
+                  props.onModelChange(next)
+                }}
               >
                 <option value="" disabled selected={!props.modelKey}>
                   {t("Default model")}

@@ -23,7 +23,9 @@ import { recordPrompt } from "../prompt-history"
 import { subscribeSessionEvents } from "../session-events"
 import { t } from "../i18n"
 import { toast } from "../toast"
+import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "../model-switch"
 import { Composer } from "./Composer"
+import { ModelSwitchDialog } from "./ModelSwitchDialog"
 import { PermissionDock, type PermissionReply } from "./PermissionDock"
 import { QuestionDock } from "./QuestionDock"
 import { SessionView } from "./SessionView"
@@ -73,6 +75,11 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   const [streamedChars, setStreamedChars] = createSignal(0)
   const [chosenModel, setModelRef] = createSignal(props.session.model)
   const modelRef = () => chosenModel() ?? props.defaultModel
+  const [pendingModelSwitch, setPendingModelSwitch] = createSignal<{
+    from: string
+    to: string
+    next: { providerID: string; id: string; variant?: string }
+  }>()
 
   const [messages, { refetch: refetchMessages }] = createResource(
     () => ({ url: props.serverUrl, sessionID: sessionID() }),
@@ -199,11 +206,29 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     return (last as { time?: { created?: number } } | undefined)?.time?.created
   }
 
-  const switchModel = (next: { providerID: string; id: string; variant?: string }) => {
+  const applyModel = (next: { providerID: string; id: string; variant?: string }) => {
     setModelRef(next)
     void client()
       .session.switchModel({ sessionID: sessionID(), model: next })
       .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
+  }
+
+  /** This pane's session is cached for its model, so changing it asks first. See model-switch.ts. */
+  const requestModel = (next: { providerID: string; id: string; variant?: string }) => {
+    const current = validModel()
+    if (
+      current &&
+      needsModelSwitchWarning({
+        enabled: modelSwitchWarningOn(),
+        history: (list() ?? []).length > 0,
+        current,
+        next,
+      })
+    ) {
+      setPendingModelSwitch({ from: props.modelName(current), to: props.modelName(next), next })
+      return
+    }
+    applyModel(next)
   }
 
   const send = async () => {
@@ -374,7 +399,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         models={props.models}
         modelKey={modelRef() ? `${modelRef()!.providerID}/${modelRef()!.id}` : undefined}
         favorites={props.favorites}
-        onModelChange={(providerID, id) => switchModel({ providerID, id })}
+        onModelChange={(providerID, id) => requestModel({ providerID, id })}
         modelLabel={currentModel()?.name ?? t("Default model")}
         variants={variants()}
         variantKey={validModel()?.variant}
@@ -394,7 +419,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         onOpenModelPicker={props.onOpenModelPicker}
         onVariantChange={(value) => {
           const ref = modelRef()
-          if (ref) switchModel({ providerID: ref.providerID, id: ref.id, variant: value || undefined })
+          if (ref) requestModel({ providerID: ref.providerID, id: ref.id, variant: value || undefined })
         }}
         onAttach={(files) => void props.readFiles(files).then((items) => setAttachments((list) => [...list, ...items]))}
         onRemoveAttachment={(uri) => setAttachments((list) => list.filter((item) => item.uri !== uri))}
@@ -405,6 +430,20 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         onOpenFolder={() => undefined}
         onAgentChange={props.onAgentChange}
         onPermissionModeChange={props.onPermissionModeChange}
+      />
+
+      <ModelSwitchDialog
+        open={!!pendingModelSwitch()}
+        from={pendingModelSwitch()?.from ?? ""}
+        to={pendingModelSwitch()?.to ?? ""}
+        onCancel={() => setPendingModelSwitch(undefined)}
+        onConfirm={(skipNextTime) => {
+          const pending = pendingModelSwitch()
+          if (!pending) return
+          rememberModelSwitch(skipNextTime)
+          setPendingModelSwitch(undefined)
+          applyModel(pending.next)
+        }}
       />
     </section>
   )
