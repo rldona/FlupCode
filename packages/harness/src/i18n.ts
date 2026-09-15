@@ -161,6 +161,11 @@ const ES: Record<string, string> = {
   "Click to collapse": "Clic para contraer",
   Commit: "Commit",
   "Default model": "Modelo por defecto",
+  "Switch model?": "¿Cambiar de modelo?",
+  "Switch model": "Cambiar de modelo",
+  "Don't ask again": "No volver a preguntar",
+  "This session is cached for {from}. Switching to {to} means the whole session is re-read on your next message, which uses more of your limit.":
+    "Esta sesión está en caché para {from}. Cambiar a {to} hace que se vuelva a leer toda la sesión en tu siguiente mensaje, lo que consume más de tu límite.",
   "Choose a model": "Elige un modelo",
   "Loading models…": "Cargando modelos…",
   "No models": "Sin modelos",
