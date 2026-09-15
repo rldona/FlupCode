@@ -2,6 +2,9 @@
 
 How to run and use FlupCode.
 
+New to FlupCode? Start with [GETTING-STARTED.md](GETTING-STARTED.md) for the engine install per
+platform and the fixes for a connection the browser blocks.
+
 ## Requirements
 
 - [Bun](https://bun.sh) 1.3+ (source checkout)
