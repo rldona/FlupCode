@@ -233,6 +233,7 @@ export const App: Component = () => {
   const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
+  const [colorTheme, setColorTheme] = createSignal(readStorage(STORAGE_KEYS.colorTheme, "default"))
   const [stashOpen, setStashOpen] = createSignal(false)
   const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string }>()
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
@@ -1583,17 +1584,29 @@ export const App: Component = () => {
     writeStorage(STORAGE_KEYS.theme, value)
   }
 
+  const updateColorTheme = (value: string) => {
+    setColorTheme(value)
+    writeStorage(STORAGE_KEYS.colorTheme, value)
+  }
+
   createEffect(() => {
     const mode = theme()
+    const palette = colorTheme()
     const media = window.matchMedia("(prefers-color-scheme: dark)")
     const apply = () => {
       const dark = mode === "dark" || (mode === "system" && media.matches)
-      document.documentElement.classList.toggle("fc-dark", dark)
-      // The index.html bootstrap already paints this before the app mounts; keep it in sync when the
-      // theme changes at runtime, since the inline background overrides the theme class.
-      document.documentElement.style.backgroundColor = dark ? "#0f0f0f" : "#ffffff"
+      const root = document.documentElement
+      root.classList.toggle("fc-dark", dark)
+      // The palette rides alongside the mode class, so it also survives a System mode change.
+      if (palette === "default") delete root.dataset.fcTheme
+      else root.dataset.fcTheme = palette
+      // The index.html bootstrap paints this before the stylesheet loads, which is the only moment
+      // the inline value is needed: `html { background-color: var(--fc-bg) }` takes over from here.
+      root.style.backgroundColor = ""
       // The browser and installed app paint their status bar with this colour.
-      document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f0f0f" : "#ffffff")
+      document
+        .querySelector('meta[name="theme-color"]')
+        ?.setAttribute("content", getComputedStyle(root).backgroundColor)
     }
     apply()
     media.addEventListener("change", apply)
@@ -2792,6 +2805,7 @@ export const App: Component = () => {
       <SettingsPanel
         open={settingsOpen()}
         theme={theme()}
+        colorTheme={colorTheme()}
         locale={getLocale()}
         displayName={displayName()}
         serverInput={serverInput()}
@@ -2812,6 +2826,7 @@ export const App: Component = () => {
         notifications={notifications()}
         paletteKey={paletteKey()}
         onTheme={updateTheme}
+        onColorTheme={updateColorTheme}
         onLocale={setLocale}
         onDisplayName={updateDisplayName}
         onServerInput={setServerInput}

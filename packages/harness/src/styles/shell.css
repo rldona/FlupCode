@@ -780,7 +780,7 @@ button.fc-status {
 }
 
 .fc-model-star-on {
-  color: #f5b80c;
+  color: var(--fc-favorite);
 }
 
 .fc-composer-row {
@@ -816,7 +816,7 @@ button.fc-status {
   border: none;
   border-radius: var(--fc-radius-pill);
   background: var(--fc-accent);
-  color: #fff;
+  color: var(--fc-on-accent);
   font-weight: 500;
 }
 
@@ -1214,7 +1214,7 @@ button.fc-status {
 .fc-button-primary {
   border-color: transparent;
   background: var(--fc-accent);
-  color: #fff;
+  color: var(--fc-on-accent);
 }
 
 .fc-button-danger {
@@ -1628,7 +1628,7 @@ button.fc-status {
   padding: 1px 5px;
   border-radius: 5px;
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
-  color: #e0a370;
+  color: var(--fc-code-inline);
 }
 
 .fc-code-block {
@@ -1672,24 +1672,24 @@ button.fc-status {
 }
 
 .fc-tok-comment {
-  color: #7d8799;
+  color: var(--fc-syn-comment);
   font-style: italic;
 }
 
 .fc-tok-string {
-  color: #7ee2a8;
+  color: var(--fc-syn-string);
 }
 
 .fc-tok-number {
-  color: #d9a441;
+  color: var(--fc-syn-number);
 }
 
 .fc-tok-keyword {
-  color: #e06c9f;
+  color: var(--fc-syn-keyword);
 }
 
 .fc-tok-const {
-  color: #61b0ff;
+  color: var(--fc-syn-const);
 }
 
 .fc-markdown pre {
@@ -1903,7 +1903,7 @@ button.fc-status {
   flex: 1;
   min-height: 0;
   padding: 6px 8px;
-  background: #101014;
+  background: var(--fc-terminal-bg);
 }
 
 .fc-terminal .xterm,
@@ -2104,7 +2104,7 @@ button.fc-status {
 }
 
 .fc-tool-status-completed {
-  color: #4ec97a;
+  color: var(--fc-success);
 }
 
 .fc-tool-status-error {
@@ -2112,7 +2112,7 @@ button.fc-status {
 }
 
 .fc-tool-status-running {
-  color: #d9a441;
+  color: var(--fc-warning);
 }
 
 .fc-tool-failed {
@@ -2148,13 +2148,13 @@ button.fc-status {
 }
 
 .fc-diff-add {
-  background: color-mix(in srgb, #2ecc71 16%, transparent);
-  color: #7ee2a8;
+  background: color-mix(in srgb, var(--fc-diff-add-bg) 16%, transparent);
+  color: var(--fc-diff-add);
 }
 
 .fc-diff-del {
-  background: color-mix(in srgb, #e74c3c 16%, transparent);
-  color: #f19a90;
+  background: color-mix(in srgb, var(--fc-diff-del-bg) 16%, transparent);
+  color: var(--fc-diff-del);
 }
 
 .fc-diff-same {
@@ -2208,13 +2208,13 @@ button.fc-status {
 }
 
 .fc-diff2-del {
-  background: color-mix(in srgb, #e74c3c 16%, transparent);
-  color: #f19a90;
+  background: color-mix(in srgb, var(--fc-diff-del-bg) 16%, transparent);
+  color: var(--fc-diff-del);
 }
 
 .fc-diff2-add {
-  background: color-mix(in srgb, #2ecc71 16%, transparent);
-  color: #7ee2a8;
+  background: color-mix(in srgb, var(--fc-diff-add-bg) 16%, transparent);
+  color: var(--fc-diff-add);
 }
 
 .fc-diff2-empty {
@@ -2868,6 +2868,7 @@ button.fc-status {
   align-self: center;
   padding: var(--fc-space-3);
   border-radius: var(--fc-radius-md);
+  /* Deliberately not themed: scanners need the code on plain white. */
   background: #ffffff;
 }
 
@@ -2946,8 +2947,8 @@ button.fc-status {
   margin-left: 8px;
   padding: 1px 8px;
   border-radius: 999px;
-  background: var(--fc-accent, #6d5efc);
-  color: #fff;
+  background: var(--fc-accent);
+  color: var(--fc-on-accent);
   font-size: var(--fc-text-xs);
   font-weight: 500;
 }
@@ -2974,7 +2975,7 @@ button.fc-status {
   margin-bottom: 12px;
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-sm);
-  background: var(--fc-bg-subtle, transparent);
+  background: var(--fc-bg-subtle);
 }
 
 .fc-memory-form-actions {
@@ -3010,7 +3011,7 @@ button.fc-status {
 }
 
 .fc-memory-row-editing {
-  border-color: var(--fc-accent, #6d5efc);
+  border-color: var(--fc-accent);
 }
 
 .fc-memory-row-head {
@@ -3040,24 +3041,24 @@ button.fc-status {
 }
 
 .fc-memory-scope {
-  background: var(--fc-bg-subtle, rgba(127, 127, 127, 0.15));
+  background: var(--fc-bg-subtle);
   color: var(--fc-text-muted);
 }
 
 .fc-memory-status-active {
   background: rgba(46, 160, 67, 0.15);
-  color: #2ea043;
+  color: var(--fc-success);
 }
 
 .fc-memory-status-candidate {
   background: rgba(210, 153, 34, 0.18);
-  color: #b7791f;
+  color: var(--fc-warning);
 }
 
 .fc-memory-status-stale,
 .fc-memory-status-archived {
   background: rgba(207, 34, 46, 0.15);
-  color: #cf222e;
+  color: var(--fc-danger);
 }
 
 .fc-memory-meta {
@@ -3440,7 +3441,7 @@ button.fc-status {
 
 .fc-segment-item-active {
   background: var(--fc-accent);
-  color: #fff;
+  color: var(--fc-on-accent);
 }
 
 .fc-rightaside {
@@ -3857,13 +3858,13 @@ button.fc-status {
 }
 
 .fc-file-row-add {
-  background: color-mix(in srgb, #2ecc71 16%, transparent);
-  color: #7ee2a8;
+  background: color-mix(in srgb, var(--fc-diff-add-bg) 16%, transparent);
+  color: var(--fc-diff-add);
 }
 
 .fc-file-row-del {
-  background: color-mix(in srgb, #e74c3c 16%, transparent);
-  color: #f19a90;
+  background: color-mix(in srgb, var(--fc-diff-del-bg) 16%, transparent);
+  color: var(--fc-diff-del);
 }
 
 .fc-file-row-add .fc-file-no,
@@ -4246,11 +4247,11 @@ button.fc-status {
 }
 
 .fc-repo-add {
-  color: #4ec97a;
+  color: var(--fc-success);
 }
 
 .fc-repo-del {
-  color: #e0726a;
+  color: var(--fc-danger);
 }
 
 .fc-repo-commit {
@@ -4492,8 +4493,8 @@ button.fc-status {
 }
 
 .fc-remote-dot-waiting {
-  border-color: #f79009;
-  background: #f79009;
+  border-color: var(--fc-warning);
+  background: var(--fc-warning);
 }
 
 .fc-remote-dot-online {
@@ -4502,7 +4503,7 @@ button.fc-status {
 }
 
 .fc-remote-dot-connecting {
-  border-color: #f79009;
+  border-color: var(--fc-warning);
 }
 
 .fc-remote-dot-error {
@@ -4788,7 +4789,7 @@ button.fc-status {
 
 .fc-mobile-round-on {
   background: var(--fc-accent);
-  color: #fff;
+  color: var(--fc-on-accent);
 }
 
 .fc-mobile-send {
