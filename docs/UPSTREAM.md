@@ -40,7 +40,8 @@ package READMEs under `packages/` stay: they document upstream code we still shi
 2. Opens (or updates) a pull request `dev → power`.
 3. The PR must pass `bun typecheck` and the harness build before merging.
 
-Review the PR, resolve any conflict in *our* files (almost always keep-ours), and merge.
+Review the PR, resolve any conflict in *our* files (almost always keep-ours), and merge with a
+**merge commit** (see [Merge methods](#merge-methods)).
 
 ### Manual (local)
 
@@ -65,6 +66,19 @@ git switch dev
 git reset --hard upstream/dev
 git push --force-with-lease origin dev
 ```
+
+## Merge methods
+
+`power` allows merge commits and squash, and rebase-merge is disabled at the repository. Pick the
+method by the kind of change:
+
+| Pull request | Method | Why |
+| --- | --- | --- |
+| `dev → power` (upstream sync) | **Merge commit** | Keeps upstream's commit SHAs in `power`, so the next sync sees an accurate merge base instead of re-applying changes |
+| Feature / fix | **Squash** | One conventional commit per change; keeps the product history linear and readable |
+
+Rebase-merge is intentionally off: replaying `dev` onto `power` rewrites upstream commit SHAs, and
+every following sync then re-proposes changes already applied.
 
 ## Conflict policy
 
