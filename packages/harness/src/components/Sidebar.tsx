@@ -56,6 +56,7 @@ type SidebarProps = {
   onAbout: () => void
   onSettings: () => void
   onRoutines: () => void
+  onRuns: () => void
   onArtifacts: () => void
   onProviders: () => void
   onConfig: () => void
@@ -268,6 +269,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 <Show when={UNAVAILABLE_FEATURES.has("artifacts")}>
                   <span class="fc-nav-soon">{t("Soon")}</span>
                 </Show>
+              </button>
+              <button class="fc-nav-item" type="button" onClick={props.onRuns}>
+                <span class="fc-nav-icon">⛭</span>
+                {t("Runs")}
               </button>
               <button
                 class="fc-nav-item"
