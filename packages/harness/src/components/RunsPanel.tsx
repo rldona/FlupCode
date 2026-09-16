@@ -29,6 +29,26 @@ const money = (value: number | undefined) => (value === undefined ? undefined : 
 const thousands = (value: number | undefined) =>
   value === undefined ? undefined : value >= 1000 ? `${Math.round(value / 100) / 10}k` : String(value)
 
+/**
+ * The run's own report: what its tasks add up to.
+ *
+ * This is where the summary of a run lives. The audit (§6.3) puts it in the run's session as a
+ * message too, but the engine has no way to append one without running a turn — writing it would
+ * mean paying a model to restate what the harness already knows exactly. The session stays the
+ * thread that groups the work; the numbers are here.
+ */
+const totals = (run: Run) => {
+  const tasks = run.tasks ?? []
+  const tokens = tasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0)
+  const cost = tasks.reduce((sum, task) => sum + (task.cost ?? 0), 0)
+  const done = tasks.filter((task) => task.status !== "queued" && task.status !== "running").length
+  return [
+    tasks.length ? `${done}/${tasks.length}` : undefined,
+    thousands(tokens || undefined),
+    cost ? `$${cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2)}` : undefined,
+  ].filter((value): value is string => !!value)
+}
+
 /** What a task is worth saying on one line, with the parts the engine did not report left out. */
 const facts = (task: Task) => {
   const started = task.startedAt
@@ -78,7 +98,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => (
                   </span>
                   <span class="fc-run-title">{run.source.type === "routine" ? t("Routine") : t("Manual run")}</span>
                   <span class="fc-run-meta">
-                    {run.status} · {elapsed(run.startedAt, run.finishedAt)}
+                    {[run.status, elapsed(run.startedAt, run.finishedAt), ...totals(run)].join(" · ")}
                   </span>
                   <Show when={run.sessionID}>
                     {(id) => (
