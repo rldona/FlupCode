@@ -51,6 +51,7 @@ import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
 import type {
+  Artifact,
   Attachment,
   CommandOption,
   McpConfig,
@@ -373,6 +374,7 @@ export const App: Component = () => {
   }
   const routinesOpen = () => screen() === "routines"
   const runsOpen = () => screen() === "runs"
+  const artifactsOpen = () => screen() === "artifacts"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -401,7 +403,7 @@ export const App: Component = () => {
   }
   const [providersOpen, setProvidersOpen] = createSignal(false)
   const [folderOpen, setFolderOpen] = createSignal(false)
-  const [artifactsOpen, setArtifactsOpen] = createSignal(false)
+
   const [skillsOpen, setSkillsOpen] = createSignal(false)
   const [memoryOpen, setMemoryOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
@@ -582,6 +584,28 @@ export const App: Component = () => {
     },
   )
   const workflowNamed = (name: string) => (workflows() ?? []).find((workflow) => workflow.name === name)
+
+  /** What the runs left behind (H-14), for the project this session is working in. */
+  const [artifactList, setArtifactList] = createSignal<Artifact[]>([])
+  const refreshArtifacts = async () => {
+    const directory = modelLocation()
+    const list = await createHarnessClient(harnessServerUrl())
+      .artifacts.list(directory ? { directory } : {})
+      .catch(() => undefined)
+    if (list) setArtifactList(list)
+  }
+  createEffect(() => {
+    harnessServerUrl()
+    modelLocation()
+    void refreshArtifacts()
+  })
+
+  const removeArtifact = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .artifacts.remove(id)
+      .then(() => setArtifactList(artifactList().filter((artifact) => artifact.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
     (key) => {
@@ -1075,7 +1099,7 @@ export const App: Component = () => {
         return
       }
       if (name === "artifacts") {
-        setArtifactsOpen(true)
+        showScreen("artifacts")
         return
       }
       if (name === "skills") {
@@ -3077,7 +3101,7 @@ export const App: Component = () => {
       }
       if (name === "artifacts") {
         setPrompt("")
-        setArtifactsOpen(true)
+        showScreen("artifacts")
         return
       }
       if (name === "skills") {
@@ -3299,7 +3323,7 @@ export const App: Component = () => {
             onSettings={() => setSettingsOpen(true)}
             onRoutines={() => showScreen("routines")}
             onRuns={() => showScreen("runs")}
-            onArtifacts={() => setArtifactsOpen(true)}
+            onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
             onRemote={() => setRemoteOpen(true)}
@@ -3799,9 +3823,13 @@ export const App: Component = () => {
       />
       <ArtifactsPanel
         open={artifactsOpen()}
-        artifacts={artifacts()}
+        artifacts={artifactList()}
+        sessionFiles={artifacts()}
+        serverAvailable={routinesServerAvailable()}
         onCopy={copyPath}
-        onClose={() => setArtifactsOpen(false)}
+        onRemove={removeArtifact}
+        onOpenRun={() => showScreen("runs")}
+        onClose={() => leaveScreen()}
       />
       <SkillsPanel
         open={skillsOpen()}
