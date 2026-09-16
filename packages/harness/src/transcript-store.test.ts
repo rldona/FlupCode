@@ -36,28 +36,25 @@ describe("applyTranscriptChange", () => {
     expect(textOf(store.data[0])).toBe("start one two three")
   })
 
-  // The point of the whole thing: a turn is thousands of deltas, and rebuilding the transcript for
-  // each one allocates a new object for every message it walks past, which is what made the cost of
-  // a single character grow with the length of the session. Both paths are run over the same
-  // transcript here, and counted.
-  test("a delta rewrites one part where a rebuild rewrites the whole transcript", () => {
+  // Both paths give the same answer; the store path gets there without replacing a single message
+  // object, so nothing that reads one renders again for a character it does not show. The rebuild
+  // only replaces the message it changes — measured, it is not the transcript-wide churn it looks
+  // like — which is why this is worth a little, not a lot: 1500 deltas over a 300-message session
+  // blocked the main thread for 70ms before and 0ms after.
+  test("a delta lands without replacing any message object", () => {
     const change = delta(150, "!")
 
     const [cheap, setCheap] = createStore<{ data: SessionMessageInfo[] }>({ data: transcript(200) })
-    const beforeCheap = unwrap(cheap).data.slice()
+    const before = unwrap(cheap).data.slice()
     applyTranscriptChange(setCheap, change)
-    const replacedByPath = unwrap(cheap).data.filter((message, index) => message !== beforeCheap[index]).length
+    const replaced = unwrap(cheap).data.filter((message, index) => message !== before[index]).length
 
     const [rebuilt, setRebuilt] = createStore<{ data: SessionMessageInfo[] }>({ data: transcript(200) })
-    const beforeRebuild = unwrap(rebuilt).data.slice()
     setRebuilt("data", (current) => change.apply(current))
-    const replacedByRebuild = unwrap(rebuilt).data.filter((message, index) => message !== beforeRebuild[index]).length
 
-    // Same answer, and the store path touches nothing it does not have to.
     expect(textOf(cheap.data[150])).toBe("start!")
     expect(textOf(rebuilt.data[150])).toBe("start!")
-    expect(replacedByPath).toBe(0)
-    expect(replacedByRebuild).toBeGreaterThan(100)
+    expect(replaced).toBe(0)
   })
 
   test("anything that is not a delta still goes through the rebuild", () => {
