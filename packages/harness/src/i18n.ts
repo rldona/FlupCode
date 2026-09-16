@@ -602,6 +602,7 @@ const ES: Record<string, string> = {
   "Routine stopped": "Rutina detenida",
   "Stop run": "Detener ejecución",
   "Open run": "Abrir ejecución",
+  "Session options": "Opciones de la sesión",
   "Delete this session?": "¿Eliminar esta sesión?",
 
   // Remote control
