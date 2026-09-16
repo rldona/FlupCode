@@ -40,10 +40,15 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
   if (!value || typeof value !== "object") return undefined
   const input = value as Record<string, unknown>
   if (typeof input.name !== "string" || !input.name.trim()) return undefined
-  if (typeof input.prompt !== "string" || !input.prompt.trim()) return undefined
+  const kind = input.kind === "verify" ? "verify" : "agent"
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : ""
+  // A verify task has nothing to say to a model: it runs the project's commands. Requiring a prompt
+  // for it would only make callers invent one.
+  if (kind === "agent" && !prompt) return undefined
   return {
     name: input.name.trim(),
-    prompt: input.prompt.trim(),
+    prompt,
+    kind,
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
   }
 }
@@ -123,7 +128,9 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
       const body = (await readJSON(request)) as { tasks?: unknown; directory?: unknown } | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
-      if (tasks.length === 0) return error("A run needs at least one task with a name and a prompt", 400)
+      if (tasks.length === 0) {
+        return error("A run needs at least one task with a name, and a prompt unless it is a verify task", 400)
+      }
       const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
       return json({ data: await scheduler.runTasks({ tasks, directory }) }, 202)
     }

@@ -1,8 +1,23 @@
 import type { Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task } from "./types"
+import { evidenceText, runVerify } from "./verify"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
+
+/** A run whose verification failed did not succeed, and the reason has to reach the run itself. */
+export class VerifyFailed extends Error {
+  constructor(summary: string) {
+    super(summary)
+    this.name = "VerifyFailed"
+  }
+}
+
+const failureSummary = (steps: Array<{ name: string; exitCode: number }>) => {
+  const failed = steps.filter((step) => step.exitCode !== 0).map((step) => step.name)
+  if (failed.length === 0) return "Nothing to verify: the project declares no verify steps"
+  return `Verification failed: ${failed.join(", ")}`
+}
 
 /**
  * What a task is handed from the one before it.
@@ -46,6 +61,21 @@ export class TaskRunner {
         continue
       }
       this.repository.startTask(task.id, Date.now())
+      // A verify task runs the project's own commands and keeps what they printed (H-22). No
+      // session and no model: it costs time, not tokens, which is what makes it worth running after
+      // every attempt rather than once at the end.
+      if (task.kind === "verify") {
+        const report = await runVerify(options.directory ?? process.cwd(), { stopped })
+        const evidence = evidenceText(report)
+        this.repository.finishTask(task.id, stopped() ? "stopped" : report.ok ? "success" : "failed", {
+          output: evidence,
+          error: report.ok ? undefined : failureSummary(report.steps),
+        })
+        // The evidence is the handoff: whatever runs next is told exactly what failed.
+        handoff = evidence
+        if (!report.ok && !stopped()) throw new VerifyFailed(failureSummary(report.steps))
+        continue
+      }
       try {
         const session = await this.engine.createSession({
           directory: options.directory,

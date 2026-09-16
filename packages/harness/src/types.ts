@@ -46,12 +46,16 @@ export type Run = {
 
 export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
 
+/** What a task does: a turn of the engine, or the project's own checks (H-22). */
+export type TaskKind = "agent" | "verify"
+
 export type Task = {
   id: string
   runID: string
   position: number
   name: string
   prompt: string
+  kind?: TaskKind
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
   sessionID?: string

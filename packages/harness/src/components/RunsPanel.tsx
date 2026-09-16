@@ -57,7 +57,7 @@ const totals = (run: Run) => {
 const facts = (task: Task) => {
   const started = task.startedAt
   return [
-    task.agent,
+    task.kind === "verify" ? t("verify") : task.agent,
     started ? elapsed(started, task.finishedAt) : undefined,
     thousands(task.tokens),
     money(task.cost),
@@ -237,6 +237,19 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                             )}
                           </Show>
                           <Show when={task.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
+                        {/*
+                          The evidence (H-22). It lives on the task because H-14's artifact store
+                          does not exist yet; folded away because a passing check is read as one
+                          line and a failing one is read in full.
+                        */}
+                        <Show when={task.kind === "verify" && task.output}>
+                          {(evidence) => (
+                            <details class="fc-run-evidence" open={task.status === "failed"}>
+                              <summary>{t("Evidence")}</summary>
+                              <pre>{evidence()}</pre>
+                            </details>
+                          )}
+                        </Show>
                         </li>
                       )}
                     </For>
