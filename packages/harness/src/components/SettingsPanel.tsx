@@ -28,6 +28,9 @@ type SettingsPanelProps = {
   suggestionModel: string
   notifications: boolean
   paletteKey: string
+  /** Permissions the reader granted with "Allow always"; the engine applies them to every session. */
+  savedPermissions: Array<{ id: string; action: string; resource: string }>
+  onRevokePermission: (id: string) => void
   onTheme: (value: string) => void
   onColorTheme: (value: string) => void
   onLocale: (value: Locale) => void
@@ -312,6 +315,31 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   {props.notifications ? t("On") : t("Off")}
                 </button>
               </div>
+            </section>
+
+            <section class="fc-settings-section">
+              <h3 class="fc-settings-title">{t("Remembered permissions")}</h3>
+              {/* "Allow always" wrote these and nothing ever showed them again, so a grant made once
+                  in one session kept applying everywhere with no way to take it back. */}
+              <Show
+                when={props.savedPermissions.length > 0}
+                fallback={<p class="fc-settings-hint">{t("Nothing is allowed always")}</p>}
+              >
+                <ul class="fc-saved-permissions">
+                  <For each={props.savedPermissions}>
+                    {(saved) => (
+                      <li class="fc-settings-row">
+                        <span>
+                          <code>{saved.action}</code> · <code>{saved.resource}</code>
+                        </span>
+                        <button class="fc-button" type="button" onClick={() => props.onRevokePermission(saved.id)}>
+                          {t("Revoke")}
+                        </button>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
             </section>
 
             <section class="fc-settings-section">

@@ -6121,6 +6121,11 @@ button.fc-status {
   border-color: var(--fc-text);
 }
 
+.fc-session-dot-blocked {
+  background: var(--fc-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fc-warning) 26%, transparent);
+}
+
 .fc-session-dot-running {
   border-color: var(--fc-accent);
   background: var(--fc-accent);
@@ -6740,4 +6745,37 @@ button.fc-status {
   font-size: 12px;
   color: var(--fc-text-muted);
   overflow-wrap: anywhere;
+}
+
+.fc-permission-preview {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+}
+
+.fc-permission-path {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--fc-text-muted);
+}
+
+.fc-permission-reason {
+  margin-top: 6px;
+}
+
+.fc-permission-scope {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--fc-text-muted);
+}
+
+.fc-saved-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }

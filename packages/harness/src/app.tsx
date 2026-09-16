@@ -500,6 +500,28 @@ export const App: Component = () => {
     },
     (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
   )
+  // Every session's pending permissions, not just the open one's. An agent waiting on one is silent
+  // and looks idle, so without this the reader has no way to know another session is stuck.
+  const [blocked, { refetch: refetchBlocked }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).permission.pending(),
+  )
+  const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
+  const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
+
+  // What "Allow always" wrote. The engine applies these to every session in the project, so they
+  // only become reviewable once something lists them.
+  const [savedPermissions, { refetch: refetchSavedPermissions }] = createResource(
+    () => (ready() && settingsOpen() ? serverUrl() : undefined),
+    async (url) => createClient(url).permission.saved.list(),
+  )
+  const revokePermission = (id: string) =>
+    void run(async (current) => {
+      await current.permission.saved.remove({ id })
+      void refetchSavedPermissions()
+      return undefined
+    }, t("Permission revoked"))
+
   const [messages, { refetch: refetchMessages }] = createResource(
     () => {
       const sessionID = selected()
@@ -900,6 +922,7 @@ export const App: Component = () => {
             .catch(() => undefined)
           void refetchPermissions()
           void refetchQuestions()
+          void refetchBlocked()
           for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
             attempt = 0
             setStreamState("live")
@@ -949,6 +972,7 @@ export const App: Component = () => {
             if (type.startsWith("permission.")) {
               if (type === "permission.v2.asked") notify(t("Permission needed"), "")
               void refetchPermissions()
+              void refetchBlocked()
             } else if (type.startsWith("question.")) {
               if (type === "question.v2.asked") notify(t("Question asked"), "")
               void refetchQuestions()
@@ -1925,9 +1949,9 @@ export const App: Component = () => {
     setAttachments([])
   }
 
-  const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
+  const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     run(async (current) => {
-      await current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
+      await current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message })
       void refetchPermissions()
       return undefined
     })
@@ -2487,6 +2511,7 @@ export const App: Component = () => {
             sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
             selectedSession={selected()}
             runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
+            blockedSessions={blockedSessions()}
             pinnedSessions={pinned()}
             expandedProjects={expanded()}
             noFolderSessions={noFolderSessions()}
@@ -2556,6 +2581,8 @@ export const App: Component = () => {
         >
           <Topbar
             streamState={streamState()}
+            blockedElsewhere={blockedElsewhere()}
+            onOpenBlocked={selectSession}
             healthLoading={health.loading}
             healthHealthy={health()?.healthy === true}
             healthError={!health.loading && health()?.healthy === false}
@@ -2744,8 +2771,9 @@ export const App: Component = () => {
                 {(request) => (
                   <PermissionDock
                     request={request}
+                    messages={activeMessages()}
                     busy={busy()}
-                    onReply={(reply) => replyPermission(request, reply)}
+                    onReply={(reply, message) => replyPermission(request, reply, message)}
                   />
                 )}
               </For>
@@ -2980,6 +3008,8 @@ export const App: Component = () => {
         }}
         notifications={notifications()}
         paletteKey={paletteKey()}
+        savedPermissions={savedPermissions()?.data ?? []}
+        onRevokePermission={revokePermission}
         onTheme={updateTheme}
         onColorTheme={updateColorTheme}
         onLocale={setLocale}

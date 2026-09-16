@@ -355,6 +355,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
           sessionID: string
           requestID: string
           reply: "once" | "always" | "reject"
+          /** Shown to the agent when rejecting, so it can pick another way instead of guessing. */
           message?: string
         }) => unwrap(client.v2.session.permission.reply(input)),
       },
@@ -584,6 +585,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
         cancel: (attemptID: string) => unwrap(client.v2.integration.attempt.cancel({ attemptID })),
       },
       disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
+    },
+    /** Permissions across every session, and the ones the reader told the engine to remember. */
+    permission: {
+      /** Everything waiting for an answer, not just the open session's: a blocked agent is silent. */
+      pending: (input?: LocationInput) => unwrap(client.v2.permission.request.list(input)),
+      saved: {
+        list: (input?: { projectID?: string }) => unwrap(client.v2.permission.saved.list(input)),
+        remove: (input: { id: string }) => unwrap(client.v2.permission.saved.remove({ id: input.id })),
+      },
     },
     agent: {
       list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),

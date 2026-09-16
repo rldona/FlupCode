@@ -8,6 +8,9 @@ type TopbarProps = {
   healthError: boolean
   /** The engine's event stream, which is what decides whether the app is following a live run. */
   streamState: "connecting" | "live" | "reconnecting"
+  /** Sessions other than the open one that are waiting on a permission; clicking opens the first. */
+  blockedElsewhere: string[]
+  onOpenBlocked: (sessionID: string) => void
   canGoBack: boolean
   canGoForward: boolean
   onBack: () => void
@@ -187,6 +190,18 @@ export const Topbar: Component<TopbarProps> = (props) => {
         {/* The remote pill replaces the engine pill: "Connected" there is the local engine, not the
             remote control connection the reader is watching. Without one, the engine status stays a
             flat label: it never opens remote control, which lives in Settings. */}
+        {/* An agent waiting on a permission in another session makes no noise; this is the only
+            place the reader can notice it without opening every session. */}
+        <Show when={props.blockedElsewhere.length > 0}>
+          <button
+            class="fc-status fc-status-waiting fc-status-blocked"
+            type="button"
+            title={t("Another session is waiting for permission")}
+            onClick={() => props.onOpenBlocked(props.blockedElsewhere[0]!)}
+          >
+            {t("{count} waiting", { count: props.blockedElsewhere.length })}
+          </button>
+        </Show>
         <Show when={!props.remote && !props.hostRemote}>
           <span
             class="fc-status"

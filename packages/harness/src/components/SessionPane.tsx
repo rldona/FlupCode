@@ -324,9 +324,9 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
   }
 
-  const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
+  const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     void client()
-      .session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
+      .session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message })
       .then(() => refetchPermissions())
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     void client()
@@ -401,7 +401,12 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         </Show>
         <For each={permissionData}>
           {(request) => (
-            <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
+            <PermissionDock
+              request={request}
+              messages={list()}
+              busy={busy()}
+              onReply={(reply, message) => replyPermission(request, reply, message)}
+            />
           )}
         </For>
         <For each={questionData}>

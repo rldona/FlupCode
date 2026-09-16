@@ -31,6 +31,8 @@ type SidebarProps = {
   selectedSession?: string
   /** Sessions the engine is working on right now. */
   runningSessions: string[]
+  /** Sessions waiting on a permission nobody has answered; they look idle without this. */
+  blockedSessions: string[]
   pinnedSessions: string[]
   expandedProjects: Record<string, boolean>
   noFolderSessions: string[]
@@ -179,7 +181,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
         <span
           class="fc-session-dot"
-          classList={{ "fc-session-dot-running": props.runningSessions.includes(row.session.id) }}
+          classList={{
+            "fc-session-dot-running": props.runningSessions.includes(row.session.id),
+            "fc-session-dot-blocked": props.blockedSessions.includes(row.session.id),
+          }}
+          title={props.blockedSessions.includes(row.session.id) ? t("Waiting for permission") : undefined}
           aria-hidden="true"
         />
         <span class="fc-session-title">{row.session.title || row.session.id.slice(0, 8)}</span>
