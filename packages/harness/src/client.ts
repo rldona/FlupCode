@@ -5,7 +5,7 @@ import type { McpConfig } from "./types"
 import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
-import { fromLegacy, mergeTranscripts } from "./transcript"
+import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 /** The largest page of v2 messages the engine returns. */
@@ -408,7 +408,9 @@ export function createClient(baseUrl = resolveServerUrl()) {
         const key = `${baseUrl}::${input.sessionID}`
         const cached =
           legacyHistory.get(key) ??
-          unwrap(client.session.messages({ sessionID: input.sessionID })).then((entries) => fromLegacy(entries ?? []))
+          unwrap(client.session.messages({ sessionID: input.sessionID })).then((entries) =>
+            fromLegacy((entries ?? []) as unknown as LegacyEntry[]),
+          )
         legacyHistory.set(key, cached)
         // The engine pages v2 messages (50 by default, 200 at most) and every tool step is a message,
         // so read every page: a first page alone hides the newest turns of a long session.

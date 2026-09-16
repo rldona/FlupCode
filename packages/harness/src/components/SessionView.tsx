@@ -498,12 +498,20 @@ const AssistantMessage: Component<{
           {(segment) => (
             <Show
               when={segment().kind === "tools"}
-              fallback={
-                <Markdown
-                  class="fc-message-text"
-                  text={(segment() as { part: SessionMessageAssistantText }).part.text ?? ""}
-                />
-              }
+              fallback={(() => {
+                const part = () => (segment() as { part: SessionMessageAssistantText }).part
+                return (
+                  // Keyed by the part so the renderer reuses what it already parsed, and told when
+                  // the part is still arriving so it renders as it streams instead of on every
+                  // keystroke of the model.
+                  <Markdown
+                    class="fc-message-text"
+                    cacheKey={part().id}
+                    streaming={(part() as { streaming?: boolean }).streaming === true}
+                    text={part().text ?? ""}
+                  />
+                )
+              })()}
             >
               <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
             </Show>
@@ -604,9 +612,10 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       }
     }
     if (runningTools > 0) return { tasks: runningTools, label: t("Running tools…") }
-    if (lastPart?.type === "reasoning" && lastPart.time?.completed === undefined)
+    if (lastPart?.type === "reasoning" && (lastPart as { streaming?: boolean }).streaming)
       return { tasks: 0, label: t("Thinking…") }
-    if (lastPart?.type === "text" && lastPart.time?.completed === undefined) return { tasks: 0, label: t("Writing…") }
+    if (lastPart?.type === "text" && (lastPart as { streaming?: boolean }).streaming)
+      return { tasks: 0, label: t("Writing…") }
     return { tasks: 0, label: t("Waiting for FlupCode…") }
   })
 
@@ -730,19 +739,29 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     setStick(false)
     setVisibleCount((value) => value + 80)
     if (id === undefined || top === undefined) return
-    // The prepended page renders lazily, so its height is still settling for a few frames: keep
-    // putting the anchor back until it stays there.
-    let frames = 0
+    // The prepended page renders lazily and its markdown is parsed off the main thread, so its
+    // height goes on settling long past the next few frames. The anchor is put back on every size
+    // change, which survives a renderer that finishes whenever it finishes, and the correction ends
+    // the moment the page stops growing — or the moment the reader takes over, whichever is first.
+    const startedAt = performance.now()
+    let quiet: ReturnType<typeof setTimeout> | undefined
+    const release = () => {
+      clearTimeout(quiet)
+      settle.disconnect()
+    }
     const align = () => {
       const moved = body?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
-      if (moved && container) {
-        const shift = moved.getBoundingClientRect().top - top
-        if (shift !== 0) container.scrollTop += shift
-        if (Math.abs(shift) < 1 && frames > 2) return
-      }
-      if (++frames < 30) requestAnimationFrame(align)
+      if (!moved || !container) return
+      if (readerInput > startedAt) return release()
+      const shift = moved.getBoundingClientRect().top - top
+      if (shift !== 0) container.scrollTop += shift
+      clearTimeout(quiet)
+      quiet = setTimeout(release, 250)
     }
+    const settle = new ResizeObserver(align)
+    settle.observe(body)
     requestAnimationFrame(align)
+    setTimeout(release, 4000)
   }
 
   // A reader who is at the end follows the run as it grows: live text, tool output and the status

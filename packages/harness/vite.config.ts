@@ -14,6 +14,9 @@ export default defineConfig({
     __FLUPCODE_ENGINE_VERSION__: JSON.stringify(sdk.version),
   },
   plugins: [tailwindcss(), solid()],
+  // The markdown renderer parses and highlights off the main thread, and a worker bundled as IIFE
+  // cannot be code-split alongside the app.
+  worker: { format: "es" },
   server: {
     host: "0.0.0.0",
     port: 4444,

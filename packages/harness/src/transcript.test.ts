@@ -49,7 +49,7 @@ const info = (id: string, role: string, extra: Record<string, unknown> = {}) => 
 
 const assistant = (data: SessionMessageInfo[]) =>
   data.find((entry) => entry.type === "assistant") as unknown as {
-    content: Array<{ id: string; type?: string; text?: string; state?: { status?: string } }>
+    content: Array<{ id: string; type?: string; text?: string; streaming?: boolean; state?: { status?: string } }>
   }
 
 describe("applying one event at a time", () => {
@@ -58,11 +58,11 @@ describe("applying one event at a time", () => {
     expect(data).toHaveLength(1)
 
     data = applyPart(data, { id: "p1", messageID: "m1", type: "text", text: "Hello" })
-    expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello" }])
+    expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello", streaming: false }])
 
     // The engine updates the message again mid-turn; the parts it does not carry must survive.
     data = applyMessage(data, info("m1", "assistant", { agent: "build", cost: 0.01 }))
-    expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello" }])
+    expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello", streaming: false }])
   })
 
   test("deltas append to the part that is streaming", () => {

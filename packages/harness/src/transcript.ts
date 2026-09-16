@@ -29,6 +29,7 @@ export type LegacyPart = {
   url?: string
   filename?: string
   mime?: string
+  time?: { start?: number; end?: number }
   state?: { status?: string; input?: unknown; output?: string; error?: string }
 }
 
@@ -38,8 +39,11 @@ const created = (message: SessionMessageInfo) => (message as { time?: { created?
 
 /** One legacy part as a v2 content entry, or nothing for the parts the views do not render. */
 export function contentOf(part: LegacyPart) {
-  if (part.type === "text") return { type: "text", id: part.id, text: part.text ?? "" }
-  if (part.type === "reasoning") return { type: "reasoning", id: part.id, text: part.text ?? "" }
+  // `streaming` says the part is still arriving, which is what lets the renderer highlight as it
+  // goes instead of re-parsing the whole block on every slice.
+  const streaming = !!part.time?.start && !part.time.end
+  if (part.type === "text") return { type: "text", id: part.id, text: part.text ?? "", streaming }
+  if (part.type === "reasoning") return { type: "reasoning", id: part.id, text: part.text ?? "", streaming }
   if (part.type !== "tool") return undefined
   return {
     type: "tool",
