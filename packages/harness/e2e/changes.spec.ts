@@ -81,13 +81,19 @@ type Seen = {
   branches: string[]
   pullRequests: string[]
   logs: string[]
+  restored: string[]
+  planned: string[]
 }
 
 /** What `GET /harness/git/pr` answers, which is the whole of what the chip can know. */
 type BranchFixture = Record<string, unknown>
 
-async function openSession(page: Page, panels: string[] = [], options: { long?: boolean; branch?: BranchFixture } = {}) {
-  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [] }
+async function openSession(
+  page: Page,
+  panels: string[] = [],
+  options: { long?: boolean; branch?: BranchFixture; checkpoints?: unknown[] } = {},
+) {
+  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [], restored: [], planned: [] }
   await page.addInitScript((panels) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -108,6 +114,26 @@ async function openSession(page: Page, panels: string[] = [], options: { long?: 
       const body = route.request().postDataJSON() as { message: string; paths: string[] }
       seen.commits.push({ message: body.message, paths: body.paths })
       return route.fulfill({ json: { data: { sha: "abc1234", subject: body.message, branch: "feature" } } })
+    }
+    if (url.pathname === "/harness/checkpoints" && route.request().method() === "GET") {
+      return route.fulfill({ json: { data: options.checkpoints ?? [] } })
+    }
+    if (/^\/harness\/checkpoints\/[^/]+\/plan$/.test(url.pathname)) {
+      seen.planned.push(url.pathname.split("/")[3]!)
+      return route.fulfill({
+        json: { data: { write: ["src/work.ts", "src/other.ts"], remove: ["src/oops.ts"] } },
+      })
+    }
+    if (/^\/harness\/checkpoints\/[^/]+\/restore$/.test(url.pathname)) {
+      seen.restored.push(url.pathname.split("/")[3]!)
+      return route.fulfill({
+        json: {
+          data: {
+            plan: { write: ["src/work.ts", "src/other.ts"], remove: ["src/oops.ts"] },
+            safety: { id: "cp_safe", directory: "/work/demo", sha: "b".repeat(40), title: "Before restoring", createdAt: 3 },
+          },
+        },
+      })
     }
     if (url.pathname === "/harness/git/pr/log") {
       const job = url.searchParams.get("job") ?? ""
@@ -289,7 +315,7 @@ test("committing is the server running git, not a turn spent asking a model to",
   await page.getByRole("button", { name: /^(Commit|Confirmar)$/ }).click()
 
   await expect(page.locator(".fc-toast")).toContainText("abc1234")
-  expect(seen.commits).toEqual([{ message: "only the server", paths: ["src/server.ts"] }])
+  await expect.poll(() => seen.commits).toEqual([{ message: "only the server", paths: ["src/server.ts"] }])
   // The composer stayed empty: nothing was sent to the engine to make this happen.
   await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
 })
@@ -316,7 +342,7 @@ test("a branch is started by name, and the uncommitted work comes with it", asyn
   await page.getByRole("textbox", { name: /Branch name|Nombre de la rama/ }).fill("feature/from-the-ui")
   await page.getByRole("button", { name: /^(Create|Crear)$/ }).click()
 
-  expect(seen.branches).toEqual(["feature/from-the-ui"])
+  await expect.poll(() => seen.branches).toEqual(["feature/from-the-ui"])
   await expect(page.locator(".fc-toast")).toContainText("feature/from-the-ui")
 })
 
@@ -392,7 +418,7 @@ test("a branch with no pull request offers to open one, and says when it must pu
   await title.fill("feat: something better")
   await chip.getByRole("button", { name: /^(Open|Abrir)$/ }).click()
 
-  expect(seen.pullRequests).toEqual(["feat: something better"])
+  await expect.poll(() => seen.pullRequests).toEqual(["feat: something better"])
   await expect(page.locator(".fc-toast")).toContainText("42")
 })
 
@@ -455,7 +481,7 @@ test("a failed check can be asked why, without leaving for a browser", async ({ 
   expect(seen.logs).toEqual([])
   await failures.first().getByRole("button", { name: /Why|Por qué/ }).click()
 
-  expect(seen.logs).toEqual(["9001"])
+  await expect.poll(() => seen.logs).toEqual(["9001"])
   await expect(page.locator(".fc-pr-log")).toContainText('error: script "test" exited with code 1')
   // The step that failed, which is what the log is of.
   await expect(failures.first()).toContainText("Test remote control")
@@ -477,4 +503,69 @@ test("checks that all passed have nothing to expand", async ({ page }) => {
   await expect(page.locator(".fc-pr-checks")).toBeVisible()
   // Not a button: there is nothing behind it.
   await expect(page.locator(".fc-pr-checks-open")).toHaveCount(0)
+})
+
+const checkpoint = (id: string, title: string, createdAt: number) => ({
+  id,
+  directory: "/work/demo",
+  sha: `${id}${"0".repeat(40 - id.length)}`,
+  title,
+  createdAt,
+})
+
+test("restoring names every file it would delete, before it deletes any", async ({ page }) => {
+  const seen = await openSession(page, [], {
+    checkpoints: [checkpoint("cp1", "after the plan step", 2), checkpoint("cp2", "before the run", 1)],
+  })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  const first = page.locator(".fc-checkpoint").filter({ hasText: "after the plan step" })
+  await first.getByRole("button", { name: /^(Restore|Restaurar)$/ }).click()
+
+  const plan = first.locator(".fc-checkpoint-plan")
+  await expect(plan).toBeVisible()
+  // Nothing has been restored yet: the click asked what would happen, and that is all.
+  await expect.poll(() => seen.planned).toEqual(["cp1"])
+  expect(seen.restored).toEqual([])
+
+  // The deletions by name and in full — a file nobody added to git is gone from everywhere.
+  await expect(plan).toContainText(/Deleted \(1\)|Se borran \(1\)/)
+  await expect(plan).toContainText("src/oops.ts")
+  await expect(plan).toContainText(/Rewritten \(2\)|Se reescriben \(2\)/)
+  await expect(plan).toContainText(/can be undone|se puede deshacer/)
+})
+
+test("cancelling a restore restores nothing", async ({ page }) => {
+  const seen = await openSession(page, [], { checkpoints: [checkpoint("cp1", "after the plan step", 2)] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  await page.locator(".fc-checkpoint").getByRole("button", { name: /^(Restore|Restaurar)$/ }).click()
+  await expect(page.locator(".fc-checkpoint-plan")).toBeVisible()
+  await page.getByRole("button", { name: /^(Cancel|Cancelar)$/ }).click()
+
+  await expect(page.locator(".fc-checkpoint-plan")).toHaveCount(0)
+  await expect.poll(() => seen.restored).toEqual([])
+})
+
+test("confirming restores, and says what it did", async ({ page }) => {
+  const seen = await openSession(page, [], { checkpoints: [checkpoint("cp1", "after the plan step", 2)] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  const card = page.locator(".fc-checkpoint")
+  await card.getByRole("button", { name: /^(Restore|Restaurar)$/ }).click()
+  await expect(card.locator(".fc-checkpoint-plan")).toBeVisible()
+  await card.locator(".fc-checkpoint-plan").getByRole("button", { name: /^(Restore|Restaurar)$/ }).click()
+
+  await expect.poll(() => seen.restored).toEqual(["cp1"])
+  await expect(page.locator(".fc-toast")).toContainText(/2.*1/)
+})
+
+test("the branch view has no checkpoints, because they are about the folder", async ({ page }) => {
+  await openSession(page, [], { checkpoints: [checkpoint("cp1", "one", 1)] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+  await expect(page.locator(".fc-checkpoints")).toBeVisible()
+
+  await page.getByRole("button", { name: /^(Branch|Rama)$/ }).click()
+
+  await expect(page.locator(".fc-checkpoints")).toHaveCount(0)
 })

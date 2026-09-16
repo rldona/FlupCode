@@ -2,6 +2,7 @@ import type { Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task } from "./types"
 import { evidenceText, runVerify } from "./verify"
+import { take } from "./checkpoint"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -185,6 +186,25 @@ export class TaskRunner {
         } catch (cause) {
           this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
           throw cause
+        }
+      }
+      // A way back from this task (H-15). After it rather than before, so the list reads as "this is
+      // what the folder looked like once that step had finished" — which is the state a reader
+      // wants back when the *next* step is the one that went wrong.
+      //
+      // Failing to record one must not fail the task. The folder may not be a repository at all,
+      // and losing a finished piece of work over a missing undo would be the worse trade.
+      if (options.directory) {
+        try {
+          const checkpoint = await take({
+            directory: options.directory,
+            title: task.name,
+            runID: run.id,
+            taskID: task.id,
+          })
+          this.repository.addCheckpoint(checkpoint)
+        } catch {
+          // Nothing to say here: the run is fine, there is simply no way back from this step.
         }
       }
       // A human gate (H-21): the work is done and nothing else starts until somebody has read it.

@@ -182,3 +182,17 @@ export type BranchState = {
   pullRequest?: PullRequest
   problem?: string
 }
+
+/** A way back to how a folder looked (H-15). The commit lives in your own repository. */
+export type Checkpoint = {
+  id: string
+  directory: string
+  sha: string
+  title: string
+  runID?: string
+  taskID?: string
+  createdAt: number
+}
+
+/** What restoring would do, named before it does it. */
+export type RestorePlan = { write: string[]; remove: string[] }

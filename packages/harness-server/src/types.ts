@@ -185,6 +185,19 @@ export type ServerEvent =
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
   | { type: "artifact.created"; artifact: Artifact }
+  | { type: "checkpoint.added"; checkpoint: Checkpoint }
+  | { type: "checkpoint.removed"; checkpointID: string }
+
+/** A way back to how a folder looked (H-15). The commit lives in the reader's own repository. */
+export type Checkpoint = {
+  id: string
+  directory: string
+  sha: string
+  title: string
+  runID?: string
+  taskID?: string
+  createdAt: number
+}
 
 export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 

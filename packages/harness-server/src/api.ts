@@ -148,6 +148,7 @@ const readJSON = async (request: Request) => {
 import { listWorkflows } from "./workflow"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
+import { drop, planRestore, restore, take } from "./checkpoint"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -244,6 +245,62 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "artifacts" && request.method === "DELETE" && path[2]) {
       return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
     }
+    // Checkpoints (H-15): a way back from what a run did.
+    if (path[1] === "checkpoints" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      return json({
+        data: repository.listCheckpoints({
+          directory: params.get("directory") ?? undefined,
+          runID: params.get("runID") ?? undefined,
+        }),
+      })
+    }
+    if (path[1] === "checkpoints" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as { directory?: unknown; title?: unknown } | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      if (!directory) return error("A folder is required", 400)
+      try {
+        const title = typeof body?.title === "string" && body.title.trim() ? body.title.trim() : "Checkpoint"
+        return json({ data: repository.addCheckpoint(await take({ directory, title })) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    // What restoring would do. Asked for first, and shown, because restoring deletes files.
+    if (path[1] === "checkpoints" && path[2] && path[3] === "plan" && request.method === "GET") {
+      const checkpoint = repository.getCheckpoint(path[2])
+      if (!checkpoint) return error("Checkpoint not found", 404)
+      try {
+        return json({ data: await planRestore(checkpoint.directory, checkpoint.sha) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "checkpoints" && path[2] && path[3] === "restore" && request.method === "POST") {
+      const checkpoint = repository.getCheckpoint(path[2])
+      if (!checkpoint) return error("Checkpoint not found", 404)
+      try {
+        const done = await restore({
+          directory: checkpoint.directory,
+          sha: checkpoint.sha,
+          safetyTitle: `Before restoring "${checkpoint.title}"`,
+        })
+        // Recorded like any other, so the way back from a restore is in the same list as the rest.
+        return json({ data: { plan: done.plan, safety: repository.addCheckpoint(done.safety) } })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "checkpoints" && path[2] && request.method === "DELETE") {
+      const checkpoint = repository.getCheckpoint(path[2])
+      if (!checkpoint) return error("Checkpoint not found", 404)
+      await drop(checkpoint.directory, checkpoint.id)
+      return json({ data: repository.removeCheckpoint(checkpoint.id) })
+    }
+
     // Git (H-20). The server is the only part of FlupCode that can run it: the client is a browser,
     // and the engine's `/vcs` routes read the tree but never write to it.
     if (path[1] === "git" && path[2] === "commit" && request.method === "POST") {

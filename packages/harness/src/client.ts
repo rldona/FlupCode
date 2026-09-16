@@ -18,8 +18,10 @@ import type {
   ArtifactKind,
   BranchState,
   CheckLog,
+  Checkpoint,
   GitCommit,
   PullRequest,
+  RestorePlan,
   Routine,
   RoutineInput,
   RoutineRun,
@@ -916,6 +918,27 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** Pushes the branch if it has never been pushed, then opens the pull request. */
       openPullRequest: (input: { directory: string; title: string; body?: string; base?: string }) =>
         harnessRequest<PullRequest>(baseUrl, "/harness/git/pr", { method: "POST", body: JSON.stringify(input) }),
+    },
+    /**
+     * Checkpoints (H-15): a way back from what a run did.
+     *
+     * `plan` before `restore`, always. Restoring overwrites files and deletes others, and nothing
+     * here does that without saying which ones first.
+     */
+    checkpoints: {
+      list: (directory: string) =>
+        harnessRequest<Checkpoint[]>(baseUrl, `/harness/checkpoints?directory=${encodeURIComponent(directory)}`),
+      take: (input: { directory: string; title: string }) =>
+        harnessRequest<Checkpoint>(baseUrl, "/harness/checkpoints", { method: "POST", body: JSON.stringify(input) }),
+      plan: (id: string) => harnessRequest<RestorePlan>(baseUrl, `/harness/checkpoints/${encodeURIComponent(id)}/plan`),
+      restore: (id: string) =>
+        harnessRequest<{ plan: RestorePlan; safety: Checkpoint }>(
+          baseUrl,
+          `/harness/checkpoints/${encodeURIComponent(id)}/restore`,
+          { method: "POST" },
+        ),
+      remove: (id: string) =>
+        harnessRequest<boolean>(baseUrl, `/harness/checkpoints/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),
