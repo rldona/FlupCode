@@ -41,6 +41,12 @@ declare global {
       speech?: SpeechBridge
       /** `base64(user:pass)` for the engine the desktop app started; see transport.ts. */
       engineAuth?: string
+      /** Where the window's controls are: left on darwin, right on win32. */
+      platform?: string
+      /** True where the window was created without a title bar, so the page draws that strip. */
+      ownsTitleBar?: boolean
+      /** Windows draws its own window buttons, so it is told what colours the page is using. */
+      setTitleBar?: (overlay: { color: string; symbolColor: string }) => Promise<void>
     }
   }
 }

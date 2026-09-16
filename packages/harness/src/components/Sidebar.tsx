@@ -1,13 +1,13 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { sessionTitle } from "../session-title"
 import type { SessionInfo } from "../engine-types"
+import { ViewTabs } from "./Topbar"
 import { t } from "../i18n"
 import type { AppView } from "../chat"
 import { cssPx } from "../text-size"
 import { UNAVAILABLE_FEATURES } from "../features"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
-import { ViewTabs } from "./Topbar"
 import logo from "../assets/flupcode-logo.png"
 
 /** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
@@ -27,6 +27,11 @@ type SidebarProps = {
   /** Chat lists conversations flat; Code groups sessions by project. */
   view: AppView
   onViewChange: (view: AppView) => void
+  /**
+   * The name and the view tabs. The desktop app has neither here: its window strip runs the width of
+   * the window and carries the tabs, and the name is the window's own.
+   */
+  showBrand: boolean
   sessions: SessionInfo[] | undefined
   sessionsLoading: boolean
   selectedSession?: string
@@ -247,10 +252,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         />
 
         <div class="fc-sidebar-top">
-          <div class="fc-sidebar-brand">
-            <span class="fc-sidebar-brand-name">FlupCode</span>
-            <ViewTabs view={props.view} onChange={props.onViewChange} />
-          </div>
+          <Show when={props.showBrand}>
+            <div class="fc-sidebar-brand">
+              <span class="fc-sidebar-brand-name">FlupCode</span>
+              <ViewTabs view={props.view} onChange={props.onViewChange} />
+            </div>
+          </Show>
           <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
             <span class="fc-new-icon">+</span>
             <span>{t("New")}</span>
