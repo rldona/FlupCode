@@ -58,9 +58,9 @@ Paths are relative to `packages/`.
 
 | Feature                                       | Upstream           | FlupCode | Evidence                                                       |
 | --------------------------------------------- | ------------------ | -------- | -------------------------------------------------------------- |
-| Streaming markdown + highlighting             | ✅ (Shiki, worker) | 🟡       | `marked` + DOMPurify on the main thread, regex highlighter     |
+| Streaming markdown + highlighting             | ✅ (Shiki, worker) | ✅       | `@opencode-ai/session-ui`, mapped onto FlupCode's palette      |
 | Tool renderers                                | ✅ (per tool)      | 🟡       | bash/edit/write; the rest show raw output (`SessionView.tsx`)  |
-| Reasoning blocks                              | ✅                 | ❌       | dropped from the transcript                                    |
+| Reasoning blocks                              | ✅                 | ✅       | collapsed by default in the transcript                         |
 | Inline diff per edit + full diff viewer       | ✅ (Pierre)        | 🟡       | LCS diff on the main thread; the panel shows a raw patch       |
 | Subagent cards, compaction and revert markers | ✅                 | ❌       | subagents are a row of chips (`SubagentList.tsx`)              |
 | LSP diagnostics under edits                   | ✅                 | 🟡       | the runtime produces them; the transcript does not render them |
@@ -132,9 +132,14 @@ resilient event stream (H-03 ✅), secure defaults (H-04 ✅), removing the plac
 adopting `session-ui` (H-06 — open), queue and steer (H-07 ✅), complete permissions (H-08 ✅) and
 error states (H-09 ✅).
 
-H-06 is what is left of P0: the timeline, the tool renderers, reasoning and the diff viewer are
-still this harness's own and are worse than upstream's, which already has them in
-`packages/session-ui`.
+H-06 is partly done. Markdown is upstream's renderer now, and reasoning is back in the transcript.
+What is left is the diff viewer and the per-tool renderers, and there is a concrete obstacle in the
+way: `packages/session-ui` compiles under `@tsconfig/node22`, while the harness extends
+`@tsconfig/bun`, which turns on `verbatimModuleSyntax` and `noUncheckedIndexedAccess`. The markdown
+entry point happens to satisfy both; `components/file.tsx` and `pierre/*` do not, and a project
+typechecks the source it imports. Taking them needs either those two flags relaxed for the whole
+harness — 15k lines of its own code — or `session-ui` made to compile under them upstream. Neither
+is worth a diff viewer on its own, so it waits for the tool renderers to make the case.
 
 `docs/ROADMAP.md` still describes the older plan. `docs/AUDIT-2026-09.md` §17 is the priced backlog
 and supersedes it wherever the two disagree.
