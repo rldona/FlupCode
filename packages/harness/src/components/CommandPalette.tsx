@@ -1,36 +1,167 @@
-import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type { FileSystemEntry, SessionInfo } from "../engine-types"
-import type { CommandOption } from "../types"
+import type { Artifact, CommandOption, ProjectItem, Routine, Run } from "../types"
 import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
 
-type PaletteItem =
-  | { kind: "command"; id: string; name: string; description?: string; disabled?: boolean }
-  | { kind: "session"; id: string; title: string; subtitle: string }
-  | { kind: "file"; id: string; path: string }
+/** What can be found. The order is the order of the tabs. */
+export const KINDS = ["session", "project", "artifact", "routine", "run", "command", "file"] as const
+export type Kind = (typeof KINDS)[number]
+
+export type PaletteItem = {
+  kind: Kind
+  id: string
+  label: string
+  detail?: string
+  disabled?: boolean
+  /** What the handler for this kind is given: a name, an id or a path. */
+  value: string
+}
+
+const LABELS: Record<Kind, string> = {
+  session: "Sessions",
+  project: "Projects",
+  artifact: "Artifacts",
+  routine: "Routines",
+  run: "Runs",
+  command: "Commands",
+  file: "Files",
+}
+
+const BADGES: Record<Kind, string> = {
+  session: "S",
+  project: "P",
+  artifact: "A",
+  routine: "R",
+  run: "▸",
+  command: "/",
+  file: "@",
+}
+
+/** How many of each kind are worth showing at once when everything is on screen together. */
+const LIMIT = 6
+
+const contains = (haystack: string, query: string) => haystack.toLowerCase().includes(query)
+
+/**
+ * Everything the query matches, grouped by kind.
+ *
+ * Exported for its own test: this is the part that decides what a search finds, and it is the part
+ * that can be wrong without anything looking broken.
+ */
+export function search(
+  query: string,
+  sources: {
+    commands: CommandOption[]
+    sessions: SessionInfo[]
+    projects: ProjectItem[]
+    artifacts: Artifact[]
+    routines: Routine[]
+    runs: Run[]
+    files: FileSystemEntry[]
+  },
+): PaletteItem[] {
+  const value = query.trim().toLowerCase()
+  const items: PaletteItem[] = []
+  for (const session of sources.sessions) {
+    const title = sessionTitle(session) || t("Session without title")
+    const directory = session.location?.directory ?? ""
+    if (value && !contains(`${title} ${directory}`, value)) continue
+    items.push({
+      kind: "session",
+      id: `session:${session.id}`,
+      label: title,
+      detail: directory.split("/").filter(Boolean).at(-1),
+      value: session.id,
+    })
+  }
+  for (const project of sources.projects) {
+    if (value && !contains(`${project.name} ${project.directory}`, value)) continue
+    items.push({ kind: "project", id: `project:${project.directory}`, label: project.name, detail: project.directory, value: project.directory })
+  }
+  for (const artifact of sources.artifacts) {
+    if (value && !contains(`${artifact.title} ${artifact.kind}`, value)) continue
+    items.push({ kind: "artifact", id: `artifact:${artifact.id}`, label: artifact.title, detail: artifact.kind, value: artifact.id })
+  }
+  for (const routine of sources.routines) {
+    if (value && !contains(`${routine.name} ${routine.description ?? ""}`, value)) continue
+    items.push({
+      kind: "routine",
+      id: `routine:${routine.id}`,
+      label: routine.name,
+      detail: routine.enabled ? undefined : t("Paused"),
+      value: routine.id,
+    })
+  }
+  for (const run of sources.runs) {
+    const label = run.source.type === "routine" ? t("Routine") : t("Manual run")
+    if (value && !contains(`${label} ${run.status}`, value)) continue
+    items.push({ kind: "run", id: `run:${run.id}`, label, detail: run.status, value: run.id })
+  }
+  for (const command of sources.commands) {
+    if (value && !contains(command.name, value)) continue
+    items.push({
+      kind: "command",
+      id: `command:${command.name}`,
+      label: command.name,
+      detail: command.description,
+      disabled: command.disabled,
+      value: command.name,
+    })
+  }
+  for (const file of sources.files) {
+    items.push({ kind: "file", id: `file:${file.path}`, label: file.path, value: file.path })
+  }
+  return items
+}
+
+/** The kinds that actually matched, so a tab is never offered for an empty list. */
+export const kindsIn = (items: PaletteItem[]) => KINDS.filter((kind) => items.some((item) => item.kind === kind))
+
+/** What "All" shows: a few of each kind rather than a hundred sessions and nothing else. */
+export const capped = (items: PaletteItem[], limit = LIMIT) =>
+  KINDS.flatMap((kind) => items.filter((item) => item.kind === kind).slice(0, limit))
 
 type CommandPaletteProps = {
   open: boolean
   commands: CommandOption[]
   sessions: SessionInfo[]
+  projects: ProjectItem[]
+  artifacts: Artifact[]
+  routines: Routine[]
+  runs: Run[]
   onClose: () => void
   onCommand: (name: string) => void
   onSession: (id: string) => void
+  onProject: (directory: string) => void
+  onArtifact: (id: string) => void
+  onRoutine: (id: string) => void
+  onRun: (id: string) => void
   onFile: (path: string) => void
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
 }
 
+/**
+ * The search (⌘K, or the magnifier in the sidebar).
+ *
+ * It replaces the box that used to sit over the project list. That box could only ever narrow what
+ * was already on screen; this reaches sessions, projects, artifacts, routines, runs, commands and
+ * files. The tabs are only the kinds the query actually matched — a tab that always finds nothing
+ * is furniture.
+ */
 export const CommandPalette: Component<CommandPaletteProps> = (props) => {
   let input: HTMLInputElement | undefined
   const [query, setQuery] = createSignal("")
   const [files, setFiles] = createSignal<FileSystemEntry[]>([])
   const [active, setActive] = createSignal(0)
+  const [tab, setTab] = createSignal<Kind>()
 
   createEffect(() => {
     if (!props.open) return
     setQuery("")
     setFiles([])
     setActive(0)
+    setTab(undefined)
     queueMicrotask(() => input?.focus())
   })
 
@@ -50,41 +181,57 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     onCleanup(() => clearTimeout(handle))
   })
 
-  const items = (): PaletteItem[] => {
-    const value = query().trim().toLowerCase()
-    const commands = props.commands
-      .filter((command) => command.name.toLowerCase().includes(value))
-      .slice(0, 6)
-      .map<PaletteItem>((command) => ({
-        kind: "command",
-        id: `command:${command.name}`,
-        name: command.name,
-        description: command.description,
-        disabled: command.disabled,
-      }))
-    const sessions = props.sessions
-      .filter((session) => (sessionTitle(session) || session.id).toLowerCase().includes(value))
-      .slice(0, 5)
-      .map<PaletteItem>((session) => ({
-        kind: "session",
-        id: `session:${session.id}`,
-        title: sessionTitle(session) || t("Session without title"),
-        subtitle: session.id.slice(0, 8),
-      }))
-    const fileItems = files()
-      .slice(0, 8)
-      .map<PaletteItem>((file) => ({ kind: "file", id: `file:${file.path}`, path: file.path }))
-    return [...commands, ...sessions, ...fileItems]
-  }
+  const all = createMemo(() =>
+    search(query(), {
+      commands: props.commands,
+      sessions: props.sessions,
+      projects: props.projects,
+      artifacts: props.artifacts,
+      routines: props.routines,
+      runs: props.runs,
+      files: files(),
+    }),
+  )
+  const tabs = createMemo(() => kindsIn(all()))
+  const items = createMemo(() => {
+    const only = tab()
+    return only ? all().filter((item) => item.kind === only) : capped(all())
+  })
+  // A tab that stops matching stops existing, and the list must not be left pointing at it.
+  createEffect(() => {
+    const only = tab()
+    if (only && !tabs().includes(only)) setTab(undefined)
+  })
+
+  const groups = createMemo(() => {
+    const seen: Array<{ kind: Kind; items: PaletteItem[] }> = []
+    for (const item of items()) {
+      const last = seen.at(-1)
+      if (last?.kind === item.kind) last.items.push(item)
+      else seen.push({ kind: item.kind, items: [item] })
+    }
+    return seen
+  })
 
   const select = (item: PaletteItem | undefined) => {
-    if (!item) return
-    if (item.kind === "command") {
-      if (item.disabled) return
-      props.onCommand(item.name)
-    } else if (item.kind === "session") props.onSession(item.id)
-    else props.onFile(item.path)
+    if (!item || item.disabled) return
+    if (item.kind === "command") props.onCommand(item.value)
+    else if (item.kind === "session") props.onSession(item.value)
+    else if (item.kind === "project") props.onProject(item.value)
+    else if (item.kind === "artifact") props.onArtifact(item.value)
+    else if (item.kind === "routine") props.onRoutine(item.value)
+    else if (item.kind === "run") props.onRun(item.value)
+    else props.onFile(item.value)
     props.onClose()
+  }
+
+  /** Left and right walk the tabs, with "All" as the first of them. */
+  const moveTab = (step: number) => {
+    const available: Array<Kind | undefined> = [undefined, ...tabs()]
+    const index = available.indexOf(tab())
+    const next = available[Math.min(Math.max(index + step, 0), available.length - 1)]
+    setTab(next)
+    setActive(0)
   }
 
   return (
@@ -94,73 +241,136 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
           class="fc-palette"
           role="dialog"
           aria-modal="true"
-          aria-label={t("Command palette")}
+          aria-label={t("Search")}
           onClick={(event) => event.stopPropagation()}
         >
-          <input
-            ref={input}
-            class="fc-palette-input"
-            value={query()}
-            placeholder={t("Search commands, sessions and files")}
-            aria-label="Command palette"
-            onInput={(event) => {
-              setQuery(event.currentTarget.value)
-              setActive(0)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === "Escape") {
-                props.onClose()
-                return
-              }
-              if (event.key === "ArrowDown") {
-                event.preventDefault()
-                setActive((index) => Math.min(index + 1, items().length - 1))
-                return
-              }
-              if (event.key === "ArrowUp") {
-                event.preventDefault()
-                setActive((index) => Math.max(index - 1, 0))
-                return
-              }
-              if (event.key === "Enter") {
-                event.preventDefault()
-                select(items()[active()])
-              }
-            }}
-          />
-          <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
-            <ul class="fc-palette-list">
-              <For each={items()}>
-                {(item, index) => (
-                  <li>
-                    <button
-                      class="fc-palette-item"
-                      classList={{
-                        "fc-palette-item-active": active() === index() && !(item.kind === "command" && item.disabled),
-                      }}
-                      type="button"
-                      disabled={item.kind === "command" && item.disabled}
-                      onMouseEnter={() => setActive(index())}
-                      onClick={() => select(item)}
-                    >
-                      <span class="fc-palette-badge">
-                        {item.kind === "command" ? "/" : item.kind === "session" ? "S" : "@"}
-                      </span>
-                      <span class="fc-palette-label">
-                        {item.kind === "command" ? item.name : item.kind === "session" ? item.title : item.path}
-                      </span>
-                      <Show when={item.kind === "command" && item.description}>
-                        <span class="fc-palette-desc">{item.kind === "command" ? item.description : ""}</span>
-                      </Show>
-                      <Show when={item.kind === "session"}>
-                        <span class="fc-palette-desc">{item.kind === "session" ? item.subtitle : ""}</span>
-                      </Show>
-                    </button>
-                  </li>
+          <div class="fc-palette-head">
+            <input
+              ref={input}
+              class="fc-palette-input"
+              value={query()}
+              placeholder={t("Search")}
+              aria-label={t("Search")}
+              onInput={(event) => {
+                setQuery(event.currentTarget.value)
+                setActive(0)
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  props.onClose()
+                  return
+                }
+                if (event.key === "ArrowDown") {
+                  event.preventDefault()
+                  setActive((index) => Math.min(index + 1, items().length - 1))
+                  return
+                }
+                if (event.key === "ArrowUp") {
+                  event.preventDefault()
+                  setActive((index) => Math.max(index - 1, 0))
+                  return
+                }
+                if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+                  // Only when the caret has nowhere to go, or typing a query becomes impossible.
+                  const caret = event.currentTarget.selectionStart ?? 0
+                  const atEdge = event.key === "ArrowLeft" ? caret === 0 : caret === event.currentTarget.value.length
+                  if (!atEdge) return
+                  event.preventDefault()
+                  moveTab(event.key === "ArrowLeft" ? -1 : 1)
+                  return
+                }
+                if (event.key === "Enter") {
+                  event.preventDefault()
+                  select(items()[active()])
+                }
+              }}
+            />
+            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
+              ×
+            </button>
+          </div>
+
+          <Show when={tabs().length > 1}>
+            <div class="fc-palette-tabs">
+              <button
+                class="fc-palette-tab"
+                classList={{ "fc-palette-tab-active": !tab() }}
+                type="button"
+                onClick={() => {
+                  setTab(undefined)
+                  setActive(0)
+                }}
+              >
+                {t("All")}
+              </button>
+              <For each={tabs()}>
+                {(kind) => (
+                  <button
+                    class="fc-palette-tab"
+                    classList={{ "fc-palette-tab-active": tab() === kind }}
+                    type="button"
+                    onClick={() => {
+                      setTab(kind)
+                      setActive(0)
+                    }}
+                  >
+                    {t(LABELS[kind])}
+                  </button>
                 )}
               </For>
-            </ul>
+            </div>
           </Show>
+
+          <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
+            <div class="fc-palette-list">
+              <For each={groups()}>
+                {(group) => (
+                  <>
+                    <Show when={!tab()}>
+                      <div class="fc-palette-group">{t(LABELS[group.kind])}</div>
+                    </Show>
+                    <For each={group.items}>
+                      {(item) => {
+                        const index = () => items().indexOf(item)
+                        return (
+                          <button
+                            class="fc-palette-item"
+                            classList={{ "fc-palette-item-active": active() === index() && !item.disabled }}
+                            type="button"
+                            disabled={item.disabled}
+                            onMouseEnter={() => setActive(index())}
+                            onClick={() => select(item)}
+                          >
+                            <span class="fc-palette-badge">{BADGES[item.kind]}</span>
+                            <span class="fc-palette-label">{item.label}</span>
+                            <Show when={item.detail}>
+                              <span class="fc-palette-desc">{item.detail}</span>
+                            </Show>
+                          </button>
+                        )
+                      }}
+                    </For>
+                  </>
+                )}
+              </For>
+            </div>
+          </Show>
+
+          <div class="fc-palette-foot">
+            <span>
+              {t("Select")} <kbd>↑</kbd>
+              <kbd>↓</kbd>
+            </span>
+            <Show when={tabs().length > 1}>
+              <span>
+                {t("Change type")} <kbd>←</kbd>
+                <kbd>→</kbd>
+              </span>
+            </Show>
+            <span>
+              {t("Open")} <kbd>↵</kbd>
+            </span>
+          </div>
         </div>
       </div>
     </Show>

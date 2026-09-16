@@ -354,6 +354,8 @@ export const App: Component = () => {
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
+  /** A routine the sidebar asked the screen to open on, cleared once it has. */
+  const [routineFocus, setRoutineFocus] = createSignal<string>()
   const [showTools, setShowTools] = createSignal(true)
   // The model's thinking stays out of the conversation unless it is asked for, as in Claude Code.
   const [showReasoning, setShowReasoning] = createSignal(readStorage(STORAGE_KEYS.showReasoning, false))
@@ -3423,7 +3425,12 @@ export const App: Component = () => {
             onRefresh={refresh}
             onAbout={() => setAboutOpen(true)}
             onSettings={() => setSettingsOpen(true)}
-            onRoutines={() => showScreen("routines")}
+            onRoutines={(focus) => {
+              setRoutineFocus(focus)
+              showScreen("routines")
+            }}
+            routines={routines()}
+            onSearch={() => setPaletteOpen(true)}
             onRuns={() => showScreen("runs")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
@@ -3729,9 +3736,23 @@ export const App: Component = () => {
         open={paletteOpen()}
         commands={commandOptions()}
         sessions={sessionList() ?? []}
+        projects={projects()}
+        artifacts={artifactList()}
+        routines={routines()}
+        runs={runs()}
         onClose={() => setPaletteOpen(false)}
         onCommand={runCommand}
         onSession={selectSession}
+        onProject={(directory) => {
+          leaveScreen()
+          changeTargetDirectory(directory)
+        }}
+        onArtifact={() => showScreen("artifacts")}
+        onRoutine={(id) => {
+          setRoutineFocus(id)
+          showScreen("routines")
+        }}
+        onRun={() => showScreen("runs")}
         onFile={(path) => setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
         searchFiles={searchFiles}
       />
@@ -3889,6 +3910,8 @@ export const App: Component = () => {
       />
       <RoutinesPanel
         open={routinesOpen()}
+        focus={routineFocus()}
+        onFocused={() => setRoutineFocus(undefined)}
         routines={routines()}
         busy={routineBusy()}
         busyRoutineID={routineBusyID()}

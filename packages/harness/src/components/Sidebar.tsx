@@ -6,6 +6,7 @@ import { t } from "../i18n"
 import type { AppView } from "../chat"
 import { cssPx } from "../text-size"
 import { UNAVAILABLE_FEATURES } from "../features"
+import type { Routine } from "../types"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
 import logo from "../assets/flupcode-logo.png"
@@ -60,7 +61,10 @@ type SidebarProps = {
   onRefresh: () => void
   onAbout: () => void
   onSettings: () => void
-  onRoutines: () => void
+  onRoutines: (focus?: string) => void
+  /** The routines there are, for the section at the top. Empty means no section at all. */
+  routines: Routine[]
+  onSearch: () => void
   onRuns: () => void
   onArtifacts: () => void
   onProviders: () => void
@@ -70,7 +74,6 @@ type SidebarProps = {
 }
 
 export const Sidebar: Component<SidebarProps> = (props) => {
-  const [filter, setFilter] = createSignal("")
   const [menu, setMenu] = createSignal<{
     x: number
     y: number
@@ -79,15 +82,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     items: MenuItem[]
   }>()
 
-  const sortedSessions = createMemo(() => {
-    const query = filter().trim().toLowerCase()
-    const list = (props.sessions ?? []).filter((session) => {
-      if (!query) return true
-      const directory = session.location?.directory ?? ""
-      return `${session.title} ${directory}`.toLowerCase().includes(query)
-    })
-    return [...list].sort((a, b) => b.time.updated - a.time.updated)
-  })
+  // Everything, newest first. Narrowing the list from a box in the sidebar is gone: searching is a
+  // modal now, and it reaches artifacts, routines and runs too, which a box over this list cannot.
+  const sortedSessions = createMemo(() =>
+    [...(props.sessions ?? [])].sort((a, b) => b.time.updated - a.time.updated),
+  )
 
   const groups = createMemo(() => {
     const map = new Map<string, ProjectGroup>()
@@ -248,10 +247,25 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               <ViewTabs view={props.view} onChange={props.onViewChange} />
             </div>
           </Show>
-          <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
-            <span class="fc-new-icon">+</span>
-            <span>{t("New")}</span>
-          </button>
+          <div class="fc-sidebar-new">
+            <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
+              <span class="fc-new-icon">+</span>
+              <span>{t("New")}</span>
+            </button>
+            {/* The old box only narrowed this list. Search reaches what is not in it. */}
+            <button
+              class="fc-icon-button fc-sidebar-search"
+              type="button"
+              title={`${t("Search")} ⌘K`}
+              aria-label={t("Search")}
+              onClick={props.onSearch}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
+                <path d="m16 16 4.5 4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+              </svg>
+            </button>
+          </div>
           <nav class="fc-nav">
             <Show when={props.view === "code"}>
               <button
@@ -276,7 +290,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 type="button"
                 disabled={UNAVAILABLE_FEATURES.has("routines")}
                 title={UNAVAILABLE_FEATURES.has("routines") ? t("Coming soon") : undefined}
-                onClick={props.onRoutines}
+                onClick={() => props.onRoutines()}
               >
                 <span class="fc-nav-icon">↻</span>
                 {t("Routines")}
@@ -292,21 +306,44 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           </nav>
         </div>
 
-        <input
-          class="fc-filter-input"
-          value={filter()}
-          placeholder={props.view === "chat" ? t("Search chats") : t("Filter projects")}
-          aria-label={props.view === "chat" ? t("Search chats") : t("Filter projects")}
-          onInput={(event) => setFilter(event.currentTarget.value)}
-        />
-
         <div class="fc-scroll fc-grow">
+          {/*
+            Routines first, and only when there are any (§ the reader's own layout): they run
+            whether or not this window is open, so what they are doing is the one thing on this list
+            that is not waiting for you to click it.
+          */}
+          <Show when={props.view === "code" && props.routines.length > 0}>
+            <section class="fc-sidebar-section">
+              <div class="fc-section-header">
+                <span class="fc-section-label">{t("Routines")}</span>
+              </div>
+              <For each={props.routines}>
+                {(routine) => (
+                  <button
+                    class="fc-sidebar-routine"
+                    type="button"
+                    title={routine.description || routine.prompt}
+                    onClick={() => props.onRoutines(routine.id)}
+                  >
+                    <span class="fc-sidebar-routine-dot" classList={{ "fc-sidebar-routine-off": !routine.enabled }} />
+                    <span class="fc-sidebar-routine-name">{routine.name}</span>
+                  </button>
+                )}
+              </For>
+            </section>
+          </Show>
+
           <Show when={pinned().length > 0}>
-            <div class="fc-section-label">{t("Pinned")}</div>
-            <For each={pinned()}>{(session) => <SessionRow session={session} />}</For>
+            <section class="fc-sidebar-section">
+              <div class="fc-section-header">
+                <span class="fc-section-label">{t("Pinned")}</span>
+              </div>
+              <For each={pinned()}>{(session) => <SessionRow session={session} />}</For>
+            </section>
           </Show>
 
           <Show when={props.view === "chat"}>
+            <section class="fc-sidebar-section">
             <div class="fc-section-header">
               <span class="fc-section-label">{t("Chats")}</span>
             </div>
@@ -318,7 +355,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 when={sortedSessions().length > 0}
                 fallback={
                   <div class="fc-empty-state">
-                    <span class="fc-empty-title">{filter().trim() ? t("No chats found") : t("No chats yet")}</span>
+                    <span class="fc-empty-title">{t("No chats yet")}</span>
                     <span class="fc-empty-hint">{t("Start one with New")}</span>
                   </div>
                 }
@@ -326,9 +363,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 <For each={sortedSessions()}>{(session) => <SessionRow session={session} />}</For>
               </Show>
             </Show>
+            </section>
           </Show>
 
           <Show when={props.view === "code"}>
+            <section class="fc-sidebar-section">
             <div class="fc-section-header">
               <span class="fc-section-label">{t("Projects")}</span>
               <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
@@ -382,6 +421,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 </For>
               </Show>
             </Show>
+            </section>
           </Show>
         </div>
 
@@ -410,7 +450,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                     label: t("Routines"),
                     icon: "↻",
                     disabled: UNAVAILABLE_FEATURES.has("routines"),
-                    onSelect: props.onRoutines,
+                    onSelect: () => props.onRoutines(),
                   },
                   { label: t("MCP servers"), icon: "◫", onSelect: props.onMcp },
                   { label: t("Config (advanced)"), icon: "{}", onSelect: props.onConfig },

@@ -77,7 +77,7 @@ test("opens the command palette", async ({ page }) => {
   test.skip(process.env.FLUPCODE_E2E_SERVER !== "1", "set FLUPCODE_E2E_SERVER=1 with a running OpenCode server")
   await page.goto("/")
   await page.getByRole("button", { name: /Command palette/i }).click()
-  await expect(page.getByPlaceholder(/Search commands/i)).toBeVisible()
+  await expect(page.locator(".fc-palette-input")).toBeVisible()
   await page.keyboard.press("Escape")
 })
 
