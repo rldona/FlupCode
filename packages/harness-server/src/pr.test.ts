@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { branchState, countChecks, parseRepository, toPullRequest } from "./pr"
+import { branchState, cleanLogLine, countChecks, failuresIn, jobFromUrl, parseRepository, stepOf, toPullRequest } from "./pr"
 
 describe("parseRepository", () => {
   test("reads owner/name out of the URL forms git writes", () => {
@@ -64,12 +64,66 @@ describe("countChecks", () => {
   })
 })
 
+describe("failuresIn", () => {
+  const url = "https://github.com/rldona/FlupCode/actions/runs/35153729542/job/104988062237"
+
+  test("names only what failed, with the job to read its log", () => {
+    const rollup = [
+      { status: "COMPLETED", conclusion: "SUCCESS", name: "build", detailsUrl: url },
+      { status: "COMPLETED", conclusion: "FAILURE", name: "typecheck", workflowName: "harness", detailsUrl: url },
+    ]
+    expect(failuresIn(rollup)).toEqual([
+      { name: "typecheck", workflow: "harness", url, job: "104988062237" },
+    ])
+  })
+
+  test("a check still running has not failed, whatever it last concluded", () => {
+    expect(failuresIn([{ status: "IN_PROGRESS", conclusion: "FAILURE", name: "build" }])).toEqual([])
+  })
+
+  test("a skipped check is not a failure", () => {
+    expect(failuresIn([{ status: "COMPLETED", conclusion: "SKIPPED", name: "duplicates" }])).toEqual([])
+  })
+
+  test("a status context has a name and a URL of its own, and no job to read", () => {
+    const failures = failuresIn([{ state: "FAILURE", context: "ci/external", targetUrl: "https://ci.example.com/7" }])
+    expect(failures).toEqual([
+      { name: "ci/external", workflow: undefined, url: "https://ci.example.com/7", job: undefined },
+    ])
+  })
+})
+
+test("jobFromUrl takes the job out of the URL, and nothing out of one without it", () => {
+  expect(jobFromUrl("https://github.com/o/r/actions/runs/1/job/998")).toBe("998")
+  expect(jobFromUrl("https://github.com/o/r/actions/runs/1")).toBeUndefined()
+  expect(jobFromUrl(undefined)).toBeUndefined()
+})
+
+describe("cleanLogLine", () => {
+  test("takes off the job, the step and the runner's timestamp", () => {
+    const line = "build\tTest remote control\t2026-09-16T18:26:33.4941194Z  0 fail"
+    // What is left is the line somebody actually wants to read.
+    expect(cleanLogLine(line)).toBe(" 0 fail")
+    expect(stepOf(line)).toBe("Test remote control")
+  })
+
+  test("strips the colour a runner writes even with NO_COLOR asked for", () => {
+    expect(cleanLogLine("j\ts\t2026-09-16T18:26:31.4Z \u001b[36;1mbun test\u001b[0m")).toBe("bun test")
+  })
+
+  test("leaves a line that has none of that alone", () => {
+    expect(cleanLogLine("just a line")).toBe("just a line")
+    expect(stepOf("just a line")).toBeUndefined()
+  })
+})
+
 test("toPullRequest keeps the states apart and defaults the rest", () => {
   const base = { number: 7, title: "t", url: "u", isDraft: false, additions: 1, deletions: 2 }
   expect(toPullRequest({ ...base, state: "MERGED" }).state).toBe("merged")
   expect(toPullRequest({ ...base, state: "CLOSED" }).state).toBe("closed")
   expect(toPullRequest({ ...base, state: "OPEN" }).state).toBe("open")
   expect(toPullRequest({ ...base, state: "OPEN" }).checks).toEqual({ total: 0, passed: 0, failed: 0, running: 0 })
+  expect(toPullRequest({ ...base, state: "OPEN" }).failures).toEqual([])
 })
 
 describe("branchState", () => {

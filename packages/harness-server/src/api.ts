@@ -147,7 +147,7 @@ const readJSON = async (request: Request) => {
 
 import { listWorkflows } from "./workflow"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
-import { branchState, createPullRequest } from "./pr"
+import { branchState, checkLog, createPullRequest } from "./pr"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -272,12 +272,26 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     }
     // Where the branch stands on GitHub: pushed or not, and its pull request with every check.
     // One `gh` call behind it, so a client may poll it while the checks are running and stop after.
-    if (path[1] === "git" && path[2] === "pr" && request.method === "GET") {
+    if (path[1] === "git" && path[2] === "pr" && !path[3] && request.method === "GET") {
       const directory = new URL(request.url).searchParams.get("directory") ?? ""
       if (!directory) return error("A folder is required", 400)
       return json({ data: await branchState(directory) })
     }
-    if (path[1] === "git" && path[2] === "pr" && request.method === "POST") {
+    // Why a check failed. A network call per job, so it is asked for rather than polled with the
+    // rest: the chip says how many failed, and this says what they printed.
+    if (path[1] === "git" && path[2] === "pr" && path[3] === "log" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const directory = params.get("directory") ?? ""
+      const job = params.get("job") ?? ""
+      if (!directory) return error("A folder is required", 400)
+      try {
+        return json({ data: await checkLog(directory, job) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "git" && path[2] === "pr" && !path[3] && request.method === "POST") {
       const body = (await readJSON(request)) as
         | { directory?: unknown; title?: unknown; body?: unknown; base?: unknown; draft?: unknown }
         | undefined

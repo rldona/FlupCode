@@ -7983,3 +7983,81 @@ button.fc-status {
   font-size: 10px;
   text-align: center;
 }
+
+/* ── Why a check failed ───────────────────────────────────────────────────── */
+
+.fc-pr {
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-pr-checks-open {
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--fc-radius-2);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fc-text-xs);
+  cursor: pointer;
+}
+
+.fc-pr-checks-open:hover {
+  background: color-mix(in srgb, var(--fc-text) 8%, transparent);
+}
+
+.fc-pr-failures {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-top: 0;
+  border-radius: 0 0 var(--fc-radius-2) var(--fc-radius-2);
+  margin: -10px 0 var(--fc-space-2);
+  background: var(--fc-bg-elevated, var(--fc-surface));
+}
+
+.fc-pr-failure-head {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: center;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-pr-failure-name {
+  color: var(--fc-diff-del);
+  font-weight: 600;
+}
+
+.fc-pr-failure-workflow {
+  flex: 1;
+  color: var(--fc-text-muted);
+}
+
+.fc-pr-failure-step {
+  padding-top: var(--fc-space-1);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-pr-failure-problem {
+  margin: var(--fc-space-1) 0 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-pr-log {
+  max-height: 26vh;
+  overflow: auto;
+  padding: var(--fc-space-2);
+  border-radius: var(--fc-radius-2);
+  margin: var(--fc-space-1) 0 0;
+  background: var(--fc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
