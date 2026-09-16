@@ -13,7 +13,7 @@
     "build": "bun --cwd ../harness-server build && bash scripts/build-speech.sh && electron-vite build",
     "typecheck": "tsgo --noEmit",
     "renderer": "bun scripts/renderer.mjs",
-    "dist": "bun --cwd ../harness-server build && bun run renderer && bash scripts/build-speech.sh && electron-vite build && electron-builder --publish never"
+    "dist": "bun --cwd ../harness-server build && node scripts/check-harness-server.mjs && bun run renderer && bash scripts/build-speech.sh && electron-vite build && electron-builder --publish never"
   },
   "build": {
     "appId": "com.flupcode.desktop",
@@ -31,8 +31,9 @@
     "afterPack": "scripts/after-pack.cjs",
     "extraResources": [
       {
-        "from": "../harness-server/dist/flupcode-harness",
-        "to": "harness-server/flupcode-harness"
+        "from": "../harness-server/dist/",
+        "to": "harness-server",
+        "filter": ["flupcode-harness", "flupcode-harness.exe"]
       }
     ],
     "npmRebuild": false,
