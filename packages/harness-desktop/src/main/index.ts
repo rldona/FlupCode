@@ -54,7 +54,7 @@ function createWindow() {
     title: "FlupCode",
     backgroundColor: "#0f0f0f",
     webPreferences: {
-      preload: join(app.getAppPath(), "out", "preload", "index.mjs"),
+      preload: join(app.getAppPath(), "out", "preload", "index.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
