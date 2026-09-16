@@ -25,12 +25,20 @@ Start the engine and point the harness at it:
 # terminal 1 — engine
 bun run --cwd packages/opencode ./src/index.ts serve --port 4096
 
-# terminal 2 — harness
+# terminal 2 — harness-server
+bun run --cwd packages/harness-server dev
+
+# terminal 3 — harness UI
 bun run dev:harness
 ```
 
 The server URL defaults to `http://localhost:4096` and can be overridden with
 `VITE_OPENCODE_SERVER_URL` or edited in the top bar at runtime.
+
+Routines are persisted and scheduled by `harness-server` on `http://localhost:4097`.
+Override it with `VITE_FLUPCODE_HARNESS_SERVER_URL` or `flupcode.harnessServerUrl` in local storage.
+The desktop app starts both the OpenCode engine and the harness server automatically when the
+repository checkout is available.
 
 ## Current scope
 

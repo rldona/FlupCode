@@ -11,10 +11,12 @@ import type {
 } from "./engine-types"
 import {
   createClient,
+  createHarnessClient,
   engineTargetVersion,
   invalidateLegacyHistory,
   probeEngineProfile,
   probeServer,
+  resolveHarnessServerUrl,
   resolveServerUrl,
 } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
@@ -45,10 +47,18 @@ import {
   type LegacyPart,
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
-import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
-import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
+import type {
+  Attachment,
+  CommandOption,
+  McpConfig,
+  ProjectItem,
+  Routine,
+  RoutineInput,
+  RoutineRun,
+  StashedPrompt,
+} from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
@@ -92,6 +102,7 @@ import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
+import { normalizeRoutineSchedule } from "./routine-schedule"
 
 type Client = ReturnType<typeof createClient>
 
@@ -122,13 +133,86 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "about", descriptionKey: "About FlupCode" },
 ]
 
+const normalizeRoutine = (value: unknown): Routine | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const item = value as Record<string, unknown>
+  if (typeof item.id !== "string" || typeof item.name !== "string" || typeof item.prompt !== "string") return undefined
+  const legacyInterval =
+    typeof item.intervalMinutes === "number" && Number.isFinite(item.intervalMinutes) && item.intervalMinutes > 0
+      ? Math.max(1, Math.round(item.intervalMinutes))
+      : 60
+  const schedule = normalizeRoutineSchedule(item.schedule, legacyInterval)
+  const rawModel = item.model
+  const model =
+    rawModel && typeof rawModel === "object" && "providerID" in rawModel && "id" in rawModel &&
+    typeof rawModel.providerID === "string" && typeof rawModel.id === "string"
+      ? {
+          providerID: rawModel.providerID,
+          id: rawModel.id,
+          variant: "variant" in rawModel && typeof rawModel.variant === "string" ? rawModel.variant : undefined,
+        }
+      : undefined
+  const runs = Array.isArray(item.runs)
+    ? item.runs.flatMap((run) => {
+        if (!run || typeof run !== "object") return []
+        const entry = run as Record<string, unknown>
+        if (typeof entry.id !== "string" || typeof entry.startedAt !== "number") return []
+        const status =
+          entry.status === "success" || entry.status === "failed" || entry.status === "stopped"
+            ? entry.status
+            : "failed"
+        return [
+          {
+            id: entry.id,
+            sessionID: typeof entry.sessionID === "string" ? entry.sessionID : undefined,
+            status,
+            startedAt: entry.startedAt,
+            finishedAt: typeof entry.finishedAt === "number" ? entry.finishedAt : undefined,
+            error:
+              typeof entry.error === "string"
+                ? entry.error
+                : status === "failed"
+                  ? t("Run interrupted")
+                  : undefined,
+          } satisfies RoutineRun,
+        ]
+      })
+    : []
+  return {
+    id: item.id,
+    name: item.name,
+    description: typeof item.description === "string" ? item.description : "",
+    prompt: item.prompt,
+    schedule,
+    projectDirectory: typeof item.projectDirectory === "string" ? item.projectDirectory : undefined,
+    agent: typeof item.agent === "string" ? item.agent : undefined,
+    model,
+    enabled: item.enabled !== false,
+    createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+    lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
+    runs,
+  }
+}
+
+const normalizeRoutines = (value: unknown) =>
+  Array.isArray(value)
+    ? value.flatMap((item) => {
+        const routine = normalizeRoutine(item)
+        return routine ? [routine] : []
+      })
+    : []
+
 export const App: Component = () => {
   const [localServerUrl, setLocalServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
   const [serverInput, setServerInput] = createSignal(localServerUrl())
+  const [localHarnessServerUrl] = createSignal(
+    readStorage(STORAGE_KEYS.harnessServerUrl, resolveHarnessServerUrl()),
+  )
   const serverUrl = () => {
     const host = remote.activeHost()
     return host ? remoteBaseUrl(host.hostId) : localServerUrl()
   }
+  const harnessServerUrl = () => localHarnessServerUrl()
   const [selected, setSelected] = createSignal<string | undefined>(
     // Phones controlling a computer always start on the sessions home, not the last open session.
     touchDevice && !desktopRemote() && remote.activeHost()
@@ -137,6 +221,9 @@ export const App: Component = () => {
   )
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
+  const [routineBusy, setRoutineBusy] = createSignal(false)
+  const [routineBusyID, setRoutineBusyID] = createSignal<string>()
+  const [routineRunID, setRoutineRunID] = createSignal<string>()
   const [streamedChars, setStreamedChars] = createSignal(0)
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
@@ -299,7 +386,10 @@ export const App: Component = () => {
   const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
   const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
   const [targetDirectory, setTargetDirectory] = createSignal<string>()
-  const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
+  const [routines, setRoutines] = createSignal<Routine[]>(normalizeRoutines(readStorage<unknown>(STORAGE_KEYS.routines, [])))
+  const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
+  const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
+  createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [colorTheme, setColorTheme] = createSignal(readColorTheme())
@@ -384,6 +474,7 @@ export const App: Component = () => {
     !!session && isChatSession(session, chatsDirectory())
   const viewSessions = () => sessionList()?.filter((session) => isChat(session) === chatView())
   const changeView = (next: AppView) => {
+    setRoutinesOpen(false)
     if (next === view()) return
     const leaving = selected()
     setView(next)
@@ -724,1397 +815,1507 @@ export const App: Component = () => {
       suggestedFor = lastID
       const run = ++suggestionRun
       void (async () => {
-        const client = createClient(serverUrl())
-        // A model picked in Settings wins; otherwise the configured or a cheap small model.
-        const chosen = suggestionModel()
-        const slash = chosen.indexOf("/")
-        const model =
-          slash > 0
-            ? { providerID: chosen.slice(0, slash), id: chosen.slice(slash + 1) }
-            : pickSuggestionModel(await client.suggest.smallModel().catch(() => undefined), modelRef(), modelList())
-        if (!model) return
-        const raw = await client.suggest
-          .reply({
-            parentID: sessionID,
-            directory,
-            model,
-            system: SUGGESTION_SYSTEM,
-            prompt: buildSuggestionPrompt(userText, assistantText),
-          })
-          .catch(() => undefined)
-        const text = cleanSuggestion(raw)
-        if (!text || run !== suggestionRun || selected() !== sessionID || prompt() || generating()) return
-        setSuggestion({ sessionID, text })
-      })()
-    }, 800)
-    onCleanup(() => clearTimeout(timer))
-  })
-  const currentSuggestion = () => {
-    const value = suggestion()
-    return value && value.sessionID === selected() && !prompt() ? value.text : undefined
-  }
-  const toggleSuggestions = () => {
-    const next = !suggestionsOn()
-    setSuggestionsOn(next)
-    writeStorage(STORAGE_KEYS.replySuggestions, next)
-    if (!next) setSuggestion(undefined)
-  }
-
-  const liveUsage = () => {
-    const list = activeMessages() ?? []
-    const last = list[list.length - 1]
-    if (last?.type === "assistant") {
-      const assistant = last as SessionMessageAssistant
-      if (assistant.tokens) return { tokens: assistant.tokens, cost: assistant.cost }
-    }
-    const chars = streamedChars()
-    if (chars <= 0) return undefined
-    return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
-  }
-  const contextUsage = () =>
-    contextFigures(selectedSession(), activeMessages() ?? [], modelList(), currentModel()?.limit?.context ?? 0)
-
-  const generationStartedAt = () => {
-    const list = activeMessages() ?? []
-    const last = list[list.length - 1]
-    if (last?.type === "user") return (last as { time?: { created?: number } }).time?.created
-    if (last?.type === "assistant") return (last as SessionMessageAssistant).time?.created
-    return undefined
-  }
-  const [children] = createResource(
-    () => {
-      const sessionID = selected()
-      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
-    },
-    async (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
-  )
-  const subagents = () => children()?.data?.filter((session) => !isSuggestionSession(session))
-
-  // A tab closed while a suggestion ran leaves its session behind: delete those once they are stale.
-  const removedSuggestions = new Set<string>()
-  createEffect(() => {
-    if (!ready()) return
-    const stale = [...(sessions()?.data ?? []), ...(children()?.data ?? [])].filter(
-      (session) =>
-        isSuggestionSession(session) &&
-        Date.now() - session.time.created > SUGGESTION_SESSION_TTL &&
-        !removedSuggestions.has(session.id),
-    )
-    if (stale.length === 0) return
-    const current = createClient(serverUrl())
-    for (const session of stale) {
-      removedSuggestions.add(session.id)
-      void current.session.remove({ sessionID: session.id }).catch(() => undefined)
-    }
-  })
-
-  const allTodos = () => {
-    const data = activeMessages() ?? []
-    const assistants = [...data].reverse().flatMap((message) => (message.type === "assistant" ? [message] : []))
-    for (const message of assistants) {
-      const parts = [...message.content]
-        .reverse()
-        .flatMap((part) => (part.type === "tool" && part.name === "todowrite" ? [part] : []))
-      for (const part of parts) {
-        const raw = (part.state.input as { todos?: unknown }).todos
-        if (!Array.isArray(raw)) continue
-        return raw.flatMap((item) => {
-          if (!item || typeof item !== "object") return []
-          const content = (item as { content?: unknown }).content
-          const status = (item as { status?: unknown }).status
-          if (typeof content !== "string") return []
-          return [{ content, status: typeof status === "string" ? status : "pending" }]
-        })
-      }
-    }
-    return []
-  }
-
-  // Completed tasks the reader removed from the context panel, per session. The engine keeps the
-  // model's todo list, so removal only hides them here.
-  const [clearedTodos, setClearedTodos] = createSignal<Record<string, string[]>>(
-    readStorage(STORAGE_KEYS.clearedTodos, {}),
-  )
-  const todos = () => {
-    const cleared = clearedTodos()[selected() ?? ""] ?? []
-    return allTodos().filter((todo) => !(todo.status === "completed" && cleared.includes(todo.content)))
-  }
-  const clearTodos = (contents: string[]) => {
-    const sessionID = selected()
-    if (!sessionID) return
-    const next = { ...clearedTodos(), [sessionID]: [...new Set([...(clearedTodos()[sessionID] ?? []), ...contents])] }
-    setClearedTodos(next)
-    writeStorage(STORAGE_KEYS.clearedTodos, next)
-  }
-
-  const commandOptions = (): CommandOption[] => [
-    ...BUILTIN_COMMANDS.map((command) => ({
-      name: command.name,
-      description: t(command.descriptionKey),
-      disabled: UNAVAILABLE_FEATURES.has(command.name),
-    })),
-    ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
-    ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
-  ]
-
-  const pastes = new Map<string, string>()
-
-  const collapsePaste = (raw: string) => {
-    const lines = raw.split("\n").length
-    const token = `[Pasted ~${lines} lines]`
-    pastes.set(token, raw)
-    return token
-  }
-
-  const expandPastes = (value: string) => {
-    let result = value
-    for (const [token, full] of pastes) result = result.split(token).join(full)
-    return result
-  }
-
-  // Prompts shown before the engine projects their message, reconciled by id once it does. The ones
-  // sent while a turn was already running offer "Send now".
-  const pendingForSession = () =>
-    pendingPrompts.forSession(selected(), activeMessages() ?? [], expandPastes, serverUrl())
-
-  // Once a real message replaces its optimistic prompt, forget it so the list cannot grow.
-  createEffect(() => pendingPrompts.reconcile(new Set((activeMessages() ?? []).map((message) => message.id))))
-
-  const searchFiles = async (query: string) => {
-    const response = await createClient(serverUrl()).file.find({ query, limit: 8 })
-    return response.data
-  }
-
-  const runCommand = (name: string) => {
-    if (UNAVAILABLE_FEATURES.has(name)) {
-      toast(t("Coming soon"), "info")
-      return
-    }
-    if (name === "new" || name === "clear") {
-      newSession()
-      return
-    }
-    if (name === "about") {
-      setAboutOpen(true)
-      return
-    }
-    if (name === "mcp") {
-      setMcpOpen(true)
-      return
-    }
-    if (name === "stash") {
-      stashPrompt(prompt(), true)
-      return
-    }
-    if (name === "stashes") {
-      setStashOpen(true)
-      return
-    }
-    if (name === "settings") {
-      setSettingsOpen(true)
-      return
-    }
-    if (name === "routines") {
-      setRoutinesOpen(true)
-      return
-    }
-    if (name === "remote") {
-      setRemoteOpen(true)
-      return
-    }
-    if (name === "artifacts") {
-      setArtifactsOpen(true)
-      return
-    }
-    if (name === "skills") {
-      setSkillsOpen(true)
-      return
-    }
-    if (name === "memory") {
-      setMemoryOpen(true)
-      return
-    }
-    if (name === "config") {
-      setConfigOpen(true)
-      return
-    }
-    setPrompt(`/${name} `)
-  }
-
-  createEffect(() => {
-    const parts = paletteKey().split("+")
-    const keyPart = (parts.at(-1) ?? "k").toLowerCase()
-    const wantsMod = parts.includes("mod")
-    const wantsShift = parts.includes("shift")
-    const wantsAlt = parts.includes("alt")
-    const handler = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() !== keyPart) return
-      if ((event.metaKey || event.ctrlKey) !== wantsMod) return
-      if (event.shiftKey !== wantsShift) return
-      if (event.altKey !== wantsAlt) return
-      event.preventDefault()
-      setPaletteOpen(true)
-    }
-    document.addEventListener("keydown", handler)
-    onCleanup(() => document.removeEventListener("keydown", handler))
-  })
-
-  const notify = (title: string, body: string) => {
-    if (!notifications()) return
-    if (typeof Notification === "undefined" || Notification.permission !== "granted") return
-    if (!document.hidden) return
-    new Notification(title, { body })
-  }
-
-  let refetchTimer: ReturnType<typeof setTimeout> | undefined
-  let pendingMessages = false
-  let pendingSessions = false
-  const scheduleRefetch = (messages: boolean, sessions: boolean) => {
-    pendingMessages = pendingMessages || messages
-    pendingSessions = pendingSessions || sessions
-    if (refetchTimer) return
-    refetchTimer = setTimeout(() => {
-      refetchTimer = undefined
-      const wantMessages = pendingMessages
-      const wantSessions = pendingSessions
-      pendingMessages = false
-      pendingSessions = false
-      if (wantMessages) scheduleTranscriptReconcile()
-      if (wantSessions) void refetchSessions()
-    }, 300)
-  }
-  /**
-   * Re-read the transcript and the working tree from the engine.
-   *
-   * Only worth doing when a turn ends. The transcript is built from the engine's own events, so
-   * asking for it again mid-turn re-reads what the store already holds — the whole history, which
-   * on a long session is megabytes and grows as the turn goes. Measured against a real one: 3.6MB,
-   * seven times in thirty seconds, alongside `/vcs/status` at 400ms a call. That was most of the
-   * traffic that pinned the window to the browser's six connections and stopped it answering.
-   */
-  const reconcileTranscript = () => {
-    void refetchMessages()
-    void refetchVcsInfo()
-    void refetchVcsStatus()
-  }
-  let reconcileWhenIdle = false
-  const scheduleTranscriptReconcile = () => {
-    // Mid-turn the store is already following along; wait for the end rather than re-reading it all.
-    if (runState()[selected() ?? ""] === true) {
-      reconcileWhenIdle = true
-      return
-    }
-    reconcileTranscript()
-  }
-  turnEnded = (sessionID) => {
-    if (sessionID !== selected() || !reconcileWhenIdle) return
-    reconcileWhenIdle = false
-    reconcileTranscript()
-  }
-  onCleanup(() => {
-    if (refetchTimer) clearTimeout(refetchTimer)
-  })
-
-  createEffect(() => {
-    if (!ready()) return
-    const url = serverUrl()
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    void (async () => {
-      for (let attempt = 0; !controller.signal.aborted; attempt++) {
-        setStreamState("global", attempt === 0 ? "connecting" : "reconnecting")
-        try {
-          // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
-          // every reconnection resyncs the state the events would have carried. Missing the blocked
-          // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
-          void (async () => {
-            // Both runtimes have to be asked: `/api/session/active` only knows about v2 runs, and a
-            // legacy turn — which is now every Code and Chat turn — shows up in its folder's status
-            // map instead. A session in a folder nobody is watching has no source here, so it keeps
-            // whatever it had rather than being called idle on no evidence.
-            const engine = createClient(url)
-            // Untracked: this effect owns the global stream, and re-running it on every change of
-            // the open session would drop and reopen that stream for no reason.
-            const folders = untrack(watchedDirectories)
-            const sessions = untrack(sessionList)
-            const [v2, legacy] = await Promise.all([
-              engine.session.active().catch(() => new Set<string>()),
-              Promise.all(
-                folders.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
-              ),
-            ])
-            const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
-            const known = new Set([
-              ...v2,
-              ...(sessions ?? [])
-                .filter((session) => folders.includes(session.location?.directory ?? ""))
-                .map((session) => session.id),
-            ])
-            Object.entries(runState())
-              .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
-              .forEach(([id]) => setRunning(id, false))
-            running.forEach((id) => {
-              setRunning(id, true)
-              if (v2.has(id)) watchRun(id, 2000)
+          const client = createClient(serverUrl())
+          // A model picked in Settings wins; otherwise the configured or a cheap small model.
+          const chosen = suggestionModel()
+          const slash = chosen.indexOf("/")
+          const model =
+            slash > 0
+              ? { providerID: chosen.slice(0, slash), id: chosen.slice(slash + 1) }
+              : pickSuggestionModel(await client.suggest.smallModel().catch(() => undefined), modelRef(), modelList())
+          if (!model) return
+          const raw = await client.suggest
+            .reply({
+              parentID: sessionID,
+              directory,
+              model,
+              system: SUGGESTION_SYSTEM,
+              prompt: buildSuggestionPrompt(userText, assistantText),
             })
-          })().catch(() => undefined)
-          void refetchPermissions()
-          void refetchQuestions()
-          void refetchBlocked()
-          for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
-            attempt = 0
-            setStreamState("global", "live")
-            const type = event.type ?? ""
-            const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
-            trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
-            if (type === "session.next.step.started") {
-              if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
-              if (payload?.sessionID === selected()) {
-                setStreamedChars(0)
-              }
-              scheduleRefetch(true, false)
-            } else if (type.endsWith(".delta")) {
-              // A v2 delta names no part, so there is nothing to apply it to; only a session started
-              // on the v2 runner before this build still produces them, and its step events below
-              // reload the transcript. All that is taken from here is the size of the turn so far.
-              const delta = payload?.delta
-              if (payload?.sessionID === selected() && typeof delta === "string") {
-                setStreamedChars((value) => value + delta.length)
-              }
-              continue
-            }
-            // The engine rebuilds its catalog from models.dev on its own schedule (and when an
-            // integration connects). The list it serves moves with it, so the picker must not keep
-            // offering the snapshot taken when the page loaded.
-            if (type === "catalog.updated") {
-              void refetchModels()
-              continue
-            }
-            if (type.startsWith("permission.") || type.startsWith("question.")) {
-              setActivityTick((value) => value + 1)
-              publishSessionEvent({ kind: "requests" })
-            }
-            if (type.startsWith("permission.")) {
-              if (type === "permission.v2.asked") notify(t("Permission needed"), "")
-              void refetchPermissions()
-              void refetchBlocked()
-            } else if (type.startsWith("question.")) {
-              if (type === "question.v2.asked") notify(t("Question asked"), "")
-              void refetchQuestions()
-            } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
-              if (type.startsWith("message.")) {
-                const legacy = event as {
-                  data?: { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
+            .catch(() => undefined)
+          const text = cleanSuggestion(raw)
+          if (!text || run !== suggestionRun || selected() !== sessionID || prompt() || generating()) return
+          setSuggestion({ sessionID, text })
+        })()
+      }, 800)
+      onCleanup(() => clearTimeout(timer))
+    })
+    const currentSuggestion = () => {
+      const value = suggestion()
+      return value && value.sessionID === selected() && !prompt() ? value.text : undefined
+    }
+    const toggleSuggestions = () => {
+      const next = !suggestionsOn()
+      setSuggestionsOn(next)
+      writeStorage(STORAGE_KEYS.replySuggestions, next)
+      if (!next) setSuggestion(undefined)
+    }
+
+    const liveUsage = () => {
+      const list = activeMessages() ?? []
+      const last = list[list.length - 1]
+      if (last?.type === "assistant") {
+        const assistant = last as SessionMessageAssistant
+        if (assistant.tokens) return { tokens: assistant.tokens, cost: assistant.cost }
+      }
+      const chars = streamedChars()
+      if (chars <= 0) return undefined
+      return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
+    }
+    const contextUsage = () =>
+      contextFigures(selectedSession(), activeMessages() ?? [], modelList(), currentModel()?.limit?.context ?? 0)
+
+    const generationStartedAt = () => {
+      const list = activeMessages() ?? []
+      const last = list[list.length - 1]
+      if (last?.type === "user") return (last as { time?: { created?: number } }).time?.created
+      if (last?.type === "assistant") return (last as SessionMessageAssistant).time?.created
+      return undefined
+    }
+    const [children] = createResource(
+      () => {
+        const sessionID = selected()
+        return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
+      },
+      async (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
+    )
+    const subagents = () => children()?.data?.filter((session) => !isSuggestionSession(session))
+
+    // A tab closed while a suggestion ran leaves its session behind: delete those once they are stale.
+    const removedSuggestions = new Set<string>()
+    createEffect(() => {
+      if (!ready()) return
+      const stale = [...(sessions()?.data ?? []), ...(children()?.data ?? [])].filter(
+        (session) =>
+          isSuggestionSession(session) &&
+          Date.now() - session.time.created > SUGGESTION_SESSION_TTL &&
+          !removedSuggestions.has(session.id),
+      )
+      if (stale.length === 0) return
+      const current = createClient(serverUrl())
+      for (const session of stale) {
+        removedSuggestions.add(session.id)
+        void current.session.remove({ sessionID: session.id }).catch(() => undefined)
+      }
+    })
+
+    const allTodos = () => {
+      const data = activeMessages() ?? []
+      const assistants = [...data].reverse().flatMap((message) => (message.type === "assistant" ? [message] : []))
+      for (const message of assistants) {
+        const parts = [...message.content]
+          .reverse()
+          .flatMap((part) => (part.type === "tool" && part.name === "todowrite" ? [part] : []))
+        for (const part of parts) {
+          const raw = (part.state.input as { todos?: unknown }).todos
+          if (!Array.isArray(raw)) continue
+          return raw.flatMap((item) => {
+            if (!item || typeof item !== "object") return []
+            const content = (item as { content?: unknown }).content
+            const status = (item as { status?: unknown }).status
+            if (typeof content !== "string") return []
+            return [{ content, status: typeof status === "string" ? status : "pending" }]
+          })
+        }
+      }
+      return []
+    }
+
+    // Completed tasks the reader removed from the context panel, per session. The engine keeps the
+    // model's todo list, so removal only hides them here.
+    const [clearedTodos, setClearedTodos] = createSignal<Record<string, string[]>>(
+      readStorage(STORAGE_KEYS.clearedTodos, {}),
+    )
+    const todos = () => {
+      const cleared = clearedTodos()[selected() ?? ""] ?? []
+      return allTodos().filter((todo) => !(todo.status === "completed" && cleared.includes(todo.content)))
+    }
+    const clearTodos = (contents: string[]) => {
+      const sessionID = selected()
+      if (!sessionID) return
+      const next = { ...clearedTodos(), [sessionID]: [...new Set([...(clearedTodos()[sessionID] ?? []), ...contents])] }
+      setClearedTodos(next)
+      writeStorage(STORAGE_KEYS.clearedTodos, next)
+    }
+
+    const commandOptions = (): CommandOption[] => [
+      ...BUILTIN_COMMANDS.map((command) => ({
+        name: command.name,
+        description: t(command.descriptionKey),
+        disabled: UNAVAILABLE_FEATURES.has(command.name),
+      })),
+      ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
+      ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
+    ]
+
+    const pastes = new Map<string, string>()
+
+    const collapsePaste = (raw: string) => {
+      const lines = raw.split("\n").length
+      const token = `[Pasted ~${lines} lines]`
+      pastes.set(token, raw)
+      return token
+    }
+
+    const expandPastes = (value: string) => {
+      let result = value
+      for (const [token, full] of pastes) result = result.split(token).join(full)
+      return result
+    }
+
+    // Prompts shown before the engine projects their message, reconciled by id once it does. The ones
+    // sent while a turn was already running offer "Send now".
+    const pendingForSession = () =>
+      pendingPrompts.forSession(selected(), activeMessages() ?? [], expandPastes, serverUrl())
+
+    // Once a real message replaces its optimistic prompt, forget it so the list cannot grow.
+    createEffect(() => pendingPrompts.reconcile(new Set((activeMessages() ?? []).map((message) => message.id))))
+
+    const searchFiles = async (query: string) => {
+      const response = await createClient(serverUrl()).file.find({ query, limit: 8 })
+      return response.data
+    }
+
+    const runCommand = (name: string) => {
+      if (UNAVAILABLE_FEATURES.has(name)) {
+        toast(t("Coming soon"), "info")
+        return
+      }
+      if (name === "new" || name === "clear") {
+        newSession()
+        return
+      }
+      if (name === "about") {
+        setAboutOpen(true)
+        return
+      }
+      if (name === "mcp") {
+        setMcpOpen(true)
+        return
+      }
+      if (name === "stash") {
+        stashPrompt(prompt(), true)
+        return
+      }
+      if (name === "stashes") {
+        setStashOpen(true)
+        return
+      }
+      if (name === "settings") {
+        setSettingsOpen(true)
+        return
+      }
+      if (name === "routines") {
+        setRoutinesOpen(true)
+        return
+      }
+      if (name === "remote") {
+        setRemoteOpen(true)
+        return
+      }
+      if (name === "artifacts") {
+        setArtifactsOpen(true)
+        return
+      }
+      if (name === "skills") {
+        setSkillsOpen(true)
+        return
+      }
+      if (name === "memory") {
+        setMemoryOpen(true)
+        return
+      }
+      if (name === "config") {
+        setConfigOpen(true)
+        return
+      }
+      setPrompt(`/${name} `)
+    }
+
+    createEffect(() => {
+      const parts = paletteKey().split("+")
+      const keyPart = (parts.at(-1) ?? "k").toLowerCase()
+      const wantsMod = parts.includes("mod")
+      const wantsShift = parts.includes("shift")
+      const wantsAlt = parts.includes("alt")
+      const handler = (event: KeyboardEvent) => {
+        if (event.key.toLowerCase() !== keyPart) return
+        if ((event.metaKey || event.ctrlKey) !== wantsMod) return
+        if (event.shiftKey !== wantsShift) return
+        if (event.altKey !== wantsAlt) return
+        event.preventDefault()
+        setPaletteOpen(true)
+      }
+      document.addEventListener("keydown", handler)
+      onCleanup(() => document.removeEventListener("keydown", handler))
+    })
+
+    const notify = (title: string, body: string) => {
+      if (!notifications()) return
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return
+      if (!document.hidden) return
+      new Notification(title, { body })
+    }
+
+    let refetchTimer: ReturnType<typeof setTimeout> | undefined
+    let pendingMessages = false
+    let pendingSessions = false
+    const scheduleRefetch = (messages: boolean, sessions: boolean) => {
+      pendingMessages = pendingMessages || messages
+      pendingSessions = pendingSessions || sessions
+      if (refetchTimer) return
+      refetchTimer = setTimeout(() => {
+        refetchTimer = undefined
+        const wantMessages = pendingMessages
+        const wantSessions = pendingSessions
+        pendingMessages = false
+        pendingSessions = false
+        if (wantMessages) scheduleTranscriptReconcile()
+        if (wantSessions) void refetchSessions()
+      }, 300)
+    }
+    /**
+     * Re-read the transcript and the working tree from the engine.
+     *
+     * Only worth doing when a turn ends. The transcript is built from the engine's own events, so
+     * asking for it again mid-turn re-reads what the store already holds — the whole history, which
+     * on a long session is megabytes and grows as the turn goes. Measured against a real one: 3.6MB,
+     * seven times in thirty seconds, alongside `/vcs/status` at 400ms a call. That was most of the
+     * traffic that pinned the window to the browser's six connections and stopped it answering.
+     */
+    const reconcileTranscript = () => {
+      void refetchMessages()
+      void refetchVcsInfo()
+      void refetchVcsStatus()
+    }
+    let reconcileWhenIdle = false
+    const scheduleTranscriptReconcile = () => {
+      // Mid-turn the store is already following along; wait for the end rather than re-reading it all.
+      if (runState()[selected() ?? ""] === true) {
+        reconcileWhenIdle = true
+        return
+      }
+      reconcileTranscript()
+    }
+    turnEnded = (sessionID) => {
+      if (sessionID !== selected() || !reconcileWhenIdle) return
+      reconcileWhenIdle = false
+      reconcileTranscript()
+    }
+    onCleanup(() => {
+      if (refetchTimer) clearTimeout(refetchTimer)
+    })
+
+    createEffect(() => {
+      if (!ready()) return
+      const url = serverUrl()
+      const controller = new AbortController()
+      onCleanup(() => controller.abort())
+      void (async () => {
+        for (let attempt = 0; !controller.signal.aborted; attempt++) {
+          setStreamState("global", attempt === 0 ? "connecting" : "reconnecting")
+          try {
+            // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
+            // every reconnection resyncs the state the events would have carried. Missing the blocked
+            // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
+            void (async () => {
+              // Both runtimes have to be asked: `/api/session/active` only knows about v2 runs, and a
+              // legacy turn — which is now every Code and Chat turn — shows up in its folder's status
+              // map instead. A session in a folder nobody is watching has no source here, so it keeps
+              // whatever it had rather than being called idle on no evidence.
+              const engine = createClient(url)
+              // Untracked: this effect owns the global stream, and re-running it on every change of
+              // the open session would drop and reopen that stream for no reason.
+              const folders = untrack(watchedDirectories)
+              const sessions = untrack(sessionList)
+              const [v2, legacy] = await Promise.all([
+                engine.session.active().catch(() => new Set<string>()),
+                Promise.all(
+                  folders.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
+                ),
+              ])
+              const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
+              const known = new Set([
+                ...v2,
+                ...(sessions ?? [])
+                  .filter((session) => folders.includes(session.location?.directory ?? ""))
+                  .map((session) => session.id),
+              ])
+              Object.entries(runState())
+                .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
+                .forEach(([id]) => setRunning(id, false))
+              running.forEach((id) => {
+                setRunning(id, true)
+                if (v2.has(id)) watchRun(id, 2000)
+              })
+            })().catch(() => undefined)
+            void refetchPermissions()
+            void refetchQuestions()
+            void refetchBlocked()
+            for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
+              attempt = 0
+              setStreamState("global", "live")
+              const type = event.type ?? ""
+              const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
+              trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
+              if (type === "session.next.step.started") {
+                if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
+                if (payload?.sessionID === selected()) {
+                  setStreamedChars(0)
                 }
-                invalidateLegacyHistory(
-                  legacy.data?.sessionID ?? legacy.data?.info?.sessionID ?? legacy.data?.part?.sessionID,
-                )
+                scheduleRefetch(true, false)
+              } else if (type.endsWith(".delta")) {
+                // A v2 delta names no part, so there is nothing to apply it to; only a session started
+                // on the v2 runner before this build still produces them, and its step events below
+                // reload the transcript. All that is taken from here is the size of the turn so far.
+                const delta = payload?.delta
+                if (payload?.sessionID === selected() && typeof delta === "string") {
+                  setStreamedChars((value) => value + delta.length)
+                }
+                continue
               }
-              const changed = event as {
+              // The engine rebuilds its catalog from models.dev on its own schedule (and when an
+              // integration connects). The list it serves moves with it, so the picker must not keep
+              // offering the snapshot taken when the page loaded.
+              if (type === "catalog.updated") {
+                void refetchModels()
+                continue
+              }
+              if (type.startsWith("permission.") || type.startsWith("question.")) {
+                setActivityTick((value) => value + 1)
+                publishSessionEvent({ kind: "requests" })
+              }
+              if (type.startsWith("permission.")) {
+                if (type === "permission.v2.asked") notify(t("Permission needed"), "")
+                void refetchPermissions()
+                void refetchBlocked()
+              } else if (type.startsWith("question.")) {
+                if (type === "question.v2.asked") notify(t("Question asked"), "")
+                void refetchQuestions()
+              } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
+                if (type.startsWith("message.")) {
+                  const legacy = event as {
+                    data?: { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
+                  }
+                  invalidateLegacyHistory(
+                    legacy.data?.sessionID ?? legacy.data?.info?.sessionID ?? legacy.data?.part?.sessionID,
+                  )
+                }
+                const changed = event as {
+                  data?: {
+                    sessionID?: string
+                    agent?: string
+                    info?: { sessionID?: string }
+                    part?: { sessionID?: string }
+                  }
+                }
+                // An agent switch from the engine (the Plan agent's plan_exit) moves the dock at once.
+                const switchedAgent =
+                  type.startsWith("session.next.agent.switched") && changed.data?.sessionID === selected()
+                    ? changed.data?.agent
+                    : undefined
+                if (switchedAgent) setAgent(switchedAgent)
+                publishSessionEvent({
+                  kind: "changed",
+                  sessionID: changed.data?.sessionID ?? changed.data?.info?.sessionID ?? changed.data?.part?.sessionID,
+                })
+                scheduleRefetch(true, type === "session.next.step.ended")
+              } else if (type.startsWith("session.")) {
+                scheduleRefetch(false, true)
+              }
+            }
+          } catch {
+            if (controller.signal.aborted) return
+          }
+          if (controller.signal.aborted) return
+          setStreamState("global", "reconnecting")
+          await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+          if (!controller.signal.aborted) {
+            scheduleRefetch(true, true)
+            publishSessionEvent({ kind: "changed" })
+          }
+        }
+      })()
+    })
+
+    /**
+     * Folders whose event stream this window follows. A legacy run — every chat, and every Code
+     * session — streams its deltas and its status only on its own folder's stream, so a window that
+     * wants them live has to hold one connection open per folder.
+     *
+     * How many it may hold is not a matter of taste. A browser allows six connections to one origin
+     * over HTTP/1.1, and a stream holds one for as long as it lives. Measured against the engine on
+     * 2026-09-16: with five streams open a request still answered in 8ms; with six, nothing answered
+     * at all and the page never recovered — closing the tab was the only way out, which is exactly
+     * what this looked like in use. Following four folders plus the global stream left a single
+     * connection for every fetch the app makes, so one reconnection overlapping its own socket was
+     * enough to deadlock the window.
+     *
+     * Two folders keeps the total at three and leaves half the budget free. A run in a folder nobody
+     * is following is not lost: it still shows up in the periodic `session.active()` check and in the
+     * refetch at the end of a turn — it just stops streaming live.
+     */
+    const WATCHED_DIRECTORIES = 2
+    // A plain accessor, not a memo: a memo computes as soon as it is created, and the split panes it
+    // reads are declared further down, which would run the whole component into the temporal dead zone.
+    const watchedDirectories = () => {
+      const list = sessionList()
+      const directoryOf = (id: string | undefined) =>
+        id ? list?.find((session) => session.id === id)?.location?.directory : undefined
+      const open = [selected(), ...(splitActive() ? splitPanes() : [])].map(directoryOf)
+      const directories = [chatsDirectory(), targetDirectory(), ...open].filter(
+        (value): value is string => typeof value === "string" && value.length > 0,
+      )
+      return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
+    }
+
+    /**
+     * One legacy message event as a change to a transcript. The part types are remembered because a
+     * delta only names its part, while `field` says "text" for reasoning too, so the part's own type
+     * is the only way to tell them apart.
+     */
+    const partTypesByID = new Map<string, string>()
+    const transcriptChange = (
+      type: string,
+      data:
+        | {
+            delta?: string
+            partID?: string
+            messageID?: string
+            info?: { id?: string; role?: string }
+            part?: { id?: string; type?: string; messageID?: string }
+          }
+        | undefined,
+    ) => {
+      if (type === "message.part.delta") {
+        const delta = data?.delta
+        if (typeof delta !== "string" || !data?.partID) return undefined
+        const kind = partTypesByID.get(data.partID)
+        if (kind !== "text" && kind !== "reasoning") return undefined
+        const input = { messageID: data.messageID, partID: data.partID, delta }
+        return {
+          apply: (current: SessionMessageInfo[]) => applyDelta(current, input),
+          chars: delta.length,
+          ...(data.messageID ? { delta: { messageID: data.messageID, partID: data.partID, text: delta } } : {}),
+        }
+      }
+      if (type === "message.part.updated" && data?.part?.id) {
+        const part = data.part as LegacyPart
+        if (part.type) partTypesByID.set(part.id, part.type)
+        return { apply: (current: SessionMessageInfo[]) => applyPart(current, part), chars: 0 }
+      }
+      if (type === "message.part.removed" && data?.part?.id) {
+        const input = { messageID: data.part.messageID ?? data.messageID, partID: data.part.id }
+        return { apply: (current: SessionMessageInfo[]) => removePart(current, input), chars: 0 }
+      }
+      if (type === "message.updated" && data?.info?.id) {
+        const info = data.info as LegacyInfo
+        return { apply: (current: SessionMessageInfo[]) => applyMessage(current, info), chars: 0 }
+      }
+      if (type === "message.removed" && data?.messageID) {
+        const messageID = data.messageID
+        return { apply: (current: SessionMessageInfo[]) => removeMessage(current, messageID), chars: 0 }
+      }
+      return undefined
+    }
+
+    /** One folder's legacy event stream, reconnecting on its own backoff until the signal aborts. */
+    const followDirectory = async (url: string, directory: string, signal: AbortSignal) => {
+      // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
+      const lastUserMessage = new Map<string, string>()
+      for (let attempt = 0; !signal.aborted; attempt++) {
+        setStreamState(directory, attempt === 0 ? "connecting" : "reconnecting")
+        try {
+          const stream = createClient(url).event.subscribeDirectory(directory, { signal })
+          for await (const event of stream) {
+            attempt = 0
+            setStreamState(directory, "live")
+            const type = event.type ?? ""
+            const data = (
+              event as {
                 data?: {
                   sessionID?: string
-                  agent?: string
-                  info?: { sessionID?: string }
-                  part?: { sessionID?: string }
+                  field?: string
+                  delta?: string
+                  status?: { type?: string }
+                  partID?: string
+                  info?: { id?: string; sessionID?: string; role?: string }
+                  part?: { id?: string; sessionID?: string; type?: string }
                 }
               }
-              // An agent switch from the engine (the Plan agent's plan_exit) moves the dock at once.
-              const switchedAgent =
-                type.startsWith("session.next.agent.switched") && changed.data?.sessionID === selected()
-                  ? changed.data?.agent
-                  : undefined
-              if (switchedAgent) setAgent(switchedAgent)
-              publishSessionEvent({
-                kind: "changed",
-                sessionID: changed.data?.sessionID ?? changed.data?.info?.sessionID ?? changed.data?.part?.sessionID,
-              })
-              scheduleRefetch(true, type === "session.next.step.ended")
+            ).data
+            trackActivity(type, data)
+            const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
+            if (type.startsWith("message.")) {
+              // Every message event is applied to the transcript instead of triggering a refetch of
+              // the whole history. A refetch per event meant two full requests every 300ms for the
+              // length of a turn, and a `<For>` rebuilt from new objects each time.
+              const change = transcriptChange(type, data)
+              if (sessionID && change) {
+                publishSessionEvent({ kind: "message", sessionID, apply: change.apply, chars: change.chars })
+                if (sessionID === selected()) {
+                  setStreamedChars((value) => value + change.chars)
+                  applyTranscriptChange(setMessageData, change)
+                }
+              }
+              // A new user message starts a turn: what streamed before it is stale.
+              const newTurn =
+                type === "message.updated" &&
+                data?.info?.role === "user" &&
+                !!sessionID &&
+                !!data.info.id &&
+                lastUserMessage.get(sessionID) !== data.info.id
+              if (newTurn && sessionID && data?.info?.id) {
+                lastUserMessage.set(sessionID, data.info.id)
+                publishSessionEvent({ kind: "turn", sessionID })
+                if (sessionID === selected()) setStreamedChars(0)
+              }
+              // The cached legacy history is now behind the store, so the next refetch must rebuild it.
+              invalidateLegacyHistory(sessionID)
+            } else if (type === "session.idle") {
+              // The end of a turn is where the applied events are reconciled against the engine's own
+              // copy: one refetch per turn instead of one every 300ms.
+              scheduleRefetch(true, true)
             } else if (type.startsWith("session.")) {
               scheduleRefetch(false, true)
             }
           }
         } catch {
-          if (controller.signal.aborted) return
+          if (signal.aborted) break
         }
-        if (controller.signal.aborted) return
-        setStreamState("global", "reconnecting")
-        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
-        if (!controller.signal.aborted) {
-          scheduleRefetch(true, true)
-          publishSessionEvent({ kind: "changed" })
-        }
-      }
-    })()
-  })
-
-  /**
-   * Folders whose event stream this window follows. A legacy run — every chat, and every Code
-   * session — streams its deltas and its status only on its own folder's stream, so a window that
-   * wants them live has to hold one connection open per folder.
-   *
-   * How many it may hold is not a matter of taste. A browser allows six connections to one origin
-   * over HTTP/1.1, and a stream holds one for as long as it lives. Measured against the engine on
-   * 2026-09-16: with five streams open a request still answered in 8ms; with six, nothing answered
-   * at all and the page never recovered — closing the tab was the only way out, which is exactly
-   * what this looked like in use. Following four folders plus the global stream left a single
-   * connection for every fetch the app makes, so one reconnection overlapping its own socket was
-   * enough to deadlock the window.
-   *
-   * Two folders keeps the total at three and leaves half the budget free. A run in a folder nobody
-   * is following is not lost: it still shows up in the periodic `session.active()` check and in the
-   * refetch at the end of a turn — it just stops streaming live.
-   */
-  const WATCHED_DIRECTORIES = 2
-  // A plain accessor, not a memo: a memo computes as soon as it is created, and the split panes it
-  // reads are declared further down, which would run the whole component into the temporal dead zone.
-  const watchedDirectories = () => {
-    const list = sessionList()
-    const directoryOf = (id: string | undefined) =>
-      id ? list?.find((session) => session.id === id)?.location?.directory : undefined
-    const open = [selected(), ...(splitActive() ? splitPanes() : [])].map(directoryOf)
-    const directories = [chatsDirectory(), targetDirectory(), ...open].filter(
-      (value): value is string => typeof value === "string" && value.length > 0,
-    )
-    return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
-  }
-
-  /**
-   * One legacy message event as a change to a transcript. The part types are remembered because a
-   * delta only names its part, while `field` says "text" for reasoning too, so the part's own type
-   * is the only way to tell them apart.
-   */
-  const partTypesByID = new Map<string, string>()
-  const transcriptChange = (
-    type: string,
-    data:
-      | {
-          delta?: string
-          partID?: string
-          messageID?: string
-          info?: { id?: string; role?: string }
-          part?: { id?: string; type?: string; messageID?: string }
-        }
-      | undefined,
-  ) => {
-    if (type === "message.part.delta") {
-      const delta = data?.delta
-      if (typeof delta !== "string" || !data?.partID) return undefined
-      const kind = partTypesByID.get(data.partID)
-      if (kind !== "text" && kind !== "reasoning") return undefined
-      const input = { messageID: data.messageID, partID: data.partID, delta }
-      return {
-        apply: (current: SessionMessageInfo[]) => applyDelta(current, input),
-        chars: delta.length,
-        ...(data.messageID ? { delta: { messageID: data.messageID, partID: data.partID, text: delta } } : {}),
-      }
-    }
-    if (type === "message.part.updated" && data?.part?.id) {
-      const part = data.part as LegacyPart
-      if (part.type) partTypesByID.set(part.id, part.type)
-      return { apply: (current: SessionMessageInfo[]) => applyPart(current, part), chars: 0 }
-    }
-    if (type === "message.part.removed" && data?.part?.id) {
-      const input = { messageID: data.part.messageID ?? data.messageID, partID: data.part.id }
-      return { apply: (current: SessionMessageInfo[]) => removePart(current, input), chars: 0 }
-    }
-    if (type === "message.updated" && data?.info?.id) {
-      const info = data.info as LegacyInfo
-      return { apply: (current: SessionMessageInfo[]) => applyMessage(current, info), chars: 0 }
-    }
-    if (type === "message.removed" && data?.messageID) {
-      const messageID = data.messageID
-      return { apply: (current: SessionMessageInfo[]) => removeMessage(current, messageID), chars: 0 }
-    }
-    return undefined
-  }
-
-  /** One folder's legacy event stream, reconnecting on its own backoff until the signal aborts. */
-  const followDirectory = async (url: string, directory: string, signal: AbortSignal) => {
-    // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
-    const lastUserMessage = new Map<string, string>()
-    for (let attempt = 0; !signal.aborted; attempt++) {
-      setStreamState(directory, attempt === 0 ? "connecting" : "reconnecting")
-      try {
-        const stream = createClient(url).event.subscribeDirectory(directory, { signal })
-        for await (const event of stream) {
-          attempt = 0
-          setStreamState(directory, "live")
-          const type = event.type ?? ""
-          const data = (
-            event as {
-              data?: {
-                sessionID?: string
-                field?: string
-                delta?: string
-                status?: { type?: string }
-                partID?: string
-                info?: { id?: string; sessionID?: string; role?: string }
-                part?: { id?: string; sessionID?: string; type?: string }
-              }
-            }
-          ).data
-          trackActivity(type, data)
-          const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
-          if (type.startsWith("message.")) {
-            // Every message event is applied to the transcript instead of triggering a refetch of
-            // the whole history. A refetch per event meant two full requests every 300ms for the
-            // length of a turn, and a `<For>` rebuilt from new objects each time.
-            const change = transcriptChange(type, data)
-            if (sessionID && change) {
-              publishSessionEvent({ kind: "message", sessionID, apply: change.apply, chars: change.chars })
-              if (sessionID === selected()) {
-                setStreamedChars((value) => value + change.chars)
-                applyTranscriptChange(setMessageData, change)
-              }
-            }
-            // A new user message starts a turn: what streamed before it is stale.
-            const newTurn =
-              type === "message.updated" &&
-              data?.info?.role === "user" &&
-              !!sessionID &&
-              !!data.info.id &&
-              lastUserMessage.get(sessionID) !== data.info.id
-            if (newTurn && sessionID && data?.info?.id) {
-              lastUserMessage.set(sessionID, data.info.id)
-              publishSessionEvent({ kind: "turn", sessionID })
-              if (sessionID === selected()) setStreamedChars(0)
-            }
-            // The cached legacy history is now behind the store, so the next refetch must rebuild it.
-            invalidateLegacyHistory(sessionID)
-          } else if (type === "session.idle") {
-            // The end of a turn is where the applied events are reconciled against the engine's own
-            // copy: one refetch per turn instead of one every 300ms.
-            scheduleRefetch(true, true)
-          } else if (type.startsWith("session.")) {
-            scheduleRefetch(false, true)
-          }
-        }
-      } catch {
         if (signal.aborted) break
+        // Not following this folder until the stream is back, and the pill says so.
+        setStreamState(directory, "reconnecting")
+        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
       }
-      if (signal.aborted) break
-      // Not following this folder until the stream is back, and the pill says so.
-      setStreamState(directory, "reconnecting")
-      await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
-    }
-    forgetStreamState(directory)
-  }
-
-  // Streams are kept per folder across changes: switching session must not drop the chats stream,
-  // which is what carries a chat answering in the background.
-  const directoryStreams = new Map<string, AbortController>()
-  onCleanup(() => {
-    directoryStreams.forEach((controller) => controller.abort())
-    directoryStreams.clear()
-  })
-  createEffect(() => {
-    const url = ready() ? serverUrl() : undefined
-    const wanted = url ? watchedDirectories() : []
-    for (const [directory, controller] of directoryStreams) {
-      if (wanted.includes(directory)) continue
-      controller.abort()
-      directoryStreams.delete(directory)
       forgetStreamState(directory)
     }
-    if (!url) return
-    for (const directory of wanted) {
-      if (directoryStreams.has(directory)) continue
-      const controller = new AbortController()
-      directoryStreams.set(directory, controller)
-      void followDirectory(url, directory, controller.signal)
-    }
-  })
 
-  createEffect(() => {
-    selected()
-    setStreamedChars(0)
-  })
-
-  // A stored effort level the model does not offer here (another model's, or one this project's engine
-  // lacks) is dropped: the engine rejects unknown levels, and the menu would show a level it cannot set.
-  const selectedModel = () => {
-    const ref = modelRef()
-    if (!ref?.variant || variants().some((variant) => variant.id === ref.variant)) return ref
-    return { providerID: ref.providerID, id: ref.id }
-  }
-  const modelKey = () => {
-    const ref = selectedModel()
-    return ref ? `${ref.providerID}/${ref.id}` : undefined
-  }
-  const currentModel = () => {
-    const ref = modelRef()
-    if (!ref) return
-    return modelList().find((model) => model.providerID === ref.providerID && model.id === ref.id)
-  }
-  const variants = () => currentModel()?.variants ?? []
-  const variantKey = () => selectedModel()?.variant
-
-  /**
-   * A session carries the model the engine reuses on its next turn. When the catalog drops it that
-   * turn fails with "Model unavailable", so say which one is gone and offer the closest live model
-   * of the same provider.
-   */
-  const missingModel = createMemo(() => {
-    const ref = selectedSession()?.model
-    if (!ref || modelList().length === 0 || hasModel(modelList(), ref)) return
-    return ref
-  })
-  const missingModelReplacement = createMemo(() => {
-    const ref = missingModel()
-    return ref ? replacementModel(ref, modelList()) : undefined
-  })
-
-  // The dock and Customize name the model of the open session, which is the one the engine will
-  // reuse: an older session, or one switched on another device, is not on the app's last pick.
-  // Adopted once per open, so a switch already on its way to the engine is never undone.
-  let syncedSession: string | undefined
-  createEffect(() => {
-    const session = selectedSession()
-    if (!session) {
-      syncedSession = undefined
-      return
-    }
-    if (session.id === syncedSession) return
-    syncedSession = session.id
-    const stored = session.model
-    if (!stored) return
-    setModelRef({ providerID: stored.providerID, id: stored.id, variant: stored.variant })
-  })
-
-  createEffect(() => {
-    if (modelRef()) return
-    const preferred = Object.entries(modelDirectory()?.default ?? {}).find(([providerID, id]) =>
-      modelList().some((model) => model.providerID === providerID && model.id === id),
-    )
-    const fallback = preferred ? { providerID: preferred[0], id: preferred[1] } : modelList()[0]
-    if (!fallback) return
-    setModelRef({ providerID: fallback.providerID, id: fallback.id })
-  })
-
-  createEffect(() => {
-    writeStorage(STORAGE_KEYS.selectedSession, selected() ?? "")
-  })
-
-  createEffect(() => {
-    const ref = modelRef()
-    if (ref) writeStorage(STORAGE_KEYS.selectedModel, ref)
-  })
-
-  createEffect(() => {
-    writeStorage(STORAGE_KEYS.noFolderSessions, noFolderSessions())
-  })
-
-  createEffect(() => {
-    const query = window.matchMedia("(max-width: 768px)")
-    const update = () => setNarrow(query.matches)
-    update()
-    query.addEventListener("change", update)
-    onCleanup(() => query.removeEventListener("change", update))
-  })
-
-  // Narrow windows auto-collapse the sidebar; unlike the right panel (pure CSS, so it
-  // reappears on its own), this writes a signal that would stick. Remember the wide preference
-  // and put it back when the window grows again. Untracked: opening the drawer while narrow is
-  // the reader's own doing and must not re-trigger the auto-collapse.
-  let wideCollapsed: boolean | undefined
-  createEffect(() => {
-    if (narrow()) {
-      if (wideCollapsed === undefined) wideCollapsed = untrack(collapsed)
-      setCollapsed(true)
-      return
-    }
-    if (wideCollapsed === undefined) return
-    setCollapsed(wideCollapsed)
-    writeStorage(STORAGE_KEYS.sidebarCollapsed, wideCollapsed)
-    wideCollapsed = undefined
-  })
-
-  const modelLabel = () => {
-    const model = currentModel()
-    if (model) return model.name
-    // A ref the catalog no longer serves has no name to show, and saying "Default model" would hide
-    // which one is gone. Before the first list arrives, keep the generic label instead of an id.
-    if (modelList().length === 0) return t("Default model")
-    return modelRef()?.id ?? t("Default model")
-  }
-  const modelName = (ref: { providerID: string; id: string }) =>
-    modelList().find((entry) => entry.providerID === ref.providerID && entry.id === ref.id)?.name ?? ref.id
-
-  const toggleFavoriteModel = (key: string) => {
-    setFavorites((current) => {
-      const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
-      writeStorage(STORAGE_KEYS.favoriteModels, next)
-      return next
+    // Streams are kept per folder across changes: switching session must not drop the chats stream,
+    // which is what carries a chat answering in the background.
+    const directoryStreams = new Map<string, AbortController>()
+    onCleanup(() => {
+      directoryStreams.forEach((controller) => controller.abort())
+      directoryStreams.clear()
     })
-  }
-
-  /** Makes the picked model the app's, and the open session's when there is one. */
-  const applyModel = (providerID: string, id: string) => {
-    setModelRef({ providerID, id })
-    const sessionID = selected()
-    if (!sessionID) return
-    void run(async (current) => {
-      await current.session.switchModel({ sessionID, model: { id, providerID } })
-      return undefined
-    })
-  }
-
-  /**
-   * A session that already holds context is cached for its model, so moving it to another one makes
-   * the new model re-read the whole transcript: ask first, naming both. Nothing else needs asking.
-   */
-  const requestModel = (providerID: string, id: string) => {
-    const current = sessionModel()
-    if (
-      current &&
-      needsModelSwitchWarning({
-        enabled: modelSwitchWarningOn(),
-        history: (activeMessages() ?? []).length > 0,
-        current,
-        next: { providerID, id },
-      })
-    ) {
-      setPendingModelSwitch({
-        from: modelName(current),
-        to: modelName({ providerID, id }),
-        next: { providerID, id },
-      })
-      return
-    }
-    applyModel(providerID, id)
-  }
-
-  const pickModel = (providerID: string, id: string) => {
-    setModelPickerOpen(false)
-    requestModel(providerID, id)
-  }
-
-  const changeModel = (key: string) => {
-    const [providerID, ...rest] = key.split("/")
-    const id = rest.join("/")
-    if (!providerID || !id) return
-    requestModel(providerID, id)
-  }
-
-  const changeVariant = (value: string) => {
-    const ref = modelRef()
-    if (!ref) return
-    const next = { providerID: ref.providerID, id: ref.id, variant: value || undefined }
-    setModelRef(next)
-    const sessionID = selected()
-    if (!sessionID) return
-    void run(async (current) => {
-      await current.session.switchModel({
-        sessionID,
-        model: { id: next.id, providerID: next.providerID, ...(next.variant ? { variant: next.variant } : {}) },
-      })
-      return undefined
-    })
-  }
-
-  const projects = createMemo(() => {
-    const map = new Map<string, ProjectItem>()
-    for (const session of sessionList() ?? []) {
-      const directory = session.location?.directory
-      if (!directory || isChat(session)) continue
-      if (map.has(directory)) continue
-      map.set(directory, {
-        id: session.projectID || directory,
-        directory,
-        name: directory.split("/").filter(Boolean).at(-1) || directory,
-      })
-    }
-    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
-  })
-
-  const [remoteActivity] = createResource(
-    () =>
-      mobileRemote() && ready()
-        ? JSON.stringify({
-            url: serverUrl(),
-            directories: projects().map((project) => project.directory),
-            tick: activityTick(),
-          })
-        : undefined,
-    async (key) => {
-      const input = JSON.parse(key) as { url: string; directories: string[] }
-      const base = input.url.replace(/\/$/, "")
-      const lists = await Promise.all(
-        input.directories.map(async (directory) => {
-          const get = (path: string): Promise<unknown> =>
-            engineFetch(`${base}${path}?directory=${encodeURIComponent(directory)}`)
-              .then((response) => (response.ok ? response.json() : undefined))
-              .catch(() => undefined)
-          const [status, permissions, questions, vcs] = await Promise.all([
-            get("/session/status"),
-            get("/permission"),
-            get("/question"),
-            createClient(input.url)
-              .vcs.get(directory)
-              .catch(() => undefined),
-          ])
-          const requests = [permissions, questions].flatMap((list) =>
-            Array.isArray(list) ? (list as Array<{ sessionID?: string }>) : [],
-          )
-          return {
-            directory,
-            busy: Object.entries((status ?? {}) as Record<string, { type?: string }>)
-              .filter(([, value]) => value?.type && value.type !== "idle")
-              .map(([id]) => id),
-            waiting: requests.flatMap((request) => (request.sessionID ? [request.sessionID] : [])),
-            branch: (vcs as { branch?: string } | undefined)?.branch,
-          }
-        }),
-      )
-      return {
-        busy: new Set(lists.flatMap((list) => list.busy)),
-        waiting: new Set(lists.flatMap((list) => list.waiting)),
-        branches: Object.fromEntries(lists.map((list) => [list.directory, list.branch])),
+    createEffect(() => {
+      const url = ready() ? serverUrl() : undefined
+      const wanted = url ? watchedDirectories() : []
+      for (const [directory, controller] of directoryStreams) {
+        if (wanted.includes(directory)) continue
+        controller.abort()
+        directoryStreams.delete(directory)
+        forgetStreamState(directory)
       }
-    },
-  )
+      if (!url) return
+      for (const directory of wanted) {
+        if (directoryStreams.has(directory)) continue
+        const controller = new AbortController()
+        directoryStreams.set(directory, controller)
+        void followDirectory(url, directory, controller.signal)
+      }
+    })
 
-  const remoteSessions = createMemo((): RemoteSessionItem[] => {
-    if (!mobileRemote()) return []
-    const activity = remoteActivity.latest
-    const runs = runState()
-    return (sessionList() ?? [])
-      .filter((session) => !session.parentID && !session.time.archived && isChat(session) === chatView())
-      .sort((a, b) => b.time.updated - a.time.updated)
-      .map((session) => {
+    createEffect(() => {
+      selected()
+      setStreamedChars(0)
+    })
+
+    // A stored effort level the model does not offer here (another model's, or one this project's engine
+    // lacks) is dropped: the engine rejects unknown levels, and the menu would show a level it cannot set.
+    const selectedModel = () => {
+      const ref = modelRef()
+      if (!ref?.variant || variants().some((variant) => variant.id === ref.variant)) return ref
+      return { providerID: ref.providerID, id: ref.id }
+    }
+    const modelKey = () => {
+      const ref = selectedModel()
+      return ref ? `${ref.providerID}/${ref.id}` : undefined
+    }
+    const currentModel = () => {
+      const ref = modelRef()
+      if (!ref) return
+      return modelList().find((model) => model.providerID === ref.providerID && model.id === ref.id)
+    }
+    const variants = () => currentModel()?.variants ?? []
+    const variantKey = () => selectedModel()?.variant
+
+    /**
+     * A session carries the model the engine reuses on its next turn. When the catalog drops it that
+     * turn fails with "Model unavailable", so say which one is gone and offer the closest live model
+     * of the same provider.
+     */
+    const missingModel = createMemo(() => {
+      const ref = selectedSession()?.model
+      if (!ref || modelList().length === 0 || hasModel(modelList(), ref)) return
+      return ref
+    })
+    const missingModelReplacement = createMemo(() => {
+      const ref = missingModel()
+      return ref ? replacementModel(ref, modelList()) : undefined
+    })
+
+    // The dock and Customize name the model of the open session, which is the one the engine will
+    // reuse: an older session, or one switched on another device, is not on the app's last pick.
+    // Adopted once per open, so a switch already on its way to the engine is never undone.
+    let syncedSession: string | undefined
+    createEffect(() => {
+      const session = selectedSession()
+      if (!session) {
+        syncedSession = undefined
+        return
+      }
+      if (session.id === syncedSession) return
+      syncedSession = session.id
+      const stored = session.model
+      if (!stored) return
+      setModelRef({ providerID: stored.providerID, id: stored.id, variant: stored.variant })
+    })
+
+    createEffect(() => {
+      if (modelRef()) return
+      const preferred = Object.entries(modelDirectory()?.default ?? {}).find(([providerID, id]) =>
+        modelList().some((model) => model.providerID === providerID && model.id === id),
+      )
+      const fallback = preferred ? { providerID: preferred[0], id: preferred[1] } : modelList()[0]
+      if (!fallback) return
+      setModelRef({ providerID: fallback.providerID, id: fallback.id })
+    })
+
+    createEffect(() => {
+      writeStorage(STORAGE_KEYS.selectedSession, selected() ?? "")
+    })
+
+    createEffect(() => {
+      const ref = modelRef()
+      if (ref) writeStorage(STORAGE_KEYS.selectedModel, ref)
+    })
+
+    createEffect(() => {
+      writeStorage(STORAGE_KEYS.noFolderSessions, noFolderSessions())
+    })
+
+    createEffect(() => {
+      const query = window.matchMedia("(max-width: 768px)")
+      const update = () => setNarrow(query.matches)
+      update()
+      query.addEventListener("change", update)
+      onCleanup(() => query.removeEventListener("change", update))
+    })
+
+    // Narrow windows auto-collapse the sidebar; unlike the right panel (pure CSS, so it
+    // reappears on its own), this writes a signal that would stick. Remember the wide preference
+    // and put it back when the window grows again. Untracked: opening the drawer while narrow is
+    // the reader's own doing and must not re-trigger the auto-collapse.
+    let wideCollapsed: boolean | undefined
+    createEffect(() => {
+      if (narrow()) {
+        if (wideCollapsed === undefined) wideCollapsed = untrack(collapsed)
+        setCollapsed(true)
+        return
+      }
+      if (wideCollapsed === undefined) return
+      setCollapsed(wideCollapsed)
+      writeStorage(STORAGE_KEYS.sidebarCollapsed, wideCollapsed)
+      wideCollapsed = undefined
+    })
+
+    const modelLabel = () => {
+      const model = currentModel()
+      if (model) return model.name
+      // A ref the catalog no longer serves has no name to show, and saying "Default model" would hide
+      // which one is gone. Before the first list arrives, keep the generic label instead of an id.
+      if (modelList().length === 0) return t("Default model")
+      return modelRef()?.id ?? t("Default model")
+    }
+    const modelName = (ref: { providerID: string; id: string }) =>
+      modelList().find((entry) => entry.providerID === ref.providerID && entry.id === ref.id)?.name ?? ref.id
+
+    const toggleFavoriteModel = (key: string) => {
+      setFavorites((current) => {
+        const next = current.includes(key) ? current.filter((item) => item !== key) : [...current, key]
+        writeStorage(STORAGE_KEYS.favoriteModels, next)
+        return next
+      })
+    }
+
+    /** Makes the picked model the app's, and the open session's when there is one. */
+    const applyModel = (providerID: string, id: string) => {
+      setModelRef({ providerID, id })
+      const sessionID = selected()
+      if (!sessionID) return
+      void run(async (current) => {
+        await current.session.switchModel({ sessionID, model: { id, providerID } })
+        return undefined
+      })
+    }
+
+    /**
+     * A session that already holds context is cached for its model, so moving it to another one makes
+     * the new model re-read the whole transcript: ask first, naming both. Nothing else needs asking.
+     */
+    const requestModel = (providerID: string, id: string) => {
+      const current = sessionModel()
+      if (
+        current &&
+        needsModelSwitchWarning({
+          enabled: modelSwitchWarningOn(),
+          history: (activeMessages() ?? []).length > 0,
+          current,
+          next: { providerID, id },
+        })
+      ) {
+        setPendingModelSwitch({
+          from: modelName(current),
+          to: modelName({ providerID, id }),
+          next: { providerID, id },
+        })
+        return
+      }
+      applyModel(providerID, id)
+    }
+
+    const pickModel = (providerID: string, id: string) => {
+      setModelPickerOpen(false)
+      requestModel(providerID, id)
+    }
+
+    const changeModel = (key: string) => {
+      const [providerID, ...rest] = key.split("/")
+      const id = rest.join("/")
+      if (!providerID || !id) return
+      requestModel(providerID, id)
+    }
+
+    const changeVariant = (value: string) => {
+      const ref = modelRef()
+      if (!ref) return
+      const next = { providerID: ref.providerID, id: ref.id, variant: value || undefined }
+      setModelRef(next)
+      const sessionID = selected()
+      if (!sessionID) return
+      void run(async (current) => {
+        await current.session.switchModel({
+          sessionID,
+          model: { id: next.id, providerID: next.providerID, ...(next.variant ? { variant: next.variant } : {}) },
+        })
+        return undefined
+      })
+    }
+
+    const projects = createMemo(() => {
+      const map = new Map<string, ProjectItem>()
+      for (const session of sessionList() ?? []) {
         const directory = session.location?.directory
-        const running = session.id in runs ? runs[session.id] : activity?.busy.has(session.id)
+        if (!directory || isChat(session)) continue
+        if (map.has(directory)) continue
+        map.set(directory, {
+          id: session.projectID || directory,
+          directory,
+          name: directory.split("/").filter(Boolean).at(-1) || directory,
+        })
+      }
+      return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+    })
+    const routineProjects = createMemo(() => {
+      const directory = targetDirectory()
+      if (!directory || projects().some((project) => project.directory === directory)) return projects()
+      return [
+        {
+          id: directory,
+          directory,
+          name: directory.split("/").filter(Boolean).at(-1) || directory,
+        },
+        ...projects(),
+      ]
+    })
+
+    const [remoteActivity] = createResource(
+      () =>
+        mobileRemote() && ready()
+          ? JSON.stringify({
+              url: serverUrl(),
+              directories: projects().map((project) => project.directory),
+              tick: activityTick(),
+            })
+          : undefined,
+      async (key) => {
+        const input = JSON.parse(key) as { url: string; directories: string[] }
+        const base = input.url.replace(/\/$/, "")
+        const lists = await Promise.all(
+          input.directories.map(async (directory) => {
+            const get = (path: string): Promise<unknown> =>
+              engineFetch(`${base}${path}?directory=${encodeURIComponent(directory)}`)
+                .then((response) => (response.ok ? response.json() : undefined))
+                .catch(() => undefined)
+            const [status, permissions, questions, vcs] = await Promise.all([
+              get("/session/status"),
+              get("/permission"),
+              get("/question"),
+              createClient(input.url)
+                .vcs.get(directory)
+                .catch(() => undefined),
+            ])
+            const requests = [permissions, questions].flatMap((list) =>
+              Array.isArray(list) ? (list as Array<{ sessionID?: string }>) : [],
+            )
+            return {
+              directory,
+              busy: Object.entries((status ?? {}) as Record<string, { type?: string }>)
+                .filter(([, value]) => value?.type && value.type !== "idle")
+                .map(([id]) => id),
+              waiting: requests.flatMap((request) => (request.sessionID ? [request.sessionID] : [])),
+              branch: (vcs as { branch?: string } | undefined)?.branch,
+            }
+          }),
+        )
         return {
-          id: session.id,
-          title: sessionTitle(session),
-          project: isChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
-          branch: directory ? activity?.branches[directory] : undefined,
-          updated: session.time.updated,
-          state: activity?.waiting.has(session.id) ? "waiting" : running ? "busy" : "idle",
+          busy: new Set(lists.flatMap((list) => list.busy)),
+          waiting: new Set(lists.flatMap((list) => list.waiting)),
+          branches: Object.fromEntries(lists.map((list) => [list.directory, list.branch])),
         }
-      })
-  })
+      },
+    )
 
-  const mobileScreen = () => (selected() || mobileComposing() ? "session" : "home")
-  const openMobileSession = (sessionID: string) => {
-    selectSession(sessionID)
-    window.history.pushState({ flupcode: "session" }, "")
-  }
-  const startMobileSession = (directory: string | undefined) => {
-    newSession(directory)
-    setMobileComposing(true)
-    window.history.pushState({ flupcode: "session" }, "")
-  }
-  const leaveMobileSession = () => {
-    setMobileComposing(false)
-    setSelected(undefined)
-    setTargetDirectory(undefined)
-    setPrompt("")
-  }
-  const onPopState = () => {
-    if (mobileRemote() && mobileScreen() === "session") leaveMobileSession()
-  }
-  window.addEventListener("popstate", onPopState)
-  onCleanup(() => window.removeEventListener("popstate", onPopState))
-
-  const [range, setRange] = createSignal<UsageRange>("all")
-  // Sessions the dashboard counts: those created since the last reset from Settings.
-  const countedSessions = createMemo(() =>
-    (sessionList() ?? []).filter((session) => session.time.created >= usageResetAt()),
-  )
-  const filteredSessions = createMemo(() => filterByRange(countedSessions(), range()))
-  const metrics = createMemo(() => computeMetrics(filteredSessions()))
-  const activity = createMemo(() => activityByDay(countedSessions(), 365))
-  const comparisonLine = createMemo(() => comparison(metrics().tokens))
-  const [messageCount] = createResource(
-    () => {
-      if (selected()) return undefined
-      const ids = filteredSessions()
-        .slice(0, 30)
-        .map((session) => session.id)
-      return ids.length ? ids.join(",") : undefined
-    },
-    async (key) => {
-      const client = createClient(serverUrl())
-      const counts = await Promise.all(
-        key.split(",").map(async (id) => {
-          try {
-            const response = await client.message.list({ sessionID: id })
-            return response.data.length
-          } catch {
-            return 0
+    const remoteSessions = createMemo((): RemoteSessionItem[] => {
+      if (!mobileRemote()) return []
+      const activity = remoteActivity.latest
+      const runs = runState()
+      return (sessionList() ?? [])
+        .filter((session) => !session.parentID && !session.time.archived && isChat(session) === chatView())
+        .sort((a, b) => b.time.updated - a.time.updated)
+        .map((session) => {
+          const directory = session.location?.directory
+          const running = session.id in runs ? runs[session.id] : activity?.busy.has(session.id)
+          return {
+            id: session.id,
+            title: sessionTitle(session),
+            project: isChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
+            branch: directory ? activity?.branches[directory] : undefined,
+            updated: session.time.updated,
+            state: activity?.waiting.has(session.id) ? "waiting" : running ? "busy" : "idle",
           }
-        }),
-      )
-      return counts.reduce((sum, value) => sum + value, 0)
-    },
-  )
+        })
+    })
 
-  const artifacts = () => {
-    const files = new Set<string>()
-    for (const message of activeMessages() ?? []) {
-      if (message.type !== "assistant") continue
-      for (const file of message.snapshot?.files ?? []) files.add(file)
-      for (const part of message.content) {
-        if (part.type !== "tool" || part.state.status === "pending") continue
-        const input = part.state.input as { filePath?: unknown; path?: unknown }
-        const path =
-          typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
-        if (path && (part.name === "write" || part.name === "edit" || part.name === "patch")) files.add(path)
-      }
+    const mobileScreen = () => (selected() || mobileComposing() ? "session" : "home")
+    const openMobileSession = (sessionID: string) => {
+      selectSession(sessionID)
+      window.history.pushState({ flupcode: "session" }, "")
     }
-    return [...files]
-  }
-
-  // Project-relative paths in the order the session touched them, most recent last. The files
-  // changed panel uses it to expand the stack the agent edited last.
-  const changedFiles = createMemo(() => {
-    const directory = selectedSession()?.location?.directory
-    const order: string[] = []
-    const push = (file: string) => {
-      const path = directory && file.startsWith(`${directory}/`) ? file.slice(directory.length + 1) : file
-      const index = order.indexOf(path)
-      if (index >= 0) order.splice(index, 1)
-      order.push(path)
+    const startMobileSession = (directory: string | undefined) => {
+      newSession(directory)
+      setMobileComposing(true)
+      window.history.pushState({ flupcode: "session" }, "")
     }
-    for (const message of activeMessages() ?? []) {
-      if (message.type !== "assistant") continue
-      for (const file of message.snapshot?.files ?? []) push(file)
-      for (const part of message.content) {
-        if (part.type !== "tool" || part.state.status === "pending") continue
-        const input = part.state.input as { filePath?: unknown; path?: unknown }
-        const path =
-          typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
-        if (path && (part.name === "write" || part.name === "edit" || part.name === "patch")) push(path)
-      }
-    }
-    return order
-  })
-
-  const canGoBack = () => historyIndex() > 0
-  const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
-
-  const selectSession = (id: string) => {
-    if (narrow()) setCollapsed(true)
-    setSelected(id)
-    if (history()[historyIndex()] === id) return
-    const next = history().slice(0, historyIndex() + 1)
-    next.push(id)
-    setHistory(next)
-    setHistoryIndex(next.length - 1)
-  }
-
-  // Split view: sessions side by side. The focused pane is the selected session; see split.ts.
-  const [splitPanes, setSplitPanes] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.splitPanes, []))
-  const splitActive = () => splitPanes().length >= 2 && !mobileRemote() && !narrow()
-  createEffect(() => writeStorage(STORAGE_KEYS.splitPanes, splitPanes()))
-  let paneFocus = untrack(() => (splitPanes().includes(selected() ?? "") ? selected() : undefined))
-  const openSplit = (id: string) => {
-    const next = openInSplit({ panes: splitActive() ? splitPanes() : [], focus: selected() }, id)
-    paneFocus = next.focus
-    setSplitPanes(next.panes)
-    if (next.focus) selectSession(next.focus)
-  }
-  const closeSplitPane = (id: string) => {
-    const next = closePane({ panes: splitPanes(), focus: selected() }, id)
-    paneFocus = next.focus
-    setSplitPanes(next.panes)
-    if (next.focus && next.focus !== selected()) selectSession(next.focus)
-  }
-  // Whatever opens a session while split (sidebar, palette, history) shows it in the focused pane;
-  // leaving the session (New, the other tab) leaves split view.
-  createEffect(() => {
-    const id = selected()
-    const panes = untrack(splitPanes)
-    if (panes.length < 2) return
-    if (!id) {
-      setSplitPanes([])
-      return
-    }
-    if (panes.includes(id)) {
-      paneFocus = id
-      return
-    }
-    const next = showInFocusedPane({ panes, focus: paneFocus }, id)
-    paneFocus = next.focus
-    setSplitPanes(next.panes)
-  })
-  createEffect(() => {
-    const list = sessions()?.data
-    const panes = splitPanes()
-    if (!list || sessions.loading || panes.length === 0) return
-    const next = keepExisting({ panes, focus: untrack(selected) }, (id) => list.some((session) => session.id === id))
-    if (next.panes.length === panes.length) return
-    paneFocus = next.focus
-    setSplitPanes(next.panes)
-    if (next.focus !== untrack(selected)) setSelected(next.focus)
-  })
-  const changeTargetDirectory = (directory: string | undefined) => {
-    setTargetDirectory(directory)
-    if (!directory) {
+    const leaveMobileSession = () => {
+      setMobileComposing(false)
       setSelected(undefined)
-      return
+      setTargetDirectory(undefined)
+      setPrompt("")
     }
-    const sessions = (sessionList() ?? []).filter((session) => session.location?.directory === directory)
-    const latest = [...sessions].sort((a, b) => b.time.updated - a.time.updated)[0]
-    if (latest) {
-      if (latest.id !== selected()) selectSession(latest.id)
-      return
+    const onPopState = () => {
+      if (mobileRemote() && mobileScreen() === "session") leaveMobileSession()
     }
-    setSelected(undefined)
-  }
+    window.addEventListener("popstate", onPopState)
+    onCleanup(() => window.removeEventListener("popstate", onPopState))
 
-  const goBack = () => {
-    if (!canGoBack()) return
-    const index = historyIndex() - 1
-    setHistoryIndex(index)
-    setSelected(history()[index])
-  }
+    const [range, setRange] = createSignal<UsageRange>("all")
+    // Sessions the dashboard counts: those created since the last reset from Settings.
+    const countedSessions = createMemo(() =>
+      (sessionList() ?? []).filter((session) => session.time.created >= usageResetAt()),
+    )
+    const filteredSessions = createMemo(() => filterByRange(countedSessions(), range()))
+    const metrics = createMemo(() => computeMetrics(filteredSessions()))
+    const activity = createMemo(() => activityByDay(countedSessions(), 365))
+    const comparisonLine = createMemo(() => comparison(metrics().tokens))
+    const [messageCount] = createResource(
+      () => {
+        if (selected()) return undefined
+        const ids = filteredSessions()
+          .slice(0, 30)
+          .map((session) => session.id)
+        return ids.length ? ids.join(",") : undefined
+      },
+      async (key) => {
+        const client = createClient(serverUrl())
+        const counts = await Promise.all(
+          key.split(",").map(async (id) => {
+            try {
+              const response = await client.message.list({ sessionID: id })
+              return response.data.length
+            } catch {
+              return 0
+            }
+          }),
+        )
+        return counts.reduce((sum, value) => sum + value, 0)
+      },
+    )
 
-  const goForward = () => {
-    if (!canGoForward()) return
-    const index = historyIndex() + 1
-    setHistoryIndex(index)
-    setSelected(history()[index])
-  }
-
-  const togglePin = (id: string) => {
-    const next = pinned().includes(id) ? pinned().filter((value) => value !== id) : [...pinned(), id]
-    setPinned(next)
-    writeStorage(STORAGE_KEYS.pinnedSessions, next)
-  }
-
-  const toggleProject = (id: string) => {
-    const next = { ...expanded(), [id]: !(expanded()[id] ?? false) }
-    setExpanded(next)
-    writeStorage(STORAGE_KEYS.expandedProjects, next)
-  }
-
-  const toggleSidebar = () => {
-    const next = !collapsed()
-    setCollapsed(next)
-    writeStorage(STORAGE_KEYS.sidebarCollapsed, next)
-  }
-
-  const toggleContextPanel = () => {
-    const next = !contextHidden()
-    setContextHidden(next)
-    writeStorage(STORAGE_KEYS.contextPanelHidden, next)
-  }
-  const contextPanelShown = () => !!selectedSession() && !contextHidden()
-  const updateContextWidth = (width: number) => {
-    const next = Math.max(CONTEXT_PANEL_WIDTH.min, Math.min(CONTEXT_PANEL_WIDTH.max, Math.round(width)))
-    setContextWidth(next)
-    writeStorage(STORAGE_KEYS.contextPanelWidth, next)
-  }
-
-  const updateSidebarWidth = (width: number) => {
-    const next = Math.max(200, Math.min(480, Math.round(width)))
-    setSidebarWidth(next)
-    writeStorage(STORAGE_KEYS.sidebarWidth, next)
-  }
-
-  const togglePanel = (kind: string) => {
-    const next = panels().includes(kind) ? panels().filter((value) => value !== kind) : [...panels(), kind]
-    setPanels(next)
-    writeStorage(STORAGE_KEYS.workspacePanels, next)
-  }
-
-  const closePanel = (kind: string) => {
-    const next = panels().filter((value) => value !== kind)
-    setPanels(next)
-    writeStorage(STORAGE_KEYS.workspacePanels, next)
-  }
-
-  // A local preview linked from the transcript opens the browser panel it navigates.
-  createEffect(() => {
-    if (!browser.request()) return
-    const current = untrack(panels)
-    if (current.includes("browser")) return
-    const next = [...current, "browser"]
-    setPanels(next)
-    writeStorage(STORAGE_KEYS.workspacePanels, next)
-  })
-
-  // Local previews open in that panel instead of a new tab. Chats and phones keep the plain link,
-  // where the panel is unavailable and a real tab is the only sensible target.
-  createEffect(() => {
-    const handler = (event: MouseEvent) => {
-      if (event.defaultPrevented || event.button !== 0) return
-      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-      if (chatView() || mobileRemote()) return
-      const target = event.target
-      if (!(target instanceof Element)) return
-      const anchor = target.closest("a")
-      if (!(anchor instanceof HTMLAnchorElement)) return
-      const href = anchor.href
-      if (!isLocalPreview(href)) return
-      event.preventDefault()
-      browser.open(href)
-    }
-    document.addEventListener("click", handler)
-    onCleanup(() => document.removeEventListener("click", handler))
-  })
-
-  const updateWorkspaceWidth = (width: number) => {
-    const next = Math.max(280, Math.min(900, Math.round(width)))
-    setWorkspaceWidth(next)
-    writeStorage(STORAGE_KEYS.workspaceWidth, next)
-  }
-
-  createEffect(() => {
-    const handler = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.code === "KeyB") {
-        event.preventDefault()
-        // ⌘B toggles the left sidebar, ⌥⌘B the session's context panel.
-        if (event.altKey) toggleContextPanel()
-        else toggleSidebar()
+    const artifacts = () => {
+      const files = new Set<string>()
+      for (const message of activeMessages() ?? []) {
+        if (message.type !== "assistant") continue
+        for (const file of message.snapshot?.files ?? []) files.add(file)
+        for (const part of message.content) {
+          if (part.type !== "tool" || part.state.status === "pending") continue
+          const input = part.state.input as { filePath?: unknown; path?: unknown }
+          const path =
+            typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
+          if (path && (part.name === "write" || part.name === "edit" || part.name === "patch")) files.add(path)
+        }
       }
+      return [...files]
     }
-    document.addEventListener("keydown", handler)
-    onCleanup(() => document.removeEventListener("keydown", handler))
-  })
 
-  const updateDisplayName = (value: string) => {
-    setDisplayName(value)
-    writeStorage(STORAGE_KEYS.displayName, value)
-  }
+    // Project-relative paths in the order the session touched them, most recent last. The files
+    // changed panel uses it to expand the stack the agent edited last.
+    const changedFiles = createMemo(() => {
+      const directory = selectedSession()?.location?.directory
+      const order: string[] = []
+      const push = (file: string) => {
+        const path = directory && file.startsWith(`${directory}/`) ? file.slice(directory.length + 1) : file
+        const index = order.indexOf(path)
+        if (index >= 0) order.splice(index, 1)
+        order.push(path)
+      }
+      for (const message of activeMessages() ?? []) {
+        if (message.type !== "assistant") continue
+        for (const file of message.snapshot?.files ?? []) push(file)
+        for (const part of message.content) {
+          if (part.type !== "tool" || part.state.status === "pending") continue
+          const input = part.state.input as { filePath?: unknown; path?: unknown }
+          const path =
+            typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
+          if (path && (part.name === "write" || part.name === "edit" || part.name === "patch")) push(path)
+        }
+      }
+      return order
+    })
 
-  const pairFromLink = () => {
-    const pairing = remote.consumePairingLink()
-    if (!pairing) return
-    // The panel shows progress and, if pairing fails, why.
-    setRemoteOpen(true)
-    void pairing.then((paired) => {
-      if (!paired) return
-      setRemoteOpen(false)
-      toast(t("Connected to {name}", { name: remote.activeHost()?.name ?? "" }), "success")
+    const canGoBack = () => historyIndex() > 0
+    const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
+
+    const selectSession = (id: string) => {
+      setRoutinesOpen(false)
+      if (narrow()) setCollapsed(true)
+      setSelected(id)
+      if (history()[historyIndex()] === id) return
+      const next = history().slice(0, historyIndex() + 1)
+      next.push(id)
+      setHistory(next)
+      setHistoryIndex(next.length - 1)
+    }
+
+    // Split view: sessions side by side. The focused pane is the selected session; see split.ts.
+    const [splitPanes, setSplitPanes] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.splitPanes, []))
+    const splitActive = () => splitPanes().length >= 2 && !mobileRemote() && !narrow()
+    createEffect(() => writeStorage(STORAGE_KEYS.splitPanes, splitPanes()))
+    let paneFocus = untrack(() => (splitPanes().includes(selected() ?? "") ? selected() : undefined))
+    const openSplit = (id: string) => {
+      const next = openInSplit({ panes: splitActive() ? splitPanes() : [], focus: selected() }, id)
+      paneFocus = next.focus
+      setSplitPanes(next.panes)
+      if (next.focus) selectSession(next.focus)
+    }
+    const closeSplitPane = (id: string) => {
+      const next = closePane({ panes: splitPanes(), focus: selected() }, id)
+      paneFocus = next.focus
+      setSplitPanes(next.panes)
+      if (next.focus && next.focus !== selected()) selectSession(next.focus)
+    }
+    // Whatever opens a session while split (sidebar, palette, history) shows it in the focused pane;
+    // leaving the session (New, the other tab) leaves split view.
+    createEffect(() => {
+      const id = selected()
+      const panes = untrack(splitPanes)
+      if (panes.length < 2) return
+      if (!id) {
+        setSplitPanes([])
+        return
+      }
+      if (panes.includes(id)) {
+        paneFocus = id
+        return
+      }
+      const next = showInFocusedPane({ panes, focus: paneFocus }, id)
+      paneFocus = next.focus
+      setSplitPanes(next.panes)
+    })
+    createEffect(() => {
+      const list = sessions()?.data
+      const panes = splitPanes()
+      if (!list || sessions.loading || panes.length === 0) return
+      const next = keepExisting({ panes, focus: untrack(selected) }, (id) => list.some((session) => session.id === id))
+      if (next.panes.length === panes.length) return
+      paneFocus = next.focus
+      setSplitPanes(next.panes)
+      if (next.focus !== untrack(selected)) setSelected(next.focus)
+    })
+    const changeTargetDirectory = (directory: string | undefined) => {
+      setTargetDirectory(directory)
+      if (!directory) {
+        setSelected(undefined)
+        return
+      }
+      const sessions = (sessionList() ?? []).filter((session) => session.location?.directory === directory)
+      const latest = [...sessions].sort((a, b) => b.time.updated - a.time.updated)[0]
+      if (latest) {
+        if (latest.id !== selected()) selectSession(latest.id)
+        return
+      }
+      setSelected(undefined)
+    }
+
+    const goBack = () => {
+      if (!canGoBack()) return
+      const index = historyIndex() - 1
+      setHistoryIndex(index)
+      setSelected(history()[index])
+    }
+
+    const goForward = () => {
+      if (!canGoForward()) return
+      const index = historyIndex() + 1
+      setHistoryIndex(index)
+      setSelected(history()[index])
+    }
+
+    const togglePin = (id: string) => {
+      const next = pinned().includes(id) ? pinned().filter((value) => value !== id) : [...pinned(), id]
+      setPinned(next)
+      writeStorage(STORAGE_KEYS.pinnedSessions, next)
+    }
+
+    const toggleProject = (id: string) => {
+      const next = { ...expanded(), [id]: !(expanded()[id] ?? false) }
+      setExpanded(next)
+      writeStorage(STORAGE_KEYS.expandedProjects, next)
+    }
+
+    const toggleSidebar = () => {
+      const next = !collapsed()
+      setCollapsed(next)
+      writeStorage(STORAGE_KEYS.sidebarCollapsed, next)
+    }
+
+    const toggleContextPanel = () => {
+      const next = !contextHidden()
+      setContextHidden(next)
+      writeStorage(STORAGE_KEYS.contextPanelHidden, next)
+    }
+    const contextPanelShown = () => !!selectedSession() && !contextHidden()
+    const updateContextWidth = (width: number) => {
+      const next = Math.max(CONTEXT_PANEL_WIDTH.min, Math.min(CONTEXT_PANEL_WIDTH.max, Math.round(width)))
+      setContextWidth(next)
+      writeStorage(STORAGE_KEYS.contextPanelWidth, next)
+    }
+
+    const updateSidebarWidth = (width: number) => {
+      const next = Math.max(200, Math.min(480, Math.round(width)))
+      setSidebarWidth(next)
+      writeStorage(STORAGE_KEYS.sidebarWidth, next)
+    }
+
+    const togglePanel = (kind: string) => {
+      const next = panels().includes(kind) ? panels().filter((value) => value !== kind) : [...panels(), kind]
+      setPanels(next)
+      writeStorage(STORAGE_KEYS.workspacePanels, next)
+    }
+
+    const closePanel = (kind: string) => {
+      const next = panels().filter((value) => value !== kind)
+      setPanels(next)
+      writeStorage(STORAGE_KEYS.workspacePanels, next)
+    }
+
+    // A local preview linked from the transcript opens the browser panel it navigates.
+    createEffect(() => {
+      if (!browser.request()) return
+      const current = untrack(panels)
+      if (current.includes("browser")) return
+      const next = [...current, "browser"]
+      setPanels(next)
+      writeStorage(STORAGE_KEYS.workspacePanels, next)
+    })
+
+    // Local previews open in that panel instead of a new tab. Chats and phones keep the plain link,
+    // where the panel is unavailable and a real tab is the only sensible target.
+    createEffect(() => {
+      const handler = (event: MouseEvent) => {
+        if (event.defaultPrevented || event.button !== 0) return
+        if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+        if (chatView() || mobileRemote()) return
+        const target = event.target
+        if (!(target instanceof Element)) return
+        const anchor = target.closest("a")
+        if (!(anchor instanceof HTMLAnchorElement)) return
+        const href = anchor.href
+        if (!isLocalPreview(href)) return
+        event.preventDefault()
+        browser.open(href)
+      }
+      document.addEventListener("click", handler)
+      onCleanup(() => document.removeEventListener("click", handler))
+    })
+
+    const updateWorkspaceWidth = (width: number) => {
+      const next = Math.max(280, Math.min(900, Math.round(width)))
+      setWorkspaceWidth(next)
+      writeStorage(STORAGE_KEYS.workspaceWidth, next)
+    }
+
+    createEffect(() => {
+      const handler = (event: KeyboardEvent) => {
+        if ((event.metaKey || event.ctrlKey) && event.code === "KeyB") {
+          event.preventDefault()
+          // ⌘B toggles the left sidebar, ⌥⌘B the session's context panel.
+          if (event.altKey) toggleContextPanel()
+          else toggleSidebar()
+        }
+      }
+      document.addEventListener("keydown", handler)
+      onCleanup(() => document.removeEventListener("keydown", handler))
+    })
+
+    const updateDisplayName = (value: string) => {
+      setDisplayName(value)
+      writeStorage(STORAGE_KEYS.displayName, value)
+    }
+
+    const pairFromLink = () => {
+      const pairing = remote.consumePairingLink()
+      if (!pairing) return
+      // The panel shows progress and, if pairing fails, why.
+      setRemoteOpen(true)
+      void pairing.then((paired) => {
+        if (!paired) return
+        setRemoteOpen(false)
+        toast(t("Connected to {name}", { name: remote.activeHost()?.name ?? "" }), "success")
+        setOnboarded(true)
+        writeStorage(STORAGE_KEYS.onboarded, true)
+      })
+    }
+    /** Opens the session a notification points at, switching computer when needed (ADR-0011). */
+    const openFromNotification = (sessionID: string, hostId: string | undefined) => {
+      if (hostId && hostId !== remote.activeHost()?.hostId && remote.hosts().some((host) => host.hostId === hostId))
+        remote.connect(hostId)
+      if (!mobileRemote()) return selectSession(sessionID)
+      if (selected() !== sessionID) openMobileSession(sessionID)
+    }
+    const onServiceWorkerMessage = (event: MessageEvent) => {
+      const data = event.data as { type?: string; sessionID?: unknown; host?: unknown } | undefined
+      if (data?.type !== "flupcode:open-session" || typeof data.sessionID !== "string") return
+      openFromNotification(data.sessionID, typeof data.host === "string" ? data.host : undefined)
+    }
+
+    remote.resume()
+    pairFromLink()
+    window.addEventListener("hashchange", pairFromLink)
+    onCleanup(() => window.removeEventListener("hashchange", pairFromLink))
+    const launch = new URLSearchParams(window.location.search)
+    const launchSession = launch.get("session")
+    if (launchSession) {
+      window.history.replaceState(window.history.state, "", window.location.pathname + window.location.hash)
+      openFromNotification(launchSession, launch.get("host") ?? undefined)
+    }
+    navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage)
+    onCleanup(() => navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage))
+
+    const completeOnboarding = (name: string) => {
+      if (name.trim()) updateDisplayName(name.trim())
       setOnboarded(true)
       writeStorage(STORAGE_KEYS.onboarded, true)
-    })
-  }
-  /** Opens the session a notification points at, switching computer when needed (ADR-0011). */
-  const openFromNotification = (sessionID: string, hostId: string | undefined) => {
-    if (hostId && hostId !== remote.activeHost()?.hostId && remote.hosts().some((host) => host.hostId === hostId))
-      remote.connect(hostId)
-    if (!mobileRemote()) return selectSession(sessionID)
-    if (selected() !== sessionID) openMobileSession(sessionID)
-  }
-  const onServiceWorkerMessage = (event: MessageEvent) => {
-    const data = event.data as { type?: string; sessionID?: unknown; host?: unknown } | undefined
-    if (data?.type !== "flupcode:open-session" || typeof data.sessionID !== "string") return
-    openFromNotification(data.sessionID, typeof data.host === "string" ? data.host : undefined)
-  }
-
-  remote.resume()
-  pairFromLink()
-  window.addEventListener("hashchange", pairFromLink)
-  onCleanup(() => window.removeEventListener("hashchange", pairFromLink))
-  const launch = new URLSearchParams(window.location.search)
-  const launchSession = launch.get("session")
-  if (launchSession) {
-    window.history.replaceState(window.history.state, "", window.location.pathname + window.location.hash)
-    openFromNotification(launchSession, launch.get("host") ?? undefined)
-  }
-  navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage)
-  onCleanup(() => navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage))
-
-  const completeOnboarding = (name: string) => {
-    if (name.trim()) updateDisplayName(name.trim())
-    setOnboarded(true)
-    writeStorage(STORAGE_KEYS.onboarded, true)
-  }
-
-  const updateTheme = (value: string) => {
-    setTheme(value)
-    writeStorage(STORAGE_KEYS.theme, value)
-  }
-
-  const updateColorTheme = (value: string) => {
-    setColorTheme(value)
-    writeStorage(STORAGE_KEYS.colorTheme, value)
-  }
-
-  createEffect(() => {
-    const mode = theme()
-    const palette = colorTheme()
-    const media = window.matchMedia("(prefers-color-scheme: dark)")
-    const apply = () => {
-      const dark = mode === "dark" || (mode === "system" && media.matches)
-      const root = document.documentElement
-      root.classList.toggle("fc-dark", dark)
-      // The palette rides alongside the mode class, so it also survives a System mode change.
-      // The default palette needs no attribute: it is what `:root` already declares.
-      if (palette === "flupcode") delete root.dataset.fcTheme
-      else root.dataset.fcTheme = palette
-      // The index.html bootstrap paints this before the stylesheet loads, which is the only moment
-      // the inline value is needed: `html { background-color: var(--fc-bg) }` takes over from here.
-      root.style.backgroundColor = ""
-      // The browser and installed app paint their status bar with this colour.
-      document
-        .querySelector('meta[name="theme-color"]')
-        ?.setAttribute("content", getComputedStyle(root).backgroundColor)
     }
-    apply()
-    media.addEventListener("change", apply)
-    onCleanup(() => media.removeEventListener("change", apply))
+
+    const updateTheme = (value: string) => {
+      setTheme(value)
+      writeStorage(STORAGE_KEYS.theme, value)
+    }
+
+    const updateColorTheme = (value: string) => {
+      setColorTheme(value)
+      writeStorage(STORAGE_KEYS.colorTheme, value)
+    }
+
+    createEffect(() => {
+      const mode = theme()
+      const palette = colorTheme()
+      const media = window.matchMedia("(prefers-color-scheme: dark)")
+      const apply = () => {
+        const dark = mode === "dark" || (mode === "system" && media.matches)
+        const root = document.documentElement
+        root.classList.toggle("fc-dark", dark)
+        // The palette rides alongside the mode class, so it also survives a System mode change.
+        // The default palette needs no attribute: it is what `:root` already declares.
+        if (palette === "flupcode") delete root.dataset.fcTheme
+        else root.dataset.fcTheme = palette
+        // The index.html bootstrap paints this before the stylesheet loads, which is the only moment
+        // the inline value is needed: `html { background-color: var(--fc-bg) }` takes over from here.
+        root.style.backgroundColor = ""
+        // The browser and installed app paint their status bar with this colour.
+        document
+          .querySelector('meta[name="theme-color"]')
+          ?.setAttribute("content", getComputedStyle(root).backgroundColor)
+      }
+      apply()
+      media.addEventListener("change", apply)
+      onCleanup(() => media.removeEventListener("change", apply))
+    })
+
+    const commitServer = () => {
+      const next = serverInput().trim()
+      if (!next) return
+      if (remote.activeHost()) remote.disconnect()
+      setLocalServerUrl(next)
+      writeStorage(STORAGE_KEYS.serverUrl, next)
+    }
+
+    const refresh = () => {
+      void refetchSessions()
+    }
+
+    const copyPath = (path: string) => {
+      void navigator.clipboard?.writeText(path)
+      toast(t("Path copied"), "success")
+    }
+
+    const toggleNotifications = () => {
+      const next = !notifications()
+      if (next && typeof Notification !== "undefined" && Notification.permission === "default") {
+        void Notification.requestPermission()
+      }
+      setNotifications(next)
+      writeStorage(STORAGE_KEYS.notifications, next)
+    }
+
+    const changePaletteKey = (value: string) => {
+      setPaletteKey(value)
+      writeStorage(STORAGE_KEYS.paletteKey, value)
+    }
+
+    const readAttachments = (files: File[]) =>
+      Promise.all(
+        files.map(
+          (file) =>
+            new Promise<Attachment>((resolve) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
+              reader.onerror = () => resolve({ uri: "", name: file.name })
+              reader.readAsDataURL(file)
+            }),
+        ),
+      ).then((items) => items.filter((item) => item.uri))
+
+    const addAttachments = (files: File[]) => {
+      void Promise.all(
+        files.map(
+          (file) =>
+            new Promise<Attachment>((resolve) => {
+              const reader = new FileReader()
+              reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
+              reader.onerror = () => resolve({ uri: "", name: file.name })
+              reader.readAsDataURL(file)
+            }),
+        ),
+      ).then((items) => setAttachments((list) => [...list, ...items.filter((item) => item.uri)]))
+    }
+
+    const removeAttachment = (uri: string) => {
+      setAttachments((list) => list.filter((item) => item.uri !== uri))
+    }
+
+    const newId = () =>
+      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+
+    const persistStashes = (next: StashedPrompt[]) => {
+      setStashes(next)
+      writeStorage(STORAGE_KEYS.stashedPrompts, next)
+    }
+
+    const stashPrompt = (text: string, clear: boolean) => {
+      const value = text.trim()
+      if (!value) {
+        toast(t("No prompt to save"), "info")
+        return
+      }
+      persistStashes([{ id: newId(), text: value, createdAt: Date.now() }, ...stashes()])
+      if (clear) setPrompt("")
+      toast(t("Prompt saved"), "success")
+    }
+
+    const restoreStash = (id: string) => {
+      const item = stashes().find((entry) => entry.id === id)
+      if (!item) return
+      setPrompt(item.text)
+      persistStashes(stashes().filter((entry) => entry.id !== id))
+      setStashOpen(false)
+    }
+
+    const removeStash = (id: string) => persistStashes(stashes().filter((entry) => entry.id !== id))
+
+    const setRoutineState = (next: Routine[]) => {
+      setRoutines(next)
+      const active = next.flatMap((routine) => routine.runs.map((run) => ({ routine, run }))).find(({ run }) => run.status === "running")
+      setRoutineBusy(!!active)
+      setRoutineBusyID(active?.routine.id)
+      setRoutineRunID(active?.run.id)
+    }
+
+    const refreshRoutines = async () => {
+      if (routinesServerLoading()) return
+      setRoutinesServerLoading(true)
+      try {
+        const current = createHarnessClient(harnessServerUrl())
+        const remote = normalizeRoutines(await current.routines.list())
+        const migrated = readStorage(STORAGE_KEYS.routinesMigration, false)
+        if (!migrated && remote.length === 0 && routines().length > 0) {
+          const created = await Promise.all(
+            routines().map((routine) => current.routines.create(routine)),
+
+          )
+          writeStorage(STORAGE_KEYS.routinesMigration, true)
+          setRoutineState(normalizeRoutines(created))
+        } else {
+          writeStorage(STORAGE_KEYS.routinesMigration, true)
+          setRoutineState(remote)
+        }
+        setRoutinesServerAvailable(true)
+      } catch {
+        setRoutinesServerAvailable(false)
+      } finally {
+        setRoutinesServerLoading(false)
+      }
+    }
+
+    /**
+     * One change from the server, applied where it lands.
+     *
+     * A routine event carries the whole routine, and a run event the whole run, so none of this costs
+     * a request: the list is read once when a connection opens, and after that the stream says what
+     * moved. It replaces a five-second poll that asked for everything whether or not anything had
+     * changed.
+     */
+    const applyHarnessEvent = (event: { type?: string; routine?: unknown; routineID?: unknown; run?: unknown }) => {
+      if (event.type === "routine.changed") {
+        const routine = normalizeRoutine(event.routine)
+        if (!routine) return
+        const current = routines()
+        return setRoutineState(
+          current.some((entry) => entry.id === routine.id)
+            ? current.map((entry) => (entry.id === routine.id ? routine : entry))
+            : [routine, ...current],
+        )
+      }
+      if (event.type === "routine.removed" && typeof event.routineID === "string") {
+        const removed = event.routineID
+        return setRoutineState(routines().filter((entry) => entry.id !== removed))
+      }
+      if (event.type !== "run.started" && event.type !== "run.changed") return
+      const run = event.run as RoutineRun | undefined
+      const routineID = run?.source?.type === "routine" ? run.source.routineID : undefined
+      if (!run?.id || !routineID) return
+      setRoutineState(
+        routines().map((routine) => {
+          if (routine.id !== routineID) return routine
+          const known = routine.runs.some((entry) => entry.id === run.id)
+          return {
+            ...routine,
+            runs: known ? routine.runs.map((entry) => (entry.id === run.id ? run : entry)) : [run, ...routine.runs],
+          }
+        }),
+      )
+    }
+
+    createEffect(() => {
+      const url = harnessServerUrl()
+      const controller = new AbortController()
+      onCleanup(() => controller.abort())
+      // Untracked: everything below reads and writes the routine state, and the first stretch of it
+      // runs synchronously inside this effect. Tracked, the first refresh made the effect depend on
+      // what it had just written, so every update tore the connection down and opened another —
+      // measured at 17,000 connections in twenty seconds. Only the server's address belongs here.
+      untrack(() => {
+        void (async () => {
+        for (let attempt = 0; !controller.signal.aborted; attempt++) {
+          // Every connection starts by reading the list once. That is what makes the first paint and
+          // every reconnection agree with the server, and it is the only request a quiet server gets.
+          await refreshRoutines()
+          try {
+            for await (const event of createHarnessClient(url).events({ signal: controller.signal })) {
+              attempt = 0
+              applyHarnessEvent(event as Parameters<typeof applyHarnessEvent>[0])
+            }
+          } catch {
+            if (controller.signal.aborted) return
+          }
+          if (controller.signal.aborted) return
+          setRoutinesServerAvailable(false)
+            await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+          }
+      })()
+    })
   })
 
-  const commitServer = () => {
-    const next = serverInput().trim()
-    if (!next) return
-    if (remote.activeHost()) remote.disconnect()
-    setLocalServerUrl(next)
-    writeStorage(STORAGE_KEYS.serverUrl, next)
+  const addRoutine = (input: RoutineInput) => {
+    void createHarnessClient(harnessServerUrl())
+      .routines.create(input)
+      .then((routine) => {
+        setRoutineState([routine, ...routines()])
+        toast(t("Routine created"), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const refresh = () => {
-    void refetchSessions()
-  }
-
-  const copyPath = (path: string) => {
-    void navigator.clipboard?.writeText(path)
-    toast(t("Path copied"), "success")
-  }
-
-  const toggleNotifications = () => {
-    const next = !notifications()
-    if (next && typeof Notification !== "undefined" && Notification.permission === "default") {
-      void Notification.requestPermission()
-    }
-    setNotifications(next)
-    writeStorage(STORAGE_KEYS.notifications, next)
-  }
-
-  const changePaletteKey = (value: string) => {
-    setPaletteKey(value)
-    writeStorage(STORAGE_KEYS.paletteKey, value)
-  }
-
-  const readAttachments = (files: File[]) =>
-    Promise.all(
-      files.map(
-        (file) =>
-          new Promise<Attachment>((resolve) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
-            reader.onerror = () => resolve({ uri: "", name: file.name })
-            reader.readAsDataURL(file)
-          }),
-      ),
-    ).then((items) => items.filter((item) => item.uri))
-
-  const addAttachments = (files: File[]) => {
-    void Promise.all(
-      files.map(
-        (file) =>
-          new Promise<Attachment>((resolve) => {
-            const reader = new FileReader()
-            reader.onload = () => resolve({ uri: String(reader.result), name: file.name })
-            reader.onerror = () => resolve({ uri: "", name: file.name })
-            reader.readAsDataURL(file)
-          }),
-      ),
-    ).then((items) => setAttachments((list) => [...list, ...items.filter((item) => item.uri)]))
-  }
-
-  const removeAttachment = (uri: string) => {
-    setAttachments((list) => list.filter((item) => item.uri !== uri))
-  }
-
-  const newId = () =>
-    typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-
-  const persistStashes = (next: StashedPrompt[]) => {
-    setStashes(next)
-    writeStorage(STORAGE_KEYS.stashedPrompts, next)
-  }
-
-  const stashPrompt = (text: string, clear: boolean) => {
-    const value = text.trim()
-    if (!value) {
-      toast(t("No prompt to save"), "info")
-      return
-    }
-    persistStashes([{ id: newId(), text: value, createdAt: Date.now() }, ...stashes()])
-    if (clear) setPrompt("")
-    toast(t("Prompt saved"), "success")
-  }
-
-  const restoreStash = (id: string) => {
-    const item = stashes().find((entry) => entry.id === id)
-    if (!item) return
-    setPrompt(item.text)
-    persistStashes(stashes().filter((entry) => entry.id !== id))
-    setStashOpen(false)
-  }
-
-  const removeStash = (id: string) => persistStashes(stashes().filter((entry) => entry.id !== id))
-
-  const persistRoutines = (next: Routine[]) => {
-    setRoutines(next)
-    writeStorage(STORAGE_KEYS.routines, next)
-  }
-
-  const addRoutine = (input: { name: string; prompt: string; intervalMinutes: number }) => {
-    persistRoutines([...routines(), { id: newId(), ...input, enabled: true, createdAt: Date.now() }])
-    toast(t("Routine created"), "success")
+  const updateRoutine = (id: string, input: RoutineInput) => {
+    void createHarnessClient(harnessServerUrl())
+      .routines.update(id, input)
+      .then((routine) => {
+        setRoutineState(routines().map((entry) => (entry.id === id ? routine : entry)))
+        toast(t("Routine saved"), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
   const toggleRoutine = (id: string) => {
-    persistRoutines(
-      routines().map((routine) => (routine.id === id ? { ...routine, enabled: !routine.enabled } : routine)),
-    )
+    const routine = routines().find((entry) => entry.id === id)
+    if (!routine) return
+    void createHarnessClient(harnessServerUrl())
+      .routines.setEnabled(id, !routine.enabled)
+      .then((next) => setRoutineState(routines().map((entry) => (entry.id === id ? next : entry))))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
   const removeRoutine = (id: string) => {
-    persistRoutines(routines().filter((routine) => routine.id !== id))
-  }
-
-  const markRoutineRun = (id: string) => {
-    persistRoutines(routines().map((routine) => (routine.id === id ? { ...routine, lastRunAt: Date.now() } : routine)))
-  }
-
-  const executeRoutine = (routine: Routine) => {
-    void (async () => {
-      setBusy(true)
-      try {
-        const current = createClient(serverUrl())
-        const model = selectedModel()
-        const session = await current.session.create(model ? { model } : {})
-        await current.session.rename({ sessionID: session.id, title: routine.name })
-        await current.session.prompt({ sessionID: session.id, text: routine.prompt })
-        void refetchSessions()
-        toast(t('Routine "{name}" executed', { name: routine.name }), "success")
-      } catch (cause) {
-        toast(cause instanceof Error ? cause.message : String(cause), "error")
-      } finally {
-        setBusy(false)
-      }
-    })()
+    void createHarnessClient(harnessServerUrl())
+      .routines.remove(id)
+      .then(() => setRoutineState(routines().filter((entry) => entry.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
   const runRoutine = (id: string) => {
-    const routine = routines().find((entry) => entry.id === id)
-    if (!routine) return
-    markRoutineRun(id)
-    executeRoutine(routine)
+    if (routineBusy()) return
+    void createHarnessClient(harnessServerUrl())
+      .routines.run(id)
+      .then((run) => {
+        setRoutineBusy(true)
+        setRoutineBusyID(id)
+        setRoutineRunID(run.id)
+        void refreshRoutines()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  createEffect(() => {
-    // Routines are a disabled feature: their entries say "Coming soon" and cannot open the panel.
-    // Scheduling them anyway runs whatever an older build left in storage, with no way to stop it.
-    if (UNAVAILABLE_FEATURES.has("routines")) return
-    const timer = setInterval(() => {
-      const now = Date.now()
-      for (const routine of routines()) {
-        if (!routineDue(routine, now)) continue
-        markRoutineRun(routine.id)
-        executeRoutine(routine)
-      }
-    }, 30000)
-    onCleanup(() => clearInterval(timer))
-  })
+  const stopRoutine = () => {
+    const routineID = routineBusyID()
+    const runID = routineRunID()
+    if (!routineID || !runID) return
+    void createHarnessClient(harnessServerUrl())
+      .routines.stop(routineID, runID)
+      .then(() => void refreshRoutines())
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
 
   const run = async (action: (current: Client) => Promise<string | undefined>, successMessage?: string) => {
     setBusy(true)
@@ -2134,6 +2335,7 @@ export const App: Component = () => {
   }
 
   const newSession = (directory?: string) => {
+    setRoutinesOpen(false)
     const sessionID = selected()
     if (sessionID && !messagesLoading() && (activeMessages() ?? []).length === 0) {
       void createClient(serverUrl())
@@ -3285,11 +3487,23 @@ export const App: Component = () => {
       <RoutinesPanel
         open={routinesOpen()}
         routines={routines()}
-        busy={busy()}
+        busy={routineBusy()}
+        busyRoutineID={routineBusyID()}
+        serverAvailable={routinesServerAvailable()}
+        serverLoading={routinesServerLoading()}
+        projects={routineProjects()}
+        models={modelList()}
+        agents={agents()?.data ?? []}
         onAdd={addRoutine}
+        onUpdate={updateRoutine}
         onToggle={toggleRoutine}
         onRemove={removeRoutine}
         onRun={runRoutine}
+        onStop={stopRoutine}
+        onOpenSession={(id) => {
+          setRoutinesOpen(false)
+          selectSession(id)
+        }}
         onClose={() => setRoutinesOpen(false)}
       />
       <FolderDialog
