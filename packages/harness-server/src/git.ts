@@ -37,24 +37,33 @@ const reason = (value: string) => {
 }
 
 async function git(directory: string, args: string[]) {
-  const child = Bun.spawn(["git", ...args], {
-    cwd: directory,
-    stdout: "pipe",
-    stderr: "pipe",
-    // Nothing here may stop to ask: a server has no terminal to ask at, and a git that blocks on a
-    // credential or an editor prompt would hang the request until it timed out.
-    env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true", NO_COLOR: "1" },
-  })
-  const timer = setTimeout(() => child.kill(), TIMEOUT_MS)
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(child.stdout).text(),
-    new Response(child.stderr).text(),
-    child.exited,
-  ])
-  clearTimeout(timer)
-  // Untrimmed: `git status --porcelain` puts the status in the first two columns, and a modified
-  // file's first column is a space. Trimming here eats it and every path afterwards is off by one.
-  return { exitCode, stdout, stderr: stderr.trim() }
+  // `Bun.spawn` throws when the binary is not on PATH, rather than answering a non-zero exit code.
+  // Left to propagate, a machine without this tool installed gets a 500 out of an endpoint whose
+  // whole job is to report that it is missing.
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const child = Bun.spawn(["git", ...args], {
+      cwd: directory,
+      stdout: "pipe",
+      stderr: "pipe",
+      // Nothing here may stop to ask: a server has no terminal to ask at, and a git that blocks
+      // on a credential or an editor prompt would hang the request until it timed out.
+      env: { ...process.env, GIT_TERMINAL_PROMPT: "0", GIT_EDITOR: "true", NO_COLOR: "1" },
+    })
+    timer = setTimeout(() => child.kill(), TIMEOUT_MS)
+    const [stdout, stderr, exitCode] = await Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+      child.exited,
+    ])
+    // Untrimmed: `git status --porcelain` puts the status in the first two columns, and a modified
+    // file's first column is a space. Trimming here eats it and every path is then off by one.
+    return { exitCode, stdout, stderr: stderr.trim() }
+  } catch (cause) {
+    return { exitCode: 127, stdout: "", stderr: cause instanceof Error ? cause.message : String(cause) }
+  } finally {
+    clearTimeout(timer)
+  }
 }
 
 async function expect(directory: string, args: string[], what: string) {

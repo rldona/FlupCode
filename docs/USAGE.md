@@ -332,6 +332,30 @@ the moment you realise what a run just did does not belong on the branch you are
 Nothing here throws work away: there is no discard and no reset. Committing and branching are both
 things you can walk back from with git; losing an uncommitted change is not.
 
+### The pull request
+
+Above the composer, a chip says where the branch stands:
+
+```
+feature/thing  rldona/FlupCode              [ Push and create PR ]
+#121  feature/thing   +835 −25              ● CI 3/5
+#121  feature/thing   +835 −25              Merged
+```
+
+**Create PR** takes the branch's last commit subject as the title, and lets you change it before it
+goes. If the branch has never been pushed the button says **Push and create PR**, because that is
+what it will do. Clicking the number opens the pull request in your browser.
+
+The dot is what the checks say: amber and pulsing while any are still running, green once they have
+passed, red with a count when they have not. It is green only when something actually passed —
+checks that all skipped leave it grey, because they vouched for nothing.
+
+It refreshes every 20 seconds while checks are running and every two minutes once they have settled.
+
+This needs [`gh`](https://cli.github.com) installed and logged in, and it is GitHub only. Without it
+there is no chip at all — not a chip that cannot tell you anything. The repository comes from the
+branch's own remote, so a fork with an `upstream` remote still reads your fork and not upstream.
+
 ## Artifacts
 
 **Artifacts** (`/artifacts`) is what the runs left behind, kept and readable: the verdict of every

@@ -723,6 +723,19 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Pull requests (H-20)
+  "Create PR": "Crear PR",
+  "Push and create PR": "Subir y crear PR",
+  "Opening…": "Abriendo…",
+  "Pull request title": "Título del PR",
+  "Opened #{number}": "PR #{number} abierto",
+  Draft: "Borrador",
+  Merged: "Mergeado",
+  Closed: "Cerrado",
+  CI: "CI",
+  "CI {done}/{total}": "CI {done}/{total}",
+  "{n} failed": "{n} han fallado",
+
   // Git (H-20)
   "What this change does, and why": "Qué hace este cambio, y por qué",
   "Commit message": "Mensaje del commit",
