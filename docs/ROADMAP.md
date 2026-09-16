@@ -23,14 +23,19 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 ## Status summary
 
-_Last updated: 2026-09-13._
+_Last updated: 2026-09-16._
+
+`docs/AUDIT-2026-09.md` (14 September 2026) checked this table against `packages/harness` and found
+nine tickets marked `done` that were empty, broken or a UI over a stub. They are corrected below.
+**The audit's §17 backlog, not this table, is the current plan**; this phase table stays as the
+record of how the harness was built.
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 63 | all F0–F7 tickets except F3-14, F3-16 and F5-4; all F8 tickets |
+| done | 55 | — |
 | doing | 0 | — |
-| blocked | 3 | F3-14, F3-16, F5-4 |
-| todo | 0 | — |
+| blocked | 2 | F3-16, F5-4 |
+| todo | 9 | F2-2, F3-8, F3-10, F3-13, F3-17, F4-3, F4-5, F4-6, F6-4 |
 | **total** | **66** | |
 
 ### What remains
@@ -38,13 +43,18 @@ _Last updated: 2026-09-13._
 F8 (remote control, ADR-0010) shipped in `flupcode-v1.0.9`, with the relay at
 `wss://relay.flupcode.com`. Push notifications (F8-9, ADR-0011) complete it.
 
-The other open items are blocked on external constraints:
+Genuinely blocked on something outside the repo:
 
-- **F3-14 MCP manager** — the vendored client (`1.17.13`) calls `/api/mcp`, removed in the current
-  server (`1.18.30`); configure MCP through the engine config for now.
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets.
-- **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; export is available.
+
+Corrected, and now really done:
+
+- **F3-14 MCP manager** was marked `blocked` on the claim that the vendored client called a removed
+  `/api/mcp`. The engine serves `/mcp` and always did; the harness now uses it.
+- **Share/unshare (part of F3-5)** was marked impossible for the same reason. `/session/:id/share`
+  exists; the harness now uses it.
+- **F3-7 Move session** is wired to `/experimental/control-plane/move-session`.
 
 ---
 
@@ -73,7 +83,7 @@ The other open items are blocked on external constraints:
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
 | F2-1 | P0 | Design tokens + theme layer mapped to `@opencode-ai/ui` | done |
-| F2-2 | P0 | Window chrome: traffic lights, back/forward, sidebar toggle | done |
+| F2-2 | P0 | Window chrome: traffic lights, back/forward, sidebar toggle | todo (no custom titlebar) |
 | F2-3 | P0 | Sidebar: nav sections (Nuevo/Artefactos/Rutinas/Personalizar) | done |
 | F2-4 | P0 | Sidebar: project list with quick-create, pin, search/filter | done |
 | F2-5 | P0 | Greeting header + home canvas | done |
@@ -91,17 +101,17 @@ The other open items are blocked on external constraints:
 | F3-4 | P0 | Undo/redo, revert, fork, compact | done |
 | F3-5 | P0 | Session list/switch, share/unshare, export | done |
 | F3-6 | P0 | Agents, subagents, todos | done |
-| F3-7 | P1 | Move session between locations | done |
-| F3-8 | P1 | Session tags/labels | done |
+| F3-7 | P1 | Move session between locations | done (wired 2026-09-16) |
+| F3-8 | P1 | Session tags/labels | todo (never built) |
 | F3-9 | P1 | Prompt stash | done |
-| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | done |
+| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | todo (a list, no manager) |
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
-| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done |
-| F3-14 | P2 | MCP add/configure UI | blocked |
+| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | todo (raw JSON; MCP has a form) |
+| F3-14 | P2 | MCP add/configure UI | done (wired 2026-09-16) |
 | F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | blocked |
-| F3-17 | P2 | Keybind/leader parity where sensible | done |
+| F3-17 | P2 | Keybind/leader parity where sensible | todo (only the palette key) |
 
 ## F4 — Harness extras
 
@@ -109,10 +119,10 @@ The other open items are blocked on external constraints:
 | --- | --- | --- | --- |
 | F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | done |
 | F4-2 | P1 | Multi-project workspaces + pinned items | done |
-| F4-3 | P1 | Unified "Personalizar" settings surface | done |
+| F4-3 | P1 | Unified "Personalizar" settings surface | todo (14 separate modals) |
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
-| F4-5 | P2 | Artifacts | done |
-| F4-6 | P2 | Routines (scheduled tasks) | done |
+| F4-5 | P2 | Artifacts | todo (paths touched by the session; off in features.ts) |
+| F4-6 | P2 | Routines (scheduled tasks) | todo (a tab timer, no history; off in features.ts) |
 | F4-7 | P2 | Voice input | done |
 | F4-8 | P2 | In-place message editing | done |
 
@@ -133,7 +143,7 @@ The other open items are blocked on external constraints:
 | F6-1 | P1 | PWA + responsive mobile layout | done |
 | F6-2 | P1 | QR pairing + auth flow for LAN access | done |
 | F6-3 | P2 | Push notifications | done |
-| F6-4 | P2 | In-app serve/tunnel management | done |
+| F6-4 | P2 | In-app serve/tunnel management | todo (only FlupCode's own relay) |
 
 ## F7 — Release
 

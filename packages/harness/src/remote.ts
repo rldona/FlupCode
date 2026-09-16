@@ -35,7 +35,13 @@ export type RemoteErrorCode = "insecure" | "offline" | "revoked" | "expired" | "
 
 declare global {
   interface Window {
-    flupcode?: { chooseFolder?: () => Promise<string | undefined>; remote?: RemoteHostBridge; speech?: SpeechBridge }
+    flupcode?: {
+      chooseFolder?: () => Promise<string | undefined>
+      remote?: RemoteHostBridge
+      speech?: SpeechBridge
+      /** `base64(user:pass)` for the engine the desktop app started; see transport.ts. */
+      engineAuth?: string
+    }
   }
 }
 

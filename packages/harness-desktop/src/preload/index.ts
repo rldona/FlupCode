@@ -29,8 +29,14 @@ const speech: SpeechBridge | undefined = process.argv.includes("--flupcode-speec
     }
   : undefined
 
+// `base64(user:pass)` for the engine the main process started; see harness/src/transport.ts.
+const engineAuth = process.argv
+  .find((argument) => argument.startsWith("--flupcode-engine-auth="))
+  ?.slice("--flupcode-engine-auth=".length)
+
 contextBridge.exposeInMainWorld("flupcode", {
   chooseFolder: () => ipcRenderer.invoke("flupcode:choose-folder") as Promise<string | undefined>,
   remote,
   ...(speech ? { speech } : {}),
+  ...(engineAuth ? { engineAuth } : {}),
 })

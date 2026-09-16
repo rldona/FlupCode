@@ -1,0 +1,60 @@
+/*
+ * The transcript renders its markdown with `@opencode-ai/session-ui`, which parses and highlights
+ * off the main thread. Its stylesheet is written against upstream's design tokens, and FlupCode has
+ * its own, so this maps one onto the other: the renderer is upstream's, the look stays FlupCode's.
+ */
+
+@import "@opencode-ai/session-ui/styles";
+
+[data-component="markdown"] {
+  --v2-text-text-base: var(--fc-text);
+  --v2-text-text-muted: var(--fc-text-muted);
+  --v2-text-text-code-accent: var(--fc-code-inline);
+  --v2-background-bg-layer-01: var(--fc-bg-subtle);
+  --v2-background-bg-layer-02: var(--fc-bg-elevated);
+  --v2-border-border-base: var(--fc-border);
+  --v2-border-border-muted: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  --v2-elevation-floating: 0 8px 24px rgb(0 0 0 / 0.12);
+
+  --text-base: var(--fc-text);
+  --text-strong: var(--fc-text);
+  --text-weak: var(--fc-text-muted);
+  --text-interactive-base: var(--fc-accent);
+  --border-weak-base: var(--fc-border);
+  --border-weaker-base: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  --color-background-stronger: var(--fc-bg-elevated);
+  --syntax-string: var(--fc-syn-string);
+
+  --font-family-sans: var(--fc-font-ui);
+  --font-family-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  --font-family-mono--font-feature-settings: normal;
+  --font-size-base: var(--fc-text-md);
+  --font-weight-medium: 500;
+  --line-height-large: 1.6;
+}
+
+/*
+ * The highlighter's theme is CSS variables too, so the code in a transcript is coloured by
+ * FlupCode's own palette in both themes rather than by a theme baked into the bundle.
+ */
+:root {
+  --syntax-comment: var(--fc-syn-comment);
+  --syntax-string: var(--fc-syn-string);
+  --syntax-primitive: var(--fc-syn-number);
+  --syntax-constant: var(--fc-syn-const);
+  --syntax-keyword: var(--fc-syn-keyword);
+  --syntax-operator: var(--fc-syn-keyword);
+  --syntax-regexp: var(--fc-syn-string);
+  --syntax-type: var(--fc-syn-const);
+  --syntax-object: var(--fc-text);
+  --syntax-property: var(--fc-syn-const);
+  --syntax-variable: var(--fc-text);
+  --syntax-punctuation: var(--fc-text-muted);
+  --syntax-unknown: var(--fc-text);
+  --syntax-info: var(--fc-accent);
+  --syntax-warning: var(--fc-warning);
+  --syntax-critical: var(--fc-danger);
+  --syntax-diff-add: var(--fc-diff-add);
+  --syntax-diff-delete: var(--fc-diff-del);
+  --syntax-diff-unknown: var(--fc-text-muted);
+}

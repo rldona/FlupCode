@@ -16,7 +16,7 @@ import type { Attachment, ProjectItem } from "../types"
 import { createClient, invalidateLegacyHistory } from "../client"
 import { CHAT_SYSTEM } from "../chat"
 import { messageID } from "../ids"
-import { pendingPrompts } from "../pending-prompts"
+import { pendingPrompts, type Delivery } from "../pending-prompts"
 import { contextFigures } from "../metrics"
 import { permissionMode } from "../permission-modes"
 import { recordPrompt } from "../prompt-history"
@@ -41,6 +41,7 @@ type SessionPaneProps = {
   chat: boolean
   chatsDirectory: string | undefined
   showTools: boolean
+  showReasoning: boolean
   models: ModelInfo[]
   /** The app's current model, for sessions that have not stored their own. */
   defaultModel: { providerID: string; id: string; variant?: string } | undefined
@@ -48,6 +49,8 @@ type SessionPaneProps = {
   agents: AgentInfo[]
   agent: string
   permissionModeId: string
+  delivery: Delivery
+  onDeliveryChange: (value: Delivery) => void
   projects: ProjectItem[]
   history: string[]
   modelName: (ref: { providerID: string; id: string }) => string
@@ -72,8 +75,6 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   const [draft, setDraft] = createSignal("")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [busy, setBusy] = createSignal(false)
-  const [liveText, setLiveText] = createSignal("")
-  const [liveReasoning, setLiveReasoning] = createSignal("")
   const [streamedChars, setStreamedChars] = createSignal(0)
   const [chosenModel, setModelRef] = createSignal(props.session.model)
   const modelRef = () => chosenModel() ?? props.defaultModel
@@ -90,14 +91,36 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       return { sessionID: source.sessionID, data: result.data }
     },
   )
-  const [permissions, { refetch: refetchPermissions }] = createResource(
-    () => ({ url: props.serverUrl, sessionID: sessionID() }),
-    (source) => createClient(source.url).session.permission.list({ sessionID: source.sessionID }),
-  )
-  const [questions, { refetch: refetchQuestions }] = createResource(
-    () => ({ url: props.serverUrl, sessionID: sessionID() }),
-    (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
-  )
+  // Blocked work comes from the runtime that raised it; see the same merge in app.tsx.
+  const blockedSource = () => ({
+    url: props.serverUrl,
+    sessionID: sessionID(),
+    directory: props.session.location?.directory,
+  })
+  const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.permissions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.permission.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
+  const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.questions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.question.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
 
   // The engine resends the whole transcript on every event; reconcile it by id so the rows (and the
   // open tools and half-typed answers inside them) survive the refetch instead of being rebuilt.
@@ -139,31 +162,17 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     }
     if (event.sessionID !== sessionID()) return
     if (event.kind === "turn") {
-      batch(() => {
-        setLiveText("")
-        setLiveReasoning("")
-        setStreamedChars(0)
-      })
-      scheduleRefetch()
+      setStreamedChars(0)
       return
     }
-    setStreamedChars((value) => value + event.delta.length)
-    if (event.field === "reasoning") setLiveReasoning((value) => value + event.delta)
-    else setLiveText((value) => value + event.delta)
+    // The same change the main view applies, so a pane shows the identical transcript without
+    // fetching the history again for every event of a turn.
+    batch(() => {
+      setStreamedChars((value) => value + event.chars)
+      setMessageData("data", (current) => event.apply(current))
+    })
   })
   onCleanup(unsubscribe)
-
-  // Drop the streamed copy once the fetched transcript has caught up with it.
-  createEffect(() => {
-    const last = [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as
-      | SessionMessageAssistant
-      | undefined
-    if (!last) return
-    const text = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
-    const reasoning = last.content.flatMap((part) => (part.type === "reasoning" ? [part.text] : [])).join("")
-    if (liveText() && text.includes(liveText())) setLiveText("")
-    if (liveReasoning() && reasoning.includes(liveReasoning())) setLiveReasoning("")
-  })
 
   const generating = () => {
     if (busy() || props.running) return true
@@ -206,8 +215,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   }
   const lastAssistant = () =>
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
-  const usage = () =>
-    contextFigures(props.session, list() ?? [], props.models, currentModel()?.limit?.context ?? 0)
+  const usage = () => contextFigures(props.session, list() ?? [], props.models, currentModel()?.limit?.context ?? 0)
   const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.expandPastes, props.serverUrl)
   createEffect(() => pendingPrompts.reconcile(new Set((list() ?? []).map((message) => message.id))))
   const liveUsage = () => {
@@ -255,7 +263,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     const files = attachments()
     if ((!text && files.length === 0) || busy()) return
     recordPrompt(text)
-    const queued = generating()
+    // Delivery only means something when a turn is already running; an idle session starts one.
+    const mode = generating() ? props.delivery : undefined
     const id = messageID()
     setBusy(true)
     try {
@@ -263,7 +272,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       const body = props.expandPastes(text)
       const fileRefs = files.map(({ uri, name }) => ({ uri, name }))
       if (props.chat && props.chatsDirectory) {
-        await current.session.chat({
+        await current.session.send({
           sessionID: sessionID(),
           directory: props.chatsDirectory,
           text: body,
@@ -277,18 +286,32 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           permission: permissionMode(props.permissionModeId).rules,
           directory: props.session.location?.directory,
         })
-        pendingPrompts.add({ id, sessionID: sessionID(), text, files, queued })
-        try {
-          await current.session.prompt({
-            sessionID: sessionID(),
-            id,
-            text: body,
-            ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
-            delivery: "steer",
-          })
-        } catch (cause) {
-          pendingPrompts.remove(id)
-          throw cause
+        pendingPrompts.add({
+          id,
+          sessionID: sessionID(),
+          directory: props.session.location?.directory,
+          text,
+          files,
+          agent: props.session.agent,
+          ...(validModel() ? { model: validModel()! } : {}),
+          delivery: mode,
+        })
+        // A queued prompt waits in the harness until the session goes idle; see pending-prompts.ts.
+        if (mode !== "queue") {
+          try {
+            await current.session.send({
+              sessionID: sessionID(),
+              directory: props.session.location?.directory,
+              id,
+              text: body,
+              agent: props.session.agent,
+              ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
+              ...(validModel() ? { model: validModel()! } : {}),
+            })
+          } catch (cause) {
+            pendingPrompts.remove(id)
+            throw cause
+          }
         }
       }
       batch(() => {
@@ -322,21 +345,26 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
   }
 
-  const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
+  const directory = () => props.session.location?.directory
+  const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     void client()
-      .session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
+      .blocked.answerPermission({ requestID: request.id, directory: directory(), reply, message })
+      .catch(() =>
+        client().session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message }),
+      )
       .then(() => refetchPermissions())
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     void client()
-      .session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
+      .blocked.answerQuestion({ requestID: request.id, directory: directory(), answers })
+      .catch(() => client().session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers }))
       .then(() => refetchQuestions())
   const rejectQuestion = (request: QuestionV2Request) =>
     void client()
-      .session.question.reject({ sessionID: request.sessionID, requestID: request.id })
+      .blocked.rejectQuestion({ requestID: request.id, directory: directory() })
+      .catch(() => client().session.question.reject({ sessionID: request.sessionID, requestID: request.id }))
       .then(() => refetchQuestions())
 
-  const project = () =>
-    props.chat ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1)
+  const project = () => (props.chat ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1))
 
   return (
     <section
@@ -351,11 +379,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       }}
     >
       <header class="fc-pane-header">
-        <span
-          class="fc-session-dot"
-          classList={{ "fc-session-dot-running": generating() }}
-          aria-hidden="true"
-        />
+        <span class="fc-session-dot" classList={{ "fc-session-dot-running": generating() }} aria-hidden="true" />
         <span class="fc-pane-title" title={props.session.title}>
           {props.session.title || t("New session")}
         </span>
@@ -382,9 +406,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         usage={liveUsage()}
         startedAt={startedAt()}
         modelName={props.modelName}
-        liveText={liveText()}
-        liveReasoning={liveReasoning()}
         showTools={props.showTools}
+        showReasoning={props.showReasoning}
         chat={props.chat}
         pending={pending()}
         onEditUser={editUser}
@@ -404,7 +427,12 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         </Show>
         <For each={permissionData}>
           {(request) => (
-            <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
+            <PermissionDock
+              request={request}
+              messages={list()}
+              busy={busy()}
+              onReply={(reply, message) => replyPermission(request, reply, message)}
+            />
           )}
         </For>
         <For each={questionData}>
@@ -441,6 +469,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         agents={props.agents}
         agent={props.agent}
         permissionMode={props.permissionModeId}
+        delivery={props.delivery}
+        onDeliveryChange={props.onDeliveryChange}
         history={props.history}
         onInput={setDraft}
         onSend={() => void send()}

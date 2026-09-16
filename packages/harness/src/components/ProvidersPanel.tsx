@@ -15,6 +15,8 @@ type ProvidersPanelProps = {
   auth: Record<string, ProviderAuthMethod[]>
   connected: string[]
   integrations: IntegrationInfo[]
+  /** Providers whose configured key is not a usable credential yet; ids only, never the key. */
+  unlinked: string[]
   busy: boolean
   onSave: (providerID: string, key: string) => void
   onRemove: (providerID: string) => void
@@ -22,6 +24,7 @@ type ProvidersPanelProps = {
   onOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
   onOAuthCancel: (attemptID: string) => Promise<void>
   onOAuthDone: () => void
+  onLinkConfigured: () => void
   onClose: () => void
 }
 
@@ -35,8 +38,7 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
 
   const setDraft = (id: string, value: string) => setDrafts((current) => ({ ...current, [id]: value }))
 
-  const integrationFor = (providerID: string) =>
-    props.integrations.find((integration) => integration.id === providerID)
+  const integrationFor = (providerID: string) => props.integrations.find((integration) => integration.id === providerID)
   const oauthMethods = (providerID: string) =>
     (integrationFor(providerID)?.methods ?? []).filter(
       (method): method is IntegrationOAuthMethod => method.type === "oauth",
@@ -117,167 +119,196 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
   return (
     <>
       <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-modal fc-modal-xl" role="dialog" aria-modal="true" aria-label={t("Providers & API keys")} onClick={(event) => event.stopPropagation()}>
-          <div class="fc-modal-header">
-            <span>{t("Providers & API keys")}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
-          <p class="fc-modal-line">{t("Add an API key for a provider. It is stored by the OpenCode server.")}</p>
-          <input
-            class="fc-filter-input"
-            placeholder={t("Search providers")}
-            aria-label={t("Search providers")}
-            value={query()}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-          />
-          <Show
-            when={list().length > 0}
-            fallback={
-              <div class="fc-empty-state">
-                <span class="fc-empty-title">{t("No providers")}</span>
-              </div>
-            }
-          >
-            <ul class="fc-provider-list">
-              <For each={list()}>
-                {(provider) => {
-                  const configured = () => isConnected(provider.id)
-                  const models = () => Object.keys(provider.models ?? {}).length
-                  const methods = () => props.auth[provider.id] ?? []
-                  const oauth = () => oauthMethods(provider.id)
-                  return (
-                    <li class="fc-provider-row">
-                      <div class="fc-provider-info">
-                        <span class="fc-provider-name">{provider.name}</span>
-                        <span class="fc-provider-id">
-                          {provider.id}
-                          <Show when={models() > 0}> · {t("{count} models", { count: models() })}</Show>
-                        </span>
-                      </div>
-                      <span class="fc-chip" classList={{ "fc-chip-active": configured() }}>
-                        {configured() ? t("Configured") : t("Not configured")}
-                      </span>
-                      <Show when={methods().some((method) => method.type === "oauth") && oauth().length === 0}>
-                        <span class="fc-chip">{t("OAuth available")}</span>
-                      </Show>
-                      <Show when={oauth().length > 0}>
-                        <button
-                          class="fc-button"
-                          type="button"
-                          disabled={props.busy || connectedInV2(provider.id) || attemptProvider() === provider.id}
-                          onClick={() => {
-                            const method = oauth()[0]
-                            if (method) void startOAuth(provider.id, method.id)
-                          }}
-                        >
-                          <Show
-                            when={attemptProvider() === provider.id && !attempt()}
-                            fallback={
-                              <Show when={connectedInV2(provider.id)} fallback={t("Sign in")}>
-                                {t("Signed in")}
-                              </Show>
-                            }
-                          >
-                            <span class="fc-spinner">◐</span> {t("Signing in…")}
-                          </Show>
-                        </button>
-                      </Show>
-                      <input
-                        class="fc-question-custom"
-                        type="password"
-                        placeholder={provider.env.length > 0 ? provider.env.join(" / ") : t("API key")}
-                        value={drafts()[provider.id] ?? ""}
-                        onInput={(event) => setDraft(provider.id, event.currentTarget.value)}
-                      />
-                      <button
-                        class="fc-button fc-button-primary"
-                        type="button"
-                        disabled={props.busy || !(drafts()[provider.id] ?? "").trim()}
-                        onClick={() => {
-                          props.onSave(provider.id, (drafts()[provider.id] ?? "").trim())
-                          setDraft(provider.id, "")
-                        }}
-                      >
-                        {t("Save")}
-                      </button>
-                      <Show when={configured()}>
-                        <button
-                          class="fc-button fc-button-danger"
-                          type="button"
-                          disabled={props.busy}
-                          onClick={() => props.onRemove(provider.id)}
-                        >
-                          {t("Remove")}
-                        </button>
-                      </Show>
-                    </li>
-                  )
-                }}
-              </For>
-            </ul>
-          </Show>
-        </div>
-      </div>
-    </Show>
-    <Show when={attempt()}>
-      {(current) => (
-        <div class="fc-modal-backdrop" onClick={closeOAuth}>
+        <div class="fc-modal-backdrop" onClick={props.onClose}>
           <div
-            class="fc-modal"
+            class="fc-modal fc-modal-xl"
             role="dialog"
             aria-modal="true"
-            aria-label={t("Sign in to {name}", { name: providerName(attemptProvider()) })}
+            aria-label={t("Providers & API keys")}
             onClick={(event) => event.stopPropagation()}
           >
             <div class="fc-modal-header">
-              <span>{t("Sign in to {name}", { name: providerName(attemptProvider()) })}</span>
-              <button class="fc-icon-button" type="button" aria-label={t("Cancel")} onClick={closeOAuth}>
+              <span>{t("Providers & API keys")}</span>
+              <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
                 ×
               </button>
             </div>
-            <p class="fc-modal-line">{current().instructions}</p>
-            <p class="fc-modal-line">
-              <a class="fc-link" href={current().url} target="_blank" rel="noreferrer">
-                {current().url}
-              </a>
-            </p>
-            <Show when={attemptError()}>
-              <p class="fc-modal-error">{attemptError()}</p>
+            <p class="fc-modal-line">{t("Add an API key for a provider. It is stored by the OpenCode server.")}</p>
+            <Show when={props.unlinked.length > 0}>
+              <div class="fc-provider-notice">
+                <span>
+                  {t("{count} providers have a key in the engine's configuration that sessions cannot use yet", {
+                    count: props.unlinked.length,
+                  })}
+                </span>
+                <button class="fc-button" type="button" disabled={props.busy} onClick={props.onLinkConfigured}>
+                  {t("Connect them")}
+                </button>
+              </div>
             </Show>
+            <input
+              class="fc-filter-input"
+              placeholder={t("Search providers")}
+              aria-label={t("Search providers")}
+              value={query()}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+            />
+            <Show
+              when={list().length > 0}
+              fallback={
+                <div class="fc-empty-state">
+                  <span class="fc-empty-title">{t("No providers")}</span>
+                </div>
+              }
+            >
+              <ul class="fc-provider-list">
+                <For each={list()}>
+                  {(provider) => {
+                    const configured = () => isConnected(provider.id)
+                    const models = () => Object.keys(provider.models ?? {}).length
+                    const methods = () => props.auth[provider.id] ?? []
+                    const oauth = () => oauthMethods(provider.id)
+                    return (
+                      <li class="fc-provider-row">
+                        <div class="fc-provider-info">
+                          <span class="fc-provider-name">{provider.name}</span>
+                          <span class="fc-provider-id">
+                            {provider.id}
+                            <Show when={models() > 0}> · {t("{count} models", { count: models() })}</Show>
+                          </span>
+                        </div>
+                        <span class="fc-chip" classList={{ "fc-chip-active": configured() }}>
+                          {configured() ? t("Configured") : t("Not configured")}
+                        </span>
+                        <Show when={methods().some((method) => method.type === "oauth") && oauth().length === 0}>
+                          <span class="fc-chip">{t("OAuth available")}</span>
+                        </Show>
+                        <Show when={oauth().length > 0}>
+                          <button
+                            class="fc-button"
+                            type="button"
+                            disabled={props.busy || connectedInV2(provider.id) || attemptProvider() === provider.id}
+                            onClick={() => {
+                              const method = oauth()[0]
+                              if (method) void startOAuth(provider.id, method.id)
+                            }}
+                          >
+                            <Show
+                              when={attemptProvider() === provider.id && !attempt()}
+                              fallback={
+                                <Show when={connectedInV2(provider.id)} fallback={t("Sign in")}>
+                                  {t("Signed in")}
+                                </Show>
+                              }
+                            >
+                              <span class="fc-spinner">◐</span> {t("Signing in…")}
+                            </Show>
+                          </button>
+                        </Show>
+                        <input
+                          class="fc-question-custom"
+                          type="password"
+                          placeholder={provider.env.length > 0 ? provider.env.join(" / ") : t("API key")}
+                          value={drafts()[provider.id] ?? ""}
+                          onInput={(event) => setDraft(provider.id, event.currentTarget.value)}
+                        />
+                        <button
+                          class="fc-button fc-button-primary"
+                          type="button"
+                          disabled={props.busy || !(drafts()[provider.id] ?? "").trim()}
+                          onClick={() => {
+                            props.onSave(provider.id, (drafts()[provider.id] ?? "").trim())
+                            setDraft(provider.id, "")
+                          }}
+                        >
+                          {t("Save")}
+                        </button>
+                        <Show when={configured()}>
+                          <button
+                            class="fc-button fc-button-danger"
+                            type="button"
+                            disabled={props.busy}
+                            onClick={() => props.onRemove(provider.id)}
+                          >
+                            {t("Remove")}
+                          </button>
+                        </Show>
+                      </li>
+                    )
+                  }}
+                </For>
+              </ul>
+            </Show>
+          </div>
+        </div>
+      </Show>
+      <Show when={attempt()}>
+        {(current) => (
+          <div class="fc-modal-backdrop" onClick={closeOAuth}>
+            <div
+              class="fc-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("Sign in to {name}", { name: providerName(attemptProvider()) })}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div class="fc-modal-header">
+                <span>{t("Sign in to {name}", { name: providerName(attemptProvider()) })}</span>
+                <button class="fc-icon-button" type="button" aria-label={t("Cancel")} onClick={closeOAuth}>
+                  ×
+                </button>
+              </div>
+              <p class="fc-modal-line">{current().instructions}</p>
+              <p class="fc-modal-line">
+                <a class="fc-link" href={current().url} target="_blank" rel="noreferrer">
+                  {current().url}
+                </a>
+              </p>
+              <Show when={attemptError()}>
+                <p class="fc-modal-error">{attemptError()}</p>
+              </Show>
+              <div class="fc-modal-actions">
+                <span class="fc-status-line">
+                  {attemptState()?.status === "pending" ? t("Waiting for authorization…") : ""}
+                </span>
+                <button class="fc-button" type="button" onClick={closeOAuth}>
+                  {t("Cancel")}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Show>
+      <Show when={attemptError() && !attempt()}>
+        <div class="fc-modal-backdrop" onClick={() => setAttemptError(undefined)}>
+          <div
+            class="fc-modal"
+            role="alertdialog"
+            aria-modal="true"
+            aria-label={t("Sign in failed")}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div class="fc-modal-header">
+              <span>{t("Sign in failed")}</span>
+              <button
+                class="fc-icon-button"
+                type="button"
+                aria-label={t("Close")}
+                onClick={() => setAttemptError(undefined)}
+              >
+                ×
+              </button>
+            </div>
+            <p class="fc-modal-error">{attemptError()}</p>
             <div class="fc-modal-actions">
-              <span class="fc-status-line">
-                {attemptState()?.status === "pending" ? t("Waiting for authorization…") : ""}
-              </span>
-              <button class="fc-button" type="button" onClick={closeOAuth}>
-                {t("Cancel")}
+              <span />
+              <button class="fc-button" type="button" onClick={() => setAttemptError(undefined)}>
+                {t("Close")}
               </button>
             </div>
           </div>
         </div>
-      )}
-    </Show>
-    <Show when={attemptError() && !attempt()}>
-      <div class="fc-modal-backdrop" onClick={() => setAttemptError(undefined)}>
-        <div class="fc-modal" role="alertdialog" aria-modal="true" aria-label={t("Sign in failed")} onClick={(event) => event.stopPropagation()}>
-          <div class="fc-modal-header">
-            <span>{t("Sign in failed")}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setAttemptError(undefined)}>
-              ×
-            </button>
-          </div>
-          <p class="fc-modal-error">{attemptError()}</p>
-          <div class="fc-modal-actions">
-            <span />
-            <button class="fc-button" type="button" onClick={() => setAttemptError(undefined)}>
-              {t("Close")}
-            </button>
-          </div>
-        </div>
-      </div>
-    </Show>
+      </Show>
     </>
   )
 }

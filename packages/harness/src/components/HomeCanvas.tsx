@@ -50,9 +50,7 @@ const ModelUsage: Component<{ metrics: UsageMetrics }> = (props) => {
         </div>
       </div>
       <div class="fc-chart-x">
-        <For each={props.metrics.weeks}>
-          {(week, index) => <span>{index() % 2 === 0 ? week.label : ""}</span>}
-        </For>
+        <For each={props.metrics.weeks}>{(week, index) => <span>{index() % 2 === 0 ? week.label : ""}</span>}</For>
       </div>
       <ul class="fc-model-legend">
         <For each={props.metrics.modelUsage}>
@@ -75,9 +73,7 @@ const ModelUsage: Component<{ metrics: UsageMetrics }> = (props) => {
 export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   const [tab, setTab] = createSignal<"summary" | "models">("summary")
   const greeting = () =>
-    props.displayName.trim()
-      ? t("What's next, {name}?", { name: props.displayName.trim() })
-      : t("What's next?")
+    props.displayName.trim() ? t("What's next, {name}?", { name: props.displayName.trim() }) : t("What's next?")
 
   const comparisonText = () => {
     const value = props.comparison

@@ -13,7 +13,13 @@ type StashDialogProps = {
 export const StashDialog: Component<StashDialogProps> = (props) => (
   <Show when={props.open}>
     <div class="fc-modal-backdrop" onClick={props.onClose}>
-      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Saved prompts")} onClick={(event) => event.stopPropagation()}>
+      <div
+        class="fc-modal fc-modal-wide"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t("Saved prompts")}
+        onClick={(event) => event.stopPropagation()}
+      >
         <div class="fc-modal-header">
           <span>{t("Saved prompts")}</span>
           <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>

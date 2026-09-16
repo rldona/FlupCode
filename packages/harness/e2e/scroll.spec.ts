@@ -56,19 +56,34 @@ test("loading earlier messages keeps the reader in place", async ({ page }) => {
       }
     })
 
+  // Resolves once the transcript's height has stopped changing.
+  const settled = async () => {
+    let previous = -1
+    for (let attempt = 0; attempt < 40; attempt++) {
+      await page.waitForTimeout(100)
+      const height = (await snapshot()).scrollHeight
+      if (height === previous) return
+      previous = height
+    }
+  }
+
   const button = page.getByRole("button", { name: "Load earlier messages" })
   await expect(button).toBeVisible()
 
   // Every earlier page lands above the reader without dragging the view to the start. The reader
   // walks up to the button at the top of the loaded window before each page.
   for (let page$ = 0; page$ < 3; page$++) {
-    await container.evaluate((element) => {
-      element.scrollTop = 0
-    })
+    // With the wheel, as a reader would: the transcript tells their scroll from its own corrections
+    // by their hands being on it, which a programmatic scrollTop cannot show.
+    await container.hover()
+    await page.mouse.wheel(0, -200_000)
     await page.waitForTimeout(200)
     const before = await snapshot()
     await button.click()
-    await page.waitForTimeout(300)
+    // Markdown is parsed and highlighted off the main thread, so the prepended page keeps growing
+    // after it is inserted: the anchor must hold until the layout stops moving, not just for a
+    // frame or two.
+    await settled()
     const after = await snapshot()
     expect(after.scrollHeight).toBeGreaterThan(before.scrollHeight)
     expect(after.id).toBe(before.id)
