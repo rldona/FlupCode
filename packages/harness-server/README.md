@@ -15,6 +15,10 @@ It owns:
   project's own, in `.flupcode/workflows/`, take precedence.
 - **Artifacts** (H-14). What runs leave behind — the verdict of each check, a report of each run —
   kept inline up to a ceiling, hashed, and published as they are written.
+- **Git** (H-20). Commit and branch, run as `git` with an argument vector rather than through a
+  shell. The client is a browser and the engine's `/vcs` routes only read, so this is the only part
+  of FlupCode that can write to a repository. What may be committed is what `git status` has just
+  listed as changed.
 - **Routines.** Prompts on a schedule, with a per-routine lock and lease renewal so one cannot run
   twice at once, plus recovery for runs a stopped server left behind.
 - **An event log.** Everything above is appended with a sequence number and served as SSE, so a
@@ -39,6 +43,9 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `DELETE /harness/runs` | forget every run that has finished |
 | `GET /harness/workflows` | what is available; `?directory=` includes the project's own |
 | `POST /harness/workflows/:name/runs` | start one; **400** names a missing input, **404** an unknown workflow |
+| `POST /harness/git/commit` | stage the named paths and commit them; **409** if one is no longer changed |
+| `POST /harness/git/branch` | start a branch here and move onto it; **409** if the name is taken |
+| `GET /harness/git/branch` | which branch `?directory=` is on |
 | `GET /harness/artifacts` | filtered by `directory`, `runID`, `kind` |
 | `POST /harness/artifacts` | keep one by hand |
 | `GET /harness/artifacts/:id`, `DELETE /harness/artifacts/:id` | read or forget one |

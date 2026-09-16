@@ -2484,6 +2484,38 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
+  // Git (H-20). Committing was a prompt: `"Commit the current changes with a clear message."` went
+  // to the model, which then ran the commands itself. A whole turn, paid for in tokens, to run two
+  // commands the server can run for nothing — and with no say in what went into the commit.
+  const [committing, setCommitting] = createSignal(false)
+  const commitPicked = (input: { message: string; paths: string[] }) => {
+    const directory = vcsDirectory()
+    if (!directory) return
+    setCommitting(true)
+    void createHarnessClient(harnessServerUrl())
+      .git.commit({ directory, ...input })
+      .then((made) => {
+        toast(t("Committed {sha}", { sha: made?.sha ?? "" }), "success")
+        void refetchChanges()
+        void refetchVcsStatus()
+        void refetchVcsInfo()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+      .finally(() => setCommitting(false))
+  }
+  const startBranch = (name: string) => {
+    const directory = vcsDirectory()
+    if (!directory) return
+    void createHarnessClient(harnessServerUrl())
+      .git.branch({ directory, name })
+      .then((made) => {
+        toast(t('Now on "{branch}"', { branch: made?.branch ?? name }), "success")
+        void refetchVcsInfo()
+        void refetchChanges()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   const stopAllRuns = () => {
     void createHarnessClient(harnessServerUrl())
       .runs.stopAll()
@@ -3181,10 +3213,14 @@ export const App: Component = () => {
     submitPrompt(text, files)
   }
 
-  const commitChanges = () => {
-    setPrompt(t("Commit the current changes with a clear message."))
-    send()
-  }
+  /**
+   * The repo bar's commit button.
+   *
+   * It used to write a prompt and send it, so pressing it cost a model turn to run `git add` and
+   * `git commit`. It now opens the diff, where the commit is made by the server — which is also the
+   * only place a reader can see what they are about to commit before they commit it.
+   */
+  const commitChanges = () => openChanges()
 
   /**
    * The top strip: the navigation, the session, and what the engine is doing.
@@ -3793,8 +3829,12 @@ export const App: Component = () => {
         loading={changes.loading}
         error={changesError()}
         mode={diffMode()}
+        canCommit={routinesServerAvailable()}
+        committing={committing()}
         onMode={setDiffMode}
         onRefresh={() => void refetchChanges()}
+        onCommit={commitPicked}
+        onBranch={startBranch}
         onClose={() => leaveScreen()}
       />
       <RoutinesPanel

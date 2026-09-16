@@ -13,7 +13,7 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
-import type { Artifact, ArtifactKind, Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
+import type { Artifact, ArtifactKind, GitCommit, Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
@@ -870,6 +870,22 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         ),
       run: (name: string, input: { inputs?: Record<string, string>; directory?: string }) =>
         harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+    },
+    /**
+     * Git (H-20), which only the harness server can run.
+     *
+     * The engine's `/vcs` routes read the working tree and never write to it, and a browser cannot
+     * run anything. Before this, committing meant asking a model to do it — a whole turn, paid for,
+     * to run two commands.
+     */
+    git: {
+      commit: (input: { directory: string; message: string; paths: string[] }) =>
+        harnessRequest<GitCommit>(baseUrl, "/harness/git/commit", { method: "POST", body: JSON.stringify(input) }),
+      branch: (input: { directory: string; name: string }) =>
+        harnessRequest<{ branch: string }>(baseUrl, "/harness/git/branch", {
           method: "POST",
           body: JSON.stringify(input),
         }),

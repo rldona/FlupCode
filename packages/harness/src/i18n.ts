@@ -723,6 +723,19 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Git (H-20)
+  "What this change does, and why": "Qué hace este cambio, y por qué",
+  "Commit message": "Mensaje del commit",
+  "All {n} files": "Los {n} archivos",
+  "{n} of {total}": "{n} de {total}",
+  "New branch": "Nueva rama",
+  "Branch name": "Nombre de la rama",
+  Create: "Crear",
+  "Committing…": "Haciendo commit…",
+  "Include {file}": "Incluir {file}",
+  "Committed {sha}": "Commit {sha} hecho",
+  'Now on "{branch}"': 'Ahora en "{branch}"',
+
   // Changes (H-06)
   Changes: "Cambios",
   "Working tree": "Copia de trabajo",

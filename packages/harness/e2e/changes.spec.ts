@@ -74,16 +74,38 @@ const long = [
   "",
 ].join("\n")
 
-type Seen = { modes: string[]; contexts: (string | null)[] }
+type Seen = { modes: string[]; contexts: (string | null)[]; commits: Array<{ message: string; paths: string[] }>; branches: string[] }
 
 async function openSession(page: Page, panels: string[] = [], options: { long?: boolean } = {}) {
-  const seen: Seen = { modes: [], contexts: [] }
+  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [] }
   await page.addInitScript((panels) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_diff"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
     if (panels.length > 0) window.localStorage.setItem("flupcode.workspacePanels", JSON.stringify(panels))
   }, panels)
+  // The harness server: the only part that can run git, so committing needs it up.
+  await page.route("http://127.0.0.1:9097/**", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    if (url.pathname === "/harness/git/commit") {
+      const body = route.request().postDataJSON() as { message: string; paths: string[] }
+      seen.commits.push({ message: body.message, paths: body.paths })
+      return route.fulfill({ json: { data: { sha: "abc1234", subject: body.message, branch: "feature" } } })
+    }
+    if (url.pathname === "/harness/git/branch") {
+      const body = route.request().postDataJSON() as { name: string }
+      seen.branches.push(body.name)
+      return route.fulfill({ json: { data: { branch: body.name } } })
+    }
+    return route.fulfill({ status: 404, json: {} })
+  })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
@@ -203,4 +225,70 @@ test("the side panel's list takes the scroll, so a long diff is reachable", asyn
   // And it really moves, both ways.
   await list.evaluate((node) => node.scrollTo({ top: 1000 }))
   expect(await list.evaluate((node) => node.scrollTop)).toBe(1000)
+})
+
+test("committing is the server running git, not a turn spent asking a model to", async ({ page }) => {
+  const seen = await openSession(page)
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  // Everything is picked to begin with; unticking is the deliberate act.
+  await expect(page.getByText(/All 2 files|Los 2 archivos/)).toBeVisible()
+  await page.locator(".fc-diff-file").filter({ hasText: "added.ts" }).locator(".fc-diff-pick input").uncheck()
+  await expect(page.getByText(/1 of 2|1 de 2/)).toBeVisible()
+
+  await page.getByRole("textbox", { name: /Commit message|Mensaje del commit/ }).fill("only the server")
+  await page.getByRole("button", { name: /^(Commit|Confirmar)$/ }).click()
+
+  await expect(page.locator(".fc-toast")).toContainText("abc1234")
+  expect(seen.commits).toEqual([{ message: "only the server", paths: ["src/server.ts"] }])
+  // The composer stayed empty: nothing was sent to the engine to make this happen.
+  await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
+})
+
+test("a commit needs a message and at least one file", async ({ page }) => {
+  await openSession(page)
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  const commit = page.getByRole("button", { name: /^(Commit|Confirmar)$/ })
+  await expect(commit).toBeDisabled()
+
+  await page.getByRole("textbox", { name: /Commit message|Mensaje del commit/ }).fill("a message")
+  await expect(commit).toBeEnabled()
+
+  for (const pick of await page.locator(".fc-diff-pick input").all()) await pick.uncheck()
+  await expect(commit).toBeDisabled()
+})
+
+test("a branch is started by name, and the uncommitted work comes with it", async ({ page }) => {
+  const seen = await openSession(page)
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  await page.getByRole("button", { name: /New branch|Nueva rama/ }).click()
+  await page.getByRole("textbox", { name: /Branch name|Nombre de la rama/ }).fill("feature/from-the-ui")
+  await page.getByRole("button", { name: /^(Create|Crear)$/ }).click()
+
+  expect(seen.branches).toEqual(["feature/from-the-ui"])
+  await expect(page.locator(".fc-toast")).toContainText("feature/from-the-ui")
+})
+
+test("the branch view has no commit box, because there is nothing there to commit", async ({ page }) => {
+  await openSession(page)
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+  await expect(page.locator(".fc-commit")).toBeVisible()
+
+  await page.getByRole("button", { name: /^(Branch|Rama)$/ }).click()
+
+  await expect(page.locator(".fc-commit")).toHaveCount(0)
+})
+
+test("the repo bar's commit button opens the diff instead of sending a prompt", async ({ page }) => {
+  await openSession(page)
+
+  // It used to write "Commit the current changes with a clear message." into the composer and send
+  // it: a model turn, charged for, to run two commands — and no sight of what was being committed.
+  await page.getByRole("button", { name: /Commit changes|Confirmar cambios/ }).click()
+
+  await expect(page).toHaveURL(/\/changes$/)
+  await expect(page.locator(".fc-commit")).toBeVisible()
+  await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
 })
