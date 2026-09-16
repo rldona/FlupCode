@@ -831,6 +831,8 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
       stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+      /** Let a run through the gate it stopped at. Refusing it is stopping it. */
+      approve: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
       /** Interrupt every run still going. */
       stopAll: () => harnessRequest<{ stopped: number }>(baseUrl, "/harness/runs/stop", { method: "POST" }),
       /** Forget every run that has finished. Running ones stay. */

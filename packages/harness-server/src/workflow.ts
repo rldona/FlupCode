@@ -23,6 +23,8 @@ export type WorkflowTask = {
   agent?: string
   /** On a verify task: how many times the work before it may be attempted again (H-22). */
   retries?: number
+  /** `human` holds the run here until somebody reads what it did and lets it through. */
+  gate?: "human"
 }
 
 export type Workflow = {
@@ -69,6 +71,7 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
     ...(prompt.trim() ? { prompt } : {}),
     ...(typeof task.agent === "string" && task.agent ? { agent: task.agent } : {}),
     ...(kind === "verify" && max !== undefined ? { retries: max } : {}),
+    ...(task.gate === "human" ? { gate: "human" as const } : {}),
   }
 }
 
@@ -91,6 +94,7 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>): Ta
     kind: task.kind ?? "agent",
     ...(task.agent ? { agent: task.agent } : {}),
     ...(task.retries !== undefined ? { retries: task.retries } : {}),
+    ...(task.gate ? { gate: task.gate } : {}),
   }))
 }
 
@@ -164,6 +168,7 @@ inputs: [goal]
 tasks:
   - id: plan
     agent: plan
+    gate: human
     prompt: |
       Create an implementation plan for: {{goal}}
 

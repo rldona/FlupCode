@@ -46,7 +46,8 @@ CREATE TABLE IF NOT EXISTS runs (
   status TEXT NOT NULL,
   started_at INTEGER NOT NULL,
   finished_at INTEGER,
-  error TEXT
+  error TEXT,
+  directory TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_source_started_at ON runs(source_type, source_id, started_at DESC);
 CREATE TABLE IF NOT EXISTS tasks (
@@ -59,6 +60,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   attempt INTEGER NOT NULL DEFAULT 1,
   retries INTEGER,
   retry_of TEXT,
+  gate TEXT,
   agent TEXT,
   model_json TEXT,
   session_id TEXT,
@@ -113,6 +115,7 @@ type RunRow = {
   id: string
   source_type: string
   source_id: string | null
+  directory: string | null
   session_id: string | null
   status: RunStatus
   started_at: number
@@ -130,6 +133,7 @@ type TaskRow = {
   attempt: number | null
   retries: number | null
   retry_of: string | null
+  gate: string | null
   agent: string | null
   model_json: string | null
   session_id: string | null
@@ -152,6 +156,7 @@ const decodeTask = (row: TaskRow): Task => ({
   attempt: row.attempt ?? 1,
   retries: row.retries ?? undefined,
   retryOf: row.retry_of ?? undefined,
+  gate: row.gate === "human" ? "human" : undefined,
   agent: row.agent ?? undefined,
   model: decodeModel(row.model_json),
   sessionID: row.session_id ?? undefined,
@@ -202,6 +207,7 @@ const decodeSource = (row: RunRow): RunSource =>
 const decodeRun = (row: RunRow): Run => ({
   id: row.id,
   source: decodeSource(row),
+  directory: row.directory ?? undefined,
   sessionID: row.session_id ?? undefined,
   status: row.status,
   startedAt: row.started_at,
@@ -230,6 +236,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("tasks", "attempt", "INTEGER NOT NULL DEFAULT 1")
     this.addColumn("tasks", "retries", "INTEGER")
     this.addColumn("tasks", "retry_of", "TEXT")
+    this.addColumn("tasks", "gate", "TEXT")
+    this.addColumn("runs", "directory", "TEXT")
   }
 
   private addColumn(table: string, column: string, definition: string) {
@@ -352,8 +360,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
   private insertRun(run: Run) {
     this.db
       .query(
-        `INSERT OR IGNORE INTO runs (id, source_type, source_id, session_id, status, started_at, finished_at, error)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        `INSERT OR IGNORE INTO runs
+           (id, source_type, source_id, session_id, status, started_at, finished_at, error, directory)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
       )
       .run(
         run.id,
@@ -364,11 +373,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
         run.startedAt,
         run.finishedAt ?? null,
         run.error ?? null,
+        run.directory ?? null,
       )
   }
 
-  startRun(source: RunSource, now: number) {
-    const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now }
+  startRun(source: RunSource, now: number, directory?: string) {
+    const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory }
     this.db.transaction(() => {
       this.insertRun(run)
       if (source.type === "routine") this.markRun(source.routineID, now)
@@ -392,7 +402,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
   }
 
   listRunning() {
-    const rows = this.db.query("SELECT * FROM runs WHERE status = 'running' ORDER BY started_at DESC").all() as RunRow[]
+    const rows = this.db
+      .query("SELECT * FROM runs WHERE status IN ('running', 'awaiting') ORDER BY started_at DESC")
+      .all() as RunRow[]
     return rows.map(decodeRun)
   }
 
@@ -419,13 +431,29 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return removed
   }
 
+  awaitRun(runID: string) {
+    this.db.query("UPDATE runs SET status = 'awaiting' WHERE id = ?1 AND status = 'running'").run(runID)
+    const run = this.getRun(runID)
+    if (run) this.append({ type: "run.changed", run })
+  }
+
+  resumeRun(runID: string) {
+    const changed =
+      this.db.query("UPDATE runs SET status = 'running' WHERE id = ?1 AND status = 'awaiting'").run(runID).changes > 0
+    if (!changed) return false
+    const run = this.getRun(runID)
+    if (run) this.append({ type: "run.changed", run })
+    return true
+  }
+
   removeFinishedRuns() {
     const removed = this.db.transaction(() => {
-      const rows = this.db.query("SELECT id FROM runs WHERE status != 'running'").all() as Array<{ id: string }>
+      const going = "status IN ('running', 'awaiting')"
+      const rows = this.db.query(`SELECT id FROM runs WHERE NOT ${going}`).all() as Array<{ id: string }>
       const ids = rows.map((row) => row.id)
       if (ids.length === 0) return ids
-      this.db.query("DELETE FROM tasks WHERE run_id IN (SELECT id FROM runs WHERE status != 'running')").run()
-      this.db.query("DELETE FROM runs WHERE status != 'running'").run()
+      this.db.query(`DELETE FROM tasks WHERE run_id IN (SELECT id FROM runs WHERE NOT ${going})`).run()
+      this.db.query(`DELETE FROM runs WHERE NOT ${going}`).run()
       return ids
     })()
     // One event per run, the same one a single delete sends: a reader that already handles it needs
@@ -439,7 +467,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       .query(
         `UPDATE runs
          SET status = 'failed', finished_at = ?1, error = 'Harness server restarted while the run was active'
-         WHERE status = 'running'`,
+         WHERE status IN ('running', 'awaiting')`,
       )
       .run(now)
     this.db.query("DELETE FROM locks").run()
@@ -463,8 +491,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, agent, model_json, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'queued')`,
+               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, gate, agent, model_json, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'queued')`,
           )
           .run(
             task.id,
@@ -476,6 +504,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.attempt,
             task.retries ?? null,
             task.retryOf ?? null,
+            task.gate ?? null,
             task.agent ?? null,
             task.model ? JSON.stringify(task.model) : null,
           )

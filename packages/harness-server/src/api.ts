@@ -169,6 +169,15 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       if (!run) return error("Run not found", 404)
       return json({ data: (await scheduler.stopRun(run.id)) ?? run })
     }
+    // Letting a run through the gate it stopped at (H-21). Refusing it is stopping it, which already
+    // has an endpoint — there is no third answer to "carry on?".
+    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "approve") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      if (run.status !== "awaiting") return error("This run is not waiting at a gate", 409)
+      const resumed = scheduler.approve(run.id)
+      return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
+    }
     if (path[1] === "runs" && request.method === "DELETE" && !path[2]) {
       // Clearing the list is clearing what is over. A run still going is not history yet.
       return json({ data: { removed: repository.removeFinishedRuns().length } })
@@ -177,8 +186,9 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const run = repository.getRun(path[2])
       if (!run) return error("Run not found", 404)
       // A running run is still being written to, and its lock still held: stop it first, then it
-      // can go. Deleting it underneath the runner would leave tasks pointing at nothing.
-      if (run.status === "running") return error("Stop the run before deleting it", 409)
+      // can go. Deleting it underneath the runner would leave tasks pointing at nothing. One held
+      // at a gate is not finished either — it is waiting for an answer.
+      if (run.status === "running" || run.status === "awaiting") return error("Stop the run before deleting it", 409)
       return json({ data: repository.removeRun(run.id) })
     }
     // Workflows (H-21): the processes written down, and starting a run from one.

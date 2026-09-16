@@ -2417,6 +2417,12 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
+  const approveRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.approve(id)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   const clearRuns = () => {
     void createHarnessClient(harnessServerUrl())
       .runs.clear()
@@ -3658,6 +3664,7 @@ export const App: Component = () => {
         onRemove={removeRun}
         onClear={clearRuns}
         onStopAll={stopAllRuns}
+        onApprove={approveRun}
         onOpenSession={(id) => {
           leaveScreen()
           selectSession(id)
