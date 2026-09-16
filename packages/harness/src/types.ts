@@ -10,6 +10,15 @@ export type CommandOption = {
   disabled?: boolean
 }
 
+/** A process written down, as the app reads it. Mirrors `harness-server`'s own type (H-21). */
+export type Workflow = {
+  name: string
+  description: string
+  /** The names it asks for. The launcher fills the first one with whatever was typed after it. */
+  inputs: string[]
+  tasks: Array<{ id: string; kind?: TaskKind; agent?: string; gate?: "human" }>
+}
+
 export type McpConfig = { type: "local"; command: string[] } | { type: "remote"; url: string }
 
 export type StashedPrompt = {

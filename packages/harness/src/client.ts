@@ -13,7 +13,7 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
-import type { Routine, RoutineInput, RoutineRun, Run, Task } from "./types"
+import type { Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
@@ -839,6 +839,19 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       clear: () => harnessRequest<{ removed: number }>(baseUrl, "/harness/runs", { method: "DELETE" }),
       /** Forget a run and its tasks. The server refuses while it is still going. */
       remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    workflows: {
+      /** What this project can run. A project's own win over the ones shared across projects. */
+      list: (directory?: string) =>
+        harnessRequest<Workflow[]>(
+          baseUrl,
+          directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
+        ),
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string }) =>
+        harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
     },
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),

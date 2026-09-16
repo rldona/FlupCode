@@ -350,3 +350,66 @@ test("a run waiting at a gate offers Approve, and is not cleared away", async ({
   await card.getByRole("button", { name: /Approve|Aprobar/ }).click()
   await expect.poll(() => approved).toBe("run_g")
 })
+
+// H-21's launcher: a workflow is a command. Typing it in the composer starts a run with what came
+// after the name, and drops you where you can watch it.
+test("a workflow is listed with the commands and launched from the composer", async ({ page }) => {
+  let started: { name?: string; body?: unknown } = {}
+  const workflow = {
+    name: "feature",
+    description: "Plan a feature, build it, and check it still works",
+    inputs: ["goal"],
+    tasks: [{ id: "plan", agent: "plan", gate: "human" }, { id: "verify", kind: "verify" }],
+  }
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [workflow] } })
+    if (/^\/harness\/workflows\/[^/]+\/runs$/.test(url.pathname)) {
+      started = { name: url.pathname.split("/")[3], body: route.request().postDataJSON() }
+      return route.fulfill({ json: { data: { id: "run_w", source: { type: "manual" }, status: "running", startedAt: now } } })
+    }
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  const input = page.locator(".fc-composer textarea.fc-input")
+  await input.fill("/feature")
+  // It is in the same list as everything else — that is what "unified launcher" means.
+  const menu = page.locator(".fc-command-menu")
+  await expect(menu).toBeVisible()
+  await expect(menu).toContainText("/feature")
+  await expect(menu).toContainText("Plan a feature")
+
+  await input.fill("/feature add search to the sidebar")
+  await input.press("Enter")
+
+  await expect.poll(() => started.name).toBe("feature")
+  // Everything after the name fills its first input.
+  expect(started.body).toMatchObject({ inputs: { goal: "add search to the sidebar" } })
+  // And it leaves you where the run can be watched.
+  await expect(page).toHaveURL(/\/runs$/)
+})
