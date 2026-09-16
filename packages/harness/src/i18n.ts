@@ -722,6 +722,22 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Checkpoints (H-15)
+  Checkpoints: "Puntos de retorno",
+  "A way back to how this folder looked.": "Una forma de volver a como estaba esta carpeta.",
+  "Take one now": "Guardar uno ahora",
+  "Nothing recorded here yet.": "Todavía no hay nada guardado aquí.",
+  "Forget this checkpoint": "Olvidar este punto",
+  "Working out what would change…": "Calculando qué cambiaría…",
+  "This folder already looks like that.": "La carpeta ya está así.",
+  "Deleted ({n})": "Se borran ({n})",
+  "Rewritten ({n})": "Se reescriben ({n})",
+  "and {n} more": "y {n} más",
+  "A checkpoint of how things are now is recorded first, so this can be undone.":
+    "Antes se guarda un punto con el estado actual, así que esto se puede deshacer.",
+  "Restored: {written} rewritten, {removed} deleted": "Restaurado: {written} reescritos, {removed} borrados",
+  "Could not work out what would change": "No se pudo calcular qué cambiaría",
+
   // Why CI failed
   Why: "Por qué",
   "On GitHub": "En GitHub",

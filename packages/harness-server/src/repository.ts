@@ -18,6 +18,7 @@ import type {
   RunStatus,
   ServerEvent,
   StoredEvent,
+  Checkpoint,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -98,6 +99,16 @@ CREATE TABLE IF NOT EXISTS artifacts (
 );
 CREATE INDEX IF NOT EXISTS artifacts_created_at ON artifacts(created_at DESC);
 CREATE INDEX IF NOT EXISTS artifacts_run ON artifacts(run_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS checkpoints (
+  id TEXT PRIMARY KEY,
+  directory TEXT NOT NULL,
+  sha TEXT NOT NULL,
+  title TEXT NOT NULL,
+  run_id TEXT,
+  task_id TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS checkpoints_directory ON checkpoints(directory, created_at DESC);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -209,6 +220,16 @@ type ArtifactRow = {
   truncated: number | null
   hash: string | null
   producer: string
+  created_at: number
+}
+
+type CheckpointRow = {
+  id: string
+  directory: string
+  sha: string
+  title: string
+  run_id: string | null
+  task_id: string | null
   created_at: number
 }
 
@@ -580,6 +601,68 @@ export class SqliteRoutineRepository implements RoutineRepository {
   getArtifact(id: string) {
     const row = this.db.query("SELECT * FROM artifacts WHERE id = ?1").get(id) as ArtifactRow | null
     return row ? decodeArtifact(row) : undefined
+  }
+
+  /**
+   * Checkpoints (H-15). The commit lives in the reader's own repository; this is the index of them,
+   * which is what lets the app list them without walking git's refs on every render.
+   */
+  addCheckpoint(checkpoint: Checkpoint) {
+    this.db
+      .query(
+        `INSERT INTO checkpoints (id, directory, sha, title, run_id, task_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+      )
+      .run(
+        checkpoint.id,
+        checkpoint.directory,
+        checkpoint.sha,
+        checkpoint.title,
+        checkpoint.runID ?? null,
+        checkpoint.taskID ?? null,
+        checkpoint.createdAt,
+      )
+    this.append({ type: "checkpoint.added", checkpoint })
+    return checkpoint
+  }
+
+  listCheckpoints(filter: { directory?: string; runID?: string } = {}, limit = 50): Checkpoint[] {
+    const where: string[] = []
+    const values: unknown[] = []
+    if (filter.directory) {
+      values.push(filter.directory)
+      where.push(`directory = ?${values.length}`)
+    }
+    if (filter.runID) {
+      values.push(filter.runID)
+      where.push(`run_id = ?${values.length}`)
+    }
+    values.push(limit)
+    const rows = this.db
+      .query(
+        `SELECT * FROM checkpoints ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY created_at DESC LIMIT ?${values.length}`,
+      )
+      .all(...(values as never[])) as CheckpointRow[]
+    return rows.map((row) => ({
+      id: row.id,
+      directory: row.directory,
+      sha: row.sha,
+      title: row.title,
+      ...(row.run_id ? { runID: row.run_id } : {}),
+      ...(row.task_id ? { taskID: row.task_id } : {}),
+      createdAt: row.created_at,
+    }))
+  }
+
+  getCheckpoint(id: string) {
+    return this.listCheckpoints().find((checkpoint) => checkpoint.id === id)
+  }
+
+  removeCheckpoint(id: string) {
+    const removed = this.db.query("DELETE FROM checkpoints WHERE id = ?1").run(id).changes > 0
+    if (removed) this.append({ type: "checkpoint.removed", checkpointID: id })
+    return removed
   }
 
   removeArtifact(id: string) {

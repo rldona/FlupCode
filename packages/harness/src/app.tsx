@@ -726,6 +726,63 @@ export const App: Component = () => {
     showScreen("changes")
     void refetchChanges()
   }
+  // Checkpoints (H-15). Listed only while the screen is open, and re-read whenever one is taken or
+  // a restore lands, because a restore records one of its own.
+  const [checkpointTick, setCheckpointTick] = createSignal(0)
+  const [checkpointBusy, setCheckpointBusy] = createSignal(false)
+  const checkpointKey = () => {
+    const directory = vcsDirectory()
+    if (!changesOpen() || !directory || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${directory}\n${checkpointTick()}`
+  }
+  const [checkpoints] = createResource(checkpointKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).checkpoints.list(directory)
+  })
+  const checkpointPlan = (id: string) =>
+    createHarnessClient(harnessServerUrl())
+      .checkpoints.plan(id)
+      .then((plan) => {
+        if (!plan) throw new Error(t("Could not work out what would change"))
+        return plan
+      })
+  const restoreCheckpoint = (id: string) => {
+    setCheckpointBusy(true)
+    void createHarnessClient(harnessServerUrl())
+      .checkpoints.restore(id)
+      .then((done) => {
+        const plan = done?.plan
+        toast(
+          t("Restored: {written} rewritten, {removed} deleted", {
+            written: plan?.write.length ?? 0,
+            removed: plan?.remove.length ?? 0,
+          }),
+          "success",
+        )
+        setCheckpointTick((tick) => tick + 1)
+        void refetchChanges()
+        void refetchVcsStatus()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+      .finally(() => setCheckpointBusy(false))
+  }
+  const takeCheckpoint = (title: string) => {
+    const directory = vcsDirectory()
+    if (!directory) return
+    setCheckpointBusy(true)
+    void createHarnessClient(harnessServerUrl())
+      .checkpoints.take({ directory, title })
+      .then(() => setCheckpointTick((tick) => tick + 1))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+      .finally(() => setCheckpointBusy(false))
+  }
+  const removeCheckpoint = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .checkpoints.remove(id)
+      .then(() => setCheckpointTick((tick) => tick + 1))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   const changesError = () => {
     const failure = changes.error as unknown
     if (!failure) return undefined
@@ -3913,6 +3970,12 @@ export const App: Component = () => {
         onRefresh={() => void refetchChanges()}
         onCommit={commitPicked}
         onBranch={startBranch}
+        checkpoints={checkpoints() ?? []}
+        checkpointBusy={checkpointBusy()}
+        onCheckpointPlan={checkpointPlan}
+        onCheckpointRestore={restoreCheckpoint}
+        onCheckpointTake={takeCheckpoint}
+        onCheckpointRemove={removeCheckpoint}
         onClose={() => leaveScreen()}
       />
       <RoutinesPanel
