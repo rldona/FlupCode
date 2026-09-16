@@ -145,7 +145,7 @@ export function LimitsGraph(props: { href: string }) {
                   <Show
                     when={!model.unlimited}
                     fallback={
-                        <bdi aria-hidden="true" title={i18n.t("go.graph.unlimited")}>
+                      <bdi aria-hidden="true" title={i18n.t("go.graph.unlimited")}>
                         ∞
                       </bdi>
                     }
