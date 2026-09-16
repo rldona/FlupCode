@@ -24,6 +24,8 @@ type SessionActionsProps = {
   onCompact: () => void
   onRename: () => void
   onExport: () => void
+  onShare: () => void
+  onUnshare: () => void
   onMove: (directory: string) => void
   onDelete: () => void
   onUndo: () => void
@@ -42,6 +44,8 @@ export const SessionActions: Component<SessionActionsProps> = (props) => {
     ...(props.reverting ? [{ label: t("Confirm revert"), icon: "✓", onSelect: props.onCommitRevert }] : []),
     { label: t("Rename"), icon: "✎", onSelect: props.onRename },
     { label: t("Export MD"), icon: "↓", onSelect: props.onExport },
+    { label: t("Share"), icon: "↗", onSelect: props.onShare },
+    { label: t("Stop sharing"), icon: "⌀", onSelect: props.onUnshare },
     ...props.projects.map((project) => ({
       label: `${t("Move to…")} ${project.name}`,
       icon: "→",
@@ -62,7 +66,15 @@ export const SessionActions: Component<SessionActionsProps> = (props) => {
           setMenu({ x: Math.max(8, rect.right - 220), y: rect.bottom + 4, items: items() })
         }}
       >
-        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" /></svg>
+        <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+          <path
+            d="M5 12h.01M12 12h.01M19 12h.01"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="3"
+            stroke-linecap="round"
+          />
+        </svg>
       </button>
       <Show when={menu()}>
         {(m) => <ContextMenu x={m().x} y={m().y} items={m().items} onClose={() => setMenu(undefined)} />}

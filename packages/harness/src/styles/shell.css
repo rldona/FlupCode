@@ -516,6 +516,11 @@ button.fc-status {
   color: var(--fc-success);
 }
 
+.fc-status-waiting {
+  background: color-mix(in srgb, var(--fc-warning) 18%, transparent);
+  color: var(--fc-warning);
+}
+
 .fc-status-off {
   background: color-mix(in srgb, var(--fc-danger) 16%, transparent);
   color: var(--fc-danger);
@@ -966,6 +971,42 @@ button.fc-status {
   animation: fc-toast-in var(--fc-motion-panel);
 }
 
+.fc-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fc-toast-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-toast-action {
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fc-toast-action:hover {
+  background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+}
+
+.fc-toast-close {
+  flex: none;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
 .fc-toast-success {
   border-left-color: var(--fc-success);
 }
@@ -992,9 +1033,9 @@ button.fc-status {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Centred on the window, not on the chat column: a dialog belongs to the app, and offsetting it
+     by the sidebar and the side panels left it sitting off to one side of the screen. */
   padding: var(--fc-space-4);
-  padding-left: calc(var(--fc-space-4) + var(--fc-content-left, 0px));
-  padding-right: calc(var(--fc-space-4) + var(--fc-content-right, 0px));
   background: rgb(0 0 0 / 0.5);
   backdrop-filter: blur(2px);
 }
@@ -1915,6 +1956,18 @@ button.fc-status {
 .fc-mode-item-desc {
   font-size: 12px;
   color: var(--fc-text-muted);
+}
+
+.fc-mode-item-danger .fc-mode-item-label {
+  color: var(--fc-danger);
+}
+
+.fc-mode-item-confirming {
+  background: color-mix(in srgb, var(--fc-danger) 16%, transparent);
+}
+
+.fc-mode-item-confirming .fc-mode-item-desc {
+  color: var(--fc-danger);
 }
 
 .fc-mode-check {
@@ -3602,6 +3655,21 @@ button.fc-status {
   font-weight: 500;
 }
 
+.fc-provider-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: var(--fc-radius-sm);
+  background: color-mix(in srgb, var(--fc-accent) 14%, transparent);
+  font-size: 12px;
+}
+
+.fc-provider-notice > span {
+  flex: 1;
+}
+
 .fc-provider-list {
   list-style: none;
   margin: 0;
@@ -3970,18 +4038,10 @@ button.fc-status {
   .fc-workspace-resizer {
     display: none;
   }
-
-  .fc-app {
-    --fc-content-right: 0px;
-  }
 }
 
 /* Mobile */
 @media (max-width: 768px) {
-  .fc-app {
-    --fc-content-left: 0px;
-  }
-
   .fc-sidebar {
     position: fixed;
     top: 0;
@@ -6053,6 +6113,11 @@ button.fc-status {
   border-color: var(--fc-text);
 }
 
+.fc-session-dot-blocked {
+  background: var(--fc-warning);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fc-warning) 26%, transparent);
+}
+
 .fc-session-dot-running {
   border-color: var(--fc-accent);
   background: var(--fc-accent);
@@ -6650,4 +6715,75 @@ button.fc-status {
 
 .fc-mobile-remote .fc-docks > * {
   max-width: none;
+}
+
+.fc-panel-error {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.fc-panel-error-title {
+  font-size: var(--fc-text-sm);
+  font-weight: 600;
+}
+
+.fc-panel-error-detail {
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--fc-text-muted);
+  overflow-wrap: anywhere;
+}
+
+.fc-permission-preview {
+  max-height: 220px;
+  margin: 0;
+  overflow: auto;
+}
+
+.fc-permission-path {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  color: var(--fc-text-muted);
+}
+
+.fc-permission-reason {
+  margin-top: 6px;
+}
+
+.fc-permission-scope {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--fc-text-muted);
+}
+
+.fc-saved-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-reasoning {
+  margin: 4px 0;
+}
+
+.fc-reasoning .fc-toolgroup-label {
+  color: var(--fc-text-muted);
+  font-style: italic;
+}
+
+.fc-reasoning-body {
+  margin: 4px 0 8px 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--fc-border);
+  color: var(--fc-text-muted);
 }

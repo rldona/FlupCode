@@ -38,7 +38,13 @@ export const McpManager: Component<McpManagerProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("MCP servers")} onClick={(event) => event.stopPropagation()}>
+        <div
+          class="fc-modal fc-modal-wide"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("MCP servers")}
+          onClick={(event) => event.stopPropagation()}
+        >
           <div class="fc-modal-header">
             <span class="fc-modal-heading">
               <Show when={props.onBack}>
@@ -72,7 +78,9 @@ export const McpManager: Component<McpManagerProps> = (props) => {
                       type="button"
                       disabled={props.busy}
                       onClick={() =>
-                        statusLabel(server) === "connected" ? props.onDisconnect(server.name) : props.onConnect(server.name)
+                        statusLabel(server) === "connected"
+                          ? props.onDisconnect(server.name)
+                          : props.onConnect(server.name)
                       }
                     >
                       {statusLabel(server) === "connected" ? t("Disconnect") : t("Connect")}

@@ -1,6 +1,14 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelInfo, SessionInfo, SessionMessageInfo } from "./engine-types"
-import { computeMetrics, contextFigures, filterByRange, formatTokens, activityByDay, sessionCost, stepCost } from "./metrics"
+import {
+  computeMetrics,
+  contextFigures,
+  filterByRange,
+  formatTokens,
+  activityByDay,
+  sessionCost,
+  stepCost,
+} from "./metrics"
 
 const DAY = 86_400_000
 
@@ -20,11 +28,7 @@ function session(created: number, tokens = 0, model?: string): SessionInfo {
 describe("computeMetrics", () => {
   test("sums tokens and counts sessions", () => {
     const now = Date.now()
-    const metrics = computeMetrics([
-      session(now, 100),
-      session(now, 200, "model-a"),
-      session(now, 300, "model-a"),
-    ])
+    const metrics = computeMetrics([session(now, 100), session(now, 200, "model-a"), session(now, 300, "model-a")])
     expect(metrics.sessions).toBe(3)
     expect(metrics.tokens).toBe(600)
     expect(metrics.activeDays).toBe(1)

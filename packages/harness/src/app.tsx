@@ -5,7 +5,6 @@ import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
 import type {
   PermissionV2Request,
-  ProviderDirectoryInfo,
   QuestionV2Request,
   SessionMessageAssistant,
   SessionMessageInfo,
@@ -34,7 +33,17 @@ import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } fr
 import { hasModel, replacementModel } from "./model-catalog"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
-import { pendingPrompts } from "./pending-prompts"
+import { sessionTitle } from "./session-title"
+import {
+  applyDelta,
+  applyMessage,
+  applyPart,
+  removeMessage,
+  removePart,
+  type LegacyInfo,
+  type LegacyPart,
+} from "./transcript"
+import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
@@ -42,7 +51,7 @@ import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, Stashe
 import { UNAVAILABLE_FEATURES } from "./features"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
-import { toast } from "./toast"
+import { Toaster, clearToast, toast } from "./toast"
 import { SIDEBAR_WIDTH_DEFAULT, Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
@@ -78,6 +87,7 @@ import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { MobileComposer } from "./components/MobileComposer"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
 import { SessionPane } from "./components/SessionPane"
+import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
@@ -124,8 +134,6 @@ export const App: Component = () => {
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
   const [streamedChars, setStreamedChars] = createSignal(0)
-  const [liveText, setLiveText] = createSignal("")
-  const [liveReasoning, setLiveReasoning] = createSignal("")
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, false))
@@ -139,11 +147,31 @@ export const App: Component = () => {
   // Run state from the event stream; it takes precedence over the last activity snapshot.
   const [runState, setRunState] = createSignal<Record<string, boolean>>({})
   const [activityTick, setActivityTick] = createSignal(0)
+  // Whether the engine's event streams are carrying this session's run right now. The health check
+  // is a separate question: it can answer while a stream is a dead socket nobody noticed. There is
+  // one state per stream — the global one and one per folder being followed — because a folder
+  // stream that died takes the transcript with it while the global one goes on looking healthy.
+  type StreamState = "connecting" | "live" | "reconnecting"
+  const [streamStates, setStreamStates] = createSignal<Record<string, StreamState>>({})
+  const setStreamState = (source: string, state: StreamState) =>
+    setStreamStates((current) => (current[source] === state ? current : { ...current, [source]: state }))
+  const forgetStreamState = (source: string) => setStreamStates(({ [source]: _dropped, ...rest }) => rest)
+  /** The worst state of them all: the reader is told the app is behind if any stream is. */
+  const streamState = (): StreamState => {
+    const states = Object.values(streamStates())
+    if (states.includes("reconnecting")) return "reconnecting"
+    if (states.length === 0 || states.includes("connecting")) return "connecting"
+    return "live"
+  }
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const setRunning = (sessionID: string, running: boolean) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
+    const wasRunning = runState()[sessionID] === true
     setRunState((state) => (state[sessionID] === running ? state : { ...state, [sessionID]: running }))
+    // The moment a session stops working is the only safe one to hand it a prompt that was waiting:
+    // anything sent earlier is swallowed by the turn still running. See pending-prompts.ts.
+    if (wasRunning && !running) pendingPrompts.release(sessionID, expandPastes, serverUrl())
   }
   // A new message starts a new run: until its first event arrives, the transcript decides.
   const forgetRun = (sessionID: string) => {
@@ -189,6 +217,13 @@ export const App: Component = () => {
   const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, SIDEBAR_WIDTH_DEFAULT))
   const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "plan"))
   const [permissionModeId, setPermissionModeId] = createSignal(readStorage(STORAGE_KEYS.permissionMode, "auto"))
+  // Steering is the engine's own default, so a prompt sent mid-turn redirects the work in flight
+  // unless the reader says to wait; see DeliveryMenu.
+  const [delivery, setDelivery] = createSignal<Delivery>(readStorage<Delivery>(STORAGE_KEYS.delivery, "steer"))
+  const changeDelivery = (value: Delivery) => {
+    setDelivery(value)
+    writeStorage(STORAGE_KEYS.delivery, value)
+  }
   const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
   const [workspaceWidth, setWorkspaceWidth] = createSignal(
     readStorage(STORAGE_KEYS.workspaceWidth, WORKSPACE_WIDTH_DEFAULT),
@@ -216,6 +251,13 @@ export const App: Component = () => {
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   const [showTools, setShowTools] = createSignal(true)
+  // The model's thinking stays out of the conversation unless it is asked for, as in Claude Code.
+  const [showReasoning, setShowReasoning] = createSignal(readStorage(STORAGE_KEYS.showReasoning, false))
+  const toggleReasoning = () => {
+    const next = !showReasoning()
+    setShowReasoning(next)
+    writeStorage(STORAGE_KEYS.showReasoning, next)
+  }
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
@@ -435,36 +477,22 @@ export const App: Component = () => {
     void refetchProviderDirectory()
     void refetchIntegrations()
   })
-  const [linkedProviders, setLinkedProviders] = createSignal<string[]>([])
-  createEffect(() => {
-    const url = ready() ? serverUrl() : undefined
-    const providers = providerDirectory()?.all ?? []
-    if (!url || providers.length === 0) return
-    const pending = providers.filter(
-      (provider): provider is ProviderDirectoryInfo & { key: string } =>
-        provider.source === "api" && !!provider.key && !linkedProviders().includes(`${url}::${provider.id}`),
-    )
-    if (pending.length === 0) return
-    setLinkedProviders((previous) => [...previous, ...pending.map((provider) => `${url}::${provider.id}`)])
-    const current = createClient(url)
-    void current.integration
-      .list()
-      .then((integrations) =>
-        Promise.all(
-          pending.map(async (provider) => {
-            const connected = integrations.data
-              .find((item) => item.id === provider.id)
-              ?.connections?.some((connection) => connection.type === "credential")
-            if (connected) return
-            await current.integration
-              .connectKey({ integrationID: provider.id, key: provider.key, label: provider.id })
-              .catch(() => undefined)
-          }),
-        ),
-      )
-      .then(() => void refetchModels())
-      .catch(() => undefined)
-  })
+  // Providers whose key lives in the engine's configuration but is not a v2 credential yet. Copying
+  // them used to happen on its own on every load, which sent every key through the page (and, while
+  // remote-controlling, to the phone). Now the providers panel offers it and the reader asks for it.
+  const [unlinkedProviders, { refetch: refetchUnlinkedProviders }] = createResource(
+    () => (ready() && providersOpen() ? serverUrl() : undefined),
+    async (url) => createClient(url).provider.unlinked(),
+  )
+  const linkConfiguredKeys = () =>
+    void run(async (current) => {
+      await current.provider.linkConfiguredKeys()
+      void refetchUnlinkedProviders()
+      void refetchProviderDirectory()
+      void refetchIntegrations()
+      void refetchModels()
+      return undefined
+    }, t("Keys from the engine's configuration are connected"))
 
   const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
   const vcsKey = () => {
@@ -490,20 +518,77 @@ export const App: Component = () => {
       { additions: 0, deletions: 0 },
     )
   }
-  const [permissions, { refetch: refetchPermissions }] = createResource(
-    () => {
-      const sessionID = selected()
-      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
+  // Blocked work is read from the runtime that raised it: every turn runs on the legacy runner, and
+  // the v2 registries answer empty for it, which is what left an agent waiting on a question no dock
+  // could show. Sessions that still hold a v2 request from before are merged in by id.
+  const blockedSource = () => {
+    const sessionID = selected()
+    if (!ready() || !sessionID) return undefined
+    return { url: serverUrl(), sessionID, directory: selectedSession()?.location?.directory }
+  }
+  const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.permissions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.permission.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
+  const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.questions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.question.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
+  // Every session's pending permissions, not just the open one's. An agent waiting on one is silent
+  // and looks idle, so without this the reader has no way to know another session is stuck.
+  const [blocked, { refetch: refetchBlocked }] = createResource(
+    () => (ready() ? { url: serverUrl(), folders: watchedDirectories() } : undefined),
+    async (source) => {
+      const engine = createClient(source.url)
+      // Both runtimes again, and the legacy registry is per folder: a question counts as blocked work
+      // just as much as a permission does, and both were invisible from anywhere but their session.
+      const perFolder = await Promise.all(
+        source.folders.map((directory) =>
+          Promise.all([
+            engine.blocked.permissions({ directory }).catch(() => []),
+            engine.blocked.questions({ directory }).catch(() => []),
+          ]),
+        ),
+      )
+      const v2 = await engine.permission.pending().then(
+        (result) => result.data ?? [],
+        () => [],
+      )
+      return { data: [...perFolder.flat(2), ...v2] }
     },
-    (source) => createClient(source.url).session.permission.list({ sessionID: source.sessionID }),
   )
-  const [questions, { refetch: refetchQuestions }] = createResource(
-    () => {
-      const sessionID = selected()
-      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
-    },
-    (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
+  const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
+  const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
+
+  // What "Allow always" wrote. The engine applies these to every session in the project, so they
+  // only become reviewable once something lists them.
+  const [savedPermissions, { refetch: refetchSavedPermissions }] = createResource(
+    () => (ready() && settingsOpen() ? serverUrl() : undefined),
+    async (url) => createClient(url).permission.saved.list(),
   )
+  const revokePermission = (id: string) =>
+    void run(async (current) => {
+      await current.permission.saved.remove({ id })
+      void refetchSavedPermissions()
+      return undefined
+    }, t("Permission revoked"))
+
   const [messages, { refetch: refetchMessages }] = createResource(
     () => {
       const sessionID = selected()
@@ -514,6 +599,25 @@ export const App: Component = () => {
       return { sessionID: source.sessionID, data: result.data, cursor: result.cursor }
     },
   )
+  // A refetch that fails keeps the last value, so the view stays usable but stops being the truth.
+  // Say so, with a way to try again, until one succeeds: before this, a transcript could sit there
+  // for as long as the engine was away without ever admitting it had stopped following the run.
+  const STALE_TOAST = "stale-transcript"
+  createEffect(() => {
+    const failure = messages.failure() ?? sessions.failure()
+    if (!failure) return clearToast(STALE_TOAST)
+    toast(t("FlupCode is not following the engine right now"), "error", {
+      key: STALE_TOAST,
+      action: {
+        label: t("Try again"),
+        run: () => {
+          void refetchMessages()
+          void refetchSessions()
+        },
+      },
+    })
+  })
+
   // Resources hand back fresh objects on every refetch while a run streams. These stores merge the
   // new payloads by id so the transcript, the tool groups and the question dock keep their mounted
   // state (an opened tool, a half-typed "Other" answer) instead of being rebuilt under the reader.
@@ -866,22 +970,48 @@ export const App: Component = () => {
     onCleanup(() => controller.abort())
     void (async () => {
       for (let attempt = 0; !controller.signal.aborted; attempt++) {
+        setStreamState("global", attempt === 0 ? "connecting" : "reconnecting")
         try {
-          // Runs that started or ended while disconnected send no step events to catch up on.
-          void createClient(url)
-            .session.active()
-            .then((active) => {
-              Object.entries(runState())
-                .filter(([id, running]) => running && !active.has(id))
-                .forEach(([id]) => setRunning(id, false))
-              active.forEach((id) => {
-                setRunning(id, true)
-                watchRun(id, 2000)
-              })
+          // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
+          // every reconnection resyncs the state the events would have carried. Missing the blocked
+          // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
+          void (async () => {
+            // Both runtimes have to be asked: `/api/session/active` only knows about v2 runs, and a
+            // legacy turn — which is now every Code and Chat turn — shows up in its folder's status
+            // map instead. A session in a folder nobody is watching has no source here, so it keeps
+            // whatever it had rather than being called idle on no evidence.
+            const engine = createClient(url)
+            // Untracked: this effect owns the global stream, and re-running it on every change of
+            // the open session would drop and reopen that stream for no reason.
+            const folders = untrack(watchedDirectories)
+            const sessions = untrack(sessionList)
+            const [v2, legacy] = await Promise.all([
+              engine.session.active().catch(() => new Set<string>()),
+              Promise.all(
+                folders.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
+              ),
+            ])
+            const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
+            const known = new Set([
+              ...v2,
+              ...(sessions ?? [])
+                .filter((session) => folders.includes(session.location?.directory ?? ""))
+                .map((session) => session.id),
+            ])
+            Object.entries(runState())
+              .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
+              .forEach(([id]) => setRunning(id, false))
+            running.forEach((id) => {
+              setRunning(id, true)
+              if (v2.has(id)) watchRun(id, 2000)
             })
-            .catch(() => undefined)
+          })().catch(() => undefined)
+          void refetchPermissions()
+          void refetchQuestions()
+          void refetchBlocked()
           for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
             attempt = 0
+            setStreamState("global", "live")
             const type = event.type ?? ""
             const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
             trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
@@ -889,28 +1019,15 @@ export const App: Component = () => {
               if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
               if (payload?.sessionID === selected()) {
                 setStreamedChars(0)
-                setLiveText("")
-                setLiveReasoning("")
               }
               scheduleRefetch(true, false)
             } else if (type.endsWith(".delta")) {
+              // A v2 delta names no part, so there is nothing to apply it to; only a session started
+              // on the v2 runner before this build still produces them, and its step events below
+              // reload the transcript. All that is taken from here is the size of the turn so far.
               const delta = payload?.delta
-              if (
-                payload?.sessionID &&
-                typeof delta === "string" &&
-                (type.includes("text") || type.includes("reasoning"))
-              ) {
-                publishSessionEvent({
-                  kind: "live",
-                  sessionID: payload.sessionID,
-                  field: type.includes("reasoning") ? "reasoning" : "text",
-                  delta,
-                })
-              }
               if (payload?.sessionID === selected() && typeof delta === "string") {
                 setStreamedChars((value) => value + delta.length)
-                if (type.includes("reasoning")) setLiveReasoning((value) => value + delta)
-                else if (type.includes("text")) setLiveText((value) => value + delta)
               }
               continue
             }
@@ -928,6 +1045,7 @@ export const App: Component = () => {
             if (type.startsWith("permission.")) {
               if (type === "permission.v2.asked") notify(t("Permission needed"), "")
               void refetchPermissions()
+              void refetchBlocked()
             } else if (type.startsWith("question.")) {
               if (type === "question.v2.asked") notify(t("Question asked"), "")
               void refetchQuestions()
@@ -966,6 +1084,8 @@ export const App: Component = () => {
         } catch {
           if (controller.signal.aborted) return
         }
+        if (controller.signal.aborted) return
+        setStreamState("global", "reconnecting")
         await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
         if (!controller.signal.aborted) {
           scheduleRefetch(true, true)
@@ -975,114 +1095,172 @@ export const App: Component = () => {
     })()
   })
 
-  // Chats run through the legacy prompt, whose deltas and status only stream on their folder's events.
-  createEffect(() => {
-    const directory = chatsDirectory()
-    if (!ready() || !directory) return
-    const url = serverUrl()
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
-    // Text and reasoning deltas both say `field: "text"`; the part's type comes with its first update.
-    const partTypes = new Map<string, string>()
+  /**
+   * Folders whose event stream this window follows. A legacy run — every chat, and every Code
+   * session once H-01 lands — streams its deltas and its status only on its own folder's stream, and
+   * a browser holds only a handful of connections to one origin, so this follows the folders that
+   * are on screen and leaves runs elsewhere to the periodic `session.active()` check.
+   */
+  const WATCHED_DIRECTORIES = 4
+  // A plain accessor, not a memo: a memo computes as soon as it is created, and the split panes it
+  // reads are declared further down, which would run the whole component into the temporal dead zone.
+  const watchedDirectories = () => {
+    const list = sessionList()
+    const directoryOf = (id: string | undefined) =>
+      id ? list?.find((session) => session.id === id)?.location?.directory : undefined
+    const open = [selected(), ...(splitActive() ? splitPanes() : [])].map(directoryOf)
+    const directories = [chatsDirectory(), targetDirectory(), ...open].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    )
+    return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
+  }
+
+  /**
+   * One legacy message event as a change to a transcript. The part types are remembered because a
+   * delta only names its part, while `field` says "text" for reasoning too, so the part's own type
+   * is the only way to tell them apart.
+   */
+  const partTypesByID = new Map<string, string>()
+  const transcriptChange = (
+    type: string,
+    data:
+      | {
+          delta?: string
+          partID?: string
+          messageID?: string
+          info?: { id?: string; role?: string }
+          part?: { id?: string; type?: string; messageID?: string }
+        }
+      | undefined,
+  ) => {
+    if (type === "message.part.delta") {
+      const delta = data?.delta
+      if (typeof delta !== "string" || !data?.partID) return undefined
+      const kind = partTypesByID.get(data.partID)
+      if (kind !== "text" && kind !== "reasoning") return undefined
+      const input = { messageID: data.messageID, partID: data.partID, delta }
+      return { apply: (current: SessionMessageInfo[]) => applyDelta(current, input), chars: delta.length }
+    }
+    if (type === "message.part.updated" && data?.part?.id) {
+      const part = data.part as LegacyPart
+      if (part.type) partTypesByID.set(part.id, part.type)
+      return { apply: (current: SessionMessageInfo[]) => applyPart(current, part), chars: 0 }
+    }
+    if (type === "message.part.removed" && data?.part?.id) {
+      const input = { messageID: data.part.messageID ?? data.messageID, partID: data.part.id }
+      return { apply: (current: SessionMessageInfo[]) => removePart(current, input), chars: 0 }
+    }
+    if (type === "message.updated" && data?.info?.id) {
+      const info = data.info as LegacyInfo
+      return { apply: (current: SessionMessageInfo[]) => applyMessage(current, info), chars: 0 }
+    }
+    if (type === "message.removed" && data?.messageID) {
+      const messageID = data.messageID
+      return { apply: (current: SessionMessageInfo[]) => removeMessage(current, messageID), chars: 0 }
+    }
+    return undefined
+  }
+
+  /** One folder's legacy event stream, reconnecting on its own backoff until the signal aborts. */
+  const followDirectory = async (url: string, directory: string, signal: AbortSignal) => {
     // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
     const lastUserMessage = new Map<string, string>()
-    void (async () => {
-      for (let attempt = 0; !controller.signal.aborted; attempt++) {
-        try {
-          const stream = createClient(url).event.subscribeDirectory(directory, { signal: controller.signal })
-          for await (const event of stream) {
-            attempt = 0
-            const type = event.type ?? ""
-            const data = (
-              event as {
-                data?: {
-                  sessionID?: string
-                  field?: string
-                  delta?: string
-                  status?: { type?: string }
-                  partID?: string
-                  info?: { id?: string; sessionID?: string; role?: string }
-                  part?: { id?: string; sessionID?: string; type?: string }
-                }
+    for (let attempt = 0; !signal.aborted; attempt++) {
+      setStreamState(directory, attempt === 0 ? "connecting" : "reconnecting")
+      try {
+        const stream = createClient(url).event.subscribeDirectory(directory, { signal })
+        for await (const event of stream) {
+          attempt = 0
+          setStreamState(directory, "live")
+          const type = event.type ?? ""
+          const data = (
+            event as {
+              data?: {
+                sessionID?: string
+                field?: string
+                delta?: string
+                status?: { type?: string }
+                partID?: string
+                info?: { id?: string; sessionID?: string; role?: string }
+                part?: { id?: string; sessionID?: string; type?: string }
               }
-            ).data
-            trackActivity(type, data)
-            const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
-            if (type === "message.part.delta") {
-              const part = partTypes.get(data?.partID ?? "")
-              if (sessionID && typeof data?.delta === "string" && (part === "text" || part === "reasoning")) {
-                publishSessionEvent({ kind: "live", sessionID, field: part, delta: data.delta })
-              }
-              if (sessionID === selected() && typeof data?.delta === "string") {
-                const delta = data.delta
-                setStreamedChars((value) => value + delta.length)
-                if (part === "reasoning") setLiveReasoning((value) => value + delta)
-                else if (part === "text") setLiveText((value) => value + delta)
-              }
-              continue
             }
-            if (type === "message.part.updated" && data?.part?.id && data.part.type) {
-              partTypes.set(data.part.id, data.part.type)
-            }
-            if (type.startsWith("message.")) {
-              // A new user message starts a turn: drop what streamed for the previous one.
-              const newTurn =
-                type === "message.updated" &&
-                data?.info?.role === "user" &&
-                !!sessionID &&
-                !!data.info.id &&
-                lastUserMessage.get(sessionID) !== data.info.id
-              if (newTurn && sessionID && data?.info?.id) {
-                lastUserMessage.set(sessionID, data.info.id)
-                publishSessionEvent({ kind: "turn", sessionID })
+          ).data
+          trackActivity(type, data)
+          const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
+          if (type.startsWith("message.")) {
+            // Every message event is applied to the transcript instead of triggering a refetch of
+            // the whole history. A refetch per event meant two full requests every 300ms for the
+            // length of a turn, and a `<For>` rebuilt from new objects each time.
+            const change = transcriptChange(type, data)
+            if (sessionID && change) {
+              publishSessionEvent({ kind: "message", sessionID, apply: change.apply, chars: change.chars })
+              if (sessionID === selected()) {
+                setStreamedChars((value) => value + change.chars)
+                setMessageData("data", (current) => change.apply(current))
               }
-              publishSessionEvent({ kind: "changed", sessionID })
-              if (newTurn && sessionID === selected()) {
-                setLiveText("")
-                setLiveReasoning("")
-                setStreamedChars(0)
-              }
-              invalidateLegacyHistory(sessionID)
-              scheduleRefetch(true, false)
-            } else if (type === "session.idle") {
-              scheduleRefetch(true, true)
-            } else if (type.startsWith("session.")) {
-              scheduleRefetch(false, true)
             }
+            // A new user message starts a turn: what streamed before it is stale.
+            const newTurn =
+              type === "message.updated" &&
+              data?.info?.role === "user" &&
+              !!sessionID &&
+              !!data.info.id &&
+              lastUserMessage.get(sessionID) !== data.info.id
+            if (newTurn && sessionID && data?.info?.id) {
+              lastUserMessage.set(sessionID, data.info.id)
+              publishSessionEvent({ kind: "turn", sessionID })
+              if (sessionID === selected()) setStreamedChars(0)
+            }
+            // The cached legacy history is now behind the store, so the next refetch must rebuild it.
+            invalidateLegacyHistory(sessionID)
+          } else if (type === "session.idle") {
+            // The end of a turn is where the applied events are reconciled against the engine's own
+            // copy: one refetch per turn instead of one every 300ms.
+            scheduleRefetch(true, true)
+          } else if (type.startsWith("session.")) {
+            scheduleRefetch(false, true)
           }
-        } catch {
-          if (controller.signal.aborted) return
         }
-        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+      } catch {
+        if (signal.aborted) break
       }
-    })()
+      if (signal.aborted) break
+      // Not following this folder until the stream is back, and the pill says so.
+      setStreamState(directory, "reconnecting")
+      await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+    }
+    forgetStreamState(directory)
+  }
+
+  // Streams are kept per folder across changes: switching session must not drop the chats stream,
+  // which is what carries a chat answering in the background.
+  const directoryStreams = new Map<string, AbortController>()
+  onCleanup(() => {
+    directoryStreams.forEach((controller) => controller.abort())
+    directoryStreams.clear()
+  })
+  createEffect(() => {
+    const url = ready() ? serverUrl() : undefined
+    const wanted = url ? watchedDirectories() : []
+    for (const [directory, controller] of directoryStreams) {
+      if (wanted.includes(directory)) continue
+      controller.abort()
+      directoryStreams.delete(directory)
+      forgetStreamState(directory)
+    }
+    if (!url) return
+    for (const directory of wanted) {
+      if (directoryStreams.has(directory)) continue
+      const controller = new AbortController()
+      directoryStreams.set(directory, controller)
+      void followDirectory(url, directory, controller.signal)
+    }
   })
 
   createEffect(() => {
     selected()
-    setLiveText("")
-    setLiveReasoning("")
     setStreamedChars(0)
-  })
-
-  createEffect(() => {
-    const list = activeMessages()
-    if (!list || list.length === 0) return
-    const last = [...list].reverse().find((message) => message.type === "assistant")
-    if (!last) return
-    const content = (last as SessionMessageAssistant).content ?? []
-    const text = content
-      .filter((part) => part.type === "text")
-      .map((part) => (part as { text: string }).text)
-      .join("")
-    const reasoning = content
-      .filter((part) => part.type === "reasoning")
-      .map((part) => (part as { text: string }).text)
-      .join("")
-    const currentText = liveText()
-    if (currentText && text.includes(currentText)) setLiveText("")
-    const currentReasoning = liveReasoning()
-    if (currentReasoning && reasoning.includes(currentReasoning)) setLiveReasoning("")
   })
 
   // A stored effort level the model does not offer here (another model's, or one this project's engine
@@ -1341,7 +1519,7 @@ export const App: Component = () => {
         const running = session.id in runs ? runs[session.id] : activity?.busy.has(session.id)
         return {
           id: session.id,
-          title: session.title,
+          title: sessionTitle(session),
           project: isChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
           branch: directory ? activity?.branches[directory] : undefined,
           updated: session.time.updated,
@@ -1902,23 +2080,43 @@ export const App: Component = () => {
     setAttachments([])
   }
 
-  const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
+  // An answer goes back to the runtime that asked. The legacy one owns every request a running turn
+  // raises today, and only it can unblock that turn; v2 is tried after it for requests left from
+  // before, so an old session is still answerable.
+  const sessionDirectory = (sessionID: string) =>
+    sessionList()?.find((session) => session.id === sessionID)?.location?.directory
+
+  const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     run(async (current) => {
-      await current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
+      await current.blocked
+        .answerPermission({
+          requestID: request.id,
+          directory: sessionDirectory(request.sessionID),
+          reply,
+          message,
+        })
+        .catch(() =>
+          current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message }),
+        )
       void refetchPermissions()
+      void refetchBlocked()
       return undefined
     })
 
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     run(async (current) => {
-      await current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
+      await current.blocked
+        .answerQuestion({ requestID: request.id, directory: sessionDirectory(request.sessionID), answers })
+        .catch(() => current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers }))
       void refetchQuestions()
       return undefined
     })
 
   const rejectQuestion = (request: QuestionV2Request) =>
     run(async (current) => {
-      await current.session.question.reject({ sessionID: request.sessionID, requestID: request.id })
+      await current.blocked
+        .rejectQuestion({ requestID: request.id, directory: sessionDirectory(request.sessionID) })
+        .catch(() => current.session.question.reject({ sessionID: request.sessionID, requestID: request.id }))
       void refetchQuestions()
       return undefined
     })
@@ -1955,7 +2153,7 @@ export const App: Component = () => {
   const renameSession = (id?: string) => {
     const sessionID = id ?? selected()
     if (!sessionID) return
-    const currentTitle = sessionList()?.find((session) => session.id === sessionID)?.title ?? ""
+    const currentTitle = sessionTitle(sessionList()?.find((session) => session.id === sessionID))
     setRenameTarget({ id: sessionID, title: currentTitle })
   }
 
@@ -1987,6 +2185,28 @@ export const App: Component = () => {
         setBusy(false)
       }
     })()
+  }
+
+  // The engine has served share links all along; the UI just never asked for one. It cannot say
+  // whether a session is already shared — the v2 session record carries no share state — so both
+  // actions are always offered rather than pretending to know.
+  const shareSession = () => {
+    const session = selectedSession()
+    if (!session) return
+    void run(async (current) => {
+      const url = await current.session.share({ sessionID: session.id, directory: session.location?.directory })
+      if (url) await navigator.clipboard?.writeText(url).catch(() => undefined)
+      return undefined
+    }, t("Share link copied"))
+  }
+
+  const unshareSession = () => {
+    const session = selectedSession()
+    if (!session) return
+    void run(async (current) => {
+      await current.session.unshare({ sessionID: session.id, directory: session.location?.directory })
+      return undefined
+    }, t("Sharing stopped"))
   }
 
   const moveSession = (directory: string) => {
@@ -2179,7 +2399,7 @@ export const App: Component = () => {
   const exportMarkdown = () => {
     const sessionID = selected()
     if (!sessionID) return
-    const lines: string[] = [`# ${selectedSession()?.title ?? sessionID}`, ""]
+    const lines: string[] = [`# ${sessionTitle(selectedSession()) || sessionID}`, ""]
     for (const message of activeMessages() ?? []) {
       if (message.type === "user") {
         lines.push("## User", "", (message as { text?: string }).text ?? "", "")
@@ -2203,12 +2423,6 @@ export const App: Component = () => {
     toast(t("Transcript exported"), "success")
   }
 
-  const titleFromText = (value: string) => {
-    const line = value.replace(/\s+/g, " ").trim()
-    if (!line) return t("New session")
-    return line.length > 60 ? `${line.slice(0, 57)}…` : line
-  }
-
   // Chats have no commands or shell: everything typed is the message.
   const sendChat = (text: string, files: Attachment[], keepDraft = false) => {
     const directory = chatsDirectory()
@@ -2222,11 +2436,10 @@ export const App: Component = () => {
       const sessionID =
         existing ?? (await current.session.create({ ...(model ? { model } : {}), location: { directory } })).id
       if (!existing) {
-        await current.session.rename({ sessionID, title: titleFromText(text) })
         await current.session.setPermission({ sessionID, permission: CHAT_PERMISSION, directory })
       }
       forgetRun(sessionID)
-      await current.session.chat({
+      await current.session.send({
         sessionID,
         directory,
         text: expandPastes(text),
@@ -2245,7 +2458,8 @@ export const App: Component = () => {
 
   /** Sends a prompt to the selected session (or a new one); the composer is cleared unless the draft is kept. */
   const submitPrompt = (text: string, files: Attachment[], keepDraft = false) => {
-    const queued = generating()
+    // Delivery only means something when a turn is already running; an idle session starts one.
+    const mode = generating() ? delivery() : undefined
     const id = messageID()
     void run(async (current) => {
       const model = selectedModel()
@@ -2260,9 +2474,11 @@ export const App: Component = () => {
             ...(location ? { location: { directory: location } } : {}),
           })
         ).id
-      if (!existing) {
-        await current.session.rename({ sessionID, title: titleFromText(text) })
-        if (!location) setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
+      // No rename here: the engine's title agent names a session on its first turn, but only while
+      // the title is still the placeholder it was created with. Naming it from the prompt looked
+      // tidy and permanently stopped the engine from ever naming anything. See session-title.ts.
+      if (!existing && !location) {
+        setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
       }
       await current.session.setPermission({
         sessionID,
@@ -2270,19 +2486,34 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
       })
       forgetRun(sessionID)
-      pendingPrompts.add({ id, sessionID, text, files, queued })
+      pendingPrompts.add({
+        id,
+        sessionID,
+        directory: location ?? selectedSession()?.location?.directory,
+        text,
+        files,
+        agent: agent(),
+        ...(model ? { model } : {}),
+        delivery: mode,
+      })
       setStreamedChars(0)
       if (!keepDraft) {
         setPrompt("")
         setAttachments([])
       }
+      // Queued prompts wait here, not in the engine: the legacy runner has no queue of its own, so
+      // one sent now would join the turn in flight instead of following it. pending-prompts.ts
+      // sends it when the session goes idle, which is also what makes it cancellable.
+      if (mode === "queue") return sessionID
       try {
-        await current.session.prompt({
+        await current.session.send({
           sessionID,
+          directory: location ?? selectedSession()?.location?.directory,
           id,
           text: expandPastes(text),
+          agent: agent(),
+          ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-          delivery: "steer",
         })
       } catch (cause) {
         pendingPrompts.remove(id)
@@ -2437,57 +2668,50 @@ export const App: Component = () => {
   }
 
   return (
-    <div
-      class="fc-app"
-      classList={{ "fc-mobile-remote": mobileRemote() }}
-      style={{
-        "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
-        "--fc-content-right":
-          mobileRemote() || chatView()
-            ? "0px"
-            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
-      }}
-    >
+    <div class="fc-app" classList={{ "fc-mobile-remote": mobileRemote() }}>
       <Show when={!mobileRemote()}>
         <Show when={narrow() && !collapsed()}>
           <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
         </Show>
-        <Sidebar
-          collapsed={collapsed()}
-          width={sidebarWidth()}
-          displayName={displayName()}
-          view={view()}
-          onViewChange={changeView}
-          sessions={viewSessions()}
-          sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
-          selectedSession={selected()}
-          runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
-          pinnedSessions={pinned()}
-          expandedProjects={expanded()}
-          noFolderSessions={noFolderSessions()}
-          onDisplayName={updateDisplayName}
-          onToggleSessionPin={togglePin}
-          onToggleProject={toggleProject}
-          onNewSession={newSession}
-          onSelectSession={selectSession}
-          onSplitSession={openSplit}
-          splitSessions={splitActive() ? splitPanes() : []}
-          onDeleteSession={deleteSession}
-          onRenameSession={renameSession}
-          onDeleteProject={deleteProject}
-          onResize={updateSidebarWidth}
-          onCollapse={toggleSidebar}
-          onCopyPath={copyPath}
-          onRefresh={refresh}
-          onAbout={() => setAboutOpen(true)}
-          onSettings={() => setSettingsOpen(true)}
-          onRoutines={() => setRoutinesOpen(true)}
-          onArtifacts={() => setArtifactsOpen(true)}
-          onProviders={() => setProvidersOpen(true)}
-          onConfig={() => setConfigOpen(true)}
-          onRemote={() => setRemoteOpen(true)}
-          onMcp={() => setMcpOpen(true)}
-        />
+        <PanelBoundary name={t("The sidebar")}>
+          <Sidebar
+            collapsed={collapsed()}
+            width={sidebarWidth()}
+            displayName={displayName()}
+            view={view()}
+            onViewChange={changeView}
+            sessions={viewSessions()}
+            sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
+            selectedSession={selected()}
+            runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
+            blockedSessions={blockedSessions()}
+            pinnedSessions={pinned()}
+            expandedProjects={expanded()}
+            noFolderSessions={noFolderSessions()}
+            onDisplayName={updateDisplayName}
+            onToggleSessionPin={togglePin}
+            onToggleProject={toggleProject}
+            onNewSession={newSession}
+            onSelectSession={selectSession}
+            onSplitSession={openSplit}
+            splitSessions={splitActive() ? splitPanes() : []}
+            onDeleteSession={deleteSession}
+            onRenameSession={renameSession}
+            onDeleteProject={deleteProject}
+            onResize={updateSidebarWidth}
+            onCollapse={toggleSidebar}
+            onCopyPath={copyPath}
+            onRefresh={refresh}
+            onAbout={() => setAboutOpen(true)}
+            onSettings={() => setSettingsOpen(true)}
+            onRoutines={() => setRoutinesOpen(true)}
+            onArtifacts={() => setArtifactsOpen(true)}
+            onProviders={() => setProvidersOpen(true)}
+            onConfig={() => setConfigOpen(true)}
+            onRemote={() => setRemoteOpen(true)}
+            onMcp={() => setMcpOpen(true)}
+          />
+        </PanelBoundary>
       </Show>
       <main class="fc-main" classList={{ "fc-main-chat-home": chatView() && !selected() && !mobileRemote() }}>
         <Show
@@ -2507,7 +2731,7 @@ export const App: Component = () => {
                 </button>
                 <span class="fc-mobile-heading">
                   <span class="fc-mobile-title">
-                    {selectedSession()?.title || (chatView() ? t("New chat") : t("New session"))}
+                    {sessionTitle(selectedSession()) || (chatView() ? t("New chat") : t("New session"))}
                   </span>
                   <Show
                     when={
@@ -2529,6 +2753,9 @@ export const App: Component = () => {
           }
         >
           <Topbar
+            streamState={streamState()}
+            blockedElsewhere={blockedElsewhere()}
+            onOpenBlocked={selectSession}
             healthLoading={health.loading}
             healthHealthy={health()?.healthy === true}
             healthError={!health.loading && health()?.healthy === false}
@@ -2571,6 +2798,8 @@ export const App: Component = () => {
                     onCompact={compactSession}
                     onRename={renameSession}
                     onExport={exportMarkdown}
+                    onShare={shareSession}
+                    onUnshare={unshareSession}
                     onMove={moveSession}
                     onDelete={deleteSession}
                     onUndo={undo}
@@ -2611,12 +2840,15 @@ export const App: Component = () => {
                         chat={isChat(session())}
                         chatsDirectory={chatsDirectory()}
                         showTools={showTools()}
+                        showReasoning={showReasoning()}
                         models={modelList()}
                         defaultModel={modelRef()}
                         favorites={favorites()}
                         agents={agents()?.data ?? []}
                         agent={agent()}
                         permissionModeId={permissionModeId()}
+                        delivery={delivery()}
+                        onDeliveryChange={changeDelivery}
                         projects={projects()}
                         history={promptHistory()}
                         modelName={modelName}
@@ -2678,23 +2910,24 @@ export const App: Component = () => {
               )
             }
           >
-            <SessionView
-              messages={activeMessages()}
-              sessionKey={selected()}
-              loading={messagesLoading()}
-              busy={generating()}
-              usage={liveUsage()}
-              startedAt={generationStartedAt()}
-              modelName={modelName}
-              liveText={liveText()}
-              liveReasoning={liveReasoning()}
-              showTools={showTools()}
-              chat={chatView()}
-              pending={pendingForSession()}
-              onEditUser={editMessage}
-              onForkUser={forkSession}
-              onRetry={retryTurn}
-            />
+            <PanelBoundary name={t("The conversation")}>
+              <SessionView
+                messages={activeMessages()}
+                sessionKey={selected()}
+                loading={messagesLoading()}
+                busy={generating()}
+                usage={liveUsage()}
+                startedAt={generationStartedAt()}
+                modelName={modelName}
+                showTools={showTools()}
+                showReasoning={showReasoning()}
+                chat={chatView()}
+                pending={pendingForSession()}
+                onEditUser={editMessage}
+                onForkUser={forkSession}
+                onRetry={retryTurn}
+              />
+            </PanelBoundary>
           </Show>
           <Show when={!mobileRemote() || mobileScreen() === "session"}>
             <div class="fc-docks">
@@ -2713,8 +2946,9 @@ export const App: Component = () => {
                 {(request) => (
                   <PermissionDock
                     request={request}
+                    messages={activeMessages()}
                     busy={busy()}
-                    onReply={(reply) => replyPermission(request, reply)}
+                    onReply={(reply, message) => replyPermission(request, reply, message)}
                   />
                 )}
               </For>
@@ -2790,6 +3024,8 @@ export const App: Component = () => {
                 agents={agents()?.data ?? []}
                 agent={agent()}
                 permissionMode={permissionModeId()}
+                delivery={delivery()}
+                onDeliveryChange={changeDelivery}
                 suggestion={currentSuggestion()}
                 history={promptHistory()}
                 onInput={(value) => {
@@ -2822,27 +3058,31 @@ export const App: Component = () => {
         </Show>
       </main>
       <Show when={!mobileRemote() && !chatView()}>
-        <WorkspacePanels
-          panels={panels()}
-          serverUrl={serverUrl()}
-          session={selectedSession()}
-          revision={[messages(), vcsStatus()]}
-          changedFiles={changedFiles()}
-          width={workspaceWidth()}
-          onResize={updateWorkspaceWidth}
-          onClose={closePanel}
-        />
-        <Show when={contextPanelShown()}>
-          <RightAside
-            usage={contextUsage()}
-            todos={todos()}
-            onClearTodos={clearTodos}
-            width={contextWidth()}
-            onResize={updateContextWidth}
-            onHide={toggleContextPanel}
+        <PanelBoundary name={t("The side panels")}>
+          <WorkspacePanels
+            panels={panels()}
             serverUrl={serverUrl()}
-            sessionID={selected()}
+            session={selectedSession()}
+            revision={[messages(), vcsStatus()]}
+            changedFiles={changedFiles()}
+            width={workspaceWidth()}
+            onResize={updateWorkspaceWidth}
+            onClose={closePanel}
           />
+        </PanelBoundary>
+        <Show when={contextPanelShown()}>
+          <PanelBoundary name={t("The context panel")}>
+            <RightAside
+              usage={contextUsage()}
+              todos={todos()}
+              onClearTodos={clearTodos}
+              width={contextWidth()}
+              onResize={updateContextWidth}
+              onHide={toggleContextPanel}
+              serverUrl={serverUrl()}
+              sessionID={selected()}
+            />
+          </PanelBoundary>
         </Show>
       </Show>
       <CommandPalette
@@ -2875,6 +3115,7 @@ export const App: Component = () => {
         auth={providerAuth() ?? {}}
         connected={providerDirectory()?.connected ?? []}
         integrations={integrations()?.data ?? []}
+        unlinked={unlinkedProviders() ?? []}
         busy={busy()}
         onSave={saveProvider}
         onRemove={removeProvider}
@@ -2882,6 +3123,7 @@ export const App: Component = () => {
         onOAuthStatus={oAuthStatus}
         onOAuthCancel={cancelOAuth}
         onOAuthDone={finishOAuth}
+        onLinkConfigured={linkConfiguredKeys}
         onClose={() => setProvidersOpen(false)}
       />
       <ModelPicker
@@ -2932,6 +3174,7 @@ export const App: Component = () => {
         models={modelList()}
         modelKey={modelKey()}
         showTools={showTools()}
+        showReasoning={showReasoning()}
         replySuggestions={suggestionsOn()}
         onToggleReplySuggestions={toggleSuggestions}
         suggestionModel={suggestionModel()}
@@ -2941,6 +3184,8 @@ export const App: Component = () => {
         }}
         notifications={notifications()}
         paletteKey={paletteKey()}
+        savedPermissions={savedPermissions()?.data ?? []}
+        onRevokePermission={revokePermission}
         onTheme={updateTheme}
         onColorTheme={updateColorTheme}
         onLocale={setLocale}
@@ -2949,6 +3194,7 @@ export const App: Component = () => {
         onServerCommit={commitServer}
         onModelChange={changeModel}
         onToggleTools={() => setShowTools((value) => !value)}
+        onToggleReasoning={toggleReasoning}
         onToggleNotifications={toggleNotifications}
         onPaletteKey={changePaletteKey}
         onOpenMcp={() => {
@@ -3063,6 +3309,7 @@ export const App: Component = () => {
           applyModel(pending.next.providerID, pending.next.id)
         }}
       />
+      <Toaster />
     </div>
   )
 }

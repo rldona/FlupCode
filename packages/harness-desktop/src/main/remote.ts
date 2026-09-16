@@ -3,7 +3,7 @@ import { hostname } from "node:os"
 import { join } from "node:path"
 import { BrowserWindow, app, ipcMain, safeStorage } from "electron"
 import { createRemoteHost, type RemoteHostStore } from "@flupcode/remote"
-import { SERVER_URL } from "./server"
+import { SERVER_URL, engineCredentials } from "./server"
 
 /** Remote control host (ADR-0010): keychain-backed storage and the IPC bridge for the renderer. */
 
@@ -41,12 +41,6 @@ function writeStore(stored: RemoteHostStore) {
     data: encrypted ? safeStorage.encryptString(json).toString("base64") : Buffer.from(json).toString("base64"),
   }
   writeFileSync(storeFile(), JSON.stringify(envelope), { mode: 0o600 })
-}
-
-function engineCredentials() {
-  const password = process.env.OPENCODE_SERVER_PASSWORD
-  if (!password) return undefined
-  return Buffer.from(`${process.env.OPENCODE_SERVER_USERNAME ?? "opencode"}:${password}`).toString("base64")
 }
 
 export function initRemoteHost() {

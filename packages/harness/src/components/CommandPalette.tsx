@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, onCleanup, type Component } from
 import type { FileSystemEntry, SessionInfo } from "../engine-types"
 import type { CommandOption } from "../types"
 import { t } from "../i18n"
+import { sessionTitle } from "../session-title"
 
 type PaletteItem =
   | { kind: "command"; id: string; name: string; description?: string; disabled?: boolean }
@@ -62,12 +63,12 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
         disabled: command.disabled,
       }))
     const sessions = props.sessions
-      .filter((session) => (session.title || session.id).toLowerCase().includes(value))
+      .filter((session) => (sessionTitle(session) || session.id).toLowerCase().includes(value))
       .slice(0, 5)
       .map<PaletteItem>((session) => ({
         kind: "session",
         id: `session:${session.id}`,
-        title: session.title || t("Session without title"),
+        title: sessionTitle(session) || t("Session without title"),
         subtitle: session.id.slice(0, 8),
       }))
     const fileItems = files()
@@ -89,7 +90,13 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onClick={(event) => event.stopPropagation()}>
+        <div
+          class="fc-palette"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("Command palette")}
+          onClick={(event) => event.stopPropagation()}
+        >
           <input
             ref={input}
             class="fc-palette-input"
@@ -121,10 +128,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
               }
             }}
           />
-          <Show
-            when={items().length > 0}
-            fallback={<div class="fc-palette-empty">{t("No results")}</div>}
-          >
+          <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
             <ul class="fc-palette-list">
               <For each={items()}>
                 {(item, index) => (

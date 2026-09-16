@@ -1,13 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import {
-  entryName,
-  isAbsolutePath,
-  joinPath,
-  parentPath,
-  pathOfSegments,
-  segmentsOf,
-  visibleFolders,
-} from "./folder"
+import { entryName, isAbsolutePath, joinPath, parentPath, pathOfSegments, segmentsOf, visibleFolders } from "./folder"
 
 describe("folder paths", () => {
   test("joinPath handles roots and relative paths", () => {

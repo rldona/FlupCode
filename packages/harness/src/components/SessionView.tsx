@@ -1,6 +1,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
+  SessionMessageAssistantReasoning,
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionMessageInfo,
@@ -25,13 +26,20 @@ type SessionViewProps = {
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
-  liveText?: string
-  liveReasoning?: string
   showTools: boolean
+  /** Whether the model's thinking appears as a block in the conversation; off by default. */
+  showReasoning: boolean
   /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
   chat?: boolean
   /** Prompts sent before the engine projects their message; queued ones offer "Send now". */
-  pending?: Array<{ id: string; text: string; files?: MessageFile[]; queued: boolean; sendNow?: () => void }>
+  pending?: Array<{
+    id: string
+    text: string
+    files?: MessageFile[]
+    delivery?: "steer" | "queue"
+    sendNow?: () => void
+    cancel?: () => void
+  }>
   onEditUser: (messageID: string, text: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
   onForkUser?: (messageID: string) => void
@@ -60,7 +68,13 @@ const MessageFiles: Component<{ files?: MessageFile[] }> = (props) => (
                 <svg viewBox="0 0 24 24" width="30" height="30">
                   <circle cx="10.5" cy="10.5" r="6.5" fill="none" stroke="currentColor" stroke-width="2" />
                   <path d="m15.5 15.5 4 4" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-                  <path d="M10.5 7.5v6M7.5 10.5h6" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                  <path
+                    d="M10.5 7.5v6M7.5 10.5h6"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
                 </svg>
               </span>
             </button>
@@ -341,6 +355,48 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
 type AssistantSegment =
   | { kind: "part"; part: SessionMessageAssistant["content"][number] }
   | { kind: "tools"; parts: SessionMessageAssistantTool[] }
+  | { kind: "reasoning"; parts: SessionMessageAssistantReasoning[] }
+
+/**
+ * What the model thought before answering. It stays closed, so the conversation reads as the answer
+ * and nothing else, but it is there: it was dropped from the transcript entirely before, and the
+ * only sign it had happened was the status line saying "Thinking…" while it did.
+ */
+const ReasoningBlock: Component<{ parts: SessionMessageAssistantReasoning[] }> = (props) => {
+  const [open, setOpen] = createSignal(false)
+  const streaming = () => props.parts.some((part) => (part as { streaming?: boolean }).streaming)
+  return (
+    <div class="fc-reasoning" classList={{ "fc-reasoning-open": open(), "fc-reasoning-live": streaming() }}>
+      <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
+        <span class="fc-toolgroup-label">{streaming() ? t("Thinking…") : t("Thought")}</span>
+        <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path
+            d="m9 6 6 6-6 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <Show when={open()}>
+        <div class="fc-reasoning-body">
+          <Index each={props.parts}>
+            {(part) => (
+              <Markdown
+                class="fc-message-text"
+                cacheKey={part().id}
+                streaming={(part() as { streaming?: boolean }).streaming === true}
+                text={part().text ?? ""}
+              />
+            )}
+          </Index>
+        </div>
+      </Show>
+    </div>
+  )
+}
 
 function formatDuration(ms: number) {
   const seconds = Math.round(ms / 1000)
@@ -441,7 +497,12 @@ function collectToolRuns(messages: SessionMessageInfo[]): ToolRuns {
   return runs
 }
 
-function assistantSegments(message: SessionMessageAssistant, showTools: boolean, runs: ToolRuns): AssistantSegment[] {
+function assistantSegments(
+  message: SessionMessageAssistant,
+  showTools: boolean,
+  showReasoning: boolean,
+  runs: ToolRuns,
+): AssistantSegment[] {
   const segments: AssistantSegment[] = []
   for (const part of message.content) {
     if (part.type === "tool") {
@@ -452,9 +513,16 @@ function assistantSegments(message: SessionMessageAssistant, showTools: boolean,
       else if (!run) segments.push({ kind: "tools", parts: [part as SessionMessageAssistantTool] })
       continue
     }
-    // Like Claude Code, the model's reasoning stays out of the conversation; the status line says
-    // "Thinking…" while it happens.
-    if (part.type === "reasoning") continue
+    // Consecutive reasoning collapses into one closed block, so the conversation still reads as the
+    // answer alone while what the model thought stays one click away. Off by default, as in Claude
+    // Code; Settings turns it on.
+    if (part.type === "reasoning") {
+      if (!showReasoning) continue
+      const last = segments[segments.length - 1]
+      if (last?.kind === "reasoning") last.parts.push(part as SessionMessageAssistantReasoning)
+      else segments.push({ kind: "reasoning", parts: [part as SessionMessageAssistantReasoning] })
+      continue
+    }
     segments.push({ kind: "part", part })
   }
   return segments
@@ -470,11 +538,12 @@ export function stoppedByUser(error: unknown) {
 const AssistantMessage: Component<{
   message: SessionMessageAssistant
   showTools: boolean
+  showReasoning: boolean
   showRole: boolean
   toolRuns: ToolRuns
   onRetry?: () => void
 }> = (props) => {
-  const segments = () => assistantSegments(props.message, props.showTools, props.toolRuns)
+  const segments = () => assistantSegments(props.message, props.showTools, props.showReasoning, props.toolRuns)
   return (
     // A message that only continues an earlier run of tools has nothing of its own to show.
     <Show when={segments().length > 0 || props.message.error || props.showRole}>
@@ -486,15 +555,28 @@ const AssistantMessage: Component<{
         <Index each={segments()}>
           {(segment) => (
             <Show
-              when={segment().kind === "tools"}
-              fallback={
-                <Markdown
-                  class="fc-message-text"
-                  text={(segment() as { part: SessionMessageAssistantText }).part.text ?? ""}
-                />
-              }
+              when={segment().kind !== "reasoning"}
+              fallback={<ReasoningBlock parts={(segment() as { parts: SessionMessageAssistantReasoning[] }).parts} />}
             >
-              <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+              <Show
+                when={segment().kind === "tools"}
+                fallback={(() => {
+                  const part = () => (segment() as { part: SessionMessageAssistantText }).part
+                  return (
+                    // Keyed by the part so the renderer reuses what it already parsed, and told when
+                    // the part is still arriving so it renders as it streams instead of on every
+                    // keystroke of the model.
+                    <Markdown
+                      class="fc-message-text"
+                      cacheKey={part().id}
+                      streaming={(part() as { streaming?: boolean }).streaming === true}
+                      text={part().text ?? ""}
+                    />
+                  )
+                })()}
+              >
+                <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+              </Show>
             </Show>
           )}
         </Index>
@@ -593,9 +675,10 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       }
     }
     if (runningTools > 0) return { tasks: runningTools, label: t("Running tools…") }
-    if (props.liveReasoning || (lastPart?.type === "reasoning" && lastPart.time?.completed === undefined))
+    if (lastPart?.type === "reasoning" && (lastPart as { streaming?: boolean }).streaming)
       return { tasks: 0, label: t("Thinking…") }
-    if (props.liveText) return { tasks: 0, label: t("Writing…") }
+    if (lastPart?.type === "text" && (lastPart as { streaming?: boolean }).streaming)
+      return { tasks: 0, label: t("Writing…") }
     return { tasks: 0, label: t("Waiting for FlupCode…") }
   })
 
@@ -719,19 +802,29 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     setStick(false)
     setVisibleCount((value) => value + 80)
     if (id === undefined || top === undefined) return
-    // The prepended page renders lazily, so its height is still settling for a few frames: keep
-    // putting the anchor back until it stays there.
-    let frames = 0
+    // The prepended page renders lazily and its markdown is parsed off the main thread, so its
+    // height goes on settling long past the next few frames. The anchor is put back on every size
+    // change, which survives a renderer that finishes whenever it finishes, and the correction ends
+    // the moment the page stops growing — or the moment the reader takes over, whichever is first.
+    const startedAt = performance.now()
+    let quiet: ReturnType<typeof setTimeout> | undefined
+    const release = () => {
+      clearTimeout(quiet)
+      settle.disconnect()
+    }
     const align = () => {
       const moved = body?.querySelector<HTMLElement>(`[data-message-id="${CSS.escape(id)}"]`)
-      if (moved && container) {
-        const shift = moved.getBoundingClientRect().top - top
-        if (shift !== 0) container.scrollTop += shift
-        if (Math.abs(shift) < 1 && frames > 2) return
-      }
-      if (++frames < 30) requestAnimationFrame(align)
+      if (!moved || !container) return
+      if (readerInput > startedAt) return release()
+      const shift = moved.getBoundingClientRect().top - top
+      if (shift !== 0) container.scrollTop += shift
+      clearTimeout(quiet)
+      quiet = setTimeout(release, 250)
     }
+    const settle = new ResizeObserver(align)
+    settle.observe(body)
     requestAnimationFrame(align)
+    setTimeout(release, 4000)
   }
 
   // A reader who is at the end follows the run as it grows: live text, tool output and the status
@@ -876,6 +969,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                         <AssistantMessage
                           message={message as SessionMessageAssistant}
                           showTools={props.showTools}
+                          showReasoning={props.showReasoning}
                           showRole={
                             !props.chat &&
                             (fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant")
@@ -907,8 +1001,23 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           onClick={() => copyText((message as { text?: string }).text ?? "")}
                         >
                           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                            <rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="2" />
-                            <path d="M5 15V6a2 2 0 0 1 2-2h9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                            <rect
+                              x="9"
+                              y="9"
+                              width="11"
+                              height="11"
+                              rx="2"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                            />
+                            <path
+                              d="M5 15V6a2 2 0 0 1 2-2h9"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="2"
+                              stroke-linecap="round"
+                            />
                           </svg>
                         </button>
                         <Show when={!props.chat}>
@@ -942,7 +1051,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                                 <circle cx="7" cy="5" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
                                 <circle cx="7" cy="19" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
                                 <circle cx="17" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-                                <path d="M7 7.5v9M9.4 12h5.1" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
+                                <path
+                                  d="M7 7.5v9M9.4 12h5.1"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  stroke-width="2"
+                                  stroke-linecap="round"
+                                />
                               </svg>
                             </button>
                           </Show>
@@ -958,24 +1073,28 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                     <div class="fc-message-role">{t("You")}</div>
                     <MessageFiles files={item.files} />
                     <Markdown class="fc-message-text" text={item.text} />
-                    <Show when={item.queued}>
-                      <div class="fc-message-queue">
-                        <span class="fc-message-queue-badge">{t("Queued")}</span>
-                        <Show when={item.sendNow}>
-                          <button class="fc-message-send-now" type="button" onClick={() => item.sendNow?.()}>
-                            {t("Send now")}
-                          </button>
-                        </Show>
-                      </div>
+                    <Show when={item.delivery}>
+                      {(delivery) => (
+                        <div class="fc-message-queue">
+                          <span class="fc-message-queue-badge">
+                            {delivery() === "queue" ? t("Queued") : t("Steering")}
+                          </span>
+                          <Show when={item.sendNow}>
+                            <button class="fc-message-send-now" type="button" onClick={() => item.sendNow?.()}>
+                              {t("Send now")}
+                            </button>
+                          </Show>
+                          <Show when={item.cancel}>
+                            <button class="fc-message-send-now" type="button" onClick={() => item.cancel?.()}>
+                              {t("Cancel")}
+                            </button>
+                          </Show>
+                        </div>
+                      )}
                     </Show>
                   </div>
                 )}
               </For>
-              <Show when={props.busy && props.liveText}>
-                <div class="fc-message fc-message-assistant fc-message-live">
-                  <Markdown class="fc-message-text" text={props.liveText ?? ""} />
-                </div>
-              </Show>
               <Show when={props.busy}>
                 <div class="fc-message fc-message-assistant fc-message-pending">
                   <Loader

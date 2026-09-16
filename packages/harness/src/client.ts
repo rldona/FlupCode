@@ -1,18 +1,18 @@
 import type { MemoryInfo, ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
-import type {
-  AssistantMessage,
-  Message,
-  Part,
-  ReasoningPart,
-  TextPart,
-  ToolPart,
-  ToolState,
-} from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
+import type {
+  McpServer,
+  PermissionV2Request,
+  QuestionV2Request,
+  SessionInfo,
+  SessionMessageInfo,
+  SessionMessagesResponse,
+} from "./engine-types"
+import type { McpConfig } from "./types"
 import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
+import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 /** The largest page of v2 messages the engine returns. */
@@ -72,17 +72,45 @@ export async function probeEngineProfile(baseUrl: string): Promise<EngineProfile
   return (response.headers.get("content-type") ?? "").includes("application/json") ? "flupcode" : "stock"
 }
 
-async function* subscribeEvents(baseUrl: string, signal?: AbortSignal, path = "/api/event") {
+/**
+ * How long a stream may go without a single byte before it is treated as dead. The engine beats
+ * every 10 seconds (`/event`) or 15 (`/api/event`), so this is three missed beats. Without it a
+ * socket that dies without closing — sleep, a NAT timeout, a dropped tunnel — leaves the read
+ * pending forever, which is how the app could sit on "Connected" while the engine moved on.
+ */
+const STREAM_IDLE_TIMEOUT = 45_000
+
+export async function* subscribeEvents(
+  baseUrl: string,
+  signal?: AbortSignal,
+  path = "/api/event",
+  idleTimeout = STREAM_IDLE_TIMEOUT,
+) {
+  // Own controller so an idle stream can be dropped without touching the caller's signal, which it
+  // uses to tell a stream it ended from one it should reopen.
+  const controller = new AbortController()
+  const abort = () => controller.abort()
+  signal?.addEventListener("abort", abort, { once: true })
+  if (signal?.aborted) controller.abort()
   const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     headers: { Accept: "text/event-stream" },
-    signal,
+    signal: controller.signal,
   })
   if (!response.ok || !response.body) return
   const reader = response.body.getReader()
   const decoder = new TextDecoder()
   let buffer = ""
+  let quiet = false
   while (true) {
-    const { done, value } = await reader.read()
+    // Cancelling the reader, not just aborting the request, is what makes a pending read resolve:
+    // a body the fetch never produced (the remote tunnel, a test transport) ignores the signal.
+    const idle = setTimeout(() => {
+      quiet = true
+      abort()
+      void reader.cancel().catch(() => undefined)
+    }, idleTimeout)
+    const { done, value } = await reader.read().finally(() => clearTimeout(idle))
+    if (quiet) throw new Error("Event stream went quiet")
     if (done) break
     buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n")
     let index = buffer.indexOf("\n\n")
@@ -110,6 +138,19 @@ async function* subscribeEvents(baseUrl: string, signal?: AbortSignal, path = "/
   }
 }
 
+/**
+ * `PATCH /config` merges into the engine's configuration file. The generated client has no typed
+ * call for it, and the shape is open-ended, so it goes through the transport directly.
+ */
+async function patchConfig(baseUrl: string, patch: Record<string, unknown>) {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/config`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+  if (!response.ok) throw new Error(`Could not save the configuration (HTTP ${response.status})`)
+}
+
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
 
@@ -120,67 +161,6 @@ async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
     throw new Error(error?.message ?? "Request failed")
   }
   return result.data as T
-}
-
-function toolOutput(state: ToolState) {
-  if (state.status === "completed") return [{ type: "text", text: state.output }]
-  return undefined
-}
-
-function fromLegacy(entries: Array<{ info: Message; parts: Part[] }>): SessionMessageInfo[] {
-  return entries.map((entry) => {
-    if (entry.info.role === "user") {
-      const text = entry.parts
-        .filter((part): part is TextPart => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
-      return { id: entry.info.id, type: "user", time: entry.info.time, text } as unknown as SessionMessageInfo
-    }
-
-    const info = entry.info as AssistantMessage
-    const content = entry.parts.flatMap((part): unknown[] => {
-      if (part.type === "text") return [{ type: "text", text: part.text }]
-      if (part.type === "reasoning") return [{ type: "reasoning", text: part.text }]
-      if (part.type !== "tool") return []
-      const tool = part as ToolPart
-      return [
-        {
-          type: "tool",
-          name: tool.tool,
-          state: {
-            status: tool.state.status,
-            input: "input" in tool.state ? tool.state.input : undefined,
-            content: toolOutput(tool.state),
-            error: tool.state.status === "error" ? { message: tool.state.error } : undefined,
-          },
-        },
-      ]
-    })
-    return {
-      id: info.id,
-      type: "assistant",
-      time: info.time,
-      agent: info.agent,
-      model: info.modelID ? { providerID: info.providerID, id: info.modelID } : undefined,
-      content,
-      error: info.error,
-    } as unknown as SessionMessageInfo
-  })
-}
-
-const created = (message: SessionMessageInfo) => (message as { time?: { created?: number } }).time?.created ?? 0
-
-/**
- * A session can hold history in both message stores: the legacy one (written by the TUI and older
- * clients) and v2 (written by FlupCode prompts). They never share messages, so show both in order.
- */
-export function mergeTranscripts(v2: SessionMessageInfo[], legacy: SessionMessageInfo[]) {
-  if (legacy.length === 0) return v2
-  if (v2.length === 0) return legacy
-  return [...legacy, ...v2]
-    .map((message, index) => ({ message, index }))
-    .sort((a, b) => created(a.message) - created(b.message) || a.index - b.index)
-    .map((entry) => entry.message)
 }
 
 /**
@@ -200,18 +180,29 @@ export function createClient(baseUrl = resolveServerUrl()) {
 
   return {
     health: {
+      /**
+       * `/global/health` rather than the v2 one: only this route reports the engine's own version,
+       * and everything that compares versions — the Engine row in Settings, the warning about a UI
+       * generated against a different engine — was reading a field the v2 route never sends.
+       */
       get: async () => {
-        const result = await unwrap<{ healthy?: boolean; version?: string }>(
-          client.v2.health.get() as Promise<Result<{ healthy?: boolean; version?: string }>>,
-        )
+        const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/global/health`)
+        if (!response.ok) throw new Error(`Request failed (HTTP ${response.status})`)
+        const result = (await response.json()) as { healthy?: boolean; version?: string }
         return { healthy: result?.healthy ?? true, version: result?.version }
       },
     },
     event: {
-      subscribe: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal),
+      subscribe: (options?: { signal?: AbortSignal; idleTimeout?: number }) =>
+        subscribeEvents(baseUrl, options?.signal, "/api/event", options?.idleTimeout),
       /** One folder's full event stream: legacy runs (chats) only stream their deltas and status here. */
-      subscribeDirectory: (directory: string, options?: { signal?: AbortSignal }) =>
-        subscribeEvents(baseUrl, options?.signal, `/event?directory=${encodeURIComponent(directory)}`),
+      subscribeDirectory: (directory: string, options?: { signal?: AbortSignal; idleTimeout?: number }) =>
+        subscribeEvents(
+          baseUrl,
+          options?.signal,
+          `/event?directory=${encodeURIComponent(directory)}`,
+          options?.idleTimeout,
+        ),
     },
     /** The engine's own folders; chats live in `state`, which always exists on the engine's machine. */
     paths: async () => {
@@ -256,12 +247,21 @@ export function createClient(baseUrl = resolveServerUrl()) {
       interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
       /** Sessions whose run is still going, across all of its steps. */
       active: async () => new Set(Object.keys((await unwrap(client.v2.session.active()))?.data ?? {})),
-      /** Sends a chat message: the legacy prompt is the one that takes a system prompt. See chat.ts. */
-      chat: (input: {
+      /**
+       * Sends a prompt through the legacy runtime, which is the complete one: subagents, MCP, LSP,
+       * retries and engine-written titles all live there, and the v2 runner has none of them. It
+       * returns as soon as the turn is admitted; the folder's event stream carries the rest.
+       *
+       * A prompt sent while a turn is running joins that turn at its next boundary — the legacy
+       * runner has no queue of its own, so waiting is the harness's job (see pending-prompts.ts).
+       */
+      send: (input: {
         sessionID: string
-        directory: string
+        directory?: string
         text: string
-        system: string
+        id?: string
+        agent?: string
+        system?: string
         files?: Array<{ uri: string; name?: string }>
         model?: { providerID: string; id: string; variant?: string }
       }) =>
@@ -269,7 +269,9 @@ export function createClient(baseUrl = resolveServerUrl()) {
           client.session.promptAsync({
             sessionID: input.sessionID,
             directory: input.directory,
-            system: input.system,
+            ...(input.id ? { messageID: input.id } : {}),
+            ...(input.agent ? { agent: input.agent } : {}),
+            ...(input.system ? { system: input.system } : {}),
             ...(input.model
               ? {
                   model: { providerID: input.model.providerID, modelID: input.model.id },
@@ -279,6 +281,22 @@ export function createClient(baseUrl = resolveServerUrl()) {
             parts: [{ type: "text", text: input.text }, ...chatFileParts(input.files ?? [])],
           }),
         ),
+      /**
+       * Which sessions of a folder the legacy runner is working on. `/api/session/active` only knows
+       * about v2 runs — measured against a local engine, a legacy turn never appears there — so this
+       * is what says whether a session is busy once prompts go through the legacy runtime.
+       */
+      status: async (input: { directory: string }) => {
+        const map = (await unwrap(client.session.status({ directory: input.directory }))) as unknown as Record<
+          string,
+          { type?: string } | undefined
+        >
+        return new Set(
+          Object.entries(map ?? {})
+            .filter(([, value]) => value?.type === "busy" || value?.type === "retry")
+            .map(([id]) => id),
+        )
+      },
       /** Stops a chat's legacy run. */
       abort: (input: { sessionID: string; directory: string }) =>
         unwrap(client.session.abort({ sessionID: input.sessionID, directory: input.directory })),
@@ -321,6 +339,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
           sessionID: string
           requestID: string
           reply: "once" | "always" | "reject"
+          /** Shown to the agent when rejecting, so it can pick another way instead of guessing. */
           message?: string
         }) => unwrap(client.v2.session.permission.reply(input)),
       },
@@ -359,12 +378,39 @@ export function createClient(baseUrl = resolveServerUrl()) {
             arguments: input.arguments,
           }),
         ),
-      skill: async (_input: { sessionID: string; skill: string }) => {
-        throw new Error("Skills are not supported by this server version")
+      /**
+       * Runs a skill. The engine has no endpoint for this: a skill is something the agent loads
+       * with its `skill` tool, so asking for one is a prompt that names it. The prompt below is what
+       * the TUI sends, and the agent answers it by loading the skill's instructions.
+       */
+      skill: (input: { sessionID: string; skill: string; arguments?: string }) =>
+        unwrap(
+          client.v2.session.prompt({
+            sessionID: input.sessionID,
+            prompt: {
+              text: input.arguments
+                ? `Use the ${input.skill} skill: ${input.arguments}`
+                : `Use the ${input.skill} skill.`,
+            },
+          }),
+        ),
+      move: (input: { sessionID: string; directory: string }) =>
+        unwrap(
+          client.experimental.controlPlane.moveSession({
+            sessionID: input.sessionID,
+            destination: { directory: input.directory },
+            moveChanges: true,
+          }),
+        ),
+      /** A public link to the conversation, served by the engine's share host. */
+      share: async (input: { sessionID: string; directory?: string }) => {
+        const shared = (await unwrap(
+          client.session.share({ sessionID: input.sessionID, directory: input.directory }),
+        )) as unknown as { share?: { url?: string } }
+        return shared?.share?.url
       },
-      move: async (_input: { sessionID: string; directory: string }) => {
-        throw new Error("Moving sessions is not supported by this server version")
-      },
+      unshare: (input: { sessionID: string; directory?: string }) =>
+        unwrap(client.session.unshare({ sessionID: input.sessionID, directory: input.directory })),
       children: async (input: { sessionID: string }) => ({
         data: (await unwrap(client.session.children({ sessionID: input.sessionID }))) as unknown as SessionInfo[],
       }),
@@ -374,7 +420,9 @@ export function createClient(baseUrl = resolveServerUrl()) {
         const key = `${baseUrl}::${input.sessionID}`
         const cached =
           legacyHistory.get(key) ??
-          unwrap(client.session.messages({ sessionID: input.sessionID })).then((entries) => fromLegacy(entries ?? []))
+          unwrap(client.session.messages({ sessionID: input.sessionID })).then((entries) =>
+            fromLegacy((entries ?? []) as unknown as LegacyEntry[]),
+          )
         legacyHistory.set(key, cached)
         // The engine pages v2 messages (50 by default, 200 at most) and every tool step is a message,
         // so read every page: a first page alone hides the newest turns of a long session.
@@ -463,8 +511,63 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     provider: {
       list: (input?: LocationInput) => unwrap(client.v2.provider.list(input)),
-      directory: () => unwrap(client.provider.list()),
+      /**
+       * The engine answers this one with every configured API key in the clear. Nothing in the UI
+       * needs the key itself, and over remote control the answer crosses to a phone, so the keys are
+       * dropped here and never reach app state, a component prop or another device.
+       */
+      directory: async () => {
+        const result = await unwrap(client.provider.list())
+        return { ...result, all: result.all.map(({ key: _key, ...provider }) => provider) }
+      },
       auth: () => unwrap(client.provider.auth()),
+      /**
+       * Registers the API keys already in the engine's own configuration as v2 credentials, which is
+       * what makes those providers usable by v2 sessions. The keys stay inside this call: the reader
+       * asks for it from the providers panel, it is never done on its own.
+       */
+      linkConfiguredKeys: async () => {
+        const directory = await unwrap(client.provider.list())
+        const integrations = await unwrap(client.v2.integration.list())
+        const pending = directory.all.filter(
+          (provider): provider is (typeof directory.all)[number] & { key: string } =>
+            provider.source === "api" &&
+            !!provider.key &&
+            !integrations.data
+              .find((item) => item.id === provider.id)
+              ?.connections?.some((connection) => connection.type === "credential"),
+        )
+        const linked = await Promise.all(
+          pending.map((provider) =>
+            unwrap(
+              client.v2.integration.connect.key({
+                integrationID: provider.id,
+                key: provider.key,
+                label: provider.id,
+              }),
+            ).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        )
+        return linked.filter(Boolean).length
+      },
+      /** Providers whose configured key is not a v2 credential yet, by id; never carries the key. */
+      unlinked: async () => {
+        const directory = await unwrap(client.provider.list())
+        const integrations = await unwrap(client.v2.integration.list())
+        return directory.all
+          .filter(
+            (provider) =>
+              provider.source === "api" &&
+              !!provider.key &&
+              !integrations.data
+                .find((item) => item.id === provider.id)
+                ?.connections?.some((connection) => connection.type === "credential"),
+          )
+          .map((provider) => provider.id)
+      },
     },
     auth: {
       set: (input: { providerID: string; key: string }) =>
@@ -495,6 +598,74 @@ export function createClient(baseUrl = resolveServerUrl()) {
         cancel: (attemptID: string) => unwrap(client.v2.integration.attempt.cancel({ attemptID })),
       },
       disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
+    },
+    /**
+     * Blocked work, from whichever runtime owns it. A request belongs to the runtime that raised it
+     * and can only be answered there: the legacy runner — the one every Code and Chat turn runs on —
+     * keeps its own registry at `/question` and `/permission`, and the v2 ones answer empty for it.
+     * Reading only v2 is what left an agent waiting on a question no dock could show.
+     */
+    blocked: {
+      questions: async (input: { directory?: string; sessionID?: string }) => {
+        const legacy = ((await unwrap(client.question.list({ directory: input.directory }))) ??
+          []) as unknown as QuestionV2Request[]
+        return legacy
+          .filter((request) => !input.sessionID || request.sessionID === input.sessionID)
+          .map((request) => ({ ...request, questions: request.questions ?? [] }))
+      },
+      permissions: async (input: { directory?: string; sessionID?: string }) => {
+        const legacy = (await unwrap(client.permission.list({ directory: input.directory }))) ?? []
+        return legacy
+          .filter((request) => !input.sessionID || request.sessionID === input.sessionID)
+          .map(
+            // Defaults matter: the legacy payload is looser than the v2 one, and a request without
+            // patterns used to reach the dock as `undefined` and take the whole view down with it.
+            (request): PermissionV2Request => ({
+              id: request.id,
+              sessionID: request.sessionID,
+              action: request.permission ?? "",
+              resources: request.patterns ?? [],
+              save: request.always ?? [],
+              metadata: request.metadata ?? {},
+              ...(request.tool
+                ? { source: { type: "tool", messageID: request.tool.messageID, callID: request.tool.callID } }
+                : {}),
+            }),
+          )
+      },
+      answerQuestion: (input: { requestID: string; directory?: string; answers: string[][] }) =>
+        unwrap(
+          client.question.reply({
+            requestID: input.requestID,
+            directory: input.directory,
+            answers: input.answers,
+          }),
+        ),
+      rejectQuestion: (input: { requestID: string; directory?: string }) =>
+        unwrap(client.question.reject({ requestID: input.requestID, directory: input.directory })),
+      answerPermission: (input: {
+        requestID: string
+        directory?: string
+        reply: "once" | "always" | "reject"
+        message?: string
+      }) =>
+        unwrap(
+          client.permission.reply({
+            requestID: input.requestID,
+            directory: input.directory,
+            reply: input.reply,
+            message: input.message,
+          }),
+        ),
+    },
+    /** Permissions across every session, and the ones the reader told the engine to remember. */
+    permission: {
+      /** Everything waiting for an answer, not just the open session's: a blocked agent is silent. */
+      pending: (input?: LocationInput) => unwrap(client.v2.permission.request.list(input)),
+      saved: {
+        list: (input?: { projectID?: string }) => unwrap(client.v2.permission.saved.list(input)),
+        remove: (input: { id: string }) => unwrap(client.v2.permission.saved.remove({ id: input.id })),
+      },
     },
     agent: {
       list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
@@ -590,12 +761,33 @@ export function createClient(baseUrl = resolveServerUrl()) {
       /** Working-tree changes against HEAD, with patches; the "files changed" view. */
       diff: (directory: string) => unwrap(client.vcs.diff({ directory, mode: "git" })),
     },
+    /**
+     * MCP servers. The engine's `/mcp` routes drive the running instance, while the servers
+     * themselves live in the configuration, so adding and removing one writes there as well —
+     * otherwise a server added here would be gone the next time the engine started. Every call in
+     * here used to be a no-op behind a working-looking panel.
+     */
     mcp: {
-      list: async () => ({ data: [] as McpServer[] }),
-      add: async (_input?: { server: string; config: unknown }) => {},
-      remove: async (_input?: { server: string }) => {},
-      connect: async (_input?: { server: string }) => {},
-      disconnect: async (_input?: { server: string }) => {},
+      list: async () => {
+        const status = (await unwrap(client.mcp.status())) as unknown as Record<string, { status?: string }>
+        return {
+          data: Object.entries(status ?? {}).map(([name, value]) => ({ name, status: value })) as McpServer[],
+        }
+      },
+      add: async (input: { server: string; config: McpConfig }) => {
+        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
+        await patchConfig(baseUrl, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } })
+        await unwrap(client.mcp.add({ name: input.server, config: input.config }))
+      },
+      remove: async (input: { server: string }) => {
+        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
+        const { [input.server]: _removed, ...rest } = config?.mcp ?? {}
+        await patchConfig(baseUrl, { mcp: rest })
+        // The running instance keeps its copy until it restarts, so stop it talking to it now.
+        await unwrap(client.mcp.disconnect({ name: input.server })).catch(() => undefined)
+      },
+      connect: (input: { server: string }) => unwrap(client.mcp.connect({ name: input.server })),
+      disconnect: (input: { server: string }) => unwrap(client.mcp.disconnect({ name: input.server })),
     },
   }
 }
