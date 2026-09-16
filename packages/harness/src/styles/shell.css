@@ -7265,6 +7265,28 @@ button.fc-status {
   margin-top: var(--fc-space-1);
 }
 
+.fc-run-evidence {
+  width: 100%;
+  margin-top: var(--fc-space-1);
+  font-size: 12px;
+  color: var(--fc-text-muted);
+}
+
+.fc-run-evidence summary {
+  cursor: pointer;
+}
+
+.fc-run-evidence pre {
+  margin: var(--fc-space-1) 0 0;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-2);
+  overflow: auto;
+  max-height: 260px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .fc-run-error {
   margin: var(--fc-space-1) 0 0;
   color: var(--fc-danger);

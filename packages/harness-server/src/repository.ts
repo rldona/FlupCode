@@ -55,6 +55,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   position INTEGER NOT NULL,
   name TEXT NOT NULL,
   prompt TEXT NOT NULL,
+  kind TEXT NOT NULL DEFAULT 'agent',
+  attempt INTEGER NOT NULL DEFAULT 1,
+  retries INTEGER,
+  retry_of TEXT,
   agent TEXT,
   model_json TEXT,
   session_id TEXT,
@@ -122,6 +126,10 @@ type TaskRow = {
   position: number
   name: string
   prompt: string
+  kind: string | null
+  attempt: number | null
+  retries: number | null
+  retry_of: string | null
   agent: string | null
   model_json: string | null
   session_id: string | null
@@ -140,6 +148,10 @@ const decodeTask = (row: TaskRow): Task => ({
   position: row.position,
   name: row.name,
   prompt: row.prompt,
+  kind: row.kind === "verify" ? "verify" : "agent",
+  attempt: row.attempt ?? 1,
+  retries: row.retries ?? undefined,
+  retryOf: row.retry_of ?? undefined,
   agent: row.agent ?? undefined,
   model: decodeModel(row.model_json),
   sessionID: row.session_id ?? undefined,
@@ -211,6 +223,19 @@ export class SqliteRoutineRepository implements RoutineRepository {
       .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'routine_runs'")
       .get() as { name?: string } | null
     if (legacy?.name) this.db.exec(migration)
+    // `CREATE TABLE IF NOT EXISTS` leaves a table that already exists alone, columns and all, so a
+    // database written before this column existed never gets it. Every desktop app that has ever
+    // run has one of those.
+    this.addColumn("tasks", "kind", "TEXT NOT NULL DEFAULT 'agent'")
+    this.addColumn("tasks", "attempt", "INTEGER NOT NULL DEFAULT 1")
+    this.addColumn("tasks", "retries", "INTEGER")
+    this.addColumn("tasks", "retry_of", "TEXT")
+  }
+
+  private addColumn(table: string, column: string, definition: string) {
+    const columns = this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+    if (columns.some((entry) => entry.name === column)) return
+    this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
   }
 
   // ---- routines -------------------------------------------------------------------------------
@@ -426,6 +451,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const existing = this.db.query("SELECT COUNT(*) as n FROM tasks WHERE run_id = ?1").get(runID) as { n: number }
     const tasks = inputs.map((input, index) => ({
       ...input,
+      kind: input.kind ?? ("agent" as const),
+      attempt: input.attempt ?? 1,
       id: crypto.randomUUID(),
       runID,
       position: existing.n + index,
@@ -435,8 +462,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
       for (const task of tasks) {
         this.db
           .query(
-            `INSERT INTO tasks (id, run_id, position, name, prompt, agent, model_json, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued')`,
+            `INSERT INTO tasks
+               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, agent, model_json, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'queued')`,
           )
           .run(
             task.id,
@@ -444,6 +472,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.position,
             task.name,
             task.prompt,
+            task.kind,
+            task.attempt,
+            task.retries ?? null,
+            task.retryOf ?? null,
             task.agent ?? null,
             task.model ? JSON.stringify(task.model) : null,
           )

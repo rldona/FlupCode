@@ -27,6 +27,26 @@ afterEach(() => {
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
 
+// A database written before a column existed does not get it from `CREATE TABLE IF NOT EXISTS`, and
+// every desktop app that has ever run has one of those.
+describe("opening a database written by an older server", () => {
+  test("adds the column it is missing and reads its rows", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1000)
+    before.addTasks(run.id, [{ name: "one", prompt: "do it" }])
+    // Put it back the way a server without task kinds left it.
+    before.db.exec("ALTER TABLE tasks DROP COLUMN kind")
+    before.close()
+
+    const after = open(path)
+    expect(after.listTasks(run.id).map((task) => task.kind)).toEqual(["agent"])
+    after.addTasks(run.id, [{ name: "two", prompt: "check it", kind: "verify" }])
+    expect(after.listTasks(run.id).map((task) => task.kind)).toEqual(["agent", "verify"])
+    after.close()
+  })
+})
+
 describe("SqliteRoutineRepository", () => {
   test("persists routines, runs, and session links", () => {
     const repository = open()
