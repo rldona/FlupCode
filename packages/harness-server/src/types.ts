@@ -106,6 +106,7 @@ export type Task = TaskInput & {
 export type ServerEvent =
   | { type: "run.started"; run: Run }
   | { type: "run.changed"; run: Run }
+  | { type: "run.removed"; runID: string }
   | { type: "task.changed"; task: Task }
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
@@ -129,8 +130,14 @@ export type RunRepository = {
   ): void
   getRun(runID: string): Run | undefined
   listRuns(source?: RunSource, limit?: number): Run[]
+  /** Every run still going, however many there are: a stop-everything cannot work off one page. */
+  listRunning(): Run[]
   attachSession(runID: string, sessionID: string): void
   finishRun(runID: string, status: Exclude<RunStatus, "running">, error?: string, now?: number): void
+  /** Forget a run and the tasks it was made of. A running one is stopped first, by its scheduler. */
+  removeRun(runID: string): boolean
+  /** Forget every run that has finished, and say which ones went. Running ones are left alone. */
+  removeFinishedRuns(): string[]
   /** A run left behind by a server that stopped mid-flight is not running any more. */
   recoverRunning(now: number): void
 }

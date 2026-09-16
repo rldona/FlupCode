@@ -2209,6 +2209,7 @@ export const App: Component = () => {
     routine?: unknown
     routineID?: unknown
     run?: unknown
+    runID?: unknown
     task?: unknown
   }) => {
       if (event.type === "routine.changed") {
@@ -2236,6 +2237,13 @@ export const App: Component = () => {
             : [run, ...current],
         )
       }
+    }
+    if (event.type === "run.removed" && typeof event.runID === "string") {
+      const removed = event.runID
+      setRuns(runs().filter((run) => run.id !== removed))
+      return setRoutineState(
+        routines().map((routine) => ({ ...routine, runs: routine.runs.filter((run) => run.id !== removed) })),
+      )
     }
     if (event.type === "task.changed") {
       const task = event.task as Task | undefined
@@ -2354,6 +2362,37 @@ export const App: Component = () => {
     void createHarnessClient(harnessServerUrl())
       .routines.remove(id)
       .then(() => setRoutineState(routines().filter((entry) => entry.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const stopRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.stop(id)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const removeRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.remove(id)
+      // The event says so too, but not to a reader whose stream is down: the list moves either way.
+      .then(() => setRuns(runs().filter((run) => run.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const stopAllRuns = () => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.stopAll()
+      .then((result) => toast(t("{count} runs stopped", { count: result?.stopped ?? 0 }), "success"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const clearRuns = () => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.clear()
+      .then((result) => {
+        setRuns(runs().filter((run) => run.status === "running"))
+        toast(t("{count} runs deleted", { count: result?.removed ?? 0 }), "success")
+      })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
@@ -3552,6 +3591,10 @@ export const App: Component = () => {
         open={runsOpen()}
         runs={runs()}
         serverAvailable={routinesServerAvailable()}
+        onStop={stopRun}
+        onRemove={removeRun}
+        onClear={clearRuns}
+        onStopAll={stopAllRuns}
         onOpenSession={(id) => {
           setRunsOpen(false)
           selectSession(id)
