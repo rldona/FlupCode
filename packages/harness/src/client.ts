@@ -10,6 +10,7 @@ import type {
 } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
+import type { McpConfig } from "./types"
 import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
@@ -136,6 +137,19 @@ export async function* subscribeEvents(
       index = buffer.indexOf("\n\n")
     }
   }
+}
+
+/**
+ * `PATCH /config` merges into the engine's configuration file. The generated client has no typed
+ * call for it, and the shape is open-ended, so it goes through the transport directly.
+ */
+async function patchConfig(baseUrl: string, patch: Record<string, unknown>) {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/config`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+  if (!response.ok) throw new Error(`Could not save the configuration (HTTP ${response.status})`)
 }
 
 type LocationInput = { location?: { directory?: string; workspace?: string } }
@@ -394,12 +408,39 @@ export function createClient(baseUrl = resolveServerUrl()) {
             arguments: input.arguments,
           }),
         ),
-      skill: async (_input: { sessionID: string; skill: string }) => {
-        throw new Error("Skills are not supported by this server version")
+      /**
+       * Runs a skill. The engine has no endpoint for this: a skill is something the agent loads
+       * with its `skill` tool, so asking for one is a prompt that names it. The prompt below is what
+       * the TUI sends, and the agent answers it by loading the skill's instructions.
+       */
+      skill: (input: { sessionID: string; skill: string; arguments?: string }) =>
+        unwrap(
+          client.v2.session.prompt({
+            sessionID: input.sessionID,
+            prompt: {
+              text: input.arguments
+                ? `Use the ${input.skill} skill: ${input.arguments}`
+                : `Use the ${input.skill} skill.`,
+            },
+          }),
+        ),
+      move: (input: { sessionID: string; directory: string }) =>
+        unwrap(
+          client.experimental.controlPlane.moveSession({
+            sessionID: input.sessionID,
+            destination: { directory: input.directory },
+            moveChanges: true,
+          }),
+        ),
+      /** A public link to the conversation, served by the engine's share host. */
+      share: async (input: { sessionID: string; directory?: string }) => {
+        const shared = (await unwrap(
+          client.session.share({ sessionID: input.sessionID, directory: input.directory }),
+        )) as unknown as { share?: { url?: string } }
+        return shared?.share?.url
       },
-      move: async (_input: { sessionID: string; directory: string }) => {
-        throw new Error("Moving sessions is not supported by this server version")
-      },
+      unshare: (input: { sessionID: string; directory?: string }) =>
+        unwrap(client.session.unshare({ sessionID: input.sessionID, directory: input.directory })),
       children: async (input: { sessionID: string }) => ({
         data: (await unwrap(client.session.children({ sessionID: input.sessionID }))) as unknown as SessionInfo[],
       }),
@@ -689,12 +730,33 @@ export function createClient(baseUrl = resolveServerUrl()) {
       /** Working-tree changes against HEAD, with patches; the "files changed" view. */
       diff: (directory: string) => unwrap(client.vcs.diff({ directory, mode: "git" })),
     },
+    /**
+     * MCP servers. The engine's `/mcp` routes drive the running instance, while the servers
+     * themselves live in the configuration, so adding and removing one writes there as well —
+     * otherwise a server added here would be gone the next time the engine started. Every call in
+     * here used to be a no-op behind a working-looking panel.
+     */
     mcp: {
-      list: async () => ({ data: [] as McpServer[] }),
-      add: async (_input?: { server: string; config: unknown }) => {},
-      remove: async (_input?: { server: string }) => {},
-      connect: async (_input?: { server: string }) => {},
-      disconnect: async (_input?: { server: string }) => {},
+      list: async () => {
+        const status = (await unwrap(client.mcp.status())) as unknown as Record<string, { status?: string }>
+        return {
+          data: Object.entries(status ?? {}).map(([name, value]) => ({ name, status: value })) as McpServer[],
+        }
+      },
+      add: async (input: { server: string; config: McpConfig }) => {
+        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
+        await patchConfig(baseUrl, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } })
+        await unwrap(client.mcp.add({ name: input.server, config: input.config }))
+      },
+      remove: async (input: { server: string }) => {
+        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
+        const { [input.server]: _removed, ...rest } = config?.mcp ?? {}
+        await patchConfig(baseUrl, { mcp: rest })
+        // The running instance keeps its copy until it restarts, so stop it talking to it now.
+        await unwrap(client.mcp.disconnect({ name: input.server })).catch(() => undefined)
+      },
+      connect: (input: { server: string }) => unwrap(client.mcp.connect({ name: input.server })),
+      disconnect: (input: { server: string }) => unwrap(client.mcp.disconnect({ name: input.server })),
     },
   }
 }

@@ -1,193 +1,136 @@
 # Parity
 
-Feature parity between the OpenCode terminal UI (`packages/tui`) and the web/desktop UI
-(`packages/app`, `packages/session-ui`). This matrix is the output of ticket `F0-1` and the source
-of truth for `F3`.
+What FlupCode's harness (`packages/harness`, plus `harness-desktop` and `remote`) does, measured
+against the OpenCode engine it runs on (v1.18.30) and against OpenCode's own clients: the terminal
+UI (`packages/tui`) and the official desktop/web app (`packages/app` + `packages/session-ui`).
 
-Legend: **✅ parity** · **🟡 partial** · **❌ missing** · **➕ FlupCode extra** (not in TUI)
+This file used to compare the TUI with `packages/app` — upstream's client, not ours — so it read as
+a nearly complete matrix of features FlupCode does not have. `docs/AUDIT-2026-09.md` (14 September 2026) checked every row against `packages/harness` and found F3-7, F3-8, F3-10, F3-13, F3-17,
+F4-3, F4-5, F4-6 and F2-2 marked done while empty or broken. The matrix below is the corrected one:
+every status refers to **FlupCode's harness**, and each claim points at the code that backs it.
+
+Legend: **✅** works end to end · **🟡** partial or worse than upstream · **🔌** the engine exposes it
+and the harness does not use it · **❌** nobody has it · **➕** FlupCode has it and upstream does not
+
+Paths are relative to `packages/`.
 
 ## 1. Shell, routing & navigation
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Home screen | `routes/home.tsx` | `pages/home.tsx`, `pages/home/*` | ✅ |
-| Session screen | `routes/session/index.tsx` | `pages/session.tsx` | ✅ |
-| Sidebar / session rail | `routes/session/sidebar.tsx` | `pages/layout/sidebar-*.tsx` | ✅ |
-| Window chrome, back/forward history | n/a (terminal) | `components/titlebar*.tsx` | ✅ |
-| Tab strip for sessions/files | n/a | `components/titlebar-tab-strip.tsx` | ✅ |
-| Project/workspace rail | `context/project.tsx` | `pages/layout/sidebar-project.tsx` | ✅ |
-| Mobile/responsive drawer | n/a | `pages/layout.tsx`, `components/ui/drawer.tsx` | ✅ |
-| Harness layout (nav: Artefactos/Rutinas/Personalizar) | ❌ | ❌ | ➕ F4 |
+| Feature                                                       | Upstream  | FlupCode | Evidence                                                                |
+| ------------------------------------------------------------- | --------- | -------- | ----------------------------------------------------------------------- |
+| Sidebar, top bar, right context panel                         | ✅        | ✅       | `harness/src/components/{Sidebar,Topbar,RightAside}.tsx`                |
+| Side panels (browser, diff, terminal), split up to 4 sessions | 🟡 (tabs) | ➕       | `WorkspacePanels.tsx`, `split.ts`                                       |
+| URL routing, session tabs, lineage breadcrumb                 | ✅        | ❌       | navigation is signals; only `?session=` and `#remote=`                  |
+| Command palette                                               | ✅        | 🟡       | `CommandPalette.tsx`: commands, sessions and files; no split/rename/pin |
+| Editable keybinds, leader key, which-key                      | ✅        | ❌       | only the palette key (`SettingsPanel.tsx`)                              |
+| Phone layout, remote pairing, push, PWA                       | ❌        | ➕       | `remote/*`, `relay/*`, `flupcode-cli/*`                                 |
 
 ## 2. Session lifecycle
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| New / clear | `/new` | present | ✅ |
-| List / switch / search | `/sessions` | present | ✅ |
-| Pin / quick slots | `ctrl+f`, `<leader>1..9` | sidebar notification badges; no quick slots | 🟡 |
-| Rename | `/rename`, `ctrl+r` | timeline title editor | ✅ |
-| Delete (with confirm) | `ctrl+d` | `DialogDeleteSession` | ✅ |
-| Archive | — | archive action exists; home affordance disabled (`SHOW_HOME_SESSION_ARCHIVE=false`) | 🟡 |
-| Fork from message | `/fork` | `dialog-fork.tsx` | ✅ |
-| Compact / summarize | `/compact` | `use-session-commands.tsx` | ✅ |
-| Undo / redo | `/undo`, `/redo` | revert dock + commands | ✅ |
-| Timeline jump | `/timeline` | message navigation / hash scroll | 🟡 (no dedicated dialog) |
-| Move session between locations | `/move`, `dialog-move-session.tsx` | ❌ | ❌ → F3 |
-| Session tags/labels | `dialog-tag.tsx` | ❌ | ❌ → F3 |
-| Prompt stash | `dialog-stash.tsx` | ❌ | ❌ → F3 |
-| Background subagents | `ctrl+b` | subagent session tabs | ✅ |
-| Parent/child session nav | present | `session-lineage.ts` | ✅ |
+| Feature                                          | Upstream                   | FlupCode | Evidence                                                             |
+| ------------------------------------------------ | -------------------------- | -------- | -------------------------------------------------------------------- |
+| New, list, switch, filter, pin, rename, delete   | ✅                         | ✅       | `app.tsx`                                                            |
+| Fork, including from one message                 | ✅                         | ✅       | `client.session.fork({ messageID })`, `SessionView` fork action      |
+| Share / unshare                                  | ✅                         | ✅       | `client.session.share` → `/session/:id/share`                        |
+| Move between projects                            | ✅                         | ✅       | `/experimental/control-plane/move-session`                           |
+| Compact / summarize                              | ✅                         | 🟡       | compaction runs; no divider or summary in the timeline               |
+| Undo / redo with file restore                    | ✅                         | 🟡       | `revert.stage/commit/clear`; no marker in the timeline, no redo      |
+| Archive, tags, server-side search, cursor paging | ✅                         | 🔌       | `GET /session?search=`, `PATCH /session {time.archived}` unused      |
+| Export transcript                                | ✅ (Markdown with options) | 🟡       | Markdown, no options (`exportMarkdown`)                              |
+| Engine-generated title                           | ✅                         | ❌       | the v2 runner writes none; the harness falls back to `titleFromText` |
+| Session list cap                                 | paged                      | 🟡       | 200, no paging (`client.ts`)                                         |
 
-## 3. Composer / prompt input
+## 3. Composer
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Text composer, auto-resize | `component/prompt/index.tsx` | `prompt-input-v2.tsx` | ✅ |
-| `@` file/reference/agent/MCP mentions | `prompt/autocomplete.tsx` | `v2/.../interaction.ts` | ✅ |
-| `!` shell mode | present | `machine.ts`, `submit.ts` | ✅ |
-| `/` slash commands | autocomplete | legacy + v2 popovers | 🟡 (v2 lacks skill/MCP source badges) |
-| Image/file/PDF attachments | clipboard + drag/drop | `image-attachments.tsx`, drag overlay | ✅ |
-| Attachment cards/preview | inline | `attachment-card-v2.tsx` | ✅ |
-| External editor | `/editor` | open-in-app for files; no prompt editor bridge | 🟡 |
-| Editor selection context (IDE/Zed) | `context/editor.ts` | ❌ (web) | ❌ → F3 (desktop later) |
-| Prompt history | persistent JSONL | `prompt-input/history.ts` | ✅ |
-| Paste summarization | `[Pasted ~N lines]` | ❌ | ❌ → F3 |
-| Queued / steer prompts | durable admission + QUEUED badge | follow-up dock + queue setting | ✅ |
-| Model selector + favorites | `/models` | model dialogs | ✅ |
-| Agent selector / cycle | `/agents`, `tab` | `context/local-agent.ts` | ✅ |
-| Variant / thinking effort | `ctrl+t` | `context/model-variant.ts` | ✅ |
-| Auto-approve permission mode | `permission.mode` | `context/permission.tsx` | ✅ |
-| Voice / dictation | ❌ | ❌ | ➕ F4 (screenshot) |
-| Context chips (Local / "Sin carpeta") | n/a | workspace selector only | ➕ F2 |
+| Feature                                                     | Upstream          | FlupCode | Evidence                                                       |
+| ----------------------------------------------------------- | ----------------- | -------- | -------------------------------------------------------------- |
+| `/` commands, `@file`, `!shell`, attachments, paste summary | ✅                | ✅       | `Composer.tsx`                                                 |
+| Queue vs steer, with the badge saying which                 | ✅                | ✅       | `DeliveryMenu.tsx`, `pending-prompts.ts`                       |
+| Agent / model / variant / permission-mode pickers           | ✅                | ✅       | `Composer.tsx`                                                 |
+| `@agent`, `@mcp-resource`, file contents as a part          | ✅                | ❌       | `@path` inserts text only                                      |
+| Skills as slash commands                                    | ✅                | 🟡       | `/name` asks the agent to load the skill; no skill manager     |
+| External editor for the prompt, IDE selection context       | ✅                | ❌       | —                                                              |
+| Prompt history                                              | ✅ (engine JSONL) | 🟡       | localStorage (`prompt-history.ts`)                             |
+| Mobile composer                                             | n/a               | 🟡       | `MobileComposer.tsx` duplicates it without `/`, `@` or history |
+| Voice dictation                                             | ❌                | ➕       | `dictation.ts` + the desktop speech helper                     |
 
 ## 4. Message rendering
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Streaming markdown + code highlight | tree-sitter | worker markdown + Shiki/Pierre | ✅ |
-| Reasoning/thinking blocks | collapsible | `showReasoningSummaries` | ✅ |
-| Tool renderers (bash/read/grep/glob/web/edit/write/task/todo/skill) | specialized | `ToolRegistry` | ✅ |
-| Tool details toggle / default-open | `/details` | settings + per-part toggle | ✅ |
-| Diffs (inline + full-screen viewer) | `diff-viewer.tsx` | `session-review*.tsx`, Pierre | ✅ |
-| Diagnostics under edits | present | present | ✅ |
-| Todo list / dock | inline | todo dock | ✅ |
-| Subagent task display | present | task card + progress | ✅ |
-| Compaction divider | present | present | ✅ |
-| Revert/undo marker | present | revert dock | ✅ |
-| Copy message / transcript / export | `/copy`, `/export` | copy + JSON export | 🟡 (no Markdown transcript export options) |
-| Message in-place editing | ❌ | ❌ (revert/fork only) | ➕ F4 |
-| Mermaid | ❌ | ❌ | ➕ F4 (optional) |
-| Toggle "steps" | `/details` | orphan i18n key only | ❌ → F3 |
+| Feature                                       | Upstream           | FlupCode | Evidence                                                      |
+| --------------------------------------------- | ------------------ | -------- | ------------------------------------------------------------- |
+| Streaming markdown + highlighting             | ✅ (Shiki, worker) | 🟡       | `marked` + DOMPurify on the main thread, regex highlighter    |
+| Tool renderers                                | ✅ (per tool)      | 🟡       | bash/edit/write; the rest show raw output (`SessionView.tsx`) |
+| Reasoning blocks                              | ✅                 | ❌       | dropped from the transcript                                   |
+| Inline diff per edit + full diff viewer       | ✅ (Pierre)        | 🟡       | LCS diff on the main thread; the panel shows a raw patch      |
+| Subagent cards, compaction and revert markers | ✅                 | ❌       | subagents are a row of chips (`SubagentList.tsx`)             |
+| LSP diagnostics under edits                   | ✅                 | ❌       | the v2 runner produces none                                   |
+| Line comments on a diff                       | ✅                 | ❌       | —                                                             |
 
-## 5. Commands, keybinds & palette
+## 5. Permissions & questions
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Command palette | `ctrl+p` | `dialog-command-palette-v2.tsx` | ✅ |
-| Command registry + keybind matching | `keymap.tsx` | `context/command.tsx` | ✅ |
-| Leader key | `ctrl+x` | n/a (uses mod-based bindings) | 🟡 (by design) |
-| Which-key / shortcuts overlay | `which-key.tsx` | settings → Shortcuts | 🟡 |
-| Custom/editable keybinds | `tui.json` | `settings-keybinds.tsx` | ✅ |
-| Server/MCP slash commands | present | present | ✅ |
-| Skills autocomplete (`/skills`) | `dialog-skill.tsx` | i18n badge only | ❌ → F3 |
+| Feature                                                 | Upstream | FlupCode | Evidence                                                        |
+| ------------------------------------------------------- | -------- | -------- | --------------------------------------------------------------- |
+| Permission dock (once / always / reject)                | ✅       | ✅       | `PermissionDock.tsx`                                            |
+| Previews of the command, the diff, the file             | ✅       | ✅       | `permission-preview.ts` reads the tool call from the transcript |
+| Reason on reject                                        | ✅       | ✅       | `permission.reply({ message })`                                 |
+| Saved "always" grants, listed and revocable             | ✅       | ✅       | `/api/permission/saved`, Settings → Remembered permissions      |
+| Pending permissions across sessions                     | ✅       | ✅       | `/api/permission/request`, sidebar dot + top-bar count          |
+| Rule editor (`allow`/`ask`/`deny` per tool and pattern) | ✅       | ❌       | modes only (`permission-modes.ts`)                              |
+| Question dock                                           | ✅       | ✅       | `QuestionDock.tsx`                                              |
 
-## 6. Permissions, questions & attention
+## 6. Agents, skills, commands, MCP
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Permission prompt (once/always/reject) | `routes/session/permission.tsx` | `session-permission-dock.tsx` | ✅ |
-| Rich permission previews (diff/read/bash) | present | present | ✅ |
-| Auto-accept / rules | `permission.mode` | `permission-auto-respond.ts` | ✅ |
-| Question wizard (multi-select/custom) | `routes/session/question.tsx` | `session-question-dock.tsx` | ✅ |
-| OS notifications | `attention.ts` | `context/platform.tsx` | ✅ |
-| Sounds / sound packs | `tui.json` + packs | `utils/sound.ts` + bundled sounds | ✅ |
-| Notification badges | footer counter | sidebar/home dots | ✅ |
+| Feature                                                   | Upstream | FlupCode | Evidence                                               |
+| --------------------------------------------------------- | -------- | -------- | ------------------------------------------------------ |
+| MCP: status, add local/remote, connect/disconnect         | ✅       | ✅       | `client.mcp.*` → `/mcp` + the configuration            |
+| MCP: OAuth, per-server logs, resources, per-agent access  | ✅       | ❌       | `/mcp/:name/auth`, `/experimental/resource` unused     |
+| Agent list and switch                                     | ✅       | 🟡       | the menu only appears with more than one primary agent |
+| Subagents via the task tool, `subagent_depth`, background | ✅       | ❌       | Code runs on the v2 runner, which has no subagents     |
+| Commands with agent/model/variant overrides, subtask      | ✅       | 🟡       | runs them, no overrides                                |
+| Skill manager (sources, per-agent, install)               | ✅       | ❌       | `SkillsPanel.tsx` lists them and nothing else          |
+| Editors for agents, commands, permissions, MCP            | ✅       | ❌       | raw JSON only (`ConfigPanel.tsx`)                      |
+| Plugins: install and list                                 | ✅       | ❌       | —                                                      |
 
-## 7. Model / agent / theme / providers
+## 7. Files, terminal, git
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Model list + favorites + recents | `dialog-model.tsx` | model dialogs | ✅ |
-| Provider connect (OAuth + API key) | `dialog-provider.tsx` | `dialog-connect-provider.tsx` | ✅ |
-| Custom provider | present | `dialog-custom-provider.tsx` | ✅ |
-| Agent list/switch | `dialog-agent.tsx` | present | ✅ |
-| Theme list + live preview | `dialog-theme-list.tsx` | theme engine + settings | ✅ |
-| Light/dark/system + lock | `theme.tsx` | settings → General | ✅ |
-| ~30–40 bundled themes | `theme/assets` | `packages/ui/src/theme/themes` | ✅ |
-| Console org switch | `/org` | ❌ | ❌ → F3 (low priority) |
+| Feature                               | Upstream          | FlupCode | Evidence                                             |
+| ------------------------------------- | ----------------- | -------- | ---------------------------------------------------- |
+| Embedded terminal                     | ✅ (tabs, replay) | 🟡       | `Terminal.tsx`: one per panel, no tabs, no reconnect |
+| File tree, viewer, text/symbol search | ✅                | 🔌       | `fs.list/read`, `find.text/symbols` unused           |
+| Review panel per git / branch / turn  | ✅                | 🟡       | raw patch in a `<pre>` (`WorkspacePanels.tsx`)       |
+| Git: branch and +/-                   | ✅                | 🟡       | `RepoBar.tsx`; "Commit" sends a prompt               |
+| Worktrees and workspaces              | ✅                | 🔌       | `/experimental/worktree` unused                      |
 
-## 8. Terminal, files & context
+## 8. Reliability & security
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Embedded terminal / PTY | external | `components/terminal.tsx` + tabs | ✅ |
-| File tree / browser | diff viewer tree | `file-tree-v2.tsx`, file browser tab | ✅ |
-| File viewer + search | present | `session-ui/file.tsx` | ✅ |
-| Review panel (git/branch/turn) | diff viewer | `review-panel-v2.tsx` | ✅ |
-| Line comments / annotations | ❌ | `context/comments.tsx` | ➕ |
-| Add selection to context | present | `context.addSelection` | ✅ |
-| Status: MCP / LSP / formatter / plugins | `/status` | `status-popover.tsx` | ✅ |
-| MCP toggle | `dialog-mcp.tsx` | `dialog-select-mcp.tsx` | ✅ |
-| MCP add/configure | ❌ | ❌ (toggle only) | ❌ → F3 |
-| LSP/formatter status detail | sidebar panels | status popover | ✅ |
+| Feature                                              | Upstream                        | FlupCode | Evidence                                               |
+| ---------------------------------------------------- | ------------------------------- | -------- | ------------------------------------------------------ |
+| Event stream with heartbeat, idle timeout and resync | ✅                              | ✅       | `client.ts` drops a quiet stream; reconnecting resyncs |
+| Event-driven state                                   | ✅ (store)                      | ❌       | full refetch every 300 ms (`app.tsx`)                  |
+| Per-region error boundaries, stale-data notice       | ✅                              | ✅       | `PanelBoundary.tsx`, `resource.ts`                     |
+| Permission defaults that only restrict               | ✅                              | ✅       | `permission-modes.ts`; bypass is explicit              |
+| Renderer sandbox and same-origin policy (desktop)    | ✅                              | ✅       | `harness-desktop`: `oc://renderer`, `sandbox: true`    |
+| Engine password                                      | ✅ (`OPENCODE_SERVER_PASSWORD`) | ✅       | the desktop app sets one for the engine it starts      |
+| Provider API keys kept out of the page               | ✅                              | ✅       | the client drops them from the provider directory      |
 
-## 9. Settings & configuration
+## 9. Settings, usage & operations
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Settings entry | command palette | `settings-dialog.tsx` | ✅ |
-| General (language, shell, behavior, notifications) | `tui.json` | `settings-v2/general.tsx` | ✅ |
-| Providers / Models | dialogs | `settings-v2/providers.tsx`, `models.tsx` | ✅ |
-| Servers (add/edit/remove/default) | n/a | `settings-v2/servers.tsx` | ✅ |
-| Shortcuts editor | `tui.json` | `settings-keybinds.tsx` | ✅ |
-| Permissions editor | `tui.json` | i18n only | ❌ → F3 |
-| Agents editor | config files | i18n placeholder | ❌ → F3 |
-| Commands editor | config files | i18n placeholder | ❌ → F3 |
-| MCP editor | config files | i18n placeholder | ❌ → F3 |
-| Raw `opencode.json` editor | external | ❌ | ❌ → F4 (optional) |
+| Feature                               | Upstream | FlupCode | Evidence                                                                        |
+| ------------------------------------- | -------- | -------- | ------------------------------------------------------------------------------- |
+| Providers: API key + OAuth            | ✅       | ✅       | `ProvidersPanel.tsx`                                                            |
+| Settings by section with real editors | ✅       | 🟡       | one panel plus a raw JSON editor                                                |
+| Themes                                | ✅ (~40) | ❌       | two palettes and light/dark                                                     |
+| Per-session context usage             | ✅       | ✅       | `ContextMeter.tsx`                                                              |
+| Usage dashboard, activity heatmap     | ❌       | ➕       | `HomeCanvas.tsx` — but it downloads up to 30 transcripts to count               |
+| Reply suggestions, Chat tab           | ❌       | ➕       | `reply-suggestion.ts`, `chat.ts` — one hidden child session per turn            |
+| Artifacts, routines                   | ❌       | 🟡       | switched off in `features.ts`: routines run on a tab timer, artifacts are paths |
 
-## 10. Operations & sharing
+## Where the work is
 
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Share / unshare | `/share`, `/unshare` | share popover | ✅ |
-| Public share viewer | n/a | `packages/web/src/components/Share.tsx` | ✅ |
-| Export transcript | `/export` (Markdown + options) | JSON export | 🟡 |
-| Copy transcript | `/copy` | copy message | 🟡 |
-| Server connect / switch | n/a | `context/server.tsx` | ✅ |
-| In-app `serve` / tunnel management | n/a | ❌ (CLI only) | ❌ → F6 |
-| Update prompt | present | desktop updater | ✅ |
+The audit's P0 block, in order: the engine adapter and the legacy runtime for Code (H-01), an
+event-driven store (H-02), a resilient event stream (H-03 ✅), secure defaults (H-04 ✅), removing
+the placebos (H-05 ✅), adopting `session-ui` (H-06), queue and steer (H-07 ✅), complete
+permissions (H-08 ✅) and error states (H-09 ✅).
 
-## 11. Usage, stats & analytics
-
-| Feature | TUI | Web/Desktop | Status |
-| --- | --- | --- | --- |
-| Per-session context usage (tokens/cost/cache) | sidebar | `session-context-usage.tsx`, context tab | ✅ |
-| Per-session token breakdown | sidebar | `session-context-breakdown.ts` | ✅ |
-| Global usage dashboard (sessions/messages/tokens/streaks/peak hour/favorite model) | ❌ | ❌ | ➕ F4 |
-| Activity heatmap | ❌ | ❌ | ➕ F4 |
-| Usage comparisons ("x× más tokens que…") | ❌ | ❌ | ➕ F4 |
-
-## Gap summary (the actual work for F3/F4)
-
-**Missing vs TUI (F3):**
-1. Move session between locations.
-2. Session tags/labels.
-3. Prompt stash.
-4. Skill manager/autocomplete in v2 composer.
-5. Paste summarization.
-6. Markdown transcript export with options.
-7. MCP add/configure (beyond toggle).
-8. Settings editors for permissions, agents, commands, MCP.
-9. "Toggle steps" command (orphan i18n).
-10. Console org switch (low priority).
-
-**FlupCode extras (F2/F4, not in TUI):**
-1. Harness shell layout + sidebar nav (Artefactos, Rutinas, Personalizar).
-2. Composer context chips (Local / no-folder), voice input.
-3. Global usage dashboard + activity heatmap + comparisons.
-4. Artifacts.
-5. Routines (scheduled tasks).
-6. In-place message editing (optional).
-7. Remote/mobile PWA + QR pairing + push (F6).
+`docs/ROADMAP.md` still describes the older plan. `docs/AUDIT-2026-09.md` §17 is the priced backlog
+and supersedes it wherever the two disagree.

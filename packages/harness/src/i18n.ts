@@ -158,6 +158,10 @@ const ES: Record<string, string> = {
   "Runs everything without asking, including commands and edits outside the folder":
     "Ejecuta todo sin preguntar, incluidos comandos y ediciones fuera de la carpeta",
   "Click again to confirm": "Pulsa otra vez para confirmar",
+  Share: "Compartir",
+  "Stop sharing": "Dejar de compartir",
+  "Share link copied": "Enlace copiado",
+  "Sharing stopped": "Se dejó de compartir",
   "Why? The agent reads this (optional)": "¿Por qué? El agente lo lee (opcional)",
   "Reject with reason": "Rechazar con motivo",
   "Remembers: {patterns}": "Recuerda: {patterns}",

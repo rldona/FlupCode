@@ -2036,6 +2036,28 @@ export const App: Component = () => {
     })()
   }
 
+  // The engine has served share links all along; the UI just never asked for one. It cannot say
+  // whether a session is already shared — the v2 session record carries no share state — so both
+  // actions are always offered rather than pretending to know.
+  const shareSession = () => {
+    const session = selectedSession()
+    if (!session) return
+    void run(async (current) => {
+      const url = await current.session.share({ sessionID: session.id, directory: session.location?.directory })
+      if (url) await navigator.clipboard?.writeText(url).catch(() => undefined)
+      return undefined
+    }, t("Share link copied"))
+  }
+
+  const unshareSession = () => {
+    const session = selectedSession()
+    if (!session) return
+    void run(async (current) => {
+      await current.session.unshare({ sessionID: session.id, directory: session.location?.directory })
+      return undefined
+    }, t("Sharing stopped"))
+  }
+
   const moveSession = (directory: string) => {
     const sessionID = selected()
     if (!sessionID) return
@@ -2625,6 +2647,8 @@ export const App: Component = () => {
                     onCompact={compactSession}
                     onRename={renameSession}
                     onExport={exportMarkdown}
+                    onShare={shareSession}
+                    onUnshare={unshareSession}
                     onMove={moveSession}
                     onDelete={deleteSession}
                     onUndo={undo}
