@@ -1101,11 +1101,22 @@ export const App: Component = () => {
 
   /**
    * Folders whose event stream this window follows. A legacy run — every chat, and every Code
-   * session once H-01 lands — streams its deltas and its status only on its own folder's stream, and
-   * a browser holds only a handful of connections to one origin, so this follows the folders that
-   * are on screen and leaves runs elsewhere to the periodic `session.active()` check.
+   * session — streams its deltas and its status only on its own folder's stream, so a window that
+   * wants them live has to hold one connection open per folder.
+   *
+   * How many it may hold is not a matter of taste. A browser allows six connections to one origin
+   * over HTTP/1.1, and a stream holds one for as long as it lives. Measured against the engine on
+   * 2026-09-16: with five streams open a request still answered in 8ms; with six, nothing answered
+   * at all and the page never recovered — closing the tab was the only way out, which is exactly
+   * what this looked like in use. Following four folders plus the global stream left a single
+   * connection for every fetch the app makes, so one reconnection overlapping its own socket was
+   * enough to deadlock the window.
+   *
+   * Two folders keeps the total at three and leaves half the budget free. A run in a folder nobody
+   * is following is not lost: it still shows up in the periodic `session.active()` check and in the
+   * refetch at the end of a turn — it just stops streaming live.
    */
-  const WATCHED_DIRECTORIES = 4
+  const WATCHED_DIRECTORIES = 2
   // A plain accessor, not a memo: a memo computes as soon as it is created, and the split panes it
   // reads are declared further down, which would run the whole component into the temporal dead zone.
   const watchedDirectories = () => {
