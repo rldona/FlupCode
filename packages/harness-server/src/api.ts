@@ -136,6 +136,28 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const run = repository.getRun(path[2])
       return run ? json({ data: { ...run, tasks: repository.listTasks(run.id) } }) : error("Run not found", 404)
     }
+    // Stopping and forgetting a run, whatever started it. A routine's runs answer here too: the
+    // supervisor lists runs, not routines, and has only the run's id to act on.
+    if (path[1] === "runs" && request.method === "POST" && path[2] === "stop" && !path[3]) {
+      return json({ data: { stopped: await scheduler.stopAll() } })
+    }
+    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "stop") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      return json({ data: (await scheduler.stopRun(run.id)) ?? run })
+    }
+    if (path[1] === "runs" && request.method === "DELETE" && !path[2]) {
+      // Clearing the list is clearing what is over. A run still going is not history yet.
+      return json({ data: { removed: repository.removeFinishedRuns().length } })
+    }
+    if (path[1] === "runs" && request.method === "DELETE" && path[2]) {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      // A running run is still being written to, and its lock still held: stop it first, then it
+      // can go. Deleting it underneath the runner would leave tasks pointing at nothing.
+      if (run.status === "running") return error("Stop the run before deleting it", 409)
+      return json({ data: repository.removeRun(run.id) })
+    }
     if (path[1] !== "routines") return error("Not found", 404)
 
     const routineID = path[2]

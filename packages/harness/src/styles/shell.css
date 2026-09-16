@@ -7200,6 +7200,20 @@ button.fc-status {
   cursor: pointer;
 }
 
+.fc-run-open:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fc-run-danger {
+  border-color: color-mix(in srgb, var(--fc-danger) 40%, var(--fc-border));
+  color: var(--fc-danger);
+}
+
+.fc-run-card .fc-confirm-inline {
+  margin-top: var(--fc-space-1);
+}
+
 .fc-run-error {
   margin: var(--fc-space-1) 0 0;
   color: var(--fc-danger);

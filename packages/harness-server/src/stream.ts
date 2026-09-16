@@ -20,8 +20,12 @@ const frame = (entry: StoredEvent) => `id: ${entry.seq}\ndata: ${JSON.stringify(
  * `Last-Event-ID` or `?after=` — and gets what it missed from the database before it starts
  * following along. That is the difference between this and asking every five seconds: no gap, and
  * nothing asked for that has not changed.
+ *
+ * A client that says nothing gets nothing replayed. It has just read the lists it cares about, so
+ * the history would tell it about runs and routines that have since been deleted — which is exactly
+ * what happened: every reconnect resurrected every run the server had ever started.
  */
-export function eventStream(repository: SqliteRoutineRepository, afterSeq: number) {
+export function eventStream(repository: SqliteRoutineRepository, afterSeq: number | undefined) {
   let unsubscribe: (() => void) | undefined
   let heartbeat: ReturnType<typeof setInterval> | undefined
 
@@ -37,12 +41,14 @@ export function eventStream(repository: SqliteRoutineRepository, afterSeq: numbe
         }
       }
 
-      let cursor = afterSeq
+      let cursor = afterSeq ?? repository.lastSeq()
       // The catch-up is read before the subscription starts publishing, and anything that arrives
       // while it runs is caught by the sequence check below rather than sent twice.
-      for (const entry of repository.listEvents(afterSeq, MAX_PENDING)) {
-        cursor = entry.seq
-        send(frame(entry))
+      if (afterSeq !== undefined) {
+        for (const entry of repository.listEvents(afterSeq, MAX_PENDING)) {
+          cursor = entry.seq
+          send(frame(entry))
+        }
       }
 
       unsubscribe = repository.subscribe((entry) => {
@@ -80,10 +86,15 @@ export function eventStream(repository: SqliteRoutineRepository, afterSeq: numbe
   })
 }
 
-/** Where a client says it got to: the header a browser resends by itself, or an explicit cursor. */
+/**
+ * Where a client says it got to: the header a browser resends by itself, or an explicit cursor.
+ *
+ * Undefined when it says nothing, which is not the same as zero: zero means "from the beginning",
+ * and a client that never saw an event has no history to be told about.
+ */
 export function resumeFrom(request: Request) {
   const header = Number(request.headers.get("last-event-id"))
   if (Number.isFinite(header) && header > 0) return header
   const after = Number(new URL(request.url).searchParams.get("after"))
-  return Number.isFinite(after) && after > 0 ? after : 0
+  return Number.isFinite(after) && after > 0 ? after : undefined
 }
