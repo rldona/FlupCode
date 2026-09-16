@@ -165,6 +165,9 @@ export const App: Component = () => {
     return "live"
   }
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  // Assigned further down, where the refetches live. A turn ending is the moment the transcript is
+  // worth reconciling against the engine, and the only one.
+  let turnEnded: (sessionID: string) => void = () => undefined
   const setRunning = (sessionID: string, running: boolean) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
@@ -172,7 +175,10 @@ export const App: Component = () => {
     setRunState((state) => (state[sessionID] === running ? state : { ...state, [sessionID]: running }))
     // The moment a session stops working is the only safe one to hand it a prompt that was waiting:
     // anything sent earlier is swallowed by the turn still running. See pending-prompts.ts.
-    if (wasRunning && !running) pendingPrompts.release(sessionID, expandPastes, serverUrl())
+    if (wasRunning && !running) {
+      pendingPrompts.release(sessionID, expandPastes, serverUrl())
+      turnEnded(sessionID)
+    }
   }
   // A new message starts a new run: until its first event arrives, the transcript decides.
   const forgetRun = (sessionID: string) => {
@@ -526,12 +532,22 @@ export const App: Component = () => {
   // Blocked work is read from the runtime that raised it: every turn runs on the legacy runner, and
   // the v2 registries answer empty for it, which is what left an agent waiting on a question no dock
   // could show. Sessions that still hold a v2 request from before are merged in by id.
+  //
+  // A string, not an object. The session list is refetched all through a turn and hands back fresh
+  // objects every time, so a source built out of `selectedSession()` changed identity on each one
+  // and both registries, in both runtimes, were asked again. Measured against a running turn: 93
+  // requests for permissions and questions in thirty seconds, for events nobody had raised.
   const blockedSource = () => {
     const sessionID = selected()
     if (!ready() || !sessionID) return undefined
-    return { url: serverUrl(), sessionID, directory: selectedSession()?.location?.directory }
+    return `${serverUrl()}\n${sessionID}\n${selectedSession()?.location?.directory ?? ""}`
   }
-  const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (source) => {
+  const blockedTarget = (key: string) => {
+    const [url = "", sessionID = "", directory = ""] = key.split("\n")
+    return { url, sessionID, directory: directory || undefined }
+  }
+  const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (key) => {
+    const source = blockedTarget(key)
     const engine = createClient(source.url)
     const [legacy, v2] = await Promise.all([
       engine.blocked.permissions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
@@ -543,7 +559,8 @@ export const App: Component = () => {
     const seen = new Set(legacy.map((request) => request.id))
     return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
   })
-  const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (source) => {
+  const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (key) => {
+    const source = blockedTarget(key)
     const engine = createClient(source.url)
     const [legacy, v2] = await Promise.all([
       engine.blocked.questions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
@@ -558,8 +575,11 @@ export const App: Component = () => {
   // Every session's pending permissions, not just the open one's. An agent waiting on one is silent
   // and looks idle, so without this the reader has no way to know another session is stuck.
   const [blocked, { refetch: refetchBlocked }] = createResource(
-    () => (ready() ? { url: serverUrl(), folders: watchedDirectories() } : undefined),
-    async (source) => {
+    // A string again: `watchedDirectories()` builds a new array every time the session list moves.
+    () => (ready() ? [serverUrl(), ...watchedDirectories()].join("\n") : undefined),
+    async (key) => {
+      const [url = "", ...folders] = key.split("\n")
+      const source = { url, folders }
       const engine = createClient(source.url)
       // Both runtimes again, and the legacy registry is per folder: a question counts as blocked work
       // just as much as a permission does, and both were invisible from anywhere but their session.
@@ -956,13 +976,37 @@ export const App: Component = () => {
       const wantSessions = pendingSessions
       pendingMessages = false
       pendingSessions = false
-      if (wantMessages) {
-        void refetchMessages()
-        void refetchVcsInfo()
-        void refetchVcsStatus()
-      }
+      if (wantMessages) scheduleTranscriptReconcile()
       if (wantSessions) void refetchSessions()
     }, 300)
+  }
+  /**
+   * Re-read the transcript and the working tree from the engine.
+   *
+   * Only worth doing when a turn ends. The transcript is built from the engine's own events, so
+   * asking for it again mid-turn re-reads what the store already holds — the whole history, which
+   * on a long session is megabytes and grows as the turn goes. Measured against a real one: 3.6MB,
+   * seven times in thirty seconds, alongside `/vcs/status` at 400ms a call. That was most of the
+   * traffic that pinned the window to the browser's six connections and stopped it answering.
+   */
+  const reconcileTranscript = () => {
+    void refetchMessages()
+    void refetchVcsInfo()
+    void refetchVcsStatus()
+  }
+  let reconcileWhenIdle = false
+  const scheduleTranscriptReconcile = () => {
+    // Mid-turn the store is already following along; wait for the end rather than re-reading it all.
+    if (runState()[selected() ?? ""] === true) {
+      reconcileWhenIdle = true
+      return
+    }
+    reconcileTranscript()
+  }
+  turnEnded = (sessionID) => {
+    if (sessionID !== selected() || !reconcileWhenIdle) return
+    reconcileWhenIdle = false
+    reconcileTranscript()
   }
   onCleanup(() => {
     if (refetchTimer) clearTimeout(refetchTimer)
