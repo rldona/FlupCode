@@ -49,7 +49,7 @@ async function openApp(page: Page) {
       recorded.connects.push(request.postDataJSON())
       return route.fulfill({ json: { data: {} } })
     }
-    if (url.pathname === "/api/session/ses_sec/prompt") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/ses_sec/prompt_async") return route.fulfill({ json: {} })
     if (url.pathname === "/session/ses_sec" && request.method() === "PATCH") {
       recorded.patches.push(request.postDataJSON())
       return route.fulfill({ json: session })

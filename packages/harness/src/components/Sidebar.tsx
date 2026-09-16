@@ -1,4 +1,5 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import { sessionTitle } from "../session-title"
 import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import type { AppView } from "../chat"
@@ -188,7 +189,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           title={props.blockedSessions.includes(row.session.id) ? t("Waiting for permission") : undefined}
           aria-hidden="true"
         />
-        <span class="fc-session-title">{row.session.title || row.session.id.slice(0, 8)}</span>
+        <span class="fc-session-title">{sessionTitle(row.session) || t("New session")}</span>
       </button>
       <button
         class="fc-session-action"

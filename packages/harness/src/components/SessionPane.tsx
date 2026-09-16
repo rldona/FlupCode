@@ -265,7 +265,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       const body = props.expandPastes(text)
       const fileRefs = files.map(({ uri, name }) => ({ uri, name }))
       if (props.chat && props.chatsDirectory) {
-        await current.session.chat({
+        await current.session.send({
           sessionID: sessionID(),
           directory: props.chatsDirectory,
           text: body,
@@ -279,18 +279,32 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           permission: permissionMode(props.permissionModeId).rules,
           directory: props.session.location?.directory,
         })
-        pendingPrompts.add({ id, sessionID: sessionID(), text, files, delivery: mode })
-        try {
-          await current.session.prompt({
-            sessionID: sessionID(),
-            id,
-            text: body,
-            ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
-            ...(mode ? { delivery: mode } : {}),
-          })
-        } catch (cause) {
-          pendingPrompts.remove(id)
-          throw cause
+        pendingPrompts.add({
+          id,
+          sessionID: sessionID(),
+          directory: props.session.location?.directory,
+          text,
+          files,
+          agent: props.session.agent,
+          ...(validModel() ? { model: validModel()! } : {}),
+          delivery: mode,
+        })
+        // A queued prompt waits in the harness until the session goes idle; see pending-prompts.ts.
+        if (mode !== "queue") {
+          try {
+            await current.session.send({
+              sessionID: sessionID(),
+              directory: props.session.location?.directory,
+              id,
+              text: body,
+              agent: props.session.agent,
+              ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
+              ...(validModel() ? { model: validModel()! } : {}),
+            })
+          } catch (cause) {
+            pendingPrompts.remove(id)
+            throw cause
+          }
         }
       }
       batch(() => {

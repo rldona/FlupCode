@@ -65,7 +65,7 @@ test("Retry resends the failed turn's prompt with the same session", async ({ pa
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
-    if (url.pathname === "/api/session/ses_error/prompt") {
+    if (url.pathname === "/session/ses_error/prompt_async") {
       prompts.push(route.request().postDataJSON())
       return route.fulfill({ json: { data: { accepted: true } } })
     }
@@ -82,6 +82,6 @@ test("Retry resends the failed turn's prompt with the same session", async ({ pa
 
   // The failed prompt goes out again as-is; the draft in the composer stays untouched.
   await expect.poll(() => prompts.length).toBe(1)
-  expect(prompts[0]).toMatchObject({ prompt: { text: "Sea el balance" } })
+  expect(prompts[0]).toMatchObject({ parts: [{ type: "text", text: "Sea el balance" }] })
   await expect(composer).toHaveValue("draft in progress")
 })

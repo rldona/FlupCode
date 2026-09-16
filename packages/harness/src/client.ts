@@ -304,12 +304,21 @@ export function createClient(baseUrl = resolveServerUrl()) {
       interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
       /** Sessions whose run is still going, across all of its steps. */
       active: async () => new Set(Object.keys((await unwrap(client.v2.session.active()))?.data ?? {})),
-      /** Sends a chat message: the legacy prompt is the one that takes a system prompt. See chat.ts. */
-      chat: (input: {
+      /**
+       * Sends a prompt through the legacy runtime, which is the complete one: subagents, MCP, LSP,
+       * retries and engine-written titles all live there, and the v2 runner has none of them. It
+       * returns as soon as the turn is admitted; the folder's event stream carries the rest.
+       *
+       * A prompt sent while a turn is running joins that turn at its next boundary — the legacy
+       * runner has no queue of its own, so waiting is the harness's job (see pending-prompts.ts).
+       */
+      send: (input: {
         sessionID: string
-        directory: string
+        directory?: string
         text: string
-        system: string
+        id?: string
+        agent?: string
+        system?: string
         files?: Array<{ uri: string; name?: string }>
         model?: { providerID: string; id: string; variant?: string }
       }) =>
@@ -317,7 +326,9 @@ export function createClient(baseUrl = resolveServerUrl()) {
           client.session.promptAsync({
             sessionID: input.sessionID,
             directory: input.directory,
-            system: input.system,
+            ...(input.id ? { messageID: input.id } : {}),
+            ...(input.agent ? { agent: input.agent } : {}),
+            ...(input.system ? { system: input.system } : {}),
             ...(input.model
               ? {
                   model: { providerID: input.model.providerID, modelID: input.model.id },
@@ -327,6 +338,22 @@ export function createClient(baseUrl = resolveServerUrl()) {
             parts: [{ type: "text", text: input.text }, ...chatFileParts(input.files ?? [])],
           }),
         ),
+      /**
+       * Which sessions of a folder the legacy runner is working on. `/api/session/active` only knows
+       * about v2 runs — measured against a local engine, a legacy turn never appears there — so this
+       * is what says whether a session is busy once prompts go through the legacy runtime.
+       */
+      status: async (input: { directory: string }) => {
+        const map = (await unwrap(client.session.status({ directory: input.directory }))) as unknown as Record<
+          string,
+          { type?: string } | undefined
+        >
+        return new Set(
+          Object.entries(map ?? {})
+            .filter(([, value]) => value?.type === "busy" || value?.type === "retry")
+            .map(([id]) => id),
+        )
+      },
       /** Stops a chat's legacy run. */
       abort: (input: { sessionID: string; directory: string }) =>
         unwrap(client.session.abort({ sessionID: input.sessionID, directory: input.directory })),

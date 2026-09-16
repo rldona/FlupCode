@@ -37,6 +37,7 @@ type SessionViewProps = {
     files?: MessageFile[]
     delivery?: "steer" | "queue"
     sendNow?: () => void
+    cancel?: () => void
   }>
   onEditUser: (messageID: string, text: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
@@ -1000,6 +1001,11 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           <Show when={item.sendNow}>
                             <button class="fc-message-send-now" type="button" onClick={() => item.sendNow?.()}>
                               {t("Send now")}
+                            </button>
+                          </Show>
+                          <Show when={item.cancel}>
+                            <button class="fc-message-send-now" type="button" onClick={() => item.cancel?.()}>
+                              {t("Cancel")}
                             </button>
                           </Show>
                         </div>

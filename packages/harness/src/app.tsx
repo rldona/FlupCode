@@ -33,6 +33,7 @@ import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } fr
 import { hasModel, replacementModel } from "./model-catalog"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
+import { sessionTitle } from "./session-title"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
@@ -146,7 +147,11 @@ export const App: Component = () => {
   const setRunning = (sessionID: string, running: boolean) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
+    const wasRunning = runState()[sessionID] === true
     setRunState((state) => (state[sessionID] === running ? state : { ...state, [sessionID]: running }))
+    // The moment a session stops working is the only safe one to hand it a prompt that was waiting:
+    // anything sent earlier is swallowed by the turn still running. See pending-prompts.ts.
+    if (wasRunning && !running) pendingPrompts.release(sessionID, expandPastes, serverUrl())
   }
   // A new message starts a new run: until its first event arrives, the transcript decides.
   const forgetRun = (sessionID: string) => {
@@ -908,18 +913,37 @@ export const App: Component = () => {
           // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
           // every reconnection resyncs the state the events would have carried. Missing the blocked
           // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
-          void createClient(url)
-            .session.active()
-            .then((active) => {
-              Object.entries(runState())
-                .filter(([id, running]) => running && !active.has(id))
-                .forEach(([id]) => setRunning(id, false))
-              active.forEach((id) => {
-                setRunning(id, true)
-                watchRun(id, 2000)
-              })
+          void (async () => {
+            // Both runtimes have to be asked: `/api/session/active` only knows about v2 runs, and a
+            // legacy turn — which is now every Code and Chat turn — shows up in its folder's status
+            // map instead. A session in a folder nobody is watching has no source here, so it keeps
+            // whatever it had rather than being called idle on no evidence.
+            const engine = createClient(url)
+            // Untracked: this effect owns the global stream, and re-running it on every change of
+            // the open session would drop and reopen that stream for no reason.
+            const folders = untrack(watchedDirectories)
+            const sessions = untrack(sessionList)
+            const [v2, legacy] = await Promise.all([
+              engine.session.active().catch(() => new Set<string>()),
+              Promise.all(
+                folders.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
+              ),
+            ])
+            const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
+            const known = new Set([
+              ...v2,
+              ...(sessions ?? [])
+                .filter((session) => folders.includes(session.location?.directory ?? ""))
+                .map((session) => session.id),
+            ])
+            Object.entries(runState())
+              .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
+              .forEach(([id]) => setRunning(id, false))
+            running.forEach((id) => {
+              setRunning(id, true)
+              if (v2.has(id)) watchRun(id, 2000)
             })
-            .catch(() => undefined)
+          })().catch(() => undefined)
           void refetchPermissions()
           void refetchQuestions()
           void refetchBlocked()
@@ -1426,7 +1450,7 @@ export const App: Component = () => {
         const running = session.id in runs ? runs[session.id] : activity?.busy.has(session.id)
         return {
           id: session.id,
-          title: session.title,
+          title: sessionTitle(session),
           project: isChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
           branch: directory ? activity?.branches[directory] : undefined,
           updated: session.time.updated,
@@ -2040,7 +2064,7 @@ export const App: Component = () => {
   const renameSession = (id?: string) => {
     const sessionID = id ?? selected()
     if (!sessionID) return
-    const currentTitle = sessionList()?.find((session) => session.id === sessionID)?.title ?? ""
+    const currentTitle = sessionTitle(sessionList()?.find((session) => session.id === sessionID))
     setRenameTarget({ id: sessionID, title: currentTitle })
   }
 
@@ -2286,7 +2310,7 @@ export const App: Component = () => {
   const exportMarkdown = () => {
     const sessionID = selected()
     if (!sessionID) return
-    const lines: string[] = [`# ${selectedSession()?.title ?? sessionID}`, ""]
+    const lines: string[] = [`# ${sessionTitle(selectedSession()) || sessionID}`, ""]
     for (const message of activeMessages() ?? []) {
       if (message.type === "user") {
         lines.push("## User", "", (message as { text?: string }).text ?? "", "")
@@ -2310,12 +2334,6 @@ export const App: Component = () => {
     toast(t("Transcript exported"), "success")
   }
 
-  const titleFromText = (value: string) => {
-    const line = value.replace(/\s+/g, " ").trim()
-    if (!line) return t("New session")
-    return line.length > 60 ? `${line.slice(0, 57)}…` : line
-  }
-
   // Chats have no commands or shell: everything typed is the message.
   const sendChat = (text: string, files: Attachment[], keepDraft = false) => {
     const directory = chatsDirectory()
@@ -2329,11 +2347,10 @@ export const App: Component = () => {
       const sessionID =
         existing ?? (await current.session.create({ ...(model ? { model } : {}), location: { directory } })).id
       if (!existing) {
-        await current.session.rename({ sessionID, title: titleFromText(text) })
         await current.session.setPermission({ sessionID, permission: CHAT_PERMISSION, directory })
       }
       forgetRun(sessionID)
-      await current.session.chat({
+      await current.session.send({
         sessionID,
         directory,
         text: expandPastes(text),
@@ -2368,9 +2385,11 @@ export const App: Component = () => {
             ...(location ? { location: { directory: location } } : {}),
           })
         ).id
-      if (!existing) {
-        await current.session.rename({ sessionID, title: titleFromText(text) })
-        if (!location) setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
+      // No rename here: the engine's title agent names a session on its first turn, but only while
+      // the title is still the placeholder it was created with. Naming it from the prompt looked
+      // tidy and permanently stopped the engine from ever naming anything. See session-title.ts.
+      if (!existing && !location) {
+        setNoFolderSessions((list) => (list.includes(sessionID) ? list : [...list, sessionID]))
       }
       await current.session.setPermission({
         sessionID,
@@ -2378,19 +2397,34 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
       })
       forgetRun(sessionID)
-      pendingPrompts.add({ id, sessionID, text, files, delivery: mode })
+      pendingPrompts.add({
+        id,
+        sessionID,
+        directory: location ?? selectedSession()?.location?.directory,
+        text,
+        files,
+        agent: agent(),
+        ...(model ? { model } : {}),
+        delivery: mode,
+      })
       setStreamedChars(0)
       if (!keepDraft) {
         setPrompt("")
         setAttachments([])
       }
+      // Queued prompts wait here, not in the engine: the legacy runner has no queue of its own, so
+      // one sent now would join the turn in flight instead of following it. pending-prompts.ts
+      // sends it when the session goes idle, which is also what makes it cancellable.
+      if (mode === "queue") return sessionID
       try {
-        await current.session.prompt({
+        await current.session.send({
           sessionID,
+          directory: location ?? selectedSession()?.location?.directory,
           id,
           text: expandPastes(text),
+          agent: agent(),
+          ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-          ...(mode ? { delivery: mode } : {}),
         })
       } catch (cause) {
         pendingPrompts.remove(id)
@@ -2618,7 +2652,7 @@ export const App: Component = () => {
                 </button>
                 <span class="fc-mobile-heading">
                   <span class="fc-mobile-title">
-                    {selectedSession()?.title || (chatView() ? t("New chat") : t("New session"))}
+                    {sessionTitle(selectedSession()) || (chatView() ? t("New chat") : t("New session"))}
                   </span>
                   <Show
                     when={
