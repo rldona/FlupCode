@@ -1022,87 +1022,125 @@ export const App: Component = () => {
     })()
   })
 
-  // Chats run through the legacy prompt, whose deltas and status only stream on their folder's events.
-  createEffect(() => {
-    const directory = chatsDirectory()
-    if (!ready() || !directory) return
-    const url = serverUrl()
-    const controller = new AbortController()
-    onCleanup(() => controller.abort())
+  /**
+   * Folders whose event stream this window follows. A legacy run — every chat, and every Code
+   * session once H-01 lands — streams its deltas and its status only on its own folder's stream, and
+   * a browser holds only a handful of connections to one origin, so this follows the folders that
+   * are on screen and leaves runs elsewhere to the periodic `session.active()` check.
+   */
+  const WATCHED_DIRECTORIES = 4
+  // A plain accessor, not a memo: a memo computes as soon as it is created, and the split panes it
+  // reads are declared further down, which would run the whole component into the temporal dead zone.
+  const watchedDirectories = () => {
+    const list = sessionList()
+    const directoryOf = (id: string | undefined) =>
+      id ? list?.find((session) => session.id === id)?.location?.directory : undefined
+    const open = [selected(), ...(splitActive() ? splitPanes() : [])].map(directoryOf)
+    const directories = [chatsDirectory(), targetDirectory(), ...open].filter(
+      (value): value is string => typeof value === "string" && value.length > 0,
+    )
+    return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
+  }
+
+  /** One folder's legacy event stream, reconnecting on its own backoff until the signal aborts. */
+  const followDirectory = async (url: string, directory: string, signal: AbortSignal) => {
     // Text and reasoning deltas both say `field: "text"`; the part's type comes with its first update.
     const partTypes = new Map<string, string>()
     // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
     const lastUserMessage = new Map<string, string>()
-    void (async () => {
-      for (let attempt = 0; !controller.signal.aborted; attempt++) {
-        try {
-          const stream = createClient(url).event.subscribeDirectory(directory, { signal: controller.signal })
-          for await (const event of stream) {
-            attempt = 0
-            const type = event.type ?? ""
-            const data = (
-              event as {
-                data?: {
-                  sessionID?: string
-                  field?: string
-                  delta?: string
-                  status?: { type?: string }
-                  partID?: string
-                  info?: { id?: string; sessionID?: string; role?: string }
-                  part?: { id?: string; sessionID?: string; type?: string }
-                }
+    for (let attempt = 0; !signal.aborted; attempt++) {
+      try {
+        const stream = createClient(url).event.subscribeDirectory(directory, { signal })
+        for await (const event of stream) {
+          attempt = 0
+          const type = event.type ?? ""
+          const data = (
+            event as {
+              data?: {
+                sessionID?: string
+                field?: string
+                delta?: string
+                status?: { type?: string }
+                partID?: string
+                info?: { id?: string; sessionID?: string; role?: string }
+                part?: { id?: string; sessionID?: string; type?: string }
               }
-            ).data
-            trackActivity(type, data)
-            const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
-            if (type === "message.part.delta") {
-              const part = partTypes.get(data?.partID ?? "")
-              if (sessionID && typeof data?.delta === "string" && (part === "text" || part === "reasoning")) {
-                publishSessionEvent({ kind: "live", sessionID, field: part, delta: data.delta })
-              }
-              if (sessionID === selected() && typeof data?.delta === "string") {
-                const delta = data.delta
-                setStreamedChars((value) => value + delta.length)
-                if (part === "reasoning") setLiveReasoning((value) => value + delta)
-                else if (part === "text") setLiveText((value) => value + delta)
-              }
-              continue
             }
-            if (type === "message.part.updated" && data?.part?.id && data.part.type) {
-              partTypes.set(data.part.id, data.part.type)
+          ).data
+          trackActivity(type, data)
+          const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
+          if (type === "message.part.delta") {
+            const part = partTypes.get(data?.partID ?? "")
+            if (sessionID && typeof data?.delta === "string" && (part === "text" || part === "reasoning")) {
+              publishSessionEvent({ kind: "live", sessionID, field: part, delta: data.delta })
             }
-            if (type.startsWith("message.")) {
-              // A new user message starts a turn: drop what streamed for the previous one.
-              const newTurn =
-                type === "message.updated" &&
-                data?.info?.role === "user" &&
-                !!sessionID &&
-                !!data.info.id &&
-                lastUserMessage.get(sessionID) !== data.info.id
-              if (newTurn && sessionID && data?.info?.id) {
-                lastUserMessage.set(sessionID, data.info.id)
-                publishSessionEvent({ kind: "turn", sessionID })
-              }
-              publishSessionEvent({ kind: "changed", sessionID })
-              if (newTurn && sessionID === selected()) {
-                setLiveText("")
-                setLiveReasoning("")
-                setStreamedChars(0)
-              }
-              invalidateLegacyHistory(sessionID)
-              scheduleRefetch(true, false)
-            } else if (type === "session.idle") {
-              scheduleRefetch(true, true)
-            } else if (type.startsWith("session.")) {
-              scheduleRefetch(false, true)
+            if (sessionID === selected() && typeof data?.delta === "string") {
+              const delta = data.delta
+              setStreamedChars((value) => value + delta.length)
+              if (part === "reasoning") setLiveReasoning((value) => value + delta)
+              else if (part === "text") setLiveText((value) => value + delta)
             }
+            continue
           }
-        } catch {
-          if (controller.signal.aborted) return
+          if (type === "message.part.updated" && data?.part?.id && data.part.type) {
+            partTypes.set(data.part.id, data.part.type)
+          }
+          if (type.startsWith("message.")) {
+            // A new user message starts a turn: drop what streamed for the previous one.
+            const newTurn =
+              type === "message.updated" &&
+              data?.info?.role === "user" &&
+              !!sessionID &&
+              !!data.info.id &&
+              lastUserMessage.get(sessionID) !== data.info.id
+            if (newTurn && sessionID && data?.info?.id) {
+              lastUserMessage.set(sessionID, data.info.id)
+              publishSessionEvent({ kind: "turn", sessionID })
+            }
+            publishSessionEvent({ kind: "changed", sessionID })
+            if (newTurn && sessionID === selected()) {
+              setLiveText("")
+              setLiveReasoning("")
+              setStreamedChars(0)
+            }
+            invalidateLegacyHistory(sessionID)
+            scheduleRefetch(true, false)
+          } else if (type === "session.idle") {
+            scheduleRefetch(true, true)
+          } else if (type.startsWith("session.")) {
+            scheduleRefetch(false, true)
+          }
         }
-        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+      } catch {
+        if (signal.aborted) return
       }
-    })()
+      if (signal.aborted) return
+      await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+    }
+  }
+
+  // Streams are kept per folder across changes: switching session must not drop the chats stream,
+  // which is what carries a chat answering in the background.
+  const directoryStreams = new Map<string, AbortController>()
+  onCleanup(() => {
+    directoryStreams.forEach((controller) => controller.abort())
+    directoryStreams.clear()
+  })
+  createEffect(() => {
+    const url = ready() ? serverUrl() : undefined
+    const wanted = url ? watchedDirectories() : []
+    for (const [directory, controller] of directoryStreams) {
+      if (wanted.includes(directory)) continue
+      controller.abort()
+      directoryStreams.delete(directory)
+    }
+    if (!url) return
+    for (const directory of wanted) {
+      if (directoryStreams.has(directory)) continue
+      const controller = new AbortController()
+      directoryStreams.set(directory, controller)
+      void followDirectory(url, directory, controller.signal)
+    }
   })
 
   createEffect(() => {
