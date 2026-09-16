@@ -1033,9 +1033,9 @@ button.fc-status {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Centred on the window, not on the chat column: a dialog belongs to the app, and offsetting it
+     by the sidebar and the side panels left it sitting off to one side of the screen. */
   padding: var(--fc-space-4);
-  padding-left: calc(var(--fc-space-4) + var(--fc-content-left, 0px));
-  padding-right: calc(var(--fc-space-4) + var(--fc-content-right, 0px));
   background: rgb(0 0 0 / 0.5);
   backdrop-filter: blur(2px);
 }
@@ -4038,18 +4038,10 @@ button.fc-status {
   .fc-workspace-resizer {
     display: none;
   }
-
-  .fc-app {
-    --fc-content-right: 0px;
-  }
 }
 
 /* Mobile */
 @media (max-width: 768px) {
-  .fc-app {
-    --fc-content-left: 0px;
-  }
-
   .fc-sidebar {
     position: fixed;
     top: 0;

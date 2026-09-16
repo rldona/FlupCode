@@ -2594,17 +2594,7 @@ export const App: Component = () => {
   }
 
   return (
-    <div
-      class="fc-app"
-      classList={{ "fc-mobile-remote": mobileRemote() }}
-      style={{
-        "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
-        "--fc-content-right":
-          mobileRemote() || chatView()
-            ? "0px"
-            : `${(panels().length > 0 ? workspaceWidth() : 0) + (contextPanelShown() ? contextWidth() : 0)}px`,
-      }}
-    >
+    <div class="fc-app" classList={{ "fc-mobile-remote": mobileRemote() }}>
       <Show when={!mobileRemote()}>
         <Show when={narrow() && !collapsed()}>
           <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
