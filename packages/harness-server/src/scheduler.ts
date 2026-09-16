@@ -117,7 +117,7 @@ export class RoutineScheduler {
           prompt: { text: routine.prompt },
         }),
       )
-      await unwrap(client.v2.session.wait({ sessionID: session.id }))
+      await this.waitForIdle(session.id, run.id)
       this.finish(run, this.stopping.has(run.id) ? "stopped" : "success", this.stopping.has(run.id) ? "Routine stopped" : undefined)
     } catch (cause) {
       this.finish(
@@ -139,6 +139,32 @@ export class RoutineScheduler {
       }),
     )
     return result.data
+  }
+
+  /**
+   * Wait for the turn to end.
+   *
+   * Not with `session.wait`: this engine answers 503 for it, and a run whose work had finished was
+   * being marked failed because of it — the prompt had run and the session held both messages.
+   * Asking which sessions are active is what the app itself does, and it is answered by the same
+   * runner this prompt went to.
+   *
+   * A turn that never leaves the active list is not left to hang: the wait gives up, and the run
+   * ends as failed saying so, rather than holding the routine's lock for ever.
+   */
+  private async waitForIdle(sessionID: string, runID: string, timeoutMs = 30 * 60_000) {
+    const client = createOpencodeClient({ baseUrl: this.engineURL })
+    const deadline = Date.now() + timeoutMs
+    // The engine lists a session as active only once its first step is under way.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    while (Date.now() < deadline) {
+      if (this.stopping.has(runID)) return
+      const active = await unwrap(client.v2.session.active()).catch(() => undefined)
+      const running = active?.data as Record<string, unknown> | undefined
+      if (running && !(sessionID in running)) return
+      await new Promise((resolve) => setTimeout(resolve, 1000))
+    }
+    throw new Error("The routine was still running after 30 minutes")
   }
 
   private async interrupt(sessionID: string) {
