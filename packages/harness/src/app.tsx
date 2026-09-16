@@ -3200,6 +3200,7 @@ export const App: Component = () => {
         </Show>
         <PanelBoundary name={t("The sidebar")}>
           <Sidebar
+            showTabs={!desktopWindow()}
             collapsed={collapsed()}
             width={sidebarWidth()}
             displayName={displayName()}

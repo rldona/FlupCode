@@ -27,8 +27,8 @@ type SidebarProps = {
   /** Chat lists conversations flat; Code groups sessions by project. */
   view: AppView
   onViewChange: (view: AppView) => void
-  /** The name and the tabs. The desktop app has them in the window's own strip instead. */
-  showBrand: boolean
+  /** The tabs. The desktop app has them in the window's own strip; the name stays here either way. */
+  showTabs: boolean
   sessions: SessionInfo[] | undefined
   sessionsLoading: boolean
   selectedSession?: string
@@ -249,12 +249,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         />
 
         <div class="fc-sidebar-top">
-          <Show when={props.showBrand}>
-            <div class="fc-sidebar-brand">
-              <span class="fc-sidebar-brand-name">FlupCode</span>
+          <div class="fc-sidebar-brand">
+            <span class="fc-sidebar-brand-name">FlupCode</span>
+            <Show when={props.showTabs}>
               <ViewTabs view={props.view} onChange={props.onViewChange} />
-            </div>
-          </Show>
+            </Show>
+          </div>
           <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
             <span class="fc-new-icon">+</span>
             <span>{t("New")}</span>
