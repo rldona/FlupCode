@@ -6,6 +6,8 @@ type TopbarProps = {
   healthLoading: boolean
   healthHealthy: boolean | undefined
   healthError: boolean
+  /** The engine's event stream, which is what decides whether the app is following a live run. */
+  streamState: "connecting" | "live" | "reconnecting"
   canGoBack: boolean
   canGoForward: boolean
   onBack: () => void
@@ -85,9 +87,11 @@ export const ViewTabs: Component<{ view: AppView; onChange: (view: AppView) => v
 )
 
 export const Topbar: Component<TopbarProps> = (props) => {
+  // A healthy engine the app has lost the stream to is not "Connected": nothing it does reaches
+  // this window until the stream is back, so the pill says so instead of looking fine.
   const status = () => {
     if (props.healthLoading) return t("Connecting")
-    if (props.healthHealthy) return t("Connected")
+    if (props.healthHealthy) return props.streamState === "reconnecting" ? t("Reconnecting") : t("Connected")
     if (props.healthError) return t("Offline")
     return t("Offline")
   }
@@ -187,7 +191,8 @@ export const Topbar: Component<TopbarProps> = (props) => {
           <span
             class="fc-status"
             classList={{
-              "fc-status-on": props.healthHealthy === true,
+              "fc-status-on": props.healthHealthy === true && props.streamState !== "reconnecting",
+              "fc-status-waiting": props.healthHealthy === true && props.streamState === "reconnecting",
               "fc-status-off": props.healthError,
             }}
           >

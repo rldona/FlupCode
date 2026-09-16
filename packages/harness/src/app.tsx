@@ -139,6 +139,9 @@ export const App: Component = () => {
   // Run state from the event stream; it takes precedence over the last activity snapshot.
   const [runState, setRunState] = createSignal<Record<string, boolean>>({})
   const [activityTick, setActivityTick] = createSignal(0)
+  // Whether the engine's event stream is carrying this session's run right now. The health check is
+  // a separate question: it can answer while the stream is a dead socket nobody noticed.
+  const [streamState, setStreamState] = createSignal<"connecting" | "live" | "reconnecting">("connecting")
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const setRunning = (sessionID: string, running: boolean) => {
     clearTimeout(idleTimers.get(sessionID))
@@ -871,8 +874,11 @@ export const App: Component = () => {
     onCleanup(() => controller.abort())
     void (async () => {
       for (let attempt = 0; !controller.signal.aborted; attempt++) {
+        setStreamState(attempt === 0 ? "connecting" : "reconnecting")
         try {
-          // Runs that started or ended while disconnected send no step events to catch up on.
+          // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
+          // every reconnection resyncs the state the events would have carried. Missing the blocked
+          // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
           void createClient(url)
             .session.active()
             .then((active) => {
@@ -885,8 +891,11 @@ export const App: Component = () => {
               })
             })
             .catch(() => undefined)
+          void refetchPermissions()
+          void refetchQuestions()
           for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
             attempt = 0
+            setStreamState("live")
             const type = event.type ?? ""
             const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
             trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
@@ -971,6 +980,8 @@ export const App: Component = () => {
         } catch {
           if (controller.signal.aborted) return
         }
+        if (controller.signal.aborted) return
+        setStreamState("reconnecting")
         await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
         if (!controller.signal.aborted) {
           scheduleRefetch(true, true)
@@ -2536,6 +2547,7 @@ export const App: Component = () => {
           }
         >
           <Topbar
+            streamState={streamState()}
             healthLoading={health.loading}
             healthHealthy={health()?.healthy === true}
             healthError={!health.loading && health()?.healthy === false}

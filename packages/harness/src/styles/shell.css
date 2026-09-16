@@ -516,6 +516,11 @@ button.fc-status {
   color: var(--fc-success);
 }
 
+.fc-status-waiting {
+  background: color-mix(in srgb, var(--fc-warning) 18%, transparent);
+  color: var(--fc-warning);
+}
+
 .fc-status-off {
   background: color-mix(in srgb, var(--fc-danger) 16%, transparent);
   color: var(--fc-danger);
