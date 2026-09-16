@@ -119,3 +119,24 @@ test("the browser panel keeps untrusted pages inside a sandbox", async ({ page }
   expect(sandbox).not.toContain("allow-top-navigation")
   await expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
 })
+
+test("the engine started by the desktop app is reached with its password", async ({ page }) => {
+  const seen: Array<string | undefined> = []
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    // What the desktop preload exposes once the main process gives the engine a password.
+    window.flupcode = { engineAuth: "b3BlbmNvZGU6c2VjcmV0" }
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    seen.push(route.request().headers()["authorization"])
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await expect.poll(() => seen.length).toBeGreaterThan(0)
+  expect(seen.every((value) => value === "Basic b3BlbmNvZGU6c2VjcmV0")).toBe(true)
+})
