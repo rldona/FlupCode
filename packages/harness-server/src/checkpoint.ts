@@ -40,6 +40,9 @@ export type RestorePlan = {
 
 const TIMEOUT_MS = 60_000
 
+/** Who a checkpoint is by. Not the reader: this is the harness's own record, on no branch. */
+const AUTHOR = { name: "FlupCode", email: "harness@flupcode.local" }
+
 const REF = (id: string) => `refs/flupcode/checkpoints/${id}`
 
 async function git(directory: string, args: string[], index?: string) {
@@ -54,6 +57,14 @@ async function git(directory: string, args: string[], index?: string) {
         GIT_TERMINAL_PROMPT: "0",
         GIT_EDITOR: "true",
         NO_COLOR: "1",
+        // A checkpoint is the harness's own bookkeeping — it is on no branch and never pushed — so
+        // it signs itself rather than borrowing the reader's identity. That also means taking one
+        // works in a folder where nobody has configured git yet, which `commit-tree` otherwise
+        // refuses outright. CI found this: it has no global identity and a developer's machine has.
+        GIT_AUTHOR_NAME: AUTHOR.name,
+        GIT_AUTHOR_EMAIL: AUTHOR.email,
+        GIT_COMMITTER_NAME: AUTHOR.name,
+        GIT_COMMITTER_EMAIL: AUTHOR.email,
         ...(index ? { GIT_INDEX_FILE: index } : {}),
       },
     })

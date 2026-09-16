@@ -74,14 +74,22 @@ describe("take", () => {
     expect(await exists(directory, checkpoint.sha)).toBe(true)
   })
 
-  test("works in a repository with no commit yet", async () => {
+  test("works in a repository with no commit yet, and with nobody's name configured", async () => {
     const empty = mkdtempSync(join(tmpdir(), "flupcode-cp-empty-"))
     await run(["init", "-q", "-b", "main"], empty)
+    // No `user.name` and no `user.email`, which is what a fresh machine looks like — and what CI
+    // looks like. `git commit-tree` refuses to sign without one, so a checkpoint has to bring its
+    // own. This passed on a developer's machine and failed in CI until it did.
+    await run(["config", "user.useConfigOnly", "true"], empty)
     writeFileSync(join(empty, "a.txt"), "one\n")
 
     const checkpoint = await take({ directory: empty, title: "first" })
 
     expect(await run(["ls-tree", "-r", "--name-only", checkpoint.sha], empty)).toBe("a.txt")
+    // Signed by the harness, not borrowed from whoever happens to be at the keyboard.
+    expect(await run(["log", "-1", "--pretty=%an <%ae>", checkpoint.sha], empty)).toBe(
+      "FlupCode <harness@flupcode.local>",
+    )
     rmSync(empty, { recursive: true, force: true })
   })
 })
