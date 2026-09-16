@@ -197,6 +197,11 @@ const ES: Record<string, string> = {
   Evidence: "Evidencia",
   verify: "verificación",
   "attempt {n}": "intento {n}",
+  awaiting: "esperando",
+  Workflow: "Flujo de trabajo",
+  "{name} needs {input}": "{name} necesita {input}",
+  "{name} asks for {inputs}, which is more than one line can say":
+    "{name} pide {inputs}, y eso no cabe en una línea",
   "Manual run": "Ejecución manual",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Connect them": "Conectarlos",

@@ -4,7 +4,20 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { TaskRunner } from "./runner"
-import type { RunSource } from "./types"
+import { RoutineScheduler } from "./scheduler"
+import type { RunSource, RunStatus } from "./types"
+
+/** Waits for a run the scheduler is driving to reach a state, rather than guessing at a delay. */
+const settledAt = async (
+  repository: SqliteRoutineRepository,
+  runID: string,
+  status: RunStatus,
+  timeoutMs = 10_000,
+) => {
+  const deadline = Date.now() + timeoutMs
+  while (repository.getRun(runID)?.status !== status && Date.now() < deadline) await Bun.sleep(10)
+  expect(repository.getRun(runID)?.status).toBe(status)
+}
 
 const scratch: string[] = []
 afterAll(() => {
@@ -289,6 +302,80 @@ describe("a bounded retry", () => {
       new TaskRunner(repository, recordingEngine([])).execute(run, { directory }),
     ).rejects.toThrow("Verification failed")
     expect(repository.listTasks(run.id)).toHaveLength(1)
+    repository.close()
+  })
+})
+
+// H-21's human gate: the run stops after a task somebody has to read, and nothing else starts until
+// they answer. Refusing is stopping it — there is no third answer to "carry on?".
+describe("a human gate", () => {
+  const answering = () =>
+    ({
+      createSession: async () => ({ id: "ses_gate" }),
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "here is the plan" }),
+      interrupt: async () => undefined,
+    }) as never
+
+  test("the run holds after the gated task, and carries on when it is let through", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    // The scheduler drives the run, which is what makes "awaiting" reachable at all.
+    Object.assign(scheduler, { engine: answering() })
+
+    const run = await scheduler.runTasks({
+      tasks: [
+        { name: "plan", prompt: "Plan it", gate: "human" },
+        { name: "implement", prompt: "Build it" },
+      ],
+    })
+    await settledAt(repository, run.id, "awaiting")
+
+    const tasks = repository.listTasks(run.id)
+    expect(tasks.map((task) => `${task.name}:${task.status}`)).toEqual(["plan:success", "implement:queued"])
+    // What it produced is readable while it waits — that is what there is to approve.
+    expect(tasks[0]!.output).toBe("here is the plan")
+
+    expect(scheduler.approve(run.id)?.status).toBe("running")
+    await settledAt(repository, run.id, "success")
+    expect(repository.listTasks(run.id).map((task) => task.status)).toEqual(["success", "success"])
+    repository.close()
+  })
+
+  test("refusing it is stopping it, and what was queued never runs", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    Object.assign(scheduler, { engine: answering() })
+
+    const run = await scheduler.runTasks({
+      tasks: [
+        { name: "plan", prompt: "Plan it", gate: "human" },
+        { name: "implement", prompt: "Build it" },
+      ],
+    })
+    await settledAt(repository, run.id, "awaiting")
+
+    await scheduler.stopRun(run.id)
+    expect(repository.getRun(run.id)?.status).toBe("stopped")
+    expect(repository.listTasks(run.id)[1]!.status).toBe("queued")
+    // And approving after that changes nothing: the answer was already given.
+    expect(scheduler.approve(run.id)).toBeUndefined()
+    repository.close()
+  })
+
+  test("a run waiting at a gate is not history, so clearing the list leaves it", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    Object.assign(scheduler, { engine: answering() })
+
+    const run = await scheduler.runTasks({ tasks: [{ name: "plan", prompt: "Plan it", gate: "human" }] })
+    await settledAt(repository, run.id, "awaiting")
+    const over = repository.startRun(manual, 1000)
+    repository.finishRun(over.id, "success")
+
+    expect(repository.removeFinishedRuns()).toEqual([over.id])
+    expect(repository.getRun(run.id)?.status).toBe("awaiting")
     repository.close()
   })
 })

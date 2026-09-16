@@ -39,7 +39,12 @@ const failureSummary = (steps: Array<{ name: string; exitCode: number }>) => {
  */
 function compose(task: Task, handoff: string | undefined) {
   if (!handoff) return task.prompt
-  return [`Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`, handoff.slice(0, 4000), "", task.prompt].join("\n")
+  return [
+    `Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`,
+    handoff.slice(0, 4000),
+    "",
+    task.prompt,
+  ].join("\n")
 }
 
 /**
@@ -96,11 +101,16 @@ export class TaskRunner {
     return true
   }
 
-  async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}) {
+  /**
+   * Runs what is queued, and says why it stopped.
+   *
+   * `paused` is a run that reached a human gate and is waiting to be let through — not an ending,
+   * which is why it is a return value and not an exception like a failure is.
+   */
+  async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}): Promise<"done" | "paused"> {
     const stopped = options.stopped ?? (() => false)
     const tasks = this.repository.listTasks(run.id).filter((task) => task.status === "queued")
-    const nextQueued = () =>
-      this.repository.listTasks(run.id).find((entry) => entry.status === "queued")
+    const nextQueued = () => this.repository.listTasks(run.id).find((entry) => entry.status === "queued")
     // The run's own session is the thread a person reads; each task is a child of it, which is the
     // lineage the engine already keeps. A run of one task needs no thread of its own, and creating
     // one would leave an empty session in everybody's list.
@@ -127,41 +137,47 @@ export class TaskRunner {
         })
         // The evidence is the handoff: whatever runs next is told exactly what failed.
         handoff = evidence
-        if (report.ok || stopped()) continue
-        // A failed check is not the end of the run if it was given a budget to try again. The retry
-        // carries the evidence in its own prompt, so the handoff is cleared rather than repeated.
-        if (this.scheduleRetry(run.id, task, evidence)) {
-          handoff = undefined
-          continue
+        if (!report.ok && !stopped()) {
+          // A failed check is not the end of the run if it was given a budget to try again. The
+          // retry carries the evidence in its own prompt, so the handoff is cleared, not repeated.
+          if (this.scheduleRetry(run.id, task, evidence)) {
+            handoff = undefined
+            continue
+          }
+          throw new VerifyFailed(failureSummary(report.steps))
         }
-        throw new VerifyFailed(failureSummary(report.steps))
+      } else {
+        try {
+          const session = await this.engine.createSession({
+            directory: options.directory,
+            parentID,
+            title: task.name,
+          })
+          this.repository.attachTaskSession(task.id, session.id)
+          await this.engine.prompt({
+            sessionID: session.id,
+            text: compose(task, handoff),
+            directory: options.directory,
+            agent: task.agent,
+            model: task.model,
+          })
+          await this.engine.waitForIdle(session.id, { directory: options.directory, stopped })
+          const answer = await this.engine.lastAnswer(session.id, options.directory)
+          this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
+            output: answer?.text,
+            tokens: answer?.tokens,
+            cost: answer?.cost,
+          })
+          handoff = answer?.text
+        } catch (cause) {
+          this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
+          throw cause
+        }
       }
-      try {
-        const session = await this.engine.createSession({
-          directory: options.directory,
-          parentID,
-          title: task.name,
-        })
-        this.repository.attachTaskSession(task.id, session.id)
-        await this.engine.prompt({
-          sessionID: session.id,
-          text: compose(task, handoff),
-          directory: options.directory,
-          agent: task.agent,
-          model: task.model,
-        })
-        await this.engine.waitForIdle(session.id, { directory: options.directory, stopped })
-        const answer = await this.engine.lastAnswer(session.id, options.directory)
-        this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
-          output: answer?.text,
-          tokens: answer?.tokens,
-          cost: answer?.cost,
-        })
-        handoff = answer?.text
-      } catch (cause) {
-        this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
-        throw cause
-      }
+      // A human gate (H-21): the work is done and nothing else starts until somebody has read it.
+      // Whatever is queued stays queued, so letting it through is the same loop, entered again.
+      if (task.gate === "human" && !stopped()) return "paused"
     }
+    return "done"
   }
 }
