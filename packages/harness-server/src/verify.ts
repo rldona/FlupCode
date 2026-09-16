@@ -20,7 +20,17 @@ export type VerifyStepResult = VerifyStep & {
   timedOut?: boolean
 }
 
-export type VerifyReport = { ok: boolean; steps: VerifyStepResult[] }
+export type VerifyReport = { ok: boolean; steps: VerifyStepResult[]; problem?: string }
+
+/**
+ * What to run, or why nothing could be worked out.
+ *
+ * A declaration that cannot be read is not the same as no declaration. Falling back to detection
+ * there would run something the project did not ask for and report a verdict on it, and the reader
+ * would be told "this project declares no checks" about a project that declares them in a file with
+ * a typo in it.
+ */
+export type VerifyPlan = { steps: VerifyStep[]; problem?: string }
 
 /** How much of each step's output is kept. Enough to read a failure, small enough to store. */
 export const OUTPUT_LIMIT = 8000
@@ -62,21 +72,34 @@ const readText = async (path: string) => {
  * Declaring it wins over anything that could be detected: a repository that says how it is checked
  * has said so on purpose, and half-guessing the rest would run commands nobody asked for.
  */
-export async function configuredSteps(directory: string): Promise<VerifyStep[] | undefined> {
-  const text = await readText(join(directory, ".flupcode", "project.yaml"))
+export async function configuredSteps(directory: string): Promise<VerifyPlan | undefined> {
+  const path = join(directory, ".flupcode", "project.yaml")
+  const text = await readText(path)
+  // No file is not a problem: most projects are read from their scripts.
   if (text === undefined) return undefined
   let parsed: unknown
   try {
     parsed = Bun.YAML.parse(text)
-  } catch {
-    return undefined
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message.split("\n")[0] : String(cause)
+    return { steps: [], problem: `.flupcode/project.yaml could not be read: ${detail}` }
   }
   const verify = (parsed as { verify?: unknown } | null)?.verify
-  if (!verify || typeof verify !== "object" || Array.isArray(verify)) return undefined
+  // A file with no `verify` at all says nothing about checks, so the scripts still speak.
+  if (verify === undefined) return undefined
+  if (verify === null) {
+    return { steps: [], problem: ".flupcode/project.yaml declares `verify` but no commands under it" }
+  }
+  if (typeof verify !== "object" || Array.isArray(verify)) {
+    return { steps: [], problem: ".flupcode/project.yaml has a `verify` that is not a list of commands" }
+  }
   const steps = Object.entries(verify as Record<string, unknown>)
     .filter(([name, command]) => !!name.trim() && typeof command === "string" && !!command.trim())
     .map(([name, command]) => ({ name: name.trim(), command: (command as string).trim() }))
-  return steps.length > 0 ? steps : undefined
+  if (steps.length === 0) {
+    return { steps: [], problem: ".flupcode/project.yaml declares `verify` but no commands under it" }
+  }
+  return { steps }
 }
 
 /**
@@ -101,8 +124,8 @@ export async function detectedSteps(directory: string): Promise<VerifyStep[]> {
   }))
 }
 
-export async function verifySteps(directory: string): Promise<VerifyStep[]> {
-  return (await configuredSteps(directory)) ?? (await detectedSteps(directory))
+export async function verifySteps(directory: string): Promise<VerifyPlan> {
+  return (await configuredSteps(directory)) ?? { steps: await detectedSteps(directory) }
 }
 
 /**
@@ -147,14 +170,18 @@ export async function runVerify(
   directory: string,
   options: { steps?: VerifyStep[]; stopped?: () => boolean } = {},
 ): Promise<VerifyReport> {
-  const steps = options.steps ?? (await verifySteps(directory))
+  const plan = options.steps ? { steps: options.steps } : await verifySteps(directory)
   const stopped = options.stopped ?? (() => false)
   const results: VerifyStepResult[] = []
-  for (const step of steps) {
+  for (const step of plan.steps) {
     if (stopped()) break
     results.push(await runStep(step, directory))
   }
-  return { ok: results.length > 0 && results.every((result) => result.exitCode === 0), steps: results }
+  return {
+    ok: results.length > 0 && results.every((result) => result.exitCode === 0),
+    steps: results,
+    ...(plan.problem ? { problem: plan.problem } : {}),
+  }
 }
 
 const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`
@@ -166,6 +193,11 @@ const seconds = (ms: number) => `${(ms / 1000).toFixed(1)}s`
  * already keeps what it produced — which also means the next task is handed it verbatim.
  */
 export function evidenceText(report: VerifyReport): string {
+  if (report.problem) {
+    // Said plainly, because the reader can fix this — and because a retry is handed this text and
+    // would otherwise go looking for a file that is right there.
+    return `Verification could not run: ${report.problem}`
+  }
   if (report.steps.length === 0) {
     return "No verification: the project declares no `verify` steps in .flupcode/project.yaml and has no test, typecheck, lint or build script."
   }

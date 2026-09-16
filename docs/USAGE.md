@@ -223,6 +223,17 @@ verify:
   lint: bun run lint
 ```
 
+A command is a YAML value, so anything with `{`, `}` or a `: ` inside it has to be quoted — a shell
+line like `a && b || { c; exit 1; }` is a YAML mapping otherwise:
+
+```yaml
+verify:
+  test: 'grep -qx "STATUS: ok" REPORT.md || { echo "missing"; exit 1; }'
+```
+
+A file that cannot be read says so — *"Verification could not run: .flupcode/project.yaml could not
+be read"* — rather than falling back to your scripts and reporting on something you did not ask for.
+
 If that file is not there, FlupCode uses the `typecheck`, `lint`, `test` and `build` scripts your
 `package.json` already has, run with the manager your lockfile names. A project with none of those
 gets a failed verdict saying there was nothing to verify — never a pass it did not earn.
