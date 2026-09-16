@@ -57,8 +57,21 @@ select:focus-visible,
 
 .fc-app {
   display: flex;
+  flex-direction: column;
   height: 100%;
   background: var(--fc-bg);
+}
+
+/*
+ * Everything under the top strip: the sidebar, the session, the side panels.
+ *
+ * The strip is a row of its own so it runs the width of the window. In the desktop app that is what
+ * makes it the window's title bar, with the controls inside it rather than in a band above.
+ */
+.fc-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
 }
 
 .fc-sidebar {
@@ -82,8 +95,7 @@ select:focus-visible,
  *
  * Only in the desktop app. The hosted page has the browser's own chrome above it.
  */
-.fc-desktop .fc-topbar,
-.fc-desktop .fc-sidebar-brand {
+.fc-desktop .fc-topbar {
   -webkit-app-region: drag;
   app-region: drag;
 }
@@ -92,10 +104,7 @@ select:focus-visible,
 .fc-desktop .fc-topbar a,
 .fc-desktop .fc-topbar input,
 .fc-desktop .fc-topbar select,
-.fc-desktop .fc-topbar [role="button"],
-.fc-desktop .fc-sidebar-brand button,
-.fc-desktop .fc-sidebar-brand a,
-.fc-desktop .fc-sidebar-brand [role="button"] {
+.fc-desktop .fc-topbar [role="button"] {
   -webkit-app-region: no-drag;
   app-region: no-drag;
 }
@@ -107,17 +116,12 @@ select:focus-visible,
  * when the sidebar is collapsed. Windows draws its buttons at the top right, which is always the
  * topbar. 68px clears the three lights placed at x: 16; 140px clears Windows' three buttons.
  */
-.fc-desktop .fc-sidebar-brand {
+.fc-desktop .fc-topbar-left {
   padding-left: 68px;
 }
 
-.fc-desktop.fc-sidebar-hidden .fc-topbar-left {
-  padding-left: 68px;
-}
-
-.fc-desktop-win .fc-sidebar-brand,
-.fc-desktop-win.fc-sidebar-hidden .fc-topbar-left {
-  padding-left: 4px;
+.fc-desktop-win .fc-topbar-left {
+  padding-left: 0;
 }
 
 .fc-desktop-win .fc-topbar-right {
@@ -467,6 +471,7 @@ button.fc-row-main {
   align-items: center;
   justify-content: space-between;
   height: 52px;
+  flex-shrink: 0;
   padding: 0 var(--fc-space-4);
   border-bottom: 1px solid var(--fc-border);
   gap: var(--fc-space-3);

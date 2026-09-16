@@ -3069,6 +3069,114 @@ export const App: Component = () => {
     send()
   }
 
+  /**
+   * The top strip: the navigation, the session, and what the engine is doing.
+   *
+   * A component rather than a value, because it is placed in one of two places and only one of
+   * them exists at a time. In the desktop app it is a row of its own across the window, which is
+   * where the window controls are; in a browser the window already has a bar of its own above the
+   * page, so the strip stays over the session, where it has always been.
+   */
+  const TopStrip = () => (
+          <Show
+            when={!mobileRemote()}
+            fallback={
+              <Show when={mobileScreen() === "session"}>
+                <header class="fc-mobile-header">
+                  <button
+                    class="fc-icon-button fc-mobile-back"
+                    type="button"
+                    aria-label={t("Back")}
+                    onClick={() =>
+                      window.history.state?.flupcode === "session" ? window.history.back() : leaveMobileSession()
+                    }
+                  >
+                    ←
+                  </button>
+                  <span class="fc-mobile-heading">
+                    <span class="fc-mobile-title">
+                      {sessionTitle(selectedSession()) || (chatView() ? t("New chat") : t("New session"))}
+                    </span>
+                    <Show
+                      when={
+                        !chatView() &&
+                        (targetDirectory() ?? selectedSession()?.location?.directory)?.split("/").filter(Boolean).at(-1)
+                      }
+                    >
+                      {(project) => <span class="fc-mobile-subtitle">{project()}</span>}
+                    </Show>
+                  </span>
+                  <button
+                    class={`fc-remote-dot fc-remote-dot-${remote.status() === "connected" ? "online" : "connecting"} fc-mobile-host`}
+                    type="button"
+                    aria-label={t("Remote: {name}", { name: remote.activeHost()?.name ?? "" })}
+                    onClick={() => setRemoteOpen(true)}
+                  />
+                </header>
+              </Show>
+            }
+          >
+            <Topbar
+              streamState={streamState()}
+              blockedElsewhere={blockedElsewhere()}
+              onOpenBlocked={selectSession}
+              healthLoading={health.loading}
+              healthHealthy={health()?.healthy === true}
+              healthError={!health.loading && health()?.healthy === false}
+              canGoBack={canGoBack()}
+              canGoForward={canGoForward()}
+              onBack={goBack}
+              onForward={goForward}
+              onToggleSidebar={toggleSidebar}
+              view={view()}
+              onViewChange={changeView}
+              sidebarCollapsed={collapsed()}
+              contextPanel={
+                selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
+              }
+              onOpenPalette={() => setPaletteOpen(true)}
+              onTogglePanel={togglePanel}
+              remote={
+                remote.activeHost()
+                  ? {
+                      name: remote.activeHost()!.name,
+                      connected: remote.status() === "connected",
+                      onOpen: () => setRemoteOpen(true),
+                    }
+                  : undefined
+              }
+              hostRemote={hostRemotePill()}
+              sessionTitle={
+                <Show when={!splitActive() && selectedSession()}>
+                  {(session) => <SessionTitle session={session()} />}
+                </Show>
+              }
+              sessionActions={
+                <Show when={!splitActive() && selectedSession()}>
+                  {(session) => (
+                    <SessionActions
+                      session={session()}
+                      projects={projects()}
+                      reverting={!!session().revert}
+                      onFork={forkSession}
+                      onCompact={compactSession}
+                      onRename={renameSession}
+                      onExport={exportMarkdown}
+                      onShare={shareSession}
+                      onUnshare={unshareSession}
+                      onMove={moveSession}
+                      onDelete={deleteSession}
+                      onUndo={undo}
+                      onRedo={redo}
+                      onCommitRevert={commitRevert}
+                    />
+                  )}
+                </Show>
+              }
+            />
+          </Show>
+  )
+
   return (
     <div
       class="fc-app"
@@ -3082,6 +3190,10 @@ export const App: Component = () => {
         "fc-sidebar-hidden": collapsed(),
       }}
     >
+      <Show when={desktopWindow()}>
+        <TopStrip />
+      </Show>
+      <div class="fc-body">
       <Show when={!mobileRemote()}>
         <Show when={narrow() && !collapsed()}>
           <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
@@ -3128,102 +3240,8 @@ export const App: Component = () => {
         </PanelBoundary>
       </Show>
       <main class="fc-main" classList={{ "fc-main-chat-home": chatView() && !selected() && !mobileRemote() }}>
-        <Show
-          when={!mobileRemote()}
-          fallback={
-            <Show when={mobileScreen() === "session"}>
-              <header class="fc-mobile-header">
-                <button
-                  class="fc-icon-button fc-mobile-back"
-                  type="button"
-                  aria-label={t("Back")}
-                  onClick={() =>
-                    window.history.state?.flupcode === "session" ? window.history.back() : leaveMobileSession()
-                  }
-                >
-                  ←
-                </button>
-                <span class="fc-mobile-heading">
-                  <span class="fc-mobile-title">
-                    {sessionTitle(selectedSession()) || (chatView() ? t("New chat") : t("New session"))}
-                  </span>
-                  <Show
-                    when={
-                      !chatView() &&
-                      (targetDirectory() ?? selectedSession()?.location?.directory)?.split("/").filter(Boolean).at(-1)
-                    }
-                  >
-                    {(project) => <span class="fc-mobile-subtitle">{project()}</span>}
-                  </Show>
-                </span>
-                <button
-                  class={`fc-remote-dot fc-remote-dot-${remote.status() === "connected" ? "online" : "connecting"} fc-mobile-host`}
-                  type="button"
-                  aria-label={t("Remote: {name}", { name: remote.activeHost()?.name ?? "" })}
-                  onClick={() => setRemoteOpen(true)}
-                />
-              </header>
-            </Show>
-          }
-        >
-          <Topbar
-            streamState={streamState()}
-            blockedElsewhere={blockedElsewhere()}
-            onOpenBlocked={selectSession}
-            healthLoading={health.loading}
-            healthHealthy={health()?.healthy === true}
-            healthError={!health.loading && health()?.healthy === false}
-            canGoBack={canGoBack()}
-            canGoForward={canGoForward()}
-            onBack={goBack}
-            onForward={goForward}
-            onToggleSidebar={toggleSidebar}
-            view={view()}
-            onViewChange={changeView}
-            sidebarCollapsed={collapsed()}
-            contextPanel={
-              selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
-            }
-            onOpenPalette={() => setPaletteOpen(true)}
-            onTogglePanel={togglePanel}
-            remote={
-              remote.activeHost()
-                ? {
-                    name: remote.activeHost()!.name,
-                    connected: remote.status() === "connected",
-                    onOpen: () => setRemoteOpen(true),
-                  }
-                : undefined
-            }
-            hostRemote={hostRemotePill()}
-            sessionTitle={
-              <Show when={!splitActive() && selectedSession()}>
-                {(session) => <SessionTitle session={session()} />}
-              </Show>
-            }
-            sessionActions={
-              <Show when={!splitActive() && selectedSession()}>
-                {(session) => (
-                  <SessionActions
-                    session={session()}
-                    projects={projects()}
-                    reverting={!!session().revert}
-                    onFork={forkSession}
-                    onCompact={compactSession}
-                    onRename={renameSession}
-                    onExport={exportMarkdown}
-                    onShare={shareSession}
-                    onUnshare={unshareSession}
-                    onMove={moveSession}
-                    onDelete={deleteSession}
-                    onUndo={undo}
-                    onRedo={redo}
-                    onCommitRevert={commitRevert}
-                  />
-                )}
-              </Show>
-            }
-          />
+        <Show when={!desktopWindow()}>
+          <TopStrip />
         </Show>
         <Show when={onboarded() && !remote.activeHost() && !health.loading && health()?.healthy !== true}>
           <div class="fc-offline-banner">
@@ -3499,6 +3517,7 @@ export const App: Component = () => {
           </PanelBoundary>
         </Show>
       </Show>
+      </div>
       <CommandPalette
         open={paletteOpen()}
         commands={commandOptions()}
