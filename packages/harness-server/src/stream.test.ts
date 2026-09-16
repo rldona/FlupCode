@@ -93,6 +93,21 @@ describe("the server's event stream", () => {
     expect(received.map((frame) => frame.id)).toEqual(["2"])
   })
 
+  // What went wrong in the app: a client that says nothing has just read the lists, so replaying the
+  // log tells it about runs and routines that were deleted long ago. It gets what happens next.
+  test("a client that says nothing is told nothing that already happened", async () => {
+    const app = start()
+    const routine = app.repository.create(input) // seq 1
+    app.repository.setEnabled(routine.id, false) // seq 2
+
+    const response = await fetch(`${app.server.url}harness/events`)
+    const frames = read(response, 1)
+    app.repository.setEnabled(routine.id, true) // seq 3
+    const received = await frames
+
+    expect(received.map((frame) => frame.id)).toEqual(["3"])
+  })
+
   test("a run is on the stream whatever asked for it", async () => {
     const app = start()
     const response = await fetch(`${app.server.url}harness/events`)

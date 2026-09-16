@@ -3,6 +3,7 @@ import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
+import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -360,7 +361,24 @@ export const App: Component = () => {
   }
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
-  const [routinesOpen, setRoutinesOpen] = createSignal(false)
+  // Which full screen is open, and where in the URL it lives, so a reload comes back to it and the
+  // browser's Back leaves it. One signal rather than a flag per screen: only one can be open, and
+  // two flags could disagree.
+  const [screen, setScreen] = createSignal<Screen | undefined>(screenFromPath(window.location.pathname))
+  const showScreen = (next: Screen | undefined) => {
+    if (screen() === next) return
+    setScreen(next)
+    window.history.pushState(null, "", urlForScreen(next, window.location))
+  }
+  const routinesOpen = () => screen() === "routines"
+  const runsOpen = () => screen() === "runs"
+  /** Leave whatever screen is open. Doing anything with a session means leaving it. */
+  const leaveScreen = () => showScreen(undefined)
+  createEffect(() => {
+    const follow = () => setScreen(screenFromPath(window.location.pathname))
+    window.addEventListener("popstate", follow)
+    onCleanup(() => window.removeEventListener("popstate", follow))
+  })
   const [remoteOpen, setRemoteOpen] = createSignal(false)
   // The desktop app hosts remote control; tracking its bridge keeps the top bar honest about the
   // relay connection instead of showing the local engine's "Connected".
@@ -393,7 +411,6 @@ export const App: Component = () => {
   /** How many runs the supervisor shows. Enough to see what is happening, not a history. */
   const RUNS_SHOWN = 20
   const [runs, setRuns] = createSignal<Run[]>([])
-  const [runsOpen, setRunsOpen] = createSignal(false)
   const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
   const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
   createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
@@ -481,7 +498,7 @@ export const App: Component = () => {
     !!session && isChatSession(session, chatsDirectory())
   const viewSessions = () => sessionList()?.filter((session) => isChat(session) === chatView())
   const changeView = (next: AppView) => {
-    setRoutinesOpen(false)
+    leaveScreen()
     if (next === view()) return
     const leaving = selected()
     setView(next)
@@ -1013,7 +1030,7 @@ export const App: Component = () => {
         return
       }
       if (name === "routines") {
-        setRoutinesOpen(true)
+        showScreen("routines")
         return
       }
       if (name === "remote") {
@@ -1805,7 +1822,7 @@ export const App: Component = () => {
     const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
     const selectSession = (id: string) => {
-      setRoutinesOpen(false)
+      leaveScreen()
       if (narrow()) setCollapsed(true)
       setSelected(id)
       if (history()[historyIndex()] === id) return
@@ -2209,6 +2226,7 @@ export const App: Component = () => {
     routine?: unknown
     routineID?: unknown
     run?: unknown
+    runID?: unknown
     task?: unknown
   }) => {
       if (event.type === "routine.changed") {
@@ -2236,6 +2254,13 @@ export const App: Component = () => {
             : [run, ...current],
         )
       }
+    }
+    if (event.type === "run.removed" && typeof event.runID === "string") {
+      const removed = event.runID
+      setRuns(runs().filter((run) => run.id !== removed))
+      return setRoutineState(
+        routines().map((routine) => ({ ...routine, runs: routine.runs.filter((run) => run.id !== removed) })),
+      )
     }
     if (event.type === "task.changed") {
       const task = event.task as Task | undefined
@@ -2357,6 +2382,37 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
+  const stopRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.stop(id)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const removeRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.remove(id)
+      // The event says so too, but not to a reader whose stream is down: the list moves either way.
+      .then(() => setRuns(runs().filter((run) => run.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const stopAllRuns = () => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.stopAll()
+      .then((result) => toast(t("{count} runs stopped", { count: result?.stopped ?? 0 }), "success"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const clearRuns = () => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.clear()
+      .then((result) => {
+        setRuns(runs().filter((run) => run.status === "running"))
+        toast(t("{count} runs deleted", { count: result?.removed ?? 0 }), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   const runRoutine = (id: string) => {
     if (routineBusy()) return
     void createHarnessClient(harnessServerUrl())
@@ -2398,7 +2454,7 @@ export const App: Component = () => {
   }
 
   const newSession = (directory?: string) => {
-    setRoutinesOpen(false)
+    leaveScreen()
     const sessionID = selected()
     if (sessionID && !messagesLoading() && (activeMessages() ?? []).length === 0) {
       void createClient(serverUrl())
@@ -2931,7 +2987,7 @@ export const App: Component = () => {
       }
       if (name === "routines") {
         setPrompt("")
-        setRoutinesOpen(true)
+        showScreen("routines")
         return
       }
       if (name === "remote") {
@@ -3036,8 +3092,8 @@ export const App: Component = () => {
             onRefresh={refresh}
             onAbout={() => setAboutOpen(true)}
             onSettings={() => setSettingsOpen(true)}
-            onRoutines={() => setRoutinesOpen(true)}
-            onRuns={() => setRunsOpen(true)}
+            onRoutines={() => showScreen("routines")}
+            onRuns={() => showScreen("runs")}
             onArtifacts={() => setArtifactsOpen(true)}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -3552,11 +3608,15 @@ export const App: Component = () => {
         open={runsOpen()}
         runs={runs()}
         serverAvailable={routinesServerAvailable()}
+        onStop={stopRun}
+        onRemove={removeRun}
+        onClear={clearRuns}
+        onStopAll={stopAllRuns}
         onOpenSession={(id) => {
-          setRunsOpen(false)
+          leaveScreen()
           selectSession(id)
         }}
-        onClose={() => setRunsOpen(false)}
+        onClose={() => leaveScreen()}
       />
       <RoutinesPanel
         open={routinesOpen()}
@@ -3575,10 +3635,10 @@ export const App: Component = () => {
         onRun={runRoutine}
         onStop={stopRoutine}
         onOpenSession={(id) => {
-          setRoutinesOpen(false)
+          leaveScreen()
           selectSession(id)
         }}
-        onClose={() => setRoutinesOpen(false)}
+        onClose={() => leaveScreen()}
       />
       <FolderDialog
         open={folderOpen()}
