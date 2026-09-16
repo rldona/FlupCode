@@ -15,8 +15,8 @@ It owns:
   project's own, in `.flupcode/workflows/`, take precedence.
 - **Artifacts** (H-14). What runs leave behind — the verdict of each check, a report of each run —
   kept inline up to a ceiling, hashed, and published as they are written.
-- **Git** (H-20). Commit and branch, run as `git` with an argument vector rather than through a
-  shell. The client is a browser and the engine's `/vcs` routes only read, so this is the only part
+- **Git and pull requests** (H-20). Commit and branch, run as `git` with an argument vector rather
+  than through a shell; the branch's pull request and its checks, read with `gh`. The client is a browser and the engine's `/vcs` routes only read, so this is the only part
   of FlupCode that can write to a repository. What may be committed is what `git status` has just
   listed as changed.
 - **Routines.** Prompts on a schedule, with a per-routine lock and lease renewal so one cannot run
@@ -46,6 +46,8 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `POST /harness/git/commit` | stage the named paths and commit them; **409** if one is no longer changed |
 | `POST /harness/git/branch` | start a branch here and move onto it; **409** if the name is taken |
 | `GET /harness/git/branch` | which branch `?directory=` is on |
+| `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
+| `POST /harness/git/pr` | push the branch if needed, then open a pull request |
 | `GET /harness/artifacts` | filtered by `directory`, `runID`, `kind` |
 | `POST /harness/artifacts` | keep one by hand |
 | `GET /harness/artifacts/:id`, `DELETE /harness/artifacts/:id` | read or forget one |
@@ -64,6 +66,12 @@ The server listens on `127.0.0.1:4097` by default (`FLUPCODE_HARNESS_PORT`, `FLU
 The database is stored at `~/.local/share/flupcode/harness.sqlite`; override it with
 `FLUPCODE_HARNESS_DB`. Columns added by later versions are migrated into an existing database on
 start, so a database written by an older server keeps working.
+
+The pull-request routes need `gh` installed and logged in. Without it they answer
+`{ available: false, problem: … }` rather than an error, so a client shows nothing instead of a
+control that cannot work. The repository is taken from the branch's own remote, never from `gh`'s
+default: in a fork with an `upstream` remote, `gh` picks the upstream and answers an empty list for
+a branch that has a pull request — no error, just the wrong repository.
 
 The desktop app starts this process automatically and packages a compiled sidecar binary.
 
