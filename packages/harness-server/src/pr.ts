@@ -13,6 +13,16 @@ import { GitError } from "./git"
 
 export type CheckCounts = { total: number; passed: number; failed: number; running: number }
 
+/** A check that did not pass, and enough to go and read why. */
+export type FailedCheck = {
+  name: string
+  workflow?: string
+  /** The page on GitHub, for a reader who would rather go there. */
+  url: string
+  /** The Actions job, taken out of that URL. Absent for a status context, which has no log here. */
+  job?: string
+}
+
 export type PullRequest = {
   number: number
   title: string
@@ -22,6 +32,8 @@ export type PullRequest = {
   additions: number
   deletions: number
   checks: CheckCounts
+  /** Named, because "2 failed" is where a reader today gives up and opens a browser. */
+  failures: FailedCheck[]
 }
 
 export type BranchState = {
@@ -106,7 +118,39 @@ export function parseRepository(url: string): string | undefined {
   return undefined
 }
 
-type RollupEntry = { status?: string; conclusion?: string; state?: string }
+type RollupEntry = {
+  status?: string
+  conclusion?: string
+  state?: string
+  name?: string
+  context?: string
+  workflowName?: string
+  detailsUrl?: string
+  targetUrl?: string
+}
+
+/** The Actions job out of a check's own URL: `…/actions/runs/<run>/job/<job>`. */
+export const jobFromUrl = (url: string | undefined) => (url ? /\/job\/(\d+)/.exec(url)?.[1] : undefined)
+
+const FAILED = new Set(["FAILURE", "ERROR", "TIMED_OUT", "CANCELLED"])
+
+/** The checks that did not pass, in the order GitHub reported them. */
+export function failuresIn(rollup: RollupEntry[] | undefined): FailedCheck[] {
+  const failures: FailedCheck[] = []
+  for (const entry of rollup ?? []) {
+    const finished = entry.status === undefined || entry.status === "COMPLETED"
+    if (!finished) continue
+    if (!FAILED.has((entry.conclusion || entry.state || "").toUpperCase())) continue
+    const url = entry.detailsUrl ?? entry.targetUrl ?? ""
+    failures.push({
+      name: entry.name ?? entry.context ?? "check",
+      workflow: entry.workflowName,
+      url,
+      job: jobFromUrl(url),
+    })
+  }
+  return failures
+}
 
 /** What the checks add up to. GitHub reports two shapes; a status context has no `status`. */
 export function countChecks(rollup: RollupEntry[] | undefined): CheckCounts {
@@ -154,6 +198,7 @@ export function toPullRequest(listed: ListedPullRequest): PullRequest {
     additions: listed.additions ?? 0,
     deletions: listed.deletions ?? 0,
     checks: countChecks(listed.statusCheckRollup),
+    failures: failuresIn(listed.statusCheckRollup),
   }
 }
 
@@ -214,6 +259,54 @@ export async function branchState(directory: string): Promise<BranchState> {
 }
 
 const firstLine = (value: string) => value.trim().split("\n").filter(Boolean)[0] ?? "gh failed"
+
+/** As much of a log as is worth reading at once. The end is where the failure is. */
+export const LOG_LIMIT = 8000
+
+/**
+ * A line of `gh run view --log-failed`, with the scaffolding taken off.
+ *
+ * Each line arrives as `job<TAB>step<TAB><ISO timestamp> text`. The job and the step are the same
+ * on every line of a job — they are the heading, not the content — and the timestamp is the
+ * runner's, to the ten-millionth of a second. Left in, four fifths of the width is furniture.
+ */
+export function cleanLogLine(line: string) {
+  const parts = line.split("\t")
+  const rest = parts.length >= 3 ? parts.slice(2).join("\t") : line
+  return rest.replace(/^\d{4}-\d{2}-\d{2}T[\d:.]+Z\s?/, "").replace(/\u001b\[[0-9;]*m/g, "")
+}
+
+/** The step a line belongs to, which is the second column while there is one. */
+export const stepOf = (line: string) => {
+  const parts = line.split("\t")
+  return parts.length >= 3 ? parts[1] : undefined
+}
+
+export type CheckLog = { job: string; step?: string; text: string; truncated: boolean }
+
+/**
+ * What one failing job printed.
+ *
+ * Fetched only when somebody asks: it is a network call per job, and the chip polls. The tail is
+ * kept rather than the head — a test run prints a thousand passes before the one that failed.
+ */
+export async function checkLog(directory: string, job: string): Promise<CheckLog> {
+  if (!/^\d+$/.test(job)) throw new GitError("That is not a job")
+  const head = await run(["git", "branch", "--show-current"], directory)
+  const found = await repositoryFor(directory, head.exitCode === 0 ? head.stdout : "")
+  if (!found?.repository) throw new GitError("This folder has no remote")
+  const missing = await ghAvailable(directory)
+  if (missing) throw new GitError(missing)
+
+  const result = await run(["gh", "run", "view", "--repo", found.repository, "--job", job, "--log-failed"], directory)
+  if (result.exitCode !== 0) throw new GitError(firstLine(result.stderr) || "Could not read that log")
+
+  const lines = result.stdout.split("\n").filter(Boolean)
+  const step = lines.length > 0 ? stepOf(lines[lines.length - 1]!) : undefined
+  const text = lines.map(cleanLogLine).join("\n")
+  const truncated = text.length > LOG_LIMIT
+  return { job, step, text: truncated ? text.slice(-LOG_LIMIT) : text, truncated }
+}
 
 /**
  * Opens a pull request for this branch, pushing it first if it has never been pushed.

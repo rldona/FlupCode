@@ -722,6 +722,12 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Why CI failed
+  Why: "Por qué",
+  "On GitHub": "En GitHub",
+  "Only the end of the log is shown.": "Sólo se muestra el final del log.",
+  "Could not read that log": "No se pudo leer ese log",
+
   // The search
   Search: "Buscar",
   "Change type": "Cambiar tipo",

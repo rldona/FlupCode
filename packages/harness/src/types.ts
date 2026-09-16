@@ -152,6 +152,12 @@ export type GitCommit = { sha: string; subject: string; branch: string }
 /** How the checks on a pull request add up (H-20). */
 export type CheckCounts = { total: number; passed: number; failed: number; running: number }
 
+/** A check that did not pass, and enough to go and read why. */
+export type FailedCheck = { name: string; workflow?: string; url: string; job?: string }
+
+/** What a failing job printed, with the runner's scaffolding taken off. */
+export type CheckLog = { job: string; step?: string; text: string; truncated: boolean }
+
 export type PullRequest = {
   number: number
   title: string
@@ -161,6 +167,8 @@ export type PullRequest = {
   additions: number
   deletions: number
   checks: CheckCounts
+  /** Named, because "2 failed" is where a reader gives up and opens a browser. */
+  failures: FailedCheck[]
 }
 
 /** Where a folder's branch stands on GitHub. `available` is false when `gh` cannot answer. */
