@@ -413,3 +413,84 @@ test("a workflow is listed with the commands and launched from the composer", as
   // And it leaves you where the run can be watched.
   await expect(page).toHaveURL(/\/runs$/)
 })
+
+// H-14: what the runs left behind, where it can be read. The panel this replaces listed the files
+// the session had touched and called them artifacts; that list is still here, under its own name.
+test("artifacts are listed by kind, read in place, and the session's files keep their own heading", async ({ page }) => {
+  let removed = ""
+  const artifacts = [
+    {
+      id: "a1",
+      kind: "verdict",
+      title: "verify — failed",
+      producer: "harness",
+      mime: "text/markdown",
+      createdAt: now,
+      runID: "run_1",
+      content: "Verification: failed\n\n- test (bun test) — exit 1",
+    },
+    {
+      id: "a2",
+      kind: "report",
+      title: "Run success",
+      producer: "harness",
+      mime: "text/markdown",
+      createdAt: now - 1000,
+      content: "Run success in 4s",
+    },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: artifacts } })
+    if (/^\/harness\/artifacts\/[^/]+$/.test(url.pathname) && route.request().method() === "DELETE") {
+      removed = url.pathname.split("/").pop()!
+      return route.fulfill({ json: { data: true } })
+    }
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/artifacts")
+
+  const cards = page.locator(".fc-run-card")
+  await expect(cards).toHaveCount(2)
+  // It is not a list of file paths any more.
+  await expect(cards.first()).toContainText("verify — failed")
+
+  // Read in place: the evidence is the point, not a link to it.
+  await expect(page.locator(".fc-artifact-body")).toHaveCount(0)
+  await cards.first().getByRole("button", { name: /Read|Leer/ }).click()
+  await expect(page.locator(".fc-artifact-body")).toContainText("- test (bun test) — exit 1")
+
+  // Filtering by kind narrows the list.
+  await page.getByRole("button", { name: /^(report|informe)$/ }).click()
+  await expect(page.locator(".fc-run-card")).toHaveCount(1)
+  await expect(page.locator(".fc-run-card")).toContainText("Run success")
+
+  await page.getByRole("button", { name: /^(All|Todo)$/ }).click()
+  await page.locator(".fc-run-card").first().getByRole("button", { name: /^(Delete|Eliminar)$/ }).click()
+  await expect.poll(() => removed).toBe("a1")
+})
