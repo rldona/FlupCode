@@ -155,6 +155,13 @@ const ES: Record<string, string> = {
   "Always ask before making changes": "Preguntar siempre antes de hacer cambios",
   "Automatically accept all file edits": "Aceptar automáticamente todas las ediciones",
   "Accepts all permissions": "Acepta todos los permisos",
+  "Runs everything without asking, including commands and edits outside the folder":
+    "Ejecuta todo sin preguntar, incluidos comandos y ediciones fuera de la carpeta",
+  "Click again to confirm": "Pulsa otra vez para confirmar",
+  "Connect them": "Conectarlos",
+  "{count} providers have a key in the engine's configuration that sessions cannot use yet":
+    "{count} proveedores tienen una clave en la configuración del motor que las sesiones aún no pueden usar",
+  "Keys from the engine's configuration are connected": "Claves de la configuración del motor conectadas",
   Terminal: "Terminal",
   Status: "Estado",
   "Click to expand": "Clic para expandir",

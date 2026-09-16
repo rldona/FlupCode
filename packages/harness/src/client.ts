@@ -463,8 +463,63 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     provider: {
       list: (input?: LocationInput) => unwrap(client.v2.provider.list(input)),
-      directory: () => unwrap(client.provider.list()),
+      /**
+       * The engine answers this one with every configured API key in the clear. Nothing in the UI
+       * needs the key itself, and over remote control the answer crosses to a phone, so the keys are
+       * dropped here and never reach app state, a component prop or another device.
+       */
+      directory: async () => {
+        const result = await unwrap(client.provider.list())
+        return { ...result, all: result.all.map(({ key: _key, ...provider }) => provider) }
+      },
       auth: () => unwrap(client.provider.auth()),
+      /**
+       * Registers the API keys already in the engine's own configuration as v2 credentials, which is
+       * what makes those providers usable by v2 sessions. The keys stay inside this call: the reader
+       * asks for it from the providers panel, it is never done on its own.
+       */
+      linkConfiguredKeys: async () => {
+        const directory = await unwrap(client.provider.list())
+        const integrations = await unwrap(client.v2.integration.list())
+        const pending = directory.all.filter(
+          (provider): provider is (typeof directory.all)[number] & { key: string } =>
+            provider.source === "api" &&
+            !!provider.key &&
+            !integrations.data
+              .find((item) => item.id === provider.id)
+              ?.connections?.some((connection) => connection.type === "credential"),
+        )
+        const linked = await Promise.all(
+          pending.map((provider) =>
+            unwrap(
+              client.v2.integration.connect.key({
+                integrationID: provider.id,
+                key: provider.key,
+                label: provider.id,
+              }),
+            ).then(
+              () => true,
+              () => false,
+            ),
+          ),
+        )
+        return linked.filter(Boolean).length
+      },
+      /** Providers whose configured key is not a v2 credential yet, by id; never carries the key. */
+      unlinked: async () => {
+        const directory = await unwrap(client.provider.list())
+        const integrations = await unwrap(client.v2.integration.list())
+        return directory.all
+          .filter(
+            (provider) =>
+              provider.source === "api" &&
+              !!provider.key &&
+              !integrations.data
+                .find((item) => item.id === provider.id)
+                ?.connections?.some((connection) => connection.type === "credential"),
+          )
+          .map((provider) => provider.id)
+      },
     },
     auth: {
       set: (input: { providerID: string; key: string }) =>

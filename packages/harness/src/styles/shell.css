@@ -1917,6 +1917,18 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+.fc-mode-item-danger .fc-mode-item-label {
+  color: var(--fc-danger);
+}
+
+.fc-mode-item-confirming {
+  background: color-mix(in srgb, var(--fc-danger) 16%, transparent);
+}
+
+.fc-mode-item-confirming .fc-mode-item-desc {
+  color: var(--fc-danger);
+}
+
 .fc-mode-check {
   position: absolute;
   right: 8px;
@@ -3600,6 +3612,21 @@ button.fc-status {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-weight: 500;
+}
+
+.fc-provider-notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  border-radius: var(--fc-radius-sm);
+  background: color-mix(in srgb, var(--fc-accent) 14%, transparent);
+  font-size: 12px;
+}
+
+.fc-provider-notice > span {
+  flex: 1;
 }
 
 .fc-provider-list {

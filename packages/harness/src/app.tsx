@@ -5,7 +5,6 @@ import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
 import type {
   PermissionV2Request,
-  ProviderDirectoryInfo,
   QuestionV2Request,
   SessionMessageAssistant,
   SessionMessageInfo,
@@ -435,36 +434,22 @@ export const App: Component = () => {
     void refetchProviderDirectory()
     void refetchIntegrations()
   })
-  const [linkedProviders, setLinkedProviders] = createSignal<string[]>([])
-  createEffect(() => {
-    const url = ready() ? serverUrl() : undefined
-    const providers = providerDirectory()?.all ?? []
-    if (!url || providers.length === 0) return
-    const pending = providers.filter(
-      (provider): provider is ProviderDirectoryInfo & { key: string } =>
-        provider.source === "api" && !!provider.key && !linkedProviders().includes(`${url}::${provider.id}`),
-    )
-    if (pending.length === 0) return
-    setLinkedProviders((previous) => [...previous, ...pending.map((provider) => `${url}::${provider.id}`)])
-    const current = createClient(url)
-    void current.integration
-      .list()
-      .then((integrations) =>
-        Promise.all(
-          pending.map(async (provider) => {
-            const connected = integrations.data
-              .find((item) => item.id === provider.id)
-              ?.connections?.some((connection) => connection.type === "credential")
-            if (connected) return
-            await current.integration
-              .connectKey({ integrationID: provider.id, key: provider.key, label: provider.id })
-              .catch(() => undefined)
-          }),
-        ),
-      )
-      .then(() => void refetchModels())
-      .catch(() => undefined)
-  })
+  // Providers whose key lives in the engine's configuration but is not a v2 credential yet. Copying
+  // them used to happen on its own on every load, which sent every key through the page (and, while
+  // remote-controlling, to the phone). Now the providers panel offers it and the reader asks for it.
+  const [unlinkedProviders, { refetch: refetchUnlinkedProviders }] = createResource(
+    () => (ready() && providersOpen() ? serverUrl() : undefined),
+    async (url) => createClient(url).provider.unlinked(),
+  )
+  const linkConfiguredKeys = () =>
+    void run(async (current) => {
+      await current.provider.linkConfiguredKeys()
+      void refetchUnlinkedProviders()
+      void refetchProviderDirectory()
+      void refetchIntegrations()
+      void refetchModels()
+      return undefined
+    }, t("Keys from the engine's configuration are connected"))
 
   const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
   const vcsKey = () => {
@@ -2875,6 +2860,7 @@ export const App: Component = () => {
         auth={providerAuth() ?? {}}
         connected={providerDirectory()?.connected ?? []}
         integrations={integrations()?.data ?? []}
+        unlinked={unlinkedProviders() ?? []}
         busy={busy()}
         onSave={saveProvider}
         onRemove={removeProvider}
@@ -2882,6 +2868,7 @@ export const App: Component = () => {
         onOAuthStatus={oAuthStatus}
         onOAuthCancel={cancelOAuth}
         onOAuthDone={finishOAuth}
+        onLinkConfigured={linkConfiguredKeys}
         onClose={() => setProvidersOpen(false)}
       />
       <ModelPicker
