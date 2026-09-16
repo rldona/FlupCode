@@ -3117,6 +3117,7 @@ export const App: Component = () => {
             }
           >
             <Topbar
+            showTabs={desktopWindow() || collapsed()}
               streamState={streamState()}
               blockedElsewhere={blockedElsewhere()}
               onOpenBlocked={selectSession}
@@ -3200,7 +3201,7 @@ export const App: Component = () => {
         </Show>
         <PanelBoundary name={t("The sidebar")}>
           <Sidebar
-            showTabs={!desktopWindow()}
+            showBrand={!desktopWindow()}
             collapsed={collapsed()}
             width={sidebarWidth()}
             displayName={displayName()}
