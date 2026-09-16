@@ -24,8 +24,10 @@ function retryPrompt(task: Task, evidence: string) {
   return [task.prompt, "", "The previous attempt did not pass verification:", "", evidence].join("\n")
 }
 
-const failureSummary = (steps: Array<{ name: string; exitCode: number }>) => {
-  const failed = steps.filter((step) => step.exitCode !== 0).map((step) => step.name)
+const failureSummary = (report: { steps: Array<{ name: string; exitCode: number }>; problem?: string }) => {
+  // A declaration that cannot be read is its own answer, and the one the reader can act on.
+  if (report.problem) return `Verification could not run: ${report.problem}`
+  const failed = report.steps.filter((step) => step.exitCode !== 0).map((step) => step.name)
   if (failed.length === 0) return "Nothing to verify: the project declares no verify steps"
   return `Verification failed: ${failed.join(", ")}`
 }
@@ -133,7 +135,7 @@ export class TaskRunner {
         const evidence = evidenceText(report)
         this.repository.finishTask(task.id, stopped() ? "stopped" : report.ok ? "success" : "failed", {
           output: evidence,
-          error: report.ok ? undefined : failureSummary(report.steps),
+          error: report.ok ? undefined : failureSummary(report),
         })
         // And it is kept (H-14): the verdict of a check is the evidence the audit asks for, and it
         // outlives the task list, which only shows the last twenty runs.
@@ -155,7 +157,7 @@ export class TaskRunner {
             handoff = undefined
             continue
           }
-          throw new VerifyFailed(failureSummary(report.steps))
+          throw new VerifyFailed(failureSummary(report))
         }
       } else {
         try {

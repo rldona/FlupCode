@@ -27,10 +27,12 @@ describe("what a project is verified with", () => {
       "package.json": JSON.stringify({ scripts: { test: "vitest", lint: "eslint ." } }),
     })
     // Declared wins whole: the lint script is not bolted onto a list the repository wrote itself.
-    expect(await verifySteps(directory)).toEqual([
-      { name: "typecheck", command: "bun run typecheck" },
-      { name: "test", command: "bun test src" },
-    ])
+    expect(await verifySteps(directory)).toEqual({
+      steps: [
+        { name: "typecheck", command: "bun run typecheck" },
+        { name: "test", command: "bun test src" },
+      ],
+    })
   })
 
   test("the scripts it has, run with the manager its lockfile names", async () => {
@@ -51,11 +53,35 @@ describe("what a project is verified with", () => {
     expect(await detectedSteps(directory)).toEqual([])
   })
 
-  test("a file that is not there, or not YAML, is not a configuration", async () => {
+  test("no file at all leaves the scripts to speak", async () => {
     expect(await configuredSteps(project({}))).toBeUndefined()
-    expect(await configuredSteps(project({ ".flupcode/project.yaml": "verify: [" }))).toBeUndefined()
-    // Present but empty is still nothing to run, and must not shadow detection.
-    expect(await configuredSteps(project({ ".flupcode/project.yaml": "verify:\n" }))).toBeUndefined()
+    // A file that says nothing about checks says nothing about checks.
+    expect(await configuredSteps(project({ ".flupcode/project.yaml": "name: thing\n" }))).toBeUndefined()
+  })
+
+  // A declaration that cannot be read is not the same as no declaration. Falling back to detection
+  // there tells the reader "this project declares no checks" about a project that declares them in
+  // a file with a typo — and hands a retry that same sentence to act on.
+  test("a declaration that cannot be read says so, and does not fall back", async () => {
+    const broken = await configuredSteps(project({ ".flupcode/project.yaml": "verify: [" }))
+    expect(broken?.steps).toEqual([])
+    expect(broken?.problem).toContain("could not be read")
+
+    const empty = await configuredSteps(project({ ".flupcode/project.yaml": "verify:\n" }))
+    expect(empty?.problem).toContain("no commands under it")
+
+    const wrong = await configuredSteps(project({ ".flupcode/project.yaml": "verify: just a string\n" }))
+    expect(wrong?.problem).toContain("not a list of commands")
+
+    // And detection does not quietly take over, even with scripts sitting right there.
+    const directory = project({
+      ".flupcode/project.yaml": "verify: [",
+      "package.json": JSON.stringify({ scripts: { test: "bun test" } }),
+      "bun.lock": "{}",
+    })
+    const plan = await verifySteps(directory)
+    expect(plan.steps).toEqual([])
+    expect(plan.problem).toContain("could not be read")
   })
 })
 
@@ -103,6 +129,14 @@ describe("running it", () => {
 })
 
 describe("the evidence", () => {
+  test("a broken declaration is the whole answer, and reads as something to fix", () => {
+    const text = evidenceText({ ok: false, steps: [], problem: ".flupcode/project.yaml could not be read: bad token" })
+    expect(text).toContain("Verification could not run")
+    expect(text).toContain("bad token")
+    // Not the sentence that sent an agent hunting for a file that was right there.
+    expect(text).not.toContain("declares no")
+  })
+
   test("says the verdict, lists every step, and quotes only what failed", () => {
     const text = evidenceText({
       ok: false,
