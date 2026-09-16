@@ -13,7 +13,7 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
-import type { Routine, RoutineInput, RoutineRun, Run, Task } from "./types"
+import type { Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
@@ -831,12 +831,27 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
       stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+      /** Let a run through the gate it stopped at. Refusing it is stopping it. */
+      approve: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
       /** Interrupt every run still going. */
       stopAll: () => harnessRequest<{ stopped: number }>(baseUrl, "/harness/runs/stop", { method: "POST" }),
       /** Forget every run that has finished. Running ones stay. */
       clear: () => harnessRequest<{ removed: number }>(baseUrl, "/harness/runs", { method: "DELETE" }),
       /** Forget a run and its tasks. The server refuses while it is still going. */
       remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    workflows: {
+      /** What this project can run. A project's own win over the ones shared across projects. */
+      list: (directory?: string) =>
+        harnessRequest<Workflow[]>(
+          baseUrl,
+          directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
+        ),
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string }) =>
+        harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
     },
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),

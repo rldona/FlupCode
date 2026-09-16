@@ -10,6 +10,15 @@ export type CommandOption = {
   disabled?: boolean
 }
 
+/** A process written down, as the app reads it. Mirrors `harness-server`'s own type (H-21). */
+export type Workflow = {
+  name: string
+  description: string
+  /** The names it asks for. The launcher fills the first one with whatever was typed after it. */
+  inputs: string[]
+  tasks: Array<{ id: string; kind?: TaskKind; agent?: string; gate?: "human" }>
+}
+
 export type McpConfig = { type: "local"; command: string[] } | { type: "remote"; url: string }
 
 export type StashedPrompt = {
@@ -29,7 +38,8 @@ export type RoutineSchedule =
 /** What asked for a run: a routine on its schedule, or a person pressing the button. */
 export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
 
-export type RunStatus = "running" | "success" | "failed" | "stopped"
+/** `awaiting` is a run stopped on purpose at a human gate, waiting to be let through (H-21). */
+export type RunStatus = "running" | "awaiting" | "success" | "failed" | "stopped"
 
 /** One execution the harness server owns, as the app reads it. Mirrors `harness-server`'s own type. */
 export type Run = {
@@ -60,6 +70,8 @@ export type Task = {
   attempt?: number
   /** The task this one attempts again. */
   retryOf?: string
+  /** `human` holds the run here until somebody reads what it did and lets it through. */
+  gate?: "human"
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
   sessionID?: string

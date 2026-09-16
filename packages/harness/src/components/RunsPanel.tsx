@@ -7,6 +7,7 @@ type RunsPanelProps = {
   runs: Run[]
   serverAvailable: boolean
   onStop: (id: string) => void
+  onApprove: (id: string) => void
   onClear: () => void
   onStopAll: () => void
   onRemove: (id: string) => void
@@ -28,6 +29,9 @@ const marks: Record<TaskStatus, string> = {
   failed: "✕",
   stopped: "■",
 }
+
+/** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */
+const going = (run: Run) => run.status === "running" || run.status === "awaiting"
 
 const money = (value: number | undefined) => (value === undefined ? undefined : `$${value.toFixed(2)}`)
 const thousands = (value: number | undefined) =>
@@ -92,7 +96,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
             <p>{t("What the harness server is working on, task by task.")}</p>
           </div>
           <div class="fc-routines-header-actions">
-            <Show when={props.runs.some((run) => run.status === "running")}>
+            <Show when={props.runs.some((run) => going(run))}>
               <button
                 class="fc-button fc-button-danger"
                 type="button"
@@ -102,7 +106,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                 {t("Stop all")}
               </button>
             </Show>
-            <Show when={props.runs.some((run) => run.status !== "running")}>
+            <Show when={props.runs.some((run) => !going(run))}>
               <button
                 class="fc-button fc-button-danger"
                 type="button"
@@ -164,10 +168,10 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
           <div class="fc-runs-list">
             <For each={props.runs}>
               {(run) => (
-                <article class="fc-run-card" classList={{ "fc-run-running": run.status === "running" }}>
+                <article class="fc-run-card" classList={{ "fc-run-running": going(run) }}>
                   <header class="fc-run-head">
                     <span class="fc-run-mark" data-status={run.status}>
-                      {marks[run.status === "running" ? "running" : run.status]}
+                      {going(run) ? marks.running : marks[run.status as TaskStatus]}
                     </span>
                     <span class="fc-run-title">{run.source.type === "routine" ? t("Routine") : t("Manual run")}</span>
                     <span class="fc-run-meta">
@@ -180,8 +184,19 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                         </button>
                       )}
                     </Show>
+                    {/* A gate is a question: let it through, or stop it. There is no third answer. */}
+                    <Show when={run.status === "awaiting"}>
+                      <button
+                        class="fc-run-open"
+                        type="button"
+                        disabled={!props.serverAvailable}
+                        onClick={() => props.onApprove(run.id)}
+                      >
+                        {t("Approve")}
+                      </button>
+                    </Show>
                     <Show
-                      when={run.status === "running"}
+                      when={going(run)}
                       fallback={
                         <button
                           class="fc-run-open fc-run-danger"

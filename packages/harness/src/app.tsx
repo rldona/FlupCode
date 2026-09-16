@@ -60,6 +60,7 @@ import type {
   RoutineRun,
   Run,
   Task,
+  Workflow,
   StashedPrompt,
 } from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
@@ -565,6 +566,22 @@ export const App: Component = () => {
     setAgent(next)
   })
   const modelLocation = () => targetDirectory() ?? selectedSession()?.location?.directory
+  /**
+   * The processes this project has written down (H-21).
+   *
+   * Keyed by the folder as well as the server: a repository's own workflows win over the shared
+   * ones, so the list is different depending on where the session is working.
+   */
+  const [workflows] = createResource(
+    () => `${harnessServerUrl()}\n${modelLocation() ?? ""}`,
+    async (key) => {
+      const [url = "", directory = ""] = key.split("\n")
+      return createHarnessClient(url)
+        .workflows.list(directory || undefined)
+        .catch(() => [] as Workflow[])
+    },
+  )
+  const workflowNamed = (name: string) => (workflows() ?? []).find((workflow) => workflow.name === name)
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
     (key) => {
@@ -984,6 +1001,12 @@ export const App: Component = () => {
       })),
       ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
       ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
+      // A workflow is a command: that is the audit's "launcher unificado", and the reason it goes in
+      // the same list rather than a menu of its own.
+      ...(workflows() ?? []).map((workflow) => ({
+        name: workflow.name,
+        description: workflow.description || t("Workflow"),
+      })),
     ]
 
     const pastes = new Map<string, string>()
@@ -2417,6 +2440,41 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
+  /**
+   * Start a workflow from the composer.
+   *
+   * Everything typed after the name fills its first input, which is what `/feature add search`
+   * means. A workflow that asks for more than one cannot be said on a single line, so it says so
+   * rather than starting with the rest of them empty.
+   */
+  const startWorkflow = (workflow: Workflow, args: string) => {
+    const [first, ...rest] = workflow.inputs
+    if (rest.length > 0) {
+      const inputs = workflow.inputs.join(", ")
+      toast(t("{name} asks for {inputs}, which is more than one line can say", { name: workflow.name, inputs }), "error")
+      return
+    }
+    if (first && !args.trim()) {
+      toast(t("{name} needs {input}", { name: workflow.name, input: first }), "info")
+      return
+    }
+    setPrompt("")
+    void createHarnessClient(harnessServerUrl())
+      .workflows.run(workflow.name, {
+        ...(first ? { inputs: { [first]: args.trim() } } : {}),
+        directory: modelLocation(),
+      })
+      // Straight to the supervisor: a run nobody can see is the thing this replaces.
+      .then(() => showScreen("runs"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const approveRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.approve(id)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   const clearRuns = () => {
     void createHarnessClient(harnessServerUrl())
       .runs.clear()
@@ -2952,6 +3010,14 @@ export const App: Component = () => {
       if (UNAVAILABLE_FEATURES.has(name)) {
         setPrompt("")
         toast(t("Coming soon"), "info")
+        return
+      }
+      // A workflow is launched like a command, with what was typed after it as its first input
+      // (H-21): `/feature add search to the sidebar`. Built-in names are matched first, so a
+      // workflow cannot take one over by being written down.
+      const workflow = workflowNamed(name)
+      if (workflow) {
+        startWorkflow(workflow, args)
         return
       }
       if (name === "new" || name === "clear") {
@@ -3658,6 +3724,7 @@ export const App: Component = () => {
         onRemove={removeRun}
         onClear={clearRuns}
         onStopAll={stopAllRuns}
+        onApprove={approveRun}
         onOpenSession={(id) => {
           leaveScreen()
           selectSession(id)

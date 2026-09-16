@@ -1,6 +1,7 @@
 import { Engine } from "./engine"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
+import { findWorkflow, tasksFor } from "./workflow"
 import type { Run, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
@@ -21,6 +22,20 @@ const unwrap = async <T>(call: Promise<Result<T>>) => {
   }
   if (result.data === undefined) throw new Error("Engine returned no data")
   return result.data
+}
+
+export class UnknownWorkflowError extends Error {
+  constructor(name: string) {
+    super(`No workflow called ${name}`)
+    this.name = "UnknownWorkflowError"
+  }
+}
+
+export class MissingInputsError extends Error {
+  constructor(readonly missing: string[]) {
+    super(`This workflow needs ${missing.join(", ")}`)
+    this.name = "MissingInputsError"
+  }
 }
 
 export class RoutineBusyError extends Error {
@@ -75,7 +90,7 @@ export class RoutineScheduler {
    */
   async runTasks(input: { tasks: TaskInput[]; directory?: string }) {
     if (input.tasks.length === 0) throw new Error("A run needs at least one task")
-    const run = this.repository.startRun({ type: "manual" }, Date.now())
+    const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory)
     this.repository.addTasks(run.id, input.tasks)
     // More than one task means a thread of its own: the run's session is what a person reads, and
     // the engine keeps each task's session under it. One task needs none — its own session is the
@@ -92,15 +107,56 @@ export class RoutineScheduler {
         .catch(() => undefined)
       if (root) this.repository.attachSession(run.id, root.id)
     }
-    const runner = new TaskRunner(this.repository, this.engine)
-    void runner
-      .execute(run, { directory: input.directory, stopped: () => this.stopping.has(run.id) })
-      .then(
-        () => this.finishRun(run.id, this.stopping.has(run.id) ? "stopped" : "success"),
-        (cause: unknown) =>
-          this.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause)),
-      )
+    void this.drive(run.id, input.directory)
     return run
+  }
+
+  /**
+   * Start a run from a workflow (H-21).
+   *
+   * The workflow decides what the tasks are; everything after that is the path a manual run already
+   * takes. That is the point of writing processes down as files: the supervisor, the stream,
+   * verification and the retry do not learn anything new.
+   */
+  async runWorkflow(input: { name: string; inputs?: Record<string, string>; directory?: string }) {
+    const workflow = await findWorkflow(input.name, input.directory)
+    if (!workflow) throw new UnknownWorkflowError(input.name)
+    const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
+    if (missing.length > 0) throw new MissingInputsError(missing)
+    return this.runTasks({ tasks: tasksFor(workflow, input.inputs ?? {}), directory: input.directory })
+  }
+
+  /**
+   * Runs what a run has queued, and records how it ended.
+   *
+   * Separate from starting it because it is entered twice: once when the run begins, and again when
+   * somebody lets it through a gate.
+   */
+  private async drive(runID: string, directory?: string) {
+    const run = this.repository.getRun(runID)
+    if (!run) return
+    const runner = new TaskRunner(this.repository, this.engine)
+    try {
+      const outcome = await runner.execute(run, { directory, stopped: () => this.stopping.has(runID) })
+      if (outcome === "paused" && !this.stopping.has(runID)) return this.repository.awaitRun(runID)
+      this.finishRun(runID, this.stopping.has(runID) ? "stopped" : "success")
+    } catch (cause) {
+      this.finishRun(runID, "failed", cause instanceof Error ? cause.message : String(cause))
+    }
+  }
+
+  /**
+   * Let a run through the gate it stopped at.
+   *
+   * The directory comes from the run itself, which is why it is stored: a run picked up minutes
+   * later has nobody left holding the arguments it was started with.
+   */
+  approve(runID: string) {
+    const run = this.repository.getRun(runID)
+    if (!run || run.status !== "awaiting") return undefined
+    if (!this.repository.resumeRun(runID)) return undefined
+    void this.drive(runID, run.directory)
+    return this.repository.getRun(runID)
   }
 
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
@@ -110,8 +166,14 @@ export class RoutineScheduler {
 
   async stopRun(runID: string) {
     const run = this.repository.getRun(runID)
-    if (!run || run.status !== "running") return run
+    if (!run || (run.status !== "running" && run.status !== "awaiting")) return run
     this.stopping.add(runID)
+    // A run held at a gate has nobody driving it, so nothing would ever read the flag and finish it.
+    // Stopping is also how a gate is refused: the answer to "let this through?" can be no.
+    if (run.status === "awaiting") {
+      this.finishRun(runID, "stopped", "Stopped at the gate")
+      return this.repository.getRun(runID)
+    }
     if (!run.sessionID) return run
     const routineID = run.source.type === "routine" ? run.source.routineID : undefined
     const directory = routineID ? this.repository.get(routineID)?.projectDirectory : undefined
@@ -175,10 +237,17 @@ export class RoutineScheduler {
     )
     try {
       const runner = new TaskRunner(this.repository, this.engine)
-      await runner.execute(run, {
+      const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),
       })
+      // A routine's run is one task with no gate, so this cannot happen today — but saying "success"
+      // for a run that stopped halfway is the kind of lie that survives a refactor.
+      if (outcome === "paused" && !this.stopping.has(run.id)) {
+        this.repository.awaitRun(run.id)
+        this.repository.release(routineLockKey(routine.id), this.owner)
+        return
+      }
       // A run of one task has no thread of its own, so the session the reader wants is the task's.
       const [task] = this.repository.listTasks(run.id)
       if (task?.sessionID && !run.sessionID) this.repository.attachSession(run.id, task.sessionID)
