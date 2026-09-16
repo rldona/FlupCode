@@ -3,7 +3,7 @@ import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
-import { screenFromHash, urlForScreen, type Screen } from "./screen"
+import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -364,7 +364,7 @@ export const App: Component = () => {
   // Which full screen is open, and where in the URL it lives, so a reload comes back to it and the
   // browser's Back leaves it. One signal rather than a flag per screen: only one can be open, and
   // two flags could disagree.
-  const [screen, setScreen] = createSignal<Screen | undefined>(screenFromHash(window.location.hash))
+  const [screen, setScreen] = createSignal<Screen | undefined>(screenFromPath(window.location.pathname))
   const showScreen = (next: Screen | undefined) => {
     if (screen() === next) return
     setScreen(next)
@@ -375,14 +375,9 @@ export const App: Component = () => {
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
-    const follow = () => setScreen(screenFromHash(window.location.hash))
-    // popstate for Back and Forward; hashchange for a hash the person typed or a link they followed.
+    const follow = () => setScreen(screenFromPath(window.location.pathname))
     window.addEventListener("popstate", follow)
-    window.addEventListener("hashchange", follow)
-    onCleanup(() => {
-      window.removeEventListener("popstate", follow)
-      window.removeEventListener("hashchange", follow)
-    })
+    onCleanup(() => window.removeEventListener("popstate", follow))
   })
   const [remoteOpen, setRemoteOpen] = createSignal(false)
   // The desktop app hosts remote control; tracking its bridge keeps the top bar honest about the

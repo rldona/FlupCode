@@ -110,12 +110,13 @@ test("the Templates tab says it is not here yet", async ({ page }) => {
   await expect(tab.locator(".fc-nav-soon")).toHaveText(/Soon|Pronto/)
 })
 
-// A screen you can reload is a screen you can link to and come back to. It lives in the hash, which
-// survives a reload wherever this build is served from, including the desktop app's own bundle.
+// A screen you can reload is a screen you can link to and come back to. It is a path, which means
+// whatever serves this build has to answer it with index.html; the preview server here does, as
+// vercel.json and the desktop's renderer protocol do in the two places this actually ships.
 test("a screen is kept in the URL, through a reload and the Back button", async ({ page }) => {
   const screen = await boot(page, [])
   await expect(screen).toBeVisible()
-  await expect(page).toHaveURL(/#routines$/)
+  await expect(page).toHaveURL(/\/routines$/)
 
   await page.reload()
   await expect(page.locator(".fc-routines-screen")).toBeVisible()
@@ -123,11 +124,11 @@ test("a screen is kept in the URL, through a reload and the Back button", async 
   // Back leaves the screen instead of leaving the app.
   await page.goBack()
   await expect(page.locator(".fc-routines-screen")).toHaveCount(0)
-  await expect(page).not.toHaveURL(/#routines$/)
+  await expect(page).not.toHaveURL(/\/routines$/)
 })
 
 // And the link works cold: opened straight at the address, with no click to get there.
 test("the Runs screen opens from its own address", async ({ page }) => {
-  await boot(page, [], "/#runs")
+  await boot(page, [], "/runs")
   await expect(page.locator('section[aria-label="Runs"], section[aria-label="Ejecuciones"]')).toBeVisible()
 })

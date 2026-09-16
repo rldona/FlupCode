@@ -1,5 +1,5 @@
 import { BrowserWindow, app, dialog, ipcMain, net, protocol } from "electron"
-import { isAbsolute, join, relative, resolve } from "node:path"
+import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
 import { initRemoteHost } from "./remote"
@@ -36,7 +36,10 @@ function registerRendererProtocol() {
     const file = resolve(root, `.${decodeURIComponent(url.pathname)}`)
     const inside = relative(root, file)
     if (inside.startsWith("..") || isAbsolute(inside)) return new Response("Not found", { status: 404 })
-    return net.fetch(pathToFileURL(file).toString()).catch(() => new Response("Not found", { status: 404 }))
+    // An address with no extension is a screen, not a file: the renderer is one page and reads the
+    // path itself. A missing asset still 404s, so a broken build does not quietly serve the page.
+    const target = extname(url.pathname) ? file : resolve(root, "index.html")
+    return net.fetch(pathToFileURL(target).toString()).catch(() => new Response("Not found", { status: 404 }))
   })
 }
 

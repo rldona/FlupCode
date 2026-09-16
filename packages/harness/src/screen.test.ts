@@ -1,24 +1,25 @@
 import { describe, expect, test } from "bun:test"
-import { screenFromHash, urlForScreen } from "./screen"
-
-const here = { pathname: "/", search: "" }
+import { screenFromPath, urlForScreen } from "./screen"
 
 describe("the screen in the URL", () => {
-  test("reads the screens it knows, in either spelling", () => {
-    expect(screenFromHash("#runs")).toBe("runs")
-    expect(screenFromHash("#/routines")).toBe("routines")
+  test("reads the screens it knows, with or without a trailing slash", () => {
+    expect(screenFromPath("/runs")).toBe("runs")
+    expect(screenFromPath("/routines/")).toBe("routines")
   })
 
   test("claims nothing else", () => {
-    expect(screenFromHash("")).toBeUndefined()
-    expect(screenFromHash("#")).toBeUndefined()
-    expect(screenFromHash("#sessions")).toBeUndefined()
-    // Remote control pairs through this same hash, and the link is not a screen.
-    expect(screenFromHash("#pair=eyJ2IjoxfQ")).toBeUndefined()
+    expect(screenFromPath("/")).toBeUndefined()
+    expect(screenFromPath("")).toBeUndefined()
+    expect(screenFromPath("/sessions")).toBeUndefined()
+    expect(screenFromPath("/runs/1")).toBeUndefined()
   })
 
-  test("keeps the path and the query a deep link arrived with", () => {
-    expect(urlForScreen("runs", { pathname: "/app", search: "?launch=1" })).toBe("/app?launch=1#runs")
-    expect(urlForScreen(undefined, { pathname: "/app", search: "?launch=1" })).toBe("/app?launch=1")
+  test("keeps the query and the hash the address arrived with", () => {
+    // Remote control pairs through the hash and the launcher through the query; both are read after
+    // the first paint, so a screen change must not drop them.
+    expect(urlForScreen("runs", { search: "?launch=1", hash: "#pair=eyJ2IjoxfQ" })).toBe(
+      "/runs?launch=1#pair=eyJ2IjoxfQ",
+    )
+    expect(urlForScreen(undefined, { search: "", hash: "" })).toBe("/")
   })
 })

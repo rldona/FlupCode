@@ -1,27 +1,26 @@
 /**
  * Which full screen is open, written in the URL so a reload comes back to it.
  *
- * The hash, not a path. The same build is served by Vite, by a static host and from the desktop
- * app's own bundle, and only the hash survives a reload in all three: a path like `/runs` needs
- * whatever serves the file to rewrite unknown paths to `index.html`, and the desktop app has
- * nothing to do that.
+ * A path, not a hash, which means everything that serves this build has to answer an address like
+ * `/runs` with `index.html` instead of a 404: Vite does it on its own, `vercel.json` rewrites it,
+ * and the desktop app's renderer protocol falls back to the page for any address that is not a file.
  */
 export type Screen = "routines" | "runs"
 
 const SCREENS: readonly Screen[] = ["routines", "runs"]
 
-/**
- * The screen the hash names, if it names one.
- *
- * Anything else stays none: a pairing link arrives as `#pair=…` in this same hash and belongs to
- * remote control, not here.
- */
-export function screenFromHash(hash: string): Screen | undefined {
-  const name = hash.replace(/^#\/?/, "")
+/** The screen the path names, if it names one. Anything else is the home screen. */
+export function screenFromPath(pathname: string): Screen | undefined {
+  const name = pathname.replace(/^\/+/, "").replace(/\/+$/, "")
   return SCREENS.find((screen) => screen === name)
 }
 
-/** Where the address bar should point for a screen, keeping the path and query it already has. */
-export function urlForScreen(screen: Screen | undefined, location: { pathname: string; search: string }) {
-  return `${location.pathname}${location.search}${screen ? `#${screen}` : ""}`
+/**
+ * Where the address bar should point for a screen.
+ *
+ * The query and the hash come along: a pairing link (`#pair=…`) and a launch parameter both arrive
+ * that way and are read after the first paint, so dropping them here would lose them.
+ */
+export function urlForScreen(screen: Screen | undefined, location: { search: string; hash: string }) {
+  return `/${screen ?? ""}${location.search}${location.hash}`
 }
