@@ -361,6 +361,22 @@ the moment you realise what a run just did does not belong on the branch you are
 Nothing here throws work away: there is no discard and no reset. Committing and branching are both
 things you can walk back from with git; losing an uncommitted change is not.
 
+### Checkpoints
+
+Above the diff, **Checkpoints**: a way back to how the folder looked. One is recorded after every
+task of a run, and **Take one now** records the present.
+
+A checkpoint is a git commit that is on no branch. Taking one changes nothing you can see — not the
+working tree, not what you have staged, not the stash, not the branch — and files git was told to
+ignore are not in it, which is what keeps it small.
+
+**Restore** never just runs. It asks what would change and shows you, deletions first and by name,
+because a file nobody added to git is gone from everywhere once it goes. Only then does it offer to
+do it — and it records the present as a checkpoint of its own first, so undoing the undo is the same
+button on the row that appears at the top of the list.
+
+A checkpoint is per folder, so the branch view does not show any.
+
 ### The pull request
 
 Above the composer, a chip says where the branch stands:
