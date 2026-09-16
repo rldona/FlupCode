@@ -6,6 +6,21 @@ import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 
+/**
+ * Waits for a run the request only started.
+ *
+ * `POST /harness/runs` answers 202 and leaves the runner going, so a test that closes its database
+ * straight after loses a race with the run's own last write — which is exactly how this test failed
+ * in CI and passed on a faster machine.
+ */
+const settled = async (repository: SqliteRoutineRepository, runID: string, timeoutMs = 10_000) => {
+  const deadline = Date.now() + timeoutMs
+  while (repository.getRun(runID)?.status === "running" && Date.now() < deadline) {
+    await Bun.sleep(10)
+  }
+  expect(repository.getRun(runID)?.status).not.toBe("running")
+}
+
 const made: string[] = []
 afterAll(() => {
   for (const directory of made.splice(0)) rmSync(directory, { recursive: true, force: true })
@@ -140,6 +155,9 @@ describe("harness runs API", () => {
     expect(started.status).toBe(202)
     const run = (await started.json()).data
     expect(repository.listTasks(run.id)[0]!.retries).toBe(MAX_RETRIES)
+    // The run keeps going after the request answers: closing the database under it is what a server
+    // being shut down mid-run looks like, and the writes it is about to make would throw.
+    await settled(repository, run.id)
     repository.close()
   })
 
