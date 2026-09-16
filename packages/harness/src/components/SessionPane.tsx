@@ -91,14 +91,36 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       return { sessionID: source.sessionID, data: result.data }
     },
   )
-  const [permissions, { refetch: refetchPermissions }] = createResource(
-    () => ({ url: props.serverUrl, sessionID: sessionID() }),
-    (source) => createClient(source.url).session.permission.list({ sessionID: source.sessionID }),
-  )
-  const [questions, { refetch: refetchQuestions }] = createResource(
-    () => ({ url: props.serverUrl, sessionID: sessionID() }),
-    (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
-  )
+  // Blocked work comes from the runtime that raised it; see the same merge in app.tsx.
+  const blockedSource = () => ({
+    url: props.serverUrl,
+    sessionID: sessionID(),
+    directory: props.session.location?.directory,
+  })
+  const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.permissions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.permission.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
+  const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.questions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.question.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
 
   // The engine resends the whole transcript on every event; reconcile it by id so the rows (and the
   // open tools and half-typed answers inside them) survive the refetch instead of being rebuilt.
@@ -323,17 +345,23 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
   }
 
+  const directory = () => props.session.location?.directory
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     void client()
-      .session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message })
+      .blocked.answerPermission({ requestID: request.id, directory: directory(), reply, message })
+      .catch(() =>
+        client().session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message }),
+      )
       .then(() => refetchPermissions())
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     void client()
-      .session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
+      .blocked.answerQuestion({ requestID: request.id, directory: directory(), answers })
+      .catch(() => client().session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers }))
       .then(() => refetchQuestions())
   const rejectQuestion = (request: QuestionV2Request) =>
     void client()
-      .session.question.reject({ sessionID: request.sessionID, requestID: request.id })
+      .blocked.rejectQuestion({ requestID: request.id, directory: directory() })
+      .catch(() => client().session.question.reject({ sessionID: request.sessionID, requestID: request.id }))
       .then(() => refetchQuestions())
 
   const project = () => (props.chat ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1))

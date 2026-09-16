@@ -155,8 +155,7 @@ export const App: Component = () => {
   const [streamStates, setStreamStates] = createSignal<Record<string, StreamState>>({})
   const setStreamState = (source: string, state: StreamState) =>
     setStreamStates((current) => (current[source] === state ? current : { ...current, [source]: state }))
-  const forgetStreamState = (source: string) =>
-    setStreamStates(({ [source]: _dropped, ...rest }) => rest)
+  const forgetStreamState = (source: string) => setStreamStates(({ [source]: _dropped, ...rest }) => rest)
   /** The worst state of them all: the reader is told the app is behind if any stream is. */
   const streamState = (): StreamState => {
     const states = Object.values(streamStates())
@@ -519,25 +518,60 @@ export const App: Component = () => {
       { additions: 0, deletions: 0 },
     )
   }
-  const [permissions, { refetch: refetchPermissions }] = createResource(
-    () => {
-      const sessionID = selected()
-      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
-    },
-    (source) => createClient(source.url).session.permission.list({ sessionID: source.sessionID }),
-  )
-  const [questions, { refetch: refetchQuestions }] = createResource(
-    () => {
-      const sessionID = selected()
-      return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
-    },
-    (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
-  )
+  // Blocked work is read from the runtime that raised it: every turn runs on the legacy runner, and
+  // the v2 registries answer empty for it, which is what left an agent waiting on a question no dock
+  // could show. Sessions that still hold a v2 request from before are merged in by id.
+  const blockedSource = () => {
+    const sessionID = selected()
+    if (!ready() || !sessionID) return undefined
+    return { url: serverUrl(), sessionID, directory: selectedSession()?.location?.directory }
+  }
+  const [permissions, { refetch: refetchPermissions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.permissions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.permission.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
+  const [questions, { refetch: refetchQuestions }] = createResource(blockedSource, async (source) => {
+    const engine = createClient(source.url)
+    const [legacy, v2] = await Promise.all([
+      engine.blocked.questions({ directory: source.directory, sessionID: source.sessionID }).catch(() => []),
+      engine.session.question.list({ sessionID: source.sessionID }).then(
+        (result) => result.data ?? [],
+        () => [],
+      ),
+    ])
+    const seen = new Set(legacy.map((request) => request.id))
+    return { data: [...legacy, ...v2.filter((request) => !seen.has(request.id))] }
+  })
   // Every session's pending permissions, not just the open one's. An agent waiting on one is silent
   // and looks idle, so without this the reader has no way to know another session is stuck.
   const [blocked, { refetch: refetchBlocked }] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).permission.pending(),
+    () => (ready() ? { url: serverUrl(), folders: watchedDirectories() } : undefined),
+    async (source) => {
+      const engine = createClient(source.url)
+      // Both runtimes again, and the legacy registry is per folder: a question counts as blocked work
+      // just as much as a permission does, and both were invisible from anywhere but their session.
+      const perFolder = await Promise.all(
+        source.folders.map((directory) =>
+          Promise.all([
+            engine.blocked.permissions({ directory }).catch(() => []),
+            engine.blocked.questions({ directory }).catch(() => []),
+          ]),
+        ),
+      )
+      const v2 = await engine.permission.pending().then(
+        (result) => result.data ?? [],
+        () => [],
+      )
+      return { data: [...perFolder.flat(2), ...v2] }
+    },
   )
   const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
   const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
@@ -2046,23 +2080,43 @@ export const App: Component = () => {
     setAttachments([])
   }
 
+  // An answer goes back to the runtime that asked. The legacy one owns every request a running turn
+  // raises today, and only it can unblock that turn; v2 is tried after it for requests left from
+  // before, so an old session is still answerable.
+  const sessionDirectory = (sessionID: string) =>
+    sessionList()?.find((session) => session.id === sessionID)?.location?.directory
+
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     run(async (current) => {
-      await current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message })
+      await current.blocked
+        .answerPermission({
+          requestID: request.id,
+          directory: sessionDirectory(request.sessionID),
+          reply,
+          message,
+        })
+        .catch(() =>
+          current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply, message }),
+        )
       void refetchPermissions()
+      void refetchBlocked()
       return undefined
     })
 
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     run(async (current) => {
-      await current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
+      await current.blocked
+        .answerQuestion({ requestID: request.id, directory: sessionDirectory(request.sessionID), answers })
+        .catch(() => current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers }))
       void refetchQuestions()
       return undefined
     })
 
   const rejectQuestion = (request: QuestionV2Request) =>
     run(async (current) => {
-      await current.session.question.reject({ sessionID: request.sessionID, requestID: request.id })
+      await current.blocked
+        .rejectQuestion({ requestID: request.id, directory: sessionDirectory(request.sessionID) })
+        .catch(() => current.session.question.reject({ sessionID: request.sessionID, requestID: request.id }))
       void refetchQuestions()
       return undefined
     })

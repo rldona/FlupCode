@@ -1,6 +1,13 @@
 import type { MemoryInfo, ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
-import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
+import type {
+  McpServer,
+  PermissionV2Request,
+  QuestionV2Request,
+  SessionInfo,
+  SessionMessageInfo,
+  SessionMessagesResponse,
+} from "./engine-types"
 import type { McpConfig } from "./types"
 import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
@@ -591,6 +598,65 @@ export function createClient(baseUrl = resolveServerUrl()) {
         cancel: (attemptID: string) => unwrap(client.v2.integration.attempt.cancel({ attemptID })),
       },
       disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
+    },
+    /**
+     * Blocked work, from whichever runtime owns it. A request belongs to the runtime that raised it
+     * and can only be answered there: the legacy runner — the one every Code and Chat turn runs on —
+     * keeps its own registry at `/question` and `/permission`, and the v2 ones answer empty for it.
+     * Reading only v2 is what left an agent waiting on a question no dock could show.
+     */
+    blocked: {
+      questions: async (input: { directory?: string; sessionID?: string }) => {
+        const legacy = ((await unwrap(client.question.list({ directory: input.directory }))) ??
+          []) as unknown as QuestionV2Request[]
+        return legacy
+          .filter((request) => !input.sessionID || request.sessionID === input.sessionID)
+          .map((request) => ({ ...request, questions: request.questions ?? [] }))
+      },
+      permissions: async (input: { directory?: string; sessionID?: string }) => {
+        const legacy = (await unwrap(client.permission.list({ directory: input.directory }))) ?? []
+        return legacy
+          .filter((request) => !input.sessionID || request.sessionID === input.sessionID)
+          .map(
+            // Defaults matter: the legacy payload is looser than the v2 one, and a request without
+            // patterns used to reach the dock as `undefined` and take the whole view down with it.
+            (request): PermissionV2Request => ({
+              id: request.id,
+              sessionID: request.sessionID,
+              action: request.permission ?? "",
+              resources: request.patterns ?? [],
+              save: request.always ?? [],
+              metadata: request.metadata ?? {},
+              ...(request.tool
+                ? { source: { type: "tool", messageID: request.tool.messageID, callID: request.tool.callID } }
+                : {}),
+            }),
+          )
+      },
+      answerQuestion: (input: { requestID: string; directory?: string; answers: string[][] }) =>
+        unwrap(
+          client.question.reply({
+            requestID: input.requestID,
+            directory: input.directory,
+            answers: input.answers,
+          }),
+        ),
+      rejectQuestion: (input: { requestID: string; directory?: string }) =>
+        unwrap(client.question.reject({ requestID: input.requestID, directory: input.directory })),
+      answerPermission: (input: {
+        requestID: string
+        directory?: string
+        reply: "once" | "always" | "reject"
+        message?: string
+      }) =>
+        unwrap(
+          client.permission.reply({
+            requestID: input.requestID,
+            directory: input.directory,
+            reply: input.reply,
+            message: input.message,
+          }),
+        ),
     },
     /** Permissions across every session, and the ones the reader told the engine to remember. */
     permission: {
