@@ -74,10 +74,19 @@ const long = [
   "",
 ].join("\n")
 
-type Seen = { modes: string[]; contexts: (string | null)[]; commits: Array<{ message: string; paths: string[] }>; branches: string[] }
+type Seen = {
+  modes: string[]
+  contexts: (string | null)[]
+  commits: Array<{ message: string; paths: string[] }>
+  branches: string[]
+  pullRequests: string[]
+}
 
-async function openSession(page: Page, panels: string[] = [], options: { long?: boolean } = {}) {
-  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [] }
+/** What `GET /harness/git/pr` answers, which is the whole of what the chip can know. */
+type BranchFixture = Record<string, unknown>
+
+async function openSession(page: Page, panels: string[] = [], options: { long?: boolean; branch?: BranchFixture } = {}) {
+  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [] }
   await page.addInitScript((panels) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -98,6 +107,31 @@ async function openSession(page: Page, panels: string[] = [], options: { long?: 
       const body = route.request().postDataJSON() as { message: string; paths: string[] }
       seen.commits.push({ message: body.message, paths: body.paths })
       return route.fulfill({ json: { data: { sha: "abc1234", subject: body.message, branch: "feature" } } })
+    }
+    if (url.pathname === "/harness/git/pr" && route.request().method() === "GET") {
+      return route.fulfill({
+        json: {
+          data: options.branch ?? { available: false, branch: "feature", pushed: false, problem: "gh is not installed" },
+        },
+      })
+    }
+    if (url.pathname === "/harness/git/pr" && route.request().method() === "POST") {
+      const body = route.request().postDataJSON() as { title: string }
+      seen.pullRequests.push(body.title)
+      return route.fulfill({
+        json: {
+          data: {
+            number: 42,
+            title: body.title,
+            url: "https://github.com/rldona/FlupCode/pull/42",
+            state: "open",
+            draft: false,
+            additions: 3,
+            deletions: 1,
+            checks: { total: 0, passed: 0, failed: 0, running: 0 },
+          },
+        },
+      })
     }
     if (url.pathname === "/harness/git/branch") {
       const body = route.request().postDataJSON() as { name: string }
@@ -291,4 +325,88 @@ test("the repo bar's commit button opens the diff instead of sending a prompt", 
   await expect(page).toHaveURL(/\/changes$/)
   await expect(page.locator(".fc-commit")).toBeVisible()
   await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
+})
+
+const withPullRequest = (over: Record<string, unknown>) => ({
+  available: true,
+  branch: "feature/thing",
+  repository: "rldona/FlupCode",
+  pushed: true,
+  subject: "feat: the thing",
+  pullRequest: {
+    number: 121,
+    title: "feat: the thing",
+    url: "https://github.com/rldona/FlupCode/pull/121",
+    state: "open",
+    draft: false,
+    additions: 835,
+    deletions: 25,
+    checks: { total: 5, passed: 5, failed: 0, running: 0 },
+    ...over,
+  },
+})
+
+test("a branch with no pull request offers to open one, and says when it must push first", async ({ page }) => {
+  const seen = await openSession(page, [], {
+    branch: { available: true, branch: "feature/thing", repository: "rldona/FlupCode", pushed: false, subject: "feat: the thing" },
+  })
+
+  const chip = page.locator(".fc-pr-chip")
+  await expect(chip).toContainText("feature/thing")
+  await expect(chip).toContainText("rldona/FlupCode")
+  // Pushing is part of it, so the button says so rather than doing it quietly.
+  await chip.getByRole("button", { name: /Push and create PR|Subir y crear PR/ }).click()
+
+  // The title starts as the branch's last commit subject, and stays editable.
+  const title = chip.getByRole("textbox", { name: /Pull request title|Título del PR/ })
+  await expect(title).toHaveValue("feat: the thing")
+  await title.fill("feat: something better")
+  await chip.getByRole("button", { name: /^(Open|Abrir)$/ }).click()
+
+  expect(seen.pullRequests).toEqual(["feat: something better"])
+  await expect(page.locator(".fc-toast")).toContainText("42")
+})
+
+test("an open pull request shows its number, its size and what CI says", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({}) })
+
+  const chip = page.locator(".fc-pr-chip")
+  await expect(chip.getByRole("button", { name: "#121" })).toBeVisible()
+  await expect(chip).toContainText("+835")
+  await expect(chip).toContainText("−25")
+  await expect(chip.locator(".fc-pr-checks")).toHaveAttribute("data-verdict", "passed")
+})
+
+test("checks still running are not reported as a verdict", async ({ page }) => {
+  await openSession(page, [], {
+    branch: withPullRequest({ checks: { total: 5, passed: 2, failed: 1, running: 2 } }),
+  })
+
+  const checks = page.locator(".fc-pr-checks")
+  // One has already failed, but two are still going: the answer is not in yet.
+  await expect(checks).toHaveAttribute("data-verdict", "running")
+  await expect(checks).toContainText("3/5")
+})
+
+test("a failed check says how many, in the colour that means it", async ({ page }) => {
+  await openSession(page, [], {
+    branch: withPullRequest({ checks: { total: 5, passed: 3, failed: 2, running: 0 } }),
+  })
+
+  const checks = page.locator(".fc-pr-checks")
+  await expect(checks).toHaveAttribute("data-verdict", "failed")
+  await expect(checks).toContainText(/2 failed|2 han fallado/)
+})
+
+test("a merged pull request says merged, and stops talking about CI", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
+
+  await expect(page.locator(".fc-pr-state")).toContainText(/Merged|Mergeado/)
+  await expect(page.locator(".fc-pr-checks")).toHaveCount(0)
+})
+
+test("without gh there is no chip at all, rather than a chip that cannot say", async ({ page }) => {
+  await openSession(page)
+  await expect(page.locator(".fc-repo-bar")).toBeVisible()
+  await expect(page.locator(".fc-pr-chip")).toHaveCount(0)
 })

@@ -147,6 +147,7 @@ const readJSON = async (request: Request) => {
 
 import { listWorkflows } from "./workflow"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
+import { branchState, createPullRequest } from "./pr"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -264,6 +265,34 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       if (!directory) return error("A folder is required", 400)
       try {
         return json({ data: await gitBranch({ directory, name: typeof body?.name === "string" ? body.name : "" }) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    // Where the branch stands on GitHub: pushed or not, and its pull request with every check.
+    // One `gh` call behind it, so a client may poll it while the checks are running and stop after.
+    if (path[1] === "git" && path[2] === "pr" && request.method === "GET") {
+      const directory = new URL(request.url).searchParams.get("directory") ?? ""
+      if (!directory) return error("A folder is required", 400)
+      return json({ data: await branchState(directory) })
+    }
+    if (path[1] === "git" && path[2] === "pr" && request.method === "POST") {
+      const body = (await readJSON(request)) as
+        | { directory?: unknown; title?: unknown; body?: unknown; base?: unknown; draft?: unknown }
+        | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      if (!directory) return error("A folder is required", 400)
+      try {
+        return json({
+          data: await createPullRequest({
+            directory,
+            title: typeof body?.title === "string" ? body.title : "",
+            body: typeof body?.body === "string" ? body.body : undefined,
+            base: typeof body?.base === "string" && body.base ? body.base : undefined,
+            draft: body?.draft === true,
+          }),
+        })
       } catch (cause) {
         if (cause instanceof GitError) return error(cause.message, cause.status)
         throw cause

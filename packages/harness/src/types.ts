@@ -148,3 +148,29 @@ export type ProjectItem = {
 
 /** What a commit made by the harness server reports back (H-20). */
 export type GitCommit = { sha: string; subject: string; branch: string }
+
+/** How the checks on a pull request add up (H-20). */
+export type CheckCounts = { total: number; passed: number; failed: number; running: number }
+
+export type PullRequest = {
+  number: number
+  title: string
+  url: string
+  state: "open" | "merged" | "closed"
+  draft: boolean
+  additions: number
+  deletions: number
+  checks: CheckCounts
+}
+
+/** Where a folder's branch stands on GitHub. `available` is false when `gh` cannot answer. */
+export type BranchState = {
+  available: boolean
+  branch: string
+  repository?: string
+  pushed: boolean
+  /** The last commit's subject, which is what a new pull request is titled after. */
+  subject?: string
+  pullRequest?: PullRequest
+  problem?: string
+}

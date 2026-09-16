@@ -13,7 +13,19 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
-import type { Artifact, ArtifactKind, GitCommit, Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
+import type {
+  Artifact,
+  ArtifactKind,
+  BranchState,
+  GitCommit,
+  PullRequest,
+  Routine,
+  RoutineInput,
+  RoutineRun,
+  Run,
+  Task,
+  Workflow,
+} from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
@@ -889,6 +901,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** Where the branch stands on GitHub. One `gh` call behind it, so poll it, do not spam it. */
+      state: (directory: string) =>
+        harnessRequest<BranchState>(baseUrl, `/harness/git/pr?directory=${encodeURIComponent(directory)}`),
+      /** Pushes the branch if it has never been pushed, then opens the pull request. */
+      openPullRequest: (input: { directory: string; title: string; body?: string; base?: string }) =>
+        harnessRequest<PullRequest>(baseUrl, "/harness/git/pr", { method: "POST", body: JSON.stringify(input) }),
     },
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),

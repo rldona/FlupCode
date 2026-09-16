@@ -7666,3 +7666,147 @@ button.fc-status {
   flex: 1;
   min-width: 0;
 }
+
+/* ── Where the branch stands on GitHub (H-20) ─────────────────────────────── */
+
+.fc-pr-chip {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  min-height: 34px;
+  padding: 4px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-2);
+  margin-bottom: var(--fc-space-2);
+  background: var(--fc-surface);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-pr-chip-merged {
+  border-color: color-mix(in srgb, var(--fc-accent) 40%, var(--fc-border));
+  background: color-mix(in srgb, var(--fc-accent) 10%, var(--fc-surface));
+}
+
+.fc-pr-number {
+  padding: 0;
+  border: 0;
+  color: var(--fc-text);
+  background: transparent;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fc-pr-number:hover {
+  text-decoration: underline;
+}
+
+.fc-pr-branch {
+  overflow: hidden;
+  color: var(--fc-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-pr-repo {
+  flex: 1;
+  overflow: hidden;
+  color: var(--fc-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-pr-counts {
+  display: flex;
+  gap: 6px;
+  flex: 1;
+  align-items: baseline;
+}
+
+.fc-pr-state {
+  padding: 1px 8px;
+  border-radius: 999px;
+  color: var(--fc-text-muted);
+  background: color-mix(in srgb, var(--fc-text-muted) 12%, transparent);
+}
+
+.fc-pr-state[data-state="merged"] {
+  color: var(--fc-accent);
+  background: color-mix(in srgb, var(--fc-accent) 16%, transparent);
+}
+
+.fc-pr-checks {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fc-text-muted);
+}
+
+.fc-pr-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: var(--fc-text-muted);
+}
+
+.fc-pr-checks[data-verdict="passed"] .fc-pr-dot {
+  background: var(--fc-diff-add);
+}
+
+.fc-pr-checks[data-verdict="failed"] {
+  color: var(--fc-diff-del);
+}
+
+.fc-pr-checks[data-verdict="failed"] .fc-pr-dot {
+  background: var(--fc-diff-del);
+}
+
+/* Running: the one state that is still changing, so it is the one that moves. */
+.fc-pr-checks[data-verdict="running"] .fc-pr-dot {
+  background: var(--fc-warning, #d9a441);
+  animation: fc-pr-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes fc-pr-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-pr-checks[data-verdict="running"] .fc-pr-dot {
+    animation: none;
+  }
+}
+
+.fc-pr-action {
+  padding: 3px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-2);
+  color: var(--fc-text);
+  background: var(--fc-bg);
+  font: inherit;
+  font-size: var(--fc-text-xs);
+  cursor: pointer;
+}
+
+.fc-pr-action:hover:not(:disabled) {
+  border-color: var(--fc-accent);
+}
+
+.fc-pr-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.fc-pr-title {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 8px;
+  font-size: var(--fc-text-xs);
+}
