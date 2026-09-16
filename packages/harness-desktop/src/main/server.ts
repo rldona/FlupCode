@@ -6,9 +6,11 @@ import { app, dialog, shell } from "electron"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
+export const HARNESS_SERVER_URL = process.env.FLUPCODE_HARNESS_SERVER_URL ?? "http://127.0.0.1:4097"
 export const OPENCODE_DOCS = "https://opencode.ai/docs/"
 
 let child: ChildProcess | undefined
+let harnessChild: ChildProcess | undefined
 let prompted = false
 
 /**
@@ -41,6 +43,15 @@ export async function isServerHealthy() {
   }
 }
 
+export async function isHarnessServerHealthy() {
+  try {
+    const response = await fetch(`${HARNESS_SERVER_URL}/harness/health`, { signal: AbortSignal.timeout(1500) })
+    return response.ok
+  } catch {
+    return false
+  }
+}
+
 function commandExists(command: string) {
   const probe = spawnSync(command, ["--version"], { stdio: "ignore", shell: process.platform === "win32" })
   return !probe.error
@@ -48,6 +59,10 @@ function commandExists(command: string) {
 
 function repoEngineDir() {
   return join(app.getAppPath(), "..", "..", "packages", "opencode")
+}
+
+function repoHarnessDir() {
+  return join(app.getAppPath(), "..", "..", "packages", "harness-server")
 }
 
 function resolveEngine(): { command: string; args: string[]; cwd?: string } | undefined {
@@ -68,6 +83,27 @@ function resolveEngine(): { command: string; args: string[]; cwd?: string } | un
     return { command: "opencode", args: ["serve", "--port", "4096"] }
   }
 
+  return undefined
+}
+
+function resolveHarnessServer(): { command: string; args: string[]; cwd?: string } | undefined {
+  if (process.env.FLUPCODE_HARNESS_SERVER) {
+    return { command: process.env.FLUPCODE_HARNESS_SERVER, args: [] }
+  }
+
+  const packaged = join(process.resourcesPath, "harness-server", "flupcode-harness")
+  if (existsSync(packaged)) return { command: packaged, args: [] }
+
+  const directory = repoHarnessDir()
+  if (existsSync(join(directory, "src", "index.ts"))) {
+    return {
+      command: process.env.FLUPCODE_BUN ?? "bun",
+      args: ["run", "./src/index.ts"],
+      cwd: directory,
+    }
+  }
+
+  if (commandExists("flupcode-harness")) return { command: "flupcode-harness", args: [] }
   return undefined
 }
 
@@ -124,7 +160,37 @@ export async function ensureServer() {
   promptInstall()
 }
 
+export async function ensureHarnessServer() {
+  if (process.env.FLUPCODE_NO_SERVER === "1" || process.env.FLUPCODE_NO_HARNESS_SERVER === "1") return
+  if (await isHarnessServerHealthy()) return
+
+  const harness = resolveHarnessServer()
+  if (!harness) return
+
+  const port = new URL(HARNESS_SERVER_URL).port || "4097"
+  harnessChild = spawn(harness.command, harness.args, {
+    cwd: harness.cwd,
+    env: {
+      ...process.env,
+      FLUPCODE_ENGINE_URL: SERVER_URL,
+      FLUPCODE_HARNESS_PORT: port,
+    },
+    stdio: "inherit",
+    shell: process.platform === "win32",
+  })
+  harnessChild.on("error", () => {
+    harnessChild = undefined
+  })
+
+  for (let attempt = 0; attempt < 40; attempt++) {
+    if (await isHarnessServerHealthy()) return
+    await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+}
+
 export function stopServer() {
+  harnessChild?.kill()
+  harnessChild = undefined
   child?.kill()
   child = undefined
 }

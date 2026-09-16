@@ -13,6 +13,9 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
+import type { Routine, RoutineInput, RoutineRun } from "./types"
+
+type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 /** The largest page of v2 messages the engine returns. */
@@ -793,3 +796,54 @@ export function createClient(baseUrl = resolveServerUrl()) {
 }
 
 export type HarnessClient = ReturnType<typeof createClient>
+
+export function resolveHarnessServerUrl() {
+  const configured = import.meta.env.VITE_FLUPCODE_HARNESS_SERVER_URL
+  if (typeof configured === "string" && configured.length > 0) return configured
+  return "http://localhost:4097"
+}
+
+async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: { "content-type": "application/json", ...init?.headers },
+  })
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
+export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
+  return {
+    health: () => harnessRequest<{ healthy: boolean }>(baseUrl, "/harness/health"),
+    routines: {
+      list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),
+      get: (id: string) => harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`),
+      create: (input: RoutineCreateRequest) =>
+        harnessRequest<Routine>(baseUrl, "/harness/routines", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      update: (id: string, input: RoutineInput) =>
+        harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        }),
+      setEnabled: (id: string, enabled: boolean) =>
+        harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}/enabled`, {
+          method: "PATCH",
+          body: JSON.stringify({ enabled }),
+        }),
+      remove: (id: string) =>
+        harnessRequest<boolean>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      run: (id: string) =>
+        harnessRequest<RoutineRun>(baseUrl, `/harness/routines/${encodeURIComponent(id)}/runs`, { method: "POST" }),
+      stop: (id: string, runID: string) =>
+        harnessRequest<RoutineRun | undefined>(
+          baseUrl,
+          `/harness/routines/${encodeURIComponent(id)}/runs/${encodeURIComponent(runID)}/stop`,
+          { method: "POST" },
+        ),
+    },
+  }
+}

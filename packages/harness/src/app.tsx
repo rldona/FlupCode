@@ -11,10 +11,12 @@ import type {
 } from "./engine-types"
 import {
   createClient,
+  createHarnessClient,
   engineTargetVersion,
   invalidateLegacyHistory,
   probeEngineProfile,
   probeServer,
+  resolveHarnessServerUrl,
   resolveServerUrl,
 } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
@@ -45,10 +47,18 @@ import {
   type LegacyPart,
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
-import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
-import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
+import type {
+  Attachment,
+  CommandOption,
+  McpConfig,
+  ProjectItem,
+  Routine,
+  RoutineInput,
+  RoutineRun,
+  StashedPrompt,
+} from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
@@ -92,6 +102,7 @@ import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
+import { normalizeRoutineSchedule } from "./routine-schedule"
 
 type Client = ReturnType<typeof createClient>
 
@@ -122,13 +133,86 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "about", descriptionKey: "About FlupCode" },
 ]
 
+const normalizeRoutine = (value: unknown): Routine | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const item = value as Record<string, unknown>
+  if (typeof item.id !== "string" || typeof item.name !== "string" || typeof item.prompt !== "string") return undefined
+  const legacyInterval =
+    typeof item.intervalMinutes === "number" && Number.isFinite(item.intervalMinutes) && item.intervalMinutes > 0
+      ? Math.max(1, Math.round(item.intervalMinutes))
+      : 60
+  const schedule = normalizeRoutineSchedule(item.schedule, legacyInterval)
+  const rawModel = item.model
+  const model =
+    rawModel && typeof rawModel === "object" && "providerID" in rawModel && "id" in rawModel &&
+    typeof rawModel.providerID === "string" && typeof rawModel.id === "string"
+      ? {
+          providerID: rawModel.providerID,
+          id: rawModel.id,
+          variant: "variant" in rawModel && typeof rawModel.variant === "string" ? rawModel.variant : undefined,
+        }
+      : undefined
+  const runs = Array.isArray(item.runs)
+    ? item.runs.flatMap((run) => {
+        if (!run || typeof run !== "object") return []
+        const entry = run as Record<string, unknown>
+        if (typeof entry.id !== "string" || typeof entry.startedAt !== "number") return []
+        const status =
+          entry.status === "success" || entry.status === "failed" || entry.status === "stopped"
+            ? entry.status
+            : "failed"
+        return [
+          {
+            id: entry.id,
+            sessionID: typeof entry.sessionID === "string" ? entry.sessionID : undefined,
+            status,
+            startedAt: entry.startedAt,
+            finishedAt: typeof entry.finishedAt === "number" ? entry.finishedAt : undefined,
+            error:
+              typeof entry.error === "string"
+                ? entry.error
+                : status === "failed"
+                  ? t("Run interrupted")
+                  : undefined,
+          } satisfies RoutineRun,
+        ]
+      })
+    : []
+  return {
+    id: item.id,
+    name: item.name,
+    description: typeof item.description === "string" ? item.description : "",
+    prompt: item.prompt,
+    schedule,
+    projectDirectory: typeof item.projectDirectory === "string" ? item.projectDirectory : undefined,
+    agent: typeof item.agent === "string" ? item.agent : undefined,
+    model,
+    enabled: item.enabled !== false,
+    createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
+    lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
+    runs,
+  }
+}
+
+const normalizeRoutines = (value: unknown) =>
+  Array.isArray(value)
+    ? value.flatMap((item) => {
+        const routine = normalizeRoutine(item)
+        return routine ? [routine] : []
+      })
+    : []
+
 export const App: Component = () => {
   const [localServerUrl, setLocalServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
   const [serverInput, setServerInput] = createSignal(localServerUrl())
+  const [localHarnessServerUrl] = createSignal(
+    readStorage(STORAGE_KEYS.harnessServerUrl, resolveHarnessServerUrl()),
+  )
   const serverUrl = () => {
     const host = remote.activeHost()
     return host ? remoteBaseUrl(host.hostId) : localServerUrl()
   }
+  const harnessServerUrl = () => localHarnessServerUrl()
   const [selected, setSelected] = createSignal<string | undefined>(
     // Phones controlling a computer always start on the sessions home, not the last open session.
     touchDevice && !desktopRemote() && remote.activeHost()
@@ -137,6 +221,9 @@ export const App: Component = () => {
   )
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
+  const [routineBusy, setRoutineBusy] = createSignal(false)
+  const [routineBusyID, setRoutineBusyID] = createSignal<string>()
+  const [routineRunID, setRoutineRunID] = createSignal<string>()
   const [streamedChars, setStreamedChars] = createSignal(0)
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
@@ -299,7 +386,10 @@ export const App: Component = () => {
   const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
   const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
   const [targetDirectory, setTargetDirectory] = createSignal<string>()
-  const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
+  const [routines, setRoutines] = createSignal<Routine[]>(normalizeRoutines(readStorage<unknown>(STORAGE_KEYS.routines, [])))
+  const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
+  const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
+  createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [colorTheme, setColorTheme] = createSignal(readColorTheme())
@@ -384,6 +474,7 @@ export const App: Component = () => {
     !!session && isChatSession(session, chatsDirectory())
   const viewSessions = () => sessionList()?.filter((session) => isChat(session) === chatView())
   const changeView = (next: AppView) => {
+    setRoutinesOpen(false)
     if (next === view()) return
     const leaving = selected()
     setView(next)
@@ -1526,6 +1617,18 @@ export const App: Component = () => {
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   })
+  const routineProjects = createMemo(() => {
+    const directory = targetDirectory()
+    if (!directory || projects().some((project) => project.directory === directory)) return projects()
+    return [
+      {
+        id: directory,
+        directory,
+        name: directory.split("/").filter(Boolean).at(-1) || directory,
+      },
+      ...projects(),
+    ]
+  })
 
   const [remoteActivity] = createResource(
     () =>
@@ -1695,6 +1798,7 @@ export const App: Component = () => {
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
   const selectSession = (id: string) => {
+    setRoutinesOpen(false)
     if (narrow()) setCollapsed(true)
     setSelected(id)
     if (history()[historyIndex()] === id) return
@@ -2051,70 +2155,104 @@ export const App: Component = () => {
 
   const removeStash = (id: string) => persistStashes(stashes().filter((entry) => entry.id !== id))
 
-  const persistRoutines = (next: Routine[]) => {
+  const setRoutineState = (next: Routine[]) => {
     setRoutines(next)
-    writeStorage(STORAGE_KEYS.routines, next)
+    const active = next.flatMap((routine) => routine.runs.map((run) => ({ routine, run }))).find(({ run }) => run.status === "running")
+    setRoutineBusy(!!active)
+    setRoutineBusyID(active?.routine.id)
+    setRoutineRunID(active?.run.id)
   }
 
-  const addRoutine = (input: { name: string; prompt: string; intervalMinutes: number }) => {
-    persistRoutines([...routines(), { id: newId(), ...input, enabled: true, createdAt: Date.now() }])
-    toast(t("Routine created"), "success")
-  }
+  const refreshRoutines = async () => {
+    if (routinesServerLoading()) return
+    setRoutinesServerLoading(true)
+    try {
+      const current = createHarnessClient(harnessServerUrl())
+      const remote = normalizeRoutines(await current.routines.list())
+      const migrated = readStorage(STORAGE_KEYS.routinesMigration, false)
+      if (!migrated && remote.length === 0 && routines().length > 0) {
+        const created = await Promise.all(
+          routines().map((routine) => current.routines.create(routine)),
 
-  const toggleRoutine = (id: string) => {
-    persistRoutines(
-      routines().map((routine) => (routine.id === id ? { ...routine, enabled: !routine.enabled } : routine)),
-    )
-  }
-
-  const removeRoutine = (id: string) => {
-    persistRoutines(routines().filter((routine) => routine.id !== id))
-  }
-
-  const markRoutineRun = (id: string) => {
-    persistRoutines(routines().map((routine) => (routine.id === id ? { ...routine, lastRunAt: Date.now() } : routine)))
-  }
-
-  const executeRoutine = (routine: Routine) => {
-    void (async () => {
-      setBusy(true)
-      try {
-        const current = createClient(serverUrl())
-        const model = selectedModel()
-        const session = await current.session.create(model ? { model } : {})
-        await current.session.rename({ sessionID: session.id, title: routine.name })
-        await current.session.prompt({ sessionID: session.id, text: routine.prompt })
-        void refetchSessions()
-        toast(t('Routine "{name}" executed', { name: routine.name }), "success")
-      } catch (cause) {
-        toast(cause instanceof Error ? cause.message : String(cause), "error")
-      } finally {
-        setBusy(false)
+        )
+        writeStorage(STORAGE_KEYS.routinesMigration, true)
+        setRoutineState(normalizeRoutines(created))
+      } else {
+        writeStorage(STORAGE_KEYS.routinesMigration, true)
+        setRoutineState(remote)
       }
-    })()
-  }
-
-  const runRoutine = (id: string) => {
-    const routine = routines().find((entry) => entry.id === id)
-    if (!routine) return
-    markRoutineRun(id)
-    executeRoutine(routine)
+      setRoutinesServerAvailable(true)
+    } catch {
+      setRoutinesServerAvailable(false)
+    } finally {
+      setRoutinesServerLoading(false)
+    }
   }
 
   createEffect(() => {
-    // Routines are a disabled feature: their entries say "Coming soon" and cannot open the panel.
-    // Scheduling them anyway runs whatever an older build left in storage, with no way to stop it.
-    if (UNAVAILABLE_FEATURES.has("routines")) return
-    const timer = setInterval(() => {
-      const now = Date.now()
-      for (const routine of routines()) {
-        if (!routineDue(routine, now)) continue
-        markRoutineRun(routine.id)
-        executeRoutine(routine)
-      }
-    }, 30000)
+    void refreshRoutines()
+    const timer = setInterval(() => void refreshRoutines(), 5000)
     onCleanup(() => clearInterval(timer))
   })
+
+  const addRoutine = (input: RoutineInput) => {
+    void createHarnessClient(harnessServerUrl())
+      .routines.create(input)
+      .then((routine) => {
+        setRoutineState([routine, ...routines()])
+        toast(t("Routine created"), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const updateRoutine = (id: string, input: RoutineInput) => {
+    void createHarnessClient(harnessServerUrl())
+      .routines.update(id, input)
+      .then((routine) => {
+        setRoutineState(routines().map((entry) => (entry.id === id ? routine : entry)))
+        toast(t("Routine saved"), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const toggleRoutine = (id: string) => {
+    const routine = routines().find((entry) => entry.id === id)
+    if (!routine) return
+    void createHarnessClient(harnessServerUrl())
+      .routines.setEnabled(id, !routine.enabled)
+      .then((next) => setRoutineState(routines().map((entry) => (entry.id === id ? next : entry))))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const removeRoutine = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .routines.remove(id)
+      .then(() => setRoutineState(routines().filter((entry) => entry.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const runRoutine = (id: string) => {
+    if (routineBusy()) return
+    void createHarnessClient(harnessServerUrl())
+      .routines.run(id)
+      .then((run) => {
+        setRoutineBusy(true)
+        setRoutineBusyID(id)
+        setRoutineRunID(run.id)
+        void refreshRoutines()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  const stopRoutine = () => {
+    const routineID = routineBusyID()
+    const runID = routineRunID()
+    if (!routineID || !runID) return
+    void createHarnessClient(harnessServerUrl())
+      .routines.stop(routineID, runID)
+      .then(() => void refreshRoutines())
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
 
   const run = async (action: (current: Client) => Promise<string | undefined>, successMessage?: string) => {
     setBusy(true)
@@ -2134,6 +2272,7 @@ export const App: Component = () => {
   }
 
   const newSession = (directory?: string) => {
+    setRoutinesOpen(false)
     const sessionID = selected()
     if (sessionID && !messagesLoading() && (activeMessages() ?? []).length === 0) {
       void createClient(serverUrl())
@@ -3285,11 +3424,23 @@ export const App: Component = () => {
       <RoutinesPanel
         open={routinesOpen()}
         routines={routines()}
-        busy={busy()}
+        busy={routineBusy()}
+        busyRoutineID={routineBusyID()}
+        serverAvailable={routinesServerAvailable()}
+        serverLoading={routinesServerLoading()}
+        projects={routineProjects()}
+        models={modelList()}
+        agents={agents()?.data ?? []}
         onAdd={addRoutine}
+        onUpdate={updateRoutine}
         onToggle={toggleRoutine}
         onRemove={removeRoutine}
         onRun={runRoutine}
+        onStop={stopRoutine}
+        onOpenSession={(id) => {
+          setRoutinesOpen(false)
+          selectSession(id)
+        }}
         onClose={() => setRoutinesOpen(false)}
       />
       <FolderDialog

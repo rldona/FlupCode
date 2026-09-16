@@ -571,6 +571,18 @@
         "typescript": "catalog:",
       },
     },
+    "packages/harness-server": {
+      "name": "@flupcode/harness-server",
+      "version": "1.2.0",
+      "dependencies": {
+        "@opencode-ai/sdk": "workspace:*",
+      },
+      "devDependencies": {
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/http-recorder": {
       "name": "@opencode-ai/http-recorder",
       "version": "1.18.31",
@@ -1740,6 +1752,8 @@
     "@flupcode/desktop": ["@flupcode/desktop@workspace:packages/harness-desktop"],
 
     "@flupcode/harness": ["@flupcode/harness@workspace:packages/harness"],
+
+    "@flupcode/harness-server": ["@flupcode/harness-server@workspace:packages/harness-server"],
 
     "@flupcode/relay": ["@flupcode/relay@workspace:packages/relay"],
 

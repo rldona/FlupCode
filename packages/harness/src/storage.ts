@@ -38,6 +38,8 @@ export const STORAGE_KEYS = {
   theme: "flupcode.theme",
   colorTheme: "flupcode.colorTheme",
   routines: "flupcode.routines",
+  routinesMigration: "flupcode.routinesMigration",
+  harnessServerUrl: "flupcode.harnessServerUrl",
   onboarded: "flupcode.onboarded",
   locale: "flupcode.locale",
   notifications: "flupcode.notifications",
