@@ -26,8 +26,12 @@ export type RoutineSchedule =
   | { type: "weekly"; day: number; time: string; timezone?: string }
   | { type: "interval"; intervalMinutes: number; timezone?: string }
 
+/** What asked for a run: a routine on its schedule, or a person pressing the button. */
+export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
+
 export type RoutineRun = {
   id: string
+  source?: RunSource
   sessionID?: string
   status: "running" | "success" | "failed" | "stopped"
   startedAt: number

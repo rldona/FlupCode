@@ -816,6 +816,11 @@ async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestIn
 export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
   return {
     health: () => harnessRequest<{ healthy: boolean }>(baseUrl, "/harness/health"),
+    /**
+     * What the server changed, as it changes it. A different origin from the engine, so the
+     * connection it holds does not come out of the handful the browser allows for talking to it.
+     */
+    events: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal, "/harness/events"),
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),
       get: (id: string) => harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`),
