@@ -56,11 +56,13 @@
    - Mode: the `.fc-dark` class on <html>, toggled by the app (light/dark/system).
    - Palette: the `data-fc-theme` attribute on <html>. No attribute is the FlupCode palette
      (the default, taken from the landing page); `data-fc-theme="classic"` is the original
-     neutral grey/blue palette.
+     neutral grey/blue palette; `data-fc-theme="sublime"` is the dark-grey editor palette, and
+     `data-fc-theme="sublime-dark"` its deeper, dark-only variant.
 
    Order matters: palette blocks come after `.fc-dark` so a palette overrides the mode defaults.
    Every token set by a palette must also be set by its `.fc-dark` block, otherwise the light
-   palette would win in dark mode. */
+   palette would win in dark mode. `sublime-dark` is the exception: it is dark-only, so its one
+   block is meant to win in both modes. */
 
 :root {
   /* FlupCode palette (light). This is the default, so it needs no attribute. */
@@ -214,6 +216,102 @@
   --fc-terminal-bg: #101014;
   --fc-terminal-fg: #e6e6e6;
   --fc-bg-subtle: rgba(127, 127, 127, 0.15);
+}
+
+/* Sublime palette: the dark-grey editor look of Sublime Text's Soda Dark UI, with a muted steel
+   blue accent and a Monokai-flavoured syntax set. Keep the light and dark blocks in sync token by
+   token, and cover every token the light block sets. */
+[data-fc-theme="sublime"] {
+  --fc-bg: #f4f4f4;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #ececec;
+  --fc-border: #d8d8d8;
+  --fc-text: #2b303b;
+  --fc-text-muted: #6b7280;
+  --fc-accent: #4d6fa9;
+  --fc-accent-soft: #e2e8f2;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #b42318;
+  --fc-success: #027a48;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #a86a00;
+  --fc-favorite: #b7791f;
+  --fc-diff-add: #027a48;
+  --fc-diff-del: #b42318;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #7d8799;
+  --fc-syn-string: #2f7d4f;
+  --fc-syn-number: #a86a00;
+  --fc-syn-keyword: #9a3f8f;
+  --fc-syn-const: #2f6fed;
+  --fc-code-inline: #8a5a00;
+  --fc-terminal-bg: #21252b;
+  --fc-terminal-fg: #c0c5ce;
+  --fc-bg-subtle: rgba(43, 48, 59, 0.06);
+}
+
+[data-fc-theme="sublime"].fc-dark {
+  --fc-bg: #21252b;
+  --fc-bg-elevated: #282c34;
+  --fc-sidebar: #1c1f24;
+  --fc-border: #181a1f;
+  --fc-text: #c0c5ce;
+  --fc-text-muted: #65737e;
+  --fc-accent: #6d9eeb;
+  --fc-accent-soft: #2b303b;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #d9705f;
+  --fc-success: #8fbf7f;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #d9a441;
+  --fc-favorite: #d9a441;
+  --fc-diff-add: #8fbf7f;
+  --fc-diff-del: #d9705f;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #65737e;
+  --fc-syn-string: #98c379;
+  --fc-syn-number: #d19a66;
+  --fc-syn-keyword: #c678dd;
+  --fc-syn-const: #61afef;
+  --fc-code-inline: #d19a66;
+  --fc-terminal-bg: #1c1f24;
+  --fc-terminal-fg: #c0c5ce;
+  --fc-bg-subtle: rgba(192, 197, 206, 0.08);
+}
+
+/* Sublime dark: the deeper, dark-only cut of the Sublime palette. It has no light variant on
+   purpose, so this single block overrides `.fc-dark` in both modes and a `[data-fc-theme=
+   "sublime-dark"].fc-dark` block would only repeat it. */
+[data-fc-theme="sublime-dark"] {
+  --fc-bg: #17191e;
+  --fc-bg-elevated: #1e2127;
+  --fc-sidebar: #131519;
+  --fc-border: #0e1013;
+  --fc-text: #c8cdd6;
+  --fc-text-muted: #6f7683;
+  --fc-accent: #7fb0ff;
+  --fc-accent-soft: #1f2530;
+  --fc-on-accent: #10131a;
+  --fc-danger: #e0897a;
+  --fc-success: #93c98a;
+  --fc-success-soft: #12b76a;
+  --fc-warning: #d9a441;
+  --fc-favorite: #d9a441;
+  --fc-diff-add: #93c98a;
+  --fc-diff-del: #e0897a;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #6f7683;
+  --fc-syn-string: #a3d18f;
+  --fc-syn-number: #d9ab77;
+  --fc-syn-keyword: #cf8fdf;
+  --fc-syn-const: #74b8ff;
+  --fc-code-inline: #d9ab77;
+  --fc-terminal-bg: #101216;
+  --fc-terminal-fg: #c8cdd6;
+  --fc-bg-subtle: rgba(200, 205, 214, 0.07);
 }
 
 /* Before the app bundle loads, the inline script in index.html paints this colour, because the
