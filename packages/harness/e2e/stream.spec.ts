@@ -61,6 +61,58 @@ test("a reconnection picks up the permission that was asked while the stream was
   await expect(page.getByText("rm -rf build")).toBeVisible({ timeout: 15_000 })
 })
 
+test("a prompt shows as the stream announces it, not only after a reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active")
+      return route.fulfill({ json: { data: { ses_stream: { type: "running" } } } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: { ses_stream: { type: "busy" } } })
+    // The engine's history still has no user message: only the stream announces it, the way it does
+    // for a prompt sent from the composer.
+    if (url.pathname === "/api/session/ses_stream/message") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (url.pathname === "/event") {
+      // The engine announces the user message empty and sends its text as a part right after. That
+      // order used to leave the prompt blank for the whole turn, shown only once a refetch rebuilt
+      // the message from its parts.
+      const events = [
+        {
+          type: "message.updated",
+          properties: {
+            sessionID: "ses_stream",
+            info: { id: "msg_live", sessionID: "ses_stream", role: "user" },
+          },
+        },
+        {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_stream",
+            part: { id: "part_live", messageID: "msg_live", sessionID: "ses_stream", type: "text", text: "Live prompt" },
+          },
+        },
+      ]
+      return route.fulfill({
+        headers: { "content-type": "text/event-stream" },
+        body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      })
+    }
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await expect(page.locator(".fc-message-user .fc-message-text")).toContainText("Live prompt")
+})
+
 test("the pill admits the app is no longer following the engine", async ({ page }) => {
   let allow = true
   await page.addInitScript(() => {
