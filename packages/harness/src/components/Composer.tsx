@@ -527,10 +527,9 @@ export const Composer: Component<ComposerProps> = (props) => {
                 <AgentMenu agents={primaryAgents(props.agents)} value={props.agent} onChange={props.onAgentChange} />
               </Show>
               <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
-              {/* Only while a turn is running: with an idle session every prompt starts one. */}
-              <Show when={props.generating}>
-                <DeliveryMenu value={props.delivery} onChange={props.onDeliveryChange} />
-              </Show>
+              {/* Always here, not only mid-turn: it is a standing preference, and a control that
+                  appears only once the agent is already working is a control nobody finds. */}
+              <DeliveryMenu value={props.delivery} onChange={props.onDeliveryChange} />
             </Show>
           </div>
 

@@ -97,3 +97,22 @@ test("the delivery choice is remembered", async ({ page }) => {
   await page.reload()
   await expect(page.locator(".fc-delivery .fc-mode-button")).toContainText(/Queue|Encolar/i)
 })
+
+test("the delivery control is there before the agent starts working", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  // A control that only appears once the agent is already working is a control nobody finds.
+  await expect(page.locator(".fc-delivery .fc-mode-button")).toBeVisible()
+})
