@@ -47,7 +47,7 @@ const engine = (page: import("@playwright/test").Page) =>
     return route.fulfill({ status: 404, json: {} })
   })
 
-const boot = async (page: import("@playwright/test").Page, deleted: string[]) => {
+const boot = async (page: import("@playwright/test").Page, deleted: string[], path = "/") => {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -67,8 +67,8 @@ const boot = async (page: import("@playwright/test").Page, deleted: string[]) =>
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
-  await page.goto("/")
-  await page.getByRole("button", { name: /Routines|Rutinas/ }).click()
+  await page.goto(path)
+  if (path === "/") await page.getByRole("button", { name: /Routines|Rutinas/ }).click()
   return page.locator(".fc-routines-screen")
 }
 
@@ -108,4 +108,26 @@ test("the Templates tab says it is not here yet", async ({ page }) => {
   const tab = screen.getByRole("button", { name: /Templates|Plantillas/ })
   await expect(tab).toBeDisabled()
   await expect(tab.locator(".fc-nav-soon")).toHaveText(/Soon|Pronto/)
+})
+
+// A screen you can reload is a screen you can link to and come back to. It lives in the hash, which
+// survives a reload wherever this build is served from, including the desktop app's own bundle.
+test("a screen is kept in the URL, through a reload and the Back button", async ({ page }) => {
+  const screen = await boot(page, [])
+  await expect(screen).toBeVisible()
+  await expect(page).toHaveURL(/#routines$/)
+
+  await page.reload()
+  await expect(page.locator(".fc-routines-screen")).toBeVisible()
+
+  // Back leaves the screen instead of leaving the app.
+  await page.goBack()
+  await expect(page.locator(".fc-routines-screen")).toHaveCount(0)
+  await expect(page).not.toHaveURL(/#routines$/)
+})
+
+// And the link works cold: opened straight at the address, with no click to get there.
+test("the Runs screen opens from its own address", async ({ page }) => {
+  await boot(page, [], "/#runs")
+  await expect(page.locator('section[aria-label="Runs"], section[aria-label="Ejecuciones"]')).toBeVisible()
 })
