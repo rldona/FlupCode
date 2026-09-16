@@ -417,6 +417,20 @@ export const App: Component = () => {
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [colorTheme, setColorTheme] = createSignal(readColorTheme())
+  /** The desktop window whose title bar this page replaces. Not Linux, which keeps its own frame. */
+  const desktopWindow = () => typeof window !== "undefined" && window.flupcode?.ownsTitleBar === true
+  // Windows paints its own window buttons over the strip, and cannot read the page's palette. It is
+  // told, whenever the palette or the light/dark choice changes, in the colours actually computed.
+  createEffect(() => {
+    theme()
+    colorTheme()
+    const set = window.flupcode?.setTitleBar
+    if (!set || window.flupcode?.platform !== "win32") return
+    const styles = getComputedStyle(document.documentElement)
+    const color = styles.getPropertyValue("--fc-sidebar").trim()
+    const symbolColor = styles.getPropertyValue("--fc-text").trim()
+    if (color && symbolColor) void set({ color, symbolColor }).catch(() => undefined)
+  })
   const [stashOpen, setStashOpen] = createSignal(false)
   const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string }>()
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
@@ -3056,7 +3070,18 @@ export const App: Component = () => {
   }
 
   return (
-    <div class="fc-app" classList={{ "fc-mobile-remote": mobileRemote() }}>
+    <div
+      class="fc-app"
+      classList={{
+        "fc-mobile-remote": mobileRemote(),
+        // The desktop window has no title bar of its own, so the page draws the top strip and has to
+        // leave room for the window controls: on the left on macOS, on the right on Windows, and
+        // over whichever element the window's corner happens to land on.
+        "fc-desktop": desktopWindow(),
+        "fc-desktop-win": desktopWindow() && window.flupcode?.platform === "win32",
+        "fc-sidebar-hidden": collapsed(),
+      }}
+    >
       <Show when={!mobileRemote()}>
         <Show when={narrow() && !collapsed()}>
           <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />

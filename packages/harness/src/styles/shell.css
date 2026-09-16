@@ -73,6 +73,57 @@ select:focus-visible,
   gap: var(--fc-space-3);
 }
 
+/*
+ * The desktop window's own top strip.
+ *
+ * The window is created with no title bar, so this page draws it. Two things follow. The strip has
+ * to be draggable, or the window cannot be moved at all; and everything inside it that can be
+ * pressed has to opt back out, or the drag region swallows the click before the button sees it.
+ *
+ * Only in the desktop app. The hosted page has the browser's own chrome above it.
+ */
+.fc-desktop .fc-topbar,
+.fc-desktop .fc-sidebar-brand {
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.fc-desktop .fc-topbar button,
+.fc-desktop .fc-topbar a,
+.fc-desktop .fc-topbar input,
+.fc-desktop .fc-topbar select,
+.fc-desktop .fc-topbar [role="button"],
+.fc-desktop .fc-sidebar-brand button,
+.fc-desktop .fc-sidebar-brand a,
+.fc-desktop .fc-sidebar-brand [role="button"] {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+/*
+ * Room for the window controls, wherever the window's corner lands.
+ *
+ * macOS puts its traffic lights at the top left, which is the sidebar's brand row — or the topbar
+ * when the sidebar is collapsed. Windows draws its buttons at the top right, which is always the
+ * topbar. 68px clears the three lights placed at x: 16; 140px clears Windows' three buttons.
+ */
+.fc-desktop .fc-sidebar-brand {
+  padding-left: 68px;
+}
+
+.fc-desktop.fc-sidebar-hidden .fc-topbar-left {
+  padding-left: 68px;
+}
+
+.fc-desktop-win .fc-sidebar-brand,
+.fc-desktop-win.fc-sidebar-hidden .fc-topbar-left {
+  padding-left: 4px;
+}
+
+.fc-desktop-win .fc-topbar-right {
+  padding-right: 140px;
+}
+
 .fc-sidebar-resizer {
   position: absolute;
   top: 0;
