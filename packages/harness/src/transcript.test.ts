@@ -115,6 +115,31 @@ describe("applying one event at a time", () => {
     })
   })
 
+  test("a user message announced empty gets its text as the part arrives", () => {
+    let data = applyMessage([], info("u1", "user"))
+    expect((data[0] as { text?: string }).text).toBe("")
+
+    data = applyPart(data, { id: "p1", messageID: "u1", type: "text", text: "Refactor it" })
+    expect(data[0]).toMatchObject({ type: "user", text: "Refactor it" })
+  })
+
+  test("a user attachment part joins the text and is not duplicated", () => {
+    let data = applyPart(applyMessage([], info("u1", "user")), {
+      id: "p1",
+      messageID: "u1",
+      type: "text",
+      text: "Look",
+    })
+    const file = { id: "p2", messageID: "u1", type: "file", url: "data:image/png;base64,AAA", filename: "shot.png" }
+    data = applyPart(data, file)
+    data = applyPart(data, file)
+    expect(data[0]).toMatchObject({
+      type: "user",
+      text: "Look",
+      files: [{ uri: "data:image/png;base64,AAA", name: "shot.png" }],
+    })
+  })
+
   test("removals take the message or the part out", () => {
     let data = applyMessage([], info("m1", "assistant"))
     data = applyPart(data, { id: "p1", messageID: "m1", type: "text", text: "Hello" })
