@@ -37,6 +37,7 @@ import { sessionTitle } from "./session-title"
 import {
   applyDelta,
   applyMessage,
+  applyTranscriptChange,
   applyPart,
   removeMessage,
   removePart,
@@ -1154,7 +1155,11 @@ export const App: Component = () => {
       const kind = partTypesByID.get(data.partID)
       if (kind !== "text" && kind !== "reasoning") return undefined
       const input = { messageID: data.messageID, partID: data.partID, delta }
-      return { apply: (current: SessionMessageInfo[]) => applyDelta(current, input), chars: delta.length }
+      return {
+        apply: (current: SessionMessageInfo[]) => applyDelta(current, input),
+        chars: delta.length,
+        ...(data.messageID ? { delta: { messageID: data.messageID, partID: data.partID, text: delta } } : {}),
+      }
     }
     if (type === "message.part.updated" && data?.part?.id) {
       const part = data.part as LegacyPart
@@ -1212,7 +1217,7 @@ export const App: Component = () => {
               publishSessionEvent({ kind: "message", sessionID, apply: change.apply, chars: change.chars })
               if (sessionID === selected()) {
                 setStreamedChars((value) => value + change.chars)
-                setMessageData("data", (current) => change.apply(current))
+                applyTranscriptChange(setMessageData, change)
               }
             }
             // A new user message starts a turn: what streamed before it is stale.
