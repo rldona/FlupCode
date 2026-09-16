@@ -7341,3 +7341,264 @@ button.fc-status {
 .fc-run-task .fc-run-meta {
   margin-inline-end: auto;
 }
+
+/* ── The diff viewer (H-06) ───────────────────────────────────────────────── */
+
+.fc-changes-branch {
+  margin-inline-start: 10px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+  font-weight: 400;
+}
+
+.fc-changes-totals {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-changes-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+}
+
+/*
+ * Inside the side panel the list is the scroller, not the page.
+ *
+ * `.fc-panel-body` is `overflow: hidden`, so whatever it holds has to take the scroll itself or the
+ * diff is simply cut off at the foot of the panel with no way to reach the rest — which is what a
+ * reader means by "it gets stuck".
+ */
+.fc-changes-list-panel {
+  flex: 1;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  gap: 0;
+  overflow-y: auto;
+}
+
+.fc-changes-list-panel .fc-diff-file {
+  border: 0;
+  border-bottom: 1px solid var(--fc-border);
+  border-radius: 0;
+}
+
+.fc-diff-file {
+  /*
+   * A flex item shrinks by default. In the side panel the list is a column with a fixed height, so
+   * without this a 5,500-pixel diff is squeezed into the 700 the panel has and then clipped by the
+   * `overflow: hidden` below — on screen it looks like the diff simply stops, and no amount of
+   * scrolling reaches the rest, because there is nothing to scroll: the box really is that short.
+   */
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-3);
+  background: var(--fc-surface);
+}
+
+.fc-diff-file-head {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 10px 12px;
+  border: 0;
+  color: var(--fc-text);
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-diff-file-head:hover {
+  background: var(--fc-surface-hover, var(--fc-surface));
+}
+
+.fc-diff-chevron {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+/* A long path is read from its end, so the folder gives way and the file name never does. */
+.fc-diff-path {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-diff-dir {
+  overflow: hidden;
+  color: var(--fc-text-muted);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-diff-name {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.fc-diff-status {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  color: var(--fc-text-muted);
+  background: color-mix(in srgb, var(--fc-text-muted) 12%, transparent);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-diff-status-added {
+  color: var(--fc-diff-add);
+  background: color-mix(in srgb, var(--fc-diff-add-bg) 16%, transparent);
+}
+
+.fc-diff-status-deleted {
+  color: var(--fc-diff-del);
+  background: color-mix(in srgb, var(--fc-diff-del-bg) 16%, transparent);
+}
+
+.fc-diff-counts {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-diff-plus {
+  color: var(--fc-diff-add);
+}
+
+.fc-diff-minus {
+  color: var(--fc-diff-del);
+}
+
+.fc-diff-body {
+  overflow-x: auto;
+  border-top: 1px solid var(--fc-border);
+  background: var(--fc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fc-diff-hunk-head {
+  padding: 3px 12px;
+  color: var(--fc-text-muted);
+  background: color-mix(in srgb, var(--fc-text-muted) 8%, transparent);
+  white-space: pre;
+}
+
+.fc-diff-line {
+  display: flex;
+  gap: 8px;
+  width: max-content;
+  min-width: 100%;
+  box-sizing: border-box;
+  padding: 0 12px;
+}
+
+.fc-diff-no {
+  width: 40px;
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+  text-align: right;
+  user-select: none;
+}
+
+.fc-diff-sign {
+  width: 8px;
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+  user-select: none;
+}
+
+.fc-diff-code {
+  white-space: pre;
+}
+
+.fc-diff-line-add {
+  background: color-mix(in srgb, var(--fc-diff-add-bg) 14%, transparent);
+}
+
+.fc-diff-line-del {
+  background: color-mix(in srgb, var(--fc-diff-del-bg) 14%, transparent);
+}
+
+.fc-diff-line-add .fc-diff-no,
+.fc-diff-line-add .fc-diff-sign {
+  color: var(--fc-diff-add);
+}
+
+.fc-diff-line-del .fc-diff-no,
+.fc-diff-line-del .fc-diff-sign {
+  color: var(--fc-diff-del);
+}
+
+.fc-diff-empty,
+.fc-diff-unfold {
+  display: block;
+  width: 100%;
+  padding: 10px 12px;
+  margin: 0;
+  border: 0;
+  border-top: 1px solid var(--fc-border);
+  color: var(--fc-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fc-text-xs);
+  text-align: start;
+}
+
+.fc-diff-unfold {
+  cursor: pointer;
+}
+
+.fc-diff-unfold:hover {
+  color: var(--fc-text);
+}
+
+.fc-repo-counts {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  padding: 2px 6px;
+  border: 0;
+  border-radius: var(--fc-radius-2);
+  background: transparent;
+  font: inherit;
+}
+
+.fc-repo-counts-open {
+  cursor: pointer;
+}
+
+.fc-repo-counts-open:hover {
+  background: color-mix(in srgb, var(--fc-text) 8%, transparent);
+}
+
+.fc-files-wide {
+  width: 100%;
+  padding: 8px 10px;
+  border: 0;
+  border-bottom: 1px solid var(--fc-border);
+  color: var(--fc-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fc-text-xs);
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-files-wide:hover {
+  color: var(--fc-text);
+}

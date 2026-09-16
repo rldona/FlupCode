@@ -761,8 +761,19 @@ export function createClient(baseUrl = resolveServerUrl()) {
     vcs: {
       get: (directory: string) => unwrap(client.vcs.get({ directory })),
       status: (directory: string) => unwrap(client.vcs.status({ directory })),
-      /** Working-tree changes against HEAD, with patches; the "files changed" view. */
-      diff: (directory: string) => unwrap(client.vcs.diff({ directory, mode: "git" })),
+      /**
+       * Changed files with their patches.
+       *
+       * `context` matters more than it looks. Without it the engine answers with the whole file as
+       * one hunk: measured against a real repository, an eight-line change in a 250-line file came
+       * back as 254 rows of patch, 246 of them unchanged. Three lines either side is what every
+       * other diff starts at, and the viewer can ask for the rest.
+       *
+       * `mode` picks the question: "git" is the working tree against HEAD, "branch" is this branch
+       * against the default one — the only one that still answers after a run commits.
+       */
+      diff: (directory: string, options: { mode?: "git" | "branch"; context?: number } = {}) =>
+        unwrap(client.vcs.diff({ directory, mode: options.mode ?? "git", context: options.context ?? 3 })),
     },
     /**
      * MCP servers. The engine's `/mcp` routes drive the running instance, while the servers

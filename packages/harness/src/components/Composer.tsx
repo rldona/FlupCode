@@ -40,6 +40,8 @@ type ComposerProps = {
     additions: number
     deletions: number
     onCommit: () => void
+    /** Opens the diff viewer on this folder. */
+    onOpenChanges?: () => void
     onClear?: () => void
   }
   attachments: Attachment[]
