@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
@@ -158,6 +158,80 @@ describe("harness runs API", () => {
     // The run keeps going after the request answers: closing the database under it is what a server
     // being shut down mid-run looks like, and the writes it is about to make would throw.
     await settled(repository, run.id)
+    repository.close()
+  })
+
+  // H-21: a workflow is a file that turns into a run of tasks. Everything after that is the path a
+  // manual run already takes.
+  test("starts a run from a workflow the project wrote down", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "feature.yaml"),
+      `name: feature
+inputs: [goal]
+tasks:
+  - id: plan
+    agent: plan
+    prompt: "Plan {{goal}}"
+  - id: verify
+    kind: verify
+    onFail: { max: 2 }
+`,
+    )
+
+    const listed = await handler(
+      new Request(`http://localhost/harness/workflows?directory=${encodeURIComponent(directory)}`),
+    )
+    expect((await listed.json()).data.map((entry: { name: string }) => entry.name)).toEqual(["feature"])
+
+    const started = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    // The file decided the tasks; the inputs are already in the prompt.
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.kind}`)).toEqual([
+      "plan:agent",
+      "verify:verify",
+    ])
+    expect(repository.listTasks(run.id)[0]!.prompt).toBe("Plan search")
+    expect(repository.listTasks(run.id)[1]!.retries).toBe(2)
+    await settled(repository, run.id)
+    repository.close()
+  })
+
+  test("says which input it is missing, and which workflow it has never heard of", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "feature.yaml"),
+      "name: feature\ninputs: [goal]\ntasks:\n  - id: plan\n    prompt: \"Plan {{goal}}\"\n",
+    )
+
+    const empty = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "  " }, directory }),
+      }),
+    )
+    expect(empty.status).toBe(400)
+    expect((await empty.json()).error).toContain("goal")
+
+    const missing = await handler(
+      new Request("http://localhost/harness/workflows/nope/runs", {
+        method: "POST",
+        body: JSON.stringify({ directory }),
+      }),
+    )
+    expect(missing.status).toBe(404)
     repository.close()
   })
 

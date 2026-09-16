@@ -1,7 +1,7 @@
 import { normalizeRoutineSchedule } from "./validation"
 import type { RoutineCreateOptions, RoutineInput, RunStatus, TaskInput } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
-import { RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { eventStream, resumeFrom } from "./stream"
 
 const json = (value: unknown, status = 200) =>
@@ -117,6 +117,8 @@ const readJSON = async (request: Request) => {
   }
 }
 
+import { listWorkflows } from "./workflow"
+
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
 export const createHarnessHandler = (repository: SqliteRoutineRepository, scheduler: RoutineScheduler) =>
@@ -178,6 +180,29 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       // can go. Deleting it underneath the runner would leave tasks pointing at nothing.
       if (run.status === "running") return error("Stop the run before deleting it", 409)
       return json({ data: repository.removeRun(run.id) })
+    }
+    // Workflows (H-21): the processes written down, and starting a run from one.
+    if (path[1] === "workflows" && request.method === "GET" && !path[2]) {
+      const directory = new URL(request.url).searchParams.get("directory") ?? undefined
+      return json({ data: await listWorkflows(directory || undefined) })
+    }
+    if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
+      const body = (await readJSON(request)) as { inputs?: unknown; directory?: unknown } | undefined
+      const inputs: Record<string, string> = {}
+      if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
+        for (const [name, value] of Object.entries(body.inputs as Record<string, unknown>)) {
+          if (typeof value === "string") inputs[name] = value
+        }
+      }
+      const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
+      try {
+        const run = await scheduler.runWorkflow({ name: decodeURIComponent(path[2]), inputs, directory })
+        return json({ data: run }, 202)
+      } catch (cause) {
+        if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)
+        if (cause instanceof MissingInputsError) return error(cause.message, 400)
+        return error(cause instanceof Error ? cause.message : String(cause), 500)
+      }
     }
     if (path[1] !== "routines") return error("Not found", 404)
 

@@ -1,6 +1,7 @@
 import { Engine } from "./engine"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
+import { findWorkflow, tasksFor } from "./workflow"
 import type { Run, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
@@ -21,6 +22,20 @@ const unwrap = async <T>(call: Promise<Result<T>>) => {
   }
   if (result.data === undefined) throw new Error("Engine returned no data")
   return result.data
+}
+
+export class UnknownWorkflowError extends Error {
+  constructor(name: string) {
+    super(`No workflow called ${name}`)
+    this.name = "UnknownWorkflowError"
+  }
+}
+
+export class MissingInputsError extends Error {
+  constructor(readonly missing: string[]) {
+    super(`This workflow needs ${missing.join(", ")}`)
+    this.name = "MissingInputsError"
+  }
 }
 
 export class RoutineBusyError extends Error {
@@ -101,6 +116,21 @@ export class RoutineScheduler {
           this.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause)),
       )
     return run
+  }
+
+  /**
+   * Start a run from a workflow (H-21).
+   *
+   * The workflow decides what the tasks are; everything after that is the path a manual run already
+   * takes. That is the point of writing processes down as files: the supervisor, the stream,
+   * verification and the retry do not learn anything new.
+   */
+  async runWorkflow(input: { name: string; inputs?: Record<string, string>; directory?: string }) {
+    const workflow = await findWorkflow(input.name, input.directory)
+    if (!workflow) throw new UnknownWorkflowError(input.name)
+    const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
+    if (missing.length > 0) throw new MissingInputsError(missing)
+    return this.runTasks({ tasks: tasksFor(workflow, input.inputs ?? {}), directory: input.directory })
   }
 
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
