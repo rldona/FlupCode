@@ -7810,3 +7810,176 @@ button.fc-status {
   padding: 3px 8px;
   font-size: var(--fc-text-xs);
 }
+
+/* ── The sidebar's rhythm ─────────────────────────────────────────────────── */
+
+/*
+ * Sections, with room between them.
+ *
+ * Everything in this column used to sit 2px from its neighbour, so a section label was as close to
+ * the rows above it as to the ones it belongs to and the whole list read as one run of text. The
+ * gap between sections is now four times the gap inside one, which is what makes them sections.
+ */
+.fc-scroll {
+  gap: var(--fc-space-5);
+}
+
+/* The nav is one group, but its rows were as close together as lines of prose. */
+.fc-nav {
+  gap: var(--fc-space-1);
+}
+
+.fc-nav-item {
+  height: 34px;
+}
+
+.fc-sidebar-top {
+  gap: var(--fc-space-3);
+}
+
+.fc-sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-sidebar-section .fc-section-header {
+  padding-bottom: var(--fc-space-1);
+}
+
+.fc-sidebar-new {
+  display: flex;
+  gap: var(--fc-space-1);
+  align-items: center;
+}
+
+.fc-sidebar-new .fc-new {
+  flex: 1;
+}
+
+.fc-sidebar-search {
+  flex-shrink: 0;
+}
+
+/* A project group is a section of its own inside the list, so it gets air above it too. */
+.fc-project-group + .fc-project-group {
+  margin-top: var(--fc-space-2);
+}
+
+.fc-sidebar-routine {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  height: 30px;
+  padding: 0 var(--fc-space-3);
+  border: 0;
+  border-radius: var(--fc-radius-sm);
+  color: var(--fc-text);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--fc-motion-fast);
+}
+
+.fc-sidebar-routine:hover {
+  background: var(--fc-bg-elevated);
+}
+
+.fc-sidebar-routine-dot {
+  width: 7px;
+  height: 7px;
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: var(--fc-diff-add);
+}
+
+.fc-sidebar-routine-off {
+  background: var(--fc-text-muted);
+}
+
+.fc-sidebar-routine-name {
+  overflow: hidden;
+  font-size: var(--fc-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── The search ───────────────────────────────────────────────────────────── */
+
+.fc-palette-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  padding-right: var(--fc-space-3);
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-palette-head .fc-palette-input {
+  border-bottom: 0;
+}
+
+.fc-palette-tabs {
+  display: flex;
+  gap: var(--fc-space-1);
+  padding: var(--fc-space-2) var(--fc-space-3);
+  overflow-x: auto;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-palette-tab {
+  flex-shrink: 0;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--fc-text-muted);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fc-text-sm);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fc-palette-tab:hover {
+  color: var(--fc-text);
+}
+
+.fc-palette-tab-active {
+  color: var(--fc-text);
+  background: var(--fc-bg-elevated, var(--fc-surface));
+  box-shadow: inset 0 0 0 1px var(--fc-border);
+}
+
+.fc-palette-group {
+  padding: var(--fc-space-3) var(--fc-space-2) var(--fc-space-1);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-palette-group:first-child {
+  padding-top: var(--fc-space-1);
+}
+
+.fc-palette-foot {
+  display: flex;
+  gap: var(--fc-space-4);
+  align-items: center;
+  padding: var(--fc-space-2) var(--fc-space-4);
+  border-top: 1px solid var(--fc-border);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-palette-foot kbd {
+  display: inline-block;
+  min-width: 18px;
+  padding: 1px 4px;
+  border: 1px solid var(--fc-border);
+  border-radius: 4px;
+  margin-left: 3px;
+  background: var(--fc-bg);
+  font: inherit;
+  font-size: 10px;
+  text-align: center;
+}

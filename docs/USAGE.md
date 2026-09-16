@@ -120,7 +120,7 @@ protected your PC": click **More info → Run anyway**.
 
 | Shortcut | Action |
 | --- | --- |
-| `Cmd/Ctrl+K` or `Cmd/Ctrl+P` | Command palette (commands, sessions, files) |
+| `Cmd/Ctrl+K` or `Cmd/Ctrl+P` | Search (sessions, projects, artifacts, routines, runs, commands, files) |
 | `Enter` | Send |
 | `Shift+Enter` | New line |
 | `Esc` | Close dialogs / palette |
@@ -181,6 +181,35 @@ stream, permission and question prompts, and input.
 - **New** or switching tabs leaves split view. Panes send plain prompts: slash commands, `!` shell
   and reply suggestions stay in the single view.
 - Not available on narrow windows or phones.
+
+## The sidebar
+
+**New** and, beside it, a magnifier. There is no filter box any more: it could only narrow the list
+already on screen, and searching now reaches further than that list goes.
+
+**Routines** get a section of their own at the top, but only when there are any. They run whether or
+not this window is open, which makes them the one thing on that column not waiting for you to click
+it. A dot marks each one: green while it is active, grey while it is paused. Clicking one opens the
+Routines screen on that routine.
+
+Then **Pinned**, then the projects with their sessions.
+
+### Search
+
+`Cmd/Ctrl+K`, or the magnifier. It searches **sessions, projects, artifacts, routines, runs,
+commands and files** at once, and the tabs across the top are only the kinds your query actually
+matched — a tab that always finds nothing is not offered.
+
+| | |
+| --- | --- |
+| `↑` `↓` | move through the results |
+| `←` `→` | change tab, once the caret is at either end of the box |
+| `↵` | open what is selected |
+| `Esc` | close |
+
+**All** shows a few of each kind rather than a hundred sessions and nothing else; pick a tab to see
+every match of one kind. Files are matched by the engine's own search, so they follow its rules and
+not the ones above.
 
 ## Sessions
 

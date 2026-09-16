@@ -21,6 +21,9 @@ type RoutinesPanelProps = {
   onRun: (id: string) => void
   onStop: () => void
   onOpenSession: (id: string) => void
+  /** A routine to open on, asked for from outside — the sidebar's list. */
+  focus?: string
+  onFocused?: () => void
   onClose: () => void
 }
 
@@ -84,6 +87,14 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   })
 
   const selected = createMemo(() => props.routines.find((routine) => routine.id === selectedID()))
+  // Opened from the sidebar on a particular routine. Cleared straight away, so that closing the
+  // detail does not have the screen reopen it on the next render.
+  createEffect(() => {
+    const focus = props.focus
+    if (!props.open || !focus) return
+    setSelectedID(focus)
+    props.onFocused?.()
+  })
   const visible = createMemo(() => {
     const query = search().trim().toLowerCase()
     if (!query) return props.routines

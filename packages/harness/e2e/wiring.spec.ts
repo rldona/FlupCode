@@ -71,7 +71,7 @@ async function openApp(page: Page, options: { mcp?: Record<string, unknown> } = 
 test("the MCP manager shows the engine's real servers", async ({ page }) => {
   await openApp(page, { mcp: { docs: { status: "connected" }, linear: { status: "failed" } } })
   await page.getByRole("button", { name: "Command palette" }).first().click()
-  await page.getByPlaceholder(/Search commands/i).fill("mcp")
+  await page.locator(".fc-palette-input").fill("mcp")
   await page.keyboard.press("Enter")
 
   // Every call in the MCP client used to be a no-op, so this list was always empty.
@@ -84,7 +84,7 @@ test("the MCP manager shows the engine's real servers", async ({ page }) => {
 test("adding an MCP server reaches the engine and its configuration", async ({ page }) => {
   const calls = await openApp(page)
   await page.getByRole("button", { name: "Command palette" }).first().click()
-  await page.getByPlaceholder(/Search commands/i).fill("mcp")
+  await page.locator(".fc-palette-input").fill("mcp")
   await page.keyboard.press("Enter")
 
   await page.getByPlaceholder("Name").fill("linear")
