@@ -173,10 +173,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
 
   return {
     health: {
+      /**
+       * `/global/health` rather than the v2 one: only this route reports the engine's own version,
+       * and everything that compares versions — the Engine row in Settings, the warning about a UI
+       * generated against a different engine — was reading a field the v2 route never sends.
+       */
       get: async () => {
-        const result = await unwrap<{ healthy?: boolean; version?: string }>(
-          client.v2.health.get() as Promise<Result<{ healthy?: boolean; version?: string }>>,
-        )
+        const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/global/health`)
+        if (!response.ok) throw new Error(`Request failed (HTTP ${response.status})`)
+        const result = (await response.json()) as { healthy?: boolean; version?: string }
         return { healthy: result?.healthy ?? true, version: result?.version }
       },
     },

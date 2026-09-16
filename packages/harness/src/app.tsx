@@ -238,6 +238,13 @@ export const App: Component = () => {
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   const [showTools, setShowTools] = createSignal(true)
+  // The model's thinking stays out of the conversation unless it is asked for, as in Claude Code.
+  const [showReasoning, setShowReasoning] = createSignal(readStorage(STORAGE_KEYS.showReasoning, false))
+  const toggleReasoning = () => {
+    const next = !showReasoning()
+    setShowReasoning(next)
+    writeStorage(STORAGE_KEYS.showReasoning, next)
+  }
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
@@ -2769,6 +2776,7 @@ export const App: Component = () => {
                         chat={isChat(session())}
                         chatsDirectory={chatsDirectory()}
                         showTools={showTools()}
+                        showReasoning={showReasoning()}
                         models={modelList()}
                         defaultModel={modelRef()}
                         favorites={favorites()}
@@ -2848,6 +2856,7 @@ export const App: Component = () => {
                 startedAt={generationStartedAt()}
                 modelName={modelName}
                 showTools={showTools()}
+                showReasoning={showReasoning()}
                 chat={chatView()}
                 pending={pendingForSession()}
                 onEditUser={editMessage}
@@ -3101,6 +3110,7 @@ export const App: Component = () => {
         models={modelList()}
         modelKey={modelKey()}
         showTools={showTools()}
+        showReasoning={showReasoning()}
         replySuggestions={suggestionsOn()}
         onToggleReplySuggestions={toggleSuggestions}
         suggestionModel={suggestionModel()}
@@ -3120,6 +3130,7 @@ export const App: Component = () => {
         onServerCommit={commitServer}
         onModelChange={changeModel}
         onToggleTools={() => setShowTools((value) => !value)}
+        onToggleReasoning={toggleReasoning}
         onToggleNotifications={toggleNotifications}
         onPaletteKey={changePaletteKey}
         onOpenMcp={() => {

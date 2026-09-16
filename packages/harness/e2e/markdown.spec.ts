@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 
 const now = Date.now()
 
@@ -71,8 +71,9 @@ test("the transcript renders markdown with real syntax highlighting", async ({ p
   expect(colours.length).toBeGreaterThan(2)
 })
 
-test("what the model thought is one click away instead of gone", async ({ page }) => {
-  const thinking = "First I check the reducer, then the store."
+const thinking = "First I check the reducer, then the store."
+
+async function openThinkingSession(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -102,11 +103,37 @@ test("what the model thought is one click away instead of gone", async ({ page }
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
-
   await expect(page.getByText("Done.")).toBeVisible()
-  // Closed by default: the conversation still reads as the answer alone.
-  await expect(page.getByText(thinking)).toHaveCount(0)
+}
 
+test("the model's thinking stays out of the conversation until it is asked for", async ({ page }) => {
+  await openThinkingSession(page)
+
+  // Off by default, as in Claude Code: not even the block that would open it.
+  await expect(page.locator(".fc-reasoning")).toHaveCount(0)
+  await expect(page.getByText(thinking)).toHaveCount(0)
+})
+
+test("turning thinking on in Settings puts it back, closed", async ({ page }) => {
+  await openThinkingSession(page)
+
+  await page
+    .getByRole("button", { name: /Customize|Personalizar/ })
+    .first()
+    .click()
+  await page
+    .locator(".fc-settings-row")
+    .filter({ hasText: /Show thinking|Mostrar el razonamiento/ })
+    .getByRole("button")
+    .click()
+  await page
+    .getByRole("button", { name: /^Close$|^Cerrar$/ })
+    .first()
+    .click()
+
+  // Still closed, so the conversation reads as the answer alone; one click opens it.
+  await expect(page.locator(".fc-reasoning")).toBeVisible()
+  await expect(page.getByText(thinking)).toHaveCount(0)
   await page.locator(".fc-reasoning .fc-toolgroup-line").click()
   await expect(page.getByText(thinking)).toBeVisible()
 })

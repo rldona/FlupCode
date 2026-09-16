@@ -41,6 +41,7 @@ type SessionPaneProps = {
   chat: boolean
   chatsDirectory: string | undefined
   showTools: boolean
+  showReasoning: boolean
   models: ModelInfo[]
   /** The app's current model, for sessions that have not stored their own. */
   defaultModel: { providerID: string; id: string; variant?: string } | undefined
@@ -378,6 +379,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         startedAt={startedAt()}
         modelName={props.modelName}
         showTools={props.showTools}
+        showReasoning={props.showReasoning}
         chat={props.chat}
         pending={pending()}
         onEditUser={editUser}

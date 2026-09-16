@@ -23,6 +23,7 @@ type SettingsPanelProps = {
   models: ModelInfo[]
   modelKey: string | undefined
   showTools: boolean
+  showReasoning: boolean
   replySuggestions: boolean
   /** "provider/model" for suggestions, or "" for the automatic small model. */
   suggestionModel: string
@@ -39,6 +40,7 @@ type SettingsPanelProps = {
   onServerCommit: () => void
   onModelChange: (key: string) => void
   onToggleTools: () => void
+  onToggleReasoning: () => void
   onToggleReplySuggestions: () => void
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
@@ -219,6 +221,22 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   onClick={props.onToggleTools}
                 >
                   {props.showTools ? t("Yes") : t("No")}
+                </button>
+              </div>
+              <div class="fc-settings-row">
+                <span class="fc-settings-usage">
+                  <span>{t("Show thinking")}</span>
+                  <span class="fc-settings-hint">
+                    {t("What the model thought before answering, as a block you can open.")}
+                  </span>
+                </span>
+                <button
+                  class="fc-chip fc-chip-button"
+                  classList={{ "fc-chip-active": props.showReasoning }}
+                  type="button"
+                  onClick={props.onToggleReasoning}
+                >
+                  {props.showReasoning ? t("Yes") : t("No")}
                 </button>
               </div>
               <div class="fc-settings-row">

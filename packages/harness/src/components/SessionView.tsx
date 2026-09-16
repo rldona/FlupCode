@@ -27,6 +27,8 @@ type SessionViewProps = {
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
   showTools: boolean
+  /** Whether the model's thinking appears as a block in the conversation; off by default. */
+  showReasoning: boolean
   /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
   chat?: boolean
   /** Prompts sent before the engine projects their message; queued ones offer "Send now". */
@@ -495,7 +497,12 @@ function collectToolRuns(messages: SessionMessageInfo[]): ToolRuns {
   return runs
 }
 
-function assistantSegments(message: SessionMessageAssistant, showTools: boolean, runs: ToolRuns): AssistantSegment[] {
+function assistantSegments(
+  message: SessionMessageAssistant,
+  showTools: boolean,
+  showReasoning: boolean,
+  runs: ToolRuns,
+): AssistantSegment[] {
   const segments: AssistantSegment[] = []
   for (const part of message.content) {
     if (part.type === "tool") {
@@ -507,8 +514,10 @@ function assistantSegments(message: SessionMessageAssistant, showTools: boolean,
       continue
     }
     // Consecutive reasoning collapses into one closed block, so the conversation still reads as the
-    // answer alone while what the model thought stays one click away.
+    // answer alone while what the model thought stays one click away. Off by default, as in Claude
+    // Code; Settings turns it on.
     if (part.type === "reasoning") {
+      if (!showReasoning) continue
       const last = segments[segments.length - 1]
       if (last?.kind === "reasoning") last.parts.push(part as SessionMessageAssistantReasoning)
       else segments.push({ kind: "reasoning", parts: [part as SessionMessageAssistantReasoning] })
@@ -529,11 +538,12 @@ export function stoppedByUser(error: unknown) {
 const AssistantMessage: Component<{
   message: SessionMessageAssistant
   showTools: boolean
+  showReasoning: boolean
   showRole: boolean
   toolRuns: ToolRuns
   onRetry?: () => void
 }> = (props) => {
-  const segments = () => assistantSegments(props.message, props.showTools, props.toolRuns)
+  const segments = () => assistantSegments(props.message, props.showTools, props.showReasoning, props.toolRuns)
   return (
     // A message that only continues an earlier run of tools has nothing of its own to show.
     <Show when={segments().length > 0 || props.message.error || props.showRole}>
@@ -959,6 +969,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                         <AssistantMessage
                           message={message as SessionMessageAssistant}
                           showTools={props.showTools}
+                          showReasoning={props.showReasoning}
                           showRole={
                             !props.chat &&
                             (fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant")

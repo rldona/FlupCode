@@ -158,6 +158,9 @@ const ES: Record<string, string> = {
   "Runs everything without asking, including commands and edits outside the folder":
     "Ejecuta todo sin preguntar, incluidos comandos y ediciones fuera de la carpeta",
   "Click again to confirm": "Pulsa otra vez para confirmar",
+  "Show thinking": "Mostrar el razonamiento",
+  "What the model thought before answering, as a block you can open.":
+    "Lo que pensó el modelo antes de responder, en un bloque que puedes abrir.",
   Share: "Compartir",
   "Stop sharing": "Dejar de compartir",
   "Share link copied": "Enlace copiado",

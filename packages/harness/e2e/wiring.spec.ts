@@ -111,3 +111,28 @@ test("sharing a session asks the engine for a link", async ({ page }) => {
   await expect.poll(() => calls.posts.some((call) => call.path === "/session/ses_w/share")).toBe(true)
   await expect(page.locator(".fc-toast")).toContainText(/Share link copied|Enlace copiado/i)
 })
+
+test("Settings names the engine it is talking to", async ({ page }) => {
+  // The version only ever comes from `/global/health`; the v2 route answers `{ healthy: true }` and
+  // nothing else, so everything that compared versions was reading a field that never arrived.
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/global/health") return route.fulfill({ json: { healthy: true, version: "1.18.30" } })
+    if (url.pathname === "/api/health") return route.fulfill({ json: { healthy: true } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await page
+    .getByRole("button", { name: /Customize|Personalizar/ })
+    .first()
+    .click()
+  const engine = page.locator(".fc-settings-row").filter({ hasText: /^Engine|^Motor/ })
+  await expect(engine).toContainText("1.18.30")
+})
