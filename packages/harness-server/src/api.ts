@@ -2,6 +2,7 @@ import { normalizeRoutineSchedule } from "./validation"
 import type { RoutineCreateOptions, RoutineInput, RunStatus } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { eventStream, resumeFrom } from "./stream"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -103,6 +104,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
     if (path[1] === "health" && request.method === "GET") return json({ healthy: true })
+    // Everything the server changes, in order, so a client follows along instead of asking.
+    if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
+    // Runs, whatever asked for them. A routine's own are still under its own path.
+    if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
+    if (path[1] === "runs" && request.method === "GET" && path[2]) {
+      const run = repository.getRun(path[2])
+      return run ? json({ data: run }) : error("Run not found", 404)
+    }
     if (path[1] !== "routines") return error("Not found", 404)
 
     const routineID = path[2]

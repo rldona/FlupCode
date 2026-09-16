@@ -144,6 +144,7 @@ const sourceKey = (source: RunSource) => (source.type === "routine" ? source.rou
 
 export class SqliteRoutineRepository implements RoutineRepository {
   readonly db: Database
+  private readonly listeners = new Set<(entry: StoredEvent) => void>()
 
   constructor(path = process.env.FLUPCODE_HARNESS_DB ?? defaultDatabasePath()) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true })
@@ -351,11 +352,32 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   // ---- events ---------------------------------------------------------------------------------
 
+  /**
+   * Everything that changes the store goes through here, which is what makes one subscription
+   * enough: a listener sees the same sequence a reader would get from `listEvents`, so a client can
+   * catch up from the database and then follow the stream without a gap in between.
+   */
+  subscribe(listener: (entry: StoredEvent) => void) {
+    this.listeners.add(listener)
+    return () => {
+      this.listeners.delete(listener)
+    }
+  }
+
   append(event: ServerEvent, now = Date.now()): StoredEvent {
     const result = this.db
       .query("INSERT INTO events (created_at, payload_json) VALUES (?1, ?2)")
       .run(now, JSON.stringify(event))
-    return { seq: Number(result.lastInsertRowid), createdAt: now, event }
+    const entry: StoredEvent = { seq: Number(result.lastInsertRowid), createdAt: now, event }
+    for (const listener of this.listeners) {
+      // One slow listener must not take the writer down with it.
+      try {
+        listener(entry)
+      } catch {
+        this.listeners.delete(listener)
+      }
+    }
+    return entry
   }
 
   listEvents(afterSeq: number, limit = 200): StoredEvent[] {
