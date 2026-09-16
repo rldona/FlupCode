@@ -10,10 +10,10 @@
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "bash scripts/build-speech.sh && electron-vite dev",
-    "build": "bash scripts/build-speech.sh && electron-vite build",
+    "build": "bun --cwd ../harness-server build && bash scripts/build-speech.sh && electron-vite build",
     "typecheck": "tsgo --noEmit",
     "renderer": "bun scripts/renderer.mjs",
-    "dist": "bun run renderer && bash scripts/build-speech.sh && electron-vite build && electron-builder --publish never"
+    "dist": "bun --cwd ../harness-server build && bun run renderer && bash scripts/build-speech.sh && electron-vite build && electron-builder --publish never"
   },
   "build": {
     "appId": "com.flupcode.desktop",
@@ -29,6 +29,12 @@
     ],
     "executableName": "flupcode",
     "afterPack": "scripts/after-pack.cjs",
+    "extraResources": [
+      {
+        "from": "../harness-server/dist/flupcode-harness",
+        "to": "harness-server/flupcode-harness"
+      }
+    ],
     "npmRebuild": false,
     "publish": [
       {
