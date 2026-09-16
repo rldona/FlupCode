@@ -145,3 +145,6 @@ export type ProjectItem = {
   directory: string
   name: string
 }
+
+/** What a commit made by the harness server reports back (H-20). */
+export type GitCommit = { sha: string; subject: string; branch: string }

@@ -51,6 +51,9 @@ export const FileDiff: Component<{
   change: FileChange
   /** Whether it starts unfolded. A lone file opens; one of many stays shut until it is picked. */
   open?: boolean
+  /** Whether this file is going into the next commit. Absent where nothing is being committed. */
+  selected?: boolean
+  onSelect?: (selected: boolean) => void
 }> = (props) => {
   const [open, setOpen] = createSignal(props.open ?? false)
   const [forced, setForced] = createSignal(false)
@@ -60,20 +63,36 @@ export const FileDiff: Component<{
   const status = () => STATUS_LABEL[props.change.status ?? "modified"] ?? "modified"
   return (
     <article class="fc-diff-file" classList={{ "fc-diff-file-open": open() }}>
-      <button class="fc-diff-file-head" type="button" aria-expanded={open()} onClick={() => setOpen((it) => !it)}>
-        <span class="fc-diff-chevron" aria-hidden="true">
-          {open() ? "▾" : "▸"}
-        </span>
-        <span class="fc-diff-path" title={props.change.file}>
-          <span class="fc-diff-dir">{folder(props.change.file)}</span>
-          <span class="fc-diff-name">{basename(props.change.file)}</span>
-        </span>
-        <span class={`fc-diff-status fc-diff-status-${props.change.status ?? "modified"}`}>{t(status())}</span>
-        <span class="fc-diff-counts">
-          <span class="fc-diff-plus">+{props.change.additions}</span>
-          <span class="fc-diff-minus">−{props.change.deletions}</span>
-        </span>
-      </button>
+      {/*
+        The checkbox is a sibling of the header, not inside it. A button may not contain another
+        control — and a reader who means to tick a file should not have its diff unfold at them.
+      */}
+      <div class="fc-diff-file-bar">
+        <Show when={props.onSelect}>
+          <label class="fc-diff-pick">
+            <input
+              type="checkbox"
+              checked={props.selected ?? false}
+              aria-label={t("Include {file}", { file: props.change.file })}
+              onChange={(event) => props.onSelect?.(event.currentTarget.checked)}
+            />
+          </label>
+        </Show>
+        <button class="fc-diff-file-head" type="button" aria-expanded={open()} onClick={() => setOpen((it) => !it)}>
+          <span class="fc-diff-chevron" aria-hidden="true">
+            {open() ? "▾" : "▸"}
+          </span>
+          <span class="fc-diff-path" title={props.change.file}>
+            <span class="fc-diff-dir">{folder(props.change.file)}</span>
+            <span class="fc-diff-name">{basename(props.change.file)}</span>
+          </span>
+          <span class={`fc-diff-status fc-diff-status-${props.change.status ?? "modified"}`}>{t(status())}</span>
+          <span class="fc-diff-counts">
+            <span class="fc-diff-plus">+{props.change.additions}</span>
+            <span class="fc-diff-minus">−{props.change.deletions}</span>
+          </span>
+        </button>
+      </div>
       <Show when={open()}>
         <Show
           when={hunks().length > 0}

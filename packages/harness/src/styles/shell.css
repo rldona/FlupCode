@@ -7602,3 +7602,67 @@ button.fc-status {
 .fc-files-wide:hover {
   color: var(--fc-text);
 }
+
+/* ── Committing from the diff (H-20) ──────────────────────────────────────── */
+
+.fc-commit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+  padding: var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-3);
+  background: var(--fc-surface);
+}
+
+.fc-commit-message {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-2);
+  color: var(--fc-text);
+  background: var(--fc-bg);
+  font: inherit;
+  resize: vertical;
+}
+
+.fc-commit-actions {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: center;
+}
+
+.fc-commit-count {
+  flex: 1;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-commit-branch {
+  width: min(240px, 50%);
+}
+
+.fc-diff-file-bar {
+  display: flex;
+  align-items: center;
+}
+
+.fc-diff-pick {
+  display: flex;
+  align-items: center;
+  padding: 0 0 0 12px;
+  cursor: pointer;
+}
+
+.fc-diff-pick input {
+  margin: 0;
+  cursor: pointer;
+}
+
+.fc-diff-file-bar .fc-diff-file-head {
+  flex: 1;
+  min-width: 0;
+}
