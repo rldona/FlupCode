@@ -1,5 +1,5 @@
 import { normalizeRoutineSchedule } from "./validation"
-import type { RoutineCreateOptions, RoutineInput, RoutineRunStatus } from "./types"
+import type { RoutineCreateOptions, RoutineInput, RunStatus } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { RoutineBusyError, RoutineScheduler } from "./scheduler"
 
@@ -55,7 +55,7 @@ const createOptionsFrom = (value: unknown): RoutineCreateOptions => {
           {
             id: run.id,
             sessionID: typeof run.sessionID === "string" ? run.sessionID : undefined,
-            status: importedStatus as RoutineRunStatus,
+            status: importedStatus as RunStatus,
             startedAt: run.startedAt,
             finishedAt: typeof run.finishedAt === "number" ? run.finishedAt : undefined,
             error:
@@ -121,7 +121,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     const routine = repository.get(routineID)
     if (!routine) return error("Routine not found", 404)
 
-    if (action === "runs" && request.method === "GET") return json({ data: repository.listRuns(routineID) })
+    if (action === "runs" && request.method === "GET") return json({ data: repository.listRuns({ type: "routine", routineID }) })
     if (action === "runs" && request.method === "POST" && !runID) {
       try {
         return json({ data: await scheduler.runNow(routineID) }, 202)
@@ -132,7 +132,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     }
     if (action === "runs" && runID && path[5] === "stop" && request.method === "POST") {
       const run = repository.getRun(runID)
-      if (!run || run.routineID !== routineID) return error("Run not found", 404)
+      if (!run || run.source.type !== "routine" || run.source.routineID !== routineID) return error("Run not found", 404)
       return json({ data: (await scheduler.stopRun(runID)) ?? repository.getRun(runID) })
     }
     if (action === "enabled" && request.method === "PATCH") {

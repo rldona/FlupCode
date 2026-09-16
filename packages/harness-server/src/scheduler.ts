@@ -1,7 +1,7 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { isDue } from "./schedule"
-import type { Routine, RoutineRun } from "./types"
-import type { SqliteRoutineRepository } from "./repository"
+import type { Routine, Run, RunSource } from "./types"
+import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
 type Result<T> = { data?: T; error?: unknown }
 
@@ -90,20 +90,19 @@ export class RoutineScheduler {
   }
 
   private begin(routineID: string, now: number) {
-    if (!this.repository.acquire(routineID, this.owner, now, this.lockTtlMs)) return undefined
-    const run = this.repository.startRun(routineID, now)
-    if (!run) {
-      this.repository.release(routineID, this.owner)
-      return undefined
-    }
-    return run
+    const key = routineLockKey(routineID)
+    if (!this.repository.acquire(key, this.owner, now, this.lockTtlMs)) return undefined
+    const source: RunSource = { type: "routine", routineID }
+    return this.repository.startRun(source, now)
   }
 
-  private async execute(run: RoutineRun) {
-    const routine = this.repository.get(run.routineID)
+  private async execute(run: Run) {
+    // This scheduler only ever starts runs it sourced from a routine; anything else is not its work.
+    const routineID = run.source.type === "routine" ? run.source.routineID : undefined
+    const routine = routineID ? this.repository.get(routineID) : undefined
     if (!routine) return this.finish(run, "failed", "Routine was deleted")
     const heartbeat = setInterval(
-      () => this.repository.renew(run.routineID, this.owner, Date.now(), this.lockTtlMs),
+      () => this.repository.renew(routineLockKey(routine.id), this.owner, Date.now(), this.lockTtlMs),
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
@@ -146,9 +145,9 @@ export class RoutineScheduler {
     await unwrap(createOpencodeClient({ baseUrl: this.engineURL }).v2.session.interrupt({ sessionID }))
   }
 
-  private finish(run: RoutineRun, status: "success" | "failed" | "stopped", error?: string) {
+  private finish(run: Run, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(run.id, status, error)
-    this.repository.release(run.routineID, this.owner)
+    if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
   }
 }
