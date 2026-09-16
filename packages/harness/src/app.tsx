@@ -3659,6 +3659,13 @@ export const App: Component = () => {
                         suggestedTitle: branchState()?.subject ?? branchState()?.branch ?? "",
                         onOpenPullRequest: openPullRequest,
                         onOpen: (url) => window.open(url, "_blank", "noopener,noreferrer"),
+                        onCheckLog: (job) =>
+                          createHarnessClient(harnessServerUrl())
+                            .git.checkLog(vcsDirectory() ?? "", job)
+                            .then((log) => {
+                              if (!log) throw new Error(t("Could not read that log"))
+                              return log
+                            }),
                       }
                     : undefined
                 }
