@@ -57,6 +57,8 @@ import type {
   Routine,
   RoutineInput,
   RoutineRun,
+  Run,
+  Task,
   StashedPrompt,
 } from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
@@ -87,6 +89,7 @@ import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
+import { RunsPanel } from "./components/RunsPanel"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
@@ -387,6 +390,10 @@ export const App: Component = () => {
   const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
   const [targetDirectory, setTargetDirectory] = createSignal<string>()
   const [routines, setRoutines] = createSignal<Routine[]>(normalizeRoutines(readStorage<unknown>(STORAGE_KEYS.routines, [])))
+  /** How many runs the supervisor shows. Enough to see what is happening, not a history. */
+  const RUNS_SHOWN = 20
+  const [runs, setRuns] = createSignal<Run[]>([])
+  const [runsOpen, setRunsOpen] = createSignal(false)
   const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
   const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
   createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
@@ -2197,7 +2204,13 @@ export const App: Component = () => {
      * moved. It replaces a five-second poll that asked for everything whether or not anything had
      * changed.
      */
-    const applyHarnessEvent = (event: { type?: string; routine?: unknown; routineID?: unknown; run?: unknown }) => {
+    const applyHarnessEvent = (event: {
+    type?: string
+    routine?: unknown
+    routineID?: unknown
+    run?: unknown
+    task?: unknown
+  }) => {
       if (event.type === "routine.changed") {
         const routine = normalizeRoutine(event.routine)
         if (!routine) return
@@ -2212,7 +2225,35 @@ export const App: Component = () => {
         const removed = event.routineID
         return setRoutineState(routines().filter((entry) => entry.id !== removed))
       }
-      if (event.type !== "run.started" && event.type !== "run.changed") return
+      if (event.type === "run.started" || event.type === "run.changed") {
+      const run = event.run as Run | undefined
+      if (run?.id) {
+        const current = runs()
+        setRuns(
+          current.some((entry) => entry.id === run.id)
+            ? // Keep the tasks already loaded: a run event carries the run, not its tasks.
+              current.map((entry) => (entry.id === run.id ? { ...run, tasks: entry.tasks } : entry))
+            : [run, ...current],
+        )
+      }
+    }
+    if (event.type === "task.changed") {
+      const task = event.task as Task | undefined
+      if (!task?.id) return
+      return setRuns(
+        runs().map((run) => {
+          if (run.id !== task.runID) return run
+          const tasks = run.tasks ?? []
+          return {
+            ...run,
+            tasks: tasks.some((entry) => entry.id === task.id)
+              ? tasks.map((entry) => (entry.id === task.id ? task : entry))
+              : [...tasks, task].sort((a, b) => a.position - b.position),
+          }
+        }),
+      )
+    }
+    if (event.type !== "run.started" && event.type !== "run.changed") return
       const run = event.run as RoutineRun | undefined
       const routineID = run?.source?.type === "routine" ? run.source.routineID : undefined
       if (!run?.id || !routineID) return
@@ -2226,6 +2267,27 @@ export const App: Component = () => {
           }
         }),
       )
+    }
+
+    /**
+     * The runs the server knows about, with the tasks each is made of.
+     *
+     * Read once when a connection opens; after that the stream says what moved. Tasks are asked for
+     * per run because the list leaves them out.
+     */
+    const refreshRuns = async () => {
+      try {
+        const current = createHarnessClient(harnessServerUrl())
+        const list = (await current.runs.list()) ?? []
+        const withTasks = await Promise.all(
+          list
+            .slice(0, RUNS_SHOWN)
+            .map(async (run) => ({ ...run, tasks: await current.runs.tasks(run.id).catch(() => []) })),
+        )
+        setRuns(withTasks)
+      } catch {
+        // The connection that failed is about to be reported by the loop below.
+      }
     }
 
     createEffect(() => {
@@ -2242,6 +2304,7 @@ export const App: Component = () => {
           // Every connection starts by reading the list once. That is what makes the first paint and
           // every reconnection agree with the server, and it is the only request a quiet server gets.
           await refreshRoutines()
+        await refreshRuns()
           try {
             for await (const event of createHarnessClient(url).events({ signal: controller.signal })) {
               attempt = 0
@@ -2974,6 +3037,7 @@ export const App: Component = () => {
             onAbout={() => setAboutOpen(true)}
             onSettings={() => setSettingsOpen(true)}
             onRoutines={() => setRoutinesOpen(true)}
+            onRuns={() => setRunsOpen(true)}
             onArtifacts={() => setArtifactsOpen(true)}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -3483,6 +3547,16 @@ export const App: Component = () => {
           setAboutOpen(true)
         }}
         onClose={() => setSettingsOpen(false)}
+      />
+      <RunsPanel
+        open={runsOpen()}
+        runs={runs()}
+        serverAvailable={routinesServerAvailable()}
+        onOpenSession={(id) => {
+          setRunsOpen(false)
+          selectSession(id)
+        }}
+        onClose={() => setRunsOpen(false)}
       />
       <RoutinesPanel
         open={routinesOpen()}

@@ -13,7 +13,7 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
-import type { Routine, RoutineInput, RoutineRun } from "./types"
+import type { Routine, RoutineInput, RoutineRun, Run, Task } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
@@ -821,6 +821,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      * connection it holds does not come out of the handful the browser allows for talking to it.
      */
     events: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal, "/harness/events"),
+    runs: {
+      list: () => harnessRequest<Run[]>(baseUrl, "/harness/runs"),
+      /** A run with the tasks it is made of; the list leaves them out. */
+      get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
+      tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
+    },
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),
       get: (id: string) => harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`),

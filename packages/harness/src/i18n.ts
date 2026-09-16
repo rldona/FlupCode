@@ -189,6 +189,12 @@ const ES: Record<string, string> = {
   "The sidebar": "la barra lateral",
   "The side panels": "los paneles laterales",
   "The context panel": "el panel de contexto",
+  Runs: "Ejecuciones",
+  "What the harness server is working on, task by task.": "En qué está trabajando el servidor, tarea a tarea.",
+  "The harness server is not reachable, so this is the last it said.":
+    "No se alcanza el servidor, así que esto es lo último que dijo.",
+  "Nothing has run yet.": "Todavía no se ha ejecutado nada.",
+  "Manual run": "Ejecución manual",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":
