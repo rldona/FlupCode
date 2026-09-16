@@ -34,6 +34,15 @@ import { hasModel, replacementModel } from "./model-catalog"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
 import { sessionTitle } from "./session-title"
+import {
+  applyDelta,
+  applyMessage,
+  applyPart,
+  removeMessage,
+  removePart,
+  type LegacyInfo,
+  type LegacyPart,
+} from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
@@ -125,8 +134,6 @@ export const App: Component = () => {
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
   const [streamedChars, setStreamedChars] = createSignal(0)
-  const [liveText, setLiveText] = createSignal("")
-  const [liveReasoning, setLiveReasoning] = createSignal("")
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, false))
@@ -957,28 +964,15 @@ export const App: Component = () => {
               if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
               if (payload?.sessionID === selected()) {
                 setStreamedChars(0)
-                setLiveText("")
-                setLiveReasoning("")
               }
               scheduleRefetch(true, false)
             } else if (type.endsWith(".delta")) {
+              // A v2 delta names no part, so there is nothing to apply it to; only a session started
+              // on the v2 runner before this build still produces them, and its step events below
+              // reload the transcript. All that is taken from here is the size of the turn so far.
               const delta = payload?.delta
-              if (
-                payload?.sessionID &&
-                typeof delta === "string" &&
-                (type.includes("text") || type.includes("reasoning"))
-              ) {
-                publishSessionEvent({
-                  kind: "live",
-                  sessionID: payload.sessionID,
-                  field: type.includes("reasoning") ? "reasoning" : "text",
-                  delta,
-                })
-              }
               if (payload?.sessionID === selected() && typeof delta === "string") {
                 setStreamedChars((value) => value + delta.length)
-                if (type.includes("reasoning")) setLiveReasoning((value) => value + delta)
-                else if (type.includes("text")) setLiveText((value) => value + delta)
               }
               continue
             }
@@ -1066,10 +1060,54 @@ export const App: Component = () => {
     return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
   }
 
+  /**
+   * One legacy message event as a change to a transcript. The part types are remembered because a
+   * delta only names its part, while `field` says "text" for reasoning too, so the part's own type
+   * is the only way to tell them apart.
+   */
+  const partTypesByID = new Map<string, string>()
+  const transcriptChange = (
+    type: string,
+    data:
+      | {
+          delta?: string
+          partID?: string
+          messageID?: string
+          info?: { id?: string; role?: string }
+          part?: { id?: string; type?: string; messageID?: string }
+        }
+      | undefined,
+  ) => {
+    if (type === "message.part.delta") {
+      const delta = data?.delta
+      if (typeof delta !== "string" || !data?.partID) return undefined
+      const kind = partTypesByID.get(data.partID)
+      if (kind !== "text" && kind !== "reasoning") return undefined
+      const input = { messageID: data.messageID, partID: data.partID, delta }
+      return { apply: (current: SessionMessageInfo[]) => applyDelta(current, input), chars: delta.length }
+    }
+    if (type === "message.part.updated" && data?.part?.id) {
+      const part = data.part as LegacyPart
+      if (part.type) partTypesByID.set(part.id, part.type)
+      return { apply: (current: SessionMessageInfo[]) => applyPart(current, part), chars: 0 }
+    }
+    if (type === "message.part.removed" && data?.part?.id) {
+      const input = { messageID: data.part.messageID ?? data.messageID, partID: data.part.id }
+      return { apply: (current: SessionMessageInfo[]) => removePart(current, input), chars: 0 }
+    }
+    if (type === "message.updated" && data?.info?.id) {
+      const info = data.info as LegacyInfo
+      return { apply: (current: SessionMessageInfo[]) => applyMessage(current, info), chars: 0 }
+    }
+    if (type === "message.removed" && data?.messageID) {
+      const messageID = data.messageID
+      return { apply: (current: SessionMessageInfo[]) => removeMessage(current, messageID), chars: 0 }
+    }
+    return undefined
+  }
+
   /** One folder's legacy event stream, reconnecting on its own backoff until the signal aborts. */
   const followDirectory = async (url: string, directory: string, signal: AbortSignal) => {
-    // Text and reasoning deltas both say `field: "text"`; the part's type comes with its first update.
-    const partTypes = new Map<string, string>()
     // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
     const lastUserMessage = new Map<string, string>()
     for (let attempt = 0; !signal.aborted; attempt++) {
@@ -1093,24 +1131,19 @@ export const App: Component = () => {
           ).data
           trackActivity(type, data)
           const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
-          if (type === "message.part.delta") {
-            const part = partTypes.get(data?.partID ?? "")
-            if (sessionID && typeof data?.delta === "string" && (part === "text" || part === "reasoning")) {
-              publishSessionEvent({ kind: "live", sessionID, field: part, delta: data.delta })
-            }
-            if (sessionID === selected() && typeof data?.delta === "string") {
-              const delta = data.delta
-              setStreamedChars((value) => value + delta.length)
-              if (part === "reasoning") setLiveReasoning((value) => value + delta)
-              else if (part === "text") setLiveText((value) => value + delta)
-            }
-            continue
-          }
-          if (type === "message.part.updated" && data?.part?.id && data.part.type) {
-            partTypes.set(data.part.id, data.part.type)
-          }
           if (type.startsWith("message.")) {
-            // A new user message starts a turn: drop what streamed for the previous one.
+            // Every message event is applied to the transcript instead of triggering a refetch of
+            // the whole history. A refetch per event meant two full requests every 300ms for the
+            // length of a turn, and a `<For>` rebuilt from new objects each time.
+            const change = transcriptChange(type, data)
+            if (sessionID && change) {
+              publishSessionEvent({ kind: "message", sessionID, apply: change.apply, chars: change.chars })
+              if (sessionID === selected()) {
+                setStreamedChars((value) => value + change.chars)
+                setMessageData("data", (current) => change.apply(current))
+              }
+            }
+            // A new user message starts a turn: what streamed before it is stale.
             const newTurn =
               type === "message.updated" &&
               data?.info?.role === "user" &&
@@ -1120,16 +1153,13 @@ export const App: Component = () => {
             if (newTurn && sessionID && data?.info?.id) {
               lastUserMessage.set(sessionID, data.info.id)
               publishSessionEvent({ kind: "turn", sessionID })
+              if (sessionID === selected()) setStreamedChars(0)
             }
-            publishSessionEvent({ kind: "changed", sessionID })
-            if (newTurn && sessionID === selected()) {
-              setLiveText("")
-              setLiveReasoning("")
-              setStreamedChars(0)
-            }
+            // The cached legacy history is now behind the store, so the next refetch must rebuild it.
             invalidateLegacyHistory(sessionID)
-            scheduleRefetch(true, false)
           } else if (type === "session.idle") {
+            // The end of a turn is where the applied events are reconciled against the engine's own
+            // copy: one refetch per turn instead of one every 300ms.
             scheduleRefetch(true, true)
           } else if (type.startsWith("session.")) {
             scheduleRefetch(false, true)
@@ -1169,29 +1199,7 @@ export const App: Component = () => {
 
   createEffect(() => {
     selected()
-    setLiveText("")
-    setLiveReasoning("")
     setStreamedChars(0)
-  })
-
-  createEffect(() => {
-    const list = activeMessages()
-    if (!list || list.length === 0) return
-    const last = [...list].reverse().find((message) => message.type === "assistant")
-    if (!last) return
-    const content = (last as SessionMessageAssistant).content ?? []
-    const text = content
-      .filter((part) => part.type === "text")
-      .map((part) => (part as { text: string }).text)
-      .join("")
-    const reasoning = content
-      .filter((part) => part.type === "reasoning")
-      .map((part) => (part as { text: string }).text)
-      .join("")
-    const currentText = liveText()
-    if (currentText && text.includes(currentText)) setLiveText("")
-    const currentReasoning = liveReasoning()
-    if (currentReasoning && reasoning.includes(currentReasoning)) setLiveReasoning("")
   })
 
   // A stored effort level the model does not offer here (another model's, or one this project's engine
@@ -2839,8 +2847,6 @@ export const App: Component = () => {
                 usage={liveUsage()}
                 startedAt={generationStartedAt()}
                 modelName={modelName}
-                liveText={liveText()}
-                liveReasoning={liveReasoning()}
                 showTools={showTools()}
                 chat={chatView()}
                 pending={pendingForSession()}

@@ -25,8 +25,6 @@ type SessionViewProps = {
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
-  liveText?: string
-  liveReasoning?: string
   showTools: boolean
   /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
   chat?: boolean
@@ -606,9 +604,9 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       }
     }
     if (runningTools > 0) return { tasks: runningTools, label: t("Running tools…") }
-    if (props.liveReasoning || (lastPart?.type === "reasoning" && lastPart.time?.completed === undefined))
+    if (lastPart?.type === "reasoning" && lastPart.time?.completed === undefined)
       return { tasks: 0, label: t("Thinking…") }
-    if (props.liveText) return { tasks: 0, label: t("Writing…") }
+    if (lastPart?.type === "text" && lastPart.time?.completed === undefined) return { tasks: 0, label: t("Writing…") }
     return { tasks: 0, label: t("Waiting for FlupCode…") }
   })
 
@@ -1014,11 +1012,6 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                   </div>
                 )}
               </For>
-              <Show when={props.busy && props.liveText}>
-                <div class="fc-message fc-message-assistant fc-message-live">
-                  <Markdown class="fc-message-text" text={props.liveText ?? ""} />
-                </div>
-              </Show>
               <Show when={props.busy}>
                 <div class="fc-message fc-message-assistant fc-message-pending">
                   <Loader

@@ -1,19 +1,11 @@
 import type { MemoryInfo, ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
-import type {
-  AssistantMessage,
-  Message,
-  Part,
-  ReasoningPart,
-  TextPart,
-  ToolPart,
-  ToolState,
-} from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
 import type { McpConfig } from "./types"
 import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
+import { fromLegacy, mergeTranscripts } from "./transcript"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 /** The largest page of v2 messages the engine returns. */
@@ -162,67 +154,6 @@ async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
     throw new Error(error?.message ?? "Request failed")
   }
   return result.data as T
-}
-
-function toolOutput(state: ToolState) {
-  if (state.status === "completed") return [{ type: "text", text: state.output }]
-  return undefined
-}
-
-function fromLegacy(entries: Array<{ info: Message; parts: Part[] }>): SessionMessageInfo[] {
-  return entries.map((entry) => {
-    if (entry.info.role === "user") {
-      const text = entry.parts
-        .filter((part): part is TextPart => part.type === "text")
-        .map((part) => part.text)
-        .join("\n")
-      return { id: entry.info.id, type: "user", time: entry.info.time, text } as unknown as SessionMessageInfo
-    }
-
-    const info = entry.info as AssistantMessage
-    const content = entry.parts.flatMap((part): unknown[] => {
-      if (part.type === "text") return [{ type: "text", text: part.text }]
-      if (part.type === "reasoning") return [{ type: "reasoning", text: part.text }]
-      if (part.type !== "tool") return []
-      const tool = part as ToolPart
-      return [
-        {
-          type: "tool",
-          name: tool.tool,
-          state: {
-            status: tool.state.status,
-            input: "input" in tool.state ? tool.state.input : undefined,
-            content: toolOutput(tool.state),
-            error: tool.state.status === "error" ? { message: tool.state.error } : undefined,
-          },
-        },
-      ]
-    })
-    return {
-      id: info.id,
-      type: "assistant",
-      time: info.time,
-      agent: info.agent,
-      model: info.modelID ? { providerID: info.providerID, id: info.modelID } : undefined,
-      content,
-      error: info.error,
-    } as unknown as SessionMessageInfo
-  })
-}
-
-const created = (message: SessionMessageInfo) => (message as { time?: { created?: number } }).time?.created ?? 0
-
-/**
- * A session can hold history in both message stores: the legacy one (written by the TUI and older
- * clients) and v2 (written by FlupCode prompts). They never share messages, so show both in order.
- */
-export function mergeTranscripts(v2: SessionMessageInfo[], legacy: SessionMessageInfo[]) {
-  if (legacy.length === 0) return v2
-  if (v2.length === 0) return legacy
-  return [...legacy, ...v2]
-    .map((message, index) => ({ message, index }))
-    .sort((a, b) => created(a.message) - created(b.message) || a.index - b.index)
-    .map((entry) => entry.message)
 }
 
 /**

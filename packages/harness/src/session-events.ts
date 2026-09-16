@@ -3,9 +3,21 @@
  * what a pane needs, already normalised across the v2 stream and the chats folder's legacy stream.
  */
 
+import type { SessionMessageInfo } from "./engine-types"
+
 export type SessionEvent =
-  /** Streamed text or reasoning of a running turn. */
-  | { kind: "live"; sessionID: string; field: "text" | "reasoning"; delta: string }
+  /**
+   * One message mutation from the engine, as a function over the transcript. The app reads the
+   * stream once and hands every view the same change, so a pane and the main view stay identical
+   * without either of them refetching the whole history. `chars` is what this event added, which is
+   * all the loader needs to estimate the tokens of a turn still running.
+   */
+  | {
+      kind: "message"
+      sessionID: string
+      apply: (data: SessionMessageInfo[]) => SessionMessageInfo[]
+      chars: number
+    }
   /** A new turn started: what streamed before is stale. */
   | { kind: "turn"; sessionID: string }
   /** Messages changed; without a session, any session may have. */

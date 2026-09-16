@@ -74,8 +74,6 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   const [draft, setDraft] = createSignal("")
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [busy, setBusy] = createSignal(false)
-  const [liveText, setLiveText] = createSignal("")
-  const [liveReasoning, setLiveReasoning] = createSignal("")
   const [streamedChars, setStreamedChars] = createSignal(0)
   const [chosenModel, setModelRef] = createSignal(props.session.model)
   const modelRef = () => chosenModel() ?? props.defaultModel
@@ -141,31 +139,17 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     }
     if (event.sessionID !== sessionID()) return
     if (event.kind === "turn") {
-      batch(() => {
-        setLiveText("")
-        setLiveReasoning("")
-        setStreamedChars(0)
-      })
-      scheduleRefetch()
+      setStreamedChars(0)
       return
     }
-    setStreamedChars((value) => value + event.delta.length)
-    if (event.field === "reasoning") setLiveReasoning((value) => value + event.delta)
-    else setLiveText((value) => value + event.delta)
+    // The same change the main view applies, so a pane shows the identical transcript without
+    // fetching the history again for every event of a turn.
+    batch(() => {
+      setStreamedChars((value) => value + event.chars)
+      setMessageData("data", (current) => event.apply(current))
+    })
   })
   onCleanup(unsubscribe)
-
-  // Drop the streamed copy once the fetched transcript has caught up with it.
-  createEffect(() => {
-    const last = [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as
-      | SessionMessageAssistant
-      | undefined
-    if (!last) return
-    const text = last.content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("")
-    const reasoning = last.content.flatMap((part) => (part.type === "reasoning" ? [part.text] : [])).join("")
-    if (liveText() && text.includes(liveText())) setLiveText("")
-    if (liveReasoning() && reasoning.includes(liveReasoning())) setLiveReasoning("")
-  })
 
   const generating = () => {
     if (busy() || props.running) return true
@@ -393,8 +377,6 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         usage={liveUsage()}
         startedAt={startedAt()}
         modelName={props.modelName}
-        liveText={liveText()}
-        liveReasoning={liveReasoning()}
         showTools={props.showTools}
         chat={props.chat}
         pending={pending()}
