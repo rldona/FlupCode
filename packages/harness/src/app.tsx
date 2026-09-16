@@ -310,7 +310,11 @@ export const App: Component = () => {
     if (result.healthy) return { ...result, blocked: false }
     return { ...result, blocked: (await probeServer(url)) === "blocked" }
   })
-  const ready = () => health()?.healthy === true
+  // A memo, not a plain accessor: the health poll writes a fresh resource value every 10s, and a
+  // plain accessor would pass that on to every effect and resource source reading it — dropping and
+  // reopening the event streams, and refetching sessions, messages and both blocked registries, on
+  // a clock, forever. Only a change of the answer is worth waking anything for.
+  const ready = createMemo(() => health()?.healthy === true)
   // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
   // stock OpenCode CLI, whose extras (Copilot sign-in, permission modes, memory) are missing.
   const [engineProfile] = createResource(
