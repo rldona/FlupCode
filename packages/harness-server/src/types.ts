@@ -61,6 +61,43 @@ export type RoutineCreateOptions = {
   runs?: Array<Omit<Run, "source">>
 }
 
+export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
+
+/**
+ * One executable unit of a run.
+ *
+ * A task is not a message: it is a piece of work with its own agent, its own session and its own
+ * result, which is what makes a run inspectable while it happens and resumable after a restart
+ * (§6.2). It runs as a child of the run's session, so the engine keeps the lineage and the harness
+ * does not have to invent one.
+ *
+ * `dependsOn` is absent on purpose: v1 runs tasks in order, and the audit puts the DAG in H-28. An
+ * order is a dependency list everyone already understands, and it is the one thing a sequential
+ * runner can honour without pretending to more.
+ */
+export type TaskInput = {
+  name: string
+  prompt: string
+  agent?: string
+  model?: { providerID: string; id: string; variant?: string }
+}
+
+export type Task = TaskInput & {
+  id: string
+  runID: string
+  /** Where it sits in the run's order, from 0. */
+  position: number
+  status: TaskStatus
+  sessionID?: string
+  startedAt?: number
+  finishedAt?: number
+  error?: string
+  /** What the task answered, kept so a later task can be handed it without replaying a transcript. */
+  output?: string
+  tokens?: number
+  cost?: number
+}
+
 /**
  * What the server publishes as it changes. Persisted with a sequence number so a client that was
  * away can ask for what it missed instead of polling — which is what the browser does today, every
@@ -69,6 +106,7 @@ export type RoutineCreateOptions = {
 export type ServerEvent =
   | { type: "run.started"; run: Run }
   | { type: "run.changed"; run: Run }
+  | { type: "task.changed"; task: Task }
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
 
@@ -77,6 +115,18 @@ export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 /** Runs, whatever asked for them. */
 export type RunRepository = {
   startRun(source: RunSource, now: number): Run
+  /** Give a run the work it is made of, in the order it will be done. */
+  addTasks(runID: string, inputs: TaskInput[]): Task[]
+  listTasks(runID: string): Task[]
+  getTask(taskID: string): Task | undefined
+  startTask(taskID: string, now: number): Task | undefined
+  attachTaskSession(taskID: string, sessionID: string): void
+  finishTask(
+    taskID: string,
+    status: Exclude<TaskStatus, "queued" | "running">,
+    result?: { error?: string; output?: string; tokens?: number; cost?: number },
+    now?: number,
+  ): void
   getRun(runID: string): Run | undefined
   listRuns(source?: RunSource, limit?: number): Run[]
   attachSession(runID: string, sessionID: string): void

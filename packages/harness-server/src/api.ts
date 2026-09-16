@@ -108,9 +108,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
+    if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "tasks") {
+      return repository.getRun(path[2])
+        ? json({ data: repository.listTasks(path[2]) })
+        : error("Run not found", 404)
+    }
     if (path[1] === "runs" && request.method === "GET" && path[2]) {
       const run = repository.getRun(path[2])
-      return run ? json({ data: run }) : error("Run not found", 404)
+      return run ? json({ data: { ...run, tasks: repository.listTasks(run.id) } }) : error("Run not found", 404)
     }
     if (path[1] !== "routines") return error("Not found", 404)
 

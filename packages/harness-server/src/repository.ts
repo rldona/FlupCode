@@ -9,6 +9,9 @@ import type {
   RoutineRepository,
   Run,
   RunSource,
+  Task,
+  TaskInput,
+  TaskStatus,
   RunStatus,
   ServerEvent,
   StoredEvent,
@@ -46,6 +49,24 @@ CREATE TABLE IF NOT EXISTS runs (
   error TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_source_started_at ON runs(source_type, source_id, started_at DESC);
+CREATE TABLE IF NOT EXISTS tasks (
+  id TEXT PRIMARY KEY,
+  run_id TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  prompt TEXT NOT NULL,
+  agent TEXT,
+  model_json TEXT,
+  session_id TEXT,
+  status TEXT NOT NULL,
+  started_at INTEGER,
+  finished_at INTEGER,
+  error TEXT,
+  output TEXT,
+  tokens INTEGER,
+  cost REAL
+);
+CREATE INDEX IF NOT EXISTS tasks_run_position ON tasks(run_id, position);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -94,6 +115,42 @@ type RunRow = {
   finished_at: number | null
   error: string | null
 }
+
+type TaskRow = {
+  id: string
+  run_id: string
+  position: number
+  name: string
+  prompt: string
+  agent: string | null
+  model_json: string | null
+  session_id: string | null
+  status: TaskStatus
+  started_at: number | null
+  finished_at: number | null
+  error: string | null
+  output: string | null
+  tokens: number | null
+  cost: number | null
+}
+
+const decodeTask = (row: TaskRow): Task => ({
+  id: row.id,
+  runID: row.run_id,
+  position: row.position,
+  name: row.name,
+  prompt: row.prompt,
+  agent: row.agent ?? undefined,
+  model: decodeModel(row.model_json),
+  sessionID: row.session_id ?? undefined,
+  status: row.status,
+  startedAt: row.started_at ?? undefined,
+  finishedAt: row.finished_at ?? undefined,
+  error: row.error ?? undefined,
+  output: row.output ?? undefined,
+  tokens: row.tokens ?? undefined,
+  cost: row.cost ?? undefined,
+})
 
 type EventRow = { seq: number; created_at: number; payload_json: string }
 
@@ -239,7 +296,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   remove(id: string) {
     const removed = this.db.transaction(() => {
-      // Runs are keyed by their source rather than owned by a foreign key, so they go explicitly.
+      // Runs are keyed by their source rather than owned by a foreign key, so they go explicitly,
+      // and the tasks they were made of go with them.
+      this.db
+        .query(
+          `DELETE FROM tasks WHERE run_id IN
+             (SELECT id FROM runs WHERE source_type = 'routine' AND source_id = ?1)`,
+        )
+        .run(id)
       this.db.query("DELETE FROM runs WHERE source_type = 'routine' AND source_id = ?1").run(id)
       this.db.query("DELETE FROM locks WHERE key = ?1").run(routineLockKey(id))
       return this.db.query("DELETE FROM routines WHERE id = ?1").run(id).changes > 0
@@ -325,6 +389,90 @@ export class SqliteRoutineRepository implements RoutineRepository {
       )
       .run(now)
     this.db.query("DELETE FROM locks").run()
+  }
+
+  // ---- tasks ----------------------------------------------------------------------------------
+
+  addTasks(runID: string, inputs: TaskInput[]) {
+    const existing = this.db.query("SELECT COUNT(*) as n FROM tasks WHERE run_id = ?1").get(runID) as { n: number }
+    const tasks = inputs.map((input, index) => ({
+      ...input,
+      id: crypto.randomUUID(),
+      runID,
+      position: existing.n + index,
+      status: "queued" as const,
+    }))
+    this.db.transaction(() => {
+      for (const task of tasks) {
+        this.db
+          .query(
+            `INSERT INTO tasks (id, run_id, position, name, prompt, agent, model_json, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'queued')`,
+          )
+          .run(
+            task.id,
+            runID,
+            task.position,
+            task.name,
+            task.prompt,
+            task.agent ?? null,
+            task.model ? JSON.stringify(task.model) : null,
+          )
+      }
+    })()
+    for (const task of tasks) this.append({ type: "task.changed", task })
+    return tasks
+  }
+
+  listTasks(runID: string) {
+    const rows = this.db
+      .query("SELECT * FROM tasks WHERE run_id = ?1 ORDER BY position ASC")
+      .all(runID) as TaskRow[]
+    return rows.map(decodeTask)
+  }
+
+  getTask(taskID: string) {
+    const row = this.db.query("SELECT * FROM tasks WHERE id = ?1").get(taskID) as TaskRow | null
+    return row ? decodeTask(row) : undefined
+  }
+
+  startTask(taskID: string, now: number) {
+    this.db.query("UPDATE tasks SET status = 'running', started_at = ?1 WHERE id = ?2").run(now, taskID)
+    return this.publishTask(taskID)
+  }
+
+  attachTaskSession(taskID: string, sessionID: string) {
+    this.db.query("UPDATE tasks SET session_id = ?1 WHERE id = ?2").run(sessionID, taskID)
+    this.publishTask(taskID)
+  }
+
+  finishTask(
+    taskID: string,
+    status: Exclude<TaskStatus, "queued" | "running">,
+    result: { error?: string; output?: string; tokens?: number; cost?: number } = {},
+    now = Date.now(),
+  ) {
+    this.db
+      .query(
+        `UPDATE tasks SET status = ?1, finished_at = ?2, error = ?3, output = ?4, tokens = ?5, cost = ?6
+         WHERE id = ?7`,
+      )
+      .run(
+        status,
+        now,
+        result.error ?? null,
+        result.output ?? null,
+        result.tokens ?? null,
+        result.cost ?? null,
+        taskID,
+      )
+    this.publishTask(taskID)
+  }
+
+  private publishTask(taskID: string) {
+    const task = this.getTask(taskID)
+    if (task) this.append({ type: "task.changed", task })
+    return task
   }
 
   // ---- locks ----------------------------------------------------------------------------------
