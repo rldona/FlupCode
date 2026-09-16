@@ -196,6 +196,7 @@ const ES: Record<string, string> = {
   "Nothing has run yet.": "Todavía no se ha ejecutado nada.",
   Evidence: "Evidencia",
   verify: "verificación",
+  "attempt {n}": "intento {n}",
   "Manual run": "Ejecución manual",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Connect them": "Conectarlos",

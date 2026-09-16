@@ -92,12 +92,24 @@ export type TaskInput = {
   kind?: TaskKind
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /**
+   * On a verify task: how many times the work before it may be attempted again if it fails (H-22).
+   *
+   * The budget travels with the task and is spent as it is used — the verify task a retry schedules
+   * carries one less — so a run cannot loop, whatever goes wrong.
+   */
+  retries?: number
+  /** Which attempt this is, from 1. A retry is a new task, not the same one run twice. */
+  attempt?: number
+  /** The task this one attempts again. */
+  retryOf?: string
 }
 
 export type Task = TaskInput & {
   id: string
   runID: string
   kind: TaskKind
+  attempt: number
   /** Where it sits in the run's order, from 0. */
   position: number
   status: TaskStatus

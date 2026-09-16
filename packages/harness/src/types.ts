@@ -56,6 +56,10 @@ export type Task = {
   name: string
   prompt: string
   kind?: TaskKind
+  /** Which attempt this is, from 1. A retry after a failed check is a new task (H-22). */
+  attempt?: number
+  /** The task this one attempts again. */
+  retryOf?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
   sessionID?: string

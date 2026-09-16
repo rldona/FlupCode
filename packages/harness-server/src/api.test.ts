@@ -1,7 +1,15 @@
-import { describe, expect, test } from "bun:test"
-import { createHarnessHandler } from "./api"
+import { afterAll, describe, expect, test } from "bun:test"
+import { MAX_RETRIES, createHarnessHandler } from "./api"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
+
+const made: string[] = []
+afterAll(() => {
+  for (const directory of made.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
 
 const input = {
   name: "Check CI",
@@ -113,6 +121,25 @@ describe("harness runs API", () => {
     expect((await stopped.json()).data).toEqual({ stopped: 2 })
     // Neither had a session yet, so there was nothing for the engine to interrupt; both are marked.
     expect([first.id, second.id].every((id) => repository.getRun(id)?.id === id)).toBe(true)
+    repository.close()
+  })
+
+  // Every retry is a model turn and another round of the project's commands, so a number typed by
+  // mistake must not be able to spend an afternoon.
+  test("caps how many attempts a failed check may ask for", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-verify-"))
+    made.push(directory)
+
+    const started = await handler(
+      new Request("http://localhost/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "verify", kind: "verify", retries: 99 }], directory }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    expect(repository.listTasks(run.id)[0]!.retries).toBe(MAX_RETRIES)
     repository.close()
   })
 

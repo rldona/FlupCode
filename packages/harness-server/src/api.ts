@@ -50,7 +50,21 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
     prompt,
     kind,
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
+    ...(kind === "verify" ? { retries: retriesFrom(input.retries) } : {}),
   }
+}
+
+/**
+ * How many attempts a failed check may ask for, at most.
+ *
+ * Every retry is a model turn and another round of the project's commands, so a number typed by
+ * mistake — or by something generating this call — must not be able to spend an afternoon.
+ */
+export const MAX_RETRIES = 5
+
+const retriesFrom = (value: unknown) => {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined
+  return Math.min(MAX_RETRIES, Math.floor(value))
 }
 
 const createOptionsFrom = (value: unknown): RoutineCreateOptions => {

@@ -13,6 +13,17 @@ export class VerifyFailed extends Error {
   }
 }
 
+/**
+ * What the executor is told on a retry.
+ *
+ * Its own instructions again, and what the check said about the last attempt. Nothing else: the
+ * harness knows what failed, not how to fix it, and inventing advice here would put words in front
+ * of the evidence.
+ */
+function retryPrompt(task: Task, evidence: string) {
+  return [task.prompt, "", "The previous attempt did not pass verification:", "", evidence].join("\n")
+}
+
 const failureSummary = (steps: Array<{ name: string; exitCode: number }>) => {
   const failed = steps.filter((step) => step.exitCode !== 0).map((step) => step.name)
   if (failed.length === 0) return "Nothing to verify: the project declares no verify steps"
@@ -44,9 +55,52 @@ export class TaskRunner {
     private readonly engine: Engine,
   ) {}
 
+  /**
+   * Puts the work that failed verification back on the run, once.
+   *
+   * A retry is a **new task**, not the same one run again. Repeating a row would overwrite what the
+   * first attempt did, said and cost, and this whole ticket is about keeping evidence — a reader
+   * has to be able to see that the first attempt failed, what it was told, and what the second one
+   * changed. It also keeps the totals honest: two attempts cost two attempts.
+   *
+   * Returns false when there is no budget left, or nothing before the check to attempt again.
+   */
+  private scheduleRetry(runID: string, verify: Task, evidence: string) {
+    const budget = verify.retries ?? 0
+    if (budget <= 0) return false
+    const executor = this.repository
+      .listTasks(runID)
+      .filter((entry) => entry.kind === "agent" && entry.position < verify.position)
+      .at(-1)
+    if (!executor) return false
+    this.repository.addTasks(runID, [
+      {
+        name: executor.name,
+        prompt: retryPrompt(executor, evidence),
+        kind: "agent",
+        agent: executor.agent,
+        model: executor.model,
+        attempt: executor.attempt + 1,
+        retryOf: executor.id,
+      },
+      {
+        name: verify.name,
+        prompt: "",
+        kind: "verify",
+        // One less: the budget is spent as it is used, so a run cannot loop whatever goes wrong.
+        retries: budget - 1,
+        attempt: verify.attempt + 1,
+        retryOf: verify.id,
+      },
+    ])
+    return true
+  }
+
   async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}) {
     const stopped = options.stopped ?? (() => false)
     const tasks = this.repository.listTasks(run.id).filter((task) => task.status === "queued")
+    const nextQueued = () =>
+      this.repository.listTasks(run.id).find((entry) => entry.status === "queued")
     // The run's own session is the thread a person reads; each task is a child of it, which is the
     // lineage the engine already keeps. A run of one task needs no thread of its own, and creating
     // one would leave an empty session in everybody's list.
@@ -55,7 +109,7 @@ export class TaskRunner {
     const parentID = tasks.length > 1 ? (this.repository.getRun(run.id)?.sessionID ?? run.sessionID) : undefined
     let handoff: string | undefined
 
-    for (const task of tasks) {
+    for (let task = nextQueued(); task; task = nextQueued()) {
       if (stopped()) {
         this.repository.finishTask(task.id, "stopped", { error: "The run was stopped" })
         continue
@@ -73,8 +127,14 @@ export class TaskRunner {
         })
         // The evidence is the handoff: whatever runs next is told exactly what failed.
         handoff = evidence
-        if (!report.ok && !stopped()) throw new VerifyFailed(failureSummary(report.steps))
-        continue
+        if (report.ok || stopped()) continue
+        // A failed check is not the end of the run if it was given a budget to try again. The retry
+        // carries the evidence in its own prompt, so the handoff is cleared rather than repeated.
+        if (this.scheduleRetry(run.id, task, evidence)) {
+          handoff = undefined
+          continue
+        }
+        throw new VerifyFailed(failureSummary(report.steps))
       }
       try {
         const session = await this.engine.createSession({
