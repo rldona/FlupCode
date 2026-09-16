@@ -135,6 +135,17 @@ export class TaskRunner {
           output: evidence,
           error: report.ok ? undefined : failureSummary(report.steps),
         })
+        // And it is kept (H-14): the verdict of a check is the evidence the audit asks for, and it
+        // outlives the task list, which only shows the last twenty runs.
+        this.repository.addArtifact({
+          kind: "verdict",
+          title: `${task.name} — ${report.ok ? "passed" : "failed"}`,
+          producer: "harness",
+          content: evidence,
+          directory: options.directory,
+          runID: run.id,
+          taskID: task.id,
+        })
         // The evidence is the handoff: whatever runs next is told exactly what failed.
         handoff = evidence
         if (!report.ok && !stopped()) {

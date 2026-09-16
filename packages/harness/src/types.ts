@@ -10,6 +10,27 @@ export type CommandOption = {
   disabled?: boolean
 }
 
+/** What a run left behind, as the app reads it. Mirrors `harness-server`'s own type (H-14). */
+export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff"
+
+export type Artifact = {
+  id: string
+  kind: ArtifactKind
+  title: string
+  producer: "agent" | "user" | "harness"
+  mime: string
+  createdAt: number
+  content?: string
+  path?: string
+  directory?: string
+  runID?: string
+  taskID?: string
+  sessionID?: string
+  bytes?: number
+  truncated?: boolean
+  hash?: string
+}
+
 /** A process written down, as the app reads it. Mirrors `harness-server`'s own type (H-21). */
 export type Workflow = {
   name: string

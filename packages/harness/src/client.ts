@@ -13,7 +13,7 @@ import { engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
-import type { Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
+import type { Artifact, ArtifactKind, Routine, RoutineInput, RoutineRun, Run, Task, Workflow } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
 
@@ -839,6 +839,16 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       clear: () => harnessRequest<{ removed: number }>(baseUrl, "/harness/runs", { method: "DELETE" }),
       /** Forget a run and its tasks. The server refuses while it is still going. */
       remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    artifacts: {
+      list: (filter: { directory?: string; runID?: string; kind?: ArtifactKind } = {}) => {
+        const query = new URLSearchParams()
+        for (const [name, value] of Object.entries(filter)) if (value) query.set(name, value)
+        const search = query.toString()
+        return harnessRequest<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
+      },
+      remove: (id: string) =>
+        harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     workflows: {
       /** What this project can run. A project's own win over the ones shared across projects. */

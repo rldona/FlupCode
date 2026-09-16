@@ -161,7 +161,45 @@ export class RoutineScheduler {
 
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(runID, status, error)
+    this.writeReport(runID, status, error)
     this.stopping.delete(runID)
+  }
+
+  /**
+   * What the run did, kept where it can be read later (H-14).
+   *
+   * §6.3 wanted this as a message in the run's own session, which the engine cannot do without
+   * paying for a turn to restate what the harness already knows exactly. As an artifact it costs
+   * nothing and outlives the twenty runs the supervisor shows.
+   */
+  private writeReport(runID: string, status: string, error?: string) {
+    const run = this.repository.getRun(runID)
+    if (!run) return
+    const tasks = this.repository.listTasks(runID)
+    if (tasks.length === 0) return
+    const tokens = tasks.reduce((sum, task) => sum + (task.tokens ?? 0), 0)
+    const cost = tasks.reduce((sum, task) => sum + (task.cost ?? 0), 0)
+    const seconds = Math.round(((run.finishedAt ?? Date.now()) - run.startedAt) / 1000)
+    const lines = [
+      `Run ${status} in ${seconds}s`,
+      ...(error ? ["", error] : []),
+      "",
+      ...tasks.map((task) => {
+        const marks = [task.status, task.agent, task.tokens ? `${task.tokens} tokens` : undefined]
+        return `- ${task.name}${task.attempt > 1 ? ` (attempt ${task.attempt})` : ""} — ${marks.filter(Boolean).join(", ")}`
+      }),
+      "",
+      `${tasks.length} tasks, ${tokens} tokens, $${cost.toFixed(4)}`,
+    ]
+    this.repository.addArtifact({
+      kind: "report",
+      title: `Run ${status}`,
+      producer: "harness",
+      content: lines.join("\n"),
+      directory: run.directory,
+      runID,
+      sessionID: run.sessionID,
+    })
   }
 
   async stopRun(runID: string) {
@@ -265,6 +303,7 @@ export class RoutineScheduler {
 
   private finish(run: Run, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(run.id, status, error)
+    this.writeReport(run.id, status, error)
     if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
   }
