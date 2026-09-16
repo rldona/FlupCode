@@ -111,7 +111,7 @@ protected your PC": click **More info → Run anyway**.
 
 ## Layout
 
-- **Sidebar** — New session, navigation (Artifacts, Routines, Personalize), projects with quick
+- **Sidebar** — New session, navigation (Runs, Routines, Artifacts, Personalize), projects with quick
   create and pinning, and the session list.
 - **Canvas** — the usage dashboard on the home screen, or the conversation when a session is open.
 - **Composer** — the input dock with attachments, voice, context chips, model/effort and permission modes.
@@ -187,6 +187,122 @@ stream, permission and question prompts, and input.
 The session toolbar offers agent selection, Fork, Compact, Undo, Redo, Confirm revert, Rename,
 Export Markdown, Move to another project and Delete. Subagents appear below the toolbar; the task
 list appears above the composer.
+
+## Runs
+
+A **run** is one execution the harness server owns. It survives the window being closed, it is made
+of **tasks**, and you watch it in **Runs** (`/runs`).
+
+A task is either a turn of an agent or a check the harness runs itself. Each one shows its agent,
+how long it took, what it cost, and a mark:
+
+| | |
+| --- | --- |
+| `○` | queued |
+| `◐` | running |
+| `●` | done |
+| `✕` | failed |
+| `■` | stopped |
+
+**Stop** a run that is going, **Delete** one that has finished, or use **Stop all** and **Clear
+finished** in the header. A run that is still going cannot be deleted: stop it first.
+
+Runs come from a routine on its schedule, or from a workflow you launched.
+
+## Verification
+
+FlupCode can check the work instead of taking the model's word for it. A task of kind `verify` runs
+your project's own commands — **no model is involved**, so it costs time and not tokens.
+
+Tell it what to run in `.flupcode/project.yaml`:
+
+```yaml
+verify:
+  typecheck: bun run typecheck
+  test: bun test
+  lint: bun run lint
+```
+
+If that file is not there, FlupCode uses the `typecheck`, `lint`, `test` and `build` scripts your
+`package.json` already has, run with the manager your lockfile names. A project with none of those
+gets a failed verdict saying there was nothing to verify — never a pass it did not earn.
+
+Every command runs, even after one fails, and the verdict is whether they all exited zero. What they
+printed is kept: open the task's **Evidence** in Runs, unfolded already when the check failed.
+
+## Workflows
+
+A workflow is a process written down — a file, not code, so you can open it and change it.
+
+```yaml
+name: feature
+description: Plan a feature, build it, and check it still works
+inputs: [goal]
+tasks:
+  - id: plan
+    agent: plan
+    gate: human
+    prompt: |
+      Create an implementation plan for: {{goal}}
+  - id: implement
+    agent: build
+    prompt: Implement the plan above for: {{goal}}
+  - id: verify
+    kind: verify
+    onFail: { max: 2 }
+```
+
+| Field | On | Means |
+| --- | --- | --- |
+| `inputs` | the workflow | the names its prompts fill with `{{name}}` |
+| `id` | a task | its name in Runs |
+| `agent` | a task | which agent answers it |
+| `prompt` | a task | what it is asked; a `verify` task has none |
+| `kind: verify` | a task | the harness runs your commands instead of a model |
+| `onFail: { max: N }` | a `verify` task | attempt the work before it again, up to N times |
+| `gate: human` | a task | hold the run here until somebody lets it through |
+
+Four come with FlupCode — **feature**, **bugfix**, **refactor** and **review** — written to
+`~/.local/share/flupcode/workflows` the first time the server starts. They are yours to edit: nothing
+overwrites them afterwards. A project's own, in `.flupcode/workflows/*.yaml`, win over them, which is
+how one repository gets a `feature` of its own.
+
+**Launching one** is like any other command. Type `/` in the composer and it is in the list; what you
+write after the name fills its first input:
+
+```
+/feature add search to the sidebar
+```
+
+You land in Runs, where the run is already going.
+
+### Gates
+
+A task with `gate: human` stops the run when it is done. Nothing queued after it starts until you
+answer, and there are two answers: **Approve**, or **Stop**, which is how you refuse. A run waiting
+at a gate is not finished — it cannot be deleted, and *Clear finished* leaves it alone.
+
+### Retries
+
+When a `verify` task fails and its workflow gave it a budget, the work before it is attempted again
+with the evidence in its prompt. A retry is a **new task**, so the first attempt stays readable and
+the run shows `build#1`, `verify#1`, `build#2`, `verify#2`. The budget is spent as it is used and
+caps at 5, so a run cannot loop.
+
+## Artifacts
+
+**Artifacts** (`/artifacts`) is what the runs left behind, kept and readable: the verdict of every
+check and a report of every run. Filter by kind and read one in place with **Read**.
+
+The list of files the current session wrote is still there, under its own heading — it is useful, but
+it is not an artifact.
+
+## Routines
+
+**Routines** (`/routines`) are prompts on a schedule, run by the harness server rather than by an
+open browser tab: manual, hourly, daily, weekdays, weekly or every N minutes. Each one can pick a
+project, an agent and a model — the model list is grouped by provider — and each execution is a
+normal run, so it appears in Runs with its own history.
 
 ## Usage dashboard
 
