@@ -27,18 +27,18 @@ Paths are relative to `packages/`.
 
 ## 2. Session lifecycle
 
-| Feature                                          | Upstream                   | FlupCode | Evidence                                                             |
-| ------------------------------------------------ | -------------------------- | -------- | -------------------------------------------------------------------- |
-| New, list, switch, filter, pin, rename, delete   | ✅                         | ✅       | `app.tsx`                                                            |
-| Fork, including from one message                 | ✅                         | ✅       | `client.session.fork({ messageID })`, `SessionView` fork action      |
-| Share / unshare                                  | ✅                         | ✅       | `client.session.share` → `/session/:id/share`                        |
-| Move between projects                            | ✅                         | ✅       | `/experimental/control-plane/move-session`                           |
-| Compact / summarize                              | ✅                         | 🟡       | compaction runs; no divider or summary in the timeline               |
-| Undo / redo with file restore                    | ✅                         | 🟡       | `revert.stage/commit/clear`; no marker in the timeline, no redo      |
-| Archive, tags, server-side search, cursor paging | ✅                         | 🔌       | `GET /session?search=`, `PATCH /session {time.archived}` unused      |
-| Export transcript                                | ✅ (Markdown with options) | 🟡       | Markdown, no options (`exportMarkdown`)                              |
-| Engine-generated title                           | ✅                         | ❌       | the v2 runner writes none; the harness falls back to `titleFromText` |
-| Session list cap                                 | paged                      | 🟡       | 200, no paging (`client.ts`)                                         |
+| Feature                                          | Upstream                   | FlupCode | Evidence                                                        |
+| ------------------------------------------------ | -------------------------- | -------- | --------------------------------------------------------------- |
+| New, list, switch, filter, pin, rename, delete   | ✅                         | ✅       | `app.tsx`                                                       |
+| Fork, including from one message                 | ✅                         | ✅       | `client.session.fork({ messageID })`, `SessionView` fork action |
+| Share / unshare                                  | ✅                         | ✅       | `client.session.share` → `/session/:id/share`                   |
+| Move between projects                            | ✅                         | ✅       | `/experimental/control-plane/move-session`                      |
+| Compact / summarize                              | ✅                         | 🟡       | compaction runs; no divider or summary in the timeline          |
+| Undo / redo with file restore                    | ✅                         | 🟡       | `revert.stage/commit/clear`; no marker in the timeline, no redo |
+| Archive, tags, server-side search, cursor paging | ✅                         | 🔌       | `GET /session?search=`, `PATCH /session {time.archived}` unused |
+| Export transcript                                | ✅ (Markdown with options) | 🟡       | Markdown, no options (`exportMarkdown`)                         |
+| Engine-generated title                           | ✅                         | ✅       | the engine's title agent names the session on its first turn    |
+| Session list cap                                 | paged                      | 🟡       | 200, no paging (`client.ts`)                                    |
 
 ## 3. Composer
 
@@ -56,15 +56,15 @@ Paths are relative to `packages/`.
 
 ## 4. Message rendering
 
-| Feature                                       | Upstream           | FlupCode | Evidence                                                      |
-| --------------------------------------------- | ------------------ | -------- | ------------------------------------------------------------- |
-| Streaming markdown + highlighting             | ✅ (Shiki, worker) | 🟡       | `marked` + DOMPurify on the main thread, regex highlighter    |
-| Tool renderers                                | ✅ (per tool)      | 🟡       | bash/edit/write; the rest show raw output (`SessionView.tsx`) |
-| Reasoning blocks                              | ✅                 | ❌       | dropped from the transcript                                   |
-| Inline diff per edit + full diff viewer       | ✅ (Pierre)        | 🟡       | LCS diff on the main thread; the panel shows a raw patch      |
-| Subagent cards, compaction and revert markers | ✅                 | ❌       | subagents are a row of chips (`SubagentList.tsx`)             |
-| LSP diagnostics under edits                   | ✅                 | ❌       | the v2 runner produces none                                   |
-| Line comments on a diff                       | ✅                 | ❌       | —                                                             |
+| Feature                                       | Upstream           | FlupCode | Evidence                                                       |
+| --------------------------------------------- | ------------------ | -------- | -------------------------------------------------------------- |
+| Streaming markdown + highlighting             | ✅ (Shiki, worker) | 🟡       | `marked` + DOMPurify on the main thread, regex highlighter     |
+| Tool renderers                                | ✅ (per tool)      | 🟡       | bash/edit/write; the rest show raw output (`SessionView.tsx`)  |
+| Reasoning blocks                              | ✅                 | ❌       | dropped from the transcript                                    |
+| Inline diff per edit + full diff viewer       | ✅ (Pierre)        | 🟡       | LCS diff on the main thread; the panel shows a raw patch       |
+| Subagent cards, compaction and revert markers | ✅                 | ❌       | subagents are a row of chips (`SubagentList.tsx`)              |
+| LSP diagnostics under edits                   | ✅                 | 🟡       | the runtime produces them; the transcript does not render them |
+| Line comments on a diff                       | ✅                 | ❌       | —                                                              |
 
 ## 5. Permissions & questions
 
@@ -85,7 +85,7 @@ Paths are relative to `packages/`.
 | MCP: status, add local/remote, connect/disconnect         | ✅       | ✅       | `client.mcp.*` → `/mcp` + the configuration            |
 | MCP: OAuth, per-server logs, resources, per-agent access  | ✅       | ❌       | `/mcp/:name/auth`, `/experimental/resource` unused     |
 | Agent list and switch                                     | ✅       | 🟡       | the menu only appears with more than one primary agent |
-| Subagents via the task tool, `subagent_depth`, background | ✅       | ❌       | Code runs on the v2 runner, which has no subagents     |
+| Subagents via the task tool, `subagent_depth`, background | ✅       | ✅       | Code runs on the legacy runtime, which has them        |
 | Commands with agent/model/variant overrides, subtask      | ✅       | 🟡       | runs them, no overrides                                |
 | Skill manager (sources, per-agent, install)               | ✅       | ❌       | `SkillsPanel.tsx` lists them and nothing else          |
 | Editors for agents, commands, permissions, MCP            | ✅       | ❌       | raw JSON only (`ConfigPanel.tsx`)                      |
@@ -103,15 +103,15 @@ Paths are relative to `packages/`.
 
 ## 8. Reliability & security
 
-| Feature                                              | Upstream                        | FlupCode | Evidence                                               |
-| ---------------------------------------------------- | ------------------------------- | -------- | ------------------------------------------------------ |
-| Event stream with heartbeat, idle timeout and resync | ✅                              | ✅       | `client.ts` drops a quiet stream; reconnecting resyncs |
-| Event-driven state                                   | ✅ (store)                      | ❌       | full refetch every 300 ms (`app.tsx`)                  |
-| Per-region error boundaries, stale-data notice       | ✅                              | ✅       | `PanelBoundary.tsx`, `resource.ts`                     |
-| Permission defaults that only restrict               | ✅                              | ✅       | `permission-modes.ts`; bypass is explicit              |
-| Renderer sandbox and same-origin policy (desktop)    | ✅                              | ✅       | `harness-desktop`: `oc://renderer`, `sandbox: true`    |
-| Engine password                                      | ✅ (`OPENCODE_SERVER_PASSWORD`) | ✅       | the desktop app sets one for the engine it starts      |
-| Provider API keys kept out of the page               | ✅                              | ✅       | the client drops them from the provider directory      |
+| Feature                                              | Upstream                        | FlupCode | Evidence                                                     |
+| ---------------------------------------------------- | ------------------------------- | -------- | ------------------------------------------------------------ |
+| Event stream with heartbeat, idle timeout and resync | ✅                              | ✅       | `client.ts` drops a quiet stream; reconnecting resyncs       |
+| Event-driven state                                   | ✅ (store)                      | ✅       | `transcript.ts` applies message events; one refetch per turn |
+| Per-region error boundaries, stale-data notice       | ✅                              | ✅       | `PanelBoundary.tsx`, `resource.ts`                           |
+| Permission defaults that only restrict               | ✅                              | ✅       | `permission-modes.ts`; bypass is explicit                    |
+| Renderer sandbox and same-origin policy (desktop)    | ✅                              | ✅       | `harness-desktop`: `oc://renderer`, `sandbox: true`          |
+| Engine password                                      | ✅ (`OPENCODE_SERVER_PASSWORD`) | ✅       | the desktop app sets one for the engine it starts            |
+| Provider API keys kept out of the page               | ✅                              | ✅       | the client drops them from the provider directory            |
 
 ## 9. Settings, usage & operations
 
@@ -127,10 +127,14 @@ Paths are relative to `packages/`.
 
 ## Where the work is
 
-The audit's P0 block, in order: the engine adapter and the legacy runtime for Code (H-01), an
-event-driven store (H-02), a resilient event stream (H-03 ✅), secure defaults (H-04 ✅), removing
-the placebos (H-05 ✅), adopting `session-ui` (H-06), queue and steer (H-07 ✅), complete
-permissions (H-08 ✅) and error states (H-09 ✅).
+The audit's P0 block: the legacy runtime for Code (H-01 ✅), an event-driven store (H-02 ✅), a
+resilient event stream (H-03 ✅), secure defaults (H-04 ✅), removing the placebos (H-05 ✅),
+adopting `session-ui` (H-06 — open), queue and steer (H-07 ✅), complete permissions (H-08 ✅) and
+error states (H-09 ✅).
+
+H-06 is what is left of P0: the timeline, the tool renderers, reasoning and the diff viewer are
+still this harness's own and are worse than upstream's, which already has them in
+`packages/session-ui`.
 
 `docs/ROADMAP.md` still describes the older plan. `docs/AUDIT-2026-09.md` §17 is the priced backlog
 and supersedes it wherever the two disagree.
