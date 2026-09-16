@@ -1,4 +1,14 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, on, onCleanup, type Component } from "solid-js"
+import {
+  For,
+  Show,
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  on,
+  onCleanup,
+  type Component,
+} from "solid-js"
 import { t } from "../i18n"
 import {
   isAbsolutePath,

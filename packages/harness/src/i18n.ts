@@ -158,6 +158,13 @@ const ES: Record<string, string> = {
   "Runs everything without asking, including commands and edits outside the folder":
     "Ejecuta todo sin preguntar, incluidos comandos y ediciones fuera de la carpeta",
   "Click again to confirm": "Pulsa otra vez para confirmar",
+  "Try again": "Reintentar",
+  "{name} could not be shown": "No se pudo mostrar: {name}",
+  "The conversation": "la conversación",
+  "The sidebar": "la barra lateral",
+  "The side panels": "los paneles laterales",
+  "The context panel": "el panel de contexto",
+  "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":
     "{count} proveedores tienen una clave en la configuración del motor que las sesiones aún no pueden usar",

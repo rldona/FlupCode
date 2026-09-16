@@ -966,6 +966,42 @@ button.fc-status {
   animation: fc-toast-in var(--fc-motion-panel);
 }
 
+.fc-toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fc-toast-message {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-toast-action {
+  flex: none;
+  padding: 3px 9px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.fc-toast-action:hover {
+  background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+}
+
+.fc-toast-close {
+  flex: none;
+  padding: 0 2px;
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 15px;
+  line-height: 1;
+}
+
 .fc-toast-success {
   border-left-color: var(--fc-success);
 }
@@ -6677,4 +6713,26 @@ button.fc-status {
 
 .fc-mobile-remote .fc-docks > * {
   max-width: none;
+}
+
+.fc-panel-error {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.fc-panel-error-title {
+  font-size: var(--fc-text-sm);
+  font-weight: 600;
+}
+
+.fc-panel-error-detail {
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--fc-text-muted);
+  overflow-wrap: anywhere;
 }

@@ -18,11 +18,22 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => (
     </div>
     <Show when={props.request.resources.length > 0}>
       <ul class="fc-dock-list">
-        <For each={props.request.resources}>{(resource) => <li><code>{resource}</code></li>}</For>
+        <For each={props.request.resources}>
+          {(resource) => (
+            <li>
+              <code>{resource}</code>
+            </li>
+          )}
+        </For>
       </ul>
     </Show>
     <div class="fc-dock-actions">
-      <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={() => props.onReply("once")}>
+      <button
+        class="fc-button fc-button-primary"
+        type="button"
+        disabled={props.busy}
+        onClick={() => props.onReply("once")}
+      >
         {t("Allow once")}
       </button>
       <button class="fc-button" type="button" disabled={props.busy} onClick={() => props.onReply("always")}>

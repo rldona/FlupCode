@@ -55,37 +55,43 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
 
   return (
     <Show when={props.open}>
-    <div class="fc-modal-backdrop" onClick={props.onClose}>
-      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Config (advanced)")} onClick={(event) => event.stopPropagation()}>
-        <div class="fc-modal-header">
-          <span class="fc-modal-heading">
-            <Show when={props.onBack}>
-              <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-                ←
-              </button>
-            </Show>
-            <span>{t("Config (advanced)")}</span>
-          </span>
-          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-            ×
-          </button>
-        </div>
-        <textarea
-          class="fc-config-editor"
-          spellcheck={false}
-          value={text()}
-          onInput={(event) => setText(event.currentTarget.value)}
-        />
-        <div class="fc-modal-links">
-          <button class="fc-button" type="button" disabled={loading()} onClick={() => void load()}>
-            {t("Reload")}
-          </button>
-          <button class="fc-button fc-button-primary" type="button" onClick={save}>
-            {t("Save")}
-          </button>
+      <div class="fc-modal-backdrop" onClick={props.onClose}>
+        <div
+          class="fc-modal fc-modal-wide"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("Config (advanced)")}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <div class="fc-modal-header">
+            <span class="fc-modal-heading">
+              <Show when={props.onBack}>
+                <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+                  ←
+                </button>
+              </Show>
+              <span>{t("Config (advanced)")}</span>
+            </span>
+            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
+              ×
+            </button>
+          </div>
+          <textarea
+            class="fc-config-editor"
+            spellcheck={false}
+            value={text()}
+            onInput={(event) => setText(event.currentTarget.value)}
+          />
+          <div class="fc-modal-links">
+            <button class="fc-button" type="button" disabled={loading()} onClick={() => void load()}>
+              {t("Reload")}
+            </button>
+            <button class="fc-button fc-button-primary" type="button" onClick={save}>
+              {t("Save")}
+            </button>
+          </div>
         </div>
       </div>
-    </div>
     </Show>
   )
 }

@@ -171,7 +171,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       class="fc-session-row"
       classList={{
         "fc-session-row-active": props.selectedSession === row.session.id,
-        "fc-session-row-split": props.selectedSession !== row.session.id && props.splitSessions.includes(row.session.id),
+        "fc-session-row-split":
+          props.selectedSession !== row.session.id && props.splitSessions.includes(row.session.id),
       }}
       onContextMenu={(event) => openSessionMenu(event, row.session)}
     >

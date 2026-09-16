@@ -206,8 +206,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   }
   const lastAssistant = () =>
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
-  const usage = () =>
-    contextFigures(props.session, list() ?? [], props.models, currentModel()?.limit?.context ?? 0)
+  const usage = () => contextFigures(props.session, list() ?? [], props.models, currentModel()?.limit?.context ?? 0)
   const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.expandPastes, props.serverUrl)
   createEffect(() => pendingPrompts.reconcile(new Set((list() ?? []).map((message) => message.id))))
   const liveUsage = () => {
@@ -335,8 +334,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       .session.question.reject({ sessionID: request.sessionID, requestID: request.id })
       .then(() => refetchQuestions())
 
-  const project = () =>
-    props.chat ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1)
+  const project = () => (props.chat ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1))
 
   return (
     <section
@@ -351,11 +349,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       }}
     >
       <header class="fc-pane-header">
-        <span
-          class="fc-session-dot"
-          classList={{ "fc-session-dot-running": generating() }}
-          aria-hidden="true"
-        />
+        <span class="fc-session-dot" classList={{ "fc-session-dot-running": generating() }} aria-hidden="true" />
         <span class="fc-pane-title" title={props.session.title}>
           {props.session.title || t("New session")}
         </span>

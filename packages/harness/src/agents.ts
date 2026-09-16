@@ -5,9 +5,7 @@ const PRIMARY_AGENT_ORDER = ["plan", "build"]
 
 /** Primary, visible agents for the dock, with Plan ahead of Build. */
 export function primaryAgents(agents: AgentInfo[]) {
-  return agents
-    .filter((agent) => agent.mode === "primary" && !agent.hidden)
-    .sort((a, b) => rankAgent(a) - rankAgent(b))
+  return agents.filter((agent) => agent.mode === "primary" && !agent.hidden).sort((a, b) => rankAgent(a) - rankAgent(b))
 }
 
 function rankAgent(agent: AgentInfo) {

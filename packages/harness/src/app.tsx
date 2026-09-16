@@ -41,7 +41,7 @@ import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, Stashe
 import { UNAVAILABLE_FEATURES } from "./features"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
-import { toast } from "./toast"
+import { Toaster, clearToast, toast } from "./toast"
 import { SIDEBAR_WIDTH_DEFAULT, Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
@@ -77,6 +77,7 @@ import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { MobileComposer } from "./components/MobileComposer"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
 import { SessionPane } from "./components/SessionPane"
+import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
@@ -499,6 +500,25 @@ export const App: Component = () => {
       return { sessionID: source.sessionID, data: result.data, cursor: result.cursor }
     },
   )
+  // A refetch that fails keeps the last value, so the view stays usable but stops being the truth.
+  // Say so, with a way to try again, until one succeeds: before this, a transcript could sit there
+  // for as long as the engine was away without ever admitting it had stopped following the run.
+  const STALE_TOAST = "stale-transcript"
+  createEffect(() => {
+    const failure = messages.failure() ?? sessions.failure()
+    if (!failure) return clearToast(STALE_TOAST)
+    toast(t("FlupCode is not following the engine right now"), "error", {
+      key: STALE_TOAST,
+      action: {
+        label: t("Try again"),
+        run: () => {
+          void refetchMessages()
+          void refetchSessions()
+        },
+      },
+    })
+  })
+
   // Resources hand back fresh objects on every refetch while a run streams. These stores merge the
   // new payloads by id so the transcript, the tool groups and the question dock keep their mounted
   // state (an opened tool, a half-typed "Other" answer) instead of being rebuilt under the reader.
@@ -2437,42 +2457,44 @@ export const App: Component = () => {
         <Show when={narrow() && !collapsed()}>
           <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
         </Show>
-        <Sidebar
-          collapsed={collapsed()}
-          width={sidebarWidth()}
-          displayName={displayName()}
-          view={view()}
-          onViewChange={changeView}
-          sessions={viewSessions()}
-          sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
-          selectedSession={selected()}
-          runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
-          pinnedSessions={pinned()}
-          expandedProjects={expanded()}
-          noFolderSessions={noFolderSessions()}
-          onDisplayName={updateDisplayName}
-          onToggleSessionPin={togglePin}
-          onToggleProject={toggleProject}
-          onNewSession={newSession}
-          onSelectSession={selectSession}
-          onSplitSession={openSplit}
-          splitSessions={splitActive() ? splitPanes() : []}
-          onDeleteSession={deleteSession}
-          onRenameSession={renameSession}
-          onDeleteProject={deleteProject}
-          onResize={updateSidebarWidth}
-          onCollapse={toggleSidebar}
-          onCopyPath={copyPath}
-          onRefresh={refresh}
-          onAbout={() => setAboutOpen(true)}
-          onSettings={() => setSettingsOpen(true)}
-          onRoutines={() => setRoutinesOpen(true)}
-          onArtifacts={() => setArtifactsOpen(true)}
-          onProviders={() => setProvidersOpen(true)}
-          onConfig={() => setConfigOpen(true)}
-          onRemote={() => setRemoteOpen(true)}
-          onMcp={() => setMcpOpen(true)}
-        />
+        <PanelBoundary name={t("The sidebar")}>
+          <Sidebar
+            collapsed={collapsed()}
+            width={sidebarWidth()}
+            displayName={displayName()}
+            view={view()}
+            onViewChange={changeView}
+            sessions={viewSessions()}
+            sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
+            selectedSession={selected()}
+            runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
+            pinnedSessions={pinned()}
+            expandedProjects={expanded()}
+            noFolderSessions={noFolderSessions()}
+            onDisplayName={updateDisplayName}
+            onToggleSessionPin={togglePin}
+            onToggleProject={toggleProject}
+            onNewSession={newSession}
+            onSelectSession={selectSession}
+            onSplitSession={openSplit}
+            splitSessions={splitActive() ? splitPanes() : []}
+            onDeleteSession={deleteSession}
+            onRenameSession={renameSession}
+            onDeleteProject={deleteProject}
+            onResize={updateSidebarWidth}
+            onCollapse={toggleSidebar}
+            onCopyPath={copyPath}
+            onRefresh={refresh}
+            onAbout={() => setAboutOpen(true)}
+            onSettings={() => setSettingsOpen(true)}
+            onRoutines={() => setRoutinesOpen(true)}
+            onArtifacts={() => setArtifactsOpen(true)}
+            onProviders={() => setProvidersOpen(true)}
+            onConfig={() => setConfigOpen(true)}
+            onRemote={() => setRemoteOpen(true)}
+            onMcp={() => setMcpOpen(true)}
+          />
+        </PanelBoundary>
       </Show>
       <main class="fc-main" classList={{ "fc-main-chat-home": chatView() && !selected() && !mobileRemote() }}>
         <Show
@@ -2663,23 +2685,25 @@ export const App: Component = () => {
               )
             }
           >
-            <SessionView
-              messages={activeMessages()}
-              sessionKey={selected()}
-              loading={messagesLoading()}
-              busy={generating()}
-              usage={liveUsage()}
-              startedAt={generationStartedAt()}
-              modelName={modelName}
-              liveText={liveText()}
-              liveReasoning={liveReasoning()}
-              showTools={showTools()}
-              chat={chatView()}
-              pending={pendingForSession()}
-              onEditUser={editMessage}
-              onForkUser={forkSession}
-              onRetry={retryTurn}
-            />
+            <PanelBoundary name={t("The conversation")}>
+              <SessionView
+                messages={activeMessages()}
+                sessionKey={selected()}
+                loading={messagesLoading()}
+                busy={generating()}
+                usage={liveUsage()}
+                startedAt={generationStartedAt()}
+                modelName={modelName}
+                liveText={liveText()}
+                liveReasoning={liveReasoning()}
+                showTools={showTools()}
+                chat={chatView()}
+                pending={pendingForSession()}
+                onEditUser={editMessage}
+                onForkUser={forkSession}
+                onRetry={retryTurn}
+              />
+            </PanelBoundary>
           </Show>
           <Show when={!mobileRemote() || mobileScreen() === "session"}>
             <div class="fc-docks">
@@ -2807,27 +2831,31 @@ export const App: Component = () => {
         </Show>
       </main>
       <Show when={!mobileRemote() && !chatView()}>
-        <WorkspacePanels
-          panels={panels()}
-          serverUrl={serverUrl()}
-          session={selectedSession()}
-          revision={[messages(), vcsStatus()]}
-          changedFiles={changedFiles()}
-          width={workspaceWidth()}
-          onResize={updateWorkspaceWidth}
-          onClose={closePanel}
-        />
-        <Show when={contextPanelShown()}>
-          <RightAside
-            usage={contextUsage()}
-            todos={todos()}
-            onClearTodos={clearTodos}
-            width={contextWidth()}
-            onResize={updateContextWidth}
-            onHide={toggleContextPanel}
+        <PanelBoundary name={t("The side panels")}>
+          <WorkspacePanels
+            panels={panels()}
             serverUrl={serverUrl()}
-            sessionID={selected()}
+            session={selectedSession()}
+            revision={[messages(), vcsStatus()]}
+            changedFiles={changedFiles()}
+            width={workspaceWidth()}
+            onResize={updateWorkspaceWidth}
+            onClose={closePanel}
           />
+        </PanelBoundary>
+        <Show when={contextPanelShown()}>
+          <PanelBoundary name={t("The context panel")}>
+            <RightAside
+              usage={contextUsage()}
+              todos={todos()}
+              onClearTodos={clearTodos}
+              width={contextWidth()}
+              onResize={updateContextWidth}
+              onHide={toggleContextPanel}
+              serverUrl={serverUrl()}
+              sessionID={selected()}
+            />
+          </PanelBoundary>
         </Show>
       </Show>
       <CommandPalette
@@ -3050,6 +3078,7 @@ export const App: Component = () => {
           applyModel(pending.next.providerID, pending.next.id)
         }}
       />
+      <Toaster />
     </div>
   )
 }
