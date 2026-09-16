@@ -99,7 +99,10 @@ type Client = ReturnType<typeof createClient>
 // neutral palette's id before it was renamed to "classic".
 function readColorTheme() {
   const saved = readStorage<string>(STORAGE_KEYS.colorTheme, "flupcode")
-  return saved === "classic" || saved === "default" ? "classic" : "flupcode"
+  if (saved === "classic" || saved === "default") return "classic"
+  if (saved === "sublime") return "sublime"
+  if (saved === "sublime-dark") return "sublime-dark"
+  return "flupcode"
 }
 
 const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
