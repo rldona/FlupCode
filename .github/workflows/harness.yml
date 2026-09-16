@@ -6,6 +6,7 @@ on:
     paths:
       - "packages/harness/**"
       - "packages/harness-desktop/**"
+      - "packages/harness-server/**"
       - "packages/remote/**"
       - "packages/relay/**"
       - "packages/flupcode-cli/**"
@@ -17,6 +18,7 @@ on:
     paths:
       - "packages/harness/**"
       - "packages/harness-desktop/**"
+      - "packages/harness-server/**"
       - "packages/remote/**"
       - "packages/relay/**"
       - "packages/flupcode-cli/**"
@@ -51,6 +53,7 @@ jobs:
         run: |
           bun run --cwd packages/harness typecheck
           bun run --cwd packages/harness-desktop typecheck
+          bun run --cwd packages/harness-server typecheck
           bun run --cwd packages/remote typecheck
           bun run --cwd packages/relay typecheck
           bun run --cwd packages/flupcode-cli typecheck
@@ -60,6 +63,7 @@ jobs:
           bun run --cwd packages/remote test
           bun run --cwd packages/relay test
           bun run --cwd packages/flupcode-cli test
+          bun run --cwd packages/harness-server test
 
       - name: Build
         run: bun run --cwd packages/harness build
