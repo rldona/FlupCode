@@ -10,7 +10,7 @@ import { t } from "../i18n"
 import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
 import { toast } from "../toast"
-import { diffLines, escapeHtml, highlight, highlightDiff, sideBySideDiff } from "../highlight"
+import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 import { ChapterNav, type Chapter } from "./ChapterNav"
@@ -111,42 +111,6 @@ function stringField(input: Record<string, unknown>, ...keys: string[]) {
     if (typeof value === "string") return value
   }
   return undefined
-}
-
-const EXT_LANG: Record<string, string> = {
-  ts: "ts",
-  tsx: "tsx",
-  mts: "ts",
-  cts: "ts",
-  js: "js",
-  jsx: "jsx",
-  mjs: "js",
-  cjs: "js",
-  json: "json",
-  py: "python",
-  rb: "ruby",
-  go: "go",
-  rs: "rust",
-  java: "java",
-  kt: "kotlin",
-  css: "css",
-  scss: "scss",
-  html: "html",
-  htm: "html",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  yml: "yaml",
-  yaml: "yaml",
-  toml: "toml",
-  md: "markdown",
-  sql: "sql",
-  xml: "xml",
-}
-
-function languageFor(path: string | undefined) {
-  const extension = path ? /\.([a-zA-Z0-9]+)$/.exec(path)?.[1]?.toLowerCase() : undefined
-  return extension ? (EXT_LANG[extension] ?? "") : ""
 }
 
 function toolTitle(tool: SessionMessageAssistantTool) {

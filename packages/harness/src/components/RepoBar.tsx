@@ -7,6 +7,8 @@ type RepoBarProps = {
   additions: number
   deletions: number
   onCommit: () => void
+  /** Opens the diff viewer. Absent where there is no screen to open, as on the mobile layout. */
+  onOpenChanges?: () => void
   /** Clears the folder picked for a new session. */
   onClear?: () => void
 }
@@ -23,9 +25,30 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
         </Show>
       </div>
       <div class="fc-repo-right">
+        {/*
+          The counts are the way in to the diff. Two numbers with no affordance is where a reader
+          stops: the question they raise — "changed how?" — had no answer on this bar until now.
+        */}
         <Show when={hasChanges()}>
-          <span class="fc-repo-add">+{props.additions.toLocaleString()}</span>
-          <span class="fc-repo-del">-{props.deletions.toLocaleString()}</span>
+          <Show
+            when={props.onOpenChanges}
+            fallback={
+              <span class="fc-repo-counts">
+                <span class="fc-repo-add">+{props.additions.toLocaleString()}</span>
+                <span class="fc-repo-del">-{props.deletions.toLocaleString()}</span>
+              </span>
+            }
+          >
+            <button
+              class="fc-repo-counts fc-repo-counts-open"
+              type="button"
+              title={t("See what changed")}
+              onClick={() => props.onOpenChanges?.()}
+            >
+              <span class="fc-repo-add">+{props.additions.toLocaleString()}</span>
+              <span class="fc-repo-del">-{props.deletions.toLocaleString()}</span>
+            </button>
+          </Show>
         </Show>
         <Show when={hasChanges()}>
           <button class="fc-repo-commit" type="button" onClick={props.onCommit}>
