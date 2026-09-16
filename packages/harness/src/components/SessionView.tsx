@@ -1,6 +1,7 @@
 import { For, Index, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
+  SessionMessageAssistantReasoning,
   SessionMessageAssistantText,
   SessionMessageAssistantTool,
   SessionMessageInfo,
@@ -352,6 +353,48 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
 type AssistantSegment =
   | { kind: "part"; part: SessionMessageAssistant["content"][number] }
   | { kind: "tools"; parts: SessionMessageAssistantTool[] }
+  | { kind: "reasoning"; parts: SessionMessageAssistantReasoning[] }
+
+/**
+ * What the model thought before answering. It stays closed, so the conversation reads as the answer
+ * and nothing else, but it is there: it was dropped from the transcript entirely before, and the
+ * only sign it had happened was the status line saying "Thinking…" while it did.
+ */
+const ReasoningBlock: Component<{ parts: SessionMessageAssistantReasoning[] }> = (props) => {
+  const [open, setOpen] = createSignal(false)
+  const streaming = () => props.parts.some((part) => (part as { streaming?: boolean }).streaming)
+  return (
+    <div class="fc-reasoning" classList={{ "fc-reasoning-open": open(), "fc-reasoning-live": streaming() }}>
+      <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
+        <span class="fc-toolgroup-label">{streaming() ? t("Thinking…") : t("Thought")}</span>
+        <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+          <path
+            d="m9 6 6 6-6 6"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+          />
+        </svg>
+      </button>
+      <Show when={open()}>
+        <div class="fc-reasoning-body">
+          <Index each={props.parts}>
+            {(part) => (
+              <Markdown
+                class="fc-message-text"
+                cacheKey={part().id}
+                streaming={(part() as { streaming?: boolean }).streaming === true}
+                text={part().text ?? ""}
+              />
+            )}
+          </Index>
+        </div>
+      </Show>
+    </div>
+  )
+}
 
 function formatDuration(ms: number) {
   const seconds = Math.round(ms / 1000)
@@ -463,9 +506,14 @@ function assistantSegments(message: SessionMessageAssistant, showTools: boolean,
       else if (!run) segments.push({ kind: "tools", parts: [part as SessionMessageAssistantTool] })
       continue
     }
-    // Like Claude Code, the model's reasoning stays out of the conversation; the status line says
-    // "Thinking…" while it happens.
-    if (part.type === "reasoning") continue
+    // Consecutive reasoning collapses into one closed block, so the conversation still reads as the
+    // answer alone while what the model thought stays one click away.
+    if (part.type === "reasoning") {
+      const last = segments[segments.length - 1]
+      if (last?.kind === "reasoning") last.parts.push(part as SessionMessageAssistantReasoning)
+      else segments.push({ kind: "reasoning", parts: [part as SessionMessageAssistantReasoning] })
+      continue
+    }
     segments.push({ kind: "part", part })
   }
   return segments
@@ -497,23 +545,28 @@ const AssistantMessage: Component<{
         <Index each={segments()}>
           {(segment) => (
             <Show
-              when={segment().kind === "tools"}
-              fallback={(() => {
-                const part = () => (segment() as { part: SessionMessageAssistantText }).part
-                return (
-                  // Keyed by the part so the renderer reuses what it already parsed, and told when
-                  // the part is still arriving so it renders as it streams instead of on every
-                  // keystroke of the model.
-                  <Markdown
-                    class="fc-message-text"
-                    cacheKey={part().id}
-                    streaming={(part() as { streaming?: boolean }).streaming === true}
-                    text={part().text ?? ""}
-                  />
-                )
-              })()}
+              when={segment().kind !== "reasoning"}
+              fallback={<ReasoningBlock parts={(segment() as { parts: SessionMessageAssistantReasoning[] }).parts} />}
             >
-              <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+              <Show
+                when={segment().kind === "tools"}
+                fallback={(() => {
+                  const part = () => (segment() as { part: SessionMessageAssistantText }).part
+                  return (
+                    // Keyed by the part so the renderer reuses what it already parsed, and told when
+                    // the part is still arriving so it renders as it streams instead of on every
+                    // keystroke of the model.
+                    <Markdown
+                      class="fc-message-text"
+                      cacheKey={part().id}
+                      streaming={(part() as { streaming?: boolean }).streaming === true}
+                      text={part().text ?? ""}
+                    />
+                  )
+                })()}
+              >
+                <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+              </Show>
             </Show>
           )}
         </Index>

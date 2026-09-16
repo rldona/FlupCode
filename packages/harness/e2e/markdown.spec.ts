@@ -70,3 +70,43 @@ test("the transcript renders markdown with real syntax highlighting", async ({ p
     .evaluateAll((nodes) => [...new Set(nodes.map((node) => getComputedStyle(node).color))])
   expect(colours.length).toBeGreaterThan(2)
 })
+
+test("what the model thought is one click away instead of gone", async ({ page }) => {
+  const thinking = "First I check the reducer, then the store."
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_md"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/session/ses_md/message") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname))
+      return route.fulfill({
+        json: [
+          legacy[0],
+          {
+            info: { id: "a", sessionID: "ses_md", role: "assistant", agent: "build", time: { created: now + 1 } },
+            parts: [
+              { id: "pr", type: "reasoning", text: thinking, time: { start: now + 1, end: now + 2 } },
+              { id: "pa", type: "text", text: "Done.", time: { start: now + 2, end: now + 3 } },
+            ],
+          },
+        ],
+      })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await expect(page.getByText("Done.")).toBeVisible()
+  // Closed by default: the conversation still reads as the answer alone.
+  await expect(page.getByText(thinking)).toHaveCount(0)
+
+  await page.locator(".fc-reasoning .fc-toolgroup-line").click()
+  await expect(page.getByText(thinking)).toBeVisible()
+})

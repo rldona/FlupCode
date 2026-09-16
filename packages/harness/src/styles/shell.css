@@ -6779,3 +6779,19 @@ button.fc-status {
   padding: 0;
   list-style: none;
 }
+
+.fc-reasoning {
+  margin: 4px 0;
+}
+
+.fc-reasoning .fc-toolgroup-label {
+  color: var(--fc-text-muted);
+  font-style: italic;
+}
+
+.fc-reasoning-body {
+  margin: 4px 0 8px 10px;
+  padding-left: 10px;
+  border-left: 2px solid var(--fc-border);
+  color: var(--fc-text-muted);
+}
