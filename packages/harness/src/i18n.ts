@@ -415,7 +415,6 @@ const ES: Record<string, string> = {
   "Customize FlupCode": "Personalizar FlupCode",
   "Scheduled tasks": "Tareas programadas",
   "Remote control / mobile": "Control remoto / móvil",
-  "Search commands, sessions and files": "Buscar comandos, sesiones y archivos",
   "No results": "Sin resultados",
 
   // Dialogs and actions
@@ -723,6 +722,12 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // The search
+  Search: "Buscar",
+  "Change type": "Cambiar tipo",
+  Select: "Seleccionar",
+  Commands: "Comandos",
+
   // Pull requests (H-20)
   "Create PR": "Crear PR",
   "Push and create PR": "Subir y crear PR",
