@@ -31,7 +31,13 @@ type SessionViewProps = {
   /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
   chat?: boolean
   /** Prompts sent before the engine projects their message; queued ones offer "Send now". */
-  pending?: Array<{ id: string; text: string; files?: MessageFile[]; queued: boolean; sendNow?: () => void }>
+  pending?: Array<{
+    id: string
+    text: string
+    files?: MessageFile[]
+    delivery?: "steer" | "queue"
+    sendNow?: () => void
+  }>
   onEditUser: (messageID: string, text: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
   onForkUser?: (messageID: string) => void
@@ -985,15 +991,19 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                     <div class="fc-message-role">{t("You")}</div>
                     <MessageFiles files={item.files} />
                     <Markdown class="fc-message-text" text={item.text} />
-                    <Show when={item.queued}>
-                      <div class="fc-message-queue">
-                        <span class="fc-message-queue-badge">{t("Queued")}</span>
-                        <Show when={item.sendNow}>
-                          <button class="fc-message-send-now" type="button" onClick={() => item.sendNow?.()}>
-                            {t("Send now")}
-                          </button>
-                        </Show>
-                      </div>
+                    <Show when={item.delivery}>
+                      {(delivery) => (
+                        <div class="fc-message-queue">
+                          <span class="fc-message-queue-badge">
+                            {delivery() === "queue" ? t("Queued") : t("Steering")}
+                          </span>
+                          <Show when={item.sendNow}>
+                            <button class="fc-message-send-now" type="button" onClick={() => item.sendNow?.()}>
+                              {t("Send now")}
+                            </button>
+                          </Show>
+                        </div>
+                      )}
                     </Show>
                   </div>
                 )}

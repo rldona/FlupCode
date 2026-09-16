@@ -33,7 +33,7 @@ import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } fr
 import { hasModel, replacementModel } from "./model-catalog"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
-import { pendingPrompts } from "./pending-prompts"
+import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
@@ -192,6 +192,13 @@ export const App: Component = () => {
   const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, SIDEBAR_WIDTH_DEFAULT))
   const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "plan"))
   const [permissionModeId, setPermissionModeId] = createSignal(readStorage(STORAGE_KEYS.permissionMode, "auto"))
+  // Steering is the engine's own default, so a prompt sent mid-turn redirects the work in flight
+  // unless the reader says to wait; see DeliveryMenu.
+  const [delivery, setDelivery] = createSignal<Delivery>(readStorage<Delivery>(STORAGE_KEYS.delivery, "steer"))
+  const changeDelivery = (value: Delivery) => {
+    setDelivery(value)
+    writeStorage(STORAGE_KEYS.delivery, value)
+  }
   const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
   const [workspaceWidth, setWorkspaceWidth] = createSignal(
     readStorage(STORAGE_KEYS.workspaceWidth, WORKSPACE_WIDTH_DEFAULT),
@@ -2261,7 +2268,8 @@ export const App: Component = () => {
 
   /** Sends a prompt to the selected session (or a new one); the composer is cleared unless the draft is kept. */
   const submitPrompt = (text: string, files: Attachment[], keepDraft = false) => {
-    const queued = generating()
+    // Delivery only means something when a turn is already running; an idle session starts one.
+    const mode = generating() ? delivery() : undefined
     const id = messageID()
     void run(async (current) => {
       const model = selectedModel()
@@ -2286,7 +2294,7 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
       })
       forgetRun(sessionID)
-      pendingPrompts.add({ id, sessionID, text, files, queued })
+      pendingPrompts.add({ id, sessionID, text, files, delivery: mode })
       setStreamedChars(0)
       if (!keepDraft) {
         setPrompt("")
@@ -2298,7 +2306,7 @@ export const App: Component = () => {
           id,
           text: expandPastes(text),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-          delivery: "steer",
+          ...(mode ? { delivery: mode } : {}),
         })
       } catch (cause) {
         pendingPrompts.remove(id)
@@ -2636,6 +2644,8 @@ export const App: Component = () => {
                         agents={agents()?.data ?? []}
                         agent={agent()}
                         permissionModeId={permissionModeId()}
+                        delivery={delivery()}
+                        onDeliveryChange={changeDelivery}
                         projects={projects()}
                         history={promptHistory()}
                         modelName={modelName}
@@ -2811,6 +2821,8 @@ export const App: Component = () => {
                 agents={agents()?.data ?? []}
                 agent={agent()}
                 permissionMode={permissionModeId()}
+                delivery={delivery()}
+                onDeliveryChange={changeDelivery}
                 suggestion={currentSuggestion()}
                 history={promptHistory()}
                 onInput={(value) => {

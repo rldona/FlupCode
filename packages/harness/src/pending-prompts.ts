@@ -3,14 +3,18 @@ import { createClient } from "./client"
 import type { Attachment } from "./types"
 import { toast } from "./toast"
 
-/** A prompt shown before the engine projects its message. `queued` marks the ones sent while a
- *  turn was already running, so they can offer "Send now". */
+/** How the engine takes a prompt sent while a turn is already running. `steer` promotes it at the
+ *  next safe boundary of that turn; `queue` holds it until the session would otherwise go idle. */
+export type Delivery = "steer" | "queue"
+
+/** A prompt shown before the engine projects its message, with the delivery it was admitted under. */
 export type PendingPrompt = {
   id: string
   sessionID: string
   text: string
   files: Attachment[]
-  queued: boolean
+  /** Undefined for a prompt that opened an idle session, where delivery makes no difference. */
+  delivery?: Delivery
 }
 
 /** What SessionView renders for one prompt that is not a real message yet. */
@@ -18,7 +22,7 @@ export type SessionPending = {
   id: string
   text: string
   files: Attachment[]
-  queued: boolean
+  delivery?: Delivery
   sendNow?: () => void
 }
 
@@ -30,7 +34,7 @@ const add = (entry: PendingPrompt) => setItems((list) => [...list, entry])
 const remove = (id: string) => setItems((list) => list.filter((entry) => entry.id !== id))
 
 const unqueue = (id: string) =>
-  setItems((list) => list.map((entry) => (entry.id === id ? { ...entry, queued: false } : entry)))
+  setItems((list) => list.map((entry) => (entry.id === id ? { ...entry, delivery: "steer" as const } : entry)))
 
 /** Drops prompts whose real message has arrived, so the list cannot grow. */
 const reconcile = (ids: Set<string>) =>
@@ -75,8 +79,8 @@ const forSession = (
         id: entry.id,
         text: entry.text,
         files: entry.files,
-        queued: entry.queued,
-        sendNow: entry.queued ? () => sendNow(entry, expand, serverUrl) : undefined,
+        delivery: entry.delivery,
+        sendNow: entry.delivery === "queue" ? () => sendNow(entry, expand, serverUrl) : undefined,
       },
     ]
   })

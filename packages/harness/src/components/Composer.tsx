@@ -4,6 +4,7 @@ import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { ModeMenu } from "./ModeMenu"
+import { DeliveryMenu } from "./DeliveryMenu"
 import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
@@ -13,6 +14,7 @@ import { stepHistory } from "../prompt-history"
 import { dictationAvailable, startDictation } from "../dictation"
 import { primaryAgents } from "../agents"
 import type { AppView } from "../chat"
+import type { Delivery } from "../pending-prompts"
 
 type ComposerProps = {
   /** Chats get a plain input: no commands, mentions, folder, agent, permissions or context meter. */
@@ -48,6 +50,9 @@ type ComposerProps = {
   agents: AgentInfo[]
   agent: string
   permissionMode: string
+  /** What the engine should do with a prompt sent while the turn is running; only shown then. */
+  delivery: Delivery
+  onDeliveryChange: (value: Delivery) => void
   /** Suggested next message, shown greyed while the input is empty; Tab accepts it. */
   suggestion?: string
   /** Prompts sent before, oldest first; ↑ and ↓ walk through them. */
@@ -522,6 +527,10 @@ export const Composer: Component<ComposerProps> = (props) => {
                 <AgentMenu agents={primaryAgents(props.agents)} value={props.agent} onChange={props.onAgentChange} />
               </Show>
               <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
+              {/* Only while a turn is running: with an idle session every prompt starts one. */}
+              <Show when={props.generating}>
+                <DeliveryMenu value={props.delivery} onChange={props.onDeliveryChange} />
+              </Show>
             </Show>
           </div>
 

@@ -50,6 +50,7 @@ export const STORAGE_KEYS = {
   workspaceWidth: "flupcode.workspaceWidth",
   favoriteModels: "flupcode.favoriteModels",
   permissionMode: "flupcode.permissionMode",
+  delivery: "flupcode.delivery",
   selectedSession: "flupcode.selectedSession",
   selectedModel: "flupcode.selectedModel",
   confirmModelSwitch: "flupcode.confirmModelSwitch",

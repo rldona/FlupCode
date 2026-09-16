@@ -16,7 +16,7 @@ import type { Attachment, ProjectItem } from "../types"
 import { createClient, invalidateLegacyHistory } from "../client"
 import { CHAT_SYSTEM } from "../chat"
 import { messageID } from "../ids"
-import { pendingPrompts } from "../pending-prompts"
+import { pendingPrompts, type Delivery } from "../pending-prompts"
 import { contextFigures } from "../metrics"
 import { permissionMode } from "../permission-modes"
 import { recordPrompt } from "../prompt-history"
@@ -48,6 +48,8 @@ type SessionPaneProps = {
   agents: AgentInfo[]
   agent: string
   permissionModeId: string
+  delivery: Delivery
+  onDeliveryChange: (value: Delivery) => void
   projects: ProjectItem[]
   history: string[]
   modelName: (ref: { providerID: string; id: string }) => string
@@ -254,7 +256,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     const files = attachments()
     if ((!text && files.length === 0) || busy()) return
     recordPrompt(text)
-    const queued = generating()
+    // Delivery only means something when a turn is already running; an idle session starts one.
+    const mode = generating() ? props.delivery : undefined
     const id = messageID()
     setBusy(true)
     try {
@@ -276,14 +279,14 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           permission: permissionMode(props.permissionModeId).rules,
           directory: props.session.location?.directory,
         })
-        pendingPrompts.add({ id, sessionID: sessionID(), text, files, queued })
+        pendingPrompts.add({ id, sessionID: sessionID(), text, files, delivery: mode })
         try {
           await current.session.prompt({
             sessionID: sessionID(),
             id,
             text: body,
             ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
-            delivery: "steer",
+            ...(mode ? { delivery: mode } : {}),
           })
         } catch (cause) {
           pendingPrompts.remove(id)
@@ -435,6 +438,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         agents={props.agents}
         agent={props.agent}
         permissionMode={props.permissionModeId}
+        delivery={props.delivery}
+        onDeliveryChange={props.onDeliveryChange}
         history={props.history}
         onInput={setDraft}
         onSend={() => void send()}
