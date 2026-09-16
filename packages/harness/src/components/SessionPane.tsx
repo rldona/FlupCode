@@ -2,6 +2,7 @@ import { For, Show, batch, createEffect, createMemo, createSignal, onCleanup, ty
 import { createStore, reconcile } from "solid-js/store"
 import { createResource } from "../resource"
 import { createReconciledList } from "../reconciled"
+import { applyTranscriptChange } from "../transcript"
 import type {
   AgentInfo,
   FileSystemEntry,
@@ -169,7 +170,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     // fetching the history again for every event of a turn.
     batch(() => {
       setStreamedChars((value) => value + event.chars)
-      setMessageData("data", (current) => event.apply(current))
+      applyTranscriptChange(setMessageData, event)
     })
   })
   onCleanup(unsubscribe)

@@ -17,6 +17,13 @@ export type SessionEvent =
       sessionID: string
       apply: (data: SessionMessageInfo[]) => SessionMessageInfo[]
       chars: number
+      /**
+       * Set when the change is one part growing by one slice, which is all but a handful of the
+       * events of a turn. `apply` rebuilds the whole transcript to do it, which costs more the
+       * longer the session gets; with this a view can write straight to the part instead. See
+       * `applyTranscriptChange`.
+       */
+      delta?: { messageID: string; partID: string; text: string }
     }
   /** A new turn started: what streamed before is stale. */
   | { kind: "turn"; sessionID: string }
