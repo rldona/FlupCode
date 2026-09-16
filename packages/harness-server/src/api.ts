@@ -1,5 +1,5 @@
 import { normalizeRoutineSchedule } from "./validation"
-import type { RoutineCreateOptions, RoutineInput, RunStatus, TaskInput } from "./types"
+import type { ArtifactInput, ArtifactKind, RoutineCreateOptions, RoutineInput, RunStatus, TaskInput } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { eventStream, resumeFrom } from "./stream"
@@ -65,6 +65,34 @@ export const MAX_RETRIES = 5
 const retriesFrom = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return undefined
   return Math.min(MAX_RETRIES, Math.floor(value))
+}
+
+const KINDS: ArtifactKind[] = ["plan", "report", "verdict", "diff", "log", "file", "handoff"]
+
+const artifactFrom = (value: unknown): ArtifactInput | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const input = value as Record<string, unknown>
+  const kind = KINDS.find((known) => known === input.kind)
+  const title = typeof input.title === "string" ? input.title.trim() : ""
+  if (!kind || !title) return undefined
+  const content = typeof input.content === "string" ? input.content : undefined
+  const path = typeof input.path === "string" && input.path ? input.path : undefined
+  // One or the other: an artifact that is neither its text nor a file is a title and nothing else.
+  if (content === undefined && !path) return undefined
+  const text = (name: string) => (typeof input[name] === "string" && input[name] ? (input[name] as string) : undefined)
+  return {
+    kind,
+    title,
+    // Anything arriving through the API was kept by a person, whatever produced it.
+    producer: "user",
+    ...(content !== undefined ? { content } : {}),
+    ...(path ? { path } : {}),
+    ...(text("mime") ? { mime: text("mime")! } : {}),
+    ...(text("directory") ? { directory: text("directory")! } : {}),
+    ...(text("runID") ? { runID: text("runID")! } : {}),
+    ...(text("taskID") ? { taskID: text("taskID")! } : {}),
+    ...(text("sessionID") ? { sessionID: text("sessionID")! } : {}),
+  }
 }
 
 const createOptionsFrom = (value: unknown): RoutineCreateOptions => {
@@ -190,6 +218,29 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       // at a gate is not finished either — it is waiting for an answer.
       if (run.status === "running" || run.status === "awaiting") return error("Stop the run before deleting it", 409)
       return json({ data: repository.removeRun(run.id) })
+    }
+    // Artifacts (H-14): what runs left behind, and what a person kept.
+    if (path[1] === "artifacts" && request.method === "GET" && !path[2]) {
+      const query = new URL(request.url).searchParams
+      return json({
+        data: repository.listArtifacts({
+          directory: query.get("directory") ?? undefined,
+          runID: query.get("runID") ?? undefined,
+          kind: (query.get("kind") as ArtifactKind | null) ?? undefined,
+        }),
+      })
+    }
+    if (path[1] === "artifacts" && request.method === "POST" && !path[2]) {
+      const input = artifactFrom(await readJSON(request))
+      if (!input) return error("An artifact needs a kind, a title, and content or a path", 400)
+      return json({ data: repository.addArtifact(input) }, 201)
+    }
+    if (path[1] === "artifacts" && request.method === "GET" && path[2]) {
+      const artifact = repository.getArtifact(path[2])
+      return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
+    }
+    if (path[1] === "artifacts" && request.method === "DELETE" && path[2]) {
+      return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
     }
     // Workflows (H-21): the processes written down, and starting a run from one.
     if (path[1] === "workflows" && request.method === "GET" && !path[2]) {

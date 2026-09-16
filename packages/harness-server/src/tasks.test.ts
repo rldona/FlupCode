@@ -306,6 +306,53 @@ describe("a bounded retry", () => {
   })
 })
 
+// H-14: the two things the harness already knew and used to throw away — what a check found, and
+// what a run added up to.
+describe("what a run keeps", () => {
+  test("a check writes its verdict down, and it outlives the task list", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-artifact-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: echo fine\n")
+
+    const run = repository.startRun(manual, 1000)
+    const [task] = repository.addTasks(run.id, [{ name: "verify", prompt: "", kind: "verify" }])
+    await new TaskRunner(repository, {} as never).execute(run, { directory })
+
+    const [artifact] = repository.listArtifacts({ runID: run.id })
+    expect(artifact?.kind).toBe("verdict")
+    expect(artifact?.title).toBe("verify — passed")
+    expect(artifact?.producer).toBe("harness")
+    expect(artifact?.taskID).toBe(task!.id)
+    expect(artifact?.content).toContain("Verification: passed")
+    repository.close()
+  })
+
+  test("a run that ends writes down what it did", async () => {
+    const repository = open()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    Object.assign(scheduler, {
+      engine: {
+        createSession: async () => ({ id: "ses_a" }),
+        prompt: async () => undefined,
+        waitForIdle: async () => undefined,
+        lastAnswer: async () => ({ text: "done", tokens: 120, cost: 0.02 }),
+      },
+    })
+
+    const run = await scheduler.runTasks({ tasks: [{ name: "build", prompt: "Do it" }] })
+    await settledAt(repository, run.id, "success")
+
+    const [report] = repository.listArtifacts({ runID: run.id, kind: "report" })
+    expect(report?.title).toBe("Run success")
+    expect(report?.content).toContain("- build — success")
+    // The totals §6.3 wanted in the run's session, which the engine cannot be asked for free.
+    expect(report?.content).toContain("1 tasks, 120 tokens, $0.0200")
+    repository.close()
+  })
+})
+
 // H-21's human gate: the run stops after a task somebody has to read, and nothing else starts until
 // they answer. Refusing is stopping it — there is no third answer to "carry on?".
 describe("a human gate", () => {
