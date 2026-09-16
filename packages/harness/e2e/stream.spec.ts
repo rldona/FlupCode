@@ -86,3 +86,34 @@ test("the pill admits the app is no longer following the engine", async ({ page 
 
   await expect(page.locator(".fc-status")).toContainText(/Reconnecting|Reconectando/i, { timeout: 15_000 })
 })
+
+test("a folder whose stream died is admitted, even while the global one is healthy", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (url.pathname === "/api/session/ses_stream/message")
+      return route.fulfill({
+        json: { data: [{ id: "m", type: "user", text: "Hola", time: { created: now } }], cursor: {} },
+      })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    // The global stream is perfectly healthy and stays open…
+    if (url.pathname === "/api/event") return new Promise(() => {})
+    // …while the folder's own stream is gone. That folder carries the transcript, so the app is not
+    // following the engine, however fine the global stream looks.
+    if (url.pathname === "/event") return route.abort()
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await expect(page.getByText("Hola")).toBeVisible()
+  await expect(page.locator(".fc-status")).toContainText(/Reconnecting|Reconectando/i, { timeout: 15_000 })
+})

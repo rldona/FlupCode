@@ -147,9 +147,23 @@ export const App: Component = () => {
   // Run state from the event stream; it takes precedence over the last activity snapshot.
   const [runState, setRunState] = createSignal<Record<string, boolean>>({})
   const [activityTick, setActivityTick] = createSignal(0)
-  // Whether the engine's event stream is carrying this session's run right now. The health check is
-  // a separate question: it can answer while the stream is a dead socket nobody noticed.
-  const [streamState, setStreamState] = createSignal<"connecting" | "live" | "reconnecting">("connecting")
+  // Whether the engine's event streams are carrying this session's run right now. The health check
+  // is a separate question: it can answer while a stream is a dead socket nobody noticed. There is
+  // one state per stream — the global one and one per folder being followed — because a folder
+  // stream that died takes the transcript with it while the global one goes on looking healthy.
+  type StreamState = "connecting" | "live" | "reconnecting"
+  const [streamStates, setStreamStates] = createSignal<Record<string, StreamState>>({})
+  const setStreamState = (source: string, state: StreamState) =>
+    setStreamStates((current) => (current[source] === state ? current : { ...current, [source]: state }))
+  const forgetStreamState = (source: string) =>
+    setStreamStates(({ [source]: _dropped, ...rest }) => rest)
+  /** The worst state of them all: the reader is told the app is behind if any stream is. */
+  const streamState = (): StreamState => {
+    const states = Object.values(streamStates())
+    if (states.includes("reconnecting")) return "reconnecting"
+    if (states.length === 0 || states.includes("connecting")) return "connecting"
+    return "live"
+  }
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
   const setRunning = (sessionID: string, running: boolean) => {
     clearTimeout(idleTimers.get(sessionID))
@@ -922,7 +936,7 @@ export const App: Component = () => {
     onCleanup(() => controller.abort())
     void (async () => {
       for (let attempt = 0; !controller.signal.aborted; attempt++) {
-        setStreamState(attempt === 0 ? "connecting" : "reconnecting")
+        setStreamState("global", attempt === 0 ? "connecting" : "reconnecting")
         try {
           // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
           // every reconnection resyncs the state the events would have carried. Missing the blocked
@@ -963,7 +977,7 @@ export const App: Component = () => {
           void refetchBlocked()
           for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
             attempt = 0
-            setStreamState("live")
+            setStreamState("global", "live")
             const type = event.type ?? ""
             const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
             trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
@@ -1037,7 +1051,7 @@ export const App: Component = () => {
           if (controller.signal.aborted) return
         }
         if (controller.signal.aborted) return
-        setStreamState("reconnecting")
+        setStreamState("global", "reconnecting")
         await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
         if (!controller.signal.aborted) {
           scheduleRefetch(true, true)
@@ -1118,10 +1132,12 @@ export const App: Component = () => {
     // The engine updates a user message again mid-answer (its summary), so only a new one starts a turn.
     const lastUserMessage = new Map<string, string>()
     for (let attempt = 0; !signal.aborted; attempt++) {
+      setStreamState(directory, attempt === 0 ? "connecting" : "reconnecting")
       try {
         const stream = createClient(url).event.subscribeDirectory(directory, { signal })
         for await (const event of stream) {
           attempt = 0
+          setStreamState(directory, "live")
           const type = event.type ?? ""
           const data = (
             event as {
@@ -1173,11 +1189,14 @@ export const App: Component = () => {
           }
         }
       } catch {
-        if (signal.aborted) return
+        if (signal.aborted) break
       }
-      if (signal.aborted) return
+      if (signal.aborted) break
+      // Not following this folder until the stream is back, and the pill says so.
+      setStreamState(directory, "reconnecting")
       await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
     }
+    forgetStreamState(directory)
   }
 
   // Streams are kept per folder across changes: switching session must not drop the chats stream,
@@ -1194,6 +1213,7 @@ export const App: Component = () => {
       if (wanted.includes(directory)) continue
       controller.abort()
       directoryStreams.delete(directory)
+      forgetStreamState(directory)
     }
     if (!url) return
     for (const directory of wanted) {
