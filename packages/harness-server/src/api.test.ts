@@ -167,6 +167,14 @@ describe("harness runs API", () => {
     const { repository, handler } = open()
     const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-"))
     made.push(directory)
+    // `listWorkflows` merges the shared templates in with the project's own, and it finds those
+    // under `XDG_DATA_HOME`. Left alone, this test reads whoever is running it — on a machine that
+    // has ever started the server, the four seeded templates are there and the list is not "the
+    // project's". Point it somewhere empty so the assertion is about this folder.
+    const shared = mkdtempSync(join(tmpdir(), "flupcode-api-shared-"))
+    made.push(shared)
+    const previousDataHome = process.env.XDG_DATA_HOME
+    process.env.XDG_DATA_HOME = shared
     mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
     writeFileSync(
       join(directory, ".flupcode", "workflows", "feature.yaml"),
@@ -204,6 +212,8 @@ tasks:
     expect(repository.listTasks(run.id)[1]!.retries).toBe(2)
     await settled(repository, run.id)
     repository.close()
+    if (previousDataHome === undefined) delete process.env.XDG_DATA_HOME
+    else process.env.XDG_DATA_HOME = previousDataHome
   })
 
   test("says which input it is missing, and which workflow it has never heard of", async () => {
@@ -246,6 +256,73 @@ tasks:
 
     const missing = await handler(new Request("http://localhost/harness/runs/nope/stop", { method: "POST" }))
     expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("harness git API", () => {
+  /** A throwaway repository, because every one of these writes. */
+  const repo = async () => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-git-"))
+    made.push(directory)
+    const run = async (args: string[]) => {
+      const child = Bun.spawn(["git", ...args], { cwd: directory, stdout: "pipe", stderr: "pipe" })
+      await child.exited
+      return (await new Response(child.stdout).text()).trim()
+    }
+    await run(["init", "-q", "-b", "main"])
+    await run(["config", "user.email", "test@example.com"])
+    await run(["config", "user.name", "Test"])
+    writeFileSync(join(directory, "a.txt"), "one\n")
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "first"])
+    return { directory, run }
+  }
+
+  const post = (handler: ReturnType<typeof createHarnessHandler>, path: string, body: unknown) =>
+    handler(new Request(`http://x/harness/git/${path}`, { method: "POST", body: JSON.stringify(body) }))
+
+  test("commits what the reader picked, and says what it made", async () => {
+    const { handler, repository } = open()
+    const { directory, run } = await repo()
+    writeFileSync(join(directory, "a.txt"), "two\n")
+    writeFileSync(join(directory, "b.txt"), "new\n")
+
+    const response = await post(handler, "commit", { directory, message: "only a", paths: ["a.txt"] })
+    const body = (await response.json()) as { data: { sha: string; subject: string; branch: string } }
+
+    expect(response.status).toBe(200)
+    expect(body.data.subject).toBe("only a")
+    expect(body.data.branch).toBe("main")
+    expect(await run(["show", "--name-only", "--pretty=", "HEAD"])).toBe("a.txt")
+    expect(await run(["status", "--porcelain"])).toContain("b.txt")
+    repository.close()
+  })
+
+  test("answers 409 for a path that is no longer changed, and 400 without a folder", async () => {
+    const { handler, repository } = open()
+    const { directory } = await repo()
+
+    const stale = await post(handler, "commit", { directory, message: "m", paths: ["a.txt"] })
+    expect(stale.status).toBe(409)
+
+    const nowhere = await post(handler, "commit", { message: "m", paths: ["a.txt"] })
+    expect(nowhere.status).toBe(400)
+    expect((await nowhere.json()) as { error: string }).toEqual({ error: "A folder is required" })
+    repository.close()
+  })
+
+  test("starts a branch, reads it back, and refuses to take one that exists", async () => {
+    const { handler, repository } = open()
+    const { directory } = await repo()
+
+    const made = await post(handler, "branch", { directory, name: "feature/x" })
+    expect(await made.json()).toEqual({ data: { branch: "feature/x" } })
+
+    const read = await handler(new Request(`http://x/harness/git/branch?directory=${encodeURIComponent(directory)}`))
+    expect(await read.json()).toEqual({ data: { branch: "feature/x" } })
+
+    expect((await post(handler, "branch", { directory, name: "main" })).status).toBe(409)
     repository.close()
   })
 })

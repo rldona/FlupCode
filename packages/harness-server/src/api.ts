@@ -146,6 +146,7 @@ const readJSON = async (request: Request) => {
 }
 
 import { listWorkflows } from "./workflow"
+import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -242,6 +243,38 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "artifacts" && request.method === "DELETE" && path[2]) {
       return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
     }
+    // Git (H-20). The server is the only part of FlupCode that can run it: the client is a browser,
+    // and the engine's `/vcs` routes read the tree but never write to it.
+    if (path[1] === "git" && path[2] === "commit" && request.method === "POST") {
+      const body = (await readJSON(request)) as { directory?: unknown; message?: unknown; paths?: unknown } | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      if (!directory) return error("A folder is required", 400)
+      const message = typeof body?.message === "string" ? body.message : ""
+      const paths = Array.isArray(body?.paths) ? body.paths.filter((value): value is string => typeof value === "string") : []
+      try {
+        return json({ data: await gitCommit({ directory, message, paths }) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "git" && path[2] === "branch" && request.method === "POST") {
+      const body = (await readJSON(request)) as { directory?: unknown; name?: unknown } | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      if (!directory) return error("A folder is required", 400)
+      try {
+        return json({ data: await gitBranch({ directory, name: typeof body?.name === "string" ? body.name : "" }) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "git" && path[2] === "branch" && request.method === "GET") {
+      const directory = new URL(request.url).searchParams.get("directory") ?? ""
+      if (!directory) return error("A folder is required", 400)
+      return json({ data: { branch: await currentBranch(directory) } })
+    }
+
     // Workflows (H-21): the processes written down, and starting a run from one.
     if (path[1] === "workflows" && request.method === "GET" && !path[2]) {
       const directory = new URL(request.url).searchParams.get("directory") ?? undefined
