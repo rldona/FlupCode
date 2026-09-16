@@ -210,7 +210,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
         </div>
 
         <div class="fc-routines-toolbar">
-          <div class="fc-routines-tabs"><button class="fc-routines-tab fc-routines-tab-active" type="button">{t("Yours")}</button><button class="fc-routines-tab" type="button" disabled>{t("Templates")}</button></div>
+          <div class="fc-routines-tabs"><button class="fc-routines-tab fc-routines-tab-active" type="button">{t("Yours")}</button><button class="fc-routines-tab" type="button" disabled title={t("Coming soon")}>{t("Templates")}<span class="fc-nav-soon">{t("Soon")}</span></button></div>
           <input class="fc-question-custom fc-routines-search" value={search()} placeholder={t("Search routines")} aria-label={t("Search routines")} onInput={(event) => setSearch(event.currentTarget.value)} />
         </div>
 

@@ -101,3 +101,11 @@ test("a routine can be deleted from the detail view", async ({ page }) => {
   await expect.poll(() => deleted).toEqual(["r1"])
   await expect(screen.getByRole("button", { name: "Nightly audit" })).toHaveCount(0)
 })
+
+// The Templates tab has nothing behind it and is not a defect: it says so, the way the sidebar does.
+test("the Templates tab says it is not here yet", async ({ page }) => {
+  const screen = await boot(page, [])
+  const tab = screen.getByRole("button", { name: /Templates|Plantillas/ })
+  await expect(tab).toBeDisabled()
+  await expect(tab.locator(".fc-nav-soon")).toHaveText(/Soon|Pronto/)
+})
