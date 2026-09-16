@@ -4,6 +4,7 @@ import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
 import { screenFromPath, urlForScreen, type Screen } from "./screen"
+import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -375,6 +376,7 @@ export const App: Component = () => {
   const routinesOpen = () => screen() === "routines"
   const runsOpen = () => screen() === "runs"
   const artifactsOpen = () => screen() === "artifacts"
+  const changesOpen = () => screen() === "changes"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -701,6 +703,31 @@ export const App: Component = () => {
       (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
       { additions: 0, deletions: 0 },
     )
+  }
+  // The diff viewer's own read (H-06). It is kept apart from the status above on purpose: the status
+  // is two numbers in the composer and is refetched all through a turn, while a patch is only worth
+  // asking for while somebody has the screen open — which is what the key checks first.
+  //
+  // A string key, for the reason written against `blockedSource`: an object source is a new object
+  // on every reactive read, and this one would refetch a whole diff each time.
+  const [diffMode, setDiffMode] = createSignal<DiffMode>("git")
+  const changesKey = () => {
+    const directory = vcsDirectory()
+    if (!changesOpen() || !ready() || !directory) return undefined
+    return `${serverUrl()}\n${directory}\n${diffMode()}`
+  }
+  const [changes, { refetch: refetchChanges }] = createResource(changesKey, (key) => {
+    const [url = "", directory = "", mode = "git"] = key.split("\n")
+    return createClient(url).vcs.diff(directory, { mode: mode as DiffMode })
+  })
+  const openChanges = () => {
+    showScreen("changes")
+    void refetchChanges()
+  }
+  const changesError = () => {
+    const failure = changes.error as unknown
+    if (!failure) return undefined
+    return failure instanceof Error ? failure.message : String(failure)
   }
   // Blocked work is read from the runtime that raised it: every turn runs on the legacy runner, and
   // the v2 registries answer empty for it, which is what left an agent waiting on a question no dock
@@ -3537,6 +3564,7 @@ export const App: Component = () => {
                         additions: vcsTotals().additions,
                         deletions: vcsTotals().deletions,
                         onCommit: commitChanges,
+                        onOpenChanges: openChanges,
                         onClear: !selected() && targetDirectory() ? () => changeTargetDirectory(undefined) : undefined,
                       }
                     : undefined
@@ -3589,6 +3617,7 @@ export const App: Component = () => {
             session={selectedSession()}
             revision={[messages(), vcsStatus()]}
             changedFiles={changedFiles()}
+            onOpenChanges={openChanges}
             width={workspaceWidth()}
             onResize={updateWorkspaceWidth}
             onClose={closePanel}
@@ -3753,6 +3782,19 @@ export const App: Component = () => {
           leaveScreen()
           selectSession(id)
         }}
+        onClose={() => leaveScreen()}
+      />
+      <ChangesPanel
+        open={changesOpen()}
+        directory={vcsDirectory()}
+        branch={vcsInfo()?.branch}
+        defaultBranch={vcsInfo()?.default_branch}
+        changes={changes() ?? []}
+        loading={changes.loading}
+        error={changesError()}
+        mode={diffMode()}
+        onMode={setDiffMode}
+        onRefresh={() => void refetchChanges()}
         onClose={() => leaveScreen()}
       />
       <RoutinesPanel
