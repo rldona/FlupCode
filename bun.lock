@@ -573,7 +573,7 @@
     },
     "packages/harness-server": {
       "name": "@flupcode/harness-server",
-      "version": "1.2.0",
+      "version": "1.8.0",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
       },

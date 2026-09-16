@@ -9,6 +9,9 @@ How FlupCode is versioned and released.
 - The tag is the source of truth. Keep `packages/harness/package.json` and
   `packages/harness-desktop/package.json` versions in sync with the tag.
 - The harness **About** dialog shows `packages/harness`'s version.
+- `harness-server` is private and published as no artifact of its own, but it is compiled into the
+  desktop app as an extra resource, so it ships with every release and is versioned with the rest.
+  It joined at 1.8.0, having drifted to 1.2.0 while it was unreleased.
 
 ## What ships
 
@@ -20,13 +23,14 @@ How FlupCode is versioned and released.
 
 ## Cutting a release
 
-1. Update the versions (`harness`, `harness-desktop`, `remote`, `relay`, `flupcode-cli`) and the
+1. Update the versions (`harness`, `harness-desktop`, `harness-server`, `remote`, `relay`,
+   `flupcode-cli`) and the
    lockfile on a branch, and open a pull request: `power` is protected, so nothing is pushed to it
    directly.
 
    ```bash
    git switch -c release-X.Y.Z origin/power
-   # set the five package.json versions, then:
+   # set the six package.json versions, then:
    npm_config_registry="https://registry.npmjs.org/" bun install
    git commit -am "chore: bump version to X.Y.Z"
    git push -u origin release-X.Y.Z
