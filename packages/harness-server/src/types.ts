@@ -155,5 +155,6 @@ export type RoutineRepository = RunRepository & {
   renew(key: string, owner: string, now: number, ttl: number): void
   release(key: string, owner: string): void
   append(event: ServerEvent, now?: number): StoredEvent
+  lastSeq(): number
   listEvents(afterSeq: number, limit?: number): StoredEvent[]
 }

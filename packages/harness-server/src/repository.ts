@@ -557,6 +557,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return entry
   }
 
+  /** The sequence the log is at, so a client with nothing to catch up on starts at the end. */
+  lastSeq(): number {
+    const row = this.db.query("SELECT MAX(seq) as seq FROM events").get() as { seq: number | null } | null
+    return row?.seq ?? 0
+  }
+
   listEvents(afterSeq: number, limit = 200): StoredEvent[] {
     const rows = this.db
       .query("SELECT * FROM events WHERE seq > ?1 ORDER BY seq ASC LIMIT ?2")

@@ -819,6 +819,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     /**
      * What the server changed, as it changes it. A different origin from the engine, so the
      * connection it holds does not come out of the handful the browser allows for talking to it.
+     *
+     * No cursor is sent on purpose: every connection re-reads the lists first, so the server's
+     * backlog would only describe runs and routines that have since been deleted.
      */
     events: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal, "/harness/events"),
     runs: {
