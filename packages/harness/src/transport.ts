@@ -12,12 +12,40 @@ export type EngineTransport = {
 
 /**
  * A hosted page (https origin) reaching a loopback engine is subject to the browser's mixed-content
- * and Local Network Access rules. Annotating the request as loopback lets Chromium exempt it;
- * engines that do not know the option ignore it.
+ * and Local Network Access rules. `targetAddressSpace` marks the request as one of those, which is
+ * what makes it eligible at all — the user still has to grant the permission Chrome asks for.
+ *
+ * The option takes "local". "loopback", which this sent, is the name of an address space and not a
+ * value the option accepts, so the annotation did nothing and every call to the engine was reported
+ * as an unannotated local network request.
+ *
+ * Picking it by asking the browser rather than by version: the option is a WebIDL enum, so a value
+ * it does not know throws while building the request, and hard-coding a name a later Chrome renames
+ * would break every call to the engine at once. A browser that ignores the option altogether accepts
+ * the first candidate, which is the right one anyway.
  */
-function loopback(init: RequestInit | undefined): RequestInit {
-  const extended: RequestInit & { targetAddressSpace: "loopback" } = { ...init, targetAddressSpace: "loopback" }
-  return extended
+export function pickAddressSpace(build: (init: RequestInit) => void) {
+  for (const value of ["local", "loopback"] as const) {
+    try {
+      build({ targetAddressSpace: value } as RequestInit)
+      return value
+    } catch {
+      // The browser knows the option and rejects this name for it.
+    }
+  }
+  return undefined
+}
+
+const addressSpace =
+  typeof Request === "undefined"
+    ? undefined
+    : pickAddressSpace((init) => {
+        new Request("http://127.0.0.1/", init)
+      })
+
+function localNetwork(init: RequestInit | undefined): RequestInit {
+  if (!addressSpace) return { ...init }
+  return { ...init, targetAddressSpace: addressSpace } as RequestInit
 }
 
 /**
@@ -33,10 +61,10 @@ export function engineCredentials() {
 
 function authorized(input: Request | string | URL, init: RequestInit | undefined): RequestInit {
   const credentials = engineCredentials()
-  if (!credentials) return loopback(init)
+  if (!credentials) return localNetwork(init)
   const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
   headers.set("authorization", `Basic ${credentials}`)
-  return loopback({ ...init, headers })
+  return localNetwork({ ...init, headers })
 }
 
 /** A socket cannot carry a header, so the engine also reads the same credentials from the query. */
