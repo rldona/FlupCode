@@ -123,7 +123,8 @@ Paths are relative to `packages/`.
 | Per-session context usage             | ✅       | ✅       | `ContextMeter.tsx`                                                              |
 | Usage dashboard, activity heatmap     | ❌       | ➕       | `HomeCanvas.tsx` — but it downloads up to 30 transcripts to count               |
 | Reply suggestions, Chat tab           | ❌       | ➕       | `reply-suggestion.ts`, `chat.ts` — one hidden child session per turn            |
-| Artifacts, routines                   | ❌       | 🟡       | switched off in `features.ts`: routines run on a tab timer, artifacts are paths |
+| Artifacts, routines                   | ❌       | ✅       | routines run in the harness server; artifacts are what runs leave behind (1.10.0) |
+| Runs, verification, workflows         | ❌       | ✅       | runs with tasks, `verify` with evidence and bounded retry, workflows with gates (1.10.0) |
 
 ## Where the work is
 

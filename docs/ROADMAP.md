@@ -121,8 +121,8 @@ Corrected, and now really done:
 | F4-2 | P1 | Multi-project workspaces + pinned items | done |
 | F4-3 | P1 | Unified "Personalizar" settings surface | todo (14 separate modals) |
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
-| F4-5 | P2 | Artifacts | todo (paths touched by the session; off in features.ts) |
-| F4-6 | P2 | Routines (scheduled tasks) | todo (a tab timer, no history; off in features.ts) |
+| F4-5 | P2 | Artifacts | done in 1.10.0 (H-14): reports and verdicts kept by the harness server, with a panel |
+| F4-6 | P2 | Routines (scheduled tasks) | done in 1.8.0 (H-10): run by the harness server, with history |
 | F4-7 | P2 | Voice input | done |
 | F4-8 | P2 | In-place message editing | done |
 
