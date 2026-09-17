@@ -853,6 +853,44 @@ const ES: Record<string, string> = {
   added: "añadido",
   deleted: "eliminado",
   modified: "modificado",
+  // Agents you can edit (H-13)
+  "Each one is a markdown file. This edits the file.": "Cada uno es un fichero markdown. Esto edita el fichero.",
+  "New agent": "Nuevo agente",
+  "On disk": "En disco",
+  "No agent files yet. A new one is written where the engine looks.":
+    "Todavía no hay ficheros de agente. El nuevo se escribe donde el motor los busca.",
+  "An agent needs a name": "Un agente necesita un nombre",
+  "Saved. The engine reads it on the next turn.": "Guardado. El motor lo lee en el siguiente turno.",
+  "Saving would overwrite what this file says: {why}": "Guardar sobrescribiría lo que dice este fichero: {why}",
+  Where: "Dónde",
+  "This project": "Este proyecto",
+  Everywhere: "En todas partes",
+  "When to use it": "Cuándo usarlo",
+  subagent: "subagente",
+  primary: "principal",
+  all: "ambos",
+  "the default": "el de por defecto",
+  Temperature: "Temperatura",
+  Steps: "Pasos",
+  "Colour": "Color",
+  unset: "sin fijar",
+  "Hidden from the @ menu": "Oculto en el menú @",
+  Disabled: "Desactivado",
+  "Click to switch off, again to switch on, again to leave it unset.":
+    "Un clic lo apaga, otro lo enciende, otro lo deja sin fijar.",
+  Permissions: "Permisos",
+  allow: "permitir",
+  ask: "preguntar",
+  deny: "denegar",
+  Prompt: "Prompt",
+  "The body of the file: what this agent is told before your own message.":
+    "El cuerpo del fichero: lo que se le dice a este agente antes de tu mensaje.",
+  "Saving…": "Guardando…",
+  "Delete {name}?": "¿Borrar {name}?",
+  "Not editable here": "Aquí no se pueden editar",
+  "The engine reports these and there is no file behind them: they are built in or come from a plugin.":
+    "El motor los informa y no hay fichero detrás: vienen de serie o de un plugin.",
+
 }
 
 const STORAGE_DEFAULT: Locale = "en"
