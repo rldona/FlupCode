@@ -120,7 +120,8 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <option value="flupcode">{t("FlupCode")}</option>
                   <option value="classic">{t("Classic")}</option>
                   <option value="sublime">{t("Sublime")}</option>
-                  <option value="sublime-dark">{t("Sublime dark")}</option>
+                  <option value="sublime-dark">{t("Sublime Dark")}</option>
+                  <option value="github">{t("GitHub")}</option>
                 </select>
               </label>
               <label class="fc-settings-row">

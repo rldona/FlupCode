@@ -1063,10 +1063,6 @@ button.fc-status {
   line-height: 1;
 }
 
-.fc-toast-success {
-  border-left-color: var(--fc-success);
-}
-
 .fc-toast-error {
   border-left-color: var(--fc-danger);
 }
@@ -5544,7 +5540,10 @@ button.fc-status {
   gap: 10px;
 }
 
-.fc-composer .fc-repo-commit {
+/* The commit button and the pull-request chip's button are the same control on the same bar, so
+   they are drawn the same. Scoped to the chip: the failures panel's actions stay small. */
+.fc-composer .fc-repo-commit,
+.fc-composer .fc-pr-chip .fc-pr-action {
   height: 30px;
   padding: 0 12px;
   border-radius: var(--fc-radius-sm);
@@ -5552,7 +5551,9 @@ button.fc-status {
   font-size: 13px;
 }
 
-.fc-composer .fc-repo-commit:hover {
+.fc-composer .fc-repo-commit:hover,
+.fc-composer .fc-pr-chip .fc-pr-action:hover:not(:disabled) {
+  border-color: var(--fc-border);
   background: color-mix(in srgb, var(--fc-border) 50%, transparent);
 }
 

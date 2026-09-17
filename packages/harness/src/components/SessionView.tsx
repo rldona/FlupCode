@@ -9,7 +9,6 @@ import type {
 import { t } from "../i18n"
 import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
-import { toast } from "../toast"
 import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
@@ -580,10 +579,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const motion = () => (window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth")
 
   const copyText = (text: string) => {
-    void navigator.clipboard
-      ?.writeText(text)
-      .then(() => toast(t("Copied"), "success"))
-      .catch(() => undefined)
+    void navigator.clipboard?.writeText(text).catch(() => undefined)
   }
 
   // Only the session's last turn can be retried: resending an older prompt would append it at the end.
