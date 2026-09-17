@@ -50,9 +50,17 @@ How FlupCode is versioned and released.
    Stop at the first failure (for example with `set -eo pipefail` in a script): a tag pushed after
    a rejected push starts a release from a commit that is not on `power`.
 
-3. `.github/workflows/release.yml` runs on the tag: build the web bundle, package the desktop app
-   (macOS arm64/x64, Windows, Linux), compile the `flupcode` CLI binaries and create a GitHub Release
-   with generated notes. It takes about 20 minutes, mostly the Windows installer.
+3. `.github/workflows/release.yml` runs on the tag. It opens the release **as a draft**, and then each
+   job builds and publishes its own part of it, in parallel: the web bundle, the five `flupcode` CLI
+   binaries, and the desktop installers per platform. A `verify` job reads the update manifests
+   (`latest*.yml`) off the draft and fails if any file they name is not an asset, and only then is the
+   draft published (`--latest`).
+
+   Nothing is read back from the Actions artifact store to publish it, and no job waits on another's
+   upload, so a release takes about six minutes — the Windows installer is the long part. When
+   GitHub's asset endpoint is slow for a file, only that platform's job waits. A release that fails
+   halfway stays a draft, so `releases/latest` keeps serving the previous one; fix the cause and
+   `gh run rerun <run-id> --failed` re-publishes over the same assets (`--clobber`).
 
 4. Add a short user-facing summary above the generated notes (what changed, how to update, and
    the unsigned-build note for macOS):
