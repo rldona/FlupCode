@@ -4,9 +4,24 @@ on:
   push:
     tags: ["flupcode-v*"]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build. A draft is created; nothing is published unless publish is set."
+        required: true
+      publish:
+        description: "Publish the release as latest. Leave off for a dry run that stays a draft."
+        type: boolean
+        default: false
 
 permissions:
   contents: write
+
+env:
+  # A tag push names the release by its tag; a dispatch names it by the input. Every job and every
+  # command reads this one value, so a dry-run dispatch never touches another release by accident.
+  # Read through `github.event.inputs` so a push, which has no inputs context, is still safe.
+  RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  GH_REPO: ${{ github.repository }}
 
 # One release, and every byte uploaded once.
 #
@@ -44,12 +59,26 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" \
-            --repo "$GITHUB_REPOSITORY" \
-            --title "FlupCode $GITHUB_REF_NAME" \
-            --generate-notes \
-            --draft \
-            --verify-tag
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already exists; reusing it"
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "push" ]; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "FlupCode $RELEASE_TAG" \
+              --generate-notes \
+              --draft \
+              --verify-tag
+          else
+            # A dispatch has no tag yet: create one at the commit this run is building.
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "FlupCode $RELEASE_TAG" \
+              --generate-notes \
+              --draft \
+              --target "$GITHUB_SHA"
+          fi
 
   web:
     needs: [open]
@@ -83,8 +112,7 @@ jobs:
       - name: Publish web bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: bash .github/scripts/release-upload.sh "$GITHUB_REF_NAME" flupcode-web.zip
+        run: bash .github/scripts/release-upload.sh "$RELEASE_TAG" flupcode-web.zip
 
   cli:
     needs: [open]
@@ -119,8 +147,7 @@ jobs:
       - name: Publish CLI binaries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-        run: bash .github/scripts/release-upload.sh "$GITHUB_REF_NAME" cli/*
+        run: bash .github/scripts/release-upload.sh "$RELEASE_TAG" cli/*
 
   desktop:
     needs: [open]
@@ -154,7 +181,6 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
         run: |
           shopt -s nullglob
           files=(packages/harness-desktop/release/*.dmg packages/harness-desktop/release/*.zip \
@@ -164,7 +190,7 @@ jobs:
             echo "::error::nothing was packaged, so this release would ship no installer for ${{ matrix.os }}"
             exit 1
           fi
-          bash .github/scripts/release-upload.sh "$GITHUB_REF_NAME" "${files[@]}"
+          bash .github/scripts/release-upload.sh "$RELEASE_TAG" "${files[@]}"
 
   # The release is only worth publishing if auto-update can find what it is told to fetch: every file
   # the manifests name has to be an asset, or the app would download a 404 on its next check.
@@ -177,14 +203,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p manifest
-          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'latest*.yml' --dir manifest
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --pattern 'latest*.yml' --dir manifest
 
       - name: Every file they name is an asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | sort > assets.txt
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | sort > assets.txt
           grep -h '^  - url: ' manifest/*.yml | sed 's/^  - url: //' | tr -d '\r' | sort -u > named.txt
           if [ ! -s named.txt ]; then
             echo "::error::no update manifest named a file, so nothing was packaged"
@@ -202,9 +228,12 @@ jobs:
   # Draft until here, so a release that failed halfway is never what `releases/latest` serves.
   publish:
     needs: [verify]
+    # A dry-run dispatch stops before this: the release stays a draft, so nothing reaches
+    # `releases/latest`. A tag push always publishes.
+    if: github.event_name == 'push' || github.event.inputs.publish == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
+        run: gh release edit "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --draft=false --latest
