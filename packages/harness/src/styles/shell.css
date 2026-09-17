@@ -3770,6 +3770,20 @@ button.fc-status {
   color: var(--fc-text);
 }
 
+/* "Cowork" on a session row, remote card or palette result: a project-backed chat, next to plain ones. */
+.fc-cowork-badge {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 6px;
+  background: var(--fc-accent-soft);
+  color: var(--fc-accent);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  line-height: 14px;
+  text-transform: uppercase;
+}
+
 .fc-session-action {
   flex-shrink: 0;
   width: 22px;
@@ -5064,6 +5078,13 @@ button.fc-status {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.fc-remote-card-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
 }
 
 .fc-remote-card-meta {
@@ -6843,6 +6864,59 @@ button.fc-status {
   background: color-mix(in srgb, var(--fc-text) 14%, var(--fc-bg-elevated));
   color: var(--fc-text);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+/* Chat / Cowork, like Claude's: two text options in one pill, on the composer's left. */
+.fc-chat-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--fc-radius-sm);
+  background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+}
+
+.fc-chat-mode-option {
+  padding: 3px 10px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: nowrap;
+  transition:
+    background var(--fc-motion-fast),
+    color var(--fc-motion-fast);
+}
+
+.fc-chat-mode-option:hover {
+  color: var(--fc-text);
+}
+
+.fc-chat-mode-option-active {
+  background: color-mix(in srgb, var(--fc-text) 14%, var(--fc-bg-elevated));
+  color: var(--fc-text);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+}
+
+/* Mid-turn the switch waits, so a run is not left behind by an accidental click. */
+.fc-chat-mode-option:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* In the mobile sheet the pill spans the row, like the rows under it. */
+.fc-chat-mode-sheet {
+  display: flex;
+  margin: 8px 0;
+}
+
+.fc-chat-mode-sheet .fc-chat-mode-option {
+  flex: 1 1 0;
+  padding: 8px 10px;
+  font-size: 14px;
+  text-align: center;
 }
 
 /* The empty Chat tab: greeting, input and starters centred in the window. */

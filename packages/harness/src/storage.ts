@@ -34,6 +34,7 @@ export const STORAGE_KEYS = {
   stashedPrompts: "flupcode.stashedPrompts",
   promptHistory: "flupcode.promptHistory",
   view: "flupcode.view",
+  chatMode: "flupcode.chatMode",
   splitPanes: "flupcode.splitPanes",
   theme: "flupcode.theme",
   colorTheme: "flupcode.colorTheme",

@@ -55,6 +55,19 @@ it.instance("returns default native agents when no config", () =>
     expect(names).toContain("compaction")
     expect(names).toContain("title")
     expect(names).toContain("summary")
+    expect(names).toContain("cowork")
+  }),
+)
+
+it.instance("cowork agent is a hidden primary agent with project access", () =>
+  Effect.gen(function* () {
+    const cowork = yield* load((svc) => svc.get("cowork"))
+    expect(cowork).toBeDefined()
+    expect(cowork?.mode).toBe("primary")
+    expect(cowork?.hidden).toBe(true)
+    expect(evalPerm(cowork, "edit")).toBe("allow")
+    expect(evalPerm(cowork, "bash")).toBe("allow")
+    expect(evalPerm(cowork, "question")).toBe("allow")
   }),
 )
 

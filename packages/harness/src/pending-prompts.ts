@@ -20,6 +20,8 @@ export type PendingPrompt = {
   text: string
   files: Attachment[]
   agent?: string
+  /** The system prompt a Cowork prompt keeps when it is sent later, through this queue. */
+  system?: string
   model?: { providerID: string; id: string; variant?: string }
   /** Undefined for a prompt that opened an idle session, where delivery makes no difference. */
   delivery?: Delivery
@@ -58,6 +60,7 @@ const dispatch = (entry: PendingPrompt, expand: (text: string) => string, server
       id: entry.id,
       text: expand(entry.text),
       agent: entry.agent,
+      ...(entry.system ? { system: entry.system } : {}),
       ...(entry.model ? { model: entry.model } : {}),
       ...(entry.files.length > 0 ? { files: entry.files.map(({ uri, name }) => ({ uri, name })) } : {}),
     })

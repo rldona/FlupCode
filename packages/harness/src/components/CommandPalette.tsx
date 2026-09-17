@@ -3,6 +3,7 @@ import type { FileSystemEntry, SessionInfo } from "../engine-types"
 import type { Artifact, CommandOption, ProjectItem, Routine, Run } from "../types"
 import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
+import { isCoworkSession } from "../chat"
 
 /** What can be found. The order is the order of the tabs. */
 export const KINDS = ["session", "project", "artifact", "routine", "run", "command", "file"] as const
@@ -14,6 +15,8 @@ export type PaletteItem = {
   label: string
   detail?: string
   disabled?: boolean
+  /** A Cowork conversation, marked so a project-backed chat is not read as a plain one. */
+  cowork?: boolean
   /** What the handler for this kind is given: a name, an id or a path. */
   value: string
 }
@@ -72,6 +75,7 @@ export function search(
       id: `session:${session.id}`,
       label: title,
       detail: directory.split("/").filter(Boolean).at(-1),
+      cowork: isCoworkSession(session),
       value: session.id,
     })
   }
@@ -365,6 +369,9 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
                           >
                             <span class="fc-palette-badge">{BADGES[item.kind]}</span>
                             <span class="fc-palette-label">{item.label}</span>
+                            <Show when={item.cowork}>
+                              <span class="fc-cowork-badge">{t("Cowork")}</span>
+                            </Show>
                             <Show when={item.detail}>
                               <span class="fc-palette-desc">{item.detail}</span>
                             </Show>

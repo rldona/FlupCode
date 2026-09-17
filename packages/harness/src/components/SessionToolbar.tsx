@@ -2,6 +2,7 @@ import { Show, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
 import type { ProjectItem } from "../types"
 import { t } from "../i18n"
+import { isCoworkSession } from "../chat"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 
 type SessionTitleProps = {
@@ -13,6 +14,9 @@ export const SessionTitle: Component<SessionTitleProps> = (props) => (
     <span class="fc-session-heading-title" title={props.session.title}>
       {props.session.title || t("Session without title")}
     </span>
+    <Show when={isCoworkSession(props.session)}>
+      <span class="fc-cowork-badge">{t("Cowork")}</span>
+    </Show>
   </div>
 )
 

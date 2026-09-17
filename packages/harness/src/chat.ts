@@ -1,12 +1,21 @@
 /**
- * Conversations (chats) next to code sessions, like Claude's Chat / Code tabs.
+ * Conversations (chats) next to code sessions, like Claude's Chat / Cowork tabs.
  *
  * The engine has no chat concept: a chat is a session in the engine's own state folder (from
  * `GET /path`, so every client of that engine sees the same chats), with every tool denied except
  * the web ones, prompted through the legacy endpoint because only it accepts a system prompt.
+ *
+ * Cowork is the other class of conversation: a chat that runs in the selected project folder with
+ * the same permission modes as Code, marked by the reserved `cowork` agent. See ADR-0013.
  */
 
 export type AppView = "code" | "chat"
+
+/** The two kinds of conversation in the chat tab: plain chat, and chat with project access. */
+export type ChatClass = "chat" | "cowork"
+
+/** The native agent that marks a session as Cowork (ADR-0013). */
+export const COWORK_AGENT = "cowork"
 
 /** Chats can talk and read the web, nothing on the user's computer. Later rules win. */
 export const CHAT_PERMISSION: Array<{ permission: string; pattern: string; action: "allow" | "deny" }> = [
@@ -22,9 +31,32 @@ export const CHAT_SYSTEM = [
   "Answer in the user's language, conversationally, with clear formatting.",
 ].join("\n")
 
+export const COWORK_SYSTEM = [
+  "You are in cowork mode: a friendly, helpful assistant working in the user's project folder.",
+  "Unlike a plain chat, you can read, write and run things in that project, and use its tools.",
+  "When the user asks for a file or a change, make it instead of only describing it.",
+  "Answer in the user's language, conversationally, with clear formatting.",
+].join("\n")
+
 export function isChatSession(session: { location?: { directory?: string } }, chatsDirectory: string | undefined) {
   return !!chatsDirectory && session.location?.directory === chatsDirectory
 }
+
+/** A Cowork session is a project session running the reserved agent. */
+export function isCoworkSession(session: { agent?: string }) {
+  return session.agent === COWORK_AGENT
+}
+
+/** Which conversation class a session belongs to, or undefined for a code session. */
+export function sessionChatClass(
+  session: { agent?: string; location?: { directory?: string } },
+  chatsDirectory: string | undefined,
+): ChatClass | undefined {
+  if (isCoworkSession(session)) return "cowork"
+  if (isChatSession(session, chatsDirectory)) return "chat"
+  return undefined
+}
+
 
 /** The home greeting for the time of day, as an i18n key and its params. */
 export function chatGreeting(name: string, hour: number) {

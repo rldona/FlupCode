@@ -179,6 +179,23 @@ const layer = Layer.effect(
             mode: "primary",
             native: true,
           },
+          // Not an agent the reader picks: it marks a conversation as Cowork, the chat that runs in
+          // the project with the same permission modes as Code. Hidden so the picker never shows it.
+          cowork: {
+            name: "cowork",
+            description: "Chat that can read, write and run in the project.",
+            options: {},
+            permission: Permission.merge(
+              defaults,
+              Permission.fromConfig({
+                question: "allow",
+              }),
+              user,
+            ),
+            mode: "primary",
+            hidden: true,
+            native: true,
+          },
           general: {
             name: "general",
             description: `General-purpose agent for researching complex questions and executing multi-step tasks. Use this agent to execute multiple units of work in parallel.`,
