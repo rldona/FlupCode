@@ -216,7 +216,6 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
         prompt: prompt(),
       })
       setSaved(t("Saved. The engine reads it on the next turn."))
-      setCreating(false)
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {

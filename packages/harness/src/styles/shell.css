@@ -7310,6 +7310,25 @@ button.fc-status {
   word-break: break-word;
 }
 
+/* Skills (H-27): the ones that are not loaded are the point, so they are the ones that are marked. */
+.fc-skill-ignored {
+  border-left: 3px solid var(--fc-warning, #c98a00);
+}
+
+.fc-skill-waiting {
+  border-left: 3px solid var(--fc-text-muted);
+}
+
+.fc-skill-file {
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-skill-row {
+  width: 100%;
+  text-align: left;
+}
+
 /* Agents you can edit (H-13) */
 .fc-agent-file {
   display: flex;
