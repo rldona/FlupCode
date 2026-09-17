@@ -256,7 +256,7 @@ const ES: Record<string, string> = {
   Dark: "Oscuro",
   Classic: "Clásico",
   Sublime: "Sublime",
-  "Sublime dark": "Sublime dark",
+  "Sublime Dark": "Sublime Dark",
   Language: "Idioma",
   English: "Inglés",
   Spanish: "Español",

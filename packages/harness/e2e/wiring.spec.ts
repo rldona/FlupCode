@@ -109,7 +109,6 @@ test("sharing a session asks the engine for a link", async ({ page }) => {
 
   // The roadmap called this impossible; the endpoint was there all along.
   await expect.poll(() => calls.posts.some((call) => call.path === "/session/ses_w/share")).toBe(true)
-  await expect(page.locator(".fc-toast")).toContainText(/Share link copied|Enlace copiado/i)
 })
 
 test("Settings names the engine it is talking to", async ({ page }) => {

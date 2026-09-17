@@ -47,7 +47,6 @@ export const ConfigPanel: Component<ConfigPanelProps> = (props) => {
         body: JSON.stringify(parsed),
       })
       if (!response.ok) throw new Error(`HTTP ${response.status}`)
-      toast(t("Config saved"), "success")
     } catch (cause) {
       toast(cause instanceof Error ? cause.message : String(cause), "error")
     }
