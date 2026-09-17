@@ -7,10 +7,17 @@ type SubagentListProps = {
   onOpen: (id: string) => void
 }
 
+/**
+ * The sessions this one has spawned, listed under Tasks in the right aside.
+ *
+ * They used to sit as chips across the top of the transcript, where they took a line from every
+ * message and read as part of the conversation. They are a property of where you are — siblings of
+ * this session — so they belong with the context, and they open the same way a session row does.
+ */
 export const SubagentList: Component<SubagentListProps> = (props) => (
   <Show when={props.sessions && props.sessions.length > 0}>
-    <div class="fc-subagents">
-      <span class="fc-section-label">{t("Subagents")}</span>
+    <section class="fc-aside-section">
+      <h3 class="fc-aside-title">{t("Subagents")}</h3>
       <div class="fc-subagents-list">
         <For each={props.sessions}>
           {(session) => (
@@ -20,6 +27,6 @@ export const SubagentList: Component<SubagentListProps> = (props) => (
           )}
         </For>
       </div>
-    </div>
+    </section>
   </Show>
 )

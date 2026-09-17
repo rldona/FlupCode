@@ -1,6 +1,8 @@
 import { For, Show, type Component } from "solid-js"
 import type { TodoItem } from "./TodoDock"
 import { MemoryInspector } from "./MemoryInspector"
+import { SubagentList } from "./SubagentList"
+import type { SessionInfo } from "../engine-types"
 import { formatTokens } from "../metrics"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
@@ -11,6 +13,9 @@ type RightAsideProps = {
   todos: TodoItem[]
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
+  /** This session's child sessions, if it has spawned any. */
+  subagents: SessionInfo[] | undefined
+  onOpenSubagent: (id: string) => void
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -144,6 +149,8 @@ export const RightAside: Component<RightAsideProps> = (props) => {
             </ul>
           </Show>
         </section>
+
+        <SubagentList sessions={props.subagents} onOpen={props.onOpenSubagent} />
       </div>
     </aside>
   )
