@@ -5,6 +5,10 @@ import { t } from "../i18n"
 type SubagentListProps = {
   sessions: SessionInfo[] | undefined
   onOpen: (id: string) => void
+  /** Child sessions the engine is working on right now. */
+  running: string[]
+  /** Child sessions waiting on a permission nobody has answered. */
+  blocked: string[]
 }
 
 /**
@@ -13,6 +17,9 @@ type SubagentListProps = {
  * They used to sit as chips across the top of the transcript, where they took a line from every
  * message and read as part of the conversation. They are a property of where you are — siblings of
  * this session — so they belong with the context, and they open the same way a session row does.
+ *
+ * The dot is the same one the sidebar draws: it is how a reader sees a subagent still working
+ * without opening it, which a chip that only said its name could never do.
  */
 export const SubagentList: Component<SubagentListProps> = (props) => (
   <Show when={props.sessions && props.sessions.length > 0}>
@@ -22,7 +29,16 @@ export const SubagentList: Component<SubagentListProps> = (props) => (
         <For each={props.sessions}>
           {(session) => (
             <button class="fc-subagent" type="button" onClick={() => props.onOpen(session.id)}>
-              {session.title || session.id.slice(0, 8)}
+              <span
+                class="fc-session-dot"
+                classList={{
+                  "fc-session-dot-running": props.running.includes(session.id),
+                  "fc-session-dot-blocked": props.blocked.includes(session.id),
+                }}
+                title={props.blocked.includes(session.id) ? t("Waiting for permission") : undefined}
+                aria-hidden="true"
+              />
+              <span class="fc-subagent-title">{session.title || session.id.slice(0, 8)}</span>
             </button>
           )}
         </For>
