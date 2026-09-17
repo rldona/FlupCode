@@ -332,18 +332,17 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
 
   const stop = () => {
     const current = client()
-    const request =
-      props.chat && props.chatsDirectory
-        ? current.session.abort({ sessionID: sessionID(), directory: props.chatsDirectory })
-        : current.session.interrupt({ sessionID: sessionID() })
-    void request.catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
+    const directory = props.chat && props.chatsDirectory ? props.chatsDirectory : props.session.location?.directory
+    void current.session
+      .abort({ sessionID: sessionID(), directory })
+      .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
   }
 
   // Editing a prompt rewinds the session to it, like in the single view, and puts it in this pane's input.
   const editUser = (messageID: string, text: string) => {
     setDraft(text)
     void client()
-      .session.revert.stage({ sessionID: sessionID(), messageID, files: true })
+      .session.revert.stage({ sessionID: sessionID(), messageID, directory: props.session.location?.directory })
       .then(() => refetchMessages())
       .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
   }

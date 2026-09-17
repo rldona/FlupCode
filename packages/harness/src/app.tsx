@@ -3074,10 +3074,8 @@ export const App: Component = () => {
   const stopSession = () => {
     const sessionID = selected()
     if (!sessionID) return
-    const chatsFolder = chatsDirectory()
     void run(async (current) => {
-      if (chatsFolder && isChat(selectedSession())) await current.session.abort({ sessionID, directory: chatsFolder })
-      else await current.session.interrupt({ sessionID })
+      await current.session.abort({ sessionID, directory: sessionDirectory(sessionID) })
       return undefined
     })
   }
@@ -3319,7 +3317,7 @@ export const App: Component = () => {
     if (!sessionID) return
     setPrompt(text)
     void run(async (current) => {
-      await current.session.revert.stage({ sessionID, messageID, files: true })
+      await current.session.revert.stage({ sessionID, messageID, directory: sessionDirectory(sessionID) })
       void refetchMessages()
       return undefined
     })
@@ -3334,7 +3332,7 @@ export const App: Component = () => {
       return
     }
     void run(async (current) => {
-      await current.session.revert.stage({ sessionID, messageID: lastUser.id, files: true })
+      await current.session.revert.stage({ sessionID, messageID: lastUser.id, directory: sessionDirectory(sessionID) })
       void refetchMessages()
       return undefined
     })
@@ -3344,7 +3342,7 @@ export const App: Component = () => {
     const sessionID = selected()
     if (!sessionID) return
     void run(async (current) => {
-      await current.session.revert.clear({ sessionID })
+      await current.session.revert.clear({ sessionID, directory: sessionDirectory(sessionID) })
       void refetchMessages()
       return undefined
     })
@@ -3354,7 +3352,7 @@ export const App: Component = () => {
     const sessionID = selected()
     if (!sessionID) return
     void run(async (current) => {
-      await current.session.revert.commit({ sessionID })
+      await current.session.revert.commit({ sessionID, directory: sessionDirectory(sessionID) })
       void refetchMessages()
       return undefined
     })

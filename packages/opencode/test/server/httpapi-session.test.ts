@@ -1066,6 +1066,13 @@ describe("session HttpApi", () => {
           }),
         ).toMatchObject({ id: session.id })
 
+        expect(
+          yield* requestJson<boolean>(pathFor(SessionPaths.revertCommit, { sessionID: session.id }), {
+            method: "POST",
+            headers,
+          }),
+        ).toBe(true)
+
         const permissionID = String(PermissionV1.ID.ascending())
         const permission = yield* request(
           pathFor(SessionPaths.permissions, {
