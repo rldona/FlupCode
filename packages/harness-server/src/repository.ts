@@ -20,6 +20,7 @@ import type {
   ServerEvent,
   StoredEvent,
   Checkpoint,
+  Finding,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -110,6 +111,20 @@ CREATE TABLE IF NOT EXISTS checkpoints (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS checkpoints_directory ON checkpoints(directory, created_at DESC);
+CREATE TABLE IF NOT EXISTS findings (
+  id TEXT PRIMARY KEY,
+  directory TEXT,
+  run_id TEXT,
+  task_id TEXT,
+  file TEXT NOT NULL,
+  line INTEGER,
+  severity TEXT NOT NULL,
+  title TEXT NOT NULL,
+  detail TEXT,
+  resolved INTEGER,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS findings_directory ON findings(directory, created_at DESC);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -233,6 +248,34 @@ type CheckpointRow = {
   task_id: string | null
   created_at: number
 }
+
+type FindingRow = {
+  id: string
+  directory: string | null
+  run_id: string | null
+  task_id: string | null
+  file: string
+  line: number | null
+  severity: string
+  title: string
+  detail: string | null
+  resolved: number | null
+  created_at: number
+}
+
+const decodeFinding = (row: FindingRow): Finding => ({
+  id: row.id,
+  file: row.file,
+  severity: row.severity as Finding["severity"],
+  title: row.title,
+  createdAt: row.created_at,
+  ...(row.directory ? { directory: row.directory } : {}),
+  ...(row.run_id ? { runID: row.run_id } : {}),
+  ...(row.task_id ? { taskID: row.task_id } : {}),
+  ...(row.line !== null ? { line: row.line } : {}),
+  ...(row.detail ? { detail: row.detail } : {}),
+  ...(row.resolved ? { resolved: true } : {}),
+})
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
   id: row.id,
@@ -709,6 +752,77 @@ export class SqliteRoutineRepository implements RoutineRepository {
         ...(row.cost !== null ? { cost: row.cost } : {}),
       }
     })
+  }
+
+  /** Findings (H-32). Anchored to a file and usually to a line, so the diff can carry them. */
+  addFindings(
+    input: Array<Omit<Finding, "id" | "createdAt">>,
+    now = Date.now(),
+  ): Finding[] {
+    if (input.length === 0) return []
+    const findings = input.map((entry) => ({ ...entry, id: crypto.randomUUID(), createdAt: now }))
+    this.db.transaction(() => {
+      for (const finding of findings) {
+        this.db
+          .query(
+            `INSERT INTO findings (id, directory, run_id, task_id, file, line, severity, title, detail, resolved, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+          )
+          .run(
+            finding.id,
+            finding.directory ?? null,
+            finding.runID ?? null,
+            finding.taskID ?? null,
+            finding.file,
+            finding.line ?? null,
+            finding.severity,
+            finding.title,
+            finding.detail ?? null,
+            null,
+            finding.createdAt,
+          )
+      }
+    })()
+    this.append({ type: "findings.added", findings })
+    return findings
+  }
+
+  listFindings(filter: { directory?: string; runID?: string; resolved?: boolean } = {}, limit = 500): Finding[] {
+    const where: string[] = []
+    const values: unknown[] = []
+    if (filter.directory) {
+      values.push(filter.directory)
+      where.push(`directory = ?${values.length}`)
+    }
+    if (filter.runID) {
+      values.push(filter.runID)
+      where.push(`run_id = ?${values.length}`)
+    }
+    if (filter.resolved === false) where.push("resolved IS NULL")
+    values.push(limit)
+    const rows = this.db
+      .query(
+        `SELECT * FROM findings ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY created_at DESC LIMIT ?${values.length}`,
+      )
+      .all(...(values as never[])) as FindingRow[]
+    return rows.map(decodeFinding)
+  }
+
+  resolveFinding(id: string, resolved: boolean) {
+    const changed = this.db
+      .query("UPDATE findings SET resolved = ?2 WHERE id = ?1")
+      .run(id, resolved ? 1 : null).changes
+    if (changed === 0) return undefined
+    const row = this.db.query("SELECT * FROM findings WHERE id = ?1").get(id) as FindingRow | null
+    const finding = row ? decodeFinding(row) : undefined
+    if (finding) this.append({ type: "finding.changed", finding })
+    return finding
+  }
+
+  removeFindings(filter: { runID?: string } = {}) {
+    if (!filter.runID) return 0
+    return this.db.query("DELETE FROM findings WHERE run_id = ?1").run(filter.runID).changes
   }
 
   removeArtifact(id: string) {

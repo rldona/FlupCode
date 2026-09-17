@@ -2,7 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, on, type Component }
 import { t } from "../i18n"
 import { CheckpointList } from "./CheckpointList"
 import { FileDiff, type FileChange } from "./FileDiff"
-import type { Checkpoint, RestorePlan } from "../types"
+import type { Checkpoint, Finding, RestorePlan } from "../types"
 
 export type DiffMode = "git" | "branch"
 
@@ -30,6 +30,9 @@ type ChangesPanelProps = {
   onCheckpointRestore: (id: string) => void
   onCheckpointTake: (title: string) => void
   onCheckpointRemove: (id: string) => void
+  /** A review's points about these files (H-32). */
+  findings: Finding[]
+  onResolveFinding: (id: string, resolved: boolean) => void
   onClose: () => void
 }
 
@@ -69,6 +72,14 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
   const pick = (file: string, on: boolean) =>
     setPicked((current) => (on ? [...current, file] : current.filter((entry) => entry !== file)))
   const committable = () => props.mode === "git" && props.canCommit && props.changes.length > 0
+  // By file, so each diff is handed only its own. A finding names the path as it appears in the
+  // diff, which is what the review was asked to use.
+  const findingsFor = createMemo(() => {
+    const map = new Map<string, Finding[]>()
+    for (const finding of props.findings) map.set(finding.file, [...(map.get(finding.file) ?? []), finding])
+    return map
+  })
+  const openFindings = () => props.findings.filter((finding) => !finding.resolved).length
 
   const createBranch = () => {
     const name = branchName().trim()
@@ -141,6 +152,9 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
               {t("Branch")}
             </button>
           </div>
+          <Show when={openFindings() > 0}>
+            <span class="fc-changes-findings">{t("{n} findings", { n: openFindings() })}</span>
+          </Show>
           <Show when={props.changes.length > 0}>
             <span class="fc-changes-totals">
               {props.changes.length === 1 ? t("1 file") : t("{files} files", { files: props.changes.length })}
@@ -265,6 +279,8 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
                     open={props.changes.length === 1}
                     selected={committable() ? isPicked(change.file) : undefined}
                     onSelect={committable() ? (value) => pick(change.file, value) : undefined}
+                    findings={findingsFor().get(change.file)}
+                    onResolveFinding={props.onResolveFinding}
                   />
                 )}
               </For>

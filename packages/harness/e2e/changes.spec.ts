@@ -83,6 +83,7 @@ type Seen = {
   logs: string[]
   restored: string[]
   planned: string[]
+  resolved: Array<{ id: string; resolved: boolean }>
 }
 
 /** What `GET /harness/git/pr` answers, which is the whole of what the chip can know. */
@@ -91,9 +92,9 @@ type BranchFixture = Record<string, unknown>
 async function openSession(
   page: Page,
   panels: string[] = [],
-  options: { long?: boolean; branch?: BranchFixture; checkpoints?: unknown[] } = {},
+  options: { long?: boolean; branch?: BranchFixture; checkpoints?: unknown[]; findings?: unknown[] } = {},
 ) {
-  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [], restored: [], planned: [] }
+  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [], restored: [], planned: [], resolved: [] }
   await page.addInitScript((panels) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -114,6 +115,14 @@ async function openSession(
       const body = route.request().postDataJSON() as { message: string; paths: string[] }
       seen.commits.push({ message: body.message, paths: body.paths })
       return route.fulfill({ json: { data: { sha: "abc1234", subject: body.message, branch: "feature" } } })
+    }
+    if (url.pathname === "/harness/findings") {
+      return route.fulfill({ json: { data: options.findings ?? [] } })
+    }
+    if (/^\/harness\/findings\/[^/]+\/resolved$/.test(url.pathname)) {
+      const body = route.request().postDataJSON() as { resolved: boolean }
+      seen.resolved.push({ id: url.pathname.split("/")[3]!, resolved: body.resolved })
+      return route.fulfill({ json: { data: { id: url.pathname.split("/")[3], resolved: body.resolved } } })
     }
     if (url.pathname === "/harness/checkpoints" && route.request().method() === "GET") {
       return route.fulfill({ json: { data: options.checkpoints ?? [] } })
@@ -568,4 +577,78 @@ test("the branch view has no checkpoints, because they are about the folder", as
   await page.getByRole("button", { name: /^(Branch|Rama)$/ }).click()
 
   await expect(page.locator(".fc-checkpoints")).toHaveCount(0)
+})
+
+const finding = (over: Record<string, unknown> = {}) => ({
+  id: "f1",
+  directory: "/work/demo",
+  file: "src/server.ts",
+  line: 11,
+  severity: "high",
+  title: "This can be undefined",
+  detail: "When the list is empty, `at(-1)` gives undefined and the next line reads a property of it.",
+  createdAt: 1,
+  ...over,
+})
+
+test("a finding sits on the line it is about", async ({ page }) => {
+  await openSession(page, [], { findings: [finding()] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  const file = page.locator(".fc-diff-file").filter({ hasText: "server.ts" })
+  // The count is on the header before the file is even opened.
+  await expect(file.locator(".fc-diff-finding-count")).toHaveText("1")
+  await file.locator(".fc-diff-file-head").click()
+
+  const comment = file.locator(".fc-diff-finding")
+  await expect(comment).toContainText("This can be undefined")
+  await expect(comment).toHaveAttribute("data-severity", "high")
+  // Under line 11, which is where the review anchored it.
+  const rows = await file.locator(".fc-diff-line, .fc-diff-finding").evaluateAll((nodes) =>
+    nodes.map((node) => node.className + "|" + (node.textContent ?? "").slice(0, 24)),
+  )
+  const index = rows.findIndex((row) => row.startsWith("fc-diff-finding"))
+  expect(rows[index - 1]).toContain("11")
+})
+
+test("a finding about the file rather than a line still appears", async ({ page }) => {
+  // Dropping it because it has no line would make the review claim to be complete when it is not.
+  await openSession(page, [], { findings: [finding({ line: undefined, title: "This file does too much" })] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+  const file = page.locator(".fc-diff-file").filter({ hasText: "server.ts" })
+  await file.locator(".fc-diff-file-head").click()
+
+  await expect(file.locator(".fc-diff-finding")).toContainText("This file does too much")
+})
+
+test("marking one done sets it aside without deleting it", async ({ page }) => {
+  const seen = await openSession(page, [], { findings: [finding()] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+  const file = page.locator(".fc-diff-file").filter({ hasText: "server.ts" })
+  await file.locator(".fc-diff-file-head").click()
+
+  await file.getByRole("button", { name: /^(Done|Hecho)$/ }).click()
+
+  await expect.poll(() => seen.resolved).toEqual([{ id: "f1", resolved: true }])
+})
+
+test("one already done is still readable, and offers to be reopened", async ({ page }) => {
+  await openSession(page, [], { findings: [finding({ resolved: true })] })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+  const file = page.locator(".fc-diff-file").filter({ hasText: "server.ts" })
+
+  // It no longer counts against the file, but it has not disappeared.
+  await expect(file.locator(".fc-diff-finding-count")).toHaveCount(0)
+  await file.locator(".fc-diff-file-head").click()
+  await expect(file.locator(".fc-diff-finding-done")).toContainText("This can be undefined")
+  await expect(file.getByRole("button", { name: /Reopen|Reabrir/ })).toBeVisible()
+})
+
+test("a diff with no review on it looks exactly as it did", async ({ page }) => {
+  await openSession(page)
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  await expect(page.locator(".fc-diff-finding")).toHaveCount(0)
+  await expect(page.locator(".fc-diff-finding-count")).toHaveCount(0)
+  await expect(page.locator(".fc-changes-findings")).toHaveCount(0)
 })

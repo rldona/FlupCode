@@ -151,6 +151,7 @@ import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { summarise } from "./usage"
+import { FINDINGS_INSTRUCTION } from "./findings"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -288,6 +289,23 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           repository.usageRows({ directory: params.get("directory") ?? undefined, since }),
         ),
       })
+    }
+
+    // Findings (H-32): a review's points, anchored to a file and a line so the diff can carry them.
+    if (path[1] === "findings" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      return json({
+        data: repository.listFindings({
+          directory: params.get("directory") ?? undefined,
+          runID: params.get("runID") ?? undefined,
+          ...(params.get("open") === "1" ? { resolved: false } : {}),
+        }),
+      })
+    }
+    if (path[1] === "findings" && path[2] && path[3] === "resolved" && request.method === "PATCH") {
+      const body = (await readJSON(request)) as { resolved?: unknown } | undefined
+      const finding = repository.resolveFinding(path[2], body?.resolved !== false)
+      return finding ? json({ data: finding }) : error("Finding not found", 404)
     }
 
     // Checkpoints (H-15): a way back from what a run did.

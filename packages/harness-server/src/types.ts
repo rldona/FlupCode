@@ -187,6 +187,8 @@ export type ServerEvent =
   | { type: "artifact.created"; artifact: Artifact }
   | { type: "checkpoint.added"; checkpoint: Checkpoint }
   | { type: "checkpoint.removed"; checkpointID: string }
+  | { type: "findings.added"; findings: Finding[] }
+  | { type: "finding.changed"; finding: Finding }
 
 /** A way back to how a folder looked (H-15). The commit lives in the reader's own repository. */
 export type Checkpoint = {
@@ -196,6 +198,22 @@ export type Checkpoint = {
   title: string
   runID?: string
   taskID?: string
+  createdAt: number
+}
+
+/** A review's point, anchored to a file and usually to a line (H-32). */
+export type Finding = {
+  id: string
+  directory?: string
+  runID?: string
+  taskID?: string
+  file: string
+  line?: number
+  severity: "high" | "medium" | "low"
+  title: string
+  detail?: string
+  /** Set aside by a reader: kept, but out of the way. */
+  resolved?: boolean
   createdAt: number
 }
 
