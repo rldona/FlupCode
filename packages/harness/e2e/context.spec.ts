@@ -21,7 +21,14 @@ const report = {
   ],
 }
 
-type Options = { report?: unknown; tools?: string[]; skills?: unknown[]; mcp?: unknown; prompts?: unknown[] }
+type Options = {
+  report?: unknown
+  tools?: string[]
+  skills?: unknown[]
+  mcp?: unknown
+  prompts?: unknown[]
+  toolUses?: unknown
+}
 
 async function open(page: Page, options: Options = {}) {
   let reads = 0
@@ -37,6 +44,8 @@ async function open(page: Page, options: Options = {}) {
     if (url.pathname === "/harness/context") return route.fulfill({ json: { data: options.report ?? report } })
     if (url.pathname === "/harness/context/system-prompt")
       return route.fulfill({ json: { data: options.prompts ?? [] } })
+    if (url.pathname === "/harness/context/tool-uses")
+      return route.fulfill({ json: { data: options.toolUses ?? { tools: {} } } })
     if (url.pathname === "/harness/context/file") {
       reads++
       return route.fulfill({ json: { data: { content: "# Project\nUse tabs, not spaces.\n" } } })
@@ -132,6 +141,37 @@ test("an MCP server that is not answering is not drawn as one that is", async ({
   const block = page.locator(".fc-usage-block").filter({ hasText: "Tools" })
   await expect(block).toContainText(/1 of 2|1 de 2/)
   await expect(block.locator(".fc-context-chip-off")).toHaveText("linear")
+})
+
+test("says which of an MCP server's own tools this session used", async ({ page }) => {
+  await open(page, {
+    mcp: { docs: { status: "connected" }, linear: { status: "connected" } },
+    toolUses: {
+      tools: {
+        docs_search: { count: 1, last: 1 },
+        docs_read: { count: 4, last: 2 },
+        linear_create_issue: { count: 2, last: 3 },
+        // The engine's own tools carry no server prefix, so they are not an MCP server's.
+        bash: { count: 9, last: 4 },
+      },
+    },
+  })
+
+  // The engine reports no list of what a server offers; the calls that went through it are what is
+  // left, grouped by server with the busiest tool first.
+  const rows = page.locator(".fc-mcp-use")
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText("docs")
+  await expect(rows.nth(0)).toContainText("read ×4, search")
+  await expect(rows.nth(1)).toContainText("create_issue ×2")
+})
+
+test("a server that ran nothing says so rather than looking empty", async ({ page }) => {
+  await open(page, { mcp: { docs: { status: "connected" } } })
+
+  const block = page.locator(".fc-usage-block").filter({ hasText: "Tools" })
+  await expect(block).toContainText(/None used in this session|Ninguna usada en esta sesión/)
+  await expect(page.locator(".fc-mcp-use")).toHaveCount(0)
 })
 
 test("breaks this session's tokens into the five the engine reports", async ({ page }) => {

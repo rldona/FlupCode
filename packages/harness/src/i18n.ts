@@ -750,6 +750,9 @@ const ES: Record<string, string> = {
   "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, and an engine that was already running needs a restart to load it.":
     "Todavía no hay nada grabado. El plugin de motor de FlupCode lo captura a partir del siguiente turno, y un motor que ya estaba en marcha necesita reiniciarse para cargarlo.",
   "Agents, whose own prompt is part of what is above:": "Agentes, cuyo propio prompt forma parte de lo de arriba:",
+  "The engine lists no tools for a server, only the calls that go through one. These are the tools this session used:":
+    "El motor no lista las tools de un servidor, sólo las llamadas que pasan por él. Éstas son las que ha usado esta sesión:",
+  "None used in this session.": "Ninguna usada en esta sesión.",
   "this session": "esta sesión",
   "Could not read that file": "No se pudo leer ese archivo",
 
