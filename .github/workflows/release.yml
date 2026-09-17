@@ -26,11 +26,21 @@ jobs:
   open:
     runs-on: ubuntu-latest
     steps:
+      # `gh release create --verify-tag` reads the local tag, and the notes are generated from the
+      # history behind it: without a checkout this fails before it creates anything (which is how the
+      # first run of this workflow went, loudly and in seven seconds).
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
       - name: Open the release as a draft
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
             --title "FlupCode $GITHUB_REF_NAME" \
             --generate-notes \
             --draft \
@@ -68,7 +78,7 @@ jobs:
       - name: Publish web bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" flupcode-web.zip --clobber
+        run: gh release upload "$GITHUB_REF_NAME" flupcode-web.zip --repo "$GITHUB_REPOSITORY" --clobber
 
   cli:
     needs: [open]
@@ -103,7 +113,7 @@ jobs:
       - name: Publish CLI binaries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" cli/* --clobber
+        run: gh release upload "$GITHUB_REF_NAME" cli/* --repo "$GITHUB_REPOSITORY" --clobber
 
   desktop:
     needs: [open]
@@ -146,7 +156,7 @@ jobs:
             echo "::error::nothing was packaged, so this release would ship no installer for ${{ matrix.os }}"
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
+          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
 
   # The release is only worth publishing if auto-update can find what it is told to fetch: every file
   # the manifests name has to be an asset, or the app would download a 404 on its next check.
@@ -159,14 +169,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           mkdir -p manifest
-          gh release download "$GITHUB_REF_NAME" --pattern 'latest*.yml' --dir manifest
+          gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'latest*.yml' --dir manifest
 
       - name: Every file they name is an asset
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release view "$GITHUB_REF_NAME" --json assets -q '.assets[].name' | sort > assets.txt
+          gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets -q '.assets[].name' | sort > assets.txt
           grep -h '^  - url: ' manifest/*.yml | sed 's/^  - url: //' | tr -d '\r' | sort -u > named.txt
           if [ ! -s named.txt ]; then
             echo "::error::no update manifest named a file, so nothing was packaged"
@@ -189,4 +199,4 @@ jobs:
       - name: Publish the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false --latest
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false --latest
