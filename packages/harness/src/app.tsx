@@ -241,7 +241,9 @@ export const App: Component = () => {
   const [streamedChars, setStreamedChars] = createSignal(0)
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
-  const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, false))
+  // Closed until there is something to watch, or until the reader opens it: the conversation gets
+  // the room, and the panel's own effect opens it for work and closes it when the work is done.
+  const [contextHidden, setContextHidden] = createSignal(readStorage(STORAGE_KEYS.contextPanelHidden, true))
   const [contextWidth, setContextWidth] = createSignal(
     readStorage(STORAGE_KEYS.contextPanelWidth, CONTEXT_PANEL_WIDTH.default),
   )
@@ -2351,12 +2353,45 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.sidebarCollapsed, next)
     }
 
+    // Whether the current stretch of work has already been offered, and whether the panel is open
+    // because of it rather than because the reader opened it.
+    let offeredForWork = false
+    let openedForWork = false
+
     const toggleContextPanel = () => {
       const next = !contextHidden()
       setContextHidden(next)
       writeStorage(STORAGE_KEYS.contextPanelHidden, next)
+      // The reader has taken over: from here the panel is theirs, not the work's to close later.
+      openedForWork = false
     }
     const contextPanelShown = () => !!selectedSession() && !contextHidden()
+
+    /**
+     * The panel is for watching work, so it comes and goes with it: open while there is a task left
+     * to do or one of this session's children is being worked on or waiting on a permission, closed
+     * when there is nothing to watch.
+     *
+     * It offers itself once per stretch. A reader who closes it is not fought until the work stops
+     * and starts again, and a stretch the reader opened through is left open when it ends.
+     */
+    createEffect(() => {
+      const work =
+        todos().some((todo) => todo.status !== "completed") ||
+        (subagents() ?? []).some((child) => !!runState()[child.id] || blockedSessions().includes(child.id))
+      if (work) {
+        if (offeredForWork) return
+        offeredForWork = true
+        if (!contextHidden()) return
+        openedForWork = true
+        setContextHidden(false)
+        return
+      }
+      offeredForWork = false
+      if (!openedForWork) return
+      openedForWork = false
+      setContextHidden(true)
+    })
     const updateContextWidth = (width: number) => {
       const next = Math.max(CONTEXT_PANEL_WIDTH.min, Math.min(CONTEXT_PANEL_WIDTH.max, Math.round(width)))
       setContextWidth(next)
