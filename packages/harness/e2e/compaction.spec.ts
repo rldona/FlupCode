@@ -84,12 +84,32 @@ async function openSession(page: Page, messages = history, legacy: unknown[] = [
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_compact"))
+    window.localStorage.setItem("flupcode.selectedModel", JSON.stringify({ providerID: "openai", id: "gpt" }))
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    // A 200k window whose answers can run to 8k: the engine folds the session at 192k.
+    if (url.pathname === "/api/model")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              id: "gpt",
+              providerID: "openai",
+              name: "GPT",
+              limit: { context: 200_000, output: 8_000 },
+              cost: [],
+              status: "active",
+              enabled: true,
+              variants: [],
+            },
+          ],
+        },
+      })
+    if (url.pathname === "/config") return route.fulfill({ json: {} })
     if (url.pathname === "/api/session/ses_compact/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: legacy })
@@ -160,4 +180,30 @@ test("a cleared tool result says the engine dropped it from the context", async 
   const tool = page.locator(".fc-tool")
   await expect(tool).toHaveClass(/fc-tool-cleared/)
   await expect(tool.locator(".fc-tool-cleared-badge")).toContainText(/Cleared from context|Borrado del contexto/)
+})
+
+// The engine folds a session at its own point — the window less the room it keeps for the answer —
+// which is a good deal before the model's own limit is reached.
+const turn = (input: number, read: number) => [user("u1", "Haz A y B", now), assistant("a1", "Hecho.", now + 1, { input, read })]
+
+test("warns before the engine folds the session, and says how much room is left", async ({ page }) => {
+  await openSession(page, turn(120_000, 60_000))
+
+  // 180k counted against a 200k window that keeps 8k for the answer.
+  const aside = page.locator(".fc-aside-section").first()
+  await expect(aside.locator(".fc-aside-compaction")).toContainText("192.0k")
+  await expect(aside.locator(".fc-meter")).toHaveClass(/fc-meter-near/)
+
+  await page.locator(".fc-context-button").click()
+  const popover = page.locator(".fc-context-popover")
+  await expect(popover.locator(".fc-context-compaction")).toContainText(/12.0k (left|restantes)/)
+})
+
+test("says the engine folds it now once the budget is gone", async ({ page }) => {
+  await openSession(page, turn(470_000, 4_000))
+
+  const aside = page.locator(".fc-aside-compaction")
+  await expect(aside).toContainText(/next step|siguiente paso/)
+  await page.locator(".fc-context-button").click()
+  await expect(page.locator(".fc-context-popover")).toContainText(/next step|siguiente paso/)
 })

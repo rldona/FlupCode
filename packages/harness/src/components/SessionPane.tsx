@@ -18,7 +18,7 @@ import { createClient, invalidateLegacyHistory } from "../client"
 import { CHAT_SYSTEM } from "../chat"
 import { messageID } from "../ids"
 import { pendingPrompts, type Delivery } from "../pending-prompts"
-import { contextFigures } from "../metrics"
+import { contextFigures, type CompactionConfig } from "../metrics"
 import { permissionMode } from "../permission-modes"
 import { recordPrompt } from "../prompt-history"
 import { subscribeSessionEvents } from "../session-events"
@@ -46,6 +46,8 @@ type SessionPaneProps = {
   models: ModelInfo[]
   /** The app's current model, for sessions that have not stored their own. */
   defaultModel: { providerID: string; id: string; variant?: string } | undefined
+  /** The engine's compaction settings, which decide when it folds a session. */
+  compaction?: CompactionConfig
   favorites: string[]
   agents: AgentInfo[]
   agent: string
@@ -216,7 +218,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   }
   const lastAssistant = () =>
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
-  const usage = () => contextFigures(props.session, list() ?? [], props.models, currentModel()?.limit?.context ?? 0)
+  const usage = () => contextFigures(props.session, list() ?? [], props.models, currentModel(), props.compaction)
   const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.expandPastes, props.serverUrl)
   createEffect(() => pendingPrompts.reconcile(new Set((list() ?? []).map((message) => message.id))))
   const liveUsage = () => {

@@ -238,6 +238,10 @@ export function createClient(baseUrl = resolveServerUrl()) {
       if (!response.ok) throw new Error("Request failed")
       return (await response.json()) as { home: string; state: string; config: string; directory: string }
     },
+    /** The engine's settings, which decide when it folds a session: the meter reads the compaction
+     *  ones. Only what this side asks for is typed; the rest of the config is the engine's. */
+    config: async () =>
+      (await unwrap(client.config.get())) as { compaction?: { auto?: boolean; reserved?: number } },
     session: {
       list: (input?: { order?: "asc" | "desc"; limit?: number }) =>
         unwrap(client.v2.session.list({ ...input, limit: input?.limit ?? 200 })),
