@@ -371,6 +371,8 @@ const ES: Record<string, string> = {
   Faster: "Más rápido",
   Smarter: "Más listo",
   "Context window": "Ventana de contexto",
+  "Cleared from context": "Borrado del contexto",
+  "{n} cleared": "{n} borrados",
   Estimated: "Estimado",
   Input: "Entrada",
   Output: "Salida",

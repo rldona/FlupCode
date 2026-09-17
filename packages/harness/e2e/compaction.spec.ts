@@ -45,6 +45,30 @@ const compaction = (id: string, reason: "auto" | "manual", summary: string, crea
   recent: "",
   time: { created },
 })
+/** A turn the engine pruned: `compaction.prune` marks the result it cleared, and only the legacy
+ *  store carries that mark — it is the store every FlupCode turn is written to. */
+const clearedTurn = [
+  {
+    info: { id: "l1", sessionID: "ses_compact", role: "user", time: { created: now } },
+    parts: [{ id: "l1p", type: "text", text: "Lee el log" }],
+  },
+  {
+    info: { id: "l2", sessionID: "ses_compact", role: "assistant", agent: "build", time: { created: now + 1 } },
+    parts: [
+      {
+        id: "l2t",
+        type: "tool",
+        tool: "bash",
+        state: {
+          status: "completed",
+          input: { command: "cat big.log" },
+          output: "3 líneas",
+          time: { start: now, end: now, compacted: now + 2 },
+        },
+      },
+    ],
+  },
+]
 
 const history = [
   user("u1", "Haz A y B", now),
@@ -55,7 +79,7 @@ const history = [
   compaction("c2", "auto", "## Resumen\n\n- A y B hechas.", now + 30),
 ]
 
-async function openSession(page: Page, messages = history) {
+async function openSession(page: Page, messages = history, legacy: unknown[] = []) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -68,7 +92,7 @@ async function openSession(page: Page, messages = history) {
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_compact/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: legacy })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/event")
@@ -123,4 +147,17 @@ test("a step after the compaction measures the session again", async ({ page }) 
 
   await expect(contextTokens(page)).toContainText("21.0k")
   await expect(contextTokens(page)).not.toContainText("~")
+})
+
+test("a cleared tool result says the engine dropped it from the context", async ({ page }) => {
+  await openSession(page, [], clearedTurn)
+
+  // The block is closed, and still says how much of it left the context.
+  const group = page.locator(".fc-toolgroup")
+  await expect(group.locator(".fc-toolgroup-cleared")).toContainText(/1 cleared|1 borrados/)
+  await group.locator(".fc-toolgroup-line").click()
+
+  const tool = page.locator(".fc-tool")
+  await expect(tool).toHaveClass(/fc-tool-cleared/)
+  await expect(tool.locator(".fc-tool-cleared-badge")).toContainText(/Cleared from context|Borrado del contexto/)
 })
