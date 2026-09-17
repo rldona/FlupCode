@@ -270,6 +270,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               </svg>
             </button>
           </div>
+        </div>
+
+        <div class="fc-scroll fc-grow">
+          {/* The nav scrolls with the lists under it; "+ New" is the one thing that stays put. */}
           <nav class="fc-nav">
             <Show when={props.view === "code"}>
               <button
@@ -324,9 +328,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               {t("Customize")}
             </button>
           </nav>
-        </div>
-
-        <div class="fc-scroll fc-grow">
           {/*
             Routines first, and only when there are any (§ the reader's own layout): they run
             whether or not this window is open, so what they are doing is the one thing on this list
