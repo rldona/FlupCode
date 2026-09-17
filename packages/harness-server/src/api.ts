@@ -154,7 +154,7 @@ import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { summarise } from "./usage"
 import { FINDINGS_INSTRUCTION } from "./findings"
-import { capturedPrompts, instructionsFor, readInstruction } from "./context"
+import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./context"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -335,6 +335,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const sessionID = params.get("sessionID") ?? ""
       if (!sessionID) return error("A session is required", 400)
       return json({ data: capturedPrompts(sessionID) })
+    }
+    // The tools that session ran. The engine reports no list of what an MCP server offers, only the
+    // calls it makes, which its plugin writes down.
+    if (path[1] === "context" && path[2] === "tool-uses" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const sessionID = params.get("sessionID") ?? ""
+      if (!sessionID) return error("A session is required", 400)
+      return json({ data: usedTools(sessionID) })
     }
 
     // Agents you can edit (H-13). The engine reports what agents exist; these are the files behind

@@ -414,3 +414,30 @@ describe("the captured system prompt", () => {
     repository.close()
   })
 })
+
+// Which tools a session ran. The engine reports no list of what an MCP server offers, so this is what
+// its plugin could see: the calls themselves.
+describe("the tools a session ran", () => {
+  test("answers with what the plugin recorded, and nothing for a session it has not seen", async () => {
+    const shared = mkdtempSync(join(tmpdir(), "flupcode-api-uses-"))
+    made.push(shared)
+    const previous = process.env.FLUPCODE_TOOL_USES_DIR
+    process.env.FLUPCODE_TOOL_USES_DIR = shared
+    writeFileSync(
+      join(shared, "ses_abc.json"),
+      JSON.stringify({ at: 5, tools: { bash: { count: 2, last: 1_700_000_000_000 } } }),
+    )
+
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/context/tool-uses?sessionID=ses_abc"))
+    expect((await response.json()).data.tools).toEqual({ bash: { count: 2, last: 1_700_000_000_000 } })
+
+    const unknown = await handler(new Request("http://x/harness/context/tool-uses?sessionID=ses_missing"))
+    expect((await unknown.json()).data.tools).toEqual({})
+    const missing = await handler(new Request("http://x/harness/context/tool-uses"))
+    expect(missing.status).toBe(400)
+    repository.close()
+    if (previous === undefined) delete process.env.FLUPCODE_TOOL_USES_DIR
+    else process.env.FLUPCODE_TOOL_USES_DIR = previous
+  })
+})

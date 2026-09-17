@@ -165,6 +165,47 @@ export function systemPromptsDirectory() {
   return join(base, "flupcode", "system-prompts")
 }
 
+/** What one session's tools were used for. The engine names an MCP tool `<server>_<tool>`. */
+export type ToolUses = {
+  tools: Record<string, { count: number; last: number }>
+}
+
+/** Where the other engine plugin records that, one file per session. */
+export function toolUsesDirectory() {
+  const explicit = process.env.FLUPCODE_TOOL_USES_DIR
+  if (explicit) return explicit
+  const base = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")
+  return join(base, "flupcode", "tool-uses")
+}
+
+/**
+ * The tools a session ran, and how often.
+ *
+ * The engine never reports which tools an MCP server offers — its tools bypass the tool registry, so
+ * no endpoint lists them and the prompt carries only the server's name — but it hands every call to
+ * the plugin that writes this. Which of them belong to which server is worked out on the other side,
+ * where the servers are known.
+ */
+export function usedTools(sessionID: string): ToolUses {
+  // The id names a file under ours; anything else is not a session and is not looked up.
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionID)) return { tools: {} }
+  try {
+    const parsed = JSON.parse(readFileSync(join(toolUsesDirectory(), `${sessionID}.json`), "utf8")) as {
+      tools?: unknown
+    }
+    if (!parsed?.tools || typeof parsed.tools !== "object") return { tools: {} }
+    const tools: ToolUses["tools"] = {}
+    for (const [name, value] of Object.entries(parsed.tools as Record<string, unknown>)) {
+      const entry = value as { count?: unknown; last?: unknown }
+      if (typeof entry?.count !== "number" || typeof entry.last !== "number") continue
+      tools[name] = { count: entry.count, last: entry.last }
+    }
+    return { tools }
+  } catch {
+    return { tools: {} }
+  }
+}
+
 const record = (value: unknown): CapturedPrompt | undefined => {
   if (!value || typeof value !== "object") return undefined
   const entry = value as { at?: unknown; providerID?: unknown; modelID?: unknown; system?: unknown }

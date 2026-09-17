@@ -302,3 +302,8 @@ export type CapturedPrompt = {
   modelID?: string
   system: string[]
 }
+
+/** The tools a session ran, and how often, as FlupCode's engine plugin recorded them. */
+export type ToolUses = {
+  tools: Record<string, { count: number; last: number }>
+}

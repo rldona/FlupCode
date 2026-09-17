@@ -23,6 +23,7 @@ import type {
   AgentFile,
   ContextReport,
   CapturedPrompt,
+  ToolUses,
   SkillFile,
   Finding,
   GitCommit,
@@ -1005,6 +1006,10 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           baseUrl,
           `/harness/context/system-prompt?${new URLSearchParams({ sessionID: input.sessionID })}`,
         ),
+      /** What tools this session ran, which is as much as the engine can tell about MCP servers: it
+       *  reports no list of what one offers. */
+      toolUses: (input: { sessionID: string }) =>
+        harnessRequest<ToolUses>(baseUrl, `/harness/context/tool-uses?${new URLSearchParams({ sessionID: input.sessionID })}`),
     },
     /** Agents you can edit (H-13): the markdown files behind the agents the engine reports. */
     agents: {

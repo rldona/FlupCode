@@ -835,6 +835,15 @@ export const App: Component = () => {
     },
     (source) => createHarnessClient(source.url).context.systemPrompt({ sessionID: source.sessionID }),
   )
+  // What tools this session ran. It is the only thing there is to say about an MCP server's tools:
+  // the engine reports no list of what one offers, only the calls that go through it.
+  const [toolUses] = createResource(
+    () => {
+      const sessionID = selected()
+      return contextOpen() && sessionID && routinesServerAvailable() ? { url: harnessServerUrl(), sessionID } : undefined
+    },
+    (source) => createHarnessClient(source.url).context.toolUses({ sessionID: source.sessionID }),
+  )
   // Skills (H-27). The files come from the harness server, including the ones the engine did not
   // load — which the engine, by definition, cannot report.
   const [skillsRefresh, setSkillsRefresh] = createSignal(0)
@@ -4267,6 +4276,7 @@ export const App: Component = () => {
         compactions={compactions()}
         prompts={capturedPrompts()}
         promptsLoading={capturedPrompts.loading}
+        toolUses={toolUses()?.tools}
         onRead={readInstruction}
         onClose={() => leaveScreen()}
       />
