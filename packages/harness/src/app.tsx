@@ -3568,6 +3568,7 @@ export const App: Component = () => {
           >
             <Topbar
             showTabs={desktopWindow() || collapsed()}
+              showEngineStatus={desktopWindow()}
               streamState={streamState()}
               blockedElsewhere={blockedElsewhere()}
               onOpenBlocked={selectSession}

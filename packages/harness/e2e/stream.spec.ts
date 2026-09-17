@@ -113,11 +113,13 @@ test("a prompt shows as the stream announces it, not only after a reload", async
   await expect(page.locator(".fc-message-user .fc-message-text")).toContainText("Live prompt")
 })
 
-test("the pill admits the app is no longer following the engine", async ({ page }) => {
+test("the desktop pill admits the app is no longer following the engine", async ({ page }) => {
   let allow = true
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    // The engine status is the desktop app's strip only; the browser does not draw it.
+    window.flupcode = { ownsTitleBar: true, platform: "darwin" }
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
@@ -144,6 +146,7 @@ test("a folder whose stream died is admitted, even while the global one is healt
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
+    window.flupcode = { ownsTitleBar: true, platform: "darwin" }
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
@@ -168,4 +171,24 @@ test("a folder whose stream died is admitted, even while the global one is healt
 
   await expect(page.getByText("Hola")).toBeVisible()
   await expect(page.locator(".fc-status")).toContainText(/Reconnecting|Reconectando/i, { timeout: 15_000 })
+})
+
+test("the browser draws no engine status pill", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  // A healthy engine with the stream open is the pill's "Connected" case, and it is the desktop
+  // strip's to draw: in the browser it was a label the reader could do nothing with.
+  await expect(page.locator(".fc-topbar .fc-status:not(.fc-status-remote)")).toHaveCount(0)
 })
