@@ -12,9 +12,12 @@ export type LegacyInfo = {
   sessionID?: string
   role: string
   agent?: string
+  parentID?: string
   providerID?: string
   modelID?: string
   error?: unknown
+  /** The engine's compaction writes its summary as an assistant message flagged this way. */
+  summary?: boolean
   time?: { created?: number; completed?: number }
   tokens?: unknown
   cost?: number
@@ -29,6 +32,9 @@ export type LegacyPart = {
   url?: string
   filename?: string
   mime?: string
+  /** On a `compaction` part: whether the engine compacted on its own or because it was asked to. */
+  auto?: boolean
+  overflow?: boolean
   time?: { start?: number; end?: number }
   state?: { status?: string; input?: unknown; output?: string; error?: string }
 }
@@ -68,6 +74,9 @@ function filesOf(parts: LegacyPart[]) {
 export function messageOf(info: LegacyInfo, parts: LegacyPart[]): SessionMessageInfo {
   if (info.role === "user") {
     const files = filesOf(parts)
+    // A compaction starts as a user message whose only part is the marker: it carries whether the
+    // engine compacted by itself. It is not a prompt, so the view draws it as a marker, not as "You".
+    const compaction = parts.find((part) => part.type === "compaction")
     return {
       id: info.id,
       type: "user",
@@ -77,6 +86,7 @@ export function messageOf(info: LegacyInfo, parts: LegacyPart[]): SessionMessage
         .map((part) => part.text ?? "")
         .join("\n"),
       ...(files.length > 0 ? { files } : {}),
+      ...(compaction ? { compaction: { auto: compaction.auto === true, overflow: compaction.overflow === true } } : {}),
     } as unknown as SessionMessageInfo
   }
   return {
@@ -84,6 +94,9 @@ export function messageOf(info: LegacyInfo, parts: LegacyPart[]): SessionMessage
     type: "assistant",
     time: info.time,
     agent: info.agent,
+    parentID: info.parentID,
+    // The engine's own compaction writes the summary as an assistant message with this flag.
+    ...(info.summary === true ? { summary: true } : {}),
     model: info.modelID ? { providerID: info.providerID, id: info.modelID } : undefined,
     content: parts.flatMap((part) => {
       const entry = contentOf(part)
@@ -167,6 +180,8 @@ export function applyPart(data: SessionMessageInfo[], part: LegacyPart) {
  */
 function withUserPart(message: SessionMessageInfo, part: LegacyPart) {
   if (part.type === "text") return asMessage({ ...message, text: part.text ?? "" })
+  if (part.type === "compaction")
+    return asMessage({ ...message, compaction: { auto: part.auto === true, overflow: part.overflow === true } })
   if (part.type !== "file" || !part.url) return message
   const files = ((message as { files?: Array<{ uri: string; name?: string }> }).files ?? []).slice()
   if (!files.some((file) => file.uri === part.url)) files.push({ uri: part.url, name: part.filename ?? part.url })
