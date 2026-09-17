@@ -40,7 +40,7 @@ const message = (finished: boolean) => ({
 
 const child = { ...session, id: "ses_child", parentID: "ses_tasks", title: "Analizar common-lib" }
 
-async function openSession(page: Page, options: { blockedChild?: boolean; finished?: boolean } = {}) {
+async function openSession(page: Page, options: { blockedChild?: boolean; finished?: boolean; idle?: boolean } = {}) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -63,9 +63,9 @@ async function openSession(page: Page, options: { blockedChild?: boolean; finish
     if (url.pathname === "/api/session/ses_tasks/message")
       return route.fulfill({ json: { data: [message(options.finished ?? false)], cursor: {} } })
     if (url.pathname === "/session/ses_tasks/children" || url.pathname === "/api/session/ses_tasks/children")
-      return route.fulfill({ json: [child] })
+      return route.fulfill({ json: options.idle ? [] : [child] })
     if (url.pathname === "/session/ses_tasks/todo" || url.pathname === "/api/session/ses_tasks/todo")
-      return route.fulfill({ json: TODOS })
+      return route.fulfill({ json: options.idle ? [] : TODOS })
     if (url.pathname === "/permission")
       return route.fulfill({ json: options.blockedChild ? [{ id: "perm_1", sessionID: "ses_child" }] : [] })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
@@ -127,4 +127,29 @@ test("this session's subagents sit under the tasks, in the panel", async ({ page
 
   // Its dot says it is working, without having to open it.
   await expect(aside.locator(".fc-subagent .fc-session-dot-blocked")).toHaveCount(1)
+})
+
+/**
+ * The panel is for watching work, so it comes and goes with it: open while there is a task left or a
+ * child being worked on, closed when there is nothing to watch, and left alone the moment the reader
+ * takes over.
+ */
+test("the panel opens itself while there is work to watch", async ({ page }) => {
+  await openSession(page)
+
+  // Nothing was clicked: the task list is why it is there.
+  await expect(page.locator(".fc-rightaside")).toBeVisible()
+  await expect(page.locator(".fc-aside-todo")).toHaveCount(4)
+
+  // A reader who closes it is not fought by the next render.
+  await page.getByRole("button", { name: /Toggle context panel|Alternar panel de contexto/ }).click()
+  await expect(page.locator(".fc-rightaside")).toHaveCount(0)
+  await page.waitForTimeout(300)
+  await expect(page.locator(".fc-rightaside")).toHaveCount(0)
+})
+
+test("a session with no work leaves the panel closed", async ({ page }) => {
+  await openSession(page, { idle: true })
+
+  await expect(page.locator(".fc-rightaside")).toHaveCount(0)
 })
