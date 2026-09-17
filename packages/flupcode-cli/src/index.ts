@@ -131,7 +131,7 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
   const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
   const plugins = local ? await installEnginePlugins() : undefined
   if (await engineHealthy(engine, credentials)) {
-    if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins (reasoning effort levels)."))
+    if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins (reasoning effort levels, context capture)."))
     return undefined
   }
   const hint = `start it with "opencode serve --port ${new URL(engine).port || 4096}" or pass --engine`

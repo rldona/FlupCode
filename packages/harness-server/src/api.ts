@@ -154,7 +154,7 @@ import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { summarise } from "./usage"
 import { FINDINGS_INSTRUCTION } from "./findings"
-import { instructionsFor, readInstruction } from "./context"
+import { capturedPrompts, instructionsFor, readInstruction } from "./context"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -327,6 +327,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const report = instructionsFor(directory, params.get("project") ?? undefined)
       const content = readInstruction(report, wanted)
       return content === undefined ? error("Not one of this folder's instruction files", 404) : json({ data: { content } })
+    }
+    // The system prompt the engine assembled, recorded by FlupCode's engine plugin as it went out.
+    // The engine has no endpoint for it: it is built at request time and handed straight to the provider.
+    if (path[1] === "context" && path[2] === "system-prompt" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const sessionID = params.get("sessionID") ?? ""
+      if (!sessionID) return error("A session is required", 400)
+      return json({ data: capturedPrompts(sessionID) })
     }
 
     // Agents you can edit (H-13). The engine reports what agents exist; these are the files behind

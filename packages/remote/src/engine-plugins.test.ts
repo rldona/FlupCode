@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises"
+import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { REASONING_VARIANTS_PLUGIN, engineConfigDir, installEnginePlugins } from "./engine-plugins"
+import { REASONING_VARIANTS_PLUGIN, SYSTEM_PROMPT_PLUGIN, engineConfigDir, installEnginePlugins } from "./engine-plugins"
 
 const dirs: string[] = []
 const temp = async () => {
@@ -14,6 +14,7 @@ const temp = async () => {
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   delete process.env.OPENCODE_MODELS_PATH
+  delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
 })
 
 describe("engineConfigDir", () => {
@@ -25,17 +26,63 @@ describe("engineConfigDir", () => {
 })
 
 describe("installEnginePlugins", () => {
-  test("writes the plugin once, replaces older copies, and leaves an up-to-date one alone", async () => {
+  test("writes the plugins once, replaces older copies, and leaves up-to-date ones alone", async () => {
     const config = await temp()
     await mkdir(path.join(config, "plugins"))
     await writeFile(path.join(config, "plugins", "reasoning-variants.ts"), "old")
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(await readFile(first.path, "utf8")).toBe(REASONING_VARIANTS_PLUGIN.source)
+    expect(first.paths).toHaveLength(2)
+    expect(await readFile(path.join(config, "plugins", REASONING_VARIANTS_PLUGIN.file), "utf8")).toBe(
+      REASONING_VARIANTS_PLUGIN.source,
+    )
+    expect(await readFile(path.join(config, "plugins", SYSTEM_PROMPT_PLUGIN.file), "utf8")).toBe(
+      SYSTEM_PROMPT_PLUGIN.source,
+    )
     expect(await Bun.file(path.join(config, "plugins", "reasoning-variants.ts")).exists()).toBe(false)
 
     expect((await installEnginePlugins(config)).changed).toBe(false)
+  })
+
+  test("the installed plugin records the system prompt of each request", async () => {
+    const config = await temp()
+    const prompts = await temp()
+    process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = prompts
+    const { paths } = await installEnginePlugins(config)
+    const plugin = (await import(pathToFileURL(paths[1]!).href)).flupcodeSystemPrompt
+    const hooks = await plugin()
+
+    await hooks["experimental.chat.system.transform"](
+      { sessionID: "ses_abc", model: { providerID: "deepseek", id: "flash" } },
+      { system: ["You are opencode.\n\n# Instructions from: /w/AGENTS.md"] },
+    )
+    const [record] = await readdir(path.join(prompts, "ses_abc"))
+    const captured = JSON.parse(await readFile(path.join(prompts, "ses_abc", record!), "utf8"))
+    expect(captured.providerID).toBe("deepseek")
+    expect(captured.modelID).toBe("flash")
+    expect(captured.system[0]).toContain("Instructions from: /w/AGENTS.md")
+
+    // The id names a folder, so anything else is refused rather than written out of the directory.
+    await hooks["experimental.chat.system.transform"]({ sessionID: "../escape", model: {} }, { system: ["x"] })
+    expect(await readdir(prompts)).toEqual(["ses_abc"])
+  })
+
+  test("keeps a session's newest recordings and no more", async () => {
+    const config = await temp()
+    const prompts = await temp()
+    process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = prompts
+    const { paths } = await installEnginePlugins(config)
+    const plugin = (await import(pathToFileURL(paths[1]!).href)).flupcodeSystemPrompt
+    const hook = (await plugin())["experimental.chat.system.transform"]
+
+    for (let turn = 0; turn < 9; turn++) {
+      await hook({ sessionID: "ses_abc", model: {} }, { system: [`turn ${turn}`] })
+    }
+    const kept = (await readdir(path.join(prompts, "ses_abc"))).sort()
+    expect(kept).toHaveLength(6)
+    const newest = JSON.parse(await readFile(path.join(prompts, "ses_abc", kept.at(-1)!), "utf8"))
+    expect(newest.system).toEqual(["turn 8"])
   })
 
   test("the installed plugin adds effort levels from the models.dev cache", async () => {
@@ -49,8 +96,8 @@ describe("installEnginePlugins", () => {
       }),
     )
     process.env.OPENCODE_MODELS_PATH = models
-    const { path: file } = await installEnginePlugins(config)
-    const plugin = (await import(pathToFileURL(file).href)).default
+    const { paths } = await installEnginePlugins(config)
+    const plugin = (await import(pathToFileURL(paths[0]!).href)).default
 
     const flash = {
       id: "flash",

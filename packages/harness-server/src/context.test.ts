@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { configDirectory, instructionsFor, isInside, readInstruction, walkUp } from "./context"
+import { capturedPrompts, configDirectory, instructionsFor, isInside, readInstruction, walkUp } from "./context"
 
 let root = ""
 let config = ""
@@ -140,5 +140,49 @@ describe("the rules themselves", () => {
     delete process.env.OPENCODE_CONFIG_DIR
     process.env.XDG_CONFIG_HOME = "/xdg"
     expect(configDirectory()).toBe("/xdg/opencode")
+  })
+})
+
+describe("capturedPrompts", () => {
+  const saveKey = "FLUPCODE_SYSTEM_PROMPTS_DIR"
+
+  beforeEach(() => {
+    saved[saveKey] = process.env[saveKey]
+    process.env[saveKey] = join(root, "prompts")
+  })
+
+  const record = (sessionID: string, name: string, body: unknown) => {
+    const folder = join(root, "prompts", sessionID)
+    mkdirSync(folder, { recursive: true })
+    writeFileSync(join(folder, name), typeof body === "string" ? body : JSON.stringify(body))
+  }
+
+  test("reads a session's requests newest first, and only the newest few", () => {
+    for (let turn = 0; turn < 8; turn++) {
+      record("ses_abc", `${1_700_000_000_000 + turn}-a.json`, {
+        at: 1_700_000_000_000 + turn,
+        providerID: "deepseek",
+        modelID: "flash",
+        system: [`turn ${turn}`],
+      })
+    }
+    const prompts = capturedPrompts("ses_abc")
+    expect(prompts).toHaveLength(6)
+    expect(prompts[0]!.system).toEqual(["turn 7"])
+    expect(prompts[0]!.modelID).toBe("flash")
+  })
+
+  test("skips what it cannot read rather than failing the whole list", () => {
+    record("ses_abc", "1700000000000-a.json", { at: 1_700_000_000_000, system: ["good"] })
+    record("ses_abc", "1700000000001-b.json", "{ not json")
+    record("ses_abc", "1700000000002-c.json", { at: "not a number", system: ["wrong shape"] })
+    expect(capturedPrompts("ses_abc").map((prompt) => prompt.system)).toEqual([["good"]])
+  })
+
+  test("a session that recorded nothing, and an id that is not one, both read as nothing", () => {
+    expect(capturedPrompts("ses_missing")).toEqual([])
+    // The id names a folder under ours. Anything else must not walk out of it.
+    expect(capturedPrompts("../../etc")).toEqual([])
+    expect(capturedPrompts("ses_abc/../..")).toEqual([])
   })
 })
