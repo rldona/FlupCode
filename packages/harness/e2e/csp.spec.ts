@@ -28,6 +28,9 @@ const SAVED_PALETTES = [
   { id: "github", mode: "dark", background: "rgb(13, 17, 23)" },
   { id: "copilot", mode: "light", background: "rgb(255, 255, 255)" },
   { id: "copilot", mode: "dark", background: "rgb(17, 17, 20)" },
+  // Dark-only too: the dashboard's theme is black whatever the mode says.
+  { id: "vercel", mode: "light", background: "rgb(0, 0, 0)" },
+  { id: "vercel", mode: "dark", background: "rgb(0, 0, 0)" },
 ]
 
 for (const saved of SAVED_PALETTES) {

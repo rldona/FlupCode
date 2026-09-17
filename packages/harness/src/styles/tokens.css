@@ -460,6 +460,45 @@
   --fc-bg-subtle: rgba(200, 205, 214, 0.07);
 }
 
+/* Vercel palette: the dashboard's dark theme, read off its screens — black canvas, one grey step up
+   for the sidebar and every surface, `#333` hairlines, near-white text, and the brand blue for
+   anything interactive with white on it. Its corners are tighter than the default, which is the one
+   shape a palette changes here. Dark-only on purpose: the dashboard has no light theme that looks
+   like this, so this one block overrides `.fc-dark` in both modes, like `sublime-dark`. */
+[data-fc-theme="vercel"] {
+  --fc-radius-sm: 6px;
+  --fc-radius-md: 8px;
+  --fc-radius-lg: 12px;
+  --fc-bg: #000000;
+  --fc-bg-elevated: #0a0a0a;
+  --fc-sidebar: #0a0a0a;
+  --fc-border: #333333;
+  --fc-text: #ededed;
+  --fc-text-muted: #a1a1a1;
+  --fc-accent: #0070f3;
+  --fc-accent-soft: #1a1a1a;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #ff6369;
+  --fc-success: #45de7f;
+  --fc-success-soft: #00c853;
+  --fc-warning: #f5a623;
+  --fc-favorite: #f5a623;
+  --fc-merged: #a371f7;
+  --fc-diff-add: #45de7f;
+  --fc-diff-del: #ff6369;
+  --fc-diff-add-bg: #2ecc71;
+  --fc-diff-del-bg: #e74c3c;
+  --fc-syn-comment: #888888;
+  --fc-syn-string: #50e3c2;
+  --fc-syn-number: #f5a623;
+  --fc-syn-keyword: #ff0080;
+  --fc-syn-const: #52a8ff;
+  --fc-code-inline: #52a8ff;
+  --fc-terminal-bg: #000000;
+  --fc-terminal-fg: #ededed;
+  --fc-bg-subtle: rgba(255, 255, 255, 0.06);
+}
+
 /* Before the app bundle loads, the inline script in index.html paints this colour, because the
    page would otherwise flash white. Keep it in sync when the palette changes at runtime. */
 html {
