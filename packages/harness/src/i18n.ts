@@ -85,6 +85,7 @@ const ES: Record<string, string> = {
   "Click again to reset": "Pulsa otra vez para reiniciar",
   Usage: "Uso",
   "Clear completed": "Borrar completadas",
+  "Clear all": "Borrar todo",
   "Remove task": "Borrar tarea",
   "Ran a command": "Ejecutó un comando",
   "Ran {n} commands": "Ejecutó {n} comandos",
