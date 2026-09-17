@@ -8140,3 +8140,149 @@ button.fc-status {
   color: var(--fc-text-muted);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
+
+/* ── What it cost (H-16) ──────────────────────────────────────────────────── */
+
+.fc-usage {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-5);
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+}
+
+.fc-usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--fc-space-3);
+}
+
+.fc-usage-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-3);
+  background: var(--fc-surface);
+}
+
+.fc-usage-tile-value {
+  font-size: var(--fc-text-xl, 22px);
+  font-weight: 600;
+}
+
+.fc-usage-tile-label {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+/* Money spent twice. Marked, unless there was none — then it is just another zero. */
+.fc-usage-tile-warn {
+  border-color: color-mix(in srgb, var(--fc-diff-del) 45%, var(--fc-border));
+}
+
+.fc-usage-tile-warn .fc-usage-tile-value {
+  color: var(--fc-diff-del);
+}
+
+.fc-usage-tile-quiet {
+  border-color: var(--fc-border);
+}
+
+.fc-usage-tile-quiet .fc-usage-tile-value {
+  color: var(--fc-text);
+}
+
+.fc-usage-block h2 {
+  margin: 0 0 var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+  font-weight: 600;
+}
+
+.fc-usage-note {
+  margin: 0 0 var(--fc-space-2);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-usage-row {
+  display: flex;
+  gap: var(--fc-space-3);
+  align-items: center;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--fc-border);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-usage-key {
+  width: min(260px, 34%);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-usage-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-text-muted) 15%, transparent);
+}
+
+.fc-usage-bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--fc-accent);
+}
+
+.fc-usage-tokens,
+.fc-usage-cost {
+  width: 84px;
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.fc-usage-cost {
+  color: var(--fc-text);
+}
+
+.fc-usage-days {
+  display: flex;
+  gap: 4px;
+  align-items: flex-end;
+  height: 120px;
+  overflow-x: auto;
+}
+
+.fc-usage-day {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  justify-content: flex-end;
+  align-items: center;
+  min-width: 26px;
+  height: 100%;
+}
+
+.fc-usage-day-bar {
+  width: 100%;
+  border-radius: 3px 3px 0 0;
+  background: var(--fc-accent);
+}
+
+.fc-usage-day-label {
+  color: var(--fc-text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.fc-usage-only {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  cursor: pointer;
+}

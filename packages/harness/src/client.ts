@@ -27,6 +27,7 @@ import type {
   RoutineRun,
   Run,
   Task,
+  UsageReport,
   Workflow,
 } from "./types"
 
@@ -918,6 +919,16 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** Pushes the branch if it has never been pushed, then opens the pull request. */
       openPullRequest: (input: { directory: string; title: string; body?: string; base?: string }) =>
         harnessRequest<PullRequest>(baseUrl, "/harness/git/pr", { method: "POST", body: JSON.stringify(input) }),
+    },
+    /**
+     * What the runs cost (H-16). Runs only — the harness never sees an ordinary chat turn, and
+     * adding the engine's session totals on top would count every task twice.
+     */
+    usage: (input: { directory?: string; days?: number } = {}) => {
+      const search = new URLSearchParams()
+      if (input.directory) search.set("directory", input.directory)
+      if (input.days) search.set("days", String(input.days))
+      return harnessRequest<UsageReport>(baseUrl, `/harness/usage${search.size ? `?${search}` : ""}`)
     },
     /**
      * Checkpoints (H-15): a way back from what a run did.

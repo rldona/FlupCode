@@ -722,6 +722,24 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Cost (H-16)
+  Cost: "Coste",
+  "Every run the harness has recorded — not ordinary chat turns, which it never sees.":
+    "Todas las ejecuciones que ha registrado el harness — no los turnos de chat normales, que nunca ve.",
+  "{n} days": "{n} días",
+  "Only {project}": "Sólo {project}",
+  "Nothing has run in this window.": "No se ha ejecutado nada en esta ventana.",
+  Tokens: "Tokens",
+  "On retries ({n}%)": "En reintentos ({n}%)",
+  "By day": "Por día",
+  "By model": "Por modelo",
+  "By agent": "Por agente",
+  "By project": "Por proyecto",
+  "Longest tasks": "Tareas más largas",
+  "Where the time went, which is not always where the money went.":
+    "Dónde se fue el tiempo, que no siempre es dónde se fue el dinero.",
+  "Open Runs": "Abrir Ejecuciones",
+
   // Checkpoints (H-15)
   Checkpoints: "Puntos de retorno",
   "A way back to how this folder looked.": "Una forma de volver a como estaba esta carpeta.",
