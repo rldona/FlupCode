@@ -2,7 +2,9 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { capturedPrompts, configDirectory, instructionsFor, isInside, readInstruction, walkUp } from "./context"
+import { capturedPrompts, configDirectory, instructionsFor, isInside, readInstruction, usedTools, walkUp } from "./context"
+
+const USES_KEY = "FLUPCODE_TOOL_USES_DIR"
 
 let root = ""
 let config = ""
@@ -150,7 +152,6 @@ describe("capturedPrompts", () => {
     saved[saveKey] = process.env[saveKey]
     process.env[saveKey] = join(root, "prompts")
   })
-
   const record = (sessionID: string, name: string, body: unknown) => {
     const folder = join(root, "prompts", sessionID)
     mkdirSync(folder, { recursive: true })
@@ -184,5 +185,36 @@ describe("capturedPrompts", () => {
     // The id names a folder under ours. Anything else must not walk out of it.
     expect(capturedPrompts("../../etc")).toEqual([])
     expect(capturedPrompts("ses_abc/../..")).toEqual([])
+  })
+})
+
+describe("usedTools", () => {
+  beforeEach(() => {
+    saved[USES_KEY] = process.env[USES_KEY]
+    process.env[USES_KEY] = join(root, "uses")
+  })
+
+  test("reads the tools a session ran, with what it kept out of the file left behind", () => {
+    mkdirSync(join(root, "uses"), { recursive: true })
+    writeFileSync(
+      join(root, "uses", "ses_abc.json"),
+      JSON.stringify({
+        at: 5,
+        tools: {
+          bash: { count: 3, last: 1_700_000_000_000 },
+          docs_search: { count: 1, last: 1_700_000_000_001 },
+          broken: { count: "three" },
+        },
+      }),
+    )
+    expect(usedTools("ses_abc").tools).toEqual({
+      bash: { count: 3, last: 1_700_000_000_000 },
+      docs_search: { count: 1, last: 1_700_000_000_001 },
+    })
+  })
+
+  test("a session that ran nothing, and an id that is not one, both read as nothing", () => {
+    expect(usedTools("ses_missing")).toEqual({ tools: {} })
+    expect(usedTools("../ses_abc")).toEqual({ tools: {} })
   })
 })

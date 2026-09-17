@@ -83,6 +83,72 @@ export default {
 const REPLACED_FILES = ["reasoning-variants.ts", "reasoning-variants.js"]
 
 /**
+ * tool-uses: what tools a session ran. The engine names an MCP tool `<server>_<tool>`, and while it
+ * never reports which tools a server offers — they bypass the tool registry, so no endpoint lists
+ * them — it does hand every call to this hook, which is enough to say which of them a session used.
+ *
+ * Every tool goes in, not only the MCP ones: telling them apart needs the server list, which lives on
+ * the other side of this file, and a name is a name.
+ */
+export const TOOL_USES_PLUGIN = {
+  file: "flupcode-tool-uses.js",
+  source: `// Installed by FlupCode. Records which tools each session ran, so the Context screen can say which
+// of an MCP server's tools a session actually used. Regenerated when FlupCode starts the engine;
+// edits here are overwritten.
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with toolUsesDirectory() in packages/harness-server/src/context.ts, which reads it back.
+function directory() {
+  if (process.env.FLUPCODE_TOOL_USES_DIR) return process.env.FLUPCODE_TOOL_USES_DIR
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "tool-uses")
+}
+
+// A step can run several tools at once, and two of them read-modify-writing the same file lose one
+// another: the newer write would drop the tool the other just recorded.
+const queues = new Map()
+
+// The names are the engine's and its servers'; this is only here so a plugin registering endlessly
+// cannot fill the file.
+const MOST = 200
+
+function serial(file, work) {
+  const tail = queues.get(file) || Promise.resolve()
+  const next = tail.then(work, work)
+  queues.set(file, next.catch(() => {}))
+  return next
+}
+
+async function record(sessionID, tool) {
+  // The id names a file, so anything that is not an engine-shaped id is refused rather than written.
+  if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
+  if (typeof tool !== "string" || !tool) return
+  const folder = directory()
+  const file = path.join(folder, sessionID + ".json")
+  await serial(file, async () => {
+    const previous = await readFile(file, "utf8").then(JSON.parse).catch(() => ({}))
+    const tools = previous && previous.tools && typeof previous.tools === "object" ? previous.tools : {}
+    const known = tools[tool]
+    if (!known && Object.keys(tools).length >= MOST) return
+    const count = known && typeof known.count === "number" ? known.count : 0
+    tools[tool] = { count: count + 1, last: Date.now() }
+    await mkdir(folder, { recursive: true })
+    await writeFile(file, JSON.stringify({ at: Date.now(), tools }))
+  })
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeToolUses = async () => ({
+  "tool.execute.before": async ({ tool, sessionID }) => {
+    await record(sessionID, tool).catch(() => {})
+  },
+})
+`,
+}
+
+/**
  * system-prompt: the Context screen promises to show what a turn was given, and the assembled system
  * prompt is the part of it no endpoint reports — the engine builds it at request time from the agent,
  * the environment, the instruction files, the skills and the MCP instructions. The plugin records
@@ -141,8 +207,8 @@ export const flupcodeSystemPrompt = async () => ({
 `,
 }
 
-/** The engine plugins FlupCode owns, in install order. */
-const PLUGINS = [REASONING_VARIANTS_PLUGIN, SYSTEM_PROMPT_PLUGIN]
+/** The engine plugins FlupCode owns. */
+const PLUGINS = [REASONING_VARIANTS_PLUGIN, TOOL_USES_PLUGIN, SYSTEM_PROMPT_PLUGIN]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */
 export function engineConfigDir(env: NodeJS.ProcessEnv = process.env, home = os.homedir()) {
