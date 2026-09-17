@@ -104,6 +104,13 @@ function toolInput(tool: SessionMessageAssistantTool): Record<string, unknown> {
   return tool.state.input as Record<string, unknown>
 }
 
+/** Whether the engine dropped this result from the context it sends. `compaction.prune` marks the
+ *  older results it clears; the transcript keeps the output, so the card can say the model no longer
+ *  receives it. The legacy store's mark is mapped onto the part in `transcript.ts`. */
+function isCleared(tool: SessionMessageAssistantTool) {
+  return !!tool.time.pruned
+}
+
 function stringField(input: Record<string, unknown>, ...keys: string[]) {
   for (const key of keys) {
     const value = input[key]
@@ -197,13 +204,16 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> 
   const newText = createMemo(() => stringField(input(), "newString", "new_string"))
   const hasDiff = () => oldText() !== undefined && newText() !== undefined
   return (
-    <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error" }}>
+    <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error", "fc-tool-cleared": isCleared(props.part) }}>
       <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
         {/* A command speaks for itself; other tools keep their name before the title. */}
         <Show when={!(props.part.name === "bash" && toolTitle(props.part))}>
           <span class="fc-tool-name">{props.part.name}</span>
         </Show>
         <Show when={toolTitle(props.part)}>{(value) => <span class="fc-tool-title">{value()}</span>}</Show>
+        <Show when={isCleared(props.part)}>
+          <span class="fc-tool-cleared-badge">{t("Cleared from context")}</span>
+        </Show>
         <span class={`fc-tool-status fc-tool-status-${status()}`}>{status()}</span>
       </button>
       <Show when={open()}>
@@ -284,10 +294,16 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
   const running = () => props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
   const done = () =>
     props.parts.filter((part) => part.state.status === "completed" || part.state.status === "error").length
+  // A closed block still says how many of its results left the context: the reader should not have to
+  // open every one of them to find out what the engine dropped.
+  const cleared = () => props.parts.filter(isCleared).length
   return (
     <div class="fc-toolgroup" classList={{ "fc-toolgroup-running": running(), "fc-toolgroup-open": open() }}>
       <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
         <span class="fc-toolgroup-label">{toolGroupSummary(props.parts)}</span>
+        <Show when={cleared() > 0}>
+          <span class="fc-toolgroup-cleared">{t("{n} cleared", { n: cleared() })}</span>
+        </Show>
         <span
           class="fc-toolgroup-count"
           title={t("{n} tools in this block", { n: props.parts.length })}
