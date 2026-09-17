@@ -1727,7 +1727,10 @@ button.fc-status {
   margin-top: 0;
 }
 
-.fc-markdown > *:last-child {
+.fc-markdown > *:last-child,
+/* The blocks sit inside a `display: contents` wrapper, so the closing margin is one level deeper
+   than the selector above reaches; without this the text sits high in its bubble. */
+.fc-markdown > *:last-child > *:last-child {
   margin-bottom: 0;
 }
 
