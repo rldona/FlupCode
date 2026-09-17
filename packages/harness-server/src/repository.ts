@@ -121,6 +121,7 @@ CREATE TABLE IF NOT EXISTS findings (
   severity TEXT NOT NULL,
   title TEXT NOT NULL,
   detail TEXT,
+  source TEXT,
   resolved INTEGER,
   created_at INTEGER NOT NULL
 );
@@ -259,6 +260,7 @@ type FindingRow = {
   severity: string
   title: string
   detail: string | null
+  source: string | null
   resolved: number | null
   created_at: number
 }
@@ -274,6 +276,7 @@ const decodeFinding = (row: FindingRow): Finding => ({
   ...(row.task_id ? { taskID: row.task_id } : {}),
   ...(row.line !== null ? { line: row.line } : {}),
   ...(row.detail ? { detail: row.detail } : {}),
+  ...(row.source ? { source: row.source as Finding["source"] } : {}),
   ...(row.resolved ? { resolved: true } : {}),
 })
 
@@ -364,6 +367,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("tasks", "retry_of", "TEXT")
     this.addColumn("tasks", "gate", "TEXT")
     this.addColumn("runs", "directory", "TEXT")
+    this.addColumn("findings", "source", "TEXT")
   }
 
   private addColumn(table: string, column: string, definition: string) {
@@ -765,8 +769,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       for (const finding of findings) {
         this.db
           .query(
-            `INSERT INTO findings (id, directory, run_id, task_id, file, line, severity, title, detail, resolved, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+            `INSERT INTO findings (id, directory, run_id, task_id, file, line, severity, title, detail, source, resolved, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`,
           )
           .run(
             finding.id,
@@ -778,6 +782,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             finding.severity,
             finding.title,
             finding.detail ?? null,
+            finding.source ?? null,
             null,
             finding.createdAt,
           )

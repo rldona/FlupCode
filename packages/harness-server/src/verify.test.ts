@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { configuredSteps, detectedSteps, evidenceText, runVerify, verifySteps } from "./verify"
+import { allFailures, configuredSteps, detectedSteps, evidenceText, focusedEvidence, runVerify, verifySteps } from "./verify"
 
 const made: string[] = []
 const project = (files: Record<string, string>) => {
@@ -155,5 +155,114 @@ describe("the evidence", () => {
 
   test("says so when there was nothing to run, rather than claiming a pass", () => {
     expect(evidenceText({ ok: false, steps: [] })).toContain("No verification")
+  })
+})
+
+describe("what the output said", () => {
+  test("a step that fails comes back with its failures read out of what it printed", async () => {
+    const directory = project({})
+    // A real command, printing what a real compiler prints — the path is resolved against the
+    // directory the step ran in, which is the whole reason this is parsed here and not in the UI.
+    const report = await runVerify(directory, {
+      steps: [{ name: "typecheck", command: `echo "src/a.ts(4,7): error TS2322: Type 'number' is not assignable."; exit 2` }],
+    })
+
+    expect(report.steps[0]!.failures).toEqual([
+      { file: "src/a.ts", line: 4, column: 7, message: "Type 'number' is not assignable.", rule: "TS2322" },
+    ])
+    expect(allFailures(report)).toHaveLength(1)
+  })
+
+  test("a step that passed is not read for failures", async () => {
+    // Test runners print the word "error" in their own help and summaries. Reading a green step
+    // would file findings against a run that verified.
+    const directory = project({})
+    const report = await runVerify(directory, {
+      steps: [{ name: "test", command: `echo "src/a.ts:1:1: error: see docs"; exit 0` }],
+    })
+    expect(report.steps[0]!.failures).toBeUndefined()
+  })
+
+  test("the evidence puts the failures above the log", () => {
+    const text = evidenceText({
+      ok: false,
+      steps: [
+        {
+          name: "test",
+          command: "bun test",
+          exitCode: 1,
+          durationMs: 1000,
+          output: "a hundred lines of log",
+          failures: [{ file: "src/a.ts", line: 3, message: "Expected 3, got 2", rule: "adds" }],
+          failureCount: 1,
+        },
+      ],
+    })
+    expect(text.indexOf("src/a.ts:3 — Expected 3, got 2")).toBeLessThan(text.indexOf("a hundred lines of log"))
+    expect(text).toContain("1 failure")
+  })
+
+  test("a capped list says how many there really were", () => {
+    const text = evidenceText({
+      ok: false,
+      steps: [
+        {
+          name: "typecheck",
+          command: "tsc",
+          exitCode: 2,
+          durationMs: 10,
+          output: "",
+          failures: [{ file: "src/a.ts", line: 1, message: "Nope" }],
+          failureCount: 120,
+        },
+      ],
+    })
+    expect(text).toContain("1 of 120 failures")
+  })
+})
+
+describe("what a retry is told", () => {
+  const withFailures = {
+    ok: false,
+    steps: [
+      {
+        name: "test",
+        command: "bun test",
+        exitCode: 1,
+        durationMs: 1000,
+        output: "x".repeat(6000),
+        failures: [{ file: "src/a.ts", line: 3, message: "Expected 3, got 2", rule: "adds" }],
+        failureCount: 1,
+      },
+    ],
+  }
+
+  test("the failures, not six kilobytes of log", () => {
+    const text = focusedEvidence(withFailures)
+    expect(text).toContain("src/a.ts:3 — Expected 3, got 2")
+    expect(text).not.toContain("x".repeat(100))
+    expect(text.length).toBeLessThan(400)
+  })
+
+  test("a step that failed without a readable line is still reported, with its output", () => {
+    const text = focusedEvidence({
+      ok: false,
+      steps: [
+        ...withFailures.steps,
+        { name: "build", command: "make", exitCode: 1, durationMs: 10, output: "linker exploded" },
+      ],
+    })
+    // Otherwise the retry hears about the step that parsed and never learns the build broke too.
+    expect(text).toContain("build")
+    expect(text).toContain("linker exploded")
+  })
+
+  test("when nothing could be parsed it falls back to the whole evidence", () => {
+    // A smaller prompt is not worth losing the only evidence there is.
+    const report = {
+      ok: false,
+      steps: [{ name: "test", command: "bun test", exitCode: 1, durationMs: 10, output: "something odd" }],
+    }
+    expect(focusedEvidence(report)).toBe(evidenceText(report))
   })
 })

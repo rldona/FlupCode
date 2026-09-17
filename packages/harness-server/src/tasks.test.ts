@@ -167,6 +167,56 @@ describe("a verify task", () => {
     repository.close()
   })
 
+  test("the failures are filed on their lines, so the diff can show them", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-verify-run-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "project.yaml"),
+      // Single-quoted, because the command itself is full of colons and YAML would end the scalar
+      // at the first one — which is exactly the parse error this file reports when it happens.
+      `verify:\n  typecheck: 'echo \"src/a.ts(4,7): error TS2322: Type number is not assignable.\"; exit 2'\n`,
+    )
+
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [{ name: "verify", prompt: "", kind: "verify" }])
+    await expect(new TaskRunner(repository, engine).execute(run, { directory })).rejects.toThrow()
+
+    // This is the point of the ticket: a failed check becomes a comment on a line, through the same
+    // machinery a review's findings go through.
+    const [finding] = repository.listFindings({ runID: run.id })
+    expect(finding).toMatchObject({
+      file: "src/a.ts",
+      line: 4,
+      severity: "high",
+      title: "Type number is not assignable.",
+    })
+    expect(finding!.detail).toContain("typecheck")
+    expect(finding!.taskID).toBe(repository.listTasks(run.id)[0]!.id)
+    repository.close()
+  })
+
+  test("a failure in a file outside the folder is not filed as a comment on it", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-verify-run-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "project.yaml"),
+      `verify:\n  typecheck: 'echo \"/elsewhere/lib.ts(1,1): error TS2322: Not ours.\"; exit 2'\n`,
+    )
+
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [{ name: "verify", prompt: "", kind: "verify" }])
+    await expect(new TaskRunner(repository, engine).execute(run, { directory })).rejects.toThrow()
+
+    // There is no line in this diff to put it on. It stays in the evidence, which is read as text.
+    expect(repository.listFindings({ runID: run.id })).toEqual([])
+    expect(repository.listTasks(run.id)[0]!.output).toContain("/elsewhere/lib.ts")
+    repository.close()
+  })
+
   test("a project nobody can check does not report that it checked out", async () => {
     const repository = open()
     const directory = mkdtempSync(join(tmpdir(), "flupcode-verify-run-"))
@@ -242,6 +292,37 @@ describe("a bounded retry", () => {
     expect(prompts[1]).toContain("Make it work")
     expect(prompts[1]).toContain("The previous attempt did not pass verification")
     expect(prompts[1]).toContain("still broken")
+    repository.close()
+  })
+
+  test("the retry is handed the failures, not the whole log", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-retry-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    // A check that prints one readable failure buried in a thousand characters of progress output,
+    // which is what a test runner actually does.
+    writeFileSync(
+      join(directory, ".flupcode", "project.yaml"),
+      `verify:\n  test: 'printf "%1000s" | tr " " "."; echo; echo \"src/a.ts(9,1): error TS2322: Broken.\"; exit 1'\n`,
+    )
+
+    const prompts: string[] = []
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "Make it work" },
+      { name: "verify", prompt: "", kind: "verify", retries: 1 },
+    ])
+    await expect(
+      new TaskRunner(repository, recordingEngine(prompts)).execute(run, { directory }),
+    ).rejects.toThrow("Verification failed")
+
+    expect(prompts[1]).toContain("src/a.ts:9 — Broken.")
+    // The padding is what the retry used to be charged for, on every attempt.
+    expect(prompts[1]).not.toContain("..........")
+    // The evidence kept on the task is still the whole thing: the prompt is shortened, the record
+    // is not.
+    expect(repository.listTasks(run.id)[1]!.output).toContain("..........")
     repository.close()
   })
 
