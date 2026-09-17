@@ -234,6 +234,26 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     setActive(0)
   }
 
+  /** The next enabled row in a direction, so the arrows never land on something that cannot open. */
+  const moveItem = (step: number) => {
+    const available = items()
+    for (let index = active() + step; index >= 0 && index < available.length; index += step) {
+      if (!available[index]?.disabled) {
+        setActive(index)
+        return
+      }
+    }
+  }
+
+  // The list is taller than the dialog in a long search: walking it with the arrows has to bring the
+  // active row into view, or the reader scrolls by hand to see where they are.
+  let list: HTMLDivElement | undefined
+  createEffect(() => {
+    active()
+    tab()
+    list?.querySelector<HTMLElement>(".fc-palette-item-active")?.scrollIntoView({ block: "nearest" })
+  })
+
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
@@ -262,12 +282,12 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
                 }
                 if (event.key === "ArrowDown") {
                   event.preventDefault()
-                  setActive((index) => Math.min(index + 1, items().length - 1))
+                  moveItem(1)
                   return
                 }
                 if (event.key === "ArrowUp") {
                   event.preventDefault()
-                  setActive((index) => Math.max(index - 1, 0))
+                  moveItem(-1)
                   return
                 }
                 if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
@@ -299,6 +319,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
                 onClick={() => {
                   setTab(undefined)
                   setActive(0)
+                  input?.focus()
                 }}
               >
                 {t("All")}
@@ -312,6 +333,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
                     onClick={() => {
                       setTab(kind)
                       setActive(0)
+                      input?.focus()
                     }}
                   >
                     {t(LABELS[kind])}
@@ -322,7 +344,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
           </Show>
 
           <Show when={items().length > 0} fallback={<div class="fc-palette-empty">{t("No results")}</div>}>
-            <div class="fc-palette-list">
+            <div class="fc-palette-list" ref={list}>
               <For each={groups()}>
                 {(group) => (
                   <>
