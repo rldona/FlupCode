@@ -1012,34 +1012,67 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-2);
-  max-width: 340px;
+  max-width: 400px;
 }
 
+/* A notification, not a strip: the disc says what kind, the title says what happened, and the
+   sentence under it says what it was. Colours come from the palette the reader has chosen. */
 .fc-toast {
-  padding: 10px 14px;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 14px;
   border: 1px solid var(--fc-border);
-  border-left: 3px solid var(--fc-text-muted);
-  border-radius: var(--fc-radius-sm);
+  border-radius: var(--fc-radius-md);
   background: var(--fc-bg-elevated);
   color: var(--fc-text);
   font-size: 13px;
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.12);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
   animation: fc-toast-in var(--fc-motion-panel);
 }
 
-.fc-toast {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.fc-toast-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--fc-accent);
 }
 
-.fc-toast-message {
+.fc-toast-success .fc-toast-icon {
+  color: var(--fc-success);
+}
+
+.fc-toast-error .fc-toast-icon {
+  color: var(--fc-danger);
+}
+
+.fc-toast-body {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-toast-title {
+  font-weight: 600;
+}
+
+.fc-toast-success .fc-toast-title {
+  color: var(--fc-success);
+}
+
+.fc-toast-error .fc-toast-title {
+  color: var(--fc-danger);
+}
+
+.fc-toast-description {
+  color: var(--fc-text-muted);
+  line-height: 1.45;
 }
 
 .fc-toast-action {
   flex: none;
+  align-self: center;
   padding: 3px 9px;
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-sm);
@@ -1055,6 +1088,7 @@ button.fc-status {
 
 .fc-toast-close {
   flex: none;
+  align-self: flex-start;
   padding: 0 2px;
   border: none;
   background: transparent;
@@ -1063,8 +1097,8 @@ button.fc-status {
   line-height: 1;
 }
 
-.fc-toast-error {
-  border-left-color: var(--fc-danger);
+.fc-toast-close:hover {
+  color: var(--fc-text);
 }
 
 @keyframes fc-toast-in {

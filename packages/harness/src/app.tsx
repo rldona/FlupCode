@@ -951,10 +951,17 @@ export const App: Component = () => {
     setCheckpointBusy(true)
     void createHarnessClient(harnessServerUrl())
       .checkpoints.restore(id)
-      .then(() => {
+      .then((done) => {
+        const plan = done?.plan
         setCheckpointTick((tick) => tick + 1)
         void refetchChanges()
         void refetchVcsStatus()
+        toast(t("Checkpoint restored"), "success", {
+          description: t("Restored: {written} rewritten, {removed} deleted", {
+            written: plan?.write.length ?? 0,
+            removed: plan?.remove.length ?? 0,
+          }),
+        })
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
       .finally(() => setCheckpointBusy(false))
@@ -1064,7 +1071,7 @@ export const App: Component = () => {
       await current.permission.saved.remove({ id })
       void refetchSavedPermissions()
       return undefined
-    })
+    }, t("Permission revoked"))
 
   const [messages, { refetch: refetchMessages }] = createResource(
     () => {
@@ -2441,6 +2448,7 @@ export const App: Component = () => {
 
     const copyPath = (path: string) => {
       void navigator.clipboard?.writeText(path)
+      toast(t("Path copied"), "success")
     }
 
     const toggleNotifications = () => {
@@ -2504,6 +2512,7 @@ export const App: Component = () => {
       }
       persistStashes([{ id: newId(), text: value, createdAt: Date.now() }, ...stashes()])
       if (clear) setPrompt("")
+      toast(t("Prompt saved"), "success")
     }
 
     const restoreStash = (id: string) => {
@@ -2688,6 +2697,7 @@ export const App: Component = () => {
       .routines.create(input)
       .then((routine) => {
         setRoutineState([routine, ...routines()])
+        toast(t("Routine created"), "success")
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
@@ -2697,6 +2707,7 @@ export const App: Component = () => {
       .routines.update(id, input)
       .then((routine) => {
         setRoutineState(routines().map((entry) => (entry.id === id ? routine : entry)))
+        toast(t("Routine saved"), "success")
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
@@ -2872,13 +2883,14 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const run = async (action: (current: Client) => Promise<string | undefined>) => {
+  const run = async (action: (current: Client) => Promise<string | undefined>, successMessage?: string) => {
     setBusy(true)
     setError(undefined)
     try {
       const id = await action(client())
       if (id) selectSession(id)
       void refetchSessions()
+      if (successMessage) toast(successMessage, "success")
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
       setError(message)
@@ -3001,6 +3013,9 @@ export const App: Component = () => {
         for (const session of sessions) await current.session.remove({ sessionID: session.id })
         if (sessions.some((session) => session.id === selected())) setSelected(undefined)
         void refetchSessions()
+        toast(t("Project deleted"), "success", {
+          description: t("{name} and its sessions were removed", { name: directory.split("/").filter(Boolean).at(-1) ?? directory }),
+        })
       } catch (cause) {
         toast(cause instanceof Error ? cause.message : String(cause), "error")
       } finally {
@@ -3019,7 +3034,7 @@ export const App: Component = () => {
       const url = await current.session.share({ sessionID: session.id, directory: session.location?.directory })
       if (url) await navigator.clipboard?.writeText(url).catch(() => undefined)
       return undefined
-    })
+    }, t("Share link copied"))
   }
 
   const unshareSession = () => {
@@ -3028,7 +3043,7 @@ export const App: Component = () => {
     void run(async (current) => {
       await current.session.unshare({ sessionID: session.id, directory: session.location?.directory })
       return undefined
-    })
+    }, t("Sharing stopped"))
   }
 
   const moveSession = (directory: string) => {
@@ -3038,7 +3053,7 @@ export const App: Component = () => {
     void run(async (current) => {
       await current.session.move({ sessionID, directory })
       return undefined
-    })
+    }, t("Session moved"))
   }
 
   const deleteSession = (id?: string) => {
@@ -3051,6 +3066,7 @@ export const App: Component = () => {
         await createClient(serverUrl()).session.remove({ sessionID })
         if (selected() === sessionID) setSelected(undefined)
         void refetchSessions()
+        toast(t("Session deleted"), "success")
       } catch (cause) {
         toast(cause instanceof Error ? cause.message : String(cause), "error")
       } finally {
@@ -3093,28 +3109,28 @@ export const App: Component = () => {
       await current.mcp.add({ server, config })
       void refetchMcp()
       return undefined
-    })
+    }, t("MCP server added"))
 
   const removeMcp = (server: string) =>
     run(async (current) => {
       await current.mcp.remove({ server })
       void refetchMcp()
       return undefined
-    })
+    }, t("MCP server removed"))
 
   const connectMcp = (server: string) =>
     run(async (current) => {
       await current.mcp.connect({ server })
       void refetchMcp()
       return undefined
-    })
+    }, t("MCP server connected"))
 
   const disconnectMcp = (server: string) =>
     run(async (current) => {
       await current.mcp.disconnect({ server })
       void refetchMcp()
       return undefined
-    })
+    }, t("MCP server disconnected"))
 
   const saveProvider = (providerID: string, key: string) =>
     run(async (current) => {
@@ -3125,7 +3141,7 @@ export const App: Component = () => {
       void refetchModels()
       void refetchIntegrations()
       return undefined
-    })
+    }, t("Provider saved"))
 
   const removeProvider = (providerID: string) =>
     run(async (current) => {
@@ -3141,7 +3157,7 @@ export const App: Component = () => {
       void refetchModels()
       void refetchIntegrations()
       return undefined
-    })
+    }, t("Provider removed"))
 
   const startOAuth = (providerID: string, methodID?: string) =>
     client()
@@ -3241,6 +3257,7 @@ export const App: Component = () => {
     anchor.download = `${sessionID}.md`
     anchor.click()
     URL.revokeObjectURL(url)
+    toast(t("Transcript exported"), "success")
   }
 
   // Chats have no commands or shell: everything typed is the message.
