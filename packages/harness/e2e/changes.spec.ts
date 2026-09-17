@@ -561,6 +561,23 @@ test("the finished row is the same alert as the bar above it, down to the ×", a
   expect(Math.abs(doneClose.y - doneBox.y - (barClose.y - barBox.y))).toBeLessThan(1)
 })
 
+test("the composer's pieces are all one gap apart, the prompt dock included", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
+
+  const bar = (await page.locator(".fc-repo-bar").boundingBox())!
+  const done = (await page.locator(".fc-pr-done").boundingBox())!
+  const dock = (await page.locator(".fc-input-wrap").boundingBox())!
+  const toolbar = (await page.locator(".fc-composer-bottom").boundingBox())!
+
+  // One gap for every stacked piece: between the alerts, before the dock, and under it. The branch
+  // block used to add its own margin to the flex gap, so the dock sat further down than the rest.
+  const alerts = done.y - (bar.y + bar.height)
+  const beforeDock = dock.y - (done.y + done.height)
+  const afterDock = toolbar.y - (dock.y + dock.height)
+  expect(Math.abs(beforeDock - alerts)).toBeLessThan(1)
+  expect(Math.abs(afterDock - beforeDock)).toBeLessThan(1)
+})
+
 test("the failing checks do get a bubble of their own, under the bar", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest(failing) })
   await expect(page.locator(".fc-pr-failures")).toHaveCount(0)
