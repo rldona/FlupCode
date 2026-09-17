@@ -5508,6 +5508,16 @@ button.fc-status {
   gap: 10px;
 }
 
+/*
+  Every stacked piece of the composer — the alerts, the prompt dock, the toolbar below it — sits one
+  gap apart. The branch block was adding its own bottom margin on top of the flex gap, so the dock
+  fell 8px further down than everything else.
+*/
+.fc-composer .fc-branch {
+  gap: 10px;
+  margin-bottom: 0;
+}
+
 .fc-composer .fc-repo-bar {
   /* Cards above the input have no border, like Claude Code's: just a lifted surface. */
   border: none;
