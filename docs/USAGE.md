@@ -440,6 +440,30 @@ This needs [`gh`](https://cli.github.com) installed and logged in, and it is Git
 there is no chip at all — not a chip that cannot tell you anything. The repository comes from the
 branch's own remote, so a fork with an `upstream` remote still reads your fork and not upstream.
 
+## Context
+
+**Context** (`/context`) is what a turn in this folder is given before your prompt.
+
+**Instructions** — every `AGENTS.md` that loads, in order: the one in your config folder first, then
+each one walking up from this folder to the project root, nearest last. Only `AGENTS.md`; the engine
+does not load `CLAUDE.md` or `.cursorrules`, whatever other tools do with them. Each row says how big
+it is and opens where it sits. The heading totals them and estimates the tokens, which is usually
+the surprise — 9 kB of instructions is about 2,300 tokens on every turn.
+
+If nothing loads, it says why: a folder outside the project, or `OPENCODE_DISABLE_PROJECT_CONFIG`.
+
+**Skills** and **Tools** are what the model is offered. A skill costs its name and description until
+it is used; the body loads then. An MCP server that is configured and not answering is struck
+through, because that is not the same as one that is.
+
+**This session's tokens** are the five the engine reports: sent, answered, reasoning, read from
+cache, written to cache. Compactions are counted if there were any.
+
+**The system prompt is not here**, and the screen says so. `/api/agent` reports a two-line
+description of each agent, not the prompt the engine assembles at turn time — that needs a plugin
+the engine does not have yet. Showing the description and calling it the system prompt would be
+worse than showing nothing.
+
 ## Cost
 
 **Cost** (`/usage`) is what the runs have spent: total, tokens, how many runs, how long they took,

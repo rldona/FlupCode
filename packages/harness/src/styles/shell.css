@@ -8435,3 +8435,67 @@ button.fc-status {
   color: var(--fc-diff-del);
   font-size: var(--fc-text-xs);
 }
+
+/* ── What the model was given (H-17) ──────────────────────────────────────── */
+
+/* `.fc-context` was taken: it is the meter in the right aside. */
+.fc-context-screen {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-5);
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+}
+
+.fc-context-aside {
+  margin-left: 8px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  font-weight: 400;
+}
+
+.fc-context-row {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--fc-border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fc-context-row:hover {
+  background: color-mix(in srgb, var(--fc-text) 5%, transparent);
+}
+
+.fc-context-excerpt {
+  flex: 1;
+  overflow: hidden;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-context-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: var(--fc-space-1) 0;
+}
+
+.fc-context-chip {
+  padding: 2px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-text-muted) 12%, transparent);
+  color: var(--fc-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fc-text-xs);
+}
+
+/* A server that is configured and not answering is not the same as one that is. */
+.fc-context-chip-off {
+  opacity: 0.55;
+  text-decoration: line-through;
+}

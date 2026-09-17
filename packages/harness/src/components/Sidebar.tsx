@@ -67,6 +67,7 @@ type SidebarProps = {
   onSearch: () => void
   onRuns: () => void
   onUsage: () => void
+  onContext: () => void
   onArtifacts: () => void
   onProviders: () => void
   onConfig: () => void
@@ -289,6 +290,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               <button class="fc-nav-item" type="button" onClick={props.onUsage}>
                 <span class="fc-nav-icon">▦</span>
                 {t("Cost")}
+              </button>
+              <button class="fc-nav-item" type="button" onClick={props.onContext}>
+                <span class="fc-nav-icon">◫</span>
+                {t("Context")}
               </button>
               <button
                 class="fc-nav-item"

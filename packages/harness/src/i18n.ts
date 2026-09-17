@@ -722,6 +722,29 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Context (H-17)
+  "What a turn in this folder is given before your prompt.": "Lo que recibe un turno en esta carpeta antes de tu prompt.",
+  "Every AGENTS.md from your config folder down to this one. The nearest has the last word.":
+    "Todos los AGENTS.md desde tu carpeta de configuración hasta ésta. El más cercano manda.",
+  "{size}, about {tokens} tokens": "{size}, unos {tokens} tokens",
+  "Nothing is loaded. A turn here starts with your prompt alone.":
+    "No se carga nada. Un turno aquí empieza sólo con tu prompt.",
+  "Offered to the model by name and description; the body loads only when one is used.":
+    "Se le ofrecen al modelo por nombre y descripción; el cuerpo sólo se carga si usa una.",
+  "{connected} of {total} MCP servers connected": "{connected} de {total} servidores MCP conectados",
+  "This session's tokens": "Tokens de esta sesión",
+  Sent: "Enviados",
+  Answered: "Respondidos",
+  "Read from cache": "Leídos de caché",
+  "Written to cache": "Escritos en caché",
+  "Compacted {n} times: everything before each is a summary now.":
+    "Compactada {n} veces: todo lo anterior a cada una es ahora un resumen.",
+  "The system prompt": "El system prompt",
+  "FlupCode cannot show it. The engine reports each agent's description, not the prompt it builds for a turn — that needs a plugin it does not have yet. Everything above is what goes into it.":
+    "FlupCode no puede enseñarlo. El motor informa de la descripción de cada agente, no del prompt que construye para un turno — eso necesita un plugin que todavía no tiene. Todo lo de arriba es lo que entra en él.",
+  "this session": "esta sesión",
+  "Could not read that file": "No se pudo leer ese archivo",
+
   // Findings on the diff (H-32)
   high: "alto",
   medium: "medio",

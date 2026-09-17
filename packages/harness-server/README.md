@@ -19,6 +19,9 @@ It owns:
   than through a shell; the branch's pull request and its checks, read with `gh`. The client is a browser and the engine's `/vcs` routes only read, so this is the only part
   of FlupCode that can write to a repository. What may be committed is what `git status` has just
   listed as changed.
+- **Context** (H-17). Which `AGENTS.md` files a turn in a folder would load, by the engine's own
+  rules — the global one, then every one walking up to the project root, nearest last. Read from
+  disk because the engine does not report them. It will only read back a file it has just listed.
 - **Findings** (H-32). A review's points, anchored to a file and usually to a line, parsed out of
   what the agent answered and carried onto the diff. Forgiving about the shape a model writes, strict
   about anchoring: a point with no file cannot become a comment on a line, so it is counted rather
@@ -60,6 +63,8 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
 | `POST /harness/git/pr` | push the branch if needed, then open a pull request |
 | `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |
+| `GET /harness/context` | the instruction files `?directory=` would load, in order |
+| `GET /harness/context/file` | one of them, and only one this folder would load |
 | `GET /harness/findings` | filtered by `directory`, `runID`, `open=1` |
 | `PATCH /harness/findings/:id/resolved` | set one aside, or bring it back |
 | `GET /harness/runs/:id/activity` | which tool each running task is inside, and since when |
