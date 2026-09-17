@@ -285,6 +285,32 @@ gets a failed verdict saying there was nothing to verify — never a pass it did
 Every command runs, even after one fails, and the verdict is whether they all exited zero. What they
 printed is kept: open the task's **Evidence** in Runs, unfolded already when the check failed.
 
+What the commands *said* is read as well as kept. A failure with a file and a line — a type error, a
+failing test, a lint rule — becomes a comment on that line of the diff in **Changes**, marked
+`check` so you can tell it from a review's opinion: one is a model's judgement, the other is a
+command that exited non-zero. The retry, if the check has a budget, is handed those lines instead of
+the whole log.
+
+## What a run is allowed to do
+
+A task is **confined to its project**. FlupCode has always told the engine where to start; it now
+also tells it where to stop, by denying the engine's own `external_directory` permission — the one
+`read`, `write`, `edit`, `glob`, `grep` and `apply_patch` ask for before touching a path outside the
+project. A task that tries gets a refusal it can read, and nobody is prompted.
+
+**The shell is not covered.** The engine's shell tool does not make that check, so a command can
+still read outside the project. This is stated rather than papered over.
+
+A workflow can open the boundary with `outside: true`, and a run can be started with `outside` in
+its request. It is never the default.
+
+Neither FlupCode nor the engine puts a ceiling on how long one tool call may take, and FlupCode does
+not invent one: a model can ask for a half-hour shell timeout on purpose, and a test suite is
+allowed to be slow. A run that wants a ceiling says so — `limits: { tool: 10m }` in a workflow, or
+`"toolLimit": "10m"` when starting a run — and a call that outstays it stops the task, naming the
+tool and how long it ran. Without one, a call that has been going for three minutes is still marked
+in Runs, and stopping it stays your decision.
+
 ## Workflows
 
 A workflow is a process written down — a file, not code, so you can open it and change it.
@@ -316,6 +342,8 @@ tasks:
 | `kind: verify` | a task | the harness runs your commands instead of a model |
 | `onFail: { max: N }` | a `verify` task | attempt the work before it again, up to N times |
 | `gate: human` | a task | hold the run here until somebody lets it through |
+| `limits: { tool: 10m }` | the workflow | stop a task whose single tool call runs longer than that |
+| `outside: true` | the workflow | let its tasks reach outside the project (off by default) |
 
 Four come with FlupCode — **feature**, **bugfix**, **refactor** and **review** — written to
 `~/.local/share/flupcode/workflows` the first time the server starts. They are yours to edit: nothing

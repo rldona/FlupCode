@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { TEMPLATES, fill, findWorkflow, listWorkflows, parseWorkflow, seedTemplates, tasksFor } from "./workflow"
+import { TEMPLATES, duration, fill, findWorkflow, listWorkflows, parseWorkflow, seedTemplates, tasksFor } from "./workflow"
 
 const made: string[] = []
 const scratch = () => {
@@ -163,4 +163,48 @@ test("the review presets ask for findings that can be anchored", () => {
     expect(prompt).toContain('"file"')
     expect(prompt).toContain('"line"')
   }
+})
+
+describe("a ceiling written in the file (H-47)", () => {
+  test("reads a duration the way a person writes one", () => {
+    expect(duration("10m")).toBe(600_000)
+    expect(duration("90s")).toBe(90_000)
+    expect(duration("2h")).toBe(7_200_000)
+    expect(duration("500ms")).toBe(500)
+    // A bare number is minutes, which is the unit these are argued about in.
+    expect(duration(10)).toBe(600_000)
+  })
+
+  test("refuses what it cannot make sense of rather than guessing", () => {
+    // "ten minutes" read as ten milliseconds would stop every task the instant it started.
+    for (const value of ["ten minutes", "", "-5m", "0", "m", undefined, null, {}]) {
+      expect(duration(value)).toBeUndefined()
+    }
+  })
+
+  test("a workflow carries its limit and its bypass", () => {
+    const workflow = parseWorkflow(
+      ["name: careful", "limits:", "  tool: 10m", "tasks:", "  - id: one", "    prompt: do it"].join("\n"),
+      "file",
+    )
+    expect(workflow?.toolLimitMs).toBe(600_000)
+    // Not declared is not opened: confinement is the default and leaving it is written down.
+    expect(workflow?.outside).toBeUndefined()
+
+    const open = parseWorkflow(
+      ["name: wide", "outside: true", "tasks:", "  - id: one", "    prompt: do it"].join("\n"),
+      "file",
+    )
+    expect(open?.outside).toBe(true)
+  })
+
+  test("a limit nobody can read leaves the workflow usable", () => {
+    const workflow = parseWorkflow(
+      ["name: typo", "limits:", "  tool: soon", "tasks:", "  - id: one", "    prompt: do it"].join("\n"),
+      "file",
+    )
+    // The run still happens, with no ceiling, rather than the whole file being refused over it.
+    expect(workflow?.tasks).toHaveLength(1)
+    expect(workflow?.toolLimitMs).toBeUndefined()
+  })
 })

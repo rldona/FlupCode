@@ -56,7 +56,8 @@ CREATE TABLE IF NOT EXISTS runs (
   started_at INTEGER NOT NULL,
   finished_at INTEGER,
   error TEXT,
-  directory TEXT
+  directory TEXT,
+  options TEXT
 );
 CREATE INDEX IF NOT EXISTS runs_source_started_at ON runs(source_type, source_id, started_at DESC);
 CREATE TABLE IF NOT EXISTS tasks (
@@ -174,6 +175,7 @@ type RunRow = {
   started_at: number
   finished_at: number | null
   error: string | null
+  options: string | null
 }
 
 type TaskRow = {
@@ -342,7 +344,35 @@ const decodeRun = (row: RunRow): Run => ({
   startedAt: row.started_at,
   finishedAt: row.finished_at ?? undefined,
   error: row.error ?? undefined,
+  ...decodeOptions(row.options),
 })
+
+/**
+ * How a run was asked to behave, kept with the run rather than with the request that started it.
+ *
+ * A run is driven twice — once when it starts and again when somebody lets it through a gate — and a
+ * limit that lived only in the first call would quietly stop applying at the second.
+ */
+const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside"> => {
+  if (!value) return {}
+  try {
+    const parsed = JSON.parse(value) as { toolLimitMs?: unknown; outside?: unknown }
+    return {
+      ...(typeof parsed.toolLimitMs === "number" && parsed.toolLimitMs > 0 ? { toolLimitMs: parsed.toolLimitMs } : {}),
+      ...(parsed.outside === true ? { outside: true } : {}),
+    }
+  } catch {
+    return {}
+  }
+}
+
+const encodeOptions = (run: Pick<Run, "toolLimitMs" | "outside">) => {
+  const options = {
+    ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
+    ...(run.outside ? { outside: true } : {}),
+  }
+  return Object.keys(options).length > 0 ? JSON.stringify(options) : null
+}
 
 const sourceKey = (source: RunSource) => (source.type === "routine" ? source.routineID : null)
 
@@ -368,6 +398,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("tasks", "gate", "TEXT")
     this.addColumn("runs", "directory", "TEXT")
     this.addColumn("findings", "source", "TEXT")
+    this.addColumn("runs", "options", "TEXT")
   }
 
   private addColumn(table: string, column: string, definition: string) {
@@ -491,8 +522,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db
       .query(
         `INSERT OR IGNORE INTO runs
-           (id, source_type, source_id, session_id, status, started_at, finished_at, error, directory)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
+           (id, source_type, source_id, session_id, status, started_at, finished_at, error, directory, options)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`,
       )
       .run(
         run.id,
@@ -504,11 +535,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
         run.finishedAt ?? null,
         run.error ?? null,
         run.directory ?? null,
+        encodeOptions(run),
       )
   }
 
-  startRun(source: RunSource, now: number, directory?: string) {
-    const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory }
+  startRun(source: RunSource, now: number, directory?: string, options: Pick<Run, "toolLimitMs" | "outside"> = {}) {
+    const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
       this.insertRun(run)
       if (source.type === "routine") this.markRun(source.routineID, now)

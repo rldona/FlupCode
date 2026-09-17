@@ -1,4 +1,4 @@
-import type { Engine } from "./engine"
+import { CONFINED, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task } from "./types"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
@@ -202,6 +202,10 @@ export class TaskRunner {
             directory: options.directory,
             parentID,
             title: task.name,
+            // Confined to the project unless this run said otherwise (H-47). The harness has always
+            // passed `directory` to the engine; passing it only says where to start, not where to
+            // stop, and an unattended task could walk the disk from there.
+            ...(run.outside ? {} : { permission: CONFINED }),
           })
           this.repository.attachTaskSession(task.id, session.id)
           await this.engine.prompt({
@@ -211,7 +215,11 @@ export class TaskRunner {
             agent: task.agent,
             model: task.model,
           })
-          await this.engine.waitForIdle(session.id, { directory: options.directory, stopped })
+          await this.engine.waitForIdle(session.id, {
+            directory: options.directory,
+            stopped,
+            ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
+          })
           const answer = await this.engine.lastAnswer(session.id, options.directory)
           this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
             output: answer?.text,
