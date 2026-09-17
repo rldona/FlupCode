@@ -33,7 +33,13 @@ type ComposerProps = {
   modelLabel: string
   variants: ModelVariant[]
   variantKey: string | undefined
-  usage: { used: number; limit: number; cost?: number; tokens?: { input: number; output: number; reasoning: number } }
+  usage: {
+    used: number
+    limit: number
+    cost?: number
+    tokens?: { input: number; output: number; reasoning: number }
+    estimated?: boolean
+  }
   repo?: {
     directory: string
     branch?: string
@@ -573,6 +579,7 @@ export const Composer: Component<ComposerProps> = (props) => {
                 limit={props.usage.limit}
                 cost={props.usage.cost}
                 tokens={props.usage.tokens}
+                estimated={props.usage.estimated}
               />
             </Show>
           </div>

@@ -155,4 +155,51 @@ describe("contextFigures", () => {
     const messages = [{ type: "user" } as unknown as SessionMessageInfo]
     expect(contextFigures(session(Date.now(), 100), messages, [], 200_000).used).toBe(100)
   })
+
+  test("sizes the session the compaction left, not the history it summarized", () => {
+    // The summary's own tokens are the request that wrote it: taking them would hold the meter at
+    // the size the reader just watched go away.
+    const messages = [
+      step({ input: 470_000, read: 4_000 }),
+      {
+        type: "assistant",
+        summary: true,
+        tokens: { input: 474_000, output: 2_000, reasoning: 0, cache: { read: 0, write: 0 } },
+        content: [{ type: "text", text: "x".repeat(4_000) }],
+      } as unknown as SessionMessageInfo,
+    ]
+    const figures = contextFigures(session(Date.now(), 0), messages, [], 1_000_000)
+    expect(figures.used).toBe(1_000)
+    expect(figures.estimated).toBe(true)
+    expect(figures.tokens).toBeUndefined()
+  })
+
+  test("sizes a v2 compaction from the summary and tail it kept", () => {
+    const messages = [
+      step({ input: 470_000, read: 4_000 }),
+      {
+        type: "compaction",
+        reason: "auto",
+        summary: "s".repeat(400),
+        recent: "r".repeat(400),
+      } as unknown as SessionMessageInfo,
+    ]
+    expect(contextFigures(session(Date.now(), 0), messages, [], 1_000_000).used).toBe(200)
+  })
+
+  test("a step after the compaction measures it again", () => {
+    const messages = [
+      step({ input: 470_000, read: 4_000 }),
+      {
+        type: "assistant",
+        summary: true,
+        tokens: { input: 474_000, output: 2_000, reasoning: 0, cache: { read: 0, write: 0 } },
+        content: [],
+      } as unknown as SessionMessageInfo,
+      step({ input: 10_000, read: 11_000 }),
+    ]
+    const figures = contextFigures(session(Date.now(), 0), messages, [], 1_000_000)
+    expect(figures.used).toBe(21_000)
+    expect(figures.estimated).toBeUndefined()
+  })
 })
