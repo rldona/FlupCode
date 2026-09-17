@@ -8,7 +8,6 @@ import { DeliveryMenu } from "./DeliveryMenu"
 import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
-import { PullRequestChip } from "./PullRequestChip"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { stepHistory } from "../prompt-history"
@@ -297,8 +296,11 @@ export const Composer: Component<ComposerProps> = (props) => {
       }}
     >
       <div class="fc-composer-inner">
-        <Show when={props.pullRequest}>{(pr) => <PullRequestChip {...pr()} />}</Show>
-        <Show when={props.repo}>{(repo) => <RepoBar {...repo()} />}</Show>
+        {/*
+          One bar, not two. The folder, the branch, what changed and what GitHub says are one fact
+          about where you are; drawing them as two stacked bubbles made the reader join them up.
+        */}
+        <Show when={props.repo}>{(repo) => <RepoBar {...repo()} pullRequest={props.pullRequest} />}</Show>
 
         <Show when={commandMenuOpen()}>
           <div class="fc-command-menu" ref={menu}>
