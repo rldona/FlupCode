@@ -98,6 +98,7 @@ export const SessionPaths = {
   shell: `${root}/:sessionID/shell`,
   revert: `${root}/:sessionID/revert`,
   unrevert: `${root}/:sessionID/unrevert`,
+  revertCommit: `${root}/:sessionID/revert/commit`,
   permissions: `${root}/:sessionID/permissions/:permissionID`,
   deleteMessage: `${root}/:sessionID/message/:messageID`,
   deletePart: `${root}/:sessionID/message/:messageID/part/:partID`,
@@ -390,6 +391,19 @@ export const SessionApi = HttpApi.make("session")
             identifier: "session.unrevert",
             summary: "Restore reverted messages",
             description: "Restore all previously reverted messages in a session.",
+          }),
+        ),
+        HttpApiEndpoint.post("revertCommit", SessionPaths.revertCommit, {
+          params: { sessionID: SessionID },
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Revert committed"),
+          error: [HttpApiError.BadRequest, ApiNotFoundError, SessionBusyError],
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "session.revertCommit",
+            summary: "Commit revert",
+            description:
+              "Permanently drop the messages a staged revert hid, keeping the restored files. The next prompt does this on its own; this exposes it as its own action.",
           }),
         ),
         HttpApiEndpoint.post("permissionRespond", SessionPaths.permissions, {

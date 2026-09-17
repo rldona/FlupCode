@@ -288,7 +288,6 @@ export function createClient(baseUrl = resolveServerUrl()) {
             modelID: input.modelID,
           }),
         ),
-      interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
       /** Sessions whose run is still going, across all of its steps. */
       active: async () => new Set(Object.keys((await unwrap(client.v2.session.active()))?.data ?? {})),
       /**
@@ -341,9 +340,19 @@ export function createClient(baseUrl = resolveServerUrl()) {
             .map(([id]) => id),
         )
       },
-      /** Stops a chat's legacy run. */
-      abort: (input: { sessionID: string; directory: string }) =>
-        unwrap(client.session.abort({ sessionID: input.sessionID, directory: input.directory })),
+      /**
+       * Stops the turn running on this session, whichever runtime owns it. Code and chats run on the
+       * legacy runtime, whose abort cancels its runner; a v2 run — a skill — is stopped by the v2
+       * interrupt. Only one of the two has work and the other is a no-op, so both are asked and the
+       * call only fails when neither could be reached.
+       */
+      abort: async (input: { sessionID: string; directory?: string }) => {
+        const [legacy, v2] = await Promise.allSettled([
+          unwrap(client.session.abort({ sessionID: input.sessionID, directory: input.directory })),
+          unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
+        ])
+        if (legacy.status === "rejected" && v2.status === "rejected") throw legacy.reason
+      },
       switchModel: (input: { sessionID: string; model: { id: string; providerID: string; variant?: string } }) =>
         unwrap(client.v2.session.switchModel({ sessionID: input.sessionID, model: input.model })),
       switchAgent: (input: { sessionID: string; agent: string }) =>
@@ -364,17 +373,24 @@ export function createClient(baseUrl = resolveServerUrl()) {
         return (await response.json()) as SessionV2Info
       },
       revert: {
-        stage: (input: { sessionID: string; messageID: string; files?: boolean }) =>
+        /**
+         * Code's turns run on the legacy runtime and write the legacy message store, so a revert has
+         * to go there too. The v2 revert reads the v2 message table and answers "Message not found"
+         * for a message that only the legacy turn wrote.
+         */
+        stage: (input: { sessionID: string; messageID: string; directory?: string }) =>
           unwrap(
-            client.v2.session.revert.stage({
+            client.session.revert({
               sessionID: input.sessionID,
+              directory: input.directory,
               messageID: input.messageID,
-              files: input.files,
             }),
           ),
-        clear: (input: { sessionID: string }) => unwrap(client.v2.session.revert.clear({ sessionID: input.sessionID })),
-        commit: (input: { sessionID: string }) =>
-          unwrap(client.v2.session.revert.commit({ sessionID: input.sessionID })),
+        clear: (input: { sessionID: string; directory?: string }) =>
+          unwrap(client.session.unrevert({ sessionID: input.sessionID, directory: input.directory })),
+        /** Drops the messages the staged revert hid, which is what the next prompt does on its own. */
+        commit: (input: { sessionID: string; directory?: string }) =>
+          unwrap(client.session.revertCommit({ sessionID: input.sessionID, directory: input.directory })),
       },
       permission: {
         list: (input: { sessionID: string }) =>

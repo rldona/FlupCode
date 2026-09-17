@@ -207,6 +207,8 @@ import type {
   SessionPromptAsyncResponses,
   SessionPromptErrors,
   SessionPromptResponses,
+  SessionRevertCommitErrors,
+  SessionRevertCommitResponses,
   SessionRevertErrors,
   SessionRevertResponses,
   SessionShareErrors,
@@ -4340,6 +4342,40 @@ export class Session2 extends HeyApiClient {
       ...options,
       ...params,
     })
+  }
+
+  /**
+   * Commit revert
+   *
+   * Permanently drop the messages a staged revert hid, keeping the restored files. The next prompt does this on its own; this exposes it as its own action.
+   */
+  public revertCommit<ThrowOnError extends boolean = false>(
+    parameters: {
+      sessionID: string
+      directory?: string
+      workspace?: string
+    },
+    options?: Options<never, ThrowOnError>,
+  ) {
+    const params = buildClientParams(
+      [parameters],
+      [
+        {
+          args: [
+            { in: "path", key: "sessionID" },
+            { in: "query", key: "directory" },
+            { in: "query", key: "workspace" },
+          ],
+        },
+      ],
+    )
+    return (options?.client ?? this.client).post<SessionRevertCommitResponses, SessionRevertCommitErrors, ThrowOnError>(
+      {
+        url: "/session/{sessionID}/revert/commit",
+        ...options,
+        ...params,
+      },
+    )
   }
 }
 

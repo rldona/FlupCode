@@ -359,6 +359,16 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       return yield* SessionError.mapBusy(revertSvc.unrevert({ sessionID: ctx.params.sessionID }))
     })
 
+    // The next prompt drops the messages a revert hid through the same cleanup; this exposes it on
+    // its own so a revert can be committed without sending a prompt.
+    const revertCommit = Effect.fn("SessionHttpApi.revertCommit")(function* (ctx: {
+      params: { sessionID: SessionID }
+    }) {
+      const session = yield* requireSession(ctx.params.sessionID)
+      yield* SessionError.mapBusy(revertSvc.cleanup(session))
+      return true
+    })
+
     const permissionRespond = Effect.fn("SessionHttpApi.permissionRespond")(function* (ctx: {
       params: { sessionID: SessionID; permissionID: PermissionV1.ID }
       payload: typeof PermissionResponsePayload.Type
@@ -434,6 +444,7 @@ export const sessionHandlers = HttpApiBuilder.group(InstanceHttpApi, "session", 
       .handle("shell", shell)
       .handle("revert", revert)
       .handle("unrevert", unrevert)
+      .handle("revertCommit", revertCommit)
       .handle("permissionRespond", permissionRespond)
       .handle("deleteMessage", deleteMessage)
       .handle("deletePart", deletePart)

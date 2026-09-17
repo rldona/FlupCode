@@ -1640,6 +1640,21 @@ const scenarios: Scenario[] = [
       "status",
     ),
   http.protected
+    .post("/session/{sessionID}/revert/commit", "session.revertCommit")
+    .mutating()
+    .seeded((ctx) => ctx.session({ title: "Commit revert session" }))
+    .at((ctx) => ({
+      path: route("/session/{sessionID}/revert/commit", { sessionID: ctx.state.id }),
+      headers: ctx.headers(),
+    }))
+    .json(
+      200,
+      (body) => {
+        check(body === true, "commit should report success")
+      },
+      "status",
+    ),
+  http.protected
     .post("/session/{sessionID}/permissions/{permissionID}", "permission.respond")
     .seeded((ctx) => ctx.session({ title: "Deprecated permission session" }))
     .at((ctx) => ({
