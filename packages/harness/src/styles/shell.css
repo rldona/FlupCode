@@ -5557,6 +5557,19 @@ button.fc-status {
   background: color-mix(in srgb, var(--fc-border) 50%, transparent);
 }
 
+/*
+  A finished pull request's row is the same alert as the bar above it: one height, one inset, one
+  radius, so the two × sit in the same place and the pair reads as one column rather than two
+  unrelated notices. The bar's own rules cannot reach it, because the row is a sibling.
+*/
+.fc-composer .fc-pr-done {
+  min-height: 44px;
+  padding: 6px 8px 6px 14px;
+  border: none;
+  border-radius: var(--fc-radius-md);
+  font-size: 14px;
+}
+
 .fc-repo-clear {
   width: 30px;
   height: 30px;

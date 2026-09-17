@@ -541,6 +541,26 @@ test("the branch and its pull request are one bar, not two", async ({ page }) =>
   await expect(bar.locator(".fc-pr-chip")).toHaveCount(1)
 })
 
+test("the finished row is the same alert as the bar above it, down to the ×", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
+
+  const bar = page.locator(".fc-repo-bar")
+  const done = page.locator(".fc-pr-done")
+  const barBox = (await bar.boundingBox())!
+  const doneBox = (await done.boundingBox())!
+
+  // Two notices in one column: the same size, so neither reads as an afterthought.
+  expect(doneBox.height).toBe(barBox.height)
+  expect(doneBox.width).toBe(barBox.width)
+
+  // And the × closes whichever one it sits on, so it must not move between them: same column on
+  // the right, and the same place within its own row.
+  const barClose = (await bar.locator(".fc-repo-clear").boundingBox())!
+  const doneClose = (await done.locator(".fc-repo-clear").boundingBox())!
+  expect(Math.abs(doneClose.x - barClose.x)).toBeLessThan(1)
+  expect(Math.abs(doneClose.y - doneBox.y - (barClose.y - barBox.y))).toBeLessThan(1)
+})
+
 test("the failing checks do get a bubble of their own, under the bar", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest(failing) })
   await expect(page.locator(".fc-pr-failures")).toHaveCount(0)
