@@ -7,6 +7,7 @@ import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
 import { AgentsPanel } from "./components/AgentsPanel"
+import { SkillCatalogue } from "./components/SkillCatalogue"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
 import type { TaskActivity, TouchedFiles } from "./types"
 import type {
@@ -386,6 +387,7 @@ export const App: Component = () => {
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
   const agentsOpen = () => screen() === "agents"
+  const skillsScreenOpen = () => screen() === "skills"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -809,6 +811,34 @@ export const App: Component = () => {
         if (!answer) throw new Error(t("Could not read that file"))
         return answer.content
       })
+  // Skills (H-27). The files come from the harness server, including the ones the engine did not
+  // load — which the engine, by definition, cannot report.
+  const [skillsRefresh, setSkillsRefresh] = createSignal(0)
+  const skillFilesKey = () => {
+    if (!skillsScreenOpen() || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${skillsRefresh()}`
+  }
+  const [skillFiles] = createResource(skillFilesKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).skills.list(directory ? { directory } : {})
+  })
+  const readSkillFile = (path: string) =>
+    createHarnessClient(harnessServerUrl())
+      .skills.file({ path, ...(vcsDirectory() ? { directory: vcsDirectory()! } : {}) })
+      .then((answer) => {
+        if (!answer) throw new Error(t("Could not read that file"))
+        return answer.content
+      })
+  const saveSkill = async (draft: { name: string; scope: "global" | "project"; description: string; body: string }) => {
+    const directory = vcsDirectory()
+    await createHarnessClient(harnessServerUrl()).skills.save({ ...draft, ...(directory ? { directory } : {}) })
+    setSkillsRefresh((count) => count + 1)
+  }
+  const deleteSkillFile = async (path: string) => {
+    const directory = vcsDirectory()
+    await createHarnessClient(harnessServerUrl()).skills.remove({ path, ...(directory ? { directory } : {}) })
+    setSkillsRefresh((count) => count + 1)
+  }
   /**
    * The agents this folder has, for the screen that is about this folder's agent files.
    *
@@ -3662,6 +3692,7 @@ export const App: Component = () => {
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
             onAgents={() => showScreen("agents")}
+            onSkills={() => showScreen("skills")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -4128,6 +4159,18 @@ export const App: Component = () => {
           leaveScreen()
           selectSession(id)
         }}
+        onClose={() => leaveScreen()}
+      />
+      <SkillCatalogue
+        open={skillsScreenOpen()}
+        files={skillFiles() ?? []}
+        skills={skills()?.data ?? []}
+        loading={skillFiles.loading}
+        serverAvailable={routinesServerAvailable()}
+        hasProject={!!vcsDirectory()}
+        onRead={readSkillFile}
+        onSave={saveSkill}
+        onDelete={deleteSkillFile}
         onClose={() => leaveScreen()}
       />
       <AgentsPanel

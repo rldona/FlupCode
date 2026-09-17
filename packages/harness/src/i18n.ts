@@ -891,6 +891,32 @@ const ES: Record<string, string> = {
   "The engine reports these and there is no file behind them: they are built in or come from a plugin.":
     "El motor los informa y no hay fichero detrás: vienen de serie o de un plugin.",
 
+  // Skills (H-27)
+  "What the model can reach for, and what it cannot.": "A lo que el modelo puede echar mano, y a lo que no.",
+  "New skill": "Nuevo skill",
+  "On disk and not loaded": "En disco y sin cargar",
+  "The engine skips these without saying anything. Here is what it wants.":
+    "El motor se los salta sin decir nada. Esto es lo que pide.",
+  "already taken": "ya ocupado",
+  Loaded: "Cargados",
+  "None on disk.": "Ninguno en disco.",
+  "No description, so the model has nothing to choose it by":
+    "Sin descripción, así que el modelo no tiene por dónde elegirlo",
+  "A skill needs a name": "Un skill necesita un nombre",
+  "Written. The engine picks it up when this folder is opened again.":
+    "Escrito. El motor lo coge cuando se vuelva a abrir esta carpeta.",
+  "Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.":
+    "Escrito como lo lee el motor: carpeta propia, un SKILL.md y un nombre en su frontmatter.",
+  "When the model should reach for it": "Cuándo debería echarle mano el modelo",
+  Body: "Cuerpo",
+  "Not from a file here": "No vienen de un fichero de aquí",
+  "The engine has these and no file on this machine explains them.":
+    "El motor los tiene y ningún fichero de esta máquina los explica.",
+
+  "Written, and not picked up yet": "Escritos y todavía sin recoger",
+  "Nothing is wrong with these. The engine reads a folder's skills when it opens the folder.":
+    "Estos no tienen nada malo. El motor lee los skills de una carpeta al abrirla.",
+
 }
 
 const STORAGE_DEFAULT: Locale = "en"

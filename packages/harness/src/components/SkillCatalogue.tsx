@@ -1,0 +1,334 @@
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
+import { t } from "../i18n"
+import type { SkillFile } from "../types"
+import type { SkillInfo } from "../engine-types"
+
+type SkillCatalogueProps = {
+  open: boolean
+  /** What is on disk, loaded or not. */
+  files: SkillFile[]
+  /** What the engine says it has, which includes ones with no file — the built-in one. */
+  skills: SkillInfo[]
+  loading: boolean
+  serverAvailable: boolean
+  hasProject: boolean
+  onRead: (path: string) => Promise<string>
+  onSave: (draft: { name: string; scope: "global" | "project"; description: string; body: string }) => Promise<unknown>
+  onDelete: (path: string) => Promise<unknown>
+  onClose: () => void
+}
+
+const WHERE: Record<SkillFile["scope"], string> = {
+  global: "global",
+  project: "project",
+  claude: ".claude",
+  agents: ".agents",
+}
+
+/** What the engine has that no file here explains: the built-in skill, and anything pulled from a URL. */
+export function withoutFiles(skills: SkillInfo[], files: SkillFile[]) {
+  const named = new Set(files.filter((file) => file.loaded).map((file) => file.name))
+  return skills.filter((skill) => !named.has(skill.name))
+}
+
+/** The ones on disk that the engine would not load. The reason this screen exists. */
+export const ignored = (files: SkillFile[]) => files.filter((file) => !file.loaded)
+
+/**
+ * Written correctly, and the engine still does not have it.
+ *
+ * Measured: the engine reads a folder's skills when it opens that folder, and a skill written after
+ * that does not appear at all — not after a second, not after a minute. From the outside this is
+ * identical to a skill with a mistake in it, so it is worth telling the two apart.
+ */
+export function notPickedUp(skills: SkillInfo[], files: SkillFile[]) {
+  const has = new Set(skills.map((skill) => skill.name))
+  return files.filter((file) => file.loaded && file.name && !has.has(file.name))
+}
+
+/**
+ * Skills, and why yours is not showing up (H-27).
+ *
+ * The old screen was a list with an Insert button, which the audit called a placebo, and it was: it
+ * could not answer the only question worth asking a skill screen — *"I wrote one and the model does
+ * not have it"*. The engine drops a skill with no `name`, and one in a file not called `SKILL.md`,
+ * and says nothing about either. Both are named here, with the file they are about.
+ */
+export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
+  const [openPath, setOpenPath] = createSignal<string>()
+  const [content, setContent] = createSignal<string>()
+  const [creating, setCreating] = createSignal(false)
+  const [name, setName] = createSignal("")
+  const [scope, setScope] = createSignal<"global" | "project">("project")
+  const [description, setDescription] = createSignal("")
+  const [body, setBody] = createSignal("")
+  const [saving, setSaving] = createSignal(false)
+  const [problem, setProblem] = createSignal<string>()
+  const [saved, setSaved] = createSignal<string>()
+  const [confirming, setConfirming] = createSignal<string>()
+
+  const read = (file: SkillFile) => {
+    if (openPath() === file.path) {
+      setOpenPath(undefined)
+      return
+    }
+    setOpenPath(file.path)
+    setContent(undefined)
+    props
+      .onRead(file.path)
+      .then(setContent)
+      .catch((cause) => setContent(cause instanceof Error ? cause.message : String(cause)))
+  }
+
+  const startNew = () => {
+    setCreating(true)
+    setOpenPath(undefined)
+    setName("")
+    setDescription("")
+    setBody("")
+    setProblem(undefined)
+    setSaved(undefined)
+    setScope(props.hasProject ? "project" : "global")
+  }
+
+  const save = async () => {
+    setProblem(undefined)
+    setSaved(undefined)
+    if (!name().trim()) {
+      setProblem(t("A skill needs a name"))
+      return
+    }
+    setSaving(true)
+    try {
+      await props.onSave({ name: name().trim(), scope: scope(), description: description(), body: body() })
+      // The form stays open on purpose: closing it here would unmount the line that says it worked,
+      // and a save that looks like nothing happening is the bug this whole screen is about.
+      setSaved(t("Written. The engine picks it up when this folder is opened again."))
+    } catch (cause) {
+      setProblem(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const loaded = createMemo(() => props.files.filter((file) => file.loaded))
+  const notLoaded = createMemo(() => ignored(props.files))
+  const waiting = createMemo(() => notPickedUp(props.skills, props.files))
+  const orphans = createMemo(() => withoutFiles(props.skills, props.files))
+
+  createEffect(() => {
+    if (!props.open) {
+      setCreating(false)
+      setOpenPath(undefined)
+    }
+  })
+
+  return (
+    <Show when={props.open}>
+      <section class="fc-routines-screen" aria-label={t("Skills")}>
+        <div class="fc-routines-header">
+          <div>
+            <div class="fc-routines-kicker">{t("Automation")}</div>
+            <h1>{t("Skills")}</h1>
+            <p>{t("What the model can reach for, and what it cannot.")}</p>
+          </div>
+          <div class="fc-routines-header-actions">
+            <button class="fc-button fc-button-primary" type="button" onClick={startNew}>
+              {t("New skill")}
+            </button>
+            <button class="fc-button" type="button" onClick={props.onClose}>
+              {t("Back to sessions")}
+            </button>
+          </div>
+        </div>
+
+        <Show when={!props.serverAvailable}>
+          <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
+        </Show>
+
+        <div class="fc-context-screen">
+          {/*
+            First, because it is the answer to the only question this screen exists for. A skill the
+            engine drops looks exactly like one nobody wrote.
+          */}
+          <Show when={notLoaded().length > 0}>
+            <section class="fc-usage-block fc-skill-ignored">
+              <h2>
+                {t("On disk and not loaded")}
+                <span class="fc-context-aside">{notLoaded().length}</span>
+              </h2>
+              <p class="fc-usage-note">{t("The engine skips these without saying anything. Here is what it wants.")}</p>
+              <For each={notLoaded()}>
+                {(file) => (
+                  <div class="fc-usage-row fc-skill-row">
+                    <span class="fc-usage-key" title={file.path}>
+                      {file.path.replace(/^.*\/(?=[^/]+\/[^/]+$)/, "")}
+                    </span>
+                    <span class="fc-context-excerpt">{file.reason}</span>
+                    <Show when={file.shadows}>
+                      {(other) => <span class="fc-context-excerpt" title={other()}>{t("already taken")}</span>}
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </section>
+          </Show>
+
+          <Show when={waiting().length > 0}>
+            <section class="fc-usage-block fc-skill-waiting">
+              <h2>
+                {t("Written, and not picked up yet")}
+                <span class="fc-context-aside">{waiting().length}</span>
+              </h2>
+              <p class="fc-usage-note">
+                {t("Nothing is wrong with these. The engine reads a folder's skills when it opens the folder.")}
+              </p>
+              <For each={waiting()}>
+                {(file) => (
+                  <div class="fc-usage-row fc-skill-row">
+                    <span class="fc-usage-key">{file.name}</span>
+                    <span class="fc-context-excerpt">{file.description}</span>
+                  </div>
+                )}
+              </For>
+            </section>
+          </Show>
+
+          <section class="fc-usage-block">
+            <h2>
+              {t("Loaded")}
+              <span class="fc-context-aside">{loaded().length}</span>
+            </h2>
+            <Show
+              when={loaded().length > 0}
+              fallback={<p class="fc-usage-note">{props.loading ? t("Reading…") : t("None on disk.")}</p>}
+            >
+              <For each={loaded()}>
+                {(file) => (
+                  <div class="fc-skill-file">
+                    <button class="fc-usage-row fc-skill-row" type="button" onClick={() => read(file)}>
+                      <span class="fc-diff-status">{WHERE[file.scope]}</span>
+                      <span class="fc-usage-key">{file.name}</span>
+                      <span class="fc-context-excerpt">
+                        {file.description ?? t("No description, so the model has nothing to choose it by")}
+                      </span>
+                      <span class="fc-usage-cost">{Math.max(1, Math.round(file.bytes / 102.4) / 10)} kB</span>
+                    </button>
+                    <Show when={openPath() === file.path}>
+                      <pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>
+                      <div class="fc-routines-header-actions">
+                        <Show
+                          when={confirming() === file.path}
+                          fallback={
+                            <button class="fc-button" type="button" onClick={() => setConfirming(file.path)}>
+                              {t("Delete")}
+                            </button>
+                          }
+                        >
+                          <span class="fc-confirm-inline">
+                            <span>{t("Delete {name}?", { name: file.name ?? file.path })}</span>
+                            <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
+                              {t("Cancel")}
+                            </button>
+                            <button
+                              class="fc-button fc-button-danger"
+                              type="button"
+                              onClick={async () => {
+                                await props.onDelete(file.path)
+                                setConfirming(undefined)
+                                setOpenPath(undefined)
+                              }}
+                            >
+                              {t("Delete")}
+                            </button>
+                          </span>
+                        </Show>
+                      </div>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
+          </section>
+
+          <Show when={creating()}>
+            <section class="fc-usage-block fc-agent-form">
+              <h2>{t("New skill")}</h2>
+              <p class="fc-usage-note">
+                {t("Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.")}
+              </p>
+              <label class="fc-field">
+                <span>{t("Name")}</span>
+                <input
+                  class="fc-question-custom"
+                  value={name()}
+                  onInput={(event) => setName(event.currentTarget.value)}
+                  placeholder="reviewing"
+                />
+              </label>
+              <label class="fc-field">
+                <span>{t("Where")}</span>
+                <select
+                  class="fc-question-custom"
+                  value={scope()}
+                  onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
+                >
+                  <option value="project" disabled={!props.hasProject}>
+                    {t("This project")}
+                  </option>
+                  <option value="global">{t("Everywhere")}</option>
+                </select>
+              </label>
+              <label class="fc-field">
+                <span>{t("Description")}</span>
+                <input
+                  class="fc-question-custom"
+                  value={description()}
+                  onInput={(event) => setDescription(event.currentTarget.value)}
+                  placeholder={t("When the model should reach for it")}
+                />
+              </label>
+              <label class="fc-field">
+                <span>{t("Body")}</span>
+                <textarea
+                  class="fc-question-custom fc-agent-prompt"
+                  rows={10}
+                  value={body()}
+                  onInput={(event) => setBody(event.currentTarget.value)}
+                />
+              </label>
+              <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
+              <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
+              <div class="fc-routines-header-actions">
+                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
+                  {saving() ? t("Saving…") : t("Save")}
+                </button>
+                <button class="fc-button" type="button" onClick={() => setCreating(false)}>
+                  {t("Cancel")}
+                </button>
+              </div>
+            </section>
+          </Show>
+
+          <Show when={orphans().length > 0}>
+            <section class="fc-usage-block">
+              <h2>
+                {t("Not from a file here")}
+                <span class="fc-context-aside">{orphans().length}</span>
+              </h2>
+              <p class="fc-usage-note">{t("The engine has these and no file on this machine explains them.")}</p>
+              <For each={orphans()}>
+                {(skill) => (
+                  <div class="fc-usage-row">
+                    <span class="fc-usage-key">{skill.name}</span>
+                    <span class="fc-context-excerpt">{skill.description}</span>
+                  </div>
+                )}
+              </For>
+            </section>
+          </Show>
+        </div>
+      </section>
+    </Show>
+  )
+}
