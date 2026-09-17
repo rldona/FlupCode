@@ -745,10 +745,11 @@ const ES: Record<string, string> = {
   "this session": "esta sesión",
   "Could not read that file": "No se pudo leer ese archivo",
 
-  // Findings on the diff (H-32)
+  // Findings on the diff (H-32), and what a failed check reported (H-22)
   high: "alto",
   medium: "medio",
   low: "bajo",
+  check: "check",
   Done: "Hecho",
   Reopen: "Reabrir",
   "{n} findings": "{n} hallazgos",
