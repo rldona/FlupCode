@@ -5,6 +5,7 @@ import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
 import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
+import { UsagePanel } from "./components/UsagePanel"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -379,6 +380,7 @@ export const App: Component = () => {
   const runsOpen = () => screen() === "runs"
   const artifactsOpen = () => screen() === "artifacts"
   const changesOpen = () => screen() === "changes"
+  const usageOpen = () => screen() === "usage"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -726,6 +728,20 @@ export const App: Component = () => {
     showScreen("changes")
     void refetchChanges()
   }
+  // What the runs cost (H-16). Read only while the screen is open: it is an aggregation over every
+  // task ever recorded, and nothing else on screen needs it.
+  const [usageDays, setUsageDays] = createSignal<number | undefined>(30)
+  const [usageOnlyProject, setUsageOnlyProject] = createSignal(false)
+  const usageKey = () => {
+    if (!usageOpen() || !routinesServerAvailable()) return undefined
+    const directory = usageOnlyProject() ? (vcsDirectory() ?? "") : ""
+    return `${harnessServerUrl()}\n${directory}\n${usageDays() ?? 0}`
+  }
+  const [usage] = createResource(usageKey, (key) => {
+    const [url = "", directory = "", days = "0"] = key.split("\n")
+    return createHarnessClient(url).usage({ directory: directory || undefined, days: Number(days) || undefined })
+  })
+
   // Checkpoints (H-15). Listed only while the screen is open, and re-read whenever one is taken or
   // a restore lands, because a restore records one of its own.
   const [checkpointTick, setCheckpointTick] = createSignal(0)
@@ -3489,6 +3505,7 @@ export const App: Component = () => {
             routines={routines()}
             onSearch={() => setPaletteOpen(true)}
             onRuns={() => showScreen("runs")}
+            onUsage={() => showScreen("usage")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -3953,6 +3970,20 @@ export const App: Component = () => {
           leaveScreen()
           selectSession(id)
         }}
+        onClose={() => leaveScreen()}
+      />
+      <UsagePanel
+        open={usageOpen()}
+        report={usage()}
+        loading={usage.loading}
+        error={usage.error ? (usage.error instanceof Error ? usage.error.message : String(usage.error)) : undefined}
+        days={usageDays()}
+        onDays={setUsageDays}
+        directory={vcsDirectory()}
+        onlyProject={usageOnlyProject()}
+        onOnlyProject={setUsageOnlyProject}
+        serverAvailable={routinesServerAvailable()}
+        onOpenRuns={() => showScreen("runs")}
         onClose={() => leaveScreen()}
       />
       <ChangesPanel

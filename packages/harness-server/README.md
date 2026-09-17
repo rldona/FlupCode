@@ -19,6 +19,9 @@ It owns:
   than through a shell; the branch's pull request and its checks, read with `gh`. The client is a browser and the engine's `/vcs` routes only read, so this is the only part
   of FlupCode that can write to a repository. What may be committed is what `git status` has just
   listed as changed.
+- **What it cost** (H-16). Every task the runs recorded, added up by model, agent, project and day —
+  with work attempted a second time split out, because a bounded retry is a new task and so a second
+  bill. Runs only: the harness never sees an ordinary chat turn.
 - **Checkpoints** (H-15). A way back from what a run did: a git commit object on no branch, built
   through a temporary index, so taking one touches neither the working tree nor the index nor the
   stash. A ref under `refs/flupcode/checkpoints/` keeps git from collecting it. Restoring says which
@@ -53,6 +56,7 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
 | `POST /harness/git/pr` | push the branch if needed, then open a pull request |
 | `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |
+| `GET /harness/usage` | what the runs cost, filtered by `directory` and `days` |
 | `GET`/`POST /harness/checkpoints` | the ones for `?directory=`, or take one now |
 | `GET /harness/checkpoints/:id/plan` | which files restoring would write, and which it would delete |
 | `POST /harness/checkpoints/:id/restore` | do it, after recording the present as a checkpoint of its own |

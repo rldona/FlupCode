@@ -196,3 +196,17 @@ export type Checkpoint = {
 
 /** What restoring would do, named before it does it. */
 export type RestorePlan = { write: string[]; remove: string[] }
+
+/** What a slice of the runs spent (H-16). */
+export type Spend = { tasks: number; tokens: number; cost: number }
+
+export type UsageReport = {
+  totals: Spend & { runs: number; ms: number }
+  /** Work done for the second time or later: paid twice, and invisible until it is split out. */
+  retries: Spend
+  byModel: Array<Spend & { key: string }>
+  byAgent: Array<Spend & { key: string }>
+  byProject: Array<Spend & { key: string; runs: number }>
+  byDay: Array<{ day: string; tokens: number; cost: number }>
+  slowest: Array<{ taskID: string; runID: string; name: string; ms: number }>
+}
