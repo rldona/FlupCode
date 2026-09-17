@@ -149,6 +149,7 @@ import { listWorkflows } from "./workflow"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
+import { summarise } from "./usage"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -245,6 +246,19 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "artifacts" && request.method === "DELETE" && path[2]) {
       return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
     }
+    // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
+    // adding the engine's session totals on top would count every task twice.
+    if (path[1] === "usage" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const days = Number(params.get("days"))
+      const since = Number.isFinite(days) && days > 0 ? Date.now() - days * 86_400_000 : undefined
+      return json({
+        data: summarise(
+          repository.usageRows({ directory: params.get("directory") ?? undefined, since }),
+        ),
+      })
+    }
+
     // Checkpoints (H-15): a way back from what a run did.
     if (path[1] === "checkpoints" && request.method === "GET" && !path[2]) {
       const params = new URL(request.url).searchParams

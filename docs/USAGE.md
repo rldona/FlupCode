@@ -409,6 +409,23 @@ This needs [`gh`](https://cli.github.com) installed and logged in, and it is Git
 there is no chip at all — not a chip that cannot tell you anything. The repository comes from the
 branch's own remote, so a fork with an `upstream` remote still reads your fork and not upstream.
 
+## Cost
+
+**Cost** (`/usage`) is what the runs have spent: total, tokens, how many runs, how long they took,
+and the bill broken down by model, by agent, by project and by day. Pick 7 days, 30 days or
+everything.
+
+The tile that is not on any other screen is **On retries**. A bounded retry is a new task by design
+— that is what keeps the evidence of the first attempt — so work attempted twice is billed twice,
+and until now the second bill was mixed into the first.
+
+**Longest tasks** is where the time went, which is not always where the money went: a verify task
+costs no tokens at all and can still be the longest thing in a run.
+
+This screen is about **runs**, and says so. The harness never sees an ordinary chat turn, and adding
+the engine's session totals on top would count every run task twice — a task *is* a session. The
+home screen still counts tokens across every session.
+
 ## Artifacts
 
 **Artifacts** (`/artifacts`) is what the runs left behind, kept and readable: the verdict of every
