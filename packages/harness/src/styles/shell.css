@@ -8859,7 +8859,9 @@ button.fc-status {
   font-weight: 400;
 }
 
-.fc-context-row {
+/* The inspector's rows are buttons in a list, so they carry a rule under them. Only there: the
+   meter's popover uses the same class for its figure lines, and this drew a line under each one. */
+.fc-context-screen .fc-context-row {
   width: 100%;
   border: 0;
   border-bottom: 1px solid var(--fc-border);
@@ -8870,7 +8872,7 @@ button.fc-status {
   cursor: pointer;
 }
 
-.fc-context-row:hover {
+.fc-context-screen .fc-context-row:hover {
   background: color-mix(in srgb, var(--fc-text) 5%, transparent);
 }
 

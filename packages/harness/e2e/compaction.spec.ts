@@ -207,3 +207,14 @@ test("says the engine folds it now once the budget is gone", async ({ page }) =>
   await page.locator(".fc-context-button").click()
   await expect(page.locator(".fc-context-popover")).toContainText(/next step|siguiente paso/)
 })
+
+test("the meter's figures read as a list, not as a table of ruled rows", async ({ page }) => {
+  await openSession(page, turn(120_000, 60_000))
+  await page.locator(".fc-context-button").click()
+
+  // The inspector's rows are buttons and carry a rule under them; that rule used to reach the
+  // popover too, drawing a line under every figure.
+  const row = page.locator(".fc-context-popover .fc-context-row").first()
+  await expect(row).toBeVisible()
+  expect(await row.evaluate((element) => getComputedStyle(element).borderBottomWidth)).toBe("0px")
+})
