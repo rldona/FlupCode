@@ -4046,6 +4046,31 @@ button.fc-status {
 }
 
 /*
+  The engine folds a session well before the model's own window is full — it keeps room for the
+  answer — so the meter warns on its own scale rather than only when the window is exhausted.
+*/
+.fc-meter-near .fc-meter-fill {
+  background: var(--fc-warning);
+}
+
+.fc-aside-compaction {
+  color: var(--fc-warning);
+}
+
+.fc-context-near .fc-context-ring circle + circle {
+  stroke: var(--fc-warning);
+}
+
+.fc-context-near .fc-context-bar span,
+.fc-context-compaction {
+  color: var(--fc-warning);
+}
+
+.fc-context-near .fc-context-bar span {
+  background: var(--fc-warning);
+}
+
+/*
   Tasks as a timeline. The rail through the states makes "where is this" the shape of the list,
   rather than a glyph to decode: completed is a filled disc, in progress an open accent ring,
   pending an open muted one.
