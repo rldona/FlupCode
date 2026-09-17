@@ -17,4 +17,27 @@ if (process.versions.bun !== expectedBunVersion) {
   console.warn(`Warning: Bun version ${process.versions.bun} differs from expected ${expectedBunVersion}`);
 }
 '
+# And the Node on PATH against .nvmrc. `bun typecheck` below shells out to `tsgo`, which runs under
+# whatever `node` comes first — on an old one it fails with "Unable to resolve
+# @typescript/native-preview-<platform>", which sends you looking at your dependencies instead of
+# at your shell.
+#
+# Deliberately looser than .nvmrc: the file pins a patch version because Playwright hangs on 24.16,
+# and that matters when running the e2e suite. This is only trying to catch a Node too old for the
+# tooling to work at all, and a hook that nags about a patch version is a hook people start
+# skipping.
+bun -e '
+import { semver } from "bun";
+const wanted = (await Bun.file(".nvmrc").text()).trim();
+const found = Bun.which("node") ? Bun.spawnSync(["node", "--version"]).stdout.toString().trim().replace(/^v/, "") : undefined;
+if (!found) {
+  throw new Error("No `node` on PATH. This repository wants node@" + wanted + " — see .nvmrc.");
+}
+if (!semver.satisfies(found, "^" + wanted)) {
+  throw new Error(
+    "This repository wants node@" + wanted + " (.nvmrc) and `node` on your PATH is " + found +
+    ". Run `nvm use` in the repository root.",
+  );
+}
+'
 bun typecheck

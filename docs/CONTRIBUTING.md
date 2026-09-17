@@ -7,10 +7,25 @@ Thanks for helping build FlupCode. This project is a fork of OpenCode; read
 
 ```bash
 # clone your fork, then:
-git remote add upstream https://github.com/anomalyco/opencode.git
+nvm use            # reads .nvmrc
 bun install
+git remote add upstream https://github.com/anomalyco/opencode.git
 bun run dev:harness
 ```
+
+### Node
+
+Bun runs the code, but a few tools still shell out to whatever `node` is first on your `PATH` —
+`tsgo` (so `bun typecheck`, and the `pre-push` hook that runs it), Playwright, and
+`electron-builder`. With an old Node they fail with errors that say nothing about your change:
+`tsgo` reports *"Unable to resolve @typescript/native-preview-darwin-arm64"* because
+`import.meta.resolve` does not exist before Node 18.19, and Playwright refuses outright.
+
+`.nvmrc` pins **24.15**, which is what CI uses. The patch version is deliberate and is not a
+rounding of "24": Playwright 1.59 hangs — does not fail, hangs — while extracting Chromium on Node
+24.16. The e2e workflow carries the same pin and the same reason.
+
+If your shell does not pick it up automatically, `nvm use` in the repository root is enough.
 
 If `bun install` hits a private registry, force the public one:
 
