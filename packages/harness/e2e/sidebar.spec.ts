@@ -40,7 +40,7 @@ const routines = [
   },
 ]
 
-async function open(page: Page, options: { routines?: unknown[] } = {}) {
+async function open(page: Page, options: { routines?: unknown[]; sessions?: unknown[] } = {}) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -59,7 +59,8 @@ async function open(page: Page, options: { routines?: unknown[] } = {}) {
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({ json: { data: options.sessions ?? sessions, cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/find/file" || url.pathname === "/api/find/file") return route.fulfill({ json: { data: [] } })
     if (/\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
@@ -125,6 +126,21 @@ test("the filter box is gone; the magnifier opens a search that reaches further"
   // Sessions and routines both, which a box over the session list could never have found.
   await expect(palette).toContainText("Fix the parser")
   await expect(palette).toContainText("Nightly audit")
+})
+
+test("the list scrolls under + New, and + New does not move", async ({ page }) => {
+  const many = Array.from({ length: 40 }, (_, index) => sessionAt(`ses_${index}`, `Session ${index}`, "/work/demo"))
+  await open(page, { sessions: many })
+  await page.setViewportSize({ width: 900, height: 420 })
+
+  const newBefore = (await page.locator(".fc-new").boundingBox())!.y
+  const navBefore = (await page.locator(".fc-nav-item").first().boundingBox())!.y
+
+  await page.locator(".fc-scroll").evaluate((node) => node.scrollTo(0, 400))
+
+  // The nav and the projects go under; the button that starts a session stays where it is.
+  await expect.poll(() => page.locator(".fc-nav-item").first().boundingBox().then((box) => box!.y)).toBeLessThan(navBefore)
+  expect((await page.locator(".fc-new").boundingBox())!.y).toBe(newBefore)
 })
 
 test("the tabs are the kinds that matched, and picking one narrows to it", async ({ page }) => {

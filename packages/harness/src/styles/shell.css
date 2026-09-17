@@ -8108,6 +8108,8 @@ button.fc-status {
 
 .fc-sidebar-top {
   gap: var(--fc-space-3);
+  /* "+ New" is the one thing the list scrolls under, so it never gives up its room. */
+  flex: none;
 }
 
 .fc-sidebar-section {
