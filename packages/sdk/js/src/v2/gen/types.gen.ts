@@ -10487,6 +10487,44 @@ export type SessionUnrevertResponses = {
 
 export type SessionUnrevertResponse = SessionUnrevertResponses[keyof SessionUnrevertResponses]
 
+export type SessionRevertCommitData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/session/{sessionID}/revert/commit"
+}
+
+export type SessionRevertCommitErrors = {
+  /**
+   * BadRequest | InvalidRequestError
+   */
+  400: EffectHttpApiErrorBadRequest | InvalidRequestError
+  /**
+   * NotFoundError
+   */
+  404: NotFoundError
+  /**
+   * SessionBusyError
+   */
+  409: SessionBusyError
+}
+
+export type SessionRevertCommitError = SessionRevertCommitErrors[keyof SessionRevertCommitErrors]
+
+export type SessionRevertCommitResponses = {
+  /**
+   * Revert committed
+   */
+  200: boolean
+}
+
+export type SessionRevertCommitResponse = SessionRevertCommitResponses[keyof SessionRevertCommitResponses]
+
 export type PermissionRespondData = {
   body?: {
     response: "once" | "always" | "reject"
