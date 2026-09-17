@@ -7266,6 +7266,65 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+/* A compaction boundary: the conversation was folded into a summary here. */
+.fc-compaction {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+}
+
+.fc-compaction-line {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  width: 100%;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  cursor: pointer;
+}
+
+.fc-compaction-rule {
+  flex: 1;
+  height: 1px;
+  background: var(--fc-border);
+}
+
+.fc-compaction-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.fc-compaction-mark {
+  color: var(--fc-accent);
+  font-size: 11px;
+}
+
+/* The engine compacting by itself is not the reader's doing, so it reads quieter. */
+.fc-compaction[data-auto="true"] .fc-compaction-mark {
+  color: var(--fc-text-muted);
+}
+
+.fc-compaction-line:hover .fc-compaction-label {
+  color: var(--fc-text);
+}
+
+.fc-compaction-line[aria-expanded="true"] .fc-toolgroup-chevron {
+  transform: rotate(90deg);
+}
+
+.fc-compaction-body {
+  margin: 0 0 var(--fc-space-2);
+  padding-left: 10px;
+  border-left: 2px solid var(--fc-border);
+  color: var(--fc-text-muted);
+}
+
 /* The supervisor: a run and the tasks it is made of. Shares the routines screen's frame, because it
    is the same kind of page and a second layout would only be a second thing to keep in step. */
 .fc-runs-list {
