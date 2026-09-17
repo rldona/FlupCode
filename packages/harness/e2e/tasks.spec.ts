@@ -153,3 +153,15 @@ test("a session with no work leaves the panel closed", async ({ page }) => {
 
   await expect(page.locator(".fc-rightaside")).toHaveCount(0)
 })
+
+test("clear all takes the tasks the engine never finished", async ({ page }) => {
+  await openSession(page)
+
+  const items = page.locator(".fc-aside-todo")
+  await expect(items).toHaveCount(4)
+
+  // One is completed and three are not; "Clear completed" could not touch those three.
+  await page.getByRole("button", { name: /^Clear all$|^Borrar todo$/ }).click()
+
+  await expect(items).toHaveCount(0)
+})

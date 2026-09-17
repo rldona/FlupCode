@@ -1368,14 +1368,15 @@ export const App: Component = () => {
       return list.map((todo) => (todo.status === "in_progress" ? { ...todo, status: "completed" } : todo))
     }
 
-    // Completed tasks the reader removed from the context panel, per session. The engine keeps the
-    // model's todo list, so removal only hides them here.
+    // Tasks the reader removed from the context panel, per session. The engine keeps the model's
+    // todo list, so removal only hides them here. Hiding is not limited to completed ones: "Clear
+    // all" has to take a task the engine left unfinished, and it goes on reporting it.
     const [clearedTodos, setClearedTodos] = createSignal<Record<string, string[]>>(
       readStorage(STORAGE_KEYS.clearedTodos, {}),
     )
     const todos = () => {
       const cleared = clearedTodos()[selected() ?? ""] ?? []
-      return allTodos().filter((todo) => !(todo.status === "completed" && cleared.includes(todo.content)))
+      return allTodos().filter((todo) => !cleared.includes(todo.content))
     }
     const clearTodos = (contents: string[]) => {
       const sessionID = selected()
