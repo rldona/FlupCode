@@ -24,7 +24,7 @@ export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: 300 }
 const mark = (status: string) => {
   if (status === "completed") return "✓"
   if (status === "in_progress") return "•"
-  return "○"
+  return ""
 }
 
 export const RightAside: Component<RightAsideProps> = (props) => {
@@ -118,8 +118,14 @@ export const RightAside: Component<RightAsideProps> = (props) => {
             <ul class="fc-aside-todos">
               <For each={props.todos}>
                 {(todo) => (
-                  <li class="fc-aside-todo" classList={{ "fc-aside-todo-done": todo.status === "completed" }}>
-                    <span class="fc-aside-todo-mark">{mark(todo.status)}</span>
+                  <li
+                    class="fc-aside-todo"
+                    classList={{ "fc-aside-todo-done": todo.status === "completed" }}
+                    data-status={todo.status}
+                  >
+                    <span class="fc-aside-todo-mark" aria-hidden="true">
+                      {mark(todo.status)}
+                    </span>
                     <span class="fc-aside-todo-text">{todo.content}</span>
                     <Show when={todo.status === "completed"}>
                       <button
