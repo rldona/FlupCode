@@ -787,6 +787,24 @@ export const App: Component = () => {
     return createHarnessClient(url).usage({ directory: directory || undefined, days: Number(days) || undefined })
   })
 
+  // Findings (H-32). Read alongside the diff, since that is where they are shown.
+  const [findingsTick, setFindingsTick] = createSignal(0)
+  const findingsKey = () => {
+    const directory = vcsDirectory()
+    if (!changesOpen() || !directory || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${directory}\n${findingsTick()}`
+  }
+  const [findings] = createResource(findingsKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).findings.list({ directory })
+  })
+  const resolveFinding = (id: string, resolved: boolean) => {
+    void createHarnessClient(harnessServerUrl())
+      .findings.resolve(id, resolved)
+      .then(() => setFindingsTick((tick) => tick + 1))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   // Checkpoints (H-15). Listed only while the screen is open, and re-read whenever one is taken or
   // a restore lands, because a restore records one of its own.
   const [checkpointTick, setCheckpointTick] = createSignal(0)
@@ -4054,6 +4072,8 @@ export const App: Component = () => {
         onCheckpointRestore={restoreCheckpoint}
         onCheckpointTake={takeCheckpoint}
         onCheckpointRemove={removeCheckpoint}
+        findings={findings() ?? []}
+        onResolveFinding={resolveFinding}
         onClose={() => leaveScreen()}
       />
       <RoutinesPanel

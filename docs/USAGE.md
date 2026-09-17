@@ -376,6 +376,22 @@ the moment you realise what a run just did does not belong on the branch you are
 Nothing here throws work away: there is no discard and no reset. Committing and branching are both
 things you can walk back from with git; losing an uncommitted change is not.
 
+### A review, on the diff
+
+Run `/review`, `/security` or `/quality`. Each is a workflow you can open and edit; the last two are
+the same review narrowed — one to what an attacker could actually do, the other to cases the code
+gets wrong, errors swallowed, names that mislead and tests that would pass either way.
+
+The points come back as comments **on the diff**, under the lines they are about, with a severity
+and the reason. A point about the file rather than a line sits at the top of that file. The file
+header carries a count of what is still open.
+
+**Done** sets one aside: it stays readable, struck through, and stops counting. **Reopen** brings it
+back. Nothing is deleted.
+
+A review that names no file for a point cannot have it drawn on a line — those are counted rather
+than quietly dropped, so a review never claims to be complete when it is not.
+
 ### Checkpoints
 
 Above the diff, **Checkpoints**: a way back to how the folder looked. One is recorded after every
