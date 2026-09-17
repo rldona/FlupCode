@@ -19,6 +19,7 @@ import type {
   BranchState,
   CheckLog,
   Checkpoint,
+  Finding,
   GitCommit,
   PullRequest,
   RestorePlan,
@@ -926,6 +927,21 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** Pushes the branch if it has never been pushed, then opens the pull request. */
       openPullRequest: (input: { directory: string; title: string; body?: string; base?: string }) =>
         harnessRequest<PullRequest>(baseUrl, "/harness/git/pr", { method: "POST", body: JSON.stringify(input) }),
+    },
+    /** Findings (H-32): a review's points, anchored to a file and a line. */
+    findings: {
+      list: (input: { directory?: string; runID?: string; open?: boolean }) => {
+        const search = new URLSearchParams()
+        if (input.directory) search.set("directory", input.directory)
+        if (input.runID) search.set("runID", input.runID)
+        if (input.open) search.set("open", "1")
+        return harnessRequest<Finding[]>(baseUrl, `/harness/findings${search.size ? `?${search}` : ""}`)
+      },
+      resolve: (id: string, resolved: boolean) =>
+        harnessRequest<Finding>(baseUrl, `/harness/findings/${encodeURIComponent(id)}/resolved`, {
+          method: "PATCH",
+          body: JSON.stringify({ resolved }),
+        }),
     },
     /**
      * What the runs cost (H-16). Runs only — the harness never sees an ordinary chat turn, and

@@ -3,6 +3,7 @@ import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task } from "./types"
 import { evidenceText, runVerify } from "./verify"
 import { take } from "./checkpoint"
+import { parseFindings } from "./findings"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -183,6 +184,20 @@ export class TaskRunner {
             cost: answer?.cost,
           })
           handoff = answer?.text
+          // Findings (H-32). Tried after every agent task rather than only after a review: an
+          // answer with no parseable block simply has none, and it costs one regular expression.
+          // A task that was asked for them and produced none has genuinely found nothing.
+          const found = parseFindings(answer?.text)
+          if (found.findings.length > 0) {
+            this.repository.addFindings(
+              found.findings.map((finding) => ({
+                ...finding,
+                directory: options.directory,
+                runID: run.id,
+                taskID: task.id,
+              })),
+            )
+          }
         } catch (cause) {
           this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
           throw cause

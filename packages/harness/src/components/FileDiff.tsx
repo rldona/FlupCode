@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { highlight, languageFor } from "../highlight"
 import { hunkLabel, hunkLineCount, parseHunks, type PatchHunk } from "../patch"
+import type { Finding } from "../types"
 
 export type FileChange = {
   file: string
@@ -24,17 +25,55 @@ const STATUS_LABEL: Record<string, string> = {
   modified: "modified",
 }
 
-const Hunk: Component<{ hunk: PatchHunk; lang: string }> = (props) => (
+/**
+ * A review's point, sitting on the line it is about (H-32).
+ *
+ * Under the line rather than beside it: the code keeps its full width, and a finding with three
+ * sentences of detail does not have to fit in a margin.
+ */
+const Comment: Component<{ finding: Finding; onResolve: (id: string, resolved: boolean) => void }> = (props) => (
+  <div class="fc-diff-finding" data-severity={props.finding.severity} classList={{ "fc-diff-finding-done": !!props.finding.resolved }}>
+    <div class="fc-diff-finding-head">
+      <span class="fc-diff-finding-severity">{t(props.finding.severity)}</span>
+      <span class="fc-diff-finding-title">{props.finding.title}</span>
+      <button
+        class="fc-pr-action"
+        type="button"
+        onClick={() => props.onResolve(props.finding.id, !props.finding.resolved)}
+      >
+        {props.finding.resolved ? t("Reopen") : t("Done")}
+      </button>
+    </div>
+    <Show when={props.finding.detail}>{(detail) => <p class="fc-diff-finding-detail">{detail()}</p>}</Show>
+  </div>
+)
+
+const Hunk: Component<{
+  hunk: PatchHunk
+  lang: string
+  /** Findings for this file, by the line they are anchored to. */
+  comments: Map<number, Finding[]>
+  onResolve: (id: string, resolved: boolean) => void
+}> = (props) => (
   <>
     <div class="fc-diff-hunk-head">{hunkLabel(props.hunk)}</div>
     <For each={props.hunk.lines}>
       {(line) => (
-        <div class={`fc-diff-line fc-diff-line-${line.type}`}>
-          <span class="fc-diff-no">{line.oldNo ?? ""}</span>
-          <span class="fc-diff-no">{line.newNo ?? ""}</span>
-          <span class="fc-diff-sign">{line.type === "add" ? "+" : line.type === "del" ? "-" : " "}</span>
-          <span class="fc-diff-code" innerHTML={highlight(line.text, props.lang)} />
-        </div>
+        <>
+          <div class={`fc-diff-line fc-diff-line-${line.type}`}>
+            <span class="fc-diff-no">{line.oldNo ?? ""}</span>
+            <span class="fc-diff-no">{line.newNo ?? ""}</span>
+            <span class="fc-diff-sign">{line.type === "add" ? "+" : line.type === "del" ? "-" : " "}</span>
+            <span class="fc-diff-code" innerHTML={highlight(line.text, props.lang)} />
+          </div>
+          {/*
+            Anchored to the new file's number: a review is about the code as it now stands, and a
+            deleted line is not there to comment on.
+          */}
+          <For each={(line.newNo !== undefined && props.comments.get(line.newNo)) || []}>
+            {(finding) => <Comment finding={finding} onResolve={props.onResolve} />}
+          </For>
+        </>
       )}
     </For>
   </>
@@ -54,6 +93,9 @@ export const FileDiff: Component<{
   /** Whether this file is going into the next commit. Absent where nothing is being committed. */
   selected?: boolean
   onSelect?: (selected: boolean) => void
+  /** A review's points about this file (H-32). */
+  findings?: Finding[]
+  onResolveFinding?: (id: string, resolved: boolean) => void
 }> = (props) => {
   const [open, setOpen] = createSignal(props.open ?? false)
   const [forced, setForced] = createSignal(false)
@@ -61,6 +103,18 @@ export const FileDiff: Component<{
   const lines = createMemo(() => hunkLineCount(hunks()))
   const folded = () => lines() > FOLD_ABOVE && !forced()
   const status = () => STATUS_LABEL[props.change.status ?? "modified"] ?? "modified"
+  const byLine = createMemo(() => {
+    const map = new Map<number, Finding[]>()
+    for (const finding of props.findings ?? []) {
+      if (finding.line === undefined) continue
+      map.set(finding.line, [...(map.get(finding.line) ?? []), finding])
+    }
+    return map
+  })
+  // A finding about the file rather than a line still has to appear, or a review loses points.
+  const aboutTheFile = createMemo(() => (props.findings ?? []).filter((finding) => finding.line === undefined))
+  const resolve = (id: string, resolved: boolean) => props.onResolveFinding?.(id, resolved)
+  const stillOpen = () => (props.findings ?? []).filter((finding) => !finding.resolved).length
   return (
     <article class="fc-diff-file" classList={{ "fc-diff-file-open": open() }}>
       {/*
@@ -87,6 +141,10 @@ export const FileDiff: Component<{
             <span class="fc-diff-name">{basename(props.change.file)}</span>
           </span>
           <span class={`fc-diff-status fc-diff-status-${props.change.status ?? "modified"}`}>{t(status())}</span>
+          {/* How many points are still open on this file, before it is even unfolded. */}
+          <Show when={stillOpen() > 0}>
+            <span class="fc-diff-finding-count">{stillOpen()}</span>
+          </Show>
           <span class="fc-diff-counts">
             <span class="fc-diff-plus">+{props.change.additions}</span>
             <span class="fc-diff-minus">−{props.change.deletions}</span>
@@ -107,7 +165,19 @@ export const FileDiff: Component<{
             }
           >
             <div class="fc-diff-body">
-              <For each={hunks()}>{(hunk) => <Hunk hunk={hunk} lang={languageFor(props.change.file)} />}</For>
+              <For each={aboutTheFile()}>
+                {(finding) => <Comment finding={finding} onResolve={resolve} />}
+              </For>
+              <For each={hunks()}>
+                {(hunk) => (
+                  <Hunk
+                    hunk={hunk}
+                    lang={languageFor(props.change.file)}
+                    comments={byLine()}
+                    onResolve={resolve}
+                  />
+                )}
+              </For>
             </div>
           </Show>
         </Show>
