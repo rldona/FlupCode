@@ -50,41 +50,57 @@ Regions: **window chrome**, **sidebar**, **conversation/home canvas**, **compose
 
 Tokens are expressed as CSS custom properties. The harness owns them under the `--fc-*` prefix
 (see `packages/harness/src/styles/tokens.css`) and does not render upstream UI components, so a
-palette change re-skins the whole app. The `--oh-*` names below are the historical draft that the
+palette change re-skins the whole app. The `--fc-*` names below are the historical draft that the
 `--fc-*` tokens replaced; treat the values as illustrative.
 
 ### Colour
 
 | Token | Light | Dark | Use |
 | --- | --- | --- | --- |
-| `--oh-bg` | `#ffffff` | `#0f0f0f` | App background |
-| `--oh-bg-elevated` | `#ffffff` | `#171717` | Cards, popovers |
-| `--oh-sidebar` | `#f7f7f7` | `#141414` | Sidebar surface |
-| `--oh-border` | `#ececec` | `#262626` | Hairline borders |
-| `--oh-text` | `#1a1a1a` | `#f2f2f2` | Primary text |
-| `--oh-text-muted` | `#8a8a8a` | `#9a9a9a` | Secondary text |
-| `--oh-accent` | `#c96442` | `#d97757` | Brand/terracotta accent |
-| `--oh-accent-soft` | `#f4e4dd` | `#2a1c17` | Accent backgrounds |
-| `--oh-heat-0..4` | scale | scale | Contribution heatmap |
+| `--fc-bg` | `#ffffff` | `#0f0f0f` | App background |
+| `--fc-bg-elevated` | `#ffffff` | `#171717` | Cards, popovers |
+| `--fc-sidebar` | `#f7f7f7` | `#141414` | Sidebar surface |
+| `--fc-border` | `#ececec` | `#262626` | Hairline borders |
+| `--fc-text` | `#1a1a1a` | `#f2f2f2` | Primary text |
+| `--fc-text-muted` | `#8a8a8a` | `#9a9a9a` | Secondary text |
+| `--fc-accent` | `#c96442` | `#d97757` | Brand/terracotta accent |
+| `--fc-accent-soft` | `#f4e4dd` | `#2a1c17` | Accent backgrounds |
+| `--fc-heat-0..4` | scale | scale | Contribution heatmap |
+| `--fc-merged` | `#8250df` | `#a371f7` | A merged pull request |
 
 ### Shape & space
 
 | Token | Value |
 | --- | --- |
-| `--oh-radius-sm` | `8px` |
-| `--oh-radius-md` | `12px` |
-| `--oh-radius-lg` | `16px` |
-| `--oh-space-unit` | `4px` (scale: 4/8/12/16/24/32) |
-| `--oh-control-h` | `32px` (compact), `36px` (default) |
+| `--fc-radius-sm` | `8px` |
+| `--fc-radius-md` | `12px` |
+| `--fc-radius-lg` | `16px` |
+| `--fc-space-unit` | `4px` (scale: 4/8/12/16/24/32) |
+| `--fc-radius-pill` | `9999px` |
+| `--fc-control-sm` | `28px` (compact) |
+| `--fc-control-md` | `36px` (default) |
+| `--fc-control-lg` | `44px` (composer) |
 
 ### Type
 
 | Token | Value |
 | --- | --- |
-| `--oh-font-ui` | system UI stack |
-| `--oh-font-mono` | inherits upstream code font, user-configurable |
-| `--oh-text-xs..xl` | `11 / 12 / 13 / 14 / 16 / 20px` |
+| `--fc-font-ui` | system UI stack |
+| `--fc-font-mono` | inherits upstream code font, user-configurable |
+| `--fc-text-xs..xl` | `11 / 12 / 13 / 14 / 16 / 20px` |
 | Weight | `400` body, `500` labels, `600` headings |
+
+### Keeping it
+
+The names above are the ones in `packages/harness/src/styles/tokens.css`, and `src/tokens.test.ts`
+checks that nothing drifts from them:
+
+- a `var(--fc-…)` used without a fallback has to be a token that exists — an invented one is not an
+  error, it silently leaves the property at its initial value, which is how `--fc-radius-2`,
+  `--fc-radius-3`, `--fc-surface` and `--fc-control-h` gave thirty-two rules square corners and
+  controls with no height;
+- a radius the system has a name for is not written in pixels;
+- every palette sets every colour, or the light one wins in dark mode.
 
 ### Elevation & motion
 
@@ -110,7 +126,7 @@ Built on `@opencode-ai/ui` primitives where possible.
 ## 5. Accessibility
 
 - Minimum contrast 4.5:1 for body text, 3:1 for large text and UI borders.
-- Full keyboard operability; visible focus rings using `--oh-accent`.
+- Full keyboard operability; visible focus rings using `--fc-accent`.
 - Hit targets ≥ `32px`.
 - Heatmap and status conveyed by shape/label, not colour alone.
 
