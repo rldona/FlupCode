@@ -646,6 +646,12 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).model.directory(),
   )
+  // The engine's own settings. The context meter needs the compaction ones: they are what decides
+  // when the engine folds a session, and how much room the reader really has.
+  const [engineConfig] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    (url) => createClient(url).config(),
+  )
   const [lastModels, setLastModels] = createSignal<ModelInfo[]>([])
   createEffect(() => {
     const data = models()?.data
@@ -1260,7 +1266,13 @@ export const App: Component = () => {
       return { tokens: { input: 0, output: Math.ceil(chars / 4), reasoning: 0 }, cost: undefined }
     }
     const contextUsage = () =>
-      contextFigures(selectedSession(), activeMessages() ?? [], modelList(), currentModel()?.limit?.context ?? 0)
+      contextFigures(
+        selectedSession(),
+        activeMessages() ?? [],
+        modelList(),
+        currentModel(),
+        engineConfig()?.compaction,
+      )
 
     const generationStartedAt = () => {
       const list = activeMessages() ?? []
@@ -3808,6 +3820,7 @@ export const App: Component = () => {
                         showReasoning={showReasoning()}
                         models={modelList()}
                         defaultModel={modelRef()}
+                        compaction={engineConfig()?.compaction}
                         favorites={favorites()}
                         agents={agents()?.data ?? []}
                         agent={agent()}
