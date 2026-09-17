@@ -440,6 +440,12 @@ export function createClient(baseUrl = resolveServerUrl()) {
       children: async (input: { sessionID: string }) => ({
         data: (await unwrap(client.session.children({ sessionID: input.sessionID }))) as unknown as SessionInfo[],
       }),
+      /** The engine's own todo store, which the todowrite tool keeps and the transcript may prune. */
+      todos: async (input: { sessionID: string; directory?: string }) => ({
+        data: (await unwrap(
+          client.session.todo({ sessionID: input.sessionID, directory: input.directory }),
+        )) as unknown as Array<{ content: string; status: string }>,
+      }),
     },
     message: {
       list: async (input: { sessionID: string; order?: "asc" | "desc" }) => {
