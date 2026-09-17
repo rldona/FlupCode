@@ -83,6 +83,22 @@ describe("applying one event at a time", () => {
     expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello", streaming: false }])
   })
 
+  test("a user part that arrives before its message waits for it instead of being dropped", () => {
+    // The bus can hand a part over before the message it belongs to. Dropped, the prompt stayed
+    // blank until the next refetch rebuilt it; held, it is there the moment the message lands.
+    let data = applyPart([], { id: "p1", messageID: "u1", type: "text", text: "Refactor it" })
+    expect(data).toEqual([])
+
+    data = applyMessage(data, info("u1", "user"))
+    expect(data[0]).toMatchObject({ type: "user", text: "Refactor it" })
+  })
+
+  test("a held assistant part joins its message when it lands", () => {
+    let data = applyPart([], { id: "p1", messageID: "m1", type: "text", text: "Hello" })
+    data = applyMessage(data, info("m1", "assistant"))
+    expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello", streaming: false }])
+  })
+
   test("deltas append to the part that is streaming", () => {
     let data = applyMessage([], info("m1", "assistant"))
     data = applyPart(data, { id: "p1", messageID: "m1", type: "text", text: "Hel" })
