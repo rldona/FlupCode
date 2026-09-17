@@ -16,6 +16,9 @@ type RightAsideProps = {
   /** This session's child sessions, if it has spawned any. */
   subagents: SessionInfo[] | undefined
   onOpenSubagent: (id: string) => void
+  /** Which of those the engine is working on, and which are waiting on a permission. */
+  runningSubagents: string[]
+  blockedSubagents: string[]
   width: number
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -150,7 +153,12 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           </Show>
         </section>
 
-        <SubagentList sessions={props.subagents} onOpen={props.onOpenSubagent} />
+        <SubagentList
+          sessions={props.subagents}
+          onOpen={props.onOpenSubagent}
+          running={props.runningSubagents}
+          blocked={props.blockedSubagents}
+        />
       </div>
     </aside>
   )
