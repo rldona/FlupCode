@@ -1,6 +1,7 @@
 import type { MemoryInfo, ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type {
+  AgentInfo,
   McpServer,
   PermissionV2Request,
   QuestionV2Request,
@@ -19,6 +20,7 @@ import type {
   BranchState,
   CheckLog,
   Checkpoint,
+  AgentFile,
   ContextReport,
   Finding,
   GitCommit,
@@ -692,6 +694,24 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     agent: {
       list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
+      /**
+       * The agents this folder actually has (H-13).
+       *
+       * `/api/agent` ignores the directory it is given and answers for wherever the engine itself
+       * was opened — measured: asking it about a folder with its own `.opencode/agent/probe.md`
+       * came back with *this* repository's agents and not that one's. The legacy `/agent?directory=`
+       * answers per folder, and it is the one the engine reads those files for.
+       */
+      listFor: async (directory?: string) => {
+        const answer = (await unwrap(
+          client.app.agents(directory ? { directory } : {}) as Promise<Result<unknown>>,
+        ).catch(() => undefined)) as Array<Record<string, unknown>> | undefined
+        // The legacy shape names an agent `name`; everything here calls it `id`.
+        return (answer ?? []).map((agent) => ({
+          ...agent,
+          id: (agent.id ?? agent.name) as string,
+        })) as AgentInfo[]
+      },
     },
     command: {
       list: (input?: LocationInput) => unwrap(client.v2.command.list(input)),
@@ -954,6 +974,33 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const search = new URLSearchParams({ directory: input.directory, path: input.path })
         if (input.project) search.set("project", input.project)
         return harnessRequest<{ content: string }>(baseUrl, `/harness/context/file?${search}`)
+      },
+    },
+    /** Agents you can edit (H-13): the markdown files behind the agents the engine reports. */
+    agents: {
+      list: (input: { directory?: string; project?: string }) => {
+        const search = new URLSearchParams()
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<AgentFile[]>(baseUrl, `/harness/agents${search.size ? `?${search}` : ""}`)
+      },
+      save: (input: {
+        name: string
+        scope: "global" | "project"
+        fields: Record<string, unknown>
+        prompt: string
+        directory?: string
+        project?: string
+      }) =>
+        harnessRequest<{ path: string }>(baseUrl, "/harness/agents", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      remove: (input: { path: string; directory?: string; project?: string }) => {
+        const search = new URLSearchParams({ path: input.path })
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<{ removed: boolean }>(baseUrl, `/harness/agents?${search}`, { method: "DELETE" })
       },
     },
     /** Findings (H-32): a review's points, anchored to a file and a line. */

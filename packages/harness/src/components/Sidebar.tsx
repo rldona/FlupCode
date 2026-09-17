@@ -68,6 +68,7 @@ type SidebarProps = {
   onRuns: () => void
   onUsage: () => void
   onContext: () => void
+  onAgents: () => void
   onArtifacts: () => void
   onProviders: () => void
   onConfig: () => void
@@ -294,6 +295,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               <button class="fc-nav-item" type="button" onClick={props.onContext}>
                 <span class="fc-nav-icon">◫</span>
                 {t("Context")}
+              </button>
+              <button class="fc-nav-item" type="button" onClick={props.onAgents}>
+                <span class="fc-nav-icon">◍</span>
+                {t("Agents")}
               </button>
               <button
                 class="fc-nav-item"
