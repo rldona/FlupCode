@@ -917,6 +917,11 @@ const ES: Record<string, string> = {
   "Nothing is wrong with these. The engine reads a folder's skills when it opens the folder.":
     "Estos no tienen nada malo. El motor lee los skills de una carpeta al abrirla.",
 
+  // One bar above the composer
+  "Hide this": "Ocultar",
+  "Hide until there is something new to say": "Ocultar hasta que haya algo nuevo que decir",
+  "{additions} added, {deletions} removed on this branch": "{additions} añadidas, {deletions} quitadas en esta rama",
+
 }
 
 const STORAGE_DEFAULT: Locale = "en"
