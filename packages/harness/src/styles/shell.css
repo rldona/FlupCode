@@ -533,6 +533,11 @@ button.fc-row-main {
   color: var(--fc-text-muted);
 }
 
+/* The panel this button opens is open: a quiet ground, so it reads even without the pointer. */
+.fc-nav-arrow-active {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+}
+
 .fc-logo {
   font-weight: 600;
 }
@@ -591,15 +596,6 @@ button.fc-status {
   align-items: center;
   padding: var(--fc-space-6) var(--fc-space-5) var(--fc-space-5);
   gap: var(--fc-space-3);
-}
-
-/* Centred in the window; auto margins (not justify-content) keep the top reachable when it overflows. */
-.fc-canvas > :first-child {
-  margin-top: auto;
-}
-
-.fc-canvas > :last-child {
-  margin-bottom: auto;
 }
 
 /* Same scale as the chat greeting, so both homes read alike. */
@@ -1931,11 +1927,10 @@ button.fc-status {
   text-decoration: underline;
 }
 
-/* The running status line is the chat's master line, not one more transcript row: extra air
-   separates it from the last message instead of letting it blend in. */
+/* The running status line is the chat's master line. It keeps the same air above it as the
+   transcript keeps under it, so it sits in the conversation rather than floating over it. */
 .fc-message-pending {
   margin-top: var(--fc-space-3);
-  padding-top: var(--fc-space-4);
   color: var(--fc-text-muted);
   font-size: 13px;
 }
@@ -5731,7 +5726,9 @@ button.fc-status {
 }
 
 .fc-composer .fc-composer-bottom {
-  padding: 0 2px;
+  /* The "+" lines up with the prompt's first letter, the way the context ring lines up with the
+     send button at the other end. */
+  padding: 0 2px 0 7px;
 }
 
 .fc-composer .fc-composer-left,
