@@ -147,6 +147,7 @@ const readJSON = async (request: Request) => {
 
 import { duration, listWorkflows } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
+import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
@@ -365,6 +366,53 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         return json({ data: { removed: true } })
       } catch (cause) {
         if (cause instanceof AgentError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+
+    // Skills (H-27): what is on disk, and — the point of the screen — what the engine would not load
+    // and why. Two of the three ways a skill fails look identical from the outside: nothing happens.
+    if (path[1] === "skills" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      return json({ data: skillReport(params.get("directory") ?? undefined, params.get("project") ?? undefined) })
+    }
+    if (path[1] === "skills" && path[2] === "file" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const wanted = params.get("path") ?? ""
+      if (!wanted) return error("A path is required", 400)
+      const content = readSkill(wanted, params.get("directory") ?? undefined, params.get("project") ?? undefined)
+      return content === undefined ? error("Not one of this project's skill files", 404) : json({ data: { content } })
+    }
+    if (path[1] === "skills" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as
+        | { name?: unknown; scope?: unknown; description?: unknown; body?: unknown; directory?: unknown; project?: unknown }
+        | undefined
+      try {
+        const written = writeSkill(
+          {
+            name: typeof body?.name === "string" ? body.name.trim() : "",
+            scope: body?.scope === "global" ? "global" : "project",
+            description: typeof body?.description === "string" ? body.description : "",
+            body: typeof body?.body === "string" ? body.body : "",
+          },
+          typeof body?.directory === "string" ? body.directory : undefined,
+          typeof body?.project === "string" ? body.project : undefined,
+        )
+        return json({ data: { path: written } })
+      } catch (cause) {
+        if (cause instanceof SkillError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "skills" && request.method === "DELETE" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      const wanted = params.get("path") ?? ""
+      if (!wanted) return error("A path is required", 400)
+      try {
+        deleteSkill(wanted, params.get("directory") ?? undefined, params.get("project") ?? undefined)
+        return json({ data: { removed: true } })
+      } catch (cause) {
+        if (cause instanceof SkillError) return error(cause.message, cause.status)
         throw cause
       }
     }
