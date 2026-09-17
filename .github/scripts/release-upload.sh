@@ -6,12 +6,13 @@
 # 500/504, and a failing attempt crawls at ~100-200 KB/s for one to three minutes before it dies,
 # while a healthy one moves 1-8 MiB/s. A retry almost always recovers, so the fix is to retry rather
 # than to change how many jobs upload (parallel jobs measured ~4.5 MiB/s combined and did not
-# degrade each other). `--clobber` replaces whatever a killed attempt left behind.
+# degrade each other). `--clobber` replaces whatever a killed attempt left behind. On the first real
+# run a 168 MB installer used all five attempts we started with, so the budget is eight.
 #
 # Usage: release-upload.sh <tag> <file>...
 #
 #   GH_REPO          owner/repo, the same variable `gh` itself reads (required)
-#   UPLOAD_ATTEMPTS  attempts per file, default 5
+#   UPLOAD_ATTEMPTS  attempts per file, default 8
 #   UPLOAD_TIMEOUT   seconds before an attempt is killed and retried, default 240
 #   UPLOAD_BACKOFF   seconds before the first retry, doubling up to 120, default 10
 set -euo pipefail
@@ -19,7 +20,7 @@ set -euo pipefail
 tag="${1:?usage: release-upload.sh <tag> <file>...}"
 shift
 repo="${GH_REPO:?GH_REPO is not set}"
-attempts="${UPLOAD_ATTEMPTS:-5}"
+attempts="${UPLOAD_ATTEMPTS:-8}"
 timeout="${UPLOAD_TIMEOUT:-240}"
 backoff="${UPLOAD_BACKOFF:-10}"
 
