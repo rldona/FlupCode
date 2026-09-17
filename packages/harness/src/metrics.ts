@@ -252,7 +252,7 @@ export function contextFigures(
     }
   }
   if (compaction >= 0)
-    return { used: sentTokens(messages.slice(compaction)), limit, cost, estimated: true }
+    return { used: standingTokens(messages) + sentTokens(messages.slice(compaction)), limit, cost, estimated: true }
   return {
     used: (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0),
     limit,
@@ -260,9 +260,29 @@ export function contextFigures(
   }
 }
 
+/**
+ * The prompt the engine puts around the messages — the system prompt, the tool schemas, the project
+ * instructions — which is in no message of its own, so the transcript cannot size it. The session's
+ * first step is the cheapest reading of it: its whole prompt was the messages before it, so what it
+ * carries beyond their text is what every later prompt pays again too. Zero when nothing measured a
+ * step yet, or when no message came first — then there is no telling the prompt from the rest.
+ */
+function standingTokens(messages: SessionMessageInfo[]) {
+  let chars = 0
+  for (const message of messages) {
+    if (message.type !== "assistant" || !hasTokens(message.tokens)) {
+      chars += messageChars(message)
+      continue
+    }
+    const tokens = message.tokens!
+    const text = Math.ceil(chars / 4)
+    return text > 0 ? Math.max(0, tokens.input + tokens.cache.read - text) : 0
+  }
+  return 0
+}
+
 /** What the text of these messages costs to send, at the four characters per token the composer
- *  already assumes. The system prompt is not in a message, so this reads low until the next step
- *  reports the engine's own measurement. */
+ *  already assumes. */
 function sentTokens(messages: SessionMessageInfo[]) {
   return Math.ceil(messages.reduce((chars, message) => chars + messageChars(message), 0) / 4)
 }
