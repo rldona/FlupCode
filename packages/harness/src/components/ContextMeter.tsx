@@ -6,6 +6,9 @@ type ContextMeterProps = {
   limit: number
   cost?: number
   tokens?: { input: number; output: number; reasoning: number }
+  /** The figure sizes the text the engine will send next, not a finished step: after a compaction,
+   *  until the next step reports tokens. */
+  estimated?: boolean
 }
 
 export const ContextMeter: Component<ContextMeterProps> = (props) => {
@@ -50,7 +53,8 @@ export const ContextMeter: Component<ContextMeterProps> = (props) => {
         <div class="fc-context-popover">
           <div class="fc-context-row">
             <span>{t("Context window")}</span>
-            <span class="fc-context-strong">
+            <span class="fc-context-strong" title={props.estimated ? t("Estimated") : undefined}>
+              {props.estimated ? "~" : ""}
               {format(props.used)} / {format(props.limit)} ({Math.round(percent())}%)
             </span>
           </div>

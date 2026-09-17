@@ -19,14 +19,19 @@ const user = (id: string, text: string, created: number) => ({
   text,
   time: { created, completed: created },
 })
-const assistant = (id: string, text: string, created: number) => ({
+const assistant = (id: string, text: string, created: number, tokens?: { input: number; read: number }) => ({
   id,
   sessionID: "ses_compact",
   type: "assistant",
   agent: "build",
   model: { providerID: "openai", id: "gpt" },
   cost: 0,
-  tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+  tokens: {
+    input: tokens?.input ?? 0,
+    output: 0,
+    reasoning: 0,
+    cache: { read: tokens?.read ?? 0, write: 0 },
+  },
   time: { created, completed: created + 1 },
   content: [{ type: "text", id: `${id}_p`, text }],
 })
@@ -50,7 +55,7 @@ const history = [
   compaction("c2", "auto", "## Resumen\n\n- A y B hechas.", now + 30),
 ]
 
-async function openSession(page: Page) {
+async function openSession(page: Page, messages = history) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -62,7 +67,7 @@ async function openSession(page: Page) {
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_compact/message")
-      return route.fulfill({ json: { data: history, cursor: {} } })
+      return route.fulfill({ json: { data: messages, cursor: {} } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
@@ -88,4 +93,30 @@ test("a compaction is a marked boundary, not one more answer", async ({ page }) 
   await expect(markers.nth(0).locator(".fc-compaction-body")).toHaveCount(0)
   await markers.nth(0).locator(".fc-compaction-line").click()
   await expect(markers.nth(0).locator(".fc-compaction-body")).toContainText("A quedó hecha")
+})
+
+// A session that was compacted and not prompted again: the last thing the engine measured is the
+// history it folded away, so the meter has no step to read the compacted session from.
+const compacted = [
+  user("u1", "Haz A y B", now),
+  assistant("a1", "Hecha A.", now + 1, { input: 470_000, read: 4_000 }),
+  compaction("c1", "manual", "## Resumen\n\n- A quedó hecha.", now + 10),
+]
+
+const contextTokens = (page: Page) => page.locator(".fc-aside-section").first().locator(".fc-aside-row span").first()
+
+test("the meter sizes the session the compaction left, not the history it folded", async ({ page }) => {
+  await openSession(page, compacted)
+
+  await expect(contextTokens(page)).toContainText("~")
+  await expect(contextTokens(page)).toHaveAttribute("title", /Estimated|Estimado/)
+  // 474.0k was the request that wrote the summary; it is not what the next prompt will send.
+  await expect(contextTokens(page)).not.toContainText("474")
+})
+
+test("a step after the compaction measures the session again", async ({ page }) => {
+  await openSession(page, [...compacted, assistant("a2", "Voy.", now + 20, { input: 10_000, read: 11_000 })])
+
+  await expect(contextTokens(page)).toContainText("21.0k")
+  await expect(contextTokens(page)).not.toContainText("~")
 })
