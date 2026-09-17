@@ -15,7 +15,7 @@ import type {
 } from "../engine-types"
 import type { Attachment, ProjectItem } from "../types"
 import { createClient, invalidateLegacyHistory } from "../client"
-import { CHAT_SYSTEM } from "../chat"
+import { CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, type ChatClass } from "../chat"
 import { messageID } from "../ids"
 import { pendingPrompts, type Delivery } from "../pending-prompts"
 import { contextFigures, type CompactionConfig } from "../metrics"
@@ -39,7 +39,8 @@ type SessionPaneProps = {
   focused: boolean
   /** The engine is working on this session (from the app's run state). */
   running: boolean
-  chat: boolean
+  /** The conversation's class: "chat" for a plain chat, "cowork" for project access, undefined for code. */
+  chat: ChatClass | undefined
   chatsDirectory: string | undefined
   showTools: boolean
   showReasoning: boolean
@@ -274,7 +275,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       const current = client()
       const body = props.expandPastes(text)
       const fileRefs = files.map(({ uri, name }) => ({ uri, name }))
-      if (props.chat && props.chatsDirectory) {
+      if (props.chat === "chat" && props.chatsDirectory) {
         // A line sent while the chat is answering interrupts it and starts a turn of its own.
         if (generating())
           await current.session
@@ -289,6 +290,9 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           ...(validModel() ? { model: validModel()! } : {}),
         })
       } else {
+        // Cowork is Code with the conversational prompt and the reserved agent that marks it.
+        const cowork = props.chat === "cowork"
+        const promptAgent = cowork ? COWORK_AGENT : props.session.agent
         await current.session.setPermission({
           sessionID: sessionID(),
           permission: permissionMode(props.permissionModeId).rules,
@@ -300,7 +304,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           directory: props.session.location?.directory,
           text,
           files,
-          agent: props.session.agent,
+          agent: promptAgent,
+          ...(cowork ? { system: COWORK_SYSTEM } : {}),
           ...(validModel() ? { model: validModel()! } : {}),
           delivery: mode,
         })
@@ -317,7 +322,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
               directory: props.session.location?.directory,
               id,
               text: body,
-              agent: props.session.agent,
+              agent: promptAgent,
+              ...(cowork ? { system: COWORK_SYSTEM } : {}),
               ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
               ...(validModel() ? { model: validModel()! } : {}),
             })
@@ -342,7 +348,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
 
   const stop = () => {
     const current = client()
-    const directory = props.chat && props.chatsDirectory ? props.chatsDirectory : props.session.location?.directory
+    const directory =
+      props.chat === "chat" && props.chatsDirectory ? props.chatsDirectory : props.session.location?.directory
     void current.session
       .abort({ sessionID: sessionID(), directory })
       .catch((error: unknown) => toast(error instanceof Error ? error.message : String(error), "error"))
@@ -376,7 +383,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       .catch(() => client().session.question.reject({ sessionID: request.sessionID, requestID: request.id }))
       .then(() => refetchQuestions())
 
-  const project = () => (props.chat ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1))
+  const project = () =>
+    props.chat === "chat" ? t("Chat") : props.session.location?.directory?.split("/").filter(Boolean).at(-1)
 
   return (
     <section
@@ -420,7 +428,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         modelName={props.modelName}
         showTools={props.showTools}
         showReasoning={props.showReasoning}
-        chat={props.chat}
+        chat={props.chat === "chat"}
         pending={pending()}
         onEditUser={editUser}
       />
@@ -460,7 +468,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       </div>
 
       <Composer
-        mode={props.chat ? "chat" : "code"}
+        mode={props.chat === "chat" ? "chat" : "code"}
+        chatClass={props.chat}
         inactive={!props.focused}
         value={draft()}
         sending={busy()}

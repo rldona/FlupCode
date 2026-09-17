@@ -46,6 +46,7 @@ const ES: Record<string, string> = {
   "Drag to resize, double-click to reset": "Arrastra para cambiar el ancho, doble clic para restablecerlo",
   "Split view": "Vista dividida",
   "Close pane": "Cerrar panel",
+  "Close session": "Cerrar sesión",
   Stopped: "Detenido",
   View: "Vista",
   Chats: "Chats",
@@ -55,6 +56,10 @@ const ES: Record<string, string> = {
   "No chats yet": "Todavía no hay chats",
   "Start one with New": "Empieza uno con Nuevo",
   "New chat": "Nuevo chat",
+  Cowork: "Cowork",
+  "New cowork": "Nuevo cowork",
+  "Wait for the answer before switching": "Espera la respuesta antes de cambiar",
+  "Choose a project folder for Cowork": "Elige una carpeta de proyecto para Cowork",
   "Write a message…": "Escribe un mensaje…",
   "Write a message to start a chat.": "Escribe un mensaje para empezar un chat.",
   "Chats are not available: the engine did not report its folders":

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { CHAT_PERMISSION, chatFileParts, chatGreeting, isChatSession } from "./chat"
+import {
+  CHAT_PERMISSION,
+  chatFileParts,
+  chatGreeting,
+  isChatSession,
+  isCoworkSession,
+  sessionChatClass,
+} from "./chat"
 
 describe("isChatSession", () => {
   test("a chat lives in the chats folder", () => {
@@ -10,6 +17,26 @@ describe("isChatSession", () => {
   test("nothing is a chat until the folder is known", () => {
     expect(isChatSession({ location: { directory: "/state" } }, undefined)).toBe(false)
     expect(isChatSession({}, "/state")).toBe(false)
+  })
+})
+
+describe("isCoworkSession", () => {
+  test("a cowork session runs the reserved agent", () => {
+    expect(isCoworkSession({ agent: "cowork" })).toBe(true)
+    expect(isCoworkSession({ agent: "build" })).toBe(false)
+    expect(isCoworkSession({})).toBe(false)
+  })
+})
+
+describe("sessionChatClass", () => {
+  test("tells plain chats, cowork and code apart", () => {
+    expect(sessionChatClass({ location: { directory: "/state" } }, "/state")).toBe("chat")
+    expect(sessionChatClass({ agent: "cowork", location: { directory: "/code/app" } }, "/state")).toBe("cowork")
+    expect(sessionChatClass({ location: { directory: "/code/app" } }, "/state")).toBeUndefined()
+  })
+
+  test("the cowork marker wins over the chats folder", () => {
+    expect(sessionChatClass({ agent: "cowork", location: { directory: "/state" } }, "/state")).toBe("cowork")
   })
 })
 
