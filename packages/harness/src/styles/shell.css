@@ -8236,6 +8236,12 @@ button.fc-status {
   padding-bottom: var(--fc-space-1);
 }
 
+/* The last session used to end right against the footer. Leave the list a little room at its end,
+   so a project's final row reads as the end of the list and not as part of the footer. */
+.fc-sidebar .fc-scroll {
+  padding-bottom: var(--fc-space-5);
+}
+
 .fc-sidebar-new {
   display: flex;
   gap: var(--fc-space-1);
