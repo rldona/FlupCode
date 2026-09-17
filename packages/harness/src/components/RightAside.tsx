@@ -141,6 +141,14 @@ export const RightAside: Component<RightAsideProps> = (props) => {
                     {t("Clear completed")}
                   </button>
                 </Show>
+                {/* A task the engine left in progress has no other way out of the panel. */}
+                <button
+                  class="fc-aside-clear"
+                  type="button"
+                  onClick={() => props.onClearTodos(props.todos.map((todo) => todo.content))}
+                >
+                  {t("Clear all")}
+                </button>
                 <span class="fc-aside-count">
                   {completed()}/{props.todos.length}
                 </span>
