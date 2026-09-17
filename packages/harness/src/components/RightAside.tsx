@@ -9,7 +9,7 @@ import { cssPx } from "../text-size"
 
 type RightAsideProps = {
   /** The composer's context meter figures: tokens in the window, its size, and what the session spent. */
-  usage: { used: number; limit: number; cost: number }
+  usage: { used: number; limit: number; cost: number; estimated?: boolean }
   todos: TodoItem[]
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
@@ -79,12 +79,18 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         <section class="fc-aside-section">
           <h3 class="fc-aside-title">{t("Context")}</h3>
           <div class="fc-aside-row">
-            <span>{formatTokens(props.usage.used)} tokens</span>
+            <span title={props.usage.estimated ? t("Estimated") : undefined}>
+              {props.usage.estimated ? "~" : ""}
+              {formatTokens(props.usage.used)} tokens
+            </span>
           </div>
           <Show when={used() !== undefined}>
             <div class="fc-aside-row">
               <span>{t("% used")}</span>
-              <span>{used()}%</span>
+              <span>
+                {props.usage.estimated ? "~" : ""}
+                {used()}%
+              </span>
             </div>
             <div class="fc-meter">
               <div class="fc-meter-fill" style={{ width: `${used()}%` }} />
