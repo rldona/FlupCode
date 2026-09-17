@@ -882,13 +882,15 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           const distance = container.scrollHeight - container.scrollTop - container.clientHeight
           setAwayFromEnd(distance > 200)
           // Content growing never fires scroll; only the reader's own input (wheel, touch, keys,
-          // scrollbar) or the smooth glide to the end does. A recent input moving away from the end
-          // breaks following at once, so lazy message heights can't yank the reader back down.
+          // scrollbar) or a smooth glide does. A recent input moving away from the end breaks
+          // following at once, so lazy message heights can't yank the reader back down. Re-sticking
+          // also needs that input: a jump to a chapter starts near the end too, and re-sticking
+          // there would drag the reader back down as lazy rendering grows the body.
           const recent = performance.now() - readerInput < 1000
           if (recent && distance > lastDistance) {
             clearSettleTimers()
             setStick(false)
-          } else if (distance < 120) setStick(true)
+          } else if (recent && distance < 120) setStick(true)
           else if (recent) setStick(false)
           lastDistance = distance
         }}
