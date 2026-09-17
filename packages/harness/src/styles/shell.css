@@ -7310,6 +7310,27 @@ button.fc-status {
   word-break: break-word;
 }
 
+.fc-run-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+
+.fc-run-rule {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-text-muted) 14%, transparent);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+/* Reaching outside the project is the unusual one, so it is the one that is coloured. */
+.fc-run-rule-open {
+  background: color-mix(in srgb, var(--fc-warning, #c98a00) 18%, transparent);
+  color: var(--fc-warning, #c98a00);
+}
+
 .fc-run-error {
   margin: var(--fc-space-1) 0 0;
   color: var(--fc-danger);

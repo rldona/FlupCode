@@ -40,6 +40,22 @@ export type Run = {
   startedAt: number
   finishedAt?: number
   error?: string
+  /**
+   * How long one tool call may run before the task is stopped (H-47).
+   *
+   * Declared, never invented. The engine lets a model ask for a shell timeout of half an hour on
+   * purpose, and a default that killed that would cut legitimate work — a test suite is allowed to
+   * be slow. A run that wants a ceiling says so, and the reason it stopped is recorded.
+   */
+  toolLimitMs?: number
+  /**
+   * Let this run's tasks reach outside the project (H-47).
+   *
+   * Off by default: a task is confined to the project it runs in, which is the engine's own
+   * `external_directory` boundary. Opening it is an explicit choice, the way H-04 asks — policies
+   * only restrict, and a bypass is stated.
+   */
+  outside?: boolean
 }
 
 export type RoutineInput = {
@@ -229,7 +245,7 @@ export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 
 /** Runs, whatever asked for them. */
 export type RunRepository = {
-  startRun(source: RunSource, now: number, directory?: string): Run
+  startRun(source: RunSource, now: number, directory?: string, options?: Pick<Run, "toolLimitMs" | "outside">): Run
   /** Hold a run at a gate: not running, not finished, waiting for a person. */
   awaitRun(runID: string): void
   /** Let it through, and say whether there was anything to let through. */

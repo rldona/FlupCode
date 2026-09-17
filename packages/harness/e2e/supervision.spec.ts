@@ -33,7 +33,7 @@ const files = [
   { taskID: "t1", checkpointID: "cp1", title: "plan it", files: [{ path: "PLAN.md", status: "added" }] },
 ]
 
-type Options = { activity?: unknown[]; files?: unknown[] }
+type Options = { activity?: unknown[]; files?: unknown[]; run?: Record<string, unknown>; tasks?: unknown[] }
 
 async function open(page: Page, options: Options = {}) {
   let activityReads = 0
@@ -56,8 +56,9 @@ async function open(page: Page, options: Options = {}) {
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
-    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [run] } })
-    if (url.pathname === "/harness/runs/run_1/tasks") return route.fulfill({ json: { data: tasks } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [{ ...run, ...options.run }] } })
+    if (url.pathname === "/harness/runs/run_1/tasks")
+      return route.fulfill({ json: { data: options.tasks ?? tasks } })
     if (url.pathname === "/harness/runs/run_1/activity") {
       activityReads++
       return route.fulfill({ json: { data: options.activity ?? [] } })
@@ -136,4 +137,38 @@ test("a task with no checkpoint shows neither, rather than an empty claim", asyn
 
   await expect(page.locator(".fc-run-files")).toHaveCount(0)
   await expect(page.getByText(/Changed no files|No cambió ningún archivo/)).toHaveCount(0)
+})
+
+test("a run that was allowed outside its project says so", async ({ page }) => {
+  // H-47. Confinement is the default and says nothing; the exception is the thing worth reading.
+  await open(page, { run: { outside: true, toolLimitMs: 10 * 60_000 } })
+
+  await expect(page.locator(".fc-run-rule-open")).toContainText(/Reaches outside|Sale del proyecto/)
+  await expect(page.locator(".fc-run-rules")).toContainText("10")
+})
+
+test("a confined run adds nothing to the screen", async ({ page }) => {
+  await open(page)
+  await expect(page.locator(".fc-run-rules")).toHaveCount(0)
+})
+
+test("a task stopped by the ceiling says what was running and for how long", async ({ page }) => {
+  await open(page, {
+    run: { toolLimitMs: 10 * 60_000 },
+    tasks: [
+      {
+        id: "t9",
+        runID: "run_1",
+        position: 0,
+        name: "build it",
+        prompt: "b",
+        status: "failed",
+        error: "`glob` ran for 20 minutes, over this run's limit of 10 for a single tool call",
+        startedAt: now,
+        finishedAt: now + 1,
+      },
+    ],
+  })
+
+  await expect(page.locator(".fc-run-error")).toContainText("`glob` ran for 20 minutes")
 })

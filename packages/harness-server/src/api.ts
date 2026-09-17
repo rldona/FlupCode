@@ -145,7 +145,7 @@ const readJSON = async (request: Request) => {
   }
 }
 
-import { listWorkflows } from "./workflow"
+import { duration, listWorkflows } from "./workflow"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
@@ -177,13 +177,28 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
-      const body = (await readJSON(request)) as { tasks?: unknown; directory?: unknown } | undefined
+      const body = (await readJSON(request)) as
+        | { tasks?: unknown; directory?: unknown; toolLimit?: unknown; outside?: unknown }
+        | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
       if (tasks.length === 0) {
         return error("A run needs at least one task with a name, and a prompt unless it is a verify task", 400)
       }
       const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
-      return json({ data: await scheduler.runTasks({ tasks, directory }) }, 202)
+      // `toolLimit` is written the way a person writes it — "10m" — and read by the same parser the
+      // workflow files use, so the two cannot drift (H-47).
+      const toolLimitMs = duration(body?.toolLimit)
+      return json(
+        {
+          data: await scheduler.runTasks({
+            tasks,
+            directory,
+            ...(toolLimitMs ? { toolLimitMs } : {}),
+            ...(body?.outside === true ? { outside: true } : {}),
+          }),
+        },
+        202,
+      )
     }
     if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "tasks") {
       return repository.getRun(path[2])

@@ -71,6 +71,10 @@ export type Run = {
   startedAt: number
   finishedAt?: number
   error?: string
+  /** How long one tool call may run before the task is stopped (H-47). Declared, never invented. */
+  toolLimitMs?: number
+  /** This run was allowed to reach outside its project. Stated on screen, because it is unusual. */
+  outside?: boolean
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
 }
