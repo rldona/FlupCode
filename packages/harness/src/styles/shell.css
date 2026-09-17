@@ -8386,6 +8386,20 @@ button.fc-status {
   border-left-color: var(--fc-text-muted);
 }
 
+/*
+  A check that failed, not a model's opinion. Solid rather than tinted, because it is not a judgement
+  call: the command exited non-zero.
+*/
+.fc-diff-finding[data-source="check"] {
+  border-left-color: var(--fc-diff-del);
+  background: color-mix(in srgb, var(--fc-diff-del) 14%, transparent);
+}
+
+.fc-diff-finding[data-source="check"] .fc-diff-finding-severity {
+  background: var(--fc-diff-del);
+  color: var(--fc-bg, #fff);
+}
+
 /* Set aside, not deleted: it stays readable and stops shouting. */
 .fc-diff-finding-done {
   opacity: 0.5;

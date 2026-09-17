@@ -222,7 +222,7 @@ export type TouchedFiles = {
   files: Array<{ path: string; status: "added" | "modified" | "deleted" }>
 }
 
-/** A review's point, anchored to a file and usually to a line (H-32). */
+/** A point anchored to a file and usually to a line: a review's (H-32) or a check's (H-22). */
 export type Finding = {
   id: string
   directory?: string
@@ -233,6 +233,8 @@ export type Finding = {
   severity: "high" | "medium" | "low"
   title: string
   detail?: string
+  /** A model's opinion, or a command that exited non-zero. Not the same claim. */
+  source?: "review" | "check"
   resolved?: boolean
   createdAt: number
 }

@@ -32,9 +32,20 @@ const STATUS_LABEL: Record<string, string> = {
  * sentences of detail does not have to fit in a margin.
  */
 const Comment: Component<{ finding: Finding; onResolve: (id: string, resolved: boolean) => void }> = (props) => (
-  <div class="fc-diff-finding" data-severity={props.finding.severity} classList={{ "fc-diff-finding-done": !!props.finding.resolved }}>
+  <div
+    class="fc-diff-finding"
+    data-severity={props.finding.severity}
+    data-source={props.finding.source ?? "review"}
+    classList={{ "fc-diff-finding-done": !!props.finding.resolved }}
+  >
     <div class="fc-diff-finding-head">
-      <span class="fc-diff-finding-severity">{t(props.finding.severity)}</span>
+      {/*
+        Who said it. A model's review is an opinion and can be wrong; a check that exited non-zero
+        is a fact. Drawing them identically would make the reader weigh them the same.
+      */}
+      <span class="fc-diff-finding-severity">
+        {props.finding.source === "check" ? t("check") : t(props.finding.severity)}
+      </span>
       <span class="fc-diff-finding-title">{props.finding.title}</span>
       <button
         class="fc-pr-action"
