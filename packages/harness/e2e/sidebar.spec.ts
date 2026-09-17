@@ -180,6 +180,28 @@ test("the tabs are the kinds that matched, and picking one narrows to it", async
   await expect(page.locator(".fc-palette")).not.toContainText("Fix the parser")
 })
 
+test("walking the palette with the arrows keeps the active row in view", async ({ page }) => {
+  const many = Array.from({ length: 30 }, (_, index) => sessionAt(`ses_${index}`, `Session ${index}`, "/work/demo"))
+  await open(page, { sessions: many })
+  await page.locator(".fc-sidebar-search").click()
+
+  // The Sessions tab lists them all; "All" would cap them at a handful.
+  await page.locator(".fc-palette-tab").filter({ hasText: /^Sessions$/ }).click()
+  const list = page.locator(".fc-palette-list")
+  await expect(list.locator(".fc-palette-item").first()).toBeVisible()
+  const listBox = (await list.boundingBox())!
+
+  for (let index = 0; index < 20; index++) await page.keyboard.press("ArrowDown")
+
+  // The active row must have been scrolled into view, not left below the fold.
+  const active = page.locator(".fc-palette-item-active")
+  await expect(active).toBeVisible()
+  const activeBox = (await active.boundingBox())!
+  expect(await list.evaluate((node) => node.scrollTop)).toBeGreaterThan(0)
+  expect(activeBox.y).toBeGreaterThanOrEqual(listBox.y - 1)
+  expect(activeBox.y + activeBox.height).toBeLessThanOrEqual(listBox.y + listBox.height + 1)
+})
+
 test("typing narrows across kinds at once", async ({ page }) => {
   await open(page, { routines })
   await page.locator(".fc-sidebar-search").click()
