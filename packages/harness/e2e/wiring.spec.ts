@@ -20,6 +20,7 @@ async function openApp(page: Page, options: { mcp?: Record<string, unknown> } = 
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_w"))
+    window.localStorage.setItem("flupcode.selectedModel", JSON.stringify({ providerID: "openai", id: "gpt" }))
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const request = route.request()
@@ -48,6 +49,10 @@ async function openApp(page: Page, options: { mcp?: Record<string, unknown> } = 
     if (/^\/mcp\/[^/]+\/(connect|disconnect)$/.test(url.pathname)) {
       record()
       return route.fulfill({ json: {} })
+    }
+    if (url.pathname === "/session/ses_w/summarize" && request.method() === "POST") {
+      record()
+      return route.fulfill({ json: true })
     }
     if (url.pathname === "/session/ses_w/share" && request.method() === "POST") {
       record()
@@ -109,6 +114,18 @@ test("sharing a session asks the engine for a link", async ({ page }) => {
 
   // The roadmap called this impossible; the endpoint was there all along.
   await expect.poll(() => calls.posts.some((call) => call.path === "/session/ses_w/share")).toBe(true)
+})
+
+test("/compact runs the engine's compaction, with the model to summarize with", async ({ page }) => {
+  const calls = await openApp(page)
+  const input = page.locator(".fc-composer textarea.fc-input")
+  await input.fill("/compact")
+  await input.press("Enter")
+
+  // The v2 `compact` is a stub that answers "not available yet"; `summarize` is the real one.
+  await expect.poll(() => calls.posts.some((call) => call.path === "/session/ses_w/summarize")).toBe(true)
+  const call = calls.posts.find((entry) => entry.path === "/session/ses_w/summarize")!
+  expect(call.body).toMatchObject({ providerID: "openai", modelID: "gpt" })
 })
 
 test("Settings names the engine it is talking to", async ({ page }) => {
