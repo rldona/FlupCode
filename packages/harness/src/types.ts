@@ -294,3 +294,11 @@ export type ContextReport = {
   instructions: InstructionFile[]
   problem?: string
 }
+
+/** One system prompt as the engine handed it to the provider, recorded by FlupCode's engine plugin. */
+export type CapturedPrompt = {
+  at: number
+  providerID?: string
+  modelID?: string
+  system: string[]
+}

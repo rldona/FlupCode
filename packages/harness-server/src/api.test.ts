@@ -375,3 +375,42 @@ describe("harness usage API", () => {
     repository.close()
   })
 })
+
+// The one part of the context the engine cannot report: FlupCode's own engine plugin records it as
+// the request goes out, and these are the two ways that can go wrong from a browser's point of view.
+describe("the captured system prompt", () => {
+  test("answers with what the plugin recorded for that session, newest first", async () => {
+    const shared = mkdtempSync(join(tmpdir(), "flupcode-api-prompts-"))
+    made.push(shared)
+    const previous = process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
+    process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = shared
+    mkdirSync(join(shared, "ses_abc"), { recursive: true })
+    for (const [name, text] of [
+      ["1700000000000-a.json", "first"],
+      ["1700000000005-b.json", "second"],
+    ]) {
+      writeFileSync(
+        join(shared, "ses_abc", name!),
+        JSON.stringify({ at: Number(name!.slice(0, 13)), providerID: "deepseek", modelID: "flash", system: [text!] }),
+      )
+    }
+
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/context/system-prompt?sessionID=ses_abc"))
+    const prompts = (await response.json()).data
+    expect(prompts.map((prompt: { system: string[] }) => prompt.system[0])).toEqual(["second", "first"])
+    expect(prompts[0].modelID).toBe("flash")
+    repository.close()
+    if (previous === undefined) delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
+    else process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = previous
+  })
+
+  test("asks for a session, and does not go looking outside the folder it keeps them in", async () => {
+    const { handler, repository } = open()
+    const missing = await handler(new Request("http://x/harness/context/system-prompt"))
+    expect(missing.status).toBe(400)
+    const escape = await handler(new Request("http://x/harness/context/system-prompt?sessionID=../../etc"))
+    expect((await escape.json()).data).toEqual([])
+    repository.close()
+  })
+})

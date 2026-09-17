@@ -2,7 +2,7 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatTokens } from "../metrics"
 import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
-import type { ContextReport } from "../types"
+import type { CapturedPrompt, ContextReport } from "../types"
 
 export type ContextTokens = {
   input: number
@@ -27,11 +27,16 @@ type ContextPanelProps = {
   tokens?: ContextTokens
   /** How many times this session has been compacted, from its transcript. */
   compactions: number
+  /** The system prompts the engine assembled for this session's last requests, newest first. */
+  prompts?: CapturedPrompt[]
+  promptsLoading: boolean
   onRead: (path: string) => Promise<string>
   onClose: () => void
 }
 
 const bytes = (value: number) => (value < 1024 ? `${value} B` : `${Math.round(value / 102.4) / 10} kB`)
+
+const when = (at: number) => new Date(at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })
 
 const name = (path: string) => {
   const parts = path.split("/").filter(Boolean)
@@ -48,15 +53,16 @@ export const roughTokens = (value: number) => Math.round(value / 4)
  * instruction files load and in what order, which skills and tools are on offer, what the window
  * actually holds — visible, and is explicit about the part that cannot.
  *
- * **The assembled system prompt is not here.** `/api/agent` reports a two-line description of each
- * agent, not the prompt the engine builds at turn time; that needs a plugin hook the audit already
- * names. Showing the blurb and calling it the system prompt would be worse than showing nothing,
- * so it is labelled as what it is and the gap is stated on screen.
+ * The assembled system prompt is the one part no endpoint reports, because the engine builds it at
+ * request time and hands it straight to the provider. FlupCode's engine plugin reads it off the
+ * request as it goes out and records it, so this shows those recordings rather than a description of
+ * them: a session has several (the turn, its title, a compaction), so they are listed newest first.
  */
 export const ContextPanel: Component<ContextPanelProps> = (props) => {
   const [openFile, setOpenFile] = createSignal<string>()
   const [content, setContent] = createSignal<string>()
   const [problem, setProblem] = createSignal<string>()
+  const [openPrompt, setOpenPrompt] = createSignal<number>()
 
   const read = (path: string) => {
     if (openFile() === path) {
@@ -229,17 +235,56 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
           </Show>
 
           {/*
-            Said out loud rather than quietly missing. The engine reports each agent's description,
-            not the prompt it assembles at turn time.
+            What the engine actually sent. Said in place of the note that used to stand here: the
+            prompt is no longer the part of the context this screen cannot show.
           */}
           <section class="fc-usage-block">
-            <h2>{t("The system prompt")}</h2>
+            <h2>
+              {t("The system prompt")}
+              <Show when={(props.prompts?.length ?? 0) > 0}>
+                <span class="fc-context-aside">{props.prompts!.length}</span>
+              </Show>
+            </h2>
             <p class="fc-usage-note">
               {t(
-                "FlupCode cannot show it. The engine reports each agent's description, not the prompt it builds for a turn — that needs a plugin it does not have yet. Everything above is what goes into it.",
+                "Recorded as each request went out, so it is what the model was given and not a description of it. The longest is the turn; titles and compactions are recorded too.",
               )}
             </p>
+            <Show
+              when={(props.prompts?.length ?? 0) > 0}
+              fallback={
+                <p class="fc-usage-note">
+                  {props.promptsLoading
+                    ? t("Reading…")
+                    : t(
+                        "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, and an engine that was already running needs a restart to load it.",
+                      )}
+                </p>
+              }
+            >
+              <For each={props.prompts}>
+                {(prompt) => (
+                  <div class="fc-context-file">
+                    <button
+                      class="fc-usage-row fc-context-row"
+                      type="button"
+                      onClick={() => setOpenPrompt((value) => (value === prompt.at ? undefined : prompt.at))}
+                    >
+                      <span class="fc-usage-key">{when(prompt.at)}</span>
+                      <span class="fc-context-excerpt">
+                        {[prompt.providerID, prompt.modelID].filter(Boolean).join("/")}
+                      </span>
+                      <span class="fc-usage-cost">{bytes(prompt.system.join("\n\n").length)}</span>
+                    </button>
+                    <Show when={openPrompt() === prompt.at}>
+                      <pre class="fc-pr-log">{prompt.system.join("\n\n")}</pre>
+                    </Show>
+                  </div>
+                )}
+              </For>
+            </Show>
             <Show when={props.agents.length > 0}>
+              <p class="fc-usage-note">{t("Agents, whose own prompt is part of what is above:")}</p>
               <For each={props.agents.filter((agent) => !agent.hidden)}>
                 {(agent) => (
                   <div class="fc-usage-row">

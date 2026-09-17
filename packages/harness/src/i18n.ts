@@ -745,8 +745,11 @@ const ES: Record<string, string> = {
     "Compactada {n} veces: todo lo anterior a cada una es ahora un resumen.",
   "Compacted automatically": "Compactada automáticamente",
   "The system prompt": "El system prompt",
-  "FlupCode cannot show it. The engine reports each agent's description, not the prompt it builds for a turn — that needs a plugin it does not have yet. Everything above is what goes into it.":
-    "FlupCode no puede enseñarlo. El motor informa de la descripción de cada agente, no del prompt que construye para un turno — eso necesita un plugin que todavía no tiene. Todo lo de arriba es lo que entra en él.",
+  "Recorded as each request went out, so it is what the model was given and not a description of it. The longest is the turn; titles and compactions are recorded too.":
+    "Grabado según salía cada petición, así que es lo que recibió el modelo y no una descripción. El más largo es el del turno; los títulos y las compactaciones también quedan grabados.",
+  "Nothing recorded yet. FlupCode's engine plugin captures it from the next turn, and an engine that was already running needs a restart to load it.":
+    "Todavía no hay nada grabado. El plugin de motor de FlupCode lo captura a partir del siguiente turno, y un motor que ya estaba en marcha necesita reiniciarse para cargarlo.",
+  "Agents, whose own prompt is part of what is above:": "Agentes, cuyo propio prompt forma parte de lo de arriba:",
   "this session": "esta sesión",
   "Could not read that file": "No se pudo leer ese archivo",
 

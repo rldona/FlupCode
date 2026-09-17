@@ -19,7 +19,7 @@
  * it was never told, which is worse than not having the screen.
  */
 
-import { existsSync, readFileSync, statSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path"
 
@@ -144,4 +144,68 @@ export function readInstruction(report: ContextReport, path: string) {
   } catch {
     return undefined
   }
+}
+
+/** One system prompt as the engine handed it to the provider, before the request went out. */
+export type CapturedPrompt = {
+  at: number
+  providerID?: string
+  modelID?: string
+  system: string[]
+}
+
+/**
+ * Where FlupCode's engine plugin records those prompts. Kept in step with the plugin it installs
+ * (`packages/remote/src/engine-plugins.ts`), which writes one folder per session under it.
+ */
+export function systemPromptsDirectory() {
+  const explicit = process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
+  if (explicit) return explicit
+  const base = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")
+  return join(base, "flupcode", "system-prompts")
+}
+
+const record = (value: unknown): CapturedPrompt | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const entry = value as { at?: unknown; providerID?: unknown; modelID?: unknown; system?: unknown }
+  if (typeof entry.at !== "number" || !Array.isArray(entry.system)) return undefined
+  if (!entry.system.every((part) => typeof part === "string")) return undefined
+  return {
+    at: entry.at,
+    ...(typeof entry.providerID === "string" ? { providerID: entry.providerID } : {}),
+    ...(typeof entry.modelID === "string" ? { modelID: entry.modelID } : {}),
+    system: entry.system,
+  }
+}
+
+/**
+ * The requests a session's last turns were given, newest first.
+ *
+ * A session has more than one: the turn itself, the title the engine writes for it, a compaction and
+ * its continuation all go through the same hook, and the plugin keeps the newest few of them. Which
+ * is which is left to the reader of the screen rather than guessed at here.
+ */
+export function capturedPrompts(sessionID: string, limit = 6): CapturedPrompt[] {
+  // The id names a folder under ours; anything else is not a session and is not looked up.
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionID)) return []
+  const folder = join(systemPromptsDirectory(), sessionID)
+  let files: string[]
+  try {
+    files = readdirSync(folder)
+  } catch {
+    return []
+  }
+  return files
+    .filter((file) => file.endsWith(".json"))
+    .sort()
+    .reverse()
+    .slice(0, limit)
+    .flatMap((file) => {
+      try {
+        const parsed = record(JSON.parse(readFileSync(join(folder, file), "utf8")))
+        return parsed ? [parsed] : []
+      } catch {
+        return []
+      }
+    })
 }
