@@ -3400,6 +3400,9 @@ export const App: Component = () => {
       if (!existing) {
         await current.session.setPermission({ sessionID, permission: CHAT_PERMISSION, directory })
       }
+      // Same as Code: a line sent while the chat is answering interrupts it and starts a turn of
+      // its own, so the answer is about this line rather than the one in flight.
+      if (generating()) await current.session.abort({ sessionID, directory }).catch(() => {})
       forgetRun(sessionID)
       await current.session.send({
         sessionID,
@@ -3467,6 +3470,14 @@ export const App: Component = () => {
       // one sent now would join the turn in flight instead of following it. pending-prompts.ts
       // sends it when the session goes idle, which is also what makes it cancellable.
       if (mode === "queue") return sessionID
+      // A message sent while the agent is working interrupts it — the running tool included — and
+      // starts a new turn with this one, so the agent answers now instead of after the work it is
+      // waiting on. Queue is how the reader asks for the opposite. The interrupted turn, and the
+      // partial output of the tool it was running, stay in history for the next turn to read.
+      if (mode === "steer")
+        await current.session
+          .abort({ sessionID, directory: location ?? selectedSession()?.location?.directory })
+          .catch(() => {})
       try {
         await current.session.send({
           sessionID,

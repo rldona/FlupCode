@@ -22,12 +22,15 @@ const messages = {
 type Harness = {
   /** Bodies POSTed to the legacy prompt endpoint, which is where a prompt goes now. */
   prompts: Array<Record<string, unknown>>
+  /** Session IDs whose abort endpoint the app called. */
+  aborts: string[]
   /** Lets the session's folder stream report that the turn finished. */
   finish: () => void
 }
 
 async function openRunningSession(page: Page): Promise<Harness> {
   const prompts: Array<Record<string, unknown>> = []
+  const aborts: string[] = []
   const state = { idle: false, announced: false }
 
   await page.addInitScript(() => {
@@ -46,6 +49,10 @@ async function openRunningSession(page: Page): Promise<Harness> {
       return route.fulfill({ json: state.idle ? {} : { ses_q2: { type: "busy" } } })
     if (url.pathname === "/api/session/ses_q2/message" && request.method() === "GET")
       return route.fulfill({ json: messages })
+    if (url.pathname === "/session/ses_q2/abort") {
+      aborts.push("ses_q2")
+      return route.fulfill({ json: true })
+    }
     if (url.pathname === "/session/ses_q2/prompt_async") {
       prompts.push(request.postDataJSON() as Record<string, unknown>)
       return route.fulfill({ json: {} })
@@ -72,17 +79,19 @@ async function openRunningSession(page: Page): Promise<Harness> {
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
-  return { prompts, finish: () => (state.idle = true) }
+  return { prompts, aborts, finish: () => (state.idle = true) }
 }
 
-test("a steered prompt goes to the engine at once, with its agent and model", async ({ page }) => {
-  const { prompts } = await openRunningSession(page)
+test("a prompt sent while the agent works interrupts it, then reaches the engine", async ({ page }) => {
+  const { prompts, aborts } = await openRunningSession(page)
   const composer = page.getByPlaceholder(/Type \/ for commands/i)
 
   await composer.fill("Use the other API")
   await composer.press("Enter")
 
-  // Steering is the default: the engine takes it now and the running turn picks it up.
+  // Sending while the agent is working aborts the turn in flight — the tool it is waiting on
+  // included — so the agent answers this line now instead of after that work finishes.
+  await expect.poll(() => aborts.length).toBe(1)
   await expect.poll(() => prompts.length).toBe(1)
   expect(prompts[0]).toMatchObject({ parts: [{ type: "text", text: "Use the other API" }] })
   expect(prompts[0]?.agent).toBeTruthy()
@@ -103,6 +112,8 @@ test("a queued prompt is held back until the turn is over", async ({ page }) => 
   await expect(page.locator(".fc-message-queue-badge")).toContainText(/Queued|En cola/i)
   await page.waitForTimeout(1500)
   expect(harness.prompts).toEqual([])
+  // Queue means wait, so nothing is interrupted either.
+  expect(harness.aborts).toEqual([])
 
   harness.finish()
   await expect.poll(() => harness.prompts.length, { timeout: 15_000 }).toBe(1)

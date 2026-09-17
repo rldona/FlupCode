@@ -275,6 +275,11 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       const body = props.expandPastes(text)
       const fileRefs = files.map(({ uri, name }) => ({ uri, name }))
       if (props.chat && props.chatsDirectory) {
+        // A line sent while the chat is answering interrupts it and starts a turn of its own.
+        if (generating())
+          await current.session
+            .abort({ sessionID: sessionID(), directory: props.chatsDirectory })
+            .catch(() => {})
         await current.session.send({
           sessionID: sessionID(),
           directory: props.chatsDirectory,
@@ -301,6 +306,11 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         })
         // A queued prompt waits in the harness until the session goes idle; see pending-prompts.ts.
         if (mode !== "queue") {
+          // Sending while the agent is working interrupts it and starts a turn with this message.
+          if (mode === "steer")
+            await current.session
+              .abort({ sessionID: sessionID(), directory: props.session.location?.directory })
+              .catch(() => {})
           try {
             await current.session.send({
               sessionID: sessionID(),
