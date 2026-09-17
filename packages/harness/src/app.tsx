@@ -1325,7 +1325,14 @@ export const App: Component = () => {
           .catch(() => undefined)
       },
     )
-    const allTodos = () => engineTodos() ?? transcriptTodos()
+    // The model does not always close its own list: a task it was working on when the turn ended is
+    // left in_progress, in the engine's store as much as in the transcript. Once nothing is running,
+    // what is still in progress is work that finished and was never marked, so it reads as done.
+    const allTodos = () => {
+      const list = engineTodos() ?? transcriptTodos()
+      if (generating()) return list
+      return list.map((todo) => (todo.status === "in_progress" ? { ...todo, status: "completed" } : todo))
+    }
 
     // Completed tasks the reader removed from the context panel, per session. The engine keeps the
     // model's todo list, so removal only hides them here.
