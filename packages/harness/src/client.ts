@@ -269,7 +269,19 @@ export function createClient(baseUrl = resolveServerUrl()) {
           }),
         ),
       wait: (input: { sessionID: string }) => unwrap(client.v2.session.wait({ sessionID: input.sessionID })),
-      compact: (input: { sessionID: string }) => unwrap(client.v2.session.compact({ sessionID: input.sessionID })),
+      /**
+       * The engine's compaction is `summarize`: it runs the model over the history and writes the
+       * summary back. The v2 `compact` beside it is a stub that answers "not available yet".
+       */
+      compact: (input: { sessionID: string; directory?: string; providerID: string; modelID: string }) =>
+        unwrap(
+          client.session.summarize({
+            sessionID: input.sessionID,
+            directory: input.directory,
+            providerID: input.providerID,
+            modelID: input.modelID,
+          }),
+        ),
       interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
       /** Sessions whose run is still going, across all of its steps. */
       active: async () => new Set(Object.keys((await unwrap(client.v2.session.active()))?.data ?? {})),
