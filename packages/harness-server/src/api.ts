@@ -149,6 +149,7 @@ import { listWorkflows } from "./workflow"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
+import { filesPerTask } from "./touched"
 import { summarise } from "./usage"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
@@ -187,12 +188,42 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         ? json({ data: repository.listTasks(path[2]) })
         : error("Run not found", 404)
     }
-    if (path[1] === "runs" && request.method === "GET" && path[2]) {
+    if (path[1] === "runs" && request.method === "GET" && path[2] && !path[3]) {
       const run = repository.getRun(path[2])
       return run ? json({ data: { ...run, tasks: repository.listTasks(run.id) } }) : error("Run not found", 404)
     }
     // Stopping and forgetting a run, whatever started it. A routine's runs answer here too: the
     // supervisor lists runs, not routines, and has only the run's id to act on.
+    // What a run's tasks are doing right now (H-12). Asked for while somebody is looking, never
+    // stored: it changes by the second, and on the event log it would drown everything else.
+    if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "activity") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      const going = repository.listTasks(run.id).filter((task) => task.status === "running" && task.sessionID)
+      const now = Date.now()
+      const activity = await Promise.all(
+        going.map(async (task) => {
+          const doing = await scheduler.engine.activity(task.sessionID!, run.directory).catch(() => undefined)
+          return {
+            taskID: task.id,
+            // Since the task started, when the engine will not say — still better than nothing.
+            waitingMs: now - (doing?.since ?? task.startedAt ?? now),
+            ...(doing ? { tool: doing.tool, detail: doing.detail } : {}),
+          }
+        }),
+      )
+      return json({ data: activity })
+    }
+    // What each task of a run changed on disk (H-12), worked out from the checkpoints H-15 already
+    // takes after every task: the difference between one and the last is exactly that task's work.
+    if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "files") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      if (!run.directory) return json({ data: [] })
+      return json({
+        data: await filesPerTask(run.directory, repository.listCheckpoints({ runID: run.id }).reverse()),
+      })
+    }
     if (path[1] === "runs" && request.method === "POST" && path[2] === "stop" && !path[3]) {
       return json({ data: { stopped: await scheduler.stopAll() } })
     }
@@ -214,7 +245,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       // Clearing the list is clearing what is over. A run still going is not history yet.
       return json({ data: { removed: repository.removeFinishedRuns().length } })
     }
-    if (path[1] === "runs" && request.method === "DELETE" && path[2]) {
+    if (path[1] === "runs" && request.method === "DELETE" && path[2] && !path[3]) {
       const run = repository.getRun(path[2])
       if (!run) return error("Run not found", 404)
       // A running run is still being written to, and its lock still held: stop it first, then it
@@ -239,11 +270,11 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       if (!input) return error("An artifact needs a kind, a title, and content or a path", 400)
       return json({ data: repository.addArtifact(input) }, 201)
     }
-    if (path[1] === "artifacts" && request.method === "GET" && path[2]) {
+    if (path[1] === "artifacts" && request.method === "GET" && path[2] && !path[3]) {
       const artifact = repository.getArtifact(path[2])
       return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
     }
-    if (path[1] === "artifacts" && request.method === "DELETE" && path[2]) {
+    if (path[1] === "artifacts" && request.method === "DELETE" && path[2] && !path[3]) {
       return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
     }
     // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
@@ -308,7 +339,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         throw cause
       }
     }
-    if (path[1] === "checkpoints" && path[2] && request.method === "DELETE") {
+    if (path[1] === "checkpoints" && path[2] && !path[3] && request.method === "DELETE") {
       const checkpoint = repository.getCheckpoint(path[2])
       if (!checkpoint) return error("Checkpoint not found", 404)
       await drop(checkpoint.directory, checkpoint.id)

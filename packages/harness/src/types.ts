@@ -210,3 +210,14 @@ export type UsageReport = {
   byDay: Array<{ day: string; tokens: number; cost: number }>
   slowest: Array<{ taskID: string; runID: string; name: string; ms: number }>
 }
+
+/** What a running task is doing right now (H-12), and for how long. */
+export type TaskActivity = { taskID: string; tool?: string; detail?: string; waitingMs: number }
+
+/** What one task of a run changed on disk, worked out from the checkpoints around it. */
+export type TouchedFiles = {
+  taskID?: string
+  checkpointID: string
+  title: string
+  files: Array<{ path: string; status: "added" | "modified" | "deleted" }>
+}

@@ -8286,3 +8286,77 @@ button.fc-status {
   font-size: var(--fc-text-xs);
   cursor: pointer;
 }
+
+/* ── What a task is doing, and what it changed (H-12) ─────────────────────── */
+
+.fc-run-doing {
+  display: inline-flex;
+  gap: 6px;
+  align-items: baseline;
+  min-width: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-text-muted) 12%, transparent);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+/* Past the point where a single tool call stops looking like work getting done. */
+.fc-run-doing-long {
+  color: var(--fc-warning, #d9a441);
+  background: color-mix(in srgb, var(--fc-warning, #d9a441) 16%, transparent);
+}
+
+.fc-run-doing-tool {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fc-run-doing-detail {
+  overflow: hidden;
+  max-width: 34ch;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-run-doing-since {
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-run-files {
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-run-files summary {
+  color: var(--fc-text-muted);
+  cursor: pointer;
+}
+
+.fc-run-files ul {
+  margin: 4px 0 0;
+  padding-left: var(--fc-space-4);
+  list-style: none;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.fc-run-files li[data-status="added"] .fc-run-file-mark {
+  color: var(--fc-diff-add);
+}
+
+.fc-run-files li[data-status="deleted"] .fc-run-file-mark {
+  color: var(--fc-diff-del);
+}
+
+.fc-run-file-mark {
+  display: inline-block;
+  width: 1.2em;
+  color: var(--fc-text-muted);
+}
+
+.fc-run-files-none {
+  grid-column: 1 / -1;
+  margin: 4px 0 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}

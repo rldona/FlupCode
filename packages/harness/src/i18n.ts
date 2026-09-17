@@ -722,6 +722,11 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Supervision (H-12)
+  working: "trabajando",
+  "Changed no files": "No cambió ningún archivo",
+  "{n} files": "{n} archivos",
+
   // Cost (H-16)
   Cost: "Coste",
   "Every run the harness has recorded — not ordinary chat turns, which it never sees.":
