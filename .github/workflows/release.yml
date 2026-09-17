@@ -20,6 +20,11 @@ permissions:
 # as a draft first, so a half-built one is never visible: `releases/latest` keeps pointing at the
 # previous release until the verify job has checked that every installer the update manifests name is
 # actually there, and only then is it published.
+#
+# Every upload goes through `.github/scripts/release-upload.sh`, which retries: the asset endpoint
+# fails about a quarter of attempts with HTTP 500/504 and crawls at ~100 KB/s when it does, which is
+# what left 1.12.0's draft missing its largest installers. Each job uploads its own files and the
+# retries are per file, so one slow installer no longer holds the whole release.
 
 jobs:
   # The release exists before anything is uploaded to it, and stays a draft until it is complete.
@@ -78,7 +83,8 @@ jobs:
       - name: Publish web bundle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" flupcode-web.zip --repo "$GITHUB_REPOSITORY" --clobber
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/scripts/release-upload.sh "$GITHUB_REF_NAME" flupcode-web.zip
 
   cli:
     needs: [open]
@@ -113,7 +119,8 @@ jobs:
       - name: Publish CLI binaries
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$GITHUB_REF_NAME" cli/* --repo "$GITHUB_REPOSITORY" --clobber
+          GH_REPO: ${{ github.repository }}
+        run: bash .github/scripts/release-upload.sh "$GITHUB_REF_NAME" cli/*
 
   desktop:
     needs: [open]
@@ -147,6 +154,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
           shopt -s nullglob
           files=(packages/harness-desktop/release/*.dmg packages/harness-desktop/release/*.zip \
@@ -156,7 +164,7 @@ jobs:
             echo "::error::nothing was packaged, so this release would ship no installer for ${{ matrix.os }}"
             exit 1
           fi
-          gh release upload "$GITHUB_REF_NAME" "${files[@]}" --repo "$GITHUB_REPOSITORY" --clobber
+          bash .github/scripts/release-upload.sh "$GITHUB_REF_NAME" "${files[@]}"
 
   # The release is only worth publishing if auto-update can find what it is told to fetch: every file
   # the manifests name has to be an asset, or the app would download a 404 on its next check.
