@@ -91,3 +91,42 @@ test("loading earlier messages keeps the reader in place", async ({ page }) => {
     expect(after.scrollTop).toBeGreaterThan(before.scrollTop)
   }
 })
+
+test("a jump to an earlier prompt stays up", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_long"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/ses_long/message") return route.fulfill({ json: { data: messages, cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  const container = page.locator(".fc-transcript")
+  await expect(page.getByText("Message 259", { exact: false })).toBeVisible()
+
+  // Scroll up by hand to the middle, as a reader would, so following is off.
+  await container.hover()
+  await page.mouse.wheel(0, -12_000)
+  await page.waitForTimeout(300)
+
+  // Focusing the ticks opens the navigator (focusin), which hovering would too — but the open menu
+  // covers the ticks, so the pointer could not stay on them.
+  await page.locator(".fc-chapters-ticks").focus()
+  const items = page.locator(".fc-chapters-item")
+  await expect(items.first()).toBeVisible()
+  // The first prompt, far above the loaded window: it must land at the top of the chat.
+  await items.first().click()
+  await page.waitForTimeout(1000)
+
+  const box = (await container.boundingBox())!
+  const target = (await container.locator('[data-chapter="msg_000"]').boundingBox())!
+  expect(target.y - box.y).toBeLessThan(40)
+})
