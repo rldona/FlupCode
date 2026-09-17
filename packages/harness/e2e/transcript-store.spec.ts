@@ -102,3 +102,59 @@ test("a running turn is built from its events, not from refetching the history",
   // And none of it cost a refetch: every event used to schedule a full reload of the history.
   expect(historyReads).toBe(readsAfterLoad)
 })
+
+test("the running status line keeps the same air above as the transcript keeps below", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_store"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/session/ses_store/message")
+      return route.fulfill({
+        json: {
+          data: [
+            { id: "msg_u", sessionID: "ses_store", role: "user", type: "user", text: "Hazlo", time: { created: now } },
+            // No `completed`, so the turn is still running and the status line is up.
+            {
+              id: "msg_a",
+              sessionID: "ses_store",
+              role: "assistant",
+              type: "assistant",
+              agent: "build",
+              model: { providerID: "openai", modelID: "gpt" },
+              cost: 0,
+              tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+              time: { created: now + 1 },
+              content: [{ type: "text", text: "Voy." }],
+            },
+          ],
+          cursor: {},
+        },
+      })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await expect(page.locator(".fc-message-pending")).toBeVisible()
+  const gaps = await page.evaluate(() => {
+    const pending = document.querySelector(".fc-message-pending")!
+    const loader = pending.querySelector(".fc-loader") ?? pending
+    const transcript = document.querySelector(".fc-transcript")!
+    const previous = pending.previousElementSibling as HTMLElement
+    return {
+      above: loader.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+      below: parseFloat(getComputedStyle(transcript).paddingBottom),
+    }
+  })
+  expect(Math.abs(gaps.above - gaps.below)).toBeLessThan(2)
+})

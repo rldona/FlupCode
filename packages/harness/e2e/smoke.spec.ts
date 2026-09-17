@@ -76,7 +76,7 @@ test("serves the app shell offline after the service worker installs", async ({ 
 test("opens the command palette", async ({ page }) => {
   test.skip(process.env.FLUPCODE_E2E_SERVER !== "1", "set FLUPCODE_E2E_SERVER=1 with a running OpenCode server")
   await page.goto("/")
-  await page.getByRole("button", { name: /Command palette/i }).click()
+  await page.locator(".fc-sidebar-search").click()
   await expect(page.locator(".fc-palette-input")).toBeVisible()
   await page.keyboard.press("Escape")
 })
@@ -675,4 +675,56 @@ test("a prompt image zooms in place and opens in a preview", async ({ page }) =>
   expect(Math.abs(fit.center - fit.columnCenter)).toBeLessThan(2)
   await page.keyboard.press("Escape")
   await expect(dialog).toHaveCount(0)
+})
+
+test("a panel button shows its panel is open", async ({ page }) => {
+  await page.goto("/")
+  const terminal = page.getByRole("button", { name: "Terminal" })
+  await expect(terminal).not.toHaveClass(/fc-nav-arrow-active/)
+  await terminal.click()
+  await expect(terminal).toHaveClass(/fc-nav-arrow-active/)
+  await terminal.click()
+  await expect(terminal).not.toHaveClass(/fc-nav-arrow-active/)
+})
+
+test("the search is not a top bar button", async ({ page }) => {
+  await page.goto("/")
+  // The magnifier lives in the sidebar; the top bar no longer carries a second one.
+  await expect(page.getByRole("button", { name: "Command palette" })).toHaveCount(0)
+  await expect(page.locator(".fc-sidebar-search")).toBeVisible()
+})
+
+test("the add button lines up with the prompt's first letter", async ({ page }) => {
+  await page.goto("/")
+  const input = page.locator(".fc-composer textarea.fc-input")
+  const plus = page.locator(".fc-composer-left .fc-dock-icon").first()
+  await expect(plus).toBeVisible()
+
+  // Where the text starts: the field's own left edge plus its padding.
+  const textLeft = await input.evaluate((node) => {
+    const style = getComputedStyle(node)
+    return node.getBoundingClientRect().left + parseFloat(style.borderLeftWidth) + parseFloat(style.paddingLeft)
+  })
+  // Where the "+" is drawn: the glyph starts at x=5 of a 24-unit viewBox, centred in a 32px button.
+  const glyphLeft = await plus.evaluate((node) => {
+    const rect = node.getBoundingClientRect()
+    const svg = node.querySelector("svg")
+    const width = svg ? svg.getBoundingClientRect().width : 0
+    return rect.left + (rect.width - width) / 2 + (width * 5) / 24
+  })
+
+  expect(Math.abs(glyphLeft - textLeft)).toBeLessThanOrEqual(1)
+})
+
+test("the code home starts at the top", async ({ page }) => {
+  await page.goto("/")
+  const canvas = page.locator(".fc-canvas")
+  const greeting = page.locator(".fc-greeting")
+  await expect(greeting).toBeVisible()
+
+  const canvasBox = (await canvas.boundingBox())!
+  const greetingBox = (await greeting.boundingBox())!
+
+  // At the top under the canvas's own padding, not centred in the window.
+  expect(greetingBox.y - canvasBox.y).toBeLessThan(80)
 })
