@@ -6,6 +6,7 @@ import { createReconciledList } from "./reconciled"
 import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
+import type { TaskActivity, TouchedFiles } from "./types"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -728,6 +729,50 @@ export const App: Component = () => {
     showScreen("changes")
     void refetchChanges()
   }
+  // What the running tasks are doing, and what the finished ones changed (H-12).
+  //
+  // Two different clocks on purpose. Activity changes by the second and is polled while the screen
+  // is open and something is running; the files a task touched are settled the moment it ends, so
+  // they are read once per run and again when the run's shape changes.
+  const [doingTick, setDoingTick] = createSignal(0)
+  const goingRuns = () => runs().filter((run) => run.status === "running").map((run) => run.id)
+  const activityKey = () => {
+    if (!runsOpen() || !routinesServerAvailable() || goingRuns().length === 0) return undefined
+    return `${harnessServerUrl()}\n${goingRuns().join(",")}\n${doingTick()}`
+  }
+  const [taskActivity] = createResource(activityKey, async (key) => {
+    const [url = "", ids = ""] = key.split("\n")
+    const client = createHarnessClient(url)
+    const lists = await Promise.all(ids.split(",").map((id) => client.runs.activity(id).catch(() => undefined)))
+    const byTask: Record<string, TaskActivity> = {}
+    for (const list of lists) for (const entry of list ?? []) byTask[entry.taskID] = entry
+    return byTask
+  })
+  createEffect(() => {
+    if (!activityKey()) return
+    // Read once the request has landed, so the clock is between answers rather than on top of them.
+    taskActivity()
+    const timer = setTimeout(() => setDoingTick((tick) => tick + 1), 3000)
+    onCleanup(() => clearTimeout(timer))
+  })
+
+  const touchedKey = () => {
+    if (!runsOpen() || !routinesServerAvailable()) return undefined
+    const shape = runs()
+      .map((run) => `${run.id}:${run.tasks?.length ?? 0}:${run.status}`)
+      .join("|")
+    return shape ? `${harnessServerUrl()}\n${shape}` : undefined
+  }
+  const [touched] = createResource(touchedKey, async (key) => {
+    const [url = "", shape = ""] = key.split("\n")
+    const client = createHarnessClient(url)
+    const ids = shape.split("|").map((entry) => entry.split(":")[0]!)
+    const lists = await Promise.all(ids.map((id) => client.runs.files(id).catch(() => undefined)))
+    const byTask: Record<string, TouchedFiles> = {}
+    for (const list of lists) for (const entry of list ?? []) if (entry.taskID) byTask[entry.taskID] = entry
+    return byTask
+  })
+
   // What the runs cost (H-16). Read only while the screen is open: it is an aggregation over every
   // task ever recorded, and nothing else on screen needs it.
   const [usageDays, setUsageDays] = createSignal<number | undefined>(30)
@@ -3966,6 +4011,8 @@ export const App: Component = () => {
         onClear={clearRuns}
         onStopAll={stopAllRuns}
         onApprove={approveRun}
+        activity={taskActivity() ?? {}}
+        touched={touched() ?? {}}
         onOpenSession={(id) => {
           leaveScreen()
           selectSession(id)

@@ -27,6 +27,8 @@ import type {
   RoutineRun,
   Run,
   Task,
+  TaskActivity,
+  TouchedFiles,
   UsageReport,
   Workflow,
 } from "./types"
@@ -856,6 +858,11 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** A run with the tasks it is made of; the list leaves them out. */
       get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
+      /** What its running tasks are doing right now. Polled while somebody watches, never stored. */
+      activity: (id: string) =>
+        harnessRequest<TaskActivity[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/activity`),
+      /** What each task changed on disk, from the checkpoints taken around it. */
+      files: (id: string) => harnessRequest<TouchedFiles[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/files`),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
       stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
       /** Let a run through the gate it stopped at. Refusing it is stopping it. */
