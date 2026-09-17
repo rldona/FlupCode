@@ -6,6 +6,7 @@ import { createReconciledList } from "./reconciled"
 import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
+import { AgentsPanel } from "./components/AgentsPanel"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
 import type { TaskActivity, TouchedFiles } from "./types"
 import type {
@@ -384,6 +385,7 @@ export const App: Component = () => {
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
+  const agentsOpen = () => screen() === "agents"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -807,7 +809,47 @@ export const App: Component = () => {
         if (!answer) throw new Error(t("Could not read that file"))
         return answer.content
       })
-  const toolsKey = () => (contextOpen() && ready() ? serverUrl() : undefined)
+  /**
+   * The agents this folder has, for the screen that is about this folder's agent files.
+   *
+   * Not `agents()`: that one asks `/api/agent`, which answers for wherever the engine was opened
+   * rather than for the folder it is given — measured against the local engine. The rest of the app
+   * still uses it, and that is its own ticket.
+   */
+  const folderAgentsKey = () => (agentsOpen() && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
+  const [folderAgents] = createResource(folderAgentsKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createClient(url).agent.listFor(directory || undefined)
+  })
+  /** `provider/model`, which is how an agent file names one. */
+  const agentModels = createMemo(() => modelList().map((model) => `${model.providerID}/${model.id}`))
+  // Agents you can edit (H-13). The files come from the harness server, which can read the disk;
+  // what exists comes from the engine, which reports more than there are files.
+  const agentFilesKey = () => {
+    if (!agentsOpen() || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${agentsRefresh()}`
+  }
+  const [agentsRefresh, setAgentsRefresh] = createSignal(0)
+  const [agentFiles] = createResource(agentFilesKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).agents.list(directory ? { directory } : {})
+  })
+  const saveAgent = async (draft: {
+    name: string
+    scope: "global" | "project"
+    fields: Record<string, unknown>
+    prompt: string
+  }) => {
+    const directory = vcsDirectory()
+    await createHarnessClient(harnessServerUrl()).agents.save({ ...draft, ...(directory ? { directory } : {}) })
+    setAgentsRefresh((count) => count + 1)
+  }
+  const deleteAgent = async (path: string) => {
+    const directory = vcsDirectory()
+    await createHarnessClient(harnessServerUrl()).agents.remove({ path, ...(directory ? { directory } : {}) })
+    setAgentsRefresh((count) => count + 1)
+  }
+  const toolsKey = () => ((contextOpen() || agentsOpen()) && ready() ? serverUrl() : undefined)
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
   /**
    * What this session's window actually holds.
@@ -3619,6 +3661,7 @@ export const App: Component = () => {
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
+            onAgents={() => showScreen("agents")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -4085,6 +4128,20 @@ export const App: Component = () => {
           leaveScreen()
           selectSession(id)
         }}
+        onClose={() => leaveScreen()}
+      />
+      <AgentsPanel
+        open={agentsOpen()}
+        files={agentFiles() ?? []}
+        agents={folderAgents() ?? []}
+        tools={engineTools() ?? []}
+        mcp={mcp()?.data ?? []}
+        models={agentModels()}
+        loading={agentFiles.loading}
+        serverAvailable={routinesServerAvailable()}
+        hasProject={!!vcsDirectory()}
+        onSave={saveAgent}
+        onDelete={deleteAgent}
         onClose={() => leaveScreen()}
       />
       <ContextPanel

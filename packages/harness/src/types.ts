@@ -243,6 +243,24 @@ export type Finding = {
   createdAt: number
 }
 
+/**
+ * An agent's file on disk (H-13).
+ *
+ * `fields` is its frontmatter exactly as it was written, unknown keys and all: the form edits what
+ * it understands and puts the rest back untouched.
+ */
+export type AgentFile = {
+  name: string
+  path: string
+  scope: "global" | "project"
+  root: string
+  fields: Record<string, unknown>
+  prompt: string
+  bytes: number
+  /** Why this one cannot be saved from here: its frontmatter did not parse. */
+  problem?: string
+}
+
 /** An instruction file a turn in a folder would load (H-17). */
 export type InstructionFile = {
   path: string

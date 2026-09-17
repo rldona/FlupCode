@@ -291,6 +291,20 @@ failing test, a lint rule — becomes a comment on that line of the diff in **Ch
 command that exited non-zero. The retry, if the check has a budget, is handed those lines instead of
 the whole log.
 
+## Agents
+
+Each agent is a markdown file: the frontmatter is how it runs, the body is what it is told. **Agents**
+in the sidebar edits the file — description, mode, model, variant, temperature, steps, colour, which
+tools it may use, its permissions, and the prompt — and writes it where the engine looks:
+`.opencode/agent/<name>.md` in the project, or the same under your config folder for one you want
+everywhere.
+
+Fields the form does not draw are put back exactly as they were, so a file with settings FlupCode
+does not know about survives being saved.
+
+Agents the engine reports with no file behind them — the built-in ones, and any a plugin registers —
+are listed separately and cannot be edited here.
+
 ## What a run is allowed to do
 
 A task is **confined to its project**. FlupCode has always told the engine where to start; it now
