@@ -47,6 +47,24 @@ const info = (id: string, role: string, extra: Record<string, unknown> = {}) => 
   ...extra,
 })
 
+describe("compaction", () => {
+  test("a compaction request keeps whether the engine chose it", () => {
+    const [entry] = fromLegacy([{ info: info("u", "user"), parts: [{ id: "p", type: "compaction", auto: true }] }])
+    expect((entry as { compaction?: unknown }).compaction).toEqual({ auto: true, overflow: false })
+  })
+
+  test("the summary keeps its flag and the request it answers", () => {
+    const [entry] = fromLegacy([
+      {
+        info: info("a", "assistant", { agent: "compaction", summary: true, parentID: "u" }),
+        parts: [{ id: "p", type: "text", text: "## Resumen" }],
+      },
+    ])
+    expect((entry as { summary?: boolean }).summary).toBe(true)
+    expect((entry as { parentID?: string }).parentID).toBe("u")
+  })
+})
+
 const assistant = (data: SessionMessageInfo[]) =>
   data.find((entry) => entry.type === "assistant") as unknown as {
     content: Array<{ id: string; type?: string; text?: string; streaming?: boolean; state?: { status?: string } }>

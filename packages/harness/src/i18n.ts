@@ -740,6 +740,7 @@ const ES: Record<string, string> = {
   "Written to cache": "Escritos en caché",
   "Compacted {n} times: everything before each is a summary now.":
     "Compactada {n} veces: todo lo anterior a cada una es ahora un resumen.",
+  "Compacted automatically": "Compactada automáticamente",
   "The system prompt": "El system prompt",
   "FlupCode cannot show it. The engine reports each agent's description, not the prompt it builds for a turn — that needs a plugin it does not have yet. Everything above is what goes into it.":
     "FlupCode no puede enseñarlo. El motor informa de la descripción de cada agente, no del prompt que construye para un turno — eso necesita un plugin que todavía no tiene. Todo lo de arriba es lo que entra en él.",

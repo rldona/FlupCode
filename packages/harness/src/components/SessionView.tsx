@@ -361,6 +361,52 @@ const ReasoningBlock: Component<{ parts: SessionMessageAssistantReasoning[] }> =
   )
 }
 
+/**
+ * A compaction boundary.
+ *
+ * The engine answers a compaction with the summary it wrote, as a message of its own. Without a
+ * marker the conversation silently jumped — half of it replaced by one message that read like one
+ * more answer — and there was no way to tell what had been folded away. The summary stays behind a
+ * toggle: it is context, not the conversation.
+ */
+const CompactionMarker: Component<{ summary: string; auto: boolean }> = (props) => {
+  const [open, setOpen] = createSignal(false)
+  return (
+    <div class="fc-compaction" data-auto={props.auto}>
+      <button
+        class="fc-compaction-line"
+        type="button"
+        aria-expanded={open()}
+        onClick={() => setOpen((value) => !value)}
+      >
+        <span class="fc-compaction-rule" aria-hidden="true" />
+        <span class="fc-compaction-label">
+          <span class="fc-compaction-mark" aria-hidden="true">
+            ✦
+          </span>
+          {props.auto ? t("Compacted automatically") : t("Session compacted")}
+          <svg class="fc-toolgroup-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
+            <path
+              d="m9 6 6 6-6 6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
+        </span>
+        <span class="fc-compaction-rule" aria-hidden="true" />
+      </button>
+      <Show when={open()}>
+        <div class="fc-compaction-body">
+          <Markdown class="fc-message-text" text={props.summary} />
+        </div>
+      </Show>
+    </div>
+  )
+}
+
 function formatDuration(ms: number) {
   const seconds = Math.round(ms / 1000)
   if (seconds < 60) return `${seconds}s`
@@ -668,6 +714,8 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const chapters = createMemo((): Chapter[] =>
     (props.messages ?? []).flatMap((message) => {
       if (message.type !== "user") return []
+      // A compaction is not a prompt: it carries no words to navigate to.
+      if ((message as { compaction?: unknown }).compaction) return []
       // Prompts from other clients can carry injected <system-reminder> blocks: title by what was typed.
       const text = ((message as { text?: string }).text ?? "")
         .replace(/<system-reminder>[\s\S]*?(<\/system-reminder>|$)/g, "")
@@ -676,6 +724,38 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       return [{ id: message.id, title: line.trim().slice(0, 120) || t("Attachments") }]
     }),
   )
+
+  // Whether the engine compacted by itself, keyed by the message that asked for it. The summary
+  // message the engine writes does not carry it; the request it answers does.
+  const compactionReasons = createMemo(() => {
+    const reasons = new Map<string, boolean>()
+    for (const message of props.messages ?? []) {
+      const request = (message as { compaction?: { auto?: boolean } }).compaction
+      if (request) reasons.set(message.id, request.auto === true)
+    }
+    return reasons
+  })
+  const compactionAuto = (message: SessionMessageInfo) => {
+    const parent = (message as { parentID?: string }).parentID
+    return parent ? (compactionReasons().get(parent) ?? false) : false
+  }
+  /** The compaction marker the engine wrote, however the engine phrased it. */
+  const isCompactionMessage = (message: SessionMessageInfo) =>
+    message.type === "compaction" ||
+    (message.type === "assistant" && (message as { summary?: boolean }).summary === true)
+  const isCompactionTrigger = (message: SessionMessageInfo) => !!(message as { compaction?: unknown }).compaction
+  const isAutoCompaction = (message: SessionMessageInfo) =>
+    (message as { reason?: "auto" | "manual" }).reason === "auto" || compactionAuto(message)
+
+  /** The words a message holds, whether it carries them as content or as a summary string. */
+  const messageText = (message: SessionMessageInfo) => {
+    const summary = (message as { summary?: unknown }).summary
+    if (typeof summary === "string") return summary
+    return ((message as { content?: Array<{ type?: string; text?: string }> }).content ?? [])
+      .filter((part) => part.type === "text")
+      .map((part) => part.text ?? "")
+      .join("\n\n")
+  }
   const [activeChapter, setActiveChapter] = createSignal<string>()
   let jumpedTo: string | undefined
   let jumpedAt = 0
@@ -927,6 +1007,9 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                   <Show
                     when={message.type === "user"}
                     fallback={
+                      <Show
+                        when={isCompactionMessage(message)}
+                        fallback={
                       <Show when={message.type === "assistant"}>
                         <AssistantMessage
                           message={message as SessionMessageAssistant}
@@ -948,8 +1031,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           />
                         </Show>
                       </Show>
+                        }
+                      >
+                        <CompactionMarker summary={messageText(message)} auto={isAutoCompaction(message)} />
+                      </Show>
                     }
                   >
+                    <Show when={!isCompactionTrigger(message)}>
                     <div class="fc-message fc-message-user" data-chapter={message.id} data-message-id={message.id}>
                       <div class="fc-message-role">{t("You")}</div>
                       <MessageFiles files={(message as { files?: MessageFile[] }).files} />
@@ -1026,6 +1114,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                         </Show>
                       </div>
                     </div>
+                    </Show>
                   </Show>
                 )}
               </For>
