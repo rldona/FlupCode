@@ -135,6 +135,16 @@ describe("contextFigures", () => {
       },
     }) as unknown as SessionMessageInfo
 
+  const prompt = (chars: number) => ({ type: "user", text: "x".repeat(chars) }) as unknown as SessionMessageInfo
+
+  const summary = (text: string) =>
+    ({
+      type: "assistant",
+      summary: true,
+      tokens: { input: 474_000, output: 2_000, reasoning: 0, cache: { read: 0, write: 0 } },
+      content: [{ type: "text", text }],
+    }) as unknown as SessionMessageInfo
+
   test("keeps the last step that reported tokens while the running step has none", () => {
     const messages = [
       step({ input: 90_000, read: 3_000 }),
@@ -157,26 +167,25 @@ describe("contextFigures", () => {
   })
 
   test("sizes the session the compaction left, not the history it summarized", () => {
-    // The summary's own tokens are the request that wrote it: taking them would hold the meter at
-    // the size the reader just watched go away.
     const messages = [
+      prompt(400),
+      step({ input: 10_100 }),
       step({ input: 470_000, read: 4_000 }),
-      {
-        type: "assistant",
-        summary: true,
-        tokens: { input: 474_000, output: 2_000, reasoning: 0, cache: { read: 0, write: 0 } },
-        content: [{ type: "text", text: "x".repeat(4_000) }],
-      } as unknown as SessionMessageInfo,
+      summary("x".repeat(400)),
     ]
     const figures = contextFigures(session(Date.now(), 0), messages, [], 1_000_000)
-    expect(figures.used).toBe(1_000)
+    // The wrap the first step paid (10,100 less the 100 tokens of the prompt before it) is what the
+    // next prompt pays too, plus the summary the engine kept. The 474k the summary itself reports is
+    // the request that wrote it — the history the reader just watched go away.
+    expect(figures.used).toBe(10_100)
     expect(figures.estimated).toBe(true)
     expect(figures.tokens).toBeUndefined()
   })
 
   test("sizes a v2 compaction from the summary and tail it kept", () => {
     const messages = [
-      step({ input: 470_000, read: 4_000 }),
+      prompt(400),
+      step({ input: 10_100 }),
       {
         type: "compaction",
         reason: "auto",
@@ -184,18 +193,21 @@ describe("contextFigures", () => {
         recent: "r".repeat(400),
       } as unknown as SessionMessageInfo,
     ]
-    expect(contextFigures(session(Date.now(), 0), messages, [], 1_000_000).used).toBe(200)
+    expect(contextFigures(session(Date.now(), 0), messages, [], 1_000_000).used).toBe(10_200)
+  })
+
+  test("sizes only the kept text when no message came before the first step", () => {
+    // Without a prompt before it there is no telling the engine's wrap from the prompt itself, so
+    // reading the whole step as the wrap would invent a standing cost out of the history.
+    const messages = [step({ input: 470_000, read: 4_000 }), summary("x".repeat(4_000))]
+    expect(contextFigures(session(Date.now(), 0), messages, [], 1_000_000).used).toBe(1_000)
   })
 
   test("a step after the compaction measures it again", () => {
     const messages = [
-      step({ input: 470_000, read: 4_000 }),
-      {
-        type: "assistant",
-        summary: true,
-        tokens: { input: 474_000, output: 2_000, reasoning: 0, cache: { read: 0, write: 0 } },
-        content: [],
-      } as unknown as SessionMessageInfo,
+      prompt(400),
+      step({ input: 10_100 }),
+      summary("x".repeat(400)),
       step({ input: 10_000, read: 11_000 }),
     ]
     const figures = contextFigures(session(Date.now(), 0), messages, [], 1_000_000)
