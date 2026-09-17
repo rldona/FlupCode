@@ -84,7 +84,6 @@ import { QuestionDock } from "./components/QuestionDock"
 import { CommandPalette } from "./components/CommandPalette"
 import { SessionView } from "./components/SessionView"
 import { SessionActions, SessionTitle } from "./components/SessionToolbar"
-import { SubagentList } from "./components/SubagentList"
 import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
 import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
@@ -3759,7 +3758,6 @@ export const App: Component = () => {
             </div>
           }
         >
-          <SubagentList sessions={subagents()} onOpen={selectSession} />
           <Show
             when={selected()}
             fallback={
@@ -3986,6 +3984,8 @@ export const App: Component = () => {
               usage={contextUsage()}
               todos={todos()}
               onClearTodos={clearTodos}
+              subagents={subagents()}
+              onOpenSubagent={selectSession}
               width={contextWidth()}
               onResize={updateContextWidth}
               onHide={toggleContextPanel}

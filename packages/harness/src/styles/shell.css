@@ -2419,36 +2419,30 @@ button.fc-status {
   font-size: var(--fc-text-sm);
 }
 
-.fc-subagents {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding: var(--fc-space-2) var(--fc-space-4);
-  border-bottom: 1px solid var(--fc-border);
-}
-
+/* Subagents in the right aside, under Tasks: a list of siblings, not chips across the transcript. */
 .fc-subagents-list {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
 }
 
 .fc-subagent {
-  height: 26px;
-  padding: 0 10px;
-  border: 1px solid var(--fc-border);
-  border-radius: var(--fc-radius-pill);
-  background: var(--fc-bg-elevated);
+  width: 100%;
+  padding: 5px 6px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
   color: var(--fc-text);
-  font-size: var(--fc-text-sm);
-  max-width: 220px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .fc-subagent:hover {
-  border-color: var(--fc-accent);
+  background: var(--fc-bg-elevated);
 }
 
 .fc-todo-list {
