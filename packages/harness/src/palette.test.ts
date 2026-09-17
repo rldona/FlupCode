@@ -3,7 +3,7 @@ import { capped, kindsIn, search } from "./components/CommandPalette"
 import type { SessionInfo } from "./engine-types"
 import type { Artifact, CommandOption, ProjectItem, Routine, Run } from "./types"
 
-const session = (id: string, title: string, directory?: string) =>
+const session = (id: string, title: string, directory?: string, agent?: string) =>
   ({
     id,
     projectID: "p",
@@ -12,6 +12,7 @@ const session = (id: string, title: string, directory?: string) =>
     tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
     time: { created: 1, updated: 1 },
     ...(directory ? { location: { directory } } : {}),
+    ...(agent ? { agent } : {}),
   }) as unknown as SessionInfo
 
 const empty = {
@@ -48,6 +49,13 @@ describe("search", () => {
 
   test("matching ignores case, so a search is not a spelling test", () => {
     expect(search("NIGHTLY", { ...empty, routines: [routine("r1", "Nightly audit")] })).toHaveLength(1)
+  })
+
+  test("a cowork session is marked, a code one is not", () => {
+    const sessions = [session("c1", "Cowork one", "/w/app", "cowork"), session("s1", "Code one", "/w/app", "build")]
+    const items = search("", { ...empty, sessions })
+    expect(items.find((item) => item.value === "c1")?.cowork).toBe(true)
+    expect(items.find((item) => item.value === "s1")?.cowork).toBe(false)
   })
 
   test("a paused routine says so, and a running one says nothing", () => {

@@ -3,7 +3,7 @@ import { sessionTitle } from "../session-title"
 import type { SessionInfo } from "../engine-types"
 import { ViewTabs } from "./Topbar"
 import { t } from "../i18n"
-import type { AppView } from "../chat"
+import { isCoworkSession, type AppView } from "../chat"
 import { cssPx } from "../text-size"
 import { UNAVAILABLE_FEATURES } from "../features"
 import type { Routine } from "../types"
@@ -199,6 +199,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           aria-hidden="true"
         />
         <span class="fc-session-title">{sessionTitle(row.session) || t("New session")}</span>
+        <Show when={isCoworkSession(row.session)}>
+          <span class="fc-cowork-badge">{t("Cowork")}</span>
+        </Show>
       </button>
       <button
         class="fc-session-action"

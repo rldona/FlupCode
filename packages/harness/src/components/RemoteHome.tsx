@@ -15,6 +15,8 @@ export type RemoteSessionItem = {
   title: string
   project?: string
   branch?: string
+  /** A Cowork conversation, which runs in the project rather than only talking. */
+  cowork?: boolean
   updated: number
   state: RemoteSessionState
 }
@@ -150,7 +152,12 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
                     aria-label={t(STATE_LABEL[session().state])}
                   />
                   <span class="fc-remote-card-main">
-                    <span class="fc-remote-card-title">{session().title || t("New session")}</span>
+                    <span class="fc-remote-card-heading">
+                      <span class="fc-remote-card-title">{session().title || t("New session")}</span>
+                      <Show when={session().cowork}>
+                        <span class="fc-cowork-badge">{t("Cowork")}</span>
+                      </Show>
+                    </span>
                     <Show when={session().project}>
                       <span class="fc-remote-card-meta">
                         {session().project}

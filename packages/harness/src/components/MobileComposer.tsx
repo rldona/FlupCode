@@ -6,7 +6,7 @@ import { toast } from "../toast"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import { primaryAgents } from "../agents"
-import type { AppView } from "../chat"
+import type { AppView, ChatClass } from "../chat"
 import { dictationAvailable, startDictation } from "../dictation"
 import { isDeprecated } from "../model-catalog"
 
@@ -18,6 +18,13 @@ import { isDeprecated } from "../model-catalog"
 type MobileComposerProps = {
   /** Chats hide the permission and agent rows. */
   mode: AppView
+  /** In the Chat tab, the class of the conversation: "chat" without a project, "cowork" with one. */
+  chatClass?: ChatClass
+  onChatClassChange?: (value: ChatClass) => void
+  /** A conversation is open: switching then starts a new one, and the switch says so. */
+  sessionOpen?: boolean
+  /** The open conversation is answering; the switch waits, like the composer. */
+  generating?: boolean
   value: string
   sending: boolean
   attachments: Attachment[]
@@ -136,6 +143,13 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
   const [listening, setListening] = createSignal(false)
   let stopDictation: (() => void) | undefined
   onCleanup(() => stopDictation?.())
+  // Cowork is a chat in the Chat tab, but it earns the permission row Code has; only a plain chat
+  // hides it. See ADR-0013.
+  const chat = () => props.mode === "chat" && props.chatClass === "chat"
+  const cowork = () => props.chatClass === "cowork"
+  // With a conversation open, only the other class starts something new, so only it says "New".
+  const chatLabel = () => (props.sessionOpen && cowork() ? t("New chat") : t("Chat"))
+  const coworkLabel = () => (props.sessionOpen && !cowork() ? t("New cowork") : t("Cowork"))
 
   const toggleVoice = () => {
     if (listening()) {
@@ -227,7 +241,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
         <textarea
           class="fc-mobile-input"
           rows={1}
-          placeholder={props.mode === "chat" ? t("Write a message…") : t("Type / for commands")}
+          placeholder={chat() ? t("Write a message…") : t("Type / for commands")}
           value={props.value}
           onInput={(event) => {
             props.onInput(event.currentTarget.value)
@@ -290,7 +304,33 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               <span>{t("Files")}</span>
             </button>
           </div>
-          <Show when={props.mode === "code"}>
+          <Show when={props.mode === "chat" && !!props.onChatClassChange}>
+            <div class="fc-chat-mode fc-chat-mode-sheet" role="tablist" aria-label={t("Conversation")}>
+              <button
+                class="fc-chat-mode-option"
+                classList={{ "fc-chat-mode-option-active": !cowork() }}
+                type="button"
+                role="tab"
+                aria-selected={!cowork()}
+                disabled={props.generating}
+                onClick={() => props.onChatClassChange?.("chat")}
+              >
+                {chatLabel()}
+              </button>
+              <button
+                class="fc-chat-mode-option"
+                classList={{ "fc-chat-mode-option-active": cowork() }}
+                type="button"
+                role="tab"
+                aria-selected={cowork()}
+                disabled={props.generating}
+                onClick={() => props.onChatClassChange?.("cowork")}
+              >
+                {coworkLabel()}
+              </button>
+            </div>
+          </Show>
+          <Show when={!chat()}>
             <Row
               icon="M13 2L4 14h7l-1 8 9-12h-7z"
               label={t("Permission")}
@@ -298,7 +338,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               onClick={() => setSheet("mode")}
             />
           </Show>
-          <Show when={props.mode === "code" && primaryAgents(props.agents).length > 0}>
+          <Show when={!chat() && !cowork() && primaryAgents(props.agents).length > 0}>
             <Row
               icon="M12 3l8 4v6c0 4-3.5 7-8 8-4.5-1-8-4-8-8V7z"
               label={t("Agent")}
