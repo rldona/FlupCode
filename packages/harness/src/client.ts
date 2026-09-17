@@ -19,6 +19,7 @@ import type {
   BranchState,
   CheckLog,
   Checkpoint,
+  ContextReport,
   Finding,
   GitCommit,
   PullRequest,
@@ -695,6 +696,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
     command: {
       list: (input?: LocationInput) => unwrap(client.v2.command.list(input)),
     },
+    /** Every tool the engine offers, by id (H-17). */
+    tools: async () => {
+      const result = (await unwrap(client.tool.ids()).catch(() => undefined)) as
+        | { data?: string[] }
+        | string[]
+        | undefined
+      if (Array.isArray(result)) return result
+      return result?.data ?? []
+    },
     skill: {
       list: (input?: LocationInput) => unwrap(client.v2.skill.list(input)),
     },
@@ -927,6 +937,24 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** Pushes the branch if it has never been pushed, then opens the pull request. */
       openPullRequest: (input: { directory: string; title: string; body?: string; base?: string }) =>
         harnessRequest<PullRequest>(baseUrl, "/harness/git/pr", { method: "POST", body: JSON.stringify(input) }),
+    },
+    /**
+     * What the model was given (H-17).
+     *
+     * Read from disk by the engine's own rules, because the engine reports the agent's blurb and
+     * not the prompt it actually assembles.
+     */
+    context: {
+      get: (input: { directory: string; project?: string }) => {
+        const search = new URLSearchParams({ directory: input.directory })
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<ContextReport>(baseUrl, `/harness/context?${search}`)
+      },
+      file: (input: { directory: string; path: string; project?: string }) => {
+        const search = new URLSearchParams({ directory: input.directory, path: input.path })
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<{ content: string }>(baseUrl, `/harness/context/file?${search}`)
+      },
     },
     /** Findings (H-32): a review's points, anchored to a file and a line. */
     findings: {

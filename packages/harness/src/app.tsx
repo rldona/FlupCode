@@ -6,6 +6,7 @@ import { createReconciledList } from "./reconciled"
 import { screenFromPath, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
+import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
 import type { TaskActivity, TouchedFiles } from "./types"
 import type {
   PermissionV2Request,
@@ -382,6 +383,7 @@ export const App: Component = () => {
   const artifactsOpen = () => screen() === "artifacts"
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
+  const contextOpen = () => screen() === "context"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -786,6 +788,53 @@ export const App: Component = () => {
     const [url = "", directory = "", days = "0"] = key.split("\n")
     return createHarnessClient(url).usage({ directory: directory || undefined, days: Number(days) || undefined })
   })
+
+  // What the model was given (H-17). The instruction files come from the harness server, which can
+  // read the disk; the rest is the engine's own answer about this folder.
+  const contextKey = () => {
+    const directory = vcsDirectory()
+    if (!contextOpen() || !directory || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${directory}`
+  }
+  const [contextReport] = createResource(contextKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).context.get({ directory })
+  })
+  const readInstruction = (path: string) =>
+    createHarnessClient(harnessServerUrl())
+      .context.file({ directory: vcsDirectory() ?? "", path })
+      .then((answer) => {
+        if (!answer) throw new Error(t("Could not read that file"))
+        return answer.content
+      })
+  const toolsKey = () => (contextOpen() && ready() ? serverUrl() : undefined)
+  const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
+  /**
+   * What this session's window actually holds.
+   *
+   * The engine reports these five and no more, so five is what is shown. Inventing a
+   * "system prompt" slice out of the difference would be a number nobody measured.
+   */
+  const contextTokens = (): ContextTokens | undefined => {
+    const tokens = selectedSession()?.tokens
+    if (!tokens) return undefined
+    return {
+      input: tokens.input ?? 0,
+      output: tokens.output ?? 0,
+      reasoning: tokens.reasoning ?? 0,
+      cacheRead: tokens.cache?.read ?? 0,
+      cacheWrite: tokens.cache?.write ?? 0,
+    }
+  }
+  /** How many times this session has been compacted, counted from its own transcript. */
+  const compactions = () => {
+    const held = messages()
+    const list = Array.isArray(held) ? held : (held?.data ?? [])
+    return list.filter((message) => {
+      const entry = message as { summary?: boolean; info?: { summary?: boolean } }
+      return entry.summary === true || entry.info?.summary === true
+    }).length
+  }
 
   // Findings (H-32). Read alongside the diff, since that is where they are shown.
   const [findingsTick, setFindingsTick] = createSignal(0)
@@ -3569,6 +3618,7 @@ export const App: Component = () => {
             onSearch={() => setPaletteOpen(true)}
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
+            onContext={() => showScreen("context")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -4035,6 +4085,22 @@ export const App: Component = () => {
           leaveScreen()
           selectSession(id)
         }}
+        onClose={() => leaveScreen()}
+      />
+      <ContextPanel
+        open={contextOpen()}
+        directory={vcsDirectory()}
+        report={contextReport()}
+        loading={contextReport.loading}
+        serverAvailable={routinesServerAvailable()}
+        skills={skills()?.data ?? []}
+        agents={agents()?.data ?? []}
+        agent={agent()}
+        tools={engineTools() ?? []}
+        mcp={mcp()?.data ?? []}
+        tokens={contextTokens()}
+        compactions={compactions()}
+        onRead={readInstruction}
         onClose={() => leaveScreen()}
       />
       <UsagePanel

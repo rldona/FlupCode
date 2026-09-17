@@ -236,3 +236,18 @@ export type Finding = {
   resolved?: boolean
   createdAt: number
 }
+
+/** An instruction file a turn in a folder would load (H-17). */
+export type InstructionFile = {
+  path: string
+  scope: "global" | "project"
+  bytes: number
+  excerpt?: string
+}
+
+export type ContextReport = {
+  directory: string
+  projectDirectory?: string
+  instructions: InstructionFile[]
+  problem?: string
+}
