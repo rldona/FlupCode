@@ -1,7 +1,7 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "./i18n"
 
-export type ToastVariant = "info" | "success" | "error"
+export type ToastVariant = "info" | "error"
 
 export type ToastAction = { label: string; run: () => void }
 
@@ -46,10 +46,7 @@ export const Toaster: Component = () => (
       {(item) => (
         <div
           class="fc-toast"
-          classList={{
-            "fc-toast-success": item.variant === "success",
-            "fc-toast-error": item.variant === "error",
-          }}
+          classList={{ "fc-toast-error": item.variant === "error" }}
         >
           <span class="fc-toast-message">{item.message}</span>
           <Show when={item.action}>

@@ -13,7 +13,10 @@
     const saved = JSON.parse(localStorage.getItem("flupcode.colorTheme") || "null")
     // "default" was the neutral palette's id before it was renamed to "classic". Anything unknown
     // falls back to the FlupCode palette, which is the default and needs no attribute.
-    const palette = { classic: "classic", default: "classic", sublime: "sublime", "sublime-dark": "sublime-dark" }[saved] ?? "flupcode"
+    const palette =
+      { classic: "classic", default: "classic", sublime: "sublime", "sublime-dark": "sublime-dark", github: "github" }[
+        saved
+      ] ?? "flupcode"
     document.documentElement.classList.toggle("fc-dark", dark)
     if (palette !== "flupcode") document.documentElement.dataset.fcTheme = palette
     const backgrounds = {
@@ -22,6 +25,7 @@
       sublime: { light: "#f4f4f4", dark: "#21252b" },
       // Dark-only: the same colour in both modes.
       "sublime-dark": { light: "#17191e", dark: "#17191e" },
+      github: { light: "#ffffff", dark: "#0d1117" },
     }
     document.documentElement.style.backgroundColor = backgrounds[palette][dark ? "dark" : "light"]
   } catch {}

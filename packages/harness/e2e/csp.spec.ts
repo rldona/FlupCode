@@ -24,6 +24,8 @@ const SAVED_PALETTES = [
   // Dark-only: it stays dark even when the mode is light.
   { id: "sublime-dark", mode: "light", background: "rgb(23, 25, 30)" },
   { id: "sublime-dark", mode: "dark", background: "rgb(23, 25, 30)" },
+  { id: "github", mode: "light", background: "rgb(255, 255, 255)" },
+  { id: "github", mode: "dark", background: "rgb(13, 17, 23)" },
 ]
 
 for (const saved of SAVED_PALETTES) {

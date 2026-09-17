@@ -330,7 +330,6 @@ test("committing is the server running git, not a turn spent asking a model to",
   await page.getByRole("textbox", { name: /Commit message|Mensaje del commit/ }).fill("only the server")
   await page.getByRole("button", { name: /^(Commit|Confirmar)$/ }).click()
 
-  await expect(page.locator(".fc-toast")).toContainText("abc1234")
   await expect.poll(() => seen.commits).toEqual([{ message: "only the server", paths: ["src/server.ts"] }])
   // The composer stayed empty: nothing was sent to the engine to make this happen.
   await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
@@ -359,7 +358,6 @@ test("a branch is started by name, and the uncommitted work comes with it", asyn
   await page.getByRole("button", { name: /^(Create|Crear)$/ }).click()
 
   await expect.poll(() => seen.branches).toEqual(["feature/from-the-ui"])
-  await expect(page.locator(".fc-toast")).toContainText("feature/from-the-ui")
 })
 
 test("the branch view has no commit box, because there is nothing there to commit", async ({ page }) => {
@@ -438,7 +436,6 @@ test("a branch with no pull request offers to open one, and says when it must pu
   await bar.getByRole("button", { name: /^(Open|Abrir)$/ }).click()
 
   await expect.poll(() => seen.pullRequests).toEqual(["feat: something better"])
-  await expect(page.locator(".fc-toast")).toContainText("42")
 })
 
 test("an open pull request shows its number, its size and what CI says", async ({ page }) => {
@@ -659,7 +656,7 @@ test("cancelling a restore restores nothing", async ({ page }) => {
   await expect.poll(() => seen.restored).toEqual([])
 })
 
-test("confirming restores, and says what it did", async ({ page }) => {
+test("confirming restores, and nothing else", async ({ page }) => {
   const seen = await openSession(page, [], { checkpoints: [checkpoint("cp1", "after the plan step", 2)] })
   await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
 
@@ -669,7 +666,6 @@ test("confirming restores, and says what it did", async ({ page }) => {
   await card.locator(".fc-checkpoint-plan").getByRole("button", { name: /^(Restore|Restaurar)$/ }).click()
 
   await expect.poll(() => seen.restored).toEqual(["cp1"])
-  await expect(page.locator(".fc-toast")).toContainText(/2.*1/)
 })
 
 test("the branch view has no checkpoints, because they are about the folder", async ({ page }) => {
