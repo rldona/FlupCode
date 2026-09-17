@@ -139,7 +139,8 @@ Theming has two independent axes, both applied to `<html>`:
   palette (navy/violet, taken from `packages/landing/styles.css`) is the default and has no
   attribute; `data-fc-theme="classic"` selects the original neutral grey/blue palette,
   `data-fc-theme="sublime"` the dark-grey Sublime-style palette, `data-fc-theme="sublime-dark"`
-  its deeper, dark-only variant, and `data-fc-theme="github"` the Primer-based light/dark pair.
+  its deeper, dark-only variant, `data-fc-theme="github"` the Primer-based light/dark pair, and
+  `data-fc-theme="copilot"` the neutral graphite pair.
 
 Each palette normally defines a light and a dark variant (`.fc-dark`), so the two axes multiply.
 Palette blocks in `tokens.css` come after `.fc-dark` and must be overridden by a

@@ -57,8 +57,8 @@
    - Palette: the `data-fc-theme` attribute on <html>. No attribute is the FlupCode palette
      (the default, taken from the landing page); `data-fc-theme="classic"` is the original
      neutral grey/blue palette; `data-fc-theme="sublime"` is the dark-grey editor palette,
-     `data-fc-theme="sublime-dark"` its deeper, dark-only variant, and `data-fc-theme="github"`
-     the Primer-based light/dark pair.
+     `data-fc-theme="sublime-dark"` its deeper, dark-only variant, `data-fc-theme="github"`
+     the Primer-based light/dark pair, and `data-fc-theme="copilot"` the neutral graphite pair.
 
    Order matters: palette blocks come after `.fc-dark` so a palette overrides the mode defaults.
    Every token set by a palette must also be set by its `.fc-dark` block, otherwise the light
@@ -357,6 +357,73 @@
   --fc-terminal-bg: #010409;
   --fc-terminal-fg: #f0f6fc;
   --fc-bg-subtle: rgba(101, 108, 118, 0.2);
+}
+
+/* Copilot. A neutral graphite pair — no blue cast in the greys, as GitHub's own dark has — with a
+   periwinkle accent, so it reads as the Copilot surface rather than a second GitHub.
+
+   `*-bg` tokens are mixed at 16% by the diff rows, so they take the saturated green and red rather
+   than a pale tint that mixing would leave nearly invisible. */
+[data-fc-theme="copilot"] {
+  --fc-bg: #ffffff;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #f7f7f8;
+  --fc-border: #d9d9e0;
+  --fc-text: #1a1a1f;
+  --fc-text-muted: #6b6b76;
+  --fc-accent: #3b5bdb;
+  --fc-accent-soft: #e8ecfb;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #d64545;
+  --fc-success: #2f9e44;
+  --fc-success-soft: #37b24d;
+  --fc-warning: #b08900;
+  --fc-favorite: #b08900;
+  --fc-merged: #7048e8;
+  --fc-diff-add: #2f9e44;
+  --fc-diff-del: #d64545;
+  --fc-diff-add-bg: #37b24d;
+  --fc-diff-del-bg: #e03131;
+  --fc-syn-comment: #6b6b76;
+  --fc-syn-string: #0b4f6c;
+  --fc-syn-number: #1c4f9c;
+  --fc-syn-keyword: #c2255c;
+  --fc-syn-const: #1c4f9c;
+  --fc-code-inline: #9c5a00;
+  --fc-terminal-bg: #1a1a1f;
+  --fc-terminal-fg: #f1f1f3;
+  --fc-bg-subtle: rgba(120, 120, 130, 0.12);
+}
+
+[data-fc-theme="copilot"].fc-dark {
+  --fc-bg: #111114;
+  --fc-bg-elevated: #18181d;
+  --fc-sidebar: #0c0c0f;
+  --fc-border: #2c2c34;
+  --fc-text: #ececf1;
+  --fc-text-muted: #a0a0ab;
+  --fc-accent: #7c9cff;
+  --fc-accent-soft: rgba(124, 156, 255, 0.15);
+  --fc-on-accent: #0c0c0f;
+  --fc-danger: #ff8080;
+  --fc-success: #6ad57a;
+  --fc-success-soft: #2f9e44;
+  --fc-warning: #e0b34d;
+  --fc-favorite: #e0b34d;
+  --fc-merged: #b191ff;
+  --fc-diff-add: #6ad57a;
+  --fc-diff-del: #ff8080;
+  --fc-diff-add-bg: #37b24d;
+  --fc-diff-del-bg: #e03131;
+  --fc-syn-comment: #a0a0ab;
+  --fc-syn-string: #9ecbff;
+  --fc-syn-number: #9bb8ff;
+  --fc-syn-keyword: #ff9bb0;
+  --fc-syn-const: #9bb8ff;
+  --fc-code-inline: #ffc078;
+  --fc-terminal-bg: #0b0b0e;
+  --fc-terminal-fg: #ececf1;
+  --fc-bg-subtle: rgba(160, 160, 171, 0.16);
 }
 
 /* Sublime dark: the deeper, dark-only cut of the Sublime palette. It has no light variant on

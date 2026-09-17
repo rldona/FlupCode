@@ -26,6 +26,8 @@ const SAVED_PALETTES = [
   { id: "sublime-dark", mode: "dark", background: "rgb(23, 25, 30)" },
   { id: "github", mode: "light", background: "rgb(255, 255, 255)" },
   { id: "github", mode: "dark", background: "rgb(13, 17, 23)" },
+  { id: "copilot", mode: "light", background: "rgb(255, 255, 255)" },
+  { id: "copilot", mode: "dark", background: "rgb(17, 17, 20)" },
 ]
 
 for (const saved of SAVED_PALETTES) {
