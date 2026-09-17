@@ -1,6 +1,6 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import type { Run, Task, TaskStatus } from "../types"
+import type { Run, Task, TaskActivity, TaskStatus, TouchedFiles } from "../types"
 
 type RunsPanelProps = {
   open: boolean
@@ -12,8 +12,21 @@ type RunsPanelProps = {
   onStopAll: () => void
   onRemove: (id: string) => void
   onOpenSession: (id: string) => void
+  /** What the running tasks are doing right now (H-12), by task id. */
+  activity: Record<string, TaskActivity>
+  /** What each task changed on disk, by task id. Absent until a run has finished a task. */
+  touched: Record<string, TouchedFiles>
   onClose: () => void
 }
+
+/**
+ * How long a single tool call may run before it is worth saying so.
+ *
+ * Not a limit and not a kill: a test suite legitimately takes minutes, and stopping somebody's
+ * build on a guess is worse than the problem. H-47 was eighteen minutes inside one `glob` that
+ * looked exactly like work — this is the point at which it stops looking like work.
+ */
+const LONG_MS = 3 * 60_000
 
 /** Minutes and seconds, or seconds alone: a run is read while it happens, not measured. */
 const elapsed = (from: number, to: number | undefined) => {
@@ -246,6 +259,25 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                           </span>
                           <span class="fc-run-task-name">{task.name}</span>
                           <span class="fc-run-meta">{facts(task).join(" · ")}</span>
+                          {/*
+                            What it is doing right now, and for how long. Without this a call that
+                            never returns is indistinguishable from work getting done.
+                          */}
+                          <Show when={props.activity[task.id]}>
+                            {(doing) => (
+                              <span
+                                class="fc-run-doing"
+                                classList={{ "fc-run-doing-long": doing().waitingMs >= LONG_MS }}
+                                title={doing().detail}
+                              >
+                                <span class="fc-run-doing-tool">{doing().tool ?? t("working")}</span>
+                                <Show when={doing().detail}>
+                                  <span class="fc-run-doing-detail">{doing().detail}</span>
+                                </Show>
+                                <span class="fc-run-doing-since">{elapsed(Date.now() - doing().waitingMs, undefined)}</span>
+                              </span>
+                            )}
+                          </Show>
                           <Show when={task.sessionID}>
                             {(id) => (
                               <button class="fc-run-open" type="button" onClick={() => props.onOpenSession(id())}>
@@ -259,6 +291,35 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                           does not exist yet; folded away because a passing check is read as one
                           line and a failing one is read in full.
                         */}
+                        {/*
+                          What this task changed on disk (H-12), from the checkpoints around it —
+                          which catches a file written by a shell command as well as one edited by a
+                          tool. A task that changed nothing says so rather than showing nothing.
+                        */}
+                        <Show when={props.touched[task.id]}>
+                          {(changed) => (
+                            <Show
+                              when={changed().files.length > 0}
+                              fallback={<p class="fc-run-files-none">{t("Changed no files")}</p>}
+                            >
+                              <details class="fc-run-files">
+                                <summary>{t("{n} files", { n: changed().files.length })}</summary>
+                                <ul>
+                                  <For each={changed().files}>
+                                    {(file) => (
+                                      <li data-status={file.status}>
+                                        <span class="fc-run-file-mark">
+                                          {file.status === "added" ? "+" : file.status === "deleted" ? "−" : "~"}
+                                        </span>
+                                        {file.path}
+                                      </li>
+                                    )}
+                                  </For>
+                                </ul>
+                              </details>
+                            </Show>
+                          )}
+                        </Show>
                         <Show when={task.kind === "verify" && task.output}>
                           {(evidence) => (
                             <details class="fc-run-evidence" open={task.status === "failed"}>
