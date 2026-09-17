@@ -602,13 +602,18 @@ test("the bar can be closed, and comes back when there is something new to say",
   await expect(page.locator(".fc-repo-bar")).toBeVisible()
 })
 
-test("the repository is named only when it is not the folder's name again", async ({ page }) => {
+test("the repository is named when it is not the folder's name again", async ({ page }) => {
   // The folder here is `demo` and the repository is `rldona/FlupCode`, so it is worth saying.
   await openSession(page, [], { branch: withPullRequest({}) })
+  await expect(page.getByRole("button", { name: "#121" })).toBeVisible()
   await expect(page.locator(".fc-pr-repo")).toContainText("rldona/FlupCode")
+})
 
-  // Printing `demo demo` would be noise on a row that is already full.
-  await openSession(page, [], { branch: withPullRequest({ repository: "rldona/demo" }) })
+test("the repository is not named when it is just the folder's name", async ({ page }) => {
+  // Printing `demo demo` would be noise on a row that is already full. The repository is the
+  // branch's, not the pull request's, so it is set beside the branch.
+  await openSession(page, [], { branch: { ...withPullRequest({}), repository: "rldona/demo" } })
+  await expect(page.getByRole("button", { name: "#121" })).toBeVisible()
   await expect(page.locator(".fc-pr-repo")).toHaveCount(0)
 })
 
