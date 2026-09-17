@@ -22,6 +22,7 @@ import type {
   Checkpoint,
   AgentFile,
   ContextReport,
+  CapturedPrompt,
   SkillFile,
   Finding,
   GitCommit,
@@ -994,6 +995,16 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         if (input.project) search.set("project", input.project)
         return harnessRequest<{ content: string }>(baseUrl, `/harness/context/file?${search}`)
       },
+      /**
+       * The system prompt the engine assembled, which no engine endpoint reports: FlupCode's engine
+       * plugin records it as the request goes out. A session has more than one recording — the turn,
+       * its title, a compaction — so this is a list, newest first.
+       */
+      systemPrompt: (input: { sessionID: string }) =>
+        harnessRequest<CapturedPrompt[]>(
+          baseUrl,
+          `/harness/context/system-prompt?${new URLSearchParams({ sessionID: input.sessionID })}`,
+        ),
     },
     /** Agents you can edit (H-13): the markdown files behind the agents the engine reports. */
     agents: {

@@ -825,6 +825,16 @@ export const App: Component = () => {
         if (!answer) throw new Error(t("Could not read that file"))
         return answer.content
       })
+  // The system prompt the engine assembled, which is the one part of the context no engine endpoint
+  // reports. FlupCode's engine plugin records it per request, so it belongs to a session rather than
+  // a folder, and is read for the open one.
+  const [capturedPrompts] = createResource(
+    () => {
+      const sessionID = selected()
+      return contextOpen() && sessionID && routinesServerAvailable() ? { url: harnessServerUrl(), sessionID } : undefined
+    },
+    (source) => createHarnessClient(source.url).context.systemPrompt({ sessionID: source.sessionID }),
+  )
   // Skills (H-27). The files come from the harness server, including the ones the engine did not
   // load — which the engine, by definition, cannot report.
   const [skillsRefresh, setSkillsRefresh] = createSignal(0)
@@ -4255,6 +4265,8 @@ export const App: Component = () => {
         mcp={mcp()?.data ?? []}
         tokens={contextTokens()}
         compactions={compactions()}
+        prompts={capturedPrompts()}
+        promptsLoading={capturedPrompts.loading}
         onRead={readInstruction}
         onClose={() => leaveScreen()}
       />

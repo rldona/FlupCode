@@ -65,6 +65,7 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |
 | `GET /harness/context` | the instruction files `?directory=` would load, in order |
 | `GET /harness/context/file` | one of them, and only one this folder would load |
+| `GET /harness/context/system-prompt` | the system prompts `?sessionID=`'s last requests went out with, recorded by FlupCode's engine plugin |
 | `GET /harness/findings` | filtered by `directory`, `runID`, `open=1` |
 | `PATCH /harness/findings/:id/resolved` | set one aside, or bring it back |
 | `GET /harness/runs/:id/activity` | which tool each running task is inside, and since when |
