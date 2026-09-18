@@ -68,7 +68,8 @@ async function open(page: Page, options: Options = {}) {
     return route.fulfill({ json: { data: [] } })
   })
   await page.goto("/runs")
-  await expect(page.getByText("build it")).toBeVisible()
+  // Scoped to the task row: the timeline names the same task above it.
+  await expect(page.locator(".fc-run-task-name").filter({ hasText: "build it" })).toBeVisible()
   return { reads: () => activityReads }
 }
 
