@@ -3,19 +3,10 @@ import type { TodoItem } from "./TodoDock"
 import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
 import type { SessionInfo } from "../engine-types"
-import { compactionNear, formatTokens } from "../metrics"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
 type RightAsideProps = {
-  /** The composer's context meter figures: tokens in the window, its size, and what the session spent. */
-  usage: {
-    used: number
-    limit: number
-    cost: number
-    estimated?: boolean
-    compaction?: { at: number; count: number }
-  }
   todos: TodoItem[]
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
@@ -42,9 +33,6 @@ const mark = (status: string) => {
 }
 
 export const RightAside: Component<RightAsideProps> = (props) => {
-  const used = () =>
-    props.usage.limit > 0 ? Math.min(100, Math.round((props.usage.used / props.usage.limit) * 100)) : undefined
-
   const completed = () => props.todos.filter((todo) => todo.status === "completed").length
 
   return (
@@ -82,47 +70,6 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         }}
       />
       <div class="fc-rightaside-body">
-        <section class="fc-aside-section">
-          <h3 class="fc-aside-title">{t("Context")}</h3>
-          <div class="fc-aside-row">
-            <span title={props.usage.estimated ? t("Estimated") : undefined}>
-              {props.usage.estimated ? "~" : ""}
-              {formatTokens(props.usage.used)} tokens
-            </span>
-          </div>
-          <Show when={used() !== undefined}>
-            <div class="fc-aside-row">
-              <span>{t("% used")}</span>
-              <span>
-                {props.usage.estimated ? "~" : ""}
-                {used()}%
-              </span>
-            </div>
-            <div class="fc-meter" classList={{ "fc-meter-near": compactionNear(props.usage.compaction) }}>
-              <div class="fc-meter-fill" style={{ width: `${used()}%` }} />
-            </div>
-          </Show>
-          {/* The window ends before the model's own limit: this is where the engine folds the session. */}
-          <Show when={props.usage.compaction}>
-            <div class="fc-aside-row fc-aside-compaction">
-              <span title={t("The engine folds this session when its own budget runs out")}>
-                {props.usage.compaction!.count >= props.usage.compaction!.at ? t("Compaction") : t("Compaction at")}
-              </span>
-              <span class="fc-aside-count">
-                {props.usage.compaction!.count >= props.usage.compaction!.at
-                  ? t("next step")
-                  : formatTokens(props.usage.compaction!.at)}
-              </span>
-            </div>
-          </Show>
-          <div class="fc-aside-row">
-            <span>{t("Spent")}</span>
-            <span>${props.usage.cost.toFixed(2)}</span>
-          </div>
-        </section>
-
-        <MemoryInspector serverUrl={props.serverUrl} sessionID={props.sessionID} />
-
         <section class="fc-aside-section">
           <h3 class="fc-aside-title">
             {t("Tasks")}
@@ -192,6 +139,8 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           running={props.runningSubagents}
           blocked={props.blockedSubagents}
         />
+
+        <MemoryInspector serverUrl={props.serverUrl} sessionID={props.sessionID} />
       </div>
     </aside>
   )

@@ -194,16 +194,24 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
 
   const filteredCommands = () => filterCommands(props.commands, commandQuery())
 
-  // The highlighted command is the first match of every new query.
+  // The highlighted command is the first match of every new query that can actually be run: a match
+  // that is unavailable here (a session action with no session open) is shown, not highlighted.
   createEffect(() => {
-    filteredCommands()
-    setCommandIndex(0)
+    const matches = filteredCommands()
+    const first = matches.findIndex((command) => !command.disabled)
+    setCommandIndex(first === -1 ? 0 : first)
   })
 
   const moveCommand = (delta: number) => {
-    const count = filteredCommands().length
-    if (count === 0) return
-    setCommandIndex((index) => (index + delta + count) % count)
+    const matches = filteredCommands()
+    if (matches.length === 0 || matches.every((command) => command.disabled)) return
+    setCommandIndex((index) => {
+      let next = index
+      do {
+        next = (next + delta + matches.length) % matches.length
+      } while (matches[next]?.disabled)
+      return next
+    })
   }
 
   const mentionQuery = () => mentionToken(props.value, chat())
