@@ -23,6 +23,7 @@ import type {
   Finding,
   SessionPrefs,
   StashedPrompt,
+  ContextPack,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -156,6 +157,14 @@ CREATE TABLE IF NOT EXISTS stashed_prompts (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS stashed_prompts_created_at ON stashed_prompts(created_at DESC);
+CREATE TABLE IF NOT EXISTS context_packs (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  refs_json TEXT NOT NULL,
+  directory TEXT,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS context_packs_directory ON context_packs(directory, name);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -346,6 +355,25 @@ const decodeStash = (row: StashedPromptRow): StashedPrompt => ({
   text: row.text,
   createdAt: row.created_at,
 })
+
+type ContextPackRow = { id: string; name: string; refs_json: string; directory: string | null; created_at: number }
+
+const decodePack = (row: ContextPackRow): ContextPack => ({
+  id: row.id,
+  name: row.name,
+  refs: readRefs(row.refs_json),
+  ...(row.directory ? { directory: row.directory } : {}),
+  createdAt: row.created_at,
+})
+
+function readRefs(value: string): string[] {
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((ref): ref is string => typeof ref === "string") : []
+  } catch {
+    return []
+  }
+}
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
   id: row.id,
@@ -1066,6 +1094,38 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const removed = this.db.query("DELETE FROM stashed_prompts WHERE id = ?1").run(id).changes > 0
     if (removed) this.append({ type: "stash.removed", promptID: id })
     return removed
+  }
+
+  /** Packs for this folder plus the global ones, by name. */
+  listPacks(directory?: string) {
+    const rows = this.db
+      .query("SELECT * FROM context_packs WHERE directory IS NULL OR directory = ?1 ORDER BY name ASC")
+      .all(directory ?? null) as ContextPackRow[]
+    return rows.map(decodePack)
+  }
+
+  /**
+   * One pack per name and folder: saving a name that is already there replaces it.
+   *
+   * Otherwise a reader who fixes a typo ends up with two packs whose names differ by a letter, and
+   * the menu they pick from is worse for it.
+   */
+  savePack(input: { name: string; refs: string[]; directory?: string }) {
+    const name = input.name.trim()
+    const refs = [...new Set(input.refs.map((ref) => ref.trim()).filter(Boolean))]
+    const createdAt = Date.now()
+    const id = crypto.randomUUID()
+    this.db
+      .query("DELETE FROM context_packs WHERE name = ?1 AND directory IS ?2")
+      .run(name, input.directory ?? null)
+    this.db
+      .query("INSERT INTO context_packs (id, name, refs_json, directory, created_at) VALUES (?1, ?2, ?3, ?4, ?5)")
+      .run(id, name, JSON.stringify(refs), input.directory ?? null, createdAt)
+    return { id, name, refs, ...(input.directory ? { directory: input.directory } : {}), createdAt }
+  }
+
+  removePack(id: string) {
+    return this.db.query("DELETE FROM context_packs WHERE id = ?1").run(id).changes > 0
   }
 
   removeFinishedRuns() {

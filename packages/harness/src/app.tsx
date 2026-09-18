@@ -70,6 +70,7 @@ import type {
   Task,
   Workflow,
   StashedPrompt,
+  ContextPack,
 } from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
 import {
@@ -118,7 +119,6 @@ import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
-import { MobileComposer } from "./components/MobileComposer"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
 import { SessionPane } from "./components/SessionPane"
 import { PanelBoundary } from "./components/PanelBoundary"
@@ -500,6 +500,9 @@ export const App: Component = () => {
   // Filled from the harness server below (H-18): a stash kept in the browser was neither durable
   // nor visible on the phone.
   const [stashes, setStashes] = createSignal<StashedPrompt[]>([])
+  // The refs of a draft being saved as a context pack (H-26): set when the composer asks, cleared
+  // once the name dialog answers.
+  const [packRefs, setPackRefs] = createSignal<string[] | undefined>()
 
   const client = () => createClient(serverUrl())
   // Never reject: an errored resource throws on every read and freezes the effects that depend on it.
@@ -779,6 +782,8 @@ export const App: Component = () => {
   })
   const supports = (capability: string) => harnessCapabilities().includes(capability)
 
+  const [packs, setPacks] = createSignal<ContextPack[]>([])
+
   createEffect(() => {
     const url = harnessServerUrl()
     if (!routinesServerAvailable() || !url) return
@@ -796,6 +801,13 @@ export const App: Component = () => {
       void createHarnessClient(url)
         .stash.list()
         .then(setStashes)
+        .catch(() => undefined)
+    }
+    if (supports("packs")) {
+      const directory = vcsDirectory()
+      void createHarnessClient(url)
+        .packs.list(directory ?? undefined)
+        .then(setPacks)
         .catch(() => undefined)
     }
   })
@@ -2994,6 +3006,28 @@ export const App: Component = () => {
         .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
     }
 
+    // A context pack (H-26): the refs a draft already mentions, saved under a name so they can be
+    // pulled back with one `@`.
+    const savePack = (name: string) => {
+      const refs = packRefs()
+      setPackRefs(undefined)
+      const trimmed = name.trim()
+      if (!refs || refs.length === 0 || !trimmed) return
+      const directory = vcsDirectory()
+      void createHarnessClient(harnessServerUrl())
+        .packs
+        .save({ name: trimmed, refs, ...(directory ? { directory } : {}) })
+        .then((pack) => {
+          setPacks((current) =>
+            [...current.filter((entry) => entry.name !== pack.name), pack].sort((left, right) =>
+              left.name.localeCompare(right.name),
+            ),
+          )
+          toast(t("Pack saved"), "success")
+        })
+        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+    }
+
     const setRoutineState = (next: Routine[]) => {
       setRoutines(next)
       const active = next.flatMap((routine) => routine.runs.map((run) => ({ routine, run }))).find(({ run }) => run.status === "running")
@@ -4470,50 +4504,9 @@ export const App: Component = () => {
                 )}
               </For>
             </div>
-            <Show
-              when={!mobileRemote()}
-              fallback={
-                <MobileComposer
-                  mode={view()}
-                  chatClass={composerChatClass()}
-                  onChatClassChange={changeChatClass}
-                  sessionOpen={!!selected()}
-                  generating={!!selected() && generating()}
-                  value={prompt()}
-                  sending={busy()}
-                  attachments={attachments()}
-                  models={modelList()}
-                  modelKey={modelKey()}
-                  modelLabel={modelLabel()}
-                  favorites={favorites()}
-                  variants={variants()}
-                  variantKey={variantKey()}
-                  agents={agents()?.data ?? []}
-                  artifacts={artifactList().flatMap((artifact) =>
-                    artifact.path ? [{ path: artifact.path, title: artifact.title }] : [],
-                  )}
-                  agent={agent()}
-                  permissionMode={permissionModeId()}
-                  commands={commandOptions()}
-                  onCommandPick={(name) => setPrompt(`/${name} `)}
-                  onCommandRun={runCommand}
-                  searchFiles={searchFiles}
-                  delivery={delivery()}
-                  onDeliveryChange={changeDelivery}
-                  onInput={setPrompt}
-                  onSend={send}
-                  onStop={stopSession}
-                  onAttach={addAttachments}
-                  onRemoveAttachment={removeAttachment}
-                  onModelChange={pickModel}
-                  onVariantChange={changeVariant}
-                  onAgentChange={changeAgent}
-                  onPermissionModeChange={changePermissionMode}
-                />
-              }
-            >
-              <Composer
-                mode={view()}
+            <Composer
+              variant={mobileRemote() ? "mobile" : "desktop"}
+              mode={view()}
                 chatClass={composerChatClass()}
                 onChatClassChange={changeChatClass}
                 sessionOpen={!!selected()}
@@ -4569,6 +4562,8 @@ export const App: Component = () => {
                 artifacts={artifactList().flatMap((artifact) =>
                   artifact.path ? [{ path: artifact.path, title: artifact.title }] : [],
                 )}
+                packs={packs()}
+                onSavePack={(refs) => setPackRefs(refs)}
                 agent={agent()}
                 permissionMode={permissionModeId()}
                 delivery={delivery()}
@@ -4597,7 +4592,6 @@ export const App: Component = () => {
                 onAgentChange={changeAgent}
                 onPermissionModeChange={changePermissionMode}
               />
-            </Show>
             <Show when={chatView() && !selected() && !mobileRemote()}>
               <ChatStarters onPick={(text) => setPrompt(text)} />
             </Show>
@@ -4727,6 +4721,13 @@ export const App: Component = () => {
         initial={renameTarget()?.title ?? ""}
         onSave={commitRename}
         onClose={() => setRenameTarget(undefined)}
+      />
+      <RenameDialog
+        open={!!packRefs()}
+        title={t("Name this pack")}
+        initial=""
+        onSave={savePack}
+        onClose={() => setPackRefs(undefined)}
       />
       <TagsDialog
         open={!!tagsTarget()}

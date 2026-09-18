@@ -388,6 +388,33 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "stash" && request.method === "DELETE" && path[2] && !path[3]) {
       return repository.removeFromStash(path[2]) ? json({ data: true }) : error("Stashed prompt not found", 404)
     }
+    // Context packs (H-26): named sets of references to pull back into a prompt.
+    if (path[1] === "packs" && request.method === "GET" && !path[2]) {
+      const directory = new URL(request.url).searchParams.get("directory") ?? undefined
+      return json({ data: repository.listPacks(directory) })
+    }
+    if (path[1] === "packs" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as
+        | { name?: unknown; refs?: unknown; directory?: unknown }
+        | undefined
+      const name = typeof body?.name === "string" ? body.name.trim() : ""
+      if (!name) return error("A pack needs a name", 400)
+      const refs = Array.isArray(body?.refs) ? body.refs.filter((ref): ref is string => typeof ref === "string") : []
+      if (refs.length === 0) return error("A pack needs at least one reference", 400)
+      return json(
+        {
+          data: repository.savePack({
+            name,
+            refs,
+            ...(typeof body?.directory === "string" ? { directory: body.directory } : {}),
+          }),
+        },
+        201,
+      )
+    }
+    if (path[1] === "packs" && request.method === "DELETE" && path[2] && !path[3]) {
+      return repository.removePack(path[2]) ? json({ data: true }) : error("Pack not found", 404)
+    }
     // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
     // adding the engine's session totals on top would count every task twice.
     if (path[1] === "usage" && request.method === "GET") {

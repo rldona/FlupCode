@@ -280,6 +280,22 @@ export type StashedPrompt = {
   createdAt: number
 }
 
+/**
+ * A context pack (H-26): a named set of references — `@file`, `@artifact` — that can be pulled back
+ * into a prompt without retyping them.
+ *
+ * Stored here and not in the browser because a pack is worth sharing between devices, and because
+ * the point of the audit's "packs, not transcripts" is that this is the unit that travels.
+ */
+export type ContextPack = {
+  id: string
+  name: string
+  refs: string[]
+  /** The folder it belongs to; absent means it is available in every project. */
+  directory?: string
+  createdAt: number
+}
+
 export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 
 /** Runs, whatever asked for them. */
@@ -335,6 +351,10 @@ export type RunRepository = {
   listStash(): StashedPrompt[]
   addToStash(text: string, now?: number): StashedPrompt
   removeFromStash(id: string): boolean
+  /** Context packs (H-26): reusable sets of references, global or for one folder. */
+  listPacks(directory?: string): ContextPack[]
+  savePack(input: { name: string; refs: string[]; directory?: string }): ContextPack
+  removePack(id: string): boolean
 }
 
 /** Routines, and the lock that keeps one from running twice at once. */

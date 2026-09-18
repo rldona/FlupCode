@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { applyMention, filterCommands, mentionItems, mentionToken, slashQuery } from "./composer-menus"
+import { applyMention, filterCommands, mentionItems, mentionToken, refsIn, slashQuery } from "./composer-menus"
 
 describe("the slash menu", () => {
   test("opens only on a command being typed, and not in a plain chat", () => {
@@ -45,6 +45,27 @@ describe("the @ menu", () => {
   test("an empty token offers everything, capped", () => {
     const many = Array.from({ length: 20 }, (_, index) => ({ path: `f${index}` }))
     expect(mentionItems("", { files: many, agents: [], artifacts: [] })).toHaveLength(8)
+  })
+
+  test("a pack is offered, and carries the refs it stands for", () => {
+    const [pack] = mentionItems("rev", {
+      files: [],
+      agents: [],
+      artifacts: [],
+      packs: [{ name: "review", refs: ["@src/a.ts", "@artifact:report"] }],
+    })
+    expect(pack).toMatchObject({ kind: "pack", value: "review", label: "@review", insert: "@src/a.ts @artifact:report" })
+  })
+})
+
+describe("the refs in a draft", () => {
+  test("every @token, in order and without repeats", () => {
+    expect(refsIn("@src/a.ts and @artifact:report, again @src/a.ts")).toEqual(["@src/a.ts", "@artifact:report"])
+  })
+
+  test("a draft with no mention has none", () => {
+    expect(refsIn("just words")).toEqual([])
+    expect(refsIn("an email me@here.com")).toEqual(["@here.com"])
   })
 })
 
