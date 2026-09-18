@@ -313,6 +313,9 @@ const ES: Record<string, string> = {
   "Neither changed a file.": "Ninguna cambió un fichero.",
   "{left} files on the left, {right} on the right, {shared} in both.":
     "{left} ficheros a la izquierda, {right} a la derecha, {shared} en ambas.",
+  Resources: "Recursos",
+  "No agent allows this server yet.": "Ningún agente permite todavía este servidor.",
+  "Agents that allow it: {agents}": "Agentes que lo permiten: {agents}",
   "That session is no longer in the engine": "Esa sesión ya no está en el motor",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":

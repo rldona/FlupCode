@@ -163,3 +163,79 @@ test("the permission policy is edited, and pattern rules are kept", async ({ pag
     .poll(() => calls.patches.find((call) => call.path === "/config")?.body)
     .toMatchObject({ permission: { edit: "deny", bash: { "rm -rf *": "deny" } } })
 })
+
+// H-34: a server that failed says why, what it exposes is shown, and so is who may use it.
+test("an MCP server shows its failure, its resources and the agents that allow it", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_set"))
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health")
+      return route.fulfill({ json: { data: { healthy: true, capabilities: ["session-prefs"] } } })
+    if (url.pathname === "/harness/agents")
+      return route.fulfill({
+        json: {
+          data: [
+            {
+              name: "build",
+              path: "/work/demo/.opencode/agent/build.md",
+              scope: "project",
+              root: "/work/demo/.opencode",
+              fields: { tools: { docs_search: true } },
+              prompt: "",
+              bytes: 0,
+            },
+          ],
+        },
+      })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ json: { data: [] } })
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/mcp")
+      return route.fulfill({
+        json: {
+          docs: { status: "connected" },
+          broken: { status: "failed", error: "spawn ENOENT" },
+        },
+      })
+    if (url.pathname === "/experimental/resource")
+      return route.fulfill({
+        json: {
+          "docs://readme": { name: "readme", uri: "docs://readme", mimeType: "text/markdown", client: "docs" },
+        },
+      })
+    if (url.pathname === "/config")
+      return route.fulfill({
+        json: { mcp: { docs: { type: "remote", url: "https://docs.example" }, broken: { type: "local", command: ["x"] } } },
+      })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page)
+  await dialog.getByRole("tab", { name: "MCP servers" }).click()
+
+  const rows = dialog.locator(".fc-mcp-row")
+  await expect(rows).toHaveCount(2)
+  // The reason it is not working, not just that it is not.
+  await expect(dialog.locator(".fc-mcp-error")).toContainText("spawn ENOENT")
+  // What it exposes.
+  await expect(dialog.locator(".fc-mcp-resource")).toContainText("readme")
+  await expect(dialog.locator(".fc-mcp-resource-uri")).toContainText("docs://readme")
+  // And who may reach it, from the agent files the engine reads.
+  await expect(dialog.locator(".fc-mcp-access")).toContainText("build")
+  // A server no agent allows says so instead of looking open.
+  await expect(dialog.locator(".fc-mcp-access-none")).toHaveCount(1)
+})

@@ -31,5 +31,16 @@ export type {
 
 export type McpServer = {
   name: string
-  status: { status?: string } | unknown
+  /** The engine's status object: a `status` and, when it failed, the reason (H-34). */
+  status: { status?: string; error?: string } | unknown
+}
+
+/** A resource an MCP server exposes (H-34), as the engine reports it. */
+export type McpResource = {
+  name: string
+  uri: string
+  description?: string
+  mimeType?: string
+  /** The server it belongs to. */
+  client: string
 }
