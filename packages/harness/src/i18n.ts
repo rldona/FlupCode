@@ -1029,6 +1029,9 @@ const ES: Record<string, string> = {
   "Include this hunk": "Incluir este fragmento",
   Discard: "Descartar",
   "Generate message": "Generar mensaje",
+  "Save these as a pack": "Guardar esto como un pack",
+  "Name this pack": "Ponle nombre al pack",
+  "Pack saved": "Pack guardado",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

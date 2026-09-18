@@ -8422,6 +8422,13 @@ button.fc-status {
   flex-shrink: 0;
 }
 
+.fc-command-save {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--fc-border);
+  color: var(--fc-text-muted);
+}
+
 .fc-diff-line {
   display: flex;
   gap: 8px;

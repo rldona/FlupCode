@@ -668,3 +668,43 @@ describe("harness commands API", () => {
     }
   })
 })
+
+describe("harness context packs API", () => {
+  test("saves, lists and removes a pack, and asks for a name and a reference", async () => {
+    const { handler, repository } = open()
+
+    const saved = await handler(
+      new Request("http://x/harness/packs", {
+        method: "POST",
+        body: JSON.stringify({ name: "review", refs: ["@src/a.ts"], directory: "/work/demo" }),
+      }),
+    )
+    expect(saved.status).toBe(201)
+    const pack = (await saved.json()).data
+
+    const listed = await handler(
+      new Request(`http://x/harness/packs?directory=${encodeURIComponent("/work/demo")}`),
+    )
+    expect((await listed.json()).data).toEqual([expect.objectContaining({ name: "review", refs: ["@src/a.ts"] })])
+
+    expect(
+      (
+        await handler(new Request("http://x/harness/packs", { method: "POST", body: JSON.stringify({ name: "" }) }))
+      ).status,
+    ).toBe(400)
+    expect(
+      (
+        await handler(
+          new Request("http://x/harness/packs", {
+            method: "POST",
+            body: JSON.stringify({ name: "empty", refs: [] }),
+          }),
+        )
+      ).status,
+    ).toBe(400)
+
+    expect((await handler(new Request(`http://x/harness/packs/${pack.id}`, { method: "DELETE" }))).status).toBe(200)
+    expect((await handler(new Request(`http://x/harness/packs/${pack.id}`, { method: "DELETE" }))).status).toBe(404)
+    repository.close()
+  })
+})
