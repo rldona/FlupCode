@@ -1024,6 +1024,11 @@ const ES: Record<string, string> = {
     "Se dejan como están. Las reglas por patrón se editan en la configuración avanzada.",
   "Editing the policy needs the engine running.": "Para editar la política hace falta el motor en marcha.",
   "Permissions saved": "Permisos guardados",
+
+  // Staging by hunk, discarding and generated messages (H-20)
+  "Include this hunk": "Incluir este fragmento",
+  Discard: "Descartar",
+  "Generate message": "Generar mensaje",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

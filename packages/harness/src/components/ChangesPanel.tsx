@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
+import { parseHunks } from "../patch"
 import { CheckpointList } from "./CheckpointList"
 import { FileDiff, type FileChange } from "./FileDiff"
 import type { Checkpoint, Finding, RestorePlan } from "../types"
@@ -21,7 +22,11 @@ type ChangesPanelProps = {
   committing: boolean
   onMode: (mode: DiffMode) => void
   onRefresh: () => void
-  onCommit: (input: { message: string; paths: string[] }) => void
+  onCommit: (input: { message: string; paths: string[]; hunks?: Record<string, number[]> }) => void
+  /** Throws a change away, or the named hunks of one (H-20). */
+  onDiscard: (input: { path: string; hunks?: number[] }) => void
+  /** A commit message written from the picked change, by the engine (H-20). */
+  onGenerateMessage: (input: { paths: string[]; hunks?: Record<string, number[]> }) => Promise<string | undefined>
   onBranch: (name: string) => void
   /** Checkpoints for this folder (H-15). Absent where the harness server cannot answer. */
   checkpoints: Checkpoint[]
@@ -59,15 +64,48 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
   const [message, setMessage] = createSignal("")
   const [naming, setNaming] = createSignal(false)
   const [branchName, setBranchName] = createSignal("")
+  // Which hunks of a file go into the next commit, by index. A file absent here is all of them, so a
+  // reader who never touches a hunk commits whole files exactly as before (H-20).
+  const [hunkPicks, setHunkPicks] = createSignal<Record<string, number[]>>({})
+  const [generating, setGenerating] = createSignal(false)
+  const [discarding, setDiscarding] = createSignal(false)
   const files = createMemo(() => props.changes.map((change) => change.file))
   // When the list itself changes — a commit landed, the mode was switched — start again from all of
   // it. Keeping a stale selection would leave paths ticked that git no longer reports as changed.
   createEffect(
     on(
       () => files().join("\n"),
-      () => setPicked(files()),
+      () => {
+        setPicked(files())
+        setHunkPicks({})
+      },
     ),
   )
+  const allHunks = (file: string) =>
+    parseHunks(props.changes.find((change) => change.file === file)?.patch).map((_, index) => index)
+  const hunksOf = (file: string) => hunkPicks()[file] ?? allHunks(file)
+  const toggleHunk = (file: string, index: number, on: boolean) => {
+    const current = hunksOf(file)
+    const next = on ? [...new Set([...current, index])].sort((left, right) => left - right) : current.filter((it) => it !== index)
+    setHunkPicks({ ...hunkPicks(), [file]: next })
+  }
+  // What the commit should stage: whole files normally, and only the chosen hunks of the ones a
+  // reader narrowed down. A file that is not picked is not in here at all.
+  const selection = () => {
+    const hunks: Record<string, number[]> = {}
+    for (const file of picked()) {
+      const all = allHunks(file)
+      const chosen = hunksOf(file)
+      if (all.length > 0 && chosen.length !== all.length) hunks[file] = chosen
+    }
+    return { paths: picked(), hunks }
+  }
+  const discard = (path: string, hunks?: number[]) => {
+    setDiscarding(true)
+    props.onDiscard({ path, ...(hunks ? { hunks } : {}) })
+    setHunkPicks({ ...hunkPicks(), [path]: hunks ? hunksOf(path).filter((it) => !hunks.includes(it)) : [] })
+    setDiscarding(false)
+  }
   const isPicked = (file: string) => picked().includes(file)
   const pick = (file: string, on: boolean) =>
     setPicked((current) => (on ? [...current, file] : current.filter((entry) => entry !== file)))
@@ -90,10 +128,26 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
   }
 
   const submit = () => {
-    const paths = picked()
-    if (paths.length === 0 || !message().trim()) return
-    props.onCommit({ message: message().trim(), paths })
+    if (picked().length === 0 || !message().trim()) return
+    const chosen = selection()
+    props.onCommit({
+      message: message().trim(),
+      paths: chosen.paths,
+      ...(Object.keys(chosen.hunks).length > 0 ? { hunks: chosen.hunks } : {}),
+    })
     setMessage("")
+  }
+
+  const generate = async () => {
+    const pickedNow = selection()
+    if (pickedNow.paths.length === 0) return
+    setGenerating(true)
+    try {
+      const written = await props.onGenerateMessage(pickedNow)
+      if (written) setMessage(written)
+    } finally {
+      setGenerating(false)
+    }
   }
 
   const totals = createMemo(() =>
@@ -229,6 +283,14 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
                     already means something else, and a control whose only affordance is a key
                     nobody was told about is a control most people never find.
                   */}
+                  <button
+                    class="fc-button"
+                    type="button"
+                    disabled={generating() || picked().length === 0}
+                    onClick={() => void generate()}
+                  >
+                    {generating() ? t("Writing…") : t("Generate message")}
+                  </button>
                   <Show
                     when={naming()}
                     fallback={
@@ -236,8 +298,7 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
                         {t("New branch")}
                       </button>
                     }
-                  >
-                    <input
+                  >                    <input
                       class="fc-input fc-commit-branch"
                       placeholder={t("Branch name")}
                       value={branchName()}
@@ -279,6 +340,11 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
                     open={props.changes.length === 1}
                     selected={committable() ? isPicked(change.file) : undefined}
                     onSelect={committable() ? (value) => pick(change.file, value) : undefined}
+                    selectedHunks={committable() ? hunksOf(change.file) : undefined}
+                    onHunk={committable() ? (index, value) => toggleHunk(change.file, index, value) : undefined}
+                    onDiscardHunk={props.canCommit ? (index) => discard(change.file, [index]) : undefined}
+                    onDiscardFile={props.canCommit ? () => discard(change.file) : undefined}
+                    discarding={discarding()}
                     findings={findingsFor().get(change.file)}
                     onResolveFinding={props.onResolveFinding}
                   />

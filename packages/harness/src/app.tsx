@@ -3272,7 +3272,7 @@ export const App: Component = () => {
   // to the model, which then ran the commands itself. A whole turn, paid for in tokens, to run two
   // commands the server can run for nothing — and with no say in what went into the commit.
   const [committing, setCommitting] = createSignal(false)
-  const commitPicked = (input: { message: string; paths: string[] }) => {
+  const commitPicked = (input: { message: string; paths: string[]; hunks?: Record<string, number[]> }) => {
     const directory = vcsDirectory()
     if (!directory) return
     setCommitting(true)
@@ -3286,6 +3286,30 @@ export const App: Component = () => {
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
       .finally(() => setCommitting(false))
+  }
+  /** Throws a change away, or the named hunks of it (H-20). */
+  const discardChanges = (input: { path: string; hunks?: number[] }) => {
+    const directory = vcsDirectory()
+    if (!directory) return
+    void createHarnessClient(harnessServerUrl())
+      .git.discard({ directory, ...input })
+      .then(() => {
+        void refetchChanges()
+        void refetchVcsStatus()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+  /** A commit message written from the picked change, by a throwaway engine session (H-20). */
+  const generateCommitMessage = (input: { paths: string[]; hunks?: Record<string, number[]> }) => {
+    const directory = vcsDirectory()
+    if (!directory) return Promise.resolve(undefined)
+    return createHarnessClient(harnessServerUrl())
+      .git.message({ directory, ...input })
+      .then((answer) => answer.message)
+      .catch((cause) => {
+        toast(cause instanceof Error ? cause.message : String(cause), "error")
+        return undefined
+      })
   }
   const startBranch = (name: string) => {
     const directory = vcsDirectory()
@@ -4884,6 +4908,8 @@ export const App: Component = () => {
         onMode={setDiffMode}
         onRefresh={() => void refetchChanges()}
         onCommit={commitPicked}
+        onDiscard={discardChanges}
+        onGenerateMessage={generateCommitMessage}
         onBranch={startBranch}
         checkpoints={checkpoints() ?? []}
         checkpointBusy={checkpointBusy()}
