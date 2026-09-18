@@ -46,6 +46,12 @@ describe("laying a workflow out as a graph (H-28)", () => {
     expect(graph.nodes.find((node) => node.id === "recover")!.depth).toBe(1)
   })
 
+  test("a `foreach` waits for the plan it splits", () => {
+    const graph = workflowGraph([task("plan"), task("step", { foreach: "plan" })])
+    expect(graph.nodes.find((node) => node.id === "step")!.dependsOn).toEqual(["plan"])
+    expect(graph.nodes.find((node) => node.id === "step")!.depth).toBe(1)
+  })
+
   test("a gate is carried so the picture can mark it", () => {
     const graph = workflowGraph([task("plan", { gate: "human" }), task("verify", { kind: "verify" })])
     expect(graph.nodes[0]!.gate).toBe(true)

@@ -30,7 +30,9 @@ type GraphTask = Workflow["tasks"][number]
 /** The tasks a task waits for: what it says, or the one above it, or none when it is `parallel`. */
 export function graphDependencies(tasks: GraphTask[], position: number): string[] {
   const task = tasks[position]!
-  const explicit = task.dependsOn ?? (task.parallel ? [] : position > 0 ? [tasks[position - 1]!.id] : [])
+  const explicit = task.foreach
+    ? [task.foreach]
+    : task.dependsOn ?? (task.parallel ? [] : position > 0 ? [tasks[position - 1]!.id] : [])
   const condition = task.when?.task
   return condition && !explicit.includes(condition) ? [...explicit, condition] : explicit
 }

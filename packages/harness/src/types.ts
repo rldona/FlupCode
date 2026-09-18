@@ -59,6 +59,8 @@ export type Workflow = {
     parallel?: boolean
     /** Run only if an earlier task ended a certain way (H-28). */
     when?: TaskCondition
+    /** One task per step of the named task's plan; `{{item}}` is the step (H-28). */
+    foreach?: string
   }>
 }
 
@@ -213,6 +215,8 @@ export type Task = {
   dependsOn?: string[]
   /** The condition that let it run, when it declared one (H-28). */
   when?: TaskCondition
+  /** The plan this task was split from: one task per step shares its name (H-28). */
+  foreach?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
   sessionID?: string
