@@ -137,6 +137,16 @@ export type Run = {
   packs?: string[]
   /** Each writing task ran in its own worktree (H-29). */
   worktrees?: boolean
+  /** How this run spends (H-30): a model per role, a fallback, and a budget. */
+  policy?: {
+    models?: Record<string, string>
+    fallback?: string
+    budget?: { tokens?: number; cost?: number }
+  }
+  /** Why it is waiting: a person at a gate, or a budget it reached. */
+  paused?: "gate" | "budget"
+  /** Somebody let it past the budget. */
+  budgetApproved?: boolean
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
 }
