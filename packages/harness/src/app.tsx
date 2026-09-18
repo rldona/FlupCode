@@ -139,7 +139,14 @@ import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { closeTab, cycleTab, keepTabs, openTab, tabAfterClose } from "./tabs"
 import { publishSessionEvent } from "./session-events"
-import { engineFetch } from "./transport"
+import { annotateLocalNetwork, askLocalNetwork, engineFetch } from "./transport"
+import {
+  addressSpaceOf,
+  localNetworkGated,
+  localNetworkPermissions,
+  queryLocalNetworkPermission,
+  type LocalNetworkState,
+} from "./local-network"
 import { normalizeRoutineSchedule } from "./routine-schedule"
 
 type Client = ReturnType<typeof createClient>
@@ -545,16 +552,67 @@ export const App: Component = () => {
   const [packRefs, setPackRefs] = createSignal<string[] | undefined>()
 
   const client = () => createClient(serverUrl())
+  // Chrome's Local Network Access (H-45). A web page reaching an engine on the machine is gated
+  // behind a permission the user grants once per site, and the wrong handling of it once took the
+  // hosted app off its engine (#91, reverted in #92). Here it is asked for on purpose: the health
+  // check waits for the answer, and calls are only annotated once the permission exists.
+  const localNetworkEngine = createMemo(() => {
+    const engine = addressSpaceOf(serverUrl())
+    const page = typeof window === "undefined" ? undefined : addressSpaceOf(window.location.origin)
+    return localNetworkGated(page, engine) ? engine : undefined
+  })
+  const [localNetwork, setLocalNetwork] = createSignal<LocalNetworkState>("unsupported")
+  const [localNetworkReady, setLocalNetworkReady] = createSignal(false)
+  createEffect(() => {
+    const engine = localNetworkEngine()
+    annotateLocalNetwork(undefined)
+    if (!engine) {
+      setLocalNetwork("unsupported")
+      setLocalNetworkReady(true)
+      return
+    }
+    setLocalNetworkReady(false)
+    void queryLocalNetworkPermission(localNetworkPermissions(engine)).then((state) => {
+      setLocalNetwork(state)
+      if (state === "granted") annotateLocalNetwork(engine)
+      setLocalNetworkReady(true)
+    })
+  })
+  const [allowingLocalNetwork, setAllowingLocalNetwork] = createSignal(false)
+  /**
+   * Ask for the permission from the click that started this.
+   *
+   * The prompt only appears while a connection to a local destination is being made, and only if it
+   * succeeds, so the question is a request to the engine itself. A granted answer lets that very
+   * request through, which is why its response is worth treating as the permission.
+   */
+  const allowLocalNetwork = async () => {
+    const engine = localNetworkEngine()
+    if (!engine) return
+    setAllowingLocalNetwork(true)
+    try {
+      const asked = await askLocalNetwork(`${serverUrl().replace(/\/$/, "")}/global/health`, engine)
+      if (asked) annotateLocalNetwork(engine)
+      setLocalNetwork(await queryLocalNetworkPermission(localNetworkPermissions(engine)))
+    } finally {
+      setAllowingLocalNetwork(false)
+      void refetchHealth()
+    }
+  }
   // Never reject: an errored resource throws on every read and freezes the effects that depend on it.
   // When the health call fails, a `no-cors` probe tells a stopped engine apart from one the browser
-  // blocked (CORS, mixed content), so the onboarding can explain the right fix.
-  const [health, { refetch: refetchHealth }] = createResource(serverUrl, async (url) => {
-    const result = await createClient(url)
-      .health.get()
-      .catch(() => ({ healthy: false, version: undefined as string | undefined }))
-    if (result.healthy) return { ...result, blocked: false }
-    return { ...result, blocked: (await probeServer(url)) === "blocked" }
-  })
+  // blocked (CORS, mixed content, Local Network Access), so the onboarding can explain the right fix.
+  // It waits for the local network answer (H-45) so a granted browser is not probed unannotated.
+  const [health, { refetch: refetchHealth }] = createResource(
+    () => (localNetworkReady() ? serverUrl() : undefined),
+    async (url) => {
+      const result = await createClient(url)
+        .health.get()
+        .catch(() => ({ healthy: false, version: undefined as string | undefined }))
+      if (result.healthy) return { ...result, blocked: false }
+      return { ...result, blocked: (await probeServer(url)) === "blocked" }
+    },
+  )
   // A memo, not a plain accessor: the health poll writes a fresh resource value every 10s, and a
   // plain accessor would pass that on to every effect and resource source reading it — dropping and
   // reopening the event streams, and refetching sessions, messages and both blocked registries, on
@@ -4678,16 +4736,52 @@ export const App: Component = () => {
         <Show when={!desktopWindow()}>
           <TopStrip />
         </Show>
-        <Show when={onboarded() && !remote.activeHost() && !health.loading && health()?.healthy !== true}>
+        <Show
+          when={
+            onboarded() &&
+            !remote.activeHost() &&
+            localNetworkReady() &&
+            !health.loading &&
+            health()?.healthy !== true
+          }
+        >
           <div class="fc-offline-banner">
-            <span>
-              {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
-              {t("start it and connect from Settings")} ·{" "}
-              <code>opencode serve --port 4096 --cors {window.location.origin}</code>
-            </span>
-            <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
-              {t("Retry")}
-            </button>
+            <Show
+              when={localNetworkEngine() && health()?.blocked}
+              fallback={
+                <>
+                  <span>
+                    {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
+                    {t("start it and connect from Settings")} ·{" "}
+                    <code>opencode serve --port 4096 --cors {window.location.origin}</code>
+                  </span>
+                  <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
+                    {t("Retry")}
+                  </button>
+                </>
+              }
+            >
+              <span>
+                {localNetwork() === "denied"
+                  ? t(
+                      "Local network access is blocked for this site. Allow it in your browser's site settings, then try again.",
+                    )
+                  : t("This web page needs your permission to reach the engine on this device before it can connect.")}
+              </span>
+              <Show when={localNetwork() !== "denied"}>
+                <button
+                  class="fc-button fc-button-primary"
+                  type="button"
+                  disabled={allowingLocalNetwork()}
+                  onClick={() => void allowLocalNetwork()}
+                >
+                  {allowingLocalNetwork() ? t("Asking…") : t("Allow access")}
+                </button>
+              </Show>
+              <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
+                {t("Retry")}
+              </button>
+            </Show>
           </div>
         </Show>
         <Show
@@ -5369,6 +5463,9 @@ export const App: Component = () => {
         }}
         serverHealthy={health()?.healthy}
         serverBlocked={health()?.blocked === true}
+        localNetwork={localNetwork()}
+        allowingLocalNetwork={allowingLocalNetwork()}
+        onAllowLocalNetwork={() => void allowLocalNetwork()}
         engineProfile={engineProfile()}
         serverInput={serverInput()}
         onServerInput={setServerInput}
