@@ -75,6 +75,7 @@ import type {
   Workflow,
   StashedPrompt,
   ContextPack,
+  ProjectMemory,
 } from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
 import {
@@ -790,6 +791,9 @@ export const App: Component = () => {
 
   const [packs, setPacks] = createSignal<ContextPack[]>([])
 
+  // The project's notes (H-37), handed to every turn so they do not have to be repeated.
+  const [projectNotes, setProjectNotes] = createSignal<ProjectMemory[]>([])
+
   createEffect(() => {
     const url = harnessServerUrl()
     if (!routinesServerAvailable() || !url) return
@@ -817,6 +821,40 @@ export const App: Component = () => {
         .catch(() => undefined)
     }
   })
+
+  createEffect(() => {
+    const url = harnessServerUrl()
+    const directory = vcsDirectory()
+    if (!url || !directory || !routinesServerAvailable() || !supports("memory")) {
+      setProjectNotes([])
+      return
+    }
+    void createHarnessClient(url).memory
+      .list(directory)
+      .then(setProjectNotes)
+      .catch(() => setProjectNotes([]))
+  })
+
+  const projectMemoryText = () => {
+    const notes = projectNotes()
+    return notes.length > 0 ? `Project memory:\n${notes.map((note) => `- ${note.text}`).join("\n")}` : ""
+  }
+  /** The system a turn runs with: whatever it already had, plus the project's notes (H-37). */
+  const withProjectMemory = (base?: string) => [base, projectMemoryText()].filter(Boolean).join("\n\n") || undefined
+  const addProjectNote = (text: string) => {
+    const directory = vcsDirectory()
+    if (!directory) return
+    void createHarnessClient(harnessServerUrl())
+      .memory.add({ directory, text })
+      .then((note) => setProjectNotes((list) => [...list, note]))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+  const removeProjectNote = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .memory.remove(id)
+      .then(() => setProjectNotes((list) => list.filter((note) => note.id !== id)))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
 
   const removeArtifact = (id: string) => {
     void createHarnessClient(harnessServerUrl())
@@ -3959,7 +3997,7 @@ export const App: Component = () => {
         sessionID,
         directory,
         text: expandPastes(text),
-        system: CHAT_SYSTEM,
+        system: withProjectMemory(CHAT_SYSTEM),
         files: files.map(({ uri, name }) => ({ uri, name })),
         ...(model ? { model } : {}),
       })
@@ -4005,6 +4043,7 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
       })
       forgetRun(sessionID)
+      const system = withProjectMemory(options?.system)
       pendingPrompts.add({
         id,
         sessionID,
@@ -4012,7 +4051,7 @@ export const App: Component = () => {
         text,
         files,
         agent: promptAgent,
-        ...(options?.system ? { system: options.system } : {}),
+        ...(system ? { system } : {}),
         ...(model ? { model } : {}),
         delivery: mode,
       })
@@ -4040,7 +4079,7 @@ export const App: Component = () => {
           id,
           text: expandPastes(text),
           agent: promptAgent,
-          ...(options?.system ? { system: options.system } : {}),
+          ...(system ? { system } : {}),
           ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
         })
@@ -5113,7 +5152,14 @@ export const App: Component = () => {
         }}
         onClose={() => setSkillsOpen(false)}
       />
-      <MemoryPanel open={memoryOpen()} serverUrl={serverUrl()} onClose={() => setMemoryOpen(false)} />
+      <MemoryPanel
+        open={memoryOpen()}
+        serverUrl={serverUrl()}
+        notes={projectNotes()}
+        onAddNote={addProjectNote}
+        onRemoveNote={removeProjectNote}
+        onClose={() => setMemoryOpen(false)}
+      />
       <ConfigPanel
         open={configOpen()}
         serverUrl={serverUrl()}

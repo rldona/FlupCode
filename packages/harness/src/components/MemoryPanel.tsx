@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, type Component } from "solid-js"
 import type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+import type { ProjectMemory } from "../types"
 import { createClient } from "../client"
 import { formatMemoryTime, memoryConfidenceLabel, memoryScopeLabel } from "../memory"
 import { t } from "../i18n"
@@ -7,6 +8,10 @@ import { t } from "../i18n"
 type MemoryPanelProps = {
   open: boolean
   serverUrl: string
+  /** The harness's own notes for this project (H-37), not the engine's memory. */
+  notes?: ProjectMemory[]
+  onAddNote?: (text: string) => void
+  onRemoveNote?: (id: string) => void
   onClose: () => void
 }
 
@@ -37,6 +42,7 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
   const [newTitle, setNewTitle] = createSignal("")
   const [newContent, setNewContent] = createSignal("")
   const [newScope, setNewScope] = createSignal<MemoryInfo["scope"]>("project")
+  const [note, setNote] = createSignal("")
 
   const load = async (generation: number) => {
     setLoading(true)
@@ -145,6 +151,56 @@ export const MemoryPanel: Component<MemoryPanelProps> = (props) => {
               </button>
             </div>
           </div>
+
+          <Show when={props.onAddNote}>
+            {/*
+              The harness's notes, not the engine's memory: what a person wants every turn in this
+              project to know, written by hand (H-37).
+            */}
+            <section class="fc-usage-block">
+              <h2>{t("Project notes")}</h2>
+              <p class="fc-usage-note">
+                {t("Kept by FlupCode and handed to every turn in this project, not the engine's memory.")}
+              </p>
+              <Show
+                when={(props.notes ?? []).length > 0}
+                fallback={<p class="fc-settings-hint">{t("Nothing written down.")}</p>}
+              >
+                <For each={props.notes}>
+                  {(entry) => (
+                    <div class="fc-usage-row fc-skill-row">
+                      <span class="fc-usage-key">{entry.text}</span>
+                      <button class="fc-button" type="button" onClick={() => props.onRemoveNote?.(entry.id)}>
+                        {t("Remove")}
+                      </button>
+                    </div>
+                  )}
+                </For>
+              </Show>
+              <div class="fc-field-row">
+                <label class="fc-field">
+                  <span>{t("A decision or convention")}</span>
+                  <input
+                    class="fc-input"
+                    value={note()}
+                    placeholder={t("Use the server, not the browser, for anything durable")}
+                    onInput={(event) => setNote(event.currentTarget.value)}
+                  />
+                </label>
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={!note().trim()}
+                  onClick={() => {
+                    props.onAddNote?.(note().trim())
+                    setNote("")
+                  }}
+                >
+                  {t("Add note")}
+                </button>
+              </div>
+            </section>
+          </Show>
 
           <Show when={creating()}>
             <div class="fc-memory-form">

@@ -1072,6 +1072,16 @@ const ES: Record<string, string> = {
   "What the tools printed. The noisy half.": "Lo que imprimieron las herramientas. La mitad ruidosa.",
   "Download JSON": "Descargar JSON",
   "Download Markdown": "Descargar Markdown",
+
+  // Project memory (H-37)
+  "Project notes": "Notas del proyecto",
+  "Kept by FlupCode and handed to every turn in this project, not the engine's memory.":
+    "Las guarda FlupCode y se le dan a cada turno de este proyecto, no son la memoria del motor.",
+  "Nothing written down.": "No hay nada escrito.",
+  "A decision or convention": "Una decisión o convención",
+  "Use the server, not the browser, for anything durable":
+    "Usa el servidor, no el navegador, para lo que deba durar",
+  "Add note": "Añadir nota",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
