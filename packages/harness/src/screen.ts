@@ -49,3 +49,23 @@ export function screenFromPath(pathname: string): Screen | undefined {
 export function urlForScreen(screen: Screen | undefined, location: { search: string; hash: string }) {
   return `/${screen ?? ""}${location.search}${location.hash}`
 }
+
+/**
+ * The pair of runs a comparison link names (H-44).
+ *
+ * A best-of-n lands on `/compare?left=…&right=…`, so the batch it was run for survives a reload. A
+ * link without them is an ordinary comparison: the reader picks, as before.
+ */
+export function compareFromSearch(search: string): { left?: string; right?: string } {
+  const params = new URLSearchParams(search)
+  return { left: params.get("left") ?? undefined, right: params.get("right") ?? undefined }
+}
+
+/** Where the comparison of these runs lives (H-44). Only two: that is what the screen holds. */
+export function searchForCompare(ids: string[]) {
+  const params = new URLSearchParams()
+  if (ids[0]) params.set("left", ids[0])
+  if (ids[1]) params.set("right", ids[1])
+  const search = params.toString()
+  return search ? `?${search}` : ""
+}

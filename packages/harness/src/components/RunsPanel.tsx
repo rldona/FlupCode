@@ -35,6 +35,8 @@ type RunsPanelProps = {
   onRetry: (taskID: string, model?: { providerID: string; id: string; variant?: string }) => void
   /** Sends a message to a running task's own session, which steers it (H-12). */
   onSteer: (taskID: string, text: string) => void
+  /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
+  onBestOfN: () => void
   onClose: () => void
 }
 
@@ -140,6 +142,14 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
             <p>{t("What the harness server is working on, task by task.")}</p>
           </div>
           <div class="fc-routines-header-actions">
+            <button
+              class="fc-button"
+              type="button"
+              disabled={!props.serverAvailable}
+              onClick={props.onBestOfN}
+            >
+              {t("Best of N")}
+            </button>
             <Show when={props.runs.some((run) => going(run))}>
               <button
                 class="fc-button fc-button-danger"

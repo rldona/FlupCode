@@ -3,7 +3,7 @@ import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
-import { screenFromPath, urlForScreen, type Screen } from "./screen"
+import { compareFromSearch, screenFromPath, searchForCompare, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
 import { AgentsPanel } from "./components/AgentsPanel"
@@ -124,6 +124,7 @@ import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
 import { WorkflowsPanel } from "./components/WorkflowsPanel"
 import { WorkflowLaunchDialog, type WorkflowLaunch } from "./components/WorkflowLaunchDialog"
+import { BestOfNDialog, type BestOfNLaunch } from "./components/BestOfNDialog"
 import { ReplayPanel } from "./components/ReplayPanel"
 import { ComparePanel } from "./components/ComparePanel"
 import { runSnapshot } from "./compare"
@@ -178,6 +179,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "workflows", descriptionKey: "Workflows" },
   { name: "replay", descriptionKey: "Replay this session", session: true },
   { name: "compare", descriptionKey: "Compare two runs" },
+  { name: "best-of-n", descriptionKey: "Best of N: one task, several models" },
   { name: "next-tab", descriptionKey: "Next session tab" },
   { name: "prev-tab", descriptionKey: "Previous session tab" },
   { name: "close-tab", descriptionKey: "Close this session tab", session: true },
@@ -431,10 +433,20 @@ export const App: Component = () => {
   // browser's Back leaves it. One signal rather than a flag per screen: only one can be open, and
   // two flags could disagree.
   const [screen, setScreen] = createSignal<Screen | undefined>(screenFromPath(window.location.pathname))
-  const showScreen = (next: Screen | undefined) => {
-    if (screen() === next) return
+  // The pair a comparison link names (H-44). Kept beside the screen because both arrive in the same
+  // address: a best-of-n lands on /compare?left=…&right=…, and a reload comes back to the same pair.
+  const [compareArgs, setCompareArgs] = createSignal(compareFromSearch(window.location.search))
+  const showScreen = (next: Screen | undefined, search?: string) => {
+    const same = screen() === next
     setScreen(next)
-    window.history.pushState(null, "", urlForScreen(next, window.location))
+    if (same && search === undefined) return
+    window.history.pushState(
+      null,
+      "",
+      search === undefined
+        ? urlForScreen(next, window.location)
+        : urlForScreen(next, { search, hash: window.location.hash }),
+    )
   }
   const routinesOpen = () => screen() === "routines"
   const runsOpen = () => screen() === "runs"
@@ -451,7 +463,10 @@ export const App: Component = () => {
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
-    const follow = () => setScreen(screenFromPath(window.location.pathname))
+    const follow = () => {
+      setScreen(screenFromPath(window.location.pathname))
+      setCompareArgs(compareFromSearch(window.location.search))
+    }
     window.addEventListener("popstate", follow)
     onCleanup(() => window.removeEventListener("popstate", follow))
   })
@@ -1880,6 +1895,10 @@ export const App: Component = () => {
       }
       if (name === "compare") {
         showScreen("compare")
+        return
+      }
+      if (name === "best-of-n") {
+        setBestOfNOpen(true)
         return
       }
       if (name === "next-tab") {
@@ -3582,6 +3601,35 @@ export const App: Component = () => {
     void runWorkflow(workflow.name, first ? { inputs: { [first]: args.trim() } } : {})
   }
 
+  /**
+   * One task, several models (H-44).
+   *
+   * Each model gets its own run, so the comparison the batch exists for is the screen H-33 already
+   * built, opened with the first two runs already chosen. Worktrees are on by default there, because
+   * N agents writing the same tree would be comparing a fight; the dialog can turn them off.
+   */
+  const [bestOfNOpen, setBestOfNOpen] = createSignal(false)
+  const launchBestOfN = (launch: BestOfNLaunch) => {
+    setBestOfNOpen(false)
+    void createHarnessClient(harnessServerUrl())
+      .runs.bestOfN({
+        prompt: launch.prompt,
+        models: launch.models,
+        directory: modelLocation(),
+        ...(launch.worktrees ? { worktrees: true } : {}),
+      })
+      .then((created) => {
+        const [left, right] = created
+        if (!left || !right) {
+          showScreen("runs")
+          return
+        }
+        setCompareArgs({ left: left.id, right: right.id })
+        showScreen("compare", searchForCompare([left.id, right.id]))
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   // The workflow editor (H-28): the file as written, saved back, and removed. Each one refreshes the
   // list, because a save can rename a workflow and a delete removes a row.
   const readWorkflowFile = (name: string) =>
@@ -4362,6 +4410,11 @@ export const App: Component = () => {
         showScreen("compare")
         return
       }
+      if (name === "best-of-n") {
+        setPrompt("")
+        setBestOfNOpen(true)
+        return
+      }
       if (name === "next-tab") {
         setPrompt("")
         cycleSessionTab(1)
@@ -5038,6 +5091,14 @@ export const App: Component = () => {
         }}
         onClose={() => setLaunching(undefined)}
       />
+      <BestOfNDialog
+        open={bestOfNOpen()}
+        models={modelList()}
+        loading={models.loading}
+        favorites={favorites()}
+        onLaunch={launchBestOfN}
+        onClose={() => setBestOfNOpen(false)}
+      />
       <TagsDialog
         open={!!tagsTarget()}
         title={tagsTarget()?.title ? t("Tags · {name}", { name: tagsTarget()!.title }) : t("Tags")}
@@ -5151,6 +5212,7 @@ export const App: Component = () => {
         models={modelList()}
         onRetry={retryTask}
         onSteer={steerTask}
+        onBestOfN={() => setBestOfNOpen(true)}
         onOpenSession={(id) => {
           leaveScreen()
           selectSession(id)
@@ -5370,6 +5432,8 @@ export const App: Component = () => {
       <ComparePanel
         open={compareOpen()}
         runs={runs()}
+        initialLeft={compareArgs().left}
+        initialRight={compareArgs().right}
         onLoad={compareSnapshot}
         onClose={() => leaveScreen()}
       />

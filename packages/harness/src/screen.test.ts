@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { screenFromPath, urlForScreen } from "./screen"
+import { compareFromSearch, screenFromPath, searchForCompare, urlForScreen } from "./screen"
 
 describe("the screen in the URL", () => {
   test("reads the screens it knows, with or without a trailing slash", () => {
@@ -21,5 +21,19 @@ describe("the screen in the URL", () => {
       "/runs?launch=1#pair=eyJ2IjoxfQ",
     )
     expect(urlForScreen(undefined, { search: "", hash: "" })).toBe("/")
+  })
+})
+
+describe("the runs a comparison link names (H-44)", () => {
+  test("writes the first two runs into the address, and no more", () => {
+    expect(searchForCompare(["a", "b", "c"])).toBe("?left=a&right=b")
+    expect(searchForCompare(["a"])).toBe("?left=a")
+    expect(searchForCompare([])).toBe("")
+  })
+
+  test("reads them back, with an absent side left for the reader to pick", () => {
+    expect(compareFromSearch("?left=a&right=b")).toEqual({ left: "a", right: "b" })
+    expect(compareFromSearch("?left=a")).toEqual({ left: "a", right: undefined })
+    expect(compareFromSearch("")).toEqual({ left: undefined, right: undefined })
   })
 })
