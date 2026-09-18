@@ -299,6 +299,9 @@ export const App: Component = () => {
   )
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
+  // A fold this app asked for is in flight. The engine's own folds are read from the transcript,
+  // but this app answers the request directly, so the transcript does not show it yet.
+  const [compactingManually, setCompactingManually] = createSignal(false)
   const [routineBusy, setRoutineBusy] = createSignal(false)
   const [routineBusyID, setRoutineBusyID] = createSignal<string>()
   const [routineRunID, setRoutineRunID] = createSignal<string>()
@@ -1637,6 +1640,23 @@ export const App: Component = () => {
     if (last.type !== "assistant") return false
     const time = (last as { time?: { completed?: number } }).time
     return time !== undefined && time.completed === undefined
+  }
+  /**
+   * Whether the session is being folded right now. A compaction is a turn of its own — the engine
+   * writes its summary as an assistant message — so the status line reads like any other answer
+   * unless this is checked. The newest settled message decides: while it is the request and its
+   * summary has not landed, the engine is compacting.
+   */
+  const compacting = () => {
+    if (compactingManually()) return true
+    if (!generating()) return false
+    const list = activeMessages() ?? []
+    const settled = list.filter((message) => {
+      const time = (message as { time?: { completed?: number } }).time
+      return message.type !== "assistant" || time?.completed !== undefined
+    })
+    const last = settled[settled.length - 1]
+    return last !== undefined && !!(last as { compaction?: unknown }).compaction
   }
   /**
    * The model the selected session is cached for: what the engine reuses on the next turn. It is
@@ -3901,12 +3921,17 @@ export const App: Component = () => {
     void run(async (current) => {
       const sessionID =
         selected() ?? (await current.session.create({ model: { providerID: model.providerID, id: model.id } })).id
-      await current.session.compact({
-        sessionID,
-        directory: selectedSession()?.location?.directory,
-        providerID: model.providerID,
-        modelID: model.id,
-      })
+      setCompactingManually(true)
+      try {
+        await current.session.compact({
+          sessionID,
+          directory: selectedSession()?.location?.directory,
+          providerID: model.providerID,
+          modelID: model.id,
+        })
+      } finally {
+        setCompactingManually(false)
+      }
       void refetchMessages()
       return sessionID
     }, t("Session compacted"))
@@ -4917,6 +4942,7 @@ export const App: Component = () => {
                 sessionKey={selected()}
                 loading={messagesLoading()}
                 busy={generating()}
+                compacting={compacting()}
                 usage={liveUsage()}
                 startedAt={generationStartedAt()}
                 modelName={modelName}

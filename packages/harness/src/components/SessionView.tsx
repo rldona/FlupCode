@@ -23,6 +23,8 @@ type SessionViewProps = {
   sessionKey?: string
   loading: boolean
   busy: boolean
+  /** Whether the engine is folding the session: the status line says so instead of "Thinking…". */
+  compacting?: boolean
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
@@ -796,6 +798,8 @@ export const SessionView: Component<SessionViewProps> = (props) => {
 
   // What the running turn is doing right now, for the status line under the conversation.
   const activity = createMemo(() => {
+    // A fold is a turn of its own: it never reads as the agent thinking about the task.
+    if (props.compacting) return { tasks: 0, label: t("Compacting session…") }
     const list = props.messages ?? []
     const start = Math.max(0, lastTurnStart())
     let runningTools = 0

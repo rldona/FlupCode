@@ -671,6 +671,7 @@ const ES: Record<string, string> = {
   "Send now": "Enviar ya",
   "Session forked": "Sesión bifurcada",
   "Session compacted": "Sesión compactada",
+  "Compacting session…": "Compactando sesión…",
   "Session renamed": "Sesión renombrada",
   "Session moved": "Sesión movida",
   "Session deleted": "Sesión eliminada",
