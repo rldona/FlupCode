@@ -196,7 +196,13 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
                 </For>
               </ul>
             </Show>
-            <button class="fc-button" type="button" onClick={() => props.onOpenChanges(props.run.directory)}>
+            <button
+              class="fc-button"
+              type="button"
+              // The tree this task ran in, worktree included: its points and its diff live there
+              // (H-29), and opening the run's folder would show neither (H-32).
+              onClick={() => props.onOpenChanges(props.task.directory ?? props.run.directory)}
+            >
               {t("Open checkpoints")}
             </button>
           </section>
