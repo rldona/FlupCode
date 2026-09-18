@@ -26,6 +26,8 @@ const ES: Record<string, string> = {
   "Edit tags…": "Editar etiquetas…",
   "Tags, separated by commas": "Etiquetas, separadas por comas",
   "Tags · {name}": "Etiquetas · {name}",
+  "Open subagent": "Abrir subagente",
+  "Showing the first 300 lines": "Mostrando las primeras 300 líneas",
   Archive: "Archivar",
   Unarchive: "Desarchivar",
   "Show archived": "Mostrar archivadas",

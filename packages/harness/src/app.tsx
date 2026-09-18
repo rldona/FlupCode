@@ -4223,6 +4223,7 @@ export const App: Component = () => {
                 onEditUser={editMessage}
                 onForkUser={forkSession}
                 onRetry={retryTurn}
+                onOpenSession={selectSession}
               />
             </PanelBoundary>
           </Show>

@@ -10,6 +10,7 @@ import { t } from "../i18n"
 import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
 import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
+import { outputLines, parseTodos, taskSessionID, type Todo } from "../tool-render"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 import { ChapterNav, type Chapter } from "./ChapterNav"
@@ -44,6 +45,8 @@ type SessionViewProps = {
   onForkUser?: (messageID: string) => void
   /** Resends the prompt whose turn failed, with the same model; only the last turn offers it. */
   onRetry?: (messageID: string) => void
+  /** Opens the child session a `task` tool ran in (H-06); omitted in the split panes and for chats. */
+  onOpenSession?: (id: string) => void
 }
 
 /** Images and file names attached to a prompt, shown above the prompt's text. */
@@ -108,7 +111,9 @@ function toolInput(tool: SessionMessageAssistantTool): Record<string, unknown> {
  *  older results it clears; the transcript keeps the output, so the card can say the model no longer
  *  receives it. The legacy store's mark is mapped onto the part in `transcript.ts`. */
 function isCleared(tool: SessionMessageAssistantTool) {
-  return !!tool.time.pruned
+  // Optional: the engine always sends `time`, but a replayed or hand-built part may not, and a
+  // transcript that cannot render because of a missing timestamp is worse than one that renders.
+  return !!tool.time?.pruned
 }
 
 function stringField(input: Record<string, unknown>, ...keys: string[]) {
@@ -185,7 +190,45 @@ const ToolOutput: Component<{ text: string; maxLines?: number }> = (props) => {
   )
 }
 
-const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> = (props) => {
+/** A `todowrite` call drawn as the list it is, rather than as its JSON. */
+const TodoCall: Component<{ todos: Todo[] }> = (props) => (
+  <ul class="fc-tool-todos">
+    <For each={props.todos}>
+      {(todo) => (
+        <li class="fc-tool-todo" data-status={todo.status}>
+          <span class="fc-tool-todo-mark" aria-hidden="true">
+            {todo.status === "completed" ? "✓" : todo.status === "in_progress" ? "◐" : "○"}
+          </span>
+          <span class="fc-tool-todo-text">{todo.content}</span>
+        </li>
+      )}
+    </For>
+  </ul>
+)
+
+/** A search or listing whose result is one path (or hit) per line. */
+const ListCall: Component<{ lines: string[] }> = (props) => {
+  const MAX = 50
+  return (
+    <div class="fc-tool-list-wrap">
+      <ul class="fc-tool-list">
+        <For each={props.lines.slice(0, MAX)}>{(line) => <li class="fc-tool-list-item">{line}</li>}</For>
+      </ul>
+      <Show when={props.lines.length > MAX}>
+        <p class="fc-tool-list-more">{t("and {n} more", { n: props.lines.length - MAX })}</p>
+      </Show>
+    </div>
+  )
+}
+
+/** The tools with a body of their own; the rest fall through to the generic output. */
+const RENDERED_TOOLS = new Set(["todowrite", "read", "glob", "grep", "list", "webfetch", "websearch", "task", "skill"])
+
+const ToolCall: Component<{
+  part: SessionMessageAssistantTool
+  live: boolean
+  onOpenSession?: (id: string) => void
+}> = (props) => {
   const [open, setOpen] = createSignal(
     props.live &&
       (props.part.state.status === "error" ||
@@ -203,6 +246,17 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> 
   const oldText = createMemo(() => stringField(input(), "oldString", "old_string"))
   const newText = createMemo(() => stringField(input(), "newString", "new_string"))
   const hasDiff = () => oldText() !== undefined && newText() !== undefined
+  const todos = createMemo(() => parseTodos(input()))
+  const url = createMemo(() => stringField(input(), "url"))
+  const taskChild = createMemo(() => taskSessionID(output()))
+  // Whether a bespoke body below is responsible for this call, so the generic output does not repeat it.
+  const rendered = RENDERED_TOOLS.has(props.part.name)
+  // A read's file can be long; the renderer highlights it, so it takes the first page and says so.
+  const readPreview = createMemo(() => {
+    const lines = output().split("\n")
+    const head = lines.slice(0, 300).join("\n")
+    return { text: head, clipped: lines.length > 300 }
+  })
   return (
     <div class="fc-tool" classList={{ "fc-tool-failed": status() === "error", "fc-tool-cleared": isCleared(props.part) }}>
       <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
@@ -227,7 +281,57 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> 
           <Show when={command() !== undefined}>
             <pre class="fc-tool-cmd">$ {command()}</pre>
           </Show>
-          <Show when={output()}>
+
+          {/* H-06: a body for the tools whose result is not just text, before the generic fallback. */}
+          <Show when={props.part.name === "todowrite"}>
+            <Show when={todos().length > 0} fallback={<ToolOutput text={output()} />}>
+              <TodoCall todos={todos()} />
+            </Show>
+          </Show>
+          <Show when={props.part.name === "read" && status() === "completed"}>
+            <pre class="fc-code fc-tool-read" innerHTML={highlight(readPreview().text, languageFor(path()))} />
+            <Show when={readPreview().clipped}>
+              <p class="fc-tool-list-more">{t("Showing the first 300 lines")}</p>
+            </Show>
+          </Show>
+          <Show when={props.part.name === "glob" || props.part.name === "grep" || props.part.name === "list"}>
+            <ListCall lines={outputLines(output())} />
+          </Show>
+          <Show when={props.part.name === "websearch"}>
+            <ListCall lines={outputLines(output())} />
+          </Show>
+          <Show when={props.part.name === "webfetch"}>
+            <Show when={url()}>
+              {(value) => (
+                <a class="fc-tool-link" href={value()} target="_blank" rel="noreferrer">
+                  {value()}
+                </a>
+              )}
+            </Show>
+            <Show when={output()}>
+              <ToolOutput text={output()} />
+            </Show>
+          </Show>
+          <Show when={props.part.name === "task"}>
+            <Show when={props.onOpenSession ? taskChild() : undefined}>
+              {(id) => (
+                <button class="fc-tool-open" type="button" onClick={() => props.onOpenSession?.(id())}>
+                  {t("Open subagent")}
+                </button>
+              )}
+            </Show>
+            <Show when={output()}>
+              <ToolOutput text={output()} />
+            </Show>
+          </Show>
+          <Show when={props.part.name === "skill"}>
+            <Show when={output()}>
+              <ToolOutput text={output()} />
+            </Show>
+          </Show>
+
+          {/* Everything the bodies above did not claim still shows its output as text. */}
+          <Show when={!rendered && output()}>
             <ToolOutput text={output()} />
           </Show>
         </div>
@@ -289,7 +393,9 @@ function toolGroupSummary(parts: SessionMessageAssistantTool[]) {
  * Consecutive tool calls collapse into one line that shimmers while they run. The line opens the
  * list of calls, and each call opens its detail.
  */
-const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) => {
+const ToolGroup: Component<{ parts: SessionMessageAssistantTool[]; onOpenSession?: (id: string) => void }> = (
+  props,
+) => {
   const [open, setOpen] = createSignal(false)
   const running = () => props.parts.some((part) => part.state.status === "running" || part.state.status === "pending")
   const done = () =>
@@ -324,7 +430,9 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[] }> = (props) =
       </button>
       <Show when={open()}>
         <div class="fc-toolgroup-list">
-          <Index each={props.parts}>{(part) => <ToolCall part={part()} live={false} />}</Index>
+          <Index each={props.parts}>
+            {(part) => <ToolCall part={part()} live={false} onOpenSession={props.onOpenSession} />}
+          </Index>
         </div>
       </Show>
     </div>
@@ -567,6 +675,7 @@ const AssistantMessage: Component<{
   showRole: boolean
   toolRuns: ToolRuns
   onRetry?: () => void
+  onOpenSession?: (id: string) => void
 }> = (props) => {
   const segments = () => assistantSegments(props.message, props.showTools, props.showReasoning, props.toolRuns)
   return (
@@ -600,7 +709,10 @@ const AssistantMessage: Component<{
                   )
                 })()}
               >
-                <ToolGroup parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts} />
+                <ToolGroup
+                  parts={(segment() as { parts: SessionMessageAssistantTool[] }).parts}
+                  onOpenSession={props.onOpenSession}
+                />
               </Show>
             </Show>
           )}
@@ -1037,6 +1149,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           }
                           toolRuns={toolRuns()}
                           onRetry={retryFor(fullIndex(index()))}
+                          onOpenSession={props.onOpenSession}
                         />
                         <Show when={isTurnEnd(fullIndex(index()))}>
                           <TurnFooter
