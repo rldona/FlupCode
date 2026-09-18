@@ -990,7 +990,11 @@ export class SqliteRoutineRepository implements RoutineRepository {
   // ---- what a reader keeps about a session (H-18) ---------------------------------------------
 
   listSessionPrefs() {
-    const rows = this.db.query("SELECT * FROM session_prefs ORDER BY updated_at DESC").all() as SessionPrefsRow[]
+    // Newest first, with the id as a tie-break: two changes can share a millisecond, and a list
+    // whose order wobbles between reads is one nothing can be asserted about.
+    const rows = this.db
+      .query("SELECT * FROM session_prefs ORDER BY updated_at DESC, session_id ASC")
+      .all() as SessionPrefsRow[]
     return rows.map(decodeSessionPrefs)
   }
 

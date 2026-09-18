@@ -157,6 +157,7 @@ const readJSON = async (request: Request) => {
   }
 }
 
+import { CAPABILITIES } from "./capabilities"
 import { duration, listWorkflows } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
@@ -186,7 +187,9 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
 
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
-    if (path[1] === "health" && request.method === "GET") return json({ healthy: true })
+    // Says what this server can answer, so a newer client does not ask an older one for routes it
+    // does not have and leave a 404 in the console (H-18).
+    if (path[1] === "health" && request.method === "GET") return json({ healthy: true, capabilities: [...CAPABILITIES] })
     // Everything the server changes, in order, so a client follows along instead of asking.
     if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
     // Runs, whatever asked for them. A routine's own are still under its own path.
