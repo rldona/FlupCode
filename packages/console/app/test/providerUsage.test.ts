@@ -20,8 +20,7 @@ describe("provider usage extraction", () => {
     const headers = new Headers()
     providers.systemone.modifyHeaders(headers, "secret", "session")
 
-    expect(providers.systemone.modifyUrl("https://api.typesafe.ai/v1/"))
-      .toBe("https://api.typesafe.ai/v1/systemone")
+    expect(providers.systemone.modifyUrl("https://api.typesafe.ai/v1/")).toBe("https://api.typesafe.ai/v1/systemone")
     expect(headers.get("authorization")).toBe("Bearer secret")
     expect(headers.get("x-session-affinity")).toBe("session")
   })
