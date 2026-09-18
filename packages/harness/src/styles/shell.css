@@ -5747,6 +5747,11 @@ button.fc-status {
   opacity: 0.35;
 }
 
+.fc-mobile-stop {
+  background: var(--fc-danger, #c0392b);
+  color: var(--fc-bg);
+}
+
 .fc-mobile-pill {
   display: inline-flex;
   align-items: center;
