@@ -286,8 +286,9 @@ test("a session is pinned and tagged on the server, and a tag filters the list",
   await page.locator('.fc-modal input[aria-label="Tags"]').fill("work, home")
   await page.getByRole("button", { name: "Save" }).click()
   await expect.poll(() => calls.at(-1)?.body).toEqual({ tags: ["work", "home"] })
+  await expect(page.getByRole("dialog", { name: /Tags/ })).toHaveCount(0)
 
-  const filter = page.locator(".fc-tag-filter")
+  const filter = page.locator(".fc-sidebar .fc-tag-filter")
   await expect(filter).toContainText("work")
   await filter.locator(".fc-session-tag", { hasText: "work" }).click()
   await expect(filter.locator(".fc-session-tag", { hasText: "work" })).toHaveClass(/fc-session-tag-active/)

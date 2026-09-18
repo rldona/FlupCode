@@ -78,7 +78,7 @@ export const TagsDialog: Component<TagsDialogProps> = (props) => {
             }}
           />
           <Show when={parsed().length > 0}>
-            <div class="fc-tag-filter fc-tag-filter-preview">
+            <div class="fc-tag-preview">
               <For each={parsed()}>{(tag) => <span class="fc-session-tag">{tag}</span>}</For>
             </div>
           </Show>

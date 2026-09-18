@@ -3784,7 +3784,11 @@ button.fc-status {
   padding: var(--fc-space-2) var(--fc-space-3) 0;
 }
 
-.fc-tag-filter-preview {
+/* The tags dialog's live preview: the chips as they will be saved. */
+.fc-tag-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
   padding: var(--fc-space-2) 0 0;
 }
 
