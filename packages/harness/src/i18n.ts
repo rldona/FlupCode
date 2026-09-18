@@ -909,6 +909,7 @@ const ES: Record<string, string> = {
   // Supervision (H-12), and what a run was allowed to do (H-47)
   working: "trabajando",
   "Reaches outside the project": "Sale del proyecto",
+  "No shell commands": "Sin comandos de shell",
   "{n} min limit for one tool call": "límite de {n} min por llamada",
   "Changed no files": "No cambió ningún archivo",
   "{n} files": "{n} archivos",

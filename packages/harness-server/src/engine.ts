@@ -34,15 +34,35 @@ export type PermissionRule = { permission: string; pattern: string; action: "all
  * A run confined to the project it runs in (H-47).
  *
  * `external_directory` is the engine's own name for "a path outside this project", asked for by
- * `read`, `write`, `edit`, `glob`, `grep`, `apply_patch` and `lsp` before they touch one. Denying it
- * turns the ask into a refusal the tool reports back to the model, with nobody prompted.
+ * `read`, `write`, `edit`, `glob`, `grep`, `apply_patch` and `lsp` before they touch one, and by the
+ * shell tool itself for an external `workdir` and for the paths of the file commands its parser
+ * recognises (`cat`, `rm`, `cp`, `cd`…). Denying it turns the ask into a refusal the tool reports
+ * back to the model, with nobody prompted.
  *
- * **It does not cover the shell.** The shell tool does not call that check — verified by reading
- * which tools import `assertExternalDirectory` — so a command can still read outside the project.
- * This is said on screen rather than papered over: a confinement claimed and not delivered is worse
- * than one that states its edge.
+ * **It is not a sandbox.** A command the parser does not read (`grep`, `sed`, an interpreter), a
+ * redirection, or any expansion can still reach outside, so a confined run states this edge instead
+ * of claiming more. `NO_SHELL` is the one exact wall the engine offers.
  */
 export const CONFINED: PermissionRule[] = [{ permission: "external_directory", pattern: "*", action: "deny" }]
+
+/**
+ * A run whose model may not run shell commands at all (H-47).
+ *
+ * The shell asks `bash` for every command it parses, so a `*` deny blocks each one; and because the
+ * last rule for the tool is a `*` deny, the engine also hides it from the model's tool list. Both
+ * read in `opencode/src/permission/index.ts` before being relied on.
+ */
+export const NO_SHELL: PermissionRule[] = [{ permission: "bash", pattern: "*", action: "deny" }]
+
+/**
+ * The rules a run's sessions are created under (H-47).
+ *
+ * `outside` opens the boundary and `shell: false` closes the shell; everything else keeps the
+ * confined default. Both are stated on the run, never guessed.
+ */
+export function sessionPermission(run: { outside?: boolean; shell?: boolean }): PermissionRule[] {
+  return [...(run.outside ? [] : CONFINED), ...(run.shell === false ? NO_SHELL : [])]
+}
 
 /** What a task was stopped for: one tool call that ran past the run's declared ceiling (H-47). */
 export class ToolLimitReached extends Error {

@@ -73,6 +73,14 @@ export type Run = {
    */
   outside?: boolean
   /**
+   * Whether the model may run shell commands (H-47).
+   *
+   * On by default. A run that says `false` gets no shell at all: the engine hides the bash tool and
+   * refuses every command, which is the only exact confinement it offers — there is no sandbox. It
+   * is kept as `false` rather than `true`, because only the unusual answer is worth storing.
+   */
+  shell?: boolean
+  /**
    * Context packs to give every task in this run (H-31).
    *
    * A pack is a named set of references; the runner turns the ones that are files into `file` parts
