@@ -1032,6 +1032,16 @@ const ES: Record<string, string> = {
   "Save these as a pack": "Guardar esto como un pack",
   "Name this pack": "Ponle nombre al pack",
   "Pack saved": "Pack guardado",
+
+  // The file tree and viewer (H-19)
+  "Look at what is in the folder, and search it.": "Mira lo que hay en la carpeta y búscalo.",
+  "Search files": "Buscar archivos",
+  "Searching…": "Buscando…",
+  "Nothing matched.": "Nada coincide.",
+  "Pick a file to read it.": "Elige un archivo para leerlo.",
+  bytes: "bytes",
+  "showing the beginning": "mostrando el principio",
+  "That file is not text.": "Ese archivo no es texto.",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
