@@ -38,6 +38,7 @@ import type {
   RoutineInput,
   RoutineRun,
   Run,
+  RunPolicy,
   SessionPrefs,
   StashedPrompt,
   Task,
@@ -990,6 +991,19 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     events: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal, "/harness/events"),
     runs: {
       list: () => harnessRequest<Run[]>(baseUrl, "/harness/runs"),
+      /**
+       * The same task once per model (H-44), one run each, so the comparison reads runs as it always
+       * has. Answers with them in the order they were asked for.
+       */
+      bestOfN: (input: {
+        prompt: string
+        models: string[]
+        directory?: string
+        packs?: string[]
+        worktrees?: boolean
+        policy?: RunPolicy
+      }) =>
+        harnessRequest<Run[]>(baseUrl, "/harness/best-of-n", { method: "POST", body: JSON.stringify(input) }),
       /** A run with the tasks it is made of; the list leaves them out. */
       get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),

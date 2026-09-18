@@ -8430,6 +8430,12 @@ button.fc-status {
   max-width: 520px;
 }
 
+.fc-launch-textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: inherit;
+}
+
 .fc-launch-packs {
   display: flex;
   flex-wrap: wrap;

@@ -1,4 +1,5 @@
 import { Engine } from "./engine"
+import { parseModelKey } from "./policy"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
 import { findWorkflow, tasksFor } from "./workflow"
@@ -42,6 +43,14 @@ export class RoutineBusyError extends Error {
   constructor() {
     super("Routine is already running")
     this.name = "RoutineBusyError"
+  }
+}
+
+/** A best-of-n variant that is not `provider/model`; refused before any run of the batch starts. */
+export class InvalidModelError extends Error {
+  constructor(readonly key: string) {
+    super(`Not a model: ${key}. Write it as provider/model.`)
+    this.name = "InvalidModelError"
   }
 }
 
@@ -126,6 +135,42 @@ export class RoutineScheduler {
     }
     void this.drive(run.id, input.directory)
     return run
+  }
+
+  /**
+   * The same task, once per model (H-44).
+   *
+   * One run per model rather than one run of N tasks: what a person compares is a whole run — what
+   * it cost, how long it took, what it touched, what its check said — and H-33's comparison reads
+   * runs. Each variant is a single task named after the model it runs on, and nothing else differs.
+   *
+   * Every model is checked before any run starts: a batch that quietly dropped one of its variants
+   * would answer a different question than the one it was asked.
+   */
+  runBestOfN(input: {
+    prompt: string
+    models: string[]
+    directory?: string
+    packs?: string[]
+    worktrees?: boolean
+    policy?: RunPolicy
+  }) {
+    const variants = input.models.map((key) => {
+      const model = parseModelKey(key)
+      if (!model) throw new InvalidModelError(key)
+      return { key, model }
+    })
+    return Promise.all(
+      variants.map((variant) =>
+        this.runTasks({
+          tasks: [{ name: variant.key, prompt: input.prompt, model: variant.model }],
+          directory: input.directory,
+          ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
+          ...(input.worktrees ? { worktrees: true } : {}),
+          ...(input.policy ? { policy: input.policy } : {}),
+        }),
+      ),
+    )
   }
 
   /**

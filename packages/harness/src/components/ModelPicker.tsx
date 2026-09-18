@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import type { ModelInfo } from "../engine-types"
 import { t } from "../i18n"
-import { isDeprecated } from "../model-catalog"
+import { groupedModels, isDeprecated, modelKey } from "../model-catalog"
 
 type ModelPickerProps = {
   open: boolean
@@ -21,28 +21,8 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
   createEffect(() => {
     if (!props.open) setQuery("")
   })
-  const key = (model: ModelInfo) => `${model.providerID}/${model.id}`
-  const groups = createMemo(() => {
-    const needle = query().trim().toLowerCase()
-    const filtered = needle
-      ? props.models.filter((model) => `${model.name} ${model.id} ${model.providerID}`.toLowerCase().includes(needle))
-      : props.models
-    const map = new Map<string, ModelInfo[]>()
-    for (const model of filtered) {
-      map.set(model.providerID, [...(map.get(model.providerID) ?? []), model])
-    }
-    return [...map.entries()].map(([providerID, items]) => ({
-      providerID,
-      items: [...items].sort((a, b) => {
-        const aFav = props.favorites.includes(key(a)) ? 0 : 1
-        const bFav = props.favorites.includes(key(b)) ? 0 : 1
-        if (aFav !== bFav) return aFav - bFav
-        // Models on their way out stay pickable, but below the ones still being released.
-        if (isDeprecated(a) !== isDeprecated(b)) return isDeprecated(a) ? 1 : -1
-        return a.name.localeCompare(b.name)
-      }),
-    }))
-  })
+  const key = (model: ModelInfo) => modelKey(model)
+  const groups = createMemo(() => groupedModels(props.models, query(), props.favorites))
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
