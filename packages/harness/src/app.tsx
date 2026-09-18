@@ -72,6 +72,14 @@ import type {
   StashedPrompt,
 } from "./types"
 import { UNAVAILABLE_FEATURES } from "./features"
+import {
+  KEYBIND_ACTIONS,
+  loadKeybinds,
+  matchesKeybind,
+  withKeybind,
+  type KeybindAction,
+  type Keybinds,
+} from "./keybinds"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
 import { Toaster, clearToast, toast } from "./toast"
@@ -94,6 +102,7 @@ import { ModelUnavailableDock } from "./components/ModelUnavailableDock"
 import { FolderDialog } from "./components/FolderDialog"
 import { RenameDialog } from "./components/RenameDialog"
 import { TagsDialog } from "./components/TagsDialog"
+import { ConfirmDialog } from "./components/ConfirmDialog"
 import { permissionMode } from "./permission-modes"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
@@ -132,9 +141,20 @@ function readColorTheme() {
   return "flupcode"
 }
 
-const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
+/** Whether a key event is going into a text field, where a bare shortcut must not fire. */
+function isTypingTarget(target: EventTarget | null) {
+  const element = target as HTMLElement | null
+  if (!element) return false
+  return element.tagName === "INPUT" || element.tagName === "TEXTAREA" || element.isContentEditable
+}
+
+/**
+ * App actions reachable from the palette and the composer's slash menu (H-24). `session` marks the
+ * ones that need an open session, so they are not offered when there is none.
+ */
+const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: boolean }> = [
   { name: "new", descriptionKey: "New session…" },
-  { name: "compact", descriptionKey: "Compact the current session" },
+  { name: "compact", descriptionKey: "Compact the current session", session: true },
   { name: "steps", descriptionKey: "Show or hide tool steps" },
   { name: "mcp", descriptionKey: "MCP servers…" },
   { name: "stash", descriptionKey: "Save the current prompt" },
@@ -147,6 +167,15 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "remote", descriptionKey: "Remote control / mobile" },
   { name: "artifacts", descriptionKey: "Artifacts" },
   { name: "about", descriptionKey: "About FlupCode" },
+  // Actions that used to live only in a menu, now reachable from the launcher too (H-24). Kept at
+  // the end so the ones people already know stay where they were.
+  { name: "split", descriptionKey: "Split view", session: true },
+  { name: "rename", descriptionKey: "Rename session", session: true },
+  { name: "pin", descriptionKey: "Pin or unpin this session", session: true },
+  { name: "archive", descriptionKey: "Archive this session", session: true },
+  { name: "delete", descriptionKey: "Delete this session", session: true },
+  { name: "toggle-sidebar", descriptionKey: "Toggle sidebar" },
+  { name: "providers", descriptionKey: "Providers & API keys" },
 ]
 
 const normalizeRoutine = (value: unknown): Routine | undefined => {
@@ -426,7 +455,12 @@ export const App: Component = () => {
   const [memoryOpen, setMemoryOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
   const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
-  const [paletteKey, setPaletteKey] = createSignal(readStorage(STORAGE_KEYS.paletteKey, "mod+k"))
+  const [keybinds, setKeybinds] = createSignal<Keybinds>(
+    loadKeybinds(
+      readStorage<Partial<Keybinds> | undefined>(STORAGE_KEYS.keybinds, undefined),
+      readStorage<string | undefined>(STORAGE_KEYS.paletteKey, undefined),
+    ),
+  )
   const [targetDirectory, setTargetDirectory] = createSignal<string>()
   const [routines, setRoutines] = createSignal<Routine[]>(normalizeRoutines(readStorage<unknown>(STORAGE_KEYS.routines, [])))
   /** How many runs the supervisor shows. Enough to see what is happening, not a history. */
@@ -455,6 +489,13 @@ export const App: Component = () => {
   const [stashOpen, setStashOpen] = createSignal(false)
   const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string }>()
   const [tagsTarget, setTagsTarget] = createSignal<{ id: string; title: string; tags: string[] }>()
+  // What a destructive action asks before doing it (H-24), instead of `window.confirm`.
+  const [confirmTarget, setConfirmTarget] = createSignal<{
+    title: string
+    message: string
+    confirmLabel?: string
+    onConfirm: () => void
+  }>()
   // Filled from the harness server below (H-18): a stash kept in the browser was neither durable
   // nor visible on the phone.
   const [stashes, setStashes] = createSignal<StashedPrompt[]>([])
@@ -1543,7 +1584,8 @@ export const App: Component = () => {
       ...BUILTIN_COMMANDS.map((command) => ({
         name: command.name,
         description: t(command.descriptionKey),
-        disabled: UNAVAILABLE_FEATURES.has(command.name),
+        // An action that acts on the open session is not offered when there is none.
+        disabled: UNAVAILABLE_FEATURES.has(command.name) || (command.session === true && !selected()),
       })),
       ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
       ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
@@ -1636,22 +1678,100 @@ export const App: Component = () => {
         setConfigOpen(true)
         return
       }
+      if (name === "providers") {
+        setProvidersOpen(true)
+        return
+      }
+      if (name === "toggle-sidebar") {
+        toggleSidebar()
+        return
+      }
+      // Actions on the open session, which the palette offers next to the engine's commands (H-24).
+      if (name === "split") {
+        if (selected() && !splitActive()) openSplit(selected()!)
+        return
+      }
+      if (name === "rename") {
+        renameSession()
+        return
+      }
+      if (name === "pin") {
+        if (selected()) togglePin(selected()!)
+        return
+      }
+      if (name === "archive") {
+        if (selected()) archiveSession(selected()!, true)
+        return
+      }
+      if (name === "delete") {
+        deleteSession()
+        return
+      }
       setPrompt(`/${name} `)
     }
 
+    // Escape and Tab behave the same in every dialog (H-24): Escape closes the topmost one, and Tab
+    // stays inside it. Done once here, a dialog added later gets both without remembering to.
     createEffect(() => {
-      const parts = paletteKey().split("+")
-      const keyPart = (parts.at(-1) ?? "k").toLowerCase()
-      const wantsMod = parts.includes("mod")
-      const wantsShift = parts.includes("shift")
-      const wantsAlt = parts.includes("alt")
+      const onKey = (event: KeyboardEvent) => {
+        const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).filter(
+          (dialog) => dialog.offsetParent !== null,
+        )
+        const top = dialogs.at(-1)
+        if (!top) return
+        if (event.key === "Escape") {
+          const close = top.querySelector<HTMLButtonElement>('button[aria-label="Close"], button[aria-label="Cerrar"]')
+          event.preventDefault()
+          close?.click()
+          return
+        }
+        if (event.key !== "Tab") return
+        const selector =
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        const focusable = Array.from(top.querySelectorAll<HTMLElement>(selector)).filter(
+          (node) => node.offsetParent !== null,
+        )
+        const first = focusable[0]
+        const last = focusable.at(-1)
+        if (!first || !last) return
+        const active = document.activeElement
+        if (event.shiftKey && (active === first || !top.contains(active))) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && (active === last || !top.contains(active))) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
+      document.addEventListener("keydown", onKey, true)
+      onCleanup(() => document.removeEventListener("keydown", onKey, true))
+    })
+
+    // Every editable shortcut runs here, read from the registry, so one changed in Settings takes
+    // effect without a reload (H-24). The old code hard-coded each one.
+    const runShortcut = (action: KeybindAction) => {
+      if (action === "palette") return setPaletteOpen(true)
+      if (action === "toggleSidebar") return toggleSidebar()
+      if (action === "toggleContextPanel") return toggleContextPanel()
+      if (action === "settings") return setSettingsOpen(true)
+      if (action === "newSession") return newSession()
+      if (action === "compact") return compactSession()
+      if (action === "split" && selected() && !splitActive()) return openSplit(selected()!)
+    }
+    createEffect(() => {
+      const bindings = keybinds()
       const handler = (event: KeyboardEvent) => {
-        if (event.key.toLowerCase() !== keyPart) return
-        if ((event.metaKey || event.ctrlKey) !== wantsMod) return
-        if (event.shiftKey !== wantsShift) return
-        if (event.altKey !== wantsAlt) return
-        event.preventDefault()
-        setPaletteOpen(true)
+        if (event.repeat) return
+        const typing = isTypingTarget(event.target)
+        for (const action of KEYBIND_ACTIONS) {
+          const binding = bindings[action]
+          if (!binding || !matchesKeybind(binding, event)) continue
+          // A binding with no modifier must not fire while the reader is typing into a field.
+          if (typing && !binding.includes("mod") && !binding.includes("alt")) continue
+          event.preventDefault()
+          runShortcut(action)
+          return
+        }
       }
       document.addEventListener("keydown", handler)
       onCleanup(() => document.removeEventListener("keydown", handler))
@@ -2631,19 +2751,6 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.workspaceWidth, next)
     }
 
-    createEffect(() => {
-      const handler = (event: KeyboardEvent) => {
-        if ((event.metaKey || event.ctrlKey) && event.code === "KeyB") {
-          event.preventDefault()
-          // ⌘B toggles the left sidebar, ⌥⌘B the session's context panel.
-          if (event.altKey) toggleContextPanel()
-          else toggleSidebar()
-        }
-      }
-      document.addEventListener("keydown", handler)
-      onCleanup(() => document.removeEventListener("keydown", handler))
-    })
-
     const updateDisplayName = (value: string) => {
       setDisplayName(value)
       writeStorage(STORAGE_KEYS.displayName, value)
@@ -2754,9 +2861,10 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.notifications, next)
     }
 
-    const changePaletteKey = (value: string) => {
-      setPaletteKey(value)
-      writeStorage(STORAGE_KEYS.paletteKey, value)
+    const changeKeybind = (action: KeybindAction, binding: string) => {
+      const next = withKeybind(keybinds(), action, binding)
+      setKeybinds(next)
+      writeStorage(STORAGE_KEYS.keybinds, next)
     }
 
     const readAttachments = (files: File[]) =>
@@ -3369,23 +3477,29 @@ export const App: Component = () => {
   const deleteProject = (directory: string) => {
     const sessions = (sessionList() ?? []).filter((session) => (session.location?.directory ?? "") === directory)
     if (sessions.length === 0) return
-    if (!window.confirm(t("Delete this project and its sessions?"))) return
-    void (async () => {
-      setBusy(true)
-      try {
-        const current = createClient(serverUrl())
-        for (const session of sessions) await current.session.remove({ sessionID: session.id })
-        if (sessions.some((session) => session.id === selected())) setSelected(undefined)
-        void refetchSessions()
-        toast(t("Project deleted"), "success", {
-          description: t("{name} and its sessions were removed", { name: directory.split("/").filter(Boolean).at(-1) ?? directory }),
-        })
-      } catch (cause) {
-        toast(cause instanceof Error ? cause.message : String(cause), "error")
-      } finally {
-        setBusy(false)
-      }
-    })()
+    setConfirmTarget({
+      title: t("Delete this project and its sessions?"),
+      message: t("{n} sessions will be removed. This cannot be undone.", { n: sessions.length }),
+      onConfirm: () => {
+        setConfirmTarget(undefined)
+        void (async () => {
+          setBusy(true)
+          try {
+            const current = createClient(serverUrl())
+            for (const session of sessions) await current.session.remove({ sessionID: session.id })
+            if (sessions.some((session) => session.id === selected())) setSelected(undefined)
+            void refetchSessions()
+            toast(t("Project deleted"), "success", {
+              description: t("{name} and its sessions were removed", { name: directory.split("/").filter(Boolean).at(-1) ?? directory }),
+            })
+          } catch (cause) {
+            toast(cause instanceof Error ? cause.message : String(cause), "error")
+          } finally {
+            setBusy(false)
+          }
+        })()
+      },
+    })
   }
 
   // The engine has served share links all along; the UI just never asked for one. It cannot say
@@ -3423,20 +3537,26 @@ export const App: Component = () => {
   const deleteSession = (id?: string) => {
     const sessionID = id ?? selected()
     if (!sessionID) return
-    if (!window.confirm(t("Delete this session?"))) return
-    void (async () => {
-      setBusy(true)
-      try {
-        await createClient(serverUrl()).session.remove({ sessionID })
-        if (selected() === sessionID) setSelected(undefined)
-        void refetchSessions()
-        toast(t("Session deleted"), "success")
-      } catch (cause) {
-        toast(cause instanceof Error ? cause.message : String(cause), "error")
-      } finally {
-        setBusy(false)
-      }
-    })()
+    setConfirmTarget({
+      title: t("Delete this session?"),
+      message: t("It will be removed from the engine and cannot be restored."),
+      onConfirm: () => {
+        setConfirmTarget(undefined)
+        void (async () => {
+          setBusy(true)
+          try {
+            await createClient(serverUrl()).session.remove({ sessionID })
+            if (selected() === sessionID) setSelected(undefined)
+            void refetchSessions()
+            toast(t("Session deleted"), "success")
+          } catch (cause) {
+            toast(cause instanceof Error ? cause.message : String(cause), "error")
+          } finally {
+            setBusy(false)
+          }
+        })()
+      },
+    })
   }
 
   const changeAgent = (value: string) => {
@@ -4516,6 +4636,14 @@ export const App: Component = () => {
         }}
         onClose={() => setTagsTarget(undefined)}
       />
+      <ConfirmDialog
+        open={!!confirmTarget()}
+        title={confirmTarget()?.title ?? ""}
+        message={confirmTarget()?.message ?? ""}
+        confirmLabel={confirmTarget()?.confirmLabel}
+        onConfirm={() => confirmTarget()?.onConfirm()}
+        onClose={() => setConfirmTarget(undefined)}
+      />
       <SettingsPanel
         open={settingsOpen()}
         theme={theme()}
@@ -4540,7 +4668,7 @@ export const App: Component = () => {
           writeStorage(STORAGE_KEYS.suggestionModel, key)
         }}
         notifications={notifications()}
-        paletteKey={paletteKey()}
+        keybinds={keybinds()}
         savedPermissions={savedPermissions()?.data ?? []}
         onRevokePermission={revokePermission}
         onTheme={updateTheme}
@@ -4553,7 +4681,7 @@ export const App: Component = () => {
         onToggleTools={() => setShowTools((value) => !value)}
         onToggleReasoning={toggleReasoning}
         onToggleNotifications={toggleNotifications}
-        onPaletteKey={changePaletteKey}
+        onKeybind={changeKeybind}
         onOpenMcp={() => {
           setSettingsOpen(false)
           setMcpOpen(true)

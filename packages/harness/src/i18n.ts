@@ -347,6 +347,14 @@ const ES: Record<string, string> = {
   Shortcuts: "Atajos",
   "Command palette": "Paleta de comandos",
   "Press keys…": "Pulsa teclas…",
+  Unbound: "Sin atajo",
+  Clear: "Quitar",
+  "{n} sessions will be removed. This cannot be undone.":
+    "Se eliminarán {n} sesiones. Esto no se puede deshacer.",
+  "It will be removed from the engine and cannot be restored.":
+    "Se eliminará del motor y no se podrá recuperar.",
+  "Click a key and press the new one. A key belongs to one action: giving it away clears the other.":
+    "Pulsa una tecla y marca la nueva. Una tecla es de una sola acción: si se la das a otra, se quita de la anterior.",
   "Config (advanced)": "Config (avanzado)",
   Reload: "Recargar",
   "Invalid JSON": "JSON inválido",

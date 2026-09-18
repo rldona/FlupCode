@@ -1,13 +1,18 @@
 import { createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { formatKeybind, keybindFromEvent } from "../keybinds"
 
 type KeyCaptureProps = {
   value: string
   onChange: (value: string) => void
 }
 
-const MODIFIERS = ["control", "meta", "shift", "alt"]
-
+/**
+ * Records the next key combination (H-24).
+ *
+ * A bare modifier is not a binding, so it waits for the real key; Escape leaves capture without
+ * changing anything, which is what a reader who opened it by accident expects.
+ */
 export const KeyCapture: Component<KeyCaptureProps> = (props) => {
   const [capturing, setCapturing] = createSignal(false)
 
@@ -15,14 +20,13 @@ export const KeyCapture: Component<KeyCaptureProps> = (props) => {
     if (!capturing()) return
     event.preventDefault()
     event.stopPropagation()
-    const key = event.key.toLowerCase()
-    if (MODIFIERS.includes(key)) return
-    const parts: string[] = []
-    if (event.metaKey || event.ctrlKey) parts.push("mod")
-    if (event.shiftKey) parts.push("shift")
-    if (event.altKey) parts.push("alt")
-    parts.push(key)
-    props.onChange(parts.join("+"))
+    if (event.key === "Escape") {
+      setCapturing(false)
+      return
+    }
+    const binding = keybindFromEvent(event)
+    if (!binding) return
+    props.onChange(binding)
     setCapturing(false)
   }
 
@@ -38,7 +42,7 @@ export const KeyCapture: Component<KeyCaptureProps> = (props) => {
       onBlur={() => setCapturing(false)}
       onKeyDown={capture}
     >
-      {capturing() ? t("Press keys…") : props.value}
+      {capturing() ? t("Press keys…") : formatKeybind(props.value) || t("Unbound")}
     </button>
   )
 }
