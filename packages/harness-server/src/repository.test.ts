@@ -46,6 +46,25 @@ describe("opening a database written by an older server", () => {
     after.close()
   })
 
+  test("a tasks table written before external commands keeps its rows and gains the column", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1000)
+    before.addTasks(run.id, [{ name: "one", prompt: "do it" }])
+    // Put it back the way a server without external workers left it.
+    before.db.exec("ALTER TABLE tasks DROP COLUMN command")
+    before.close()
+
+    const after = open(path)
+    // A task filed before the column existed simply has no command, rather than an empty one.
+    expect(after.listTasks(run.id)[0]!.command).toBeUndefined()
+    after.addTasks(run.id, [
+      { name: "codex", prompt: "", kind: "external", command: "codex exec {{prompt}}" },
+    ])
+    expect(after.listTasks(run.id).map((task) => task.command)).toEqual([undefined, "codex exec {{prompt}}"])
+    after.close()
+  })
+
   test("a findings table written before findings had a source keeps its rows and gains the column", () => {
     const path = scratch()
     const before = open(path)

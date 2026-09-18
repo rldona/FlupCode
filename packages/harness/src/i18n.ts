@@ -214,6 +214,7 @@ const ES: Record<string, string> = {
   "Nothing has run yet.": "Todavía no se ha ejecutado nada.",
   Evidence: "Evidencia",
   verify: "verificación",
+  external: "externo",
   "attempt {n}": "intento {n}",
   awaiting: "esperando",
   Workflow: "Flujo de trabajo",

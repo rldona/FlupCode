@@ -59,7 +59,7 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
   const facts = () => {
     const task = props.task
     return [
-      task.kind === "verify" ? t("verify") : task.agent,
+      task.kind === "verify" ? t("verify") : task.kind === "external" ? t("external") : task.agent,
       (task.attempt ?? 1) > 1 ? t("attempt {n}", { n: task.attempt! }) : undefined,
       task.startedAt ? elapsed(task.startedAt, task.finishedAt) : undefined,
       thousands(task.tokens) ? t("{n} tokens", { n: thousands(task.tokens)! }) : undefined,
@@ -126,15 +126,18 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
         <button class="fc-button" type="button" disabled={!props.serverAvailable} onClick={retry}>
           {t("Retry")}
         </button>
-        <select
-          class="fc-run-detail-model"
-          aria-label={t("Model for the retry")}
-          value={retryKey()}
-          onChange={(event) => setRetryKey(event.currentTarget.value)}
-        >
-          <option value={modelKey(props.task.model)}>{t("The task's own model")}</option>
-          <For each={runModels()}>{(model) => <option value={model.key}>{model.label}</option>}</For>
-        </select>
+        {/* A check or an external worker has no model to choose: the retry repeats what ran. */}
+        <Show when={props.task.kind !== "verify" && props.task.kind !== "external"}>
+          <select
+            class="fc-run-detail-model"
+            aria-label={t("Model for the retry")}
+            value={retryKey()}
+            onChange={(event) => setRetryKey(event.currentTarget.value)}
+          >
+            <option value={modelKey(props.task.model)}>{t("The task's own model")}</option>
+            <For each={runModels()}>{(model) => <option value={model.key}>{model.label}</option>}</For>
+          </select>
+        </Show>
       </div>
 
       <Show when={props.task.sessionID}>
@@ -200,11 +203,21 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
         )}
       </Show>
 
-      <Show when={props.task.kind === "verify" && props.task.output}>
-        {(evidence) => (
+      {/* What an external worker ran (H-38): without it the output is a reply to nothing. */}
+      <Show when={props.task.kind === "external" && props.task.command}>
+        {(command) => (
           <section class="fc-run-detail-section">
-            <h3>{t("Evidence")}</h3>
-            <pre class="fc-run-detail-pre">{evidence()}</pre>
+            <h3>{t("Command")}</h3>
+            <pre class="fc-run-detail-pre">{command()}</pre>
+          </section>
+        )}
+      </Show>
+
+      <Show when={(props.task.kind === "verify" || props.task.kind === "external") && props.task.output}>
+        {(output) => (
+          <section class="fc-run-detail-section">
+            <h3>{t(props.task.kind === "verify" ? "Evidence" : "Output")}</h3>
+            <pre class="fc-run-detail-pre">{output()}</pre>
           </section>
         )}
       </Show>

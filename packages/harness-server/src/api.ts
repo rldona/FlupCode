@@ -11,6 +11,7 @@ import type {
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 
 const json = (value: unknown, status = 200) =>
@@ -61,16 +62,19 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
   if (!value || typeof value !== "object") return undefined
   const input = value as Record<string, unknown>
   if (typeof input.name !== "string" || !input.name.trim()) return undefined
-  const kind = input.kind === "verify" ? "verify" : "agent"
+  const kind = input.kind === "verify" ? "verify" : input.kind === "external" ? "external" : "agent"
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : ""
-  // A verify task has nothing to say to a model: it runs the project's commands. Requiring a prompt
-  // for it would only make callers invent one.
+  const command = typeof input.command === "string" ? input.command.trim() : ""
+  // A verify task has nothing to say to a model, and an external one runs a command instead. A
+  // prompt or a command requirement for either would only make callers invent one.
   if (kind === "agent" && !prompt) return undefined
+  if (kind === "external" && !command) return undefined
   const model = modelFrom(input.model)
   return {
     name: input.name.trim(),
     prompt,
     kind,
+    ...(kind === "external" && command ? { command } : {}),
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
     ...(model ? { model } : {}),
     ...(kind === "verify" ? { retries: retriesFrom(input.retries) } : {}),
@@ -280,7 +284,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
       if (tasks.length === 0) {
-        return error("A run needs at least one task with a name, and a prompt unless it is a verify task", 400)
+        return error("A run needs at least one task with a name, and a prompt or a command unless it is a verify task", 400)
       }
       const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
       // `toolLimit` is written the way a person writes it — "10m" — and read by the same parser the
@@ -367,19 +371,27 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "activity") {
       const run = repository.getRun(path[2])
       if (!run) return error("Run not found", 404)
-      const going = repository.listTasks(run.id).filter((task) => task.status === "running" && task.sessionID)
+      const going = repository.listTasks(run.id).filter((task) => task.status === "running")
       const now = Date.now()
-      const activity = await Promise.all(
-        going.map(async (task) => {
-          const doing = await scheduler.engine.activity(task.sessionID!, run.directory).catch(() => undefined)
-          return {
-            taskID: task.id,
-            // Since the task started, when the engine will not say — still better than nothing.
-            waitingMs: now - (doing?.since ?? task.startedAt ?? now),
-            ...(doing ? { tool: doing.tool, detail: doing.detail } : {}),
-          }
-        }),
-      )
+      const activity = (
+        await Promise.all(
+          going.map(async (task) => {
+            // An external worker is a process this server holds, so what it printed is here (H-38).
+            const live = externalActivity(task.id)
+            if (live) {
+              return { taskID: task.id, waitingMs: now - live.since, tool: live.tool, detail: live.tail }
+            }
+            if (!task.sessionID) return undefined
+            const doing = await scheduler.engine.activity(task.sessionID, run.directory).catch(() => undefined)
+            return {
+              taskID: task.id,
+              // Since the task started, when the engine will not say — still better than nothing.
+              waitingMs: now - (doing?.since ?? task.startedAt ?? now),
+              ...(doing ? { tool: doing.tool, detail: doing.detail } : {}),
+            }
+          }),
+        )
+      ).filter((entry): entry is NonNullable<typeof entry> => entry !== undefined)
       return json({ data: activity })
     }
     // What each task of a run changed on disk (H-12), worked out from the checkpoints H-15 already

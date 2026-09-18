@@ -100,6 +100,12 @@ const WorkflowGraphView: Component<{ tasks: Workflow["tasks"] }> = (props) => {
                     ✓
                   </text>
                 </Show>
+                {/* Another vendor's CLI does this one (H-38), so the picture says so. */}
+                <Show when={node.kind === "external"}>
+                  <text class="fc-workflow-node-mark" x={at.x + NODE_WIDTH - 10} y={at.y + NODE_HEIGHT / 2 + 4}>
+                    ▸
+                  </text>
+                </Show>
               </g>
             )
           }}

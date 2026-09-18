@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   name TEXT NOT NULL,
   prompt TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'agent',
+  command TEXT,
   attempt INTEGER NOT NULL DEFAULT 1,
   retries INTEGER,
   retry_of TEXT,
@@ -243,6 +244,7 @@ type TaskRow = {
   name: string
   prompt: string
   kind: string | null
+  command: string | null
   attempt: number | null
   retries: number | null
   retry_of: string | null
@@ -269,7 +271,8 @@ const decodeTask = (row: TaskRow): Task => ({
   position: row.position,
   name: row.name,
   prompt: row.prompt,
-  kind: row.kind === "verify" ? "verify" : "agent",
+  kind: row.kind === "verify" ? "verify" : row.kind === "external" ? "external" : "agent",
+  command: row.command ?? undefined,
   attempt: row.attempt ?? 1,
   retries: row.retries ?? undefined,
   retryOf: row.retry_of ?? undefined,
@@ -587,6 +590,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     // database written before this column existed never gets it. Every desktop app that has ever
     // run has one of those.
     this.addColumn("tasks", "kind", "TEXT NOT NULL DEFAULT 'agent'")
+    this.addColumn("tasks", "command", "TEXT")
     this.addColumn("tasks", "attempt", "INTEGER NOT NULL DEFAULT 1")
     this.addColumn("tasks", "retries", "INTEGER")
     this.addColumn("tasks", "retry_of", "TEXT")
@@ -1344,8 +1348,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'queued')`,
+               (id, run_id, position, name, prompt, kind, command, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'queued')`,
           )
           .run(
             task.id,
@@ -1354,6 +1358,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.name,
             task.prompt,
             task.kind,
+            task.command ?? null,
             task.attempt,
             task.retries ?? null,
             task.retryOf ?? null,
