@@ -52,6 +52,14 @@ export type StashedPrompt = {
   createdAt: number
 }
 
+/** What a reader keeps about a session that the engine does not (H-18): pins and tags. */
+export type SessionPrefs = {
+  sessionID: string
+  pinned: boolean
+  tags: string[]
+  updatedAt: number
+}
+
 export type RoutineSchedule =
   | { type: "manual"; timezone?: string }
   | { type: "hourly"; timezone?: string }
