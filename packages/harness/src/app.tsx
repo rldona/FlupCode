@@ -436,6 +436,16 @@ export const App: Component = () => {
     setShowReasoning(next)
     writeStorage(STORAGE_KEYS.showReasoning, next)
   }
+  // Open sessions as a tab strip (H-36). Off by default: a window that opens one session at a time
+  // reads cleaner, and the strip is a preference rather than the shape of the app.
+  const [sessionTabsEnabled, setSessionTabsEnabled] = createSignal(
+    readStorage(STORAGE_KEYS.sessionTabsEnabled, false),
+  )
+  const toggleSessionTabs = () => {
+    const next = !sessionTabsEnabled()
+    setSessionTabsEnabled(next)
+    writeStorage(STORAGE_KEYS.sessionTabsEnabled, next)
+  }
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   // Which full screen is open, and where in the URL it lives, so a reload comes back to it and the
@@ -4859,7 +4869,7 @@ export const App: Component = () => {
           }
         >
           {/* The sessions open in this window (H-36). Hidden while split: the panes are the tabs then. */}
-          <Show when={!mobileRemote() && selected() && sessionTabs().length > 1}>
+          <Show when={sessionTabsEnabled() && !mobileRemote() && selected() && sessionTabs().length > 1}>
             <SessionTabs
               tabs={sessionTabList()}
               active={selected()}
@@ -5255,6 +5265,7 @@ export const App: Component = () => {
         modelKey={modelKey()}
         showTools={showTools()}
         showReasoning={showReasoning()}
+        sessionTabs={sessionTabsEnabled()}
         replySuggestions={suggestionsOn()}
         onToggleReplySuggestions={toggleSuggestions}
         suggestionModel={suggestionModel()}
@@ -5291,6 +5302,7 @@ export const App: Component = () => {
         onModelChange={changeModel}
         onToggleTools={() => setShowTools((value) => !value)}
         onToggleReasoning={toggleReasoning}
+        onToggleSessionTabs={toggleSessionTabs}
         onToggleNotifications={toggleNotifications}
         onKeybind={changeKeybind}
         onOpenAgents={() => {
