@@ -322,6 +322,9 @@ export const App: Component = () => {
   const [mobileComposing, setMobileComposing] = createSignal(false)
   // Run state from the event stream; it takes precedence over the last activity snapshot.
   const [runState, setRunState] = createSignal<Record<string, boolean>>({})
+  // Why a session is stalled while the engine retries a failed provider call, kept per session so
+  // the status line can say "Usage limit exceeded" instead of thinking on forever.
+  const [retryState, setRetryState] = createSignal<Record<string, { message: string; attempt: number }>>({})
   const [activityTick, setActivityTick] = createSignal(0)
   // Whether the engine's event streams are carrying this session's run right now. The health check
   // is a separate question: it can answer while a stream is a dead socket nobody noticed. There is
@@ -360,6 +363,7 @@ export const App: Component = () => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
     setRunState(({ [sessionID]: _, ...rest }) => rest)
+    setRetryState(({ [sessionID]: _dropped, ...rest }) => rest)
   }
   // A v2 run is many steps, and the next one only starts once the model streams again, so a step's end
   // says nothing about the run; nor does anything arrive when a run is stopped between steps. While a
@@ -379,7 +383,10 @@ export const App: Component = () => {
       }, delay),
     )
   }
-  const trackActivity = (type: string, data: { sessionID?: string; status?: { type?: string } } | undefined) => {
+  const trackActivity = (
+    type: string,
+    data: { sessionID?: string; status?: { type?: string; message?: string; attempt?: number } } | undefined,
+  ) => {
     const sessionID = data?.sessionID
     if (!sessionID) return
     if (type === "session.next.prompted" || type === "session.next.step.started") {
@@ -390,6 +397,19 @@ export const App: Component = () => {
     // Legacy runs (chats) report their own status, which already spans every step.
     const status = data?.status?.type
     if (status === "busy" || status === "retry") setRunning(sessionID, true)
+    // The engine only says why it is waiting while it retries, so the notice is kept until the turn
+    // moves on; otherwise the status line falls back to "Thinking…" between attempts.
+    setRetryState((state) => {
+      if (status === "retry")
+        return {
+          ...state,
+          [sessionID]: { message: data?.status?.message ?? "", attempt: data?.status?.attempt ?? 1 },
+        }
+      if (!state[sessionID]) return state
+      if (status === "busy" || status === "idle" || type === "session.idle")
+        return Object.fromEntries(Object.entries(state).filter(([key]) => key !== sessionID))
+      return state
+    })
     if (type === "session.idle" || status === "idle") setRunning(sessionID, false)
   }
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
@@ -2238,7 +2258,12 @@ export const App: Component = () => {
               setStreamState("global", "live")
               const type = event.type ?? ""
               const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
-              trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
+              trackActivity(
+                type,
+                payload as
+                  | { sessionID?: string; status?: { type?: string; message?: string; attempt?: number } }
+                  | undefined,
+              )
               if (type === "session.next.step.started") {
                 if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
                 if (payload?.sessionID === selected()) {
@@ -2418,7 +2443,7 @@ export const App: Component = () => {
                   sessionID?: string
                   field?: string
                   delta?: string
-                  status?: { type?: string }
+                  status?: { type?: string; message?: string; attempt?: number }
                   partID?: string
                   info?: { id?: string; sessionID?: string; role?: string }
                   part?: { id?: string; sessionID?: string; type?: string }
@@ -5003,6 +5028,10 @@ export const App: Component = () => {
                 loading={messagesLoading()}
                 busy={generating()}
                 compacting={compacting()}
+                retry={(() => {
+                  const sessionID = selected()
+                  return sessionID ? retryState()[sessionID] : undefined
+                })()}
                 usage={liveUsage()}
                 startedAt={generationStartedAt()}
                 modelName={modelName}
