@@ -59,6 +59,8 @@ const marks: Record<TaskStatus, string> = {
   success: "●",
   failed: "✕",
   stopped: "■",
+  // A task the graph never ran because a dependency failed or a `when` was false (H-28).
+  skipped: "–",
 }
 
 /** Running, or held at a gate: either way it has not finished and cannot be forgotten yet. */

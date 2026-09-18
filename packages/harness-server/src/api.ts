@@ -6,6 +6,7 @@ import type {
   RoutineInput,
   RunPolicy,
   RunStatus,
+  TaskCondition,
   TaskInput,
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
@@ -73,7 +74,24 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
     ...(model ? { model } : {}),
     ...(kind === "verify" ? { retries: retriesFrom(input.retries) } : {}),
+    // The graph (H-28), when a caller builds one by hand rather than from a workflow file.
+    ...(Array.isArray(input.dependsOn)
+      ? { dependsOn: input.dependsOn.filter((entry): entry is string => typeof entry === "string" && !!entry.trim()) }
+      : {}),
+    ...(conditionFrom(input.when) ? { when: conditionFrom(input.when) } : {}),
   }
+}
+
+/** A `when` as it arrives over HTTP: a task name and the outcomes that let this one run (H-28). */
+const conditionFrom = (value: unknown): TaskCondition | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const condition = value as { task?: unknown; is?: unknown }
+  if (typeof condition.task !== "string" || !condition.task.trim()) return undefined
+  const is = (Array.isArray(condition.is) ? condition.is : [condition.is]).filter(
+    (entry): entry is TaskCondition["is"][number] =>
+      entry === "success" || entry === "failed" || entry === "stopped" || entry === "skipped",
+  )
+  return is.length > 0 ? { task: condition.task.trim(), is } : undefined
 }
 
 /**

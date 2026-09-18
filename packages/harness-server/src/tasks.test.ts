@@ -588,6 +588,133 @@ describe("a ceiling on one tool call", () => {
   })
 })
 
+describe("a run as a graph (H-28)", () => {
+  test("independent tasks run at the same time", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-dag-"))
+    scratch.push(directory)
+
+    const started: string[] = []
+    const settled: string[] = []
+    let release!: () => void
+    const both = new Promise<void>((resolve) => (release = resolve))
+    const engine = {
+      createSession: async () => ({ id: `ses_${started.length}` }),
+      prompt: async (input: { text: string }) => {
+        started.push(input.text)
+        if (started.length === 2) release()
+        // Wait for the other one: a sequential runner never reaches two and this times out.
+        await Promise.race([both, Bun.sleep(2_000)])
+        settled.push(`${input.text}:${started.length}`)
+      },
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "left", prompt: "left", dependsOn: [] },
+      { name: "right", prompt: "right", dependsOn: [] },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    // Both were in flight before either finished, which is the whole point of the DAG.
+    expect(settled).toEqual(["left:2", "right:2"])
+    expect(repository.listTasks(run.id).map((task) => task.status)).toEqual(["success", "success"])
+    repository.close()
+  })
+
+  test("a task waits for the ones it names, even when they are written after it", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-dag-"))
+    scratch.push(directory)
+    const order: string[] = []
+    const engine = {
+      createSession: async () => ({ id: `ses_${order.length}` }),
+      prompt: async (input: { text: string }) => void order.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "join", prompt: "join", dependsOn: ["left", "right"] },
+      { name: "left", prompt: "left", dependsOn: [] },
+      { name: "right", prompt: "right", dependsOn: [] },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    // The join is last because it waited for both, and it was handed both of their answers.
+    expect(order.at(-1)).toContain("join")
+    expect(order.at(-1)).toContain("Previous step")
+    expect(order.at(-1)!.match(/done/g)).toHaveLength(2)
+    expect(order.slice(0, 2).sort()).toEqual(["left", "right"])
+    repository.close()
+  })
+
+  test("a `when` on a failed check runs the recovery, and the branch that expected success is skipped", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-dag-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 1\n")
+    const order: string[] = []
+    const engine = {
+      createSession: async () => ({ id: `ses_${order.length}` }),
+      prompt: async (input: { text: string }) => void order.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "build", dependsOn: [] },
+      { name: "check", prompt: "", kind: "verify", dependsOn: ["build"] },
+      // The branch that only makes sense if the check passed must not run.
+      { name: "ship", prompt: "ship", dependsOn: ["check"] },
+      // The recovery declares the failure, so it runs and the run is allowed to reach it.
+      { name: "explain", prompt: "explain", dependsOn: ["check"], when: { task: "check", is: ["failed"] } },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.status}`)).toEqual([
+      "build:success",
+      "check:failed",
+      "ship:skipped",
+      "explain:success",
+    ])
+    expect(order).toEqual(["build", "explain"])
+    // The skip says why, so a queued-looking row is never a mystery.
+    expect(repository.listTasks(run.id)[2]!.error).toContain("did not succeed")
+    repository.close()
+  })
+
+  test("a failed task leaves the work behind it queued, not skipped", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-dag-"))
+    scratch.push(directory)
+    const engine = {
+      createSession: async () => ({ id: "ses_bad" }),
+      prompt: async () => {
+        throw new Error("the engine fell over")
+      },
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "first", prompt: "first", dependsOn: [] },
+      { name: "second", prompt: "second", dependsOn: ["first"] },
+    ])
+    await expect(new TaskRunner(repository, engine).execute(run, { directory })).rejects.toThrow(
+      "the engine fell over",
+    )
+    expect(repository.listTasks(run.id).map((task) => task.status)).toEqual(["failed", "queued"])
+    repository.close()
+  })
+})
+
 describe("context packs and handoffs (H-31)", () => {
   test("a run's packs reach a task as file parts, and the rest as text", async () => {
     const repository = open()

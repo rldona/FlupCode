@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
-import type { TaskInput } from "./types"
+import type { TaskCondition, TaskInput } from "./types"
 import { FINDINGS_INSTRUCTION } from "./findings"
 
 /**
@@ -39,6 +39,12 @@ export type WorkflowTask = {
   retries?: number
   /** `human` holds the run here until somebody reads what it did and lets it through. */
   gate?: "human"
+  /** The tasks this one waits for, by id (H-28). Empty means none; absent means the one before it. */
+  dependsOn?: string[]
+  /** `parallel: true` is `dependsOn: []`: start with the roots instead of after the task above. */
+  parallel?: boolean
+  /** Run only if an earlier task ended a certain way; otherwise it is skipped (H-28). */
+  when?: TaskCondition
 }
 
 export type Workflow = {
@@ -83,6 +89,7 @@ export function parseWorkflow(text: string, fallbackName: string): Workflow | un
   const value = parsed as Record<string, unknown>
   const tasks = Array.isArray(value.tasks) ? value.tasks.map(taskFrom).filter((task) => !!task) : []
   if (tasks.length === 0) return undefined
+  if (graphProblem(tasks)) return undefined
   const limits = value.limits && typeof value.limits === "object" ? (value.limits as Record<string, unknown>) : undefined
   const toolLimitMs = duration(limits?.tool)
   return {
@@ -105,6 +112,9 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
   if (kind === "agent" && !prompt.trim()) return undefined
   const onFail = task.onFail && typeof task.onFail === "object" ? (task.onFail as Record<string, unknown>) : undefined
   const max = typeof onFail?.max === "number" ? onFail.max : undefined
+  const dependsOn = Array.isArray(task.dependsOn)
+    ? task.dependsOn.filter((entry): entry is string => typeof entry === "string" && !!entry.trim()).map((entry) => entry.trim())
+    : undefined
   return {
     id,
     kind,
@@ -112,7 +122,64 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
     ...(typeof task.agent === "string" && task.agent ? { agent: task.agent } : {}),
     ...(kind === "verify" && max !== undefined ? { retries: max } : {}),
     ...(task.gate === "human" ? { gate: "human" as const } : {}),
+    ...(dependsOn ? { dependsOn } : {}),
+    ...(task.parallel === true ? { parallel: true as const } : {}),
+    ...(conditionFrom(task.when) ? { when: conditionFrom(task.when) } : {}),
   }
+}
+
+/** `when: { task: verify, is: failed }` or a list of outcomes, so recovery is written, not coded. */
+const conditionFrom = (value: unknown): TaskCondition | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const condition = value as { task?: unknown; is?: unknown }
+  if (typeof condition.task !== "string" || !condition.task.trim()) return undefined
+  const is = (Array.isArray(condition.is) ? condition.is : [condition.is]).filter(
+    (entry): entry is TaskCondition["is"][number] =>
+      entry === "success" || entry === "failed" || entry === "stopped" || entry === "skipped",
+  )
+  return is.length > 0 ? { task: condition.task.trim(), is } : undefined
+}
+
+/**
+ * The tasks a workflow declares, with the graph checked before a run is allowed to start.
+ *
+ * The order still means "after the one above" unless a task says otherwise, which is what keeps a v1
+ * file working unchanged. `parallel: true` opts out of that, `dependsOn` says it exactly, and a
+ * `when` names a task it cannot run before — so it is a dependency too, whether or not it was listed.
+ * A cycle is refused here rather than discovered by a run that waits forever.
+ */
+const dependencies = (tasks: WorkflowTask[], task: WorkflowTask, index: number): string[] => {
+  const explicit = task.dependsOn ?? (task.parallel ? [] : index > 0 ? [tasks[index - 1]!.id] : [])
+  const condition = task.when?.task
+  return condition && !explicit.includes(condition) ? [...explicit, condition] : explicit
+}
+
+function graphProblem(tasks: WorkflowTask[]): string | undefined {
+  const byID = new Map(tasks.map((task) => [task.id, task]))
+  if (byID.size !== tasks.length) return "two tasks share an id"
+  for (const [index, task] of tasks.entries()) {
+    for (const dependency of dependencies(tasks, task, index)) {
+      if (!byID.has(dependency)) return `${task.id} depends on ${dependency}, which is not a task here`
+    }
+  }
+  const state = new Map<string, "visiting" | "done">()
+  const visit = (id: string): string | undefined => {
+    if (state.get(id) === "done") return undefined
+    if (state.get(id) === "visiting") return `the tasks form a cycle at ${id}`
+    state.set(id, "visiting")
+    const index = tasks.findIndex((task) => task.id === id)
+    for (const dependency of dependencies(tasks, byID.get(id)!, index)) {
+      const problem = visit(dependency)
+      if (problem) return problem
+    }
+    state.set(id, "done")
+    return undefined
+  }
+  for (const task of tasks) {
+    const problem = visit(task.id)
+    if (problem) return problem
+  }
+  return undefined
 }
 
 /**
@@ -135,6 +202,10 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>): Ta
     ...(task.agent ? { agent: task.agent } : {}),
     ...(task.retries !== undefined ? { retries: task.retries } : {}),
     ...(task.gate ? { gate: task.gate } : {}),
+    // `parallel: true` is written down as an empty list so the runner can tell it from "no opinion",
+    // which still means "after the task above".
+    ...(task.dependsOn ? { dependsOn: task.dependsOn } : task.parallel ? { dependsOn: [] } : {}),
+    ...(task.when ? { when: task.when } : {}),
   }))
 }
 
