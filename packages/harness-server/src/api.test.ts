@@ -831,3 +831,42 @@ describe("harness shares API", () => {
     repository.close()
   })
 })
+
+describe("harness memory API", () => {
+  test("keeps a project's notes, and refuses one with nothing in it", async () => {
+    const { handler, repository } = open()
+
+    const created = await handler(
+      new Request("http://x/harness/memory", {
+        method: "POST",
+        body: JSON.stringify({ directory: "/work/demo", text: "Use the server" }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const note = (await created.json()).data
+
+    const listed = await handler(
+      new Request(`http://x/harness/memory?directory=${encodeURIComponent("/work/demo")}`),
+    )
+    expect((await listed.json()).data).toEqual([expect.objectContaining({ text: "Use the server" })])
+
+    expect(
+      (
+        await handler(
+          new Request("http://x/harness/memory", {
+            method: "POST",
+            body: JSON.stringify({ directory: "/work/demo", text: "   " }),
+          }),
+        )
+      ).status,
+    ).toBe(400)
+    expect(
+      (await handler(new Request("http://x/harness/memory", { method: "POST", body: JSON.stringify({ text: "x" }) })))
+        .status,
+    ).toBe(400)
+
+    expect((await handler(new Request(`http://x/harness/memory/${note.id}`, { method: "DELETE" }))).status).toBe(200)
+    expect((await handler(new Request(`http://x/harness/memory/${note.id}`, { method: "DELETE" }))).status).toBe(404)
+    repository.close()
+  })
+})

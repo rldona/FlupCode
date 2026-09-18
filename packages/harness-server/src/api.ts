@@ -542,6 +542,23 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         headers: { "content-type": "text/markdown; charset=utf-8" },
       })
     }
+    // A project's notes (H-37), the harness's own and not the engine's per-session memory.
+    if (path[1] === "memory" && request.method === "GET" && !path[2]) {
+      const directory = new URL(request.url).searchParams.get("directory") ?? ""
+      if (!directory) return error("A folder is required", 400)
+      return json({ data: repository.listProjectMemory(directory) })
+    }
+    if (path[1] === "memory" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as { directory?: unknown; text?: unknown } | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      const text = typeof body?.text === "string" ? body.text.trim() : ""
+      if (!directory) return error("A folder is required", 400)
+      if (!text) return error("A note is required", 400)
+      return json({ data: repository.addProjectMemory({ directory, text }) }, 201)
+    }
+    if (path[1] === "memory" && request.method === "DELETE" && path[2] && !path[3]) {
+      return repository.removeProjectMemory(path[2]) ? json({ data: true }) : error("Note not found", 404)
+    }
     // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
     // adding the engine's session totals on top would count every task twice.
     if (path[1] === "usage" && request.method === "GET") {

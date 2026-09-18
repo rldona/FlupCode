@@ -345,3 +345,22 @@ describe("shared conversations (H-35)", () => {
     repository.close()
   })
 })
+
+describe("project memory (H-37)", () => {
+  test("notes belong to a folder, read oldest first, and can be removed", () => {
+    const repository = open()
+    const first = repository.addProjectMemory({ directory: "/work/demo", text: "Use the server" })
+    repository.addProjectMemory({ directory: "/work/demo", text: "Conventional commits" })
+    repository.addProjectMemory({ directory: "/work/other", text: "Someone else's" })
+
+    expect(repository.listProjectMemory("/work/demo").map((note) => note.text)).toEqual([
+      "Use the server",
+      "Conventional commits",
+    ])
+    expect(repository.listProjectMemory("/work/nowhere")).toEqual([])
+    expect(repository.removeProjectMemory(first.id)).toBe(true)
+    expect(repository.removeProjectMemory(first.id)).toBe(false)
+    expect(repository.listProjectMemory("/work/demo")).toHaveLength(1)
+    repository.close()
+  })
+})

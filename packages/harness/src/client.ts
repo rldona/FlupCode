@@ -28,6 +28,7 @@ import type {
   CommandFile,
   ContextPack,
   FileText,
+  ProjectMemory,
   Finding,
   GitCommit,
   PullRequest,
@@ -1048,6 +1049,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "POST",
           body: JSON.stringify(input),
         }),
+    },
+    /** A project's notes, kept here and handed to every turn (H-37). */
+    memory: {
+      list: (directory: string) =>
+        harnessRequest<ProjectMemory[]>(baseUrl, `/harness/memory?directory=${encodeURIComponent(directory)}`),
+      add: (input: { directory: string; text: string }) =>
+        harnessRequest<ProjectMemory>(baseUrl, "/harness/memory", { method: "POST", body: JSON.stringify(input) }),
+      remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/memory/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     workflows: {
       /** What this project can run. A project's own win over the ones shared across projects. */

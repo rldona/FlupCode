@@ -349,6 +349,19 @@ export type SharedConversation = {
   createdAt: number
 }
 
+/**
+ * A note the harness keeps about a project (H-37): a decision, a convention, something learned.
+ *
+ * Not the engine's memory, which is per session and chosen by the model. This is the project's, the
+ * readme a person adds to by hand, and it is handed to every turn so it does not have to be repeated.
+ */
+export type ProjectMemory = {
+  id: string
+  directory: string
+  text: string
+  createdAt: number
+}
+
 export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }/** Runs, whatever asked for them. */
 export type RunRepository = {
   startRun(
@@ -420,6 +433,10 @@ export type RunRepository = {
   /** A conversation kept so a link can read it (H-35). */
   saveShare(input: { title: string; markdown: string }): SharedConversation
   getShare(id: string): SharedConversation | undefined
+  /** A project's notes (H-37), oldest first. */
+  listProjectMemory(directory: string): ProjectMemory[]
+  addProjectMemory(input: { directory: string; text: string }): ProjectMemory
+  removeProjectMemory(id: string): boolean
 }
 
 /** Routines, and the lock that keeps one from running twice at once. */

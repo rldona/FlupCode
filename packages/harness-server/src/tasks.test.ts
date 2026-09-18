@@ -795,3 +795,42 @@ describe("a run's model policy (H-30)", () => {
     repository.close()
   })
 })
+
+describe("project memory in a run (H-37)", () => {
+  test("the project's notes are handed to a task", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-memory-"))
+    scratch.push(directory)
+    repository.addProjectMemory({ directory, text: "Use the server, not the browser" })
+
+    const sent: string[] = []
+    const engine = {
+      createSession: async () => ({ id: "ses_one" }),
+      prompt: async (input: { text: string }) => void sent.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [{ name: "one", prompt: "Do it" }])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    expect(sent[0]).toContain("Project memory:")
+    expect(sent[0]).toContain("Use the server, not the browser")
+    // And a project with no notes says nothing about memory.
+    const other = mkdtempSync(join(tmpdir(), "flupcode-nomemory-"))
+    scratch.push(other)
+    const empty: string[] = []
+    const engine2 = {
+      createSession: async () => ({ id: "ses_two" }),
+      prompt: async (input: { text: string }) => void empty.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+    const run2 = repository.startRun(manual, 1000, other)
+    repository.addTasks(run2.id, [{ name: "one", prompt: "Do it" }])
+    await new TaskRunner(repository, engine2).execute(run2, { directory: other })
+    expect(empty[0]).not.toContain("Project memory:")
+    repository.close()
+  })
+})

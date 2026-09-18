@@ -43,14 +43,20 @@ const failureSummary = (report: { steps: Array<{ name: string; exitCode: number 
  * conversation. It keeps the prompt small and the dependency explicit — and it is why a task stores
  * its output at all.
  */
-function compose(task: Task, handoff: string | undefined, context?: string) {
+function compose(task: Task, handoff: string | undefined, context?: string, memory?: string) {
   const body = !handoff
     ? task.prompt
     : [`Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`, handoff.slice(0, 4000), "", task.prompt].join(
         "\n",
       )
-  if (!context) return body
-  return [`Context packs:`, context, "", body].join("\n")
+  const head = [
+    memory ? `Project memory:\n${memory}` : "",
+    context ? `Context packs:\n${context}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+  if (!head) return body
+  return [`${head}`, "", body].join("\n")
 }
 
 /** A name the engine can turn into a folder and a branch: lowercase, dashes, no spaces. */
@@ -222,6 +228,13 @@ export class TaskRunner {
     // Where a verify task checks: the tree of the task it is checking. The primary checkout unless
     // that task was isolated in a worktree.
     let executorDirectory = options.directory
+    // The project's notes (H-37), handed to every turn so they do not have to be repeated.
+    const memory = options.directory
+      ? this.repository
+          .listProjectMemory(options.directory)
+          .map((note) => `- ${note.text}`)
+          .join("\n")
+      : ""
     let handoff: string | undefined
 
     for (let task = nextQueued(); task; task = nextQueued()) {
@@ -305,7 +318,7 @@ export class TaskRunner {
           this.repository.attachTaskSession(task.id, session.id)
           await this.engine.prompt({
             sessionID: session.id,
-            text: compose(task, handoff, context),
+            text: compose(task, handoff, context, memory || undefined),
             directory: taskDirectory,
             agent: task.agent,
             // Its own model, or the policy's for the role it runs as (H-30).
