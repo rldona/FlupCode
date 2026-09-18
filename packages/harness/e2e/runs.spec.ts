@@ -353,6 +353,76 @@ test("a verify task shows its evidence, open when it failed", async ({ page }) =
   await expect(evidence.locator("pre")).toContainText("- test (bun test) — exit 1")
 })
 
+// H-38: a task another CLI ran says so, and the command it ran and what it printed are what there is
+// to read — there is no session to open and no model to switch.
+test("an external task shows its command and what it printed", async ({ page }) => {
+  const external = {
+    id: "run_x",
+    source: { type: "manual" },
+    status: "success",
+    startedAt: now,
+    finishedAt: now + 5000,
+  }
+  const externalTasks = [
+    {
+      id: "x1",
+      runID: "run_x",
+      position: 0,
+      name: "codex",
+      prompt: "do it",
+      kind: "external",
+      command: "codex exec {{prompt}}",
+      status: "success",
+      startedAt: now,
+      finishedAt: now + 5000,
+      output: "done: 2 files changed",
+    },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [external] } })
+    if (url.pathname === "/harness/runs/run_x/tasks") return route.fulfill({ json: { data: externalTasks } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
+
+  const task = page.locator(".fc-run-task")
+  await expect(task).toHaveCount(1)
+  // It says who executed, not that an agent did.
+  await expect(task.locator(".fc-run-meta")).toContainText(/external|externo/)
+
+  await task.getByRole("button", { name: /Details|Detalles/ }).click()
+  const detail = page.locator(".fc-run-detail")
+  await expect(detail).toContainText("codex exec {{prompt}}")
+  await expect(detail).toContainText("done: 2 files changed")
+  // A check or a vendor CLI has no model to choose for a retry.
+  await expect(detail.locator(".fc-run-detail-model")).toHaveCount(0)
+})
+
 // H-21's human gate: a run stopped on purpose is not finished and not running. It offers the two
 // answers there are — let it through, or stop it — and it is not something Clear finished can take.
 test("a run waiting at a gate offers Approve, and is not cleared away", async ({ page }) => {

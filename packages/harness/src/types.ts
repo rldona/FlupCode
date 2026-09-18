@@ -52,6 +52,8 @@ export type Workflow = {
     id: string
     kind?: TaskKind
     agent?: string
+    /** The command an `external` task runs (H-38), with `{{prompt}}` for its prompt. */
+    command?: string
     gate?: "human"
     /** The tasks it waits for (H-28); an empty list means it is a root. */
     dependsOn?: string[]
@@ -197,8 +199,8 @@ export type TaskCondition = {
   is: Array<Exclude<TaskStatus, "queued" | "running">>
 }
 
-/** What a task does: a turn of the engine, or the project's own checks (H-22). */
-export type TaskKind = "agent" | "verify"
+/** What a task does: a turn of the engine, the project's own checks (H-22), or another vendor's CLI (H-38). */
+export type TaskKind = "agent" | "verify" | "external"
 
 export type Task = {
   id: string
@@ -207,6 +209,8 @@ export type Task = {
   name: string
   prompt: string
   kind?: TaskKind
+  /** The command an `external` task ran (H-38). */
+  command?: string
   /** Which attempt this is, from 1. A retry after a failed check is a new task (H-22). */
   attempt?: number
   /** The task this one attempts again. */

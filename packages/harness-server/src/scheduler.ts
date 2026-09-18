@@ -265,6 +265,7 @@ export class RoutineScheduler {
         name: task.name,
         prompt: task.prompt,
         kind: task.kind,
+        ...(task.command ? { command: task.command } : {}),
         agent: task.agent,
         model: options.model ?? task.model,
         attempt: (task.attempt ?? 1) + 1,

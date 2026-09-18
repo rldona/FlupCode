@@ -2,6 +2,7 @@ import { sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task, TaskStatus } from "./types"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
+import { externalCommand, runExternal } from "./external"
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs } from "./packs"
@@ -21,6 +22,15 @@ const TERMINAL = new Set<TaskStatus>(["success", "failed", "skipped", "stopped"]
  * workflows, and it is stated here rather than buried in a workflow file.
  */
 const RUN_CONCURRENCY = 4
+
+/**
+ * What an external worker is doing right now, by task id (H-38).
+ *
+ * Not stored, for the reason H-12 settled for engine tools: it changes by the second, and on the
+ * event log it would drown everything else. The activity endpoint asks while somebody is looking.
+ */
+const externalLive = new Map<string, { tool: string; since: number; tail: string }>()
+export const externalActivity = (taskID: string) => externalLive.get(taskID)
 
 /**
  * What the executor is told on a retry.
@@ -486,6 +496,9 @@ export class TaskRunner {
           : { files: [], others: [] }
       const contextText = packs.others.length > 0 ? packs.others.join("\n") : undefined
       const contextFiles = packs.files.map((path) => ({ path }))
+      // Another vendor's CLI does the work (H-38). It is a process this server holds, so stop and
+      // the run's ceiling reach it; it has no session, no model and no tokens the harness can bill.
+      if (task.kind === "external") return this.runExternalTask(task, context, directory)
       // What this session is allowed to do (H-47): confined to the project unless the run opened the
       // boundary, and with no shell at all if the run refused it. Both are stated on the run.
       const permission = sessionPermission(run)
@@ -549,6 +562,76 @@ export class TaskRunner {
   }
 
   /**
+   * A task another vendor's CLI executes (H-38).
+   *
+   * The command is the workflow's and the boundary is this server's: it runs in the task's tree,
+   * what it printed is what the task answered, and a later task is handed it like any other output.
+   * Stop and the run's ceiling reach it because it is a child of this process. There is no session
+   * and no model, so there are no tokens and no cost to report — the vendor bills that, and the
+   * harness does not pretend to know it.
+   */
+  private async runExternalTask(task: Task, context: RunContext, directory: string | undefined) {
+    if (!task.command) {
+      const error = "An external task needs a command"
+      this.repository.finishTask(task.id, "failed", { error })
+      context.failure = error
+      return
+    }
+    const command = externalCommand(task.command, task.prompt)
+    const tree = directory ?? process.cwd()
+    const live = { tool: command.trim().split(/\s+/)[0] || "external", since: Date.now(), tail: "" }
+    externalLive.set(task.id, live)
+    try {
+      const result = await runExternal({
+        command,
+        directory: tree,
+        stopped: context.stopped,
+        ...(context.run.toolLimitMs ? { limitMs: context.run.toolLimitMs } : {}),
+        onOutput: (output) => {
+          live.tail = output.trimEnd().split("\n").at(-1) ?? ""
+        },
+      })
+      if (result.stopped) {
+        this.repository.finishTask(task.id, "stopped", { output: result.output })
+        return
+      }
+      if (result.timedOut) {
+        const error = `The external command ran past this run's limit of ${Math.round((context.run.toolLimitMs ?? 0) / 60_000)} minutes for one tool call`
+        this.repository.finishTask(task.id, "failed", { output: result.output, error })
+        context.failure = error
+        return
+      }
+      if (!result.ok) {
+        const error = `The external command exited ${result.exitCode}`
+        this.repository.finishTask(task.id, "failed", { output: result.output, error })
+        context.failure = error
+        return
+      }
+      this.repository.finishTask(task.id, "success", { output: result.output })
+      context.directories.set(task.id, directory)
+      // What it printed is what the next task starts from, as with any other answer (H-31).
+      context.handoffs.set(task.id, result.output)
+      // Findings, when the CLI was asked for them (H-32): an answer with no parseable block simply
+      // has none, and it costs one regular expression.
+      const found = parseFindings(result.output)
+      if (found.findings.length > 0) {
+        this.repository.addFindings(
+          found.findings.map((finding) => ({
+            ...finding,
+            source: "review" as const,
+            directory: tree,
+            runID: context.run.id,
+            taskID: task.id,
+          })),
+        )
+      }
+      return this.afterTask(task, context, directory)
+    } finally {
+      externalLive.delete(task.id)
+    }
+  }
+
+  /**
    * Turns a `foreach` task into one task per step of the plan it names (H-28).
    *
    * The steps share the template's name on purpose: `settled` then means "every step is done", so a
@@ -574,6 +657,8 @@ export class TaskRunner {
         kind: task.kind,
         ...(task.agent ? { agent: task.agent } : {}),
         ...(task.model ? { model: task.model } : {}),
+        // The command a step runs carries the step too, the same way its prompt does.
+        ...(task.command ? { command: task.command.replace(/\{\{\s*item\s*\}\}/g, item) } : {}),
         // A root: it exists because the plan is ready, and it runs alongside its siblings.
         dependsOn: [],
       })),

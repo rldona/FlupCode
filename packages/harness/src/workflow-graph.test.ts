@@ -19,6 +19,11 @@ describe("laying a workflow out as a graph (H-28)", () => {
     ])
   })
 
+  test("an external task is drawn as what it is (H-38)", () => {
+    const graph = workflowGraph([task("codex", { kind: "external" })])
+    expect(graph.nodes[0]!.kind).toBe("external")
+  })
+
   test("tasks that can run together share a column", () => {
     const graph = workflowGraph([
       task("read"),
