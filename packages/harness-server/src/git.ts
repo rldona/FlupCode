@@ -267,3 +267,31 @@ export async function branch(input: { directory: string; name: string }) {
   await expect(input.directory, ["checkout", "-b", name], "Could not start that branch")
   return { branch: await currentBranch(input.directory) }
 }
+
+/**
+ * Merges a branch into the one checked out here (H-29).
+ *
+ * `--no-ff` on purpose: a worktree task is a step, and a merge commit is how the run stays visible
+ * in the history. A conflict is aborted rather than left half-applied — a folder stuck mid-merge is
+ * worse than a merge that has to be tried again.
+ */
+export async function mergeBranch(input: { directory: string; branch: string; message?: string }) {
+  const name = input.branch.trim()
+  if (!name) throw new GitError("A branch is required")
+  if (!(await isRepository(input.directory))) throw new GitError("This folder is not a git repository")
+  const exists = await git(input.directory, ["rev-parse", "--verify", "--quiet", `refs/heads/${name}`])
+  if (exists.exitCode !== 0) throw new GitError(`There is no branch called "${name}"`, 404)
+  const result = await git(input.directory, [
+    "merge",
+    "--no-ff",
+    name,
+    "-m",
+    input.message?.trim() || `Merge ${name}`,
+  ])
+  if (result.exitCode !== 0) {
+    await git(input.directory, ["merge", "--abort"])
+    throw new GitError(`Could not merge ${name}: ${reason(result.stderr || result.stdout)}`, 409)
+  }
+  const sha = await expect(input.directory, ["rev-parse", "--short", "HEAD"], "Could not read the merge commit")
+  return { sha, branch: name }
+}

@@ -135,6 +135,8 @@ export type Run = {
   outside?: boolean
   /** Context packs every task of this run is given (H-31), by name. */
   packs?: string[]
+  /** Each writing task ran in its own worktree (H-29). */
+  worktrees?: boolean
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
 }

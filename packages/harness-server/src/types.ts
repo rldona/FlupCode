@@ -64,6 +64,14 @@ export type Run = {
    * replaying a transcript.
    */
   packs?: string[]
+  /**
+   * Give each writing task its own git worktree (H-29).
+   *
+   * Off by default: a worktree is a branch and a checkout, and a run that does not need one should
+   * not leave either behind. When it is on, a task writes in its own tree and the primary checkout
+   * is untouched until somebody merges.
+   */
+  worktrees?: boolean
 }
 
 export type RoutineInput = {
@@ -147,6 +155,13 @@ export type Task = TaskInput & {
   position: number
   status: TaskStatus
   sessionID?: string
+  /**
+   * The tree this task ran in (H-29).
+   *
+   * The primary checkout normally, or the worktree the task was given. Kept per task because its
+   * checkpoints, its diff and its findings all belong to that tree, not to the run's folder.
+   */
+  directory?: string
   startedAt?: number
   finishedAt?: number
   error?: string
@@ -312,7 +327,7 @@ export type RunRepository = {
     source: RunSource,
     now: number,
     directory?: string,
-    options?: Pick<Run, "toolLimitMs" | "outside" | "packs">,
+    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees">,
   ): Run
   /** Hold a run at a gate: not running, not finished, waiting for a person. */
   awaitRun(runID: string): void
@@ -326,6 +341,8 @@ export type RunRepository = {
   getTask(taskID: string): Task | undefined
   startTask(taskID: string, now: number): Task | undefined
   attachTaskSession(taskID: string, sessionID: string): void
+  /** The tree a task ran in (H-29). */
+  attachTaskDirectory(taskID: string, directory: string): void
   finishTask(
     taskID: string,
     status: Exclude<TaskStatus, "queued" | "running">,

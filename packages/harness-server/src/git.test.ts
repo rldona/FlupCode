@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { branch, commit, currentBranch, discard, isRepository } from "./git"
+import { branch, commit, currentBranch, discard, isRepository, mergeBranch } from "./git"
 
 /** A throwaway repository. Every test here writes to git, so none of them may share one. */
 let directory = ""
@@ -181,4 +181,45 @@ test("a missing git is an answer, not a crash", async () => {
     process.env.PATH = previous
     rmSync(empty, { recursive: true, force: true })
   }
+})
+
+describe("merging a worktree's branch back (H-29)", () => {
+  const onFeature = async () => {
+    await run(["checkout", "-q", "-b", "feature"])
+    write("kept.txt", "two\n")
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "feature change"])
+    await run(["checkout", "-q", "main"])
+  }
+
+  test("merges a branch with a commit of its own, and says so in the history", async () => {
+    await onFeature()
+
+    const merged = await mergeBranch({ directory, branch: "feature", message: "Merge feature" })
+
+    expect(merged.branch).toBe("feature")
+    expect(await run(["log", "-1", "--pretty=%s"])).toBe("Merge feature")
+    expect(readFileSync(join(directory, "kept.txt"), "utf8")).toBe("two\n")
+  })
+
+  test("refuses a branch that is not there", async () => {
+    expect(mergeBranch({ directory, branch: "nope" })).rejects.toThrow(/no branch called/)
+  })
+
+  test("a conflict is aborted, not left half-merged", async () => {
+    await run(["checkout", "-q", "-b", "feature"])
+    write("kept.txt", "feature\n")
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "feature"])
+    await run(["checkout", "-q", "main"])
+    write("kept.txt", "main\n")
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "main"])
+
+    expect(mergeBranch({ directory, branch: "feature" })).rejects.toThrow(/Could not merge/)
+
+    // The folder is clean and not mid-merge, so the reader can just try again.
+    expect(await run(["status", "--porcelain"])).toBe("")
+    expect(await run(["rev-parse", "--verify", "--quiet", "MERGE_HEAD"])).toBe("")
+  })
 })
