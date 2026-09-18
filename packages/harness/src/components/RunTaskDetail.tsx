@@ -30,6 +30,7 @@ const marks: Record<Task["status"], string> = {
   success: "●",
   failed: "✕",
   stopped: "■",
+  skipped: "–",
 }
 
 const elapsed = (from: number, to: number | undefined) => {

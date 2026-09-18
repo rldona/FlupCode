@@ -1,6 +1,6 @@
 import { CONFINED, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
-import type { Run, Task } from "./types"
+import type { Run, Task, TaskStatus } from "./types"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
@@ -9,13 +9,17 @@ import { budgetReason, fallbackModel, modelForTask } from "./policy"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
-/** A run whose verification failed did not succeed, and the reason has to reach the run itself. */
-export class VerifyFailed extends Error {
-  constructor(summary: string) {
-    super(summary)
-    this.name = "VerifyFailed"
-  }
-}
+/** A task has settled once it will not change again; the graph only moves on settled work. */
+const TERMINAL = new Set<TaskStatus>(["success", "failed", "skipped", "stopped"])
+
+/**
+ * How many tasks of one run may be in flight at once (H-28).
+ *
+ * Parallel work is the point of the DAG, but an unbounded fan-out would start every root at once and
+ * spend whatever it costs before anybody can look. Four is the audit's own ceiling for concurrent
+ * workflows, and it is stated here rather than buried in a workflow file.
+ */
+const RUN_CONCURRENCY = 4
 
 /**
  * What the executor is told on a retry.
@@ -37,11 +41,11 @@ const failureSummary = (report: { steps: Array<{ name: string; exitCode: number 
 }
 
 /**
- * What a task is handed from the one before it.
+ * What a task is handed from the ones before it.
  *
- * A handoff, not a transcript (§6.2): tasks receive what the previous one concluded, not its whole
- * conversation. It keeps the prompt small and the dependency explicit — and it is why a task stores
- * its output at all.
+ * A handoff, not a transcript (§6.2): tasks receive what their dependencies concluded, not whole
+ * conversations. It keeps the prompt small and the dependency explicit — and it is why a task stores
+ * its output at all. With a graph a task may have several (H-28), so they are joined.
  */
 function compose(task: Task, handoff: string | undefined, context?: string, memory?: string) {
   const body = !handoff
@@ -69,12 +73,38 @@ function worktreeName(task: string) {
   return slug || "task"
 }
 
+/** What a task is waiting for, and what lets it run. */
+type Decision = { action: "run" } | { action: "wait" } | { action: "skip"; reason: string }
+
+type RunContext = {
+  run: Run
+  options: { directory?: string; stopped?: () => boolean }
+  stopped: () => boolean
+  parentID?: string
+  packRefsList: string[]
+  memory?: string
+  /** What each settled task concluded, by task id, so its dependents can be handed it. */
+  handoffs: Map<string, string | undefined>
+  /** The tree each task ran in, by task id, so a check checks the work it is about (H-29). */
+  directories: Map<string, string | undefined>
+  /** The first failure nobody declared they expected; it ends the run. */
+  failure?: string
+  /** Why the run stopped taking new work: a gate, or a budget. */
+  pause?: "gate" | "budget"
+}
+
 /**
- * Runs the tasks of a run, in order.
+ * Runs the tasks of a run, as a graph.
  *
- * Sequential on purpose: the audit's H-11 is "MVP: secuencial → Future: paralelo", and parallelism
- * needs the write-conflict rules and worktrees of H-29 to be safe. A failed task stops the run and
- * the rest are left as they are, rather than being run against a state nobody verified.
+ * Sequential used to be the whole story: the order in the file was the dependency, and parallelism
+ * needed the write-conflict rules and worktrees of H-29 to be safe. Now a task says what it waits
+ * for (`dependsOn`), or opts out of the file order (`parallel`), and everything whose dependencies
+ * have settled runs at once. A workflow that says nothing about the graph still runs in order — the
+ * implicit dependency is the task above — so v1 files did not have to change.
+ *
+ * A failed task still stops the run, and the work behind it is left queued rather than run against a
+ * state nobody verified. The exception is a task that declared it expects that failure with `when`:
+ * that is a recovery step, and the run is allowed to reach it.
  */
 export class TaskRunner {
   constructor(
@@ -95,10 +125,14 @@ export class TaskRunner {
   private scheduleRetry(run: Run, verify: Task, evidence: string) {
     const budget = verify.retries ?? 0
     if (budget <= 0) return false
-    const executor = this.repository
-      .listTasks(run.id)
-      .filter((entry) => entry.kind === "agent" && entry.position < verify.position)
-      .at(-1)
+    const agents = this.repository.listTasks(run.id).filter((entry) => entry.kind === "agent")
+    // The task the check is about, when it says so; a v1 check has no `dependsOn`, so the nearest
+    // agent task before it is the work it was checking.
+    const executor = (
+      verify.dependsOn && verify.dependsOn.length > 0
+        ? agents.filter((entry) => verify.dependsOn!.includes(entry.name))
+        : agents.filter((entry) => entry.position < verify.position)
+    ).at(-1)
     if (!executor) return false
     this.repository.addTasks(run.id, [
       {
@@ -106,6 +140,8 @@ export class TaskRunner {
         prompt: retryPrompt(executor, evidence),
         kind: "agent",
         agent: executor.agent,
+        // A root: the failure that produced it is behind it, and it must not wait on it.
+        dependsOn: [],
         // The policy's fallback, when it names one (H-30): a retry that repeats the failed model is
         // asking the same question and expecting a different answer.
         model: fallbackModel(run.policy, executor.model),
@@ -116,6 +152,8 @@ export class TaskRunner {
         name: verify.name,
         prompt: "",
         kind: "verify",
+        // The check follows the attempt it caused, and waits for the newest one.
+        dependsOn: [executor.name],
         // One less: the budget is spent as it is used, so a run cannot loop whatever goes wrong.
         retries: budget - 1,
         attempt: verify.attempt + 1,
@@ -204,52 +242,186 @@ export class TaskRunner {
   }
 
   /**
+   * The tasks a task waits for, by name.
+   *
+   * An explicit `dependsOn` — including an empty one, which is what `parallel: true` becomes — is
+   * used as written. A task that says nothing follows the one above it, which is the v1 rule. A
+   * `when` names a task whose outcome decides this one, so it is waited for whether or not it was
+   * listed.
+   */
+  private dependencies(task: Task, tasks: Task[]): string[] {
+    const explicit =
+      task.dependsOn !== undefined
+        ? task.dependsOn
+        : task.retryOf
+          ? []
+          : (() => {
+              const previous = tasks.filter((entry) => entry.position < task.position).at(-1)
+              return previous ? [previous.name] : []
+            })()
+    const condition = task.when?.task
+    return condition && !explicit.includes(condition) ? [...explicit, condition] : explicit
+  }
+
+  /** Whether every instance of a name has settled, and whether any of them succeeded. */
+  private settled(name: string, tasks: Task[]): "ok" | "failed" | "pending" {
+    const instances = tasks.filter((task) => task.name === name)
+    if (instances.length === 0) return "failed"
+    if (!instances.every((task) => TERMINAL.has(task.status))) return "pending"
+    return instances.some((task) => task.status === "success" || task.status === "skipped") ? "ok" : "failed"
+  }
+
+  /** Whether `when` is answered yet, and if so, whether it lets the task run. */
+  private condition(task: Task, tasks: Task[]): "run" | "skip" | "wait" {
+    if (!task.when) return "run"
+    const instances = tasks.filter((entry) => entry.name === task.when!.task)
+    if (instances.length === 0) return "skip"
+    if (!instances.every((entry) => TERMINAL.has(entry.status))) return "wait"
+    return instances.some((entry) => (task.when!.is as TaskStatus[]).includes(entry.status)) ? "run" : "skip"
+  }
+
+  private decide(task: Task, tasks: Task[]): Decision {
+    for (const name of this.dependencies(task, tasks)) {
+      const state = this.settled(name, tasks)
+      if (state === "pending") return { action: "wait" }
+      if (state === "failed") {
+        // A `when` that names this failure is the way through; otherwise the branch is dead and
+        // saying so is better than leaving a row queued forever.
+        const allowed =
+          task.when?.task === name && task.when.is.some((status) => status === "failed" || status === "stopped")
+        if (!allowed) return { action: "skip", reason: `Not run: ${name} did not succeed` }
+      }
+    }
+    const condition = this.condition(task, tasks)
+    if (condition === "wait") return { action: "wait" }
+    if (condition === "skip")
+      return {
+        action: "skip",
+        reason: `Not run: ${task.when!.task} did not end as ${task.when!.is.join(" or ")}`,
+      }
+    return { action: "run" }
+  }
+
+  /** What the tasks before it concluded, joined: a graph task may have several (H-28). */
+  private handoffFor(task: Task, tasks: Task[], context: RunContext) {
+    const notes = this.dependencies(task, tasks)
+      .map((name) =>
+        tasks
+          .filter((entry) => entry.name === name && entry.status === "success")
+          .at(-1),
+      )
+      .map((instance) => (instance ? context.handoffs.get(instance.id) : undefined))
+      .filter((note): note is string => !!note)
+    return notes.length > 0 ? notes.join("\n\n") : undefined
+  }
+
+  /** The tree a task works in: the one its dependencies left, or the run's own (H-29). */
+  private directoryFor(task: Task, tasks: Task[], context: RunContext) {
+    const deps = this.dependencies(task, tasks).filter((name) => name !== task.when?.task)
+    for (const name of [...deps].reverse()) {
+      const instance = tasks.filter((entry) => entry.name === name && entry.status === "success").at(-1)
+      const directory = instance ? context.directories.get(instance.id) : undefined
+      if (directory) return directory
+    }
+    const previous = tasks.filter((entry) => entry.position < task.position).at(-1)
+    return (previous ? context.directories.get(previous.id) : undefined) ?? context.options.directory
+  }
+
+  /** Whether some task declared it expects `name` to fail, which makes the failure survivable. */
+  private expectsFailure(runID: string, name: string) {
+    return this.repository.listTasks(runID).some(
+      (task) =>
+        task.when?.task === name && task.when.is.some((status) => status === "failed" || status === "stopped"),
+    )
+  }
+
+  /**
    * Runs what is queued, and says why it stopped.
    *
-   * `paused` is a run that reached a human gate and is waiting to be let through — not an ending,
-   * which is why it is a return value and not an exception like a failure is.
+   * Everything whose dependencies have settled starts at once, up to the ceiling, and the loop waits
+   * on whichever finishes first. A gate or a budget stops new work but lets what is in flight finish,
+   * so a pause is a clean boundary rather than a half-done task.
    */
   async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}): Promise<"done" | "paused"> {
     const stopped = options.stopped ?? (() => false)
-    const tasks = this.repository.listTasks(run.id).filter((task) => task.status === "queued")
-    const nextQueued = () => this.repository.listTasks(run.id).find((entry) => entry.status === "queued")
+    const all = this.repository.listTasks(run.id)
+    if (all.length === 0) return "done"
     // The run's own session is the thread a person reads; each task is a child of it, which is the
     // lineage the engine already keeps. A run of one task needs no thread of its own, and creating
     // one would leave an empty session in everybody's list.
-    // Re-read: the run gained its session after it was started, when the caller decided the work
-    // needed a thread of its own.
-    const parentID = tasks.length > 1 ? (this.repository.getRun(run.id)?.sessionID ?? run.sessionID) : undefined
-    // The run's context packs (H-31), as refs. Which of them are files depends on the tree the task
-    // runs in, and with worktrees (H-29) that is the task's, not the run's.
-    const packRefsList =
-      run.packs && run.packs.length > 0 && options.directory
-        ? packRefs(this.repository.listPacks(options.directory), run.packs)
-        : []
-    // Where a verify task checks: the tree of the task it is checking. The primary checkout unless
-    // that task was isolated in a worktree.
-    let executorDirectory = options.directory
-    // The project's notes (H-37), handed to every turn so they do not have to be repeated.
-    const memory = options.directory
-      ? this.repository
-          .listProjectMemory(options.directory)
-          .map((note) => `- ${note.text}`)
-          .join("\n")
-      : ""
-    let handoff: string | undefined
-
-    for (let task = nextQueued(); task; task = nextQueued()) {
+    const parentID = all.length > 1 ? (this.repository.getRun(run.id)?.sessionID ?? run.sessionID) : undefined
+    const context: RunContext = {
+      run,
+      options,
+      stopped,
+      parentID,
+      // The run's context packs (H-31), as refs. Which of them are files depends on the tree the task
+      // runs in, and with worktrees (H-29) that is the task's, not the run's.
+      packRefsList:
+        run.packs && run.packs.length > 0 && options.directory
+          ? packRefs(this.repository.listPacks(options.directory), run.packs)
+          : [],
+      // The project's notes (H-37), handed to every turn so they do not have to be repeated.
+      memory: options.directory
+        ? this.repository
+            .listProjectMemory(options.directory)
+            .map((note) => `- ${note.text}`)
+            .join("\n") || undefined
+        : undefined,
+      handoffs: new Map(),
+      directories: new Map(),
+    }
+    const running = new Set<Promise<void>>()
+    while (true) {
       if (stopped()) {
-        this.repository.finishTask(task.id, "stopped", { error: "The run was stopped" })
+        for (const task of this.repository.listTasks(run.id).filter((entry) => entry.status === "queued"))
+          this.repository.finishTask(task.id, "stopped", { error: "The run was stopped" })
+        if (running.size === 0) break
+        await Promise.race(running)
         continue
       }
-      this.repository.startTask(task.id, Date.now())
-      // A verify task runs the project's own commands and keeps what they printed (H-22). No
-      // session and no model: it costs time, not tokens, which is what makes it worth running after
-      // every attempt rather than once at the end.
+      const tasks = this.repository.listTasks(run.id)
+      const queued = tasks.filter((task) => task.status === "queued")
+      if (queued.length === 0 && running.size === 0) break
+      let started = 0
+      let skipped = false
+      for (const task of queued) {
+        if (running.size >= RUN_CONCURRENCY || context.failure || context.pause) break
+        const decision = this.decide(task, tasks)
+        if (decision.action === "skip") {
+          this.repository.finishTask(task.id, "skipped", { error: decision.reason }, Date.now())
+          // A skip changes what its dependents should do, so the decisions above are stale; go round
+          // again with the new statuses rather than deciding the rest against an old graph.
+          skipped = true
+          break
+        }
+        if (decision.action === "wait") continue
+        const promise = this.runTask(task, context).finally(() => running.delete(promise))
+        running.add(promise)
+        started++
+      }
+      if (skipped) continue
+      if (running.size === 0 && started === 0) break
+      await Promise.race(running)
+    }
+    if (context.failure && !stopped()) throw new Error(context.failure)
+    return context.pause ? "paused" : "done"
+  }
+
+  /** One task, start to checkpoint. Never throws: a failure is recorded and ends the run at the loop. */
+  private async runTask(task: Task, context: RunContext): Promise<void> {
+    const run = context.run
+    const { stopped } = context
+    const tasks = this.repository.listTasks(run.id)
+    const handoff = this.handoffFor(task, tasks, context)
+    this.repository.startTask(task.id, Date.now())
+    let directory = this.directoryFor(task, tasks, context)
+    try {
+      // A verify task runs the project's own commands and keeps what they printed (H-22). No session
+      // and no model: it costs time, not tokens, which is what makes it worth running after every
+      // attempt rather than once at the end.
       if (task.kind === "verify") {
-        // The tree the step it checks ran in (H-29): a worktree task is verified in its own worktree,
-        // or the verdict would be about code nobody changed.
-        const report = await runVerify(executorDirectory ?? process.cwd(), { stopped })
+        const report = await runVerify(directory ?? process.cwd(), { stopped })
         const evidence = evidenceText(report)
         this.repository.finishTask(task.id, stopped() ? "stopped" : report.ok ? "success" : "failed", {
           output: evidence,
@@ -262,137 +434,143 @@ export class TaskRunner {
           title: `${task.name} — ${report.ok ? "passed" : "failed"}`,
           producer: "harness",
           content: evidence,
-          directory: executorDirectory,
+          directory,
           runID: run.id,
           taskID: task.id,
         })
-        // Every failure the checks named, anchored on its line (H-22, and the structured output
-        // H-21 asks of this gate). They are findings like a review's, which means they are drawn on
-        // the diff by the machinery H-32 already built: a broken test lands on the line that broke.
-        this.recordFailures(report, run.id, task.id, executorDirectory)
+        // Every failure the checks named, anchored on its line (H-22, and the structured output H-21
+        // asks of this gate). They are findings like a review's, which means they are drawn on the
+        // diff by the machinery H-32 already built.
+        this.recordFailures(report, run.id, task.id, directory)
+        context.handoffs.set(task.id, evidence)
+        context.directories.set(task.id, directory)
         // The checks cost time, not tokens, but the run they belong to may already be over budget.
-        if (this.pauseForBudget(run)) return "paused"
-        // The evidence is the handoff: whatever runs next is told exactly what failed.
-        handoff = evidence
+        if (this.pauseForBudget(run)) {
+          context.pause = "budget"
+          return
+        }
         if (!report.ok && !stopped()) {
           // A failed check is not the end of the run if it was given a budget to try again. The
           // retry carries the evidence in its own prompt, so the handoff is cleared, not repeated.
-          // It is handed the parsed failures rather than the log: the same information, without the
-          // stack traces, paid for on every attempt.
-          if (this.scheduleRetry(run, task, focusedEvidence(report))) {
-            handoff = undefined
-            continue
-          }
-          throw new VerifyFailed(failureSummary(report))
+          if (this.scheduleRetry(run, task, focusedEvidence(report))) return
+          // Or if a task declared it expects this failure: that is a recovery step, not an ending.
+          if (this.expectsFailure(run.id, task.name)) return
+          // The task already recorded the failure; ending the run here is the loop's job, and doing
+          // it by throwing would let the catch below overwrite the evidence with a bare message.
+          context.failure = failureSummary(report)
+          return
         }
-      } else {
-        try {
-          // Its own tree, when the run asked for it (H-29). Created before the session so everything
-          // the task does — its prompt, its answer, its checkpoints, its findings — belongs to it.
-          let taskDirectory = options.directory
-          if (run.worktrees && options.directory && typeof this.engine.createWorktree === "function") {
-            const worktree = await this.engine
-              .createWorktree({ directory: options.directory, name: worktreeName(task.name) })
-              .catch(() => undefined)
-            if (worktree) {
-              taskDirectory = worktree.directory
-              this.repository.attachTaskDirectory(task.id, taskDirectory)
-            }
-          }
-          // What the run's packs point at, in this task's tree.
-          const packs =
-            packRefsList.length > 0 && taskDirectory
-              ? packFiles(packRefsList, taskDirectory)
-              : { files: [], others: [] }
-          const context = packs.others.length > 0 ? packs.others.join("\n") : undefined
-          const contextFiles = packs.files.map((path) => ({ path }))
-          const session = await this.engine.createSession({
-            directory: taskDirectory,
-            parentID,
-            title: task.name,
-            // Confined to the project unless this run said otherwise (H-47). The harness has always
-            // passed `directory` to the engine; passing it only says where to start, not where to
-            // stop, and an unattended task could walk the disk from there.
-            ...(run.outside ? {} : { permission: CONFINED }),
-          })
-          this.repository.attachTaskSession(task.id, session.id)
-          await this.engine.prompt({
-            sessionID: session.id,
-            text: compose(task, handoff, context, memory || undefined),
-            directory: taskDirectory,
-            agent: task.agent,
-            // Its own model, or the policy's for the role it runs as (H-30).
-            model: modelForTask(task, run.policy),
-            ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
-          })
-          await this.engine.waitForIdle(session.id, {
-            directory: taskDirectory,
-            stopped,
-            ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
-          })
-          const answer = await this.engine.lastAnswer(session.id, taskDirectory)
-          this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
-            output: answer?.text,
-            tokens: answer?.tokens,
-            cost: answer?.cost,
-          })
-          // Over budget: stop and ask, before spending on a closing note that nobody asked for.
-          if (this.pauseForBudget(run)) return "paused"
-          // The next task, especially a verify, looks at this task's tree, not the run's folder.
-          executorDirectory = taskDirectory
-          // What the next task starts from (H-31): a closing note, not the whole answer. The note is
-          // kept as an artifact so the run can be read back, and the raw answer is the fallback when
-          // the note cannot be written.
-          handoff = await this.handoffNote(run, task, answer?.text, taskDirectory)
-          // Findings (H-32). Tried after every agent task rather than only after a review: an
-          // answer with no parseable block simply has none, and it costs one regular expression.
-          // A task that was asked for them and produced none has genuinely found nothing.
-          const found = parseFindings(answer?.text)
-          if (found.findings.length > 0) {
-            this.repository.addFindings(
-              found.findings.map((finding) => ({
-                ...finding,
-                source: "review" as const,
-                directory: taskDirectory,
-                runID: run.id,
-                taskID: task.id,
-              })),
-            )
-          }
-        } catch (cause) {
-          this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
-          throw cause
+        return this.afterTask(task, context, directory)
+      }
+      // Its own tree, when the run asked for it (H-29). Created before the session so everything the
+      // task does — its prompt, its answer, its checkpoints, its findings — belongs to it.
+      if (run.worktrees && context.options.directory && typeof this.engine.createWorktree === "function") {
+        const worktree = await this.engine
+          .createWorktree({ directory: context.options.directory, name: worktreeName(task.name) })
+          .catch(() => undefined)
+        if (worktree) {
+          directory = worktree.directory
+          this.repository.attachTaskDirectory(task.id, directory)
         }
       }
-      // A way back from this task (H-15). After it rather than before, so the list reads as "this is
-      // what the folder looked like once that step had finished" — which is the state a reader
-      // wants back when the *next* step is the one that went wrong.
-      //
-      // Failing to record one must not fail the task. The folder may not be a repository at all,
-      // and losing a finished piece of work over a missing undo would be the worse trade.
-      if (executorDirectory) {
-        try {
-          const checkpoint = await take({
-            // The task's own tree (H-29), so the point is about what that task changed.
-            directory: executorDirectory,
-            title: task.name,
-            // What this step concluded (H-15), so the point reads as more than a sha.
-            summary: handoff,
+      // What the run's packs point at, in this task's tree.
+      const packs =
+        context.packRefsList.length > 0 && directory
+          ? packFiles(context.packRefsList, directory)
+          : { files: [], others: [] }
+      const contextText = packs.others.length > 0 ? packs.others.join("\n") : undefined
+      const contextFiles = packs.files.map((path) => ({ path }))
+      const session = await this.engine.createSession({
+        directory,
+        parentID: context.parentID,
+        title: task.name,
+        // Confined to the project unless this run said otherwise (H-47). The harness has always
+        // passed `directory` to the engine; passing it only says where to start, not where to stop,
+        // and an unattended task could walk the disk from there.
+        ...(run.outside ? {} : { permission: CONFINED }),
+      })
+      this.repository.attachTaskSession(task.id, session.id)
+      await this.engine.prompt({
+        sessionID: session.id,
+        text: compose(task, handoff, contextText, context.memory),
+        directory,
+        agent: task.agent,
+        // Its own model, or the policy's for the role it runs as (H-30).
+        model: modelForTask(task, run.policy),
+        ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
+      })
+      await this.engine.waitForIdle(session.id, {
+        directory,
+        stopped,
+        ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
+      })
+      const answer = await this.engine.lastAnswer(session.id, directory)
+      this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
+        output: answer?.text,
+        tokens: answer?.tokens,
+        cost: answer?.cost,
+      })
+      context.directories.set(task.id, directory)
+      // Over budget: stop and ask, before spending on a closing note that nobody asked for.
+      if (this.pauseForBudget(run)) {
+        context.pause = "budget"
+        return
+      }
+      // What the next task starts from (H-31): a closing note, not the whole answer. The note is kept
+      // as an artifact so the run can be read back, and the raw answer is the fallback when the note
+      // cannot be written.
+      context.handoffs.set(task.id, await this.handoffNote(run, task, answer?.text, directory))
+      // Findings (H-32). Tried after every agent task rather than only after a review: an answer with
+      // no parseable block simply has none, and it costs one regular expression. A task that was asked
+      // for them and produced none has genuinely found nothing.
+      const found = parseFindings(answer?.text)
+      if (found.findings.length > 0) {
+        this.repository.addFindings(
+          found.findings.map((finding) => ({
+            ...finding,
+            source: "review" as const,
+            directory,
             runID: run.id,
             taskID: task.id,
-          })
-          this.repository.addCheckpoint(checkpoint)
-        } catch {
-          // Nothing to say here: the run is fine, there is simply no way back from this step.
-        }
+          })),
+        )
       }
-      // A human gate (H-21): the work is done and nothing else starts until somebody has read it.
-      // Whatever is queued stays queued, so letting it through is the same loop, entered again.
-      if (task.gate === "human" && !stopped()) {
-        this.repository.setPaused(run.id, "gate")
-        return "paused"
+      return this.afterTask(task, context, directory)
+    } catch (cause) {
+      this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
+      if (!stopped()) context.failure = message(cause)
+    }
+  }
+
+  /**
+   * The bookkeeping every finished task shares: a way back from it, and the gate that holds the run.
+   *
+   * A checkpoint is taken after the task rather than before, so the list reads as "this is what the
+   * folder looked like once that step had finished" — the state a reader wants back when the *next*
+   * step is the one that went wrong. Failing to record one must not fail the task: the folder may not
+   * be a repository at all, and losing finished work over a missing undo would be the worse trade.
+   */
+  private async afterTask(task: Task, context: RunContext, directory?: string) {
+    if (directory) {
+      try {
+        const checkpoint = await take({
+          directory,
+          title: task.name,
+          // What this step concluded (H-15), so the point reads as more than a sha.
+          summary: context.handoffs.get(task.id),
+          runID: context.run.id,
+          taskID: task.id,
+        })
+        this.repository.addCheckpoint(checkpoint)
+      } catch {
+        // Nothing to say here: the run is fine, there is simply no way back from this step.
       }
     }
-    return "done"
+    // A human gate (H-21): the work is done and nothing else starts until somebody has read it.
+    // Whatever is queued stays queued, so letting it through is the same loop, entered again.
+    if (task.gate === "human" && !context.stopped()) {
+      this.repository.setPaused(context.run.id, "gate")
+      context.pause = "gate"
+    }
   }
 }

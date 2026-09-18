@@ -364,3 +364,36 @@ describe("project memory (H-37)", () => {
     repository.close()
   })
 })
+
+describe("a task's place in the graph (H-28)", () => {
+  test("the tasks it waits for, and the condition that lets it run, survive a round trip", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(run.id, [
+      { name: "report", prompt: "say what broke", dependsOn: ["check"], when: { task: "check", is: ["failed"] } },
+    ])
+
+    expect(repository.getTask(task!.id)).toMatchObject({
+      dependsOn: ["check"],
+      when: { task: "check", is: ["failed"] },
+    })
+    // An explicit empty list is a root, and it must not read back as "no opinion".
+    const [root] = repository.addTasks(run.id, [{ name: "parallel", prompt: "go", dependsOn: [] }])
+    expect(repository.getTask(root!.id)!.dependsOn).toEqual([])
+    repository.close()
+  })
+
+  test("a skipped task is a status like any other, with the reason it was skipped", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(run.id, [{ name: "ship", prompt: "ship" }])
+    repository.finishTask(task!.id, "skipped", { error: "Not run: check did not succeed" }, 1200)
+
+    expect(repository.getTask(task!.id)).toMatchObject({
+      status: "skipped",
+      error: "Not run: check did not succeed",
+      finishedAt: 1200,
+    })
+    repository.close()
+  })
+})
