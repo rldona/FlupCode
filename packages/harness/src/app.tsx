@@ -124,6 +124,9 @@ import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
 import { WorkflowsPanel } from "./components/WorkflowsPanel"
 import { WorkflowLaunchDialog, type WorkflowLaunch } from "./components/WorkflowLaunchDialog"
+import { ReplayPanel } from "./components/ReplayPanel"
+import { ComparePanel } from "./components/ComparePanel"
+import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
@@ -171,6 +174,8 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "stashes", descriptionKey: "View saved prompts" },
   { name: "skills", descriptionKey: "Skills" },
   { name: "workflows", descriptionKey: "Workflows" },
+  { name: "replay", descriptionKey: "Replay this session", session: true },
+  { name: "compare", descriptionKey: "Compare two runs" },
   { name: "memory", descriptionKey: "Memory" },
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
@@ -436,6 +441,8 @@ export const App: Component = () => {
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
+  const replayOpen = () => screen() === "replay"
+  const compareOpen = () => screen() === "compare"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -1854,6 +1861,14 @@ export const App: Component = () => {
       }
       if (name === "workflows") {
         showScreen("workflows")
+        return
+      }
+      if (name === "replay") {
+        showScreen("replay")
+        return
+      }
+      if (name === "compare") {
+        showScreen("compare")
         return
       }
       if (name === "memory") {
@@ -3529,6 +3544,20 @@ export const App: Component = () => {
         return removed
       })
 
+  /** One page of the open session's durable events, for the replay (H-33). */
+  const replayPage = (after?: number) => {
+    const sessionID = selected()
+    if (!sessionID) return Promise.resolve({ data: [], hasMore: false })
+    return createClient(serverUrl()).session.history({ sessionID, after, limit: 200 })
+  }
+
+  /** Everything the comparison needs about one run (H-33): itself, its tasks, and what they changed. */
+  const compareSnapshot = async (id: string) => {
+    const client = createHarnessClient(harnessServerUrl())
+    const [run, tasks, files] = await Promise.all([client.runs.get(id), client.runs.tasks(id), client.runs.files(id)])
+    return runSnapshot(run, tasks, files)
+  }
+
   const approveRun = (id: string) => {    void createHarnessClient(harnessServerUrl())
       .runs.approve(id)
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
@@ -4260,6 +4289,16 @@ export const App: Component = () => {
       if (name === "workflows") {
         setPrompt("")
         showScreen("workflows")
+        return
+      }
+      if (name === "replay") {
+        setPrompt("")
+        showScreen("replay")
+        return
+      }
+      if (name === "compare") {
+        setPrompt("")
+        showScreen("compare")
         return
       }
       if (name === "memory") {
@@ -5229,6 +5268,19 @@ export const App: Component = () => {
         onSave={saveWorkflowFile}
         onDelete={deleteWorkflowFile}
         onRun={(workflow) => setLaunching({ workflow })}
+        onClose={() => leaveScreen()}
+      />
+      <ReplayPanel
+        open={replayOpen()}
+        sessionID={selected()}
+        title={selectedSession()?.title}
+        onPage={replayPage}
+        onClose={() => leaveScreen()}
+      />
+      <ComparePanel
+        open={compareOpen()}
+        runs={runs()}
+        onLoad={compareSnapshot}
         onClose={() => leaveScreen()}
       />
       <MemoryPanel

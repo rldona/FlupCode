@@ -281,6 +281,14 @@ export function createClient(baseUrl = resolveServerUrl()) {
        */
       list: (input?: { order?: "asc" | "desc"; limit?: number; search?: string; cursor?: string; directory?: string }) =>
         unwrap(client.v2.session.list({ ...input, limit: input?.limit ?? 200 })),
+      /**
+       * One page of a session's durable events (H-33).
+       *
+       * The engine keeps them with a sequence number, so `after` reads exactly what a viewer has not
+       * seen yet — that is what makes a replay a replay rather than a re-read of the current state.
+       */
+      history: (input: { sessionID: string; after?: number; limit?: number }) =>
+        unwrap(client.v2.session.history(input)),
       /** Archive a session, or bring it back (H-18). Zero is the engine's "not archived". */
       setArchived: (sessionID: string, archived: boolean) =>
         unwrap(client.session.update({ sessionID, time: { archived: archived ? Date.now() : 0 } })),

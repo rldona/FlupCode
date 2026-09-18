@@ -8389,6 +8389,127 @@ button.fc-status {
   gap: var(--fc-space-2);
 }
 
+/* ── Replay (H-33) ────────────────────────────────────────────────────────── */
+
+.fc-replay-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+
+.fc-replay-count {
+  padding: 2px 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill, 999px);
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}
+
+.fc-replay-count b {
+  color: var(--fc-text);
+  font-weight: 500;
+}
+
+.fc-replay-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+.fc-replay-range {
+  flex: 1;
+  accent-color: var(--fc-accent);
+}
+
+.fc-replay-position {
+  font-variant-numeric: tabular-nums;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-replay-log {
+  list-style: none;
+  margin: var(--fc-space-2) 0 0;
+  padding: 0;
+  max-height: 46vh;
+  overflow-y: auto;
+  border-inline-start: 1px solid var(--fc-border);
+}
+
+.fc-replay-event {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fc-space-2);
+  padding: 3px var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-replay-event-last {
+  background: var(--fc-accent-soft);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-replay-seq {
+  min-width: 4ch;
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-replay-time {
+  min-width: 9ch;
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-replay-label {
+  min-width: 14ch;
+}
+
+.fc-replay-detail {
+  color: var(--fc-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Comparing two runs (H-33) ────────────────────────────────────────────── */
+
+.fc-compare-pickers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-3);
+}
+
+.fc-compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-compare-table th,
+.fc-compare-table td {
+  text-align: start;
+  padding: 5px var(--fc-space-2);
+  border-bottom: 1px solid var(--fc-border);
+  vertical-align: top;
+}
+
+.fc-compare-table thead th {
+  color: var(--fc-text-muted);
+  font-weight: 500;
+}
+
+.fc-compare-table tbody th {
+  font-weight: 400;
+  color: var(--fc-text-muted);
+}
+
+.fc-compare-delta {
+  color: var(--fc-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
 /* ── The diff viewer (H-06) ───────────────────────────────────────────────── */
 
 .fc-changes-branch {
