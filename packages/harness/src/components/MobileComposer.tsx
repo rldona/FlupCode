@@ -1,7 +1,10 @@
-import { For, Show, createMemo, createSignal, onCleanup, type Component, type JSX } from "solid-js"
-import type { AgentInfo, ModelInfo, ModelVariant } from "../engine-types"
-import type { Attachment } from "../types"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component, type JSX } from "solid-js"
+import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
+import type { Attachment, CommandOption } from "../types"
+import type { Delivery } from "../pending-prompts"
 import { t } from "../i18n"
+import { ComposerMenu } from "./ComposerMenu"
+import { applyMention, filterCommands, mentionItems, mentionToken, slashQuery, type MentionItem } from "../composer-menus"
 import { toast } from "../toast"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
@@ -35,10 +38,22 @@ type MobileComposerProps = {
   variants: ModelVariant[]
   variantKey: string | undefined
   agents: AgentInfo[]
+  /** Artifacts the `@` menu can reach, alongside files and agents (H-26). */
+  artifacts?: Array<{ path: string; title?: string }>
   agent: string
   permissionMode: string
+  /** Commands for the `/` menu, the same list the desktop composer gets (H-26). */
+  commands?: CommandOption[]
   onInput: (value: string) => void
   onSend: () => void
+  /** Stops the turn that is running, when there is one (H-26). */
+  onStop?: () => void
+  /** What happens to a prompt sent while the agent works (H-26). */
+  delivery?: Delivery
+  onDeliveryChange?: (value: Delivery) => void
+  onCommandPick?: (name: string) => void
+  onCommandRun?: (name: string) => void
+  searchFiles?: (query: string) => Promise<FileSystemEntry[]>
   onAttach: (files: File[]) => void
   onRemoveAttachment: (uri: string) => void
   onModelChange: (providerID: string, id: string) => void
@@ -47,7 +62,7 @@ type MobileComposerProps = {
   onPermissionModeChange: (id: string) => void
 }
 
-type Sheet = "context" | "mode" | "agent" | "model" | "effort"
+type Sheet = "context" | "mode" | "agent" | "model" | "effort" | "delivery"
 
 const key = (model: ModelInfo) => `${model.providerID}/${model.id}`
 
@@ -151,6 +166,55 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
   const chatLabel = () => (props.sessionOpen && cowork() ? t("New chat") : t("Chat"))
   const coworkLabel = () => (props.sessionOpen && !cowork() ? t("New cowork") : t("Cowork"))
 
+  // The same `/` and `@` menus the desktop composer has, from the same rules (H-26).
+  const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
+  const [commandIndex, setCommandIndex] = createSignal(0)
+  const [dismissedAt, setDismissedAt] = createSignal<string>()
+  const commandQuery = () => slashQuery(props.value, chat())
+  const filteredCommands = () => filterCommands(props.commands ?? [], commandQuery())
+  const mentionQuery = () => mentionToken(props.value, chat())
+  const mentionCandidates = () =>
+    mentionItems(mentionQuery() ?? "", {
+      files: fileResults(),
+      agents: primaryAgents(props.agents),
+      artifacts: props.artifacts ?? [],
+    })
+  createEffect(() => {
+    filteredCommands()
+    setCommandIndex(0)
+  })
+  createEffect(() => {
+    const token = mentionQuery()
+    if (token === undefined || commandQuery() !== undefined) {
+      setFileResults([])
+      return
+    }
+    const handle = setTimeout(async () => {
+      try {
+        setFileResults((await props.searchFiles?.(token)) ?? [])
+      } catch {
+        setFileResults([])
+      }
+    }, 150)
+    onCleanup(() => clearTimeout(handle))
+  })
+  createEffect(() => {
+    const dismissed = dismissedAt()
+    if (dismissed !== undefined && props.value !== dismissed) setDismissedAt(undefined)
+  })
+  const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
+  const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
+  const mentionMenuOpen = () =>
+    !menusDismissed() && commandQuery() === undefined && mentionQuery() !== undefined && mentionCandidates().length > 0
+  const closeMenus = () => {
+    if (commandMenuOpen()) props.onInput("")
+    else setDismissedAt(props.value)
+  }
+  const insertMention = (item: MentionItem) => {
+    props.onInput(applyMention(props.value, item))
+    setFileResults([])
+  }
+
   const toggleVoice = () => {
     if (listening()) {
       stopDictation?.()
@@ -238,6 +302,36 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
       </Show>
 
       <div class="fc-mobile-field">
+        <Show when={commandMenuOpen()}>
+          <ComposerMenu
+            items={filteredCommands().map((command) => ({
+              key: command.name,
+              label: `/${command.name}`,
+              hint: command.description,
+              disabled: command.disabled,
+              soon: command.disabled,
+            }))}
+            active={commandIndex()}
+            onHover={setCommandIndex}
+            onPick={(index) => {
+              const command = filteredCommands()[index]
+              if (command) props.onCommandPick?.(command.name)
+            }}
+          />
+        </Show>
+        <Show when={mentionMenuOpen()}>
+          <ComposerMenu
+            items={mentionCandidates().map((item) => ({
+              key: `${item.kind}:${item.value}`,
+              label: item.label,
+              hint: item.hint,
+            }))}
+            onPick={(index) => {
+              const item = mentionCandidates()[index]
+              if (item) insertMention(item)
+            }}
+          />
+        </Show>
         <textarea
           class="fc-mobile-input"
           rows={1}
@@ -247,6 +341,43 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
             props.onInput(event.currentTarget.value)
             event.currentTarget.style.height = "auto"
             event.currentTarget.style.height = `${Math.min(event.currentTarget.scrollHeight, 180)}px`
+          }}
+          onKeyDown={(event) => {
+            // The same keys the desktop field answers: arrows walk the menu, Enter sends.
+            if (commandMenuOpen()) {
+              if (event.key === "ArrowDown") {
+                event.preventDefault()
+                const count = filteredCommands().length
+                setCommandIndex((index) => (index + 1) % count)
+                return
+              }
+              if (event.key === "ArrowUp") {
+                event.preventDefault()
+                const count = filteredCommands().length
+                setCommandIndex((index) => (index - 1 + count) % count)
+                return
+              }
+              if (event.key === "Escape") {
+                event.preventDefault()
+                closeMenus()
+                return
+              }
+              if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+                event.preventDefault()
+                const command = filteredCommands()[commandIndex()]
+                if (command) props.onCommandRun?.(command.name)
+                return
+              }
+            }
+            if (mentionMenuOpen() && event.key === "Escape") {
+              event.preventDefault()
+              closeMenus()
+              return
+            }
+            if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+              event.preventDefault()
+              if (canSend()) props.onSend()
+            }
           }}
         />
         <div class="fc-mobile-actions">
@@ -276,15 +407,24 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               <Icon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
             </button>
           </Show>
-          <button
-            class="fc-mobile-round fc-mobile-send"
-            type="button"
-            aria-label={t("Send")}
-            disabled={!canSend()}
-            onClick={props.onSend}
+          <Show
+            when={props.generating && props.onStop}
+            fallback={
+              <button
+                class="fc-mobile-round fc-mobile-send"
+                type="button"
+                aria-label={t("Send")}
+                disabled={!canSend()}
+                onClick={props.onSend}
+              >
+                <Icon path="M12 19V5M6 11l6-6 6 6" />
+              </button>
+            }
           >
-            <Icon path="M12 19V5M6 11l6-6 6 6" />
-          </button>
+            <button class="fc-mobile-round fc-mobile-stop" type="button" aria-label={t("Stop")} onClick={props.onStop}>
+              <Icon path="M8 8h8v8H8z" />
+            </button>
+          </Show>
         </div>
       </div>
 
@@ -346,6 +486,37 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               onClick={() => setSheet("agent")}
             />
           </Show>
+          <Show when={!chat() && props.delivery && props.onDeliveryChange}>
+            <Row
+              icon="M4 6h16M4 12h16M4 18h10"
+              label={t("While the agent works")}
+              value={props.delivery === "queue" ? t("Queue") : t("Steer")}
+              onClick={() => setSheet("delivery")}
+            />
+          </Show>
+        </BottomSheet>
+      </Show>
+
+      <Show when={sheet() === "delivery"}>
+        <BottomSheet title={t("While the agent works")} onClose={close} onBack={() => setSheet("context")}>
+          <Option
+            label={t("Steer")}
+            detail={t("Redirect the turn that is running")}
+            active={props.delivery !== "queue"}
+            onClick={() => {
+              props.onDeliveryChange?.("steer")
+              close()
+            }}
+          />
+          <Option
+            label={t("Queue")}
+            detail={t("Wait until the session is done")}
+            active={props.delivery === "queue"}
+            onClick={() => {
+              props.onDeliveryChange?.("queue")
+              close()
+            }}
+          />
         </BottomSheet>
       </Show>
 
