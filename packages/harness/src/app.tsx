@@ -25,6 +25,7 @@ import {
   createHarnessClient,
   engineTargetVersion,
   invalidateLegacyHistory,
+  isSessionGone,
   probeEngineProfile,
   probeServer,
   resolveHarnessServerUrl,
@@ -1483,6 +1484,8 @@ export const App: Component = () => {
   createEffect(() => {
     const failure = messages.failure() ?? sessions.failure()
     if (!failure) return clearToast(STALE_TOAST)
+    // A session the engine no longer has is handled below, not reported as the engine being away.
+    if (isSessionGone(messages.failure())) return
     toast(t("FlupCode is not following the engine right now"), "error", {
       key: STALE_TOAST,
       action: {
@@ -1493,6 +1496,18 @@ export const App: Component = () => {
         },
       },
     })
+  })
+  // A session the reader left open is remembered across reloads, but the engine may not have it: it
+  // was deleted, or it lives in another engine than the one at this address now. That looked exactly
+  // like an empty session — the transcript failed to load, the composer invited writing into it, and
+  // the app kept asking the engine for a session it answers 404 to. Let it go, forget it, and say it.
+  createEffect(() => {
+    const failure = messages.failure()
+    if (!isSessionGone(failure) || !selected()) return
+    clearToast(STALE_TOAST)
+    setSelected(undefined)
+    writeStorage(STORAGE_KEYS.selectedSession, "")
+    toast(t("That session is no longer in the engine"), "info")
   })
 
   // Resources hand back fresh objects on every refetch while a run streams. These stores merge the
