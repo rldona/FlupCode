@@ -1041,6 +1041,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         return harnessRequest<FileText>(baseUrl, `/harness/files/read?${search}`)
       },
     },
+    /** A conversation kept on this server so it can be read at a link (H-35). */
+    shares: {
+      create: (input: { title: string; markdown: string }) =>
+        harnessRequest<{ id: string; title: string; url: string }>(baseUrl, "/harness/shares", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+    },
     workflows: {
       /** What this project can run. A project's own win over the ones shared across projects. */
       list: (directory?: string) =>
