@@ -969,6 +969,11 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).mcp.list(),
   )
+  // What the connected MCP servers expose (H-34). The engine reports resources, not tools.
+  const [mcpResources, { refetch: refetchMcpResources }] = createResource(
+    () => (ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).mcp.resources().catch(() => []),
+  )
   const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).provider.directory(),
@@ -1219,7 +1224,8 @@ export const App: Component = () => {
   // Agents you can edit (H-13). The files come from the harness server, which can read the disk;
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
-    if (!agentsOpen() || !routinesServerAvailable()) return undefined
+    // Also when the MCP panel is open: who may reach a server is read from the agent files (H-34).
+    if ((!agentsOpen() && !settingsOpen() && !mcpOpen()) || !routinesServerAvailable()) return undefined
     return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${agentsRefresh()}`
   }
   const [agentsRefresh, setAgentsRefresh] = createSignal(0)
@@ -3891,6 +3897,7 @@ export const App: Component = () => {
       await current.mcp.add({ server, config })
       void refetchMcp()
       void refetchMcpConfigs()
+      void refetchMcpResources()
       return undefined
     }, t("MCP server added"))
 
@@ -3899,6 +3906,7 @@ export const App: Component = () => {
       await current.mcp.remove({ server })
       void refetchMcp()
       void refetchMcpConfigs()
+      void refetchMcpResources()
       return undefined
     }, t("MCP server removed"))
 
@@ -3906,6 +3914,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.mcp.connect({ server })
       void refetchMcp()
+      void refetchMcpResources()
       return undefined
     }, t("MCP server connected"))
 
@@ -3913,6 +3922,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.mcp.disconnect({ server })
       void refetchMcp()
+      void refetchMcpResources()
       return undefined
     }, t("MCP server disconnected"))
 
@@ -4862,6 +4872,8 @@ export const App: Component = () => {
         open={mcpOpen()}
         servers={mcp()?.data ?? []}
         configs={mcpConfigs()?.data ?? {}}
+        resources={mcpResources() ?? []}
+        agents={agentFiles() ?? []}
         busy={busy()}
         onAdd={addMcp}
         onRemove={removeMcp}
@@ -5005,6 +5017,8 @@ export const App: Component = () => {
         onDeleteCommand={deleteCommand}
         mcpServers={mcp()?.data ?? []}
         mcpConfigs={mcpConfigs()?.data ?? {}}
+        mcpResources={mcpResources() ?? []}
+        agentFiles={agentFiles() ?? []}
         mcpBusy={false}
         onAddMcp={addMcp}
         onRemoveMcp={removeMcp}

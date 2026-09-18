@@ -1,12 +1,17 @@
-import { For, Show, createSignal, type Component } from "solid-js"
-import type { McpServer } from "../engine-types"
-import type { McpConfig } from "../types"
+import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import type { McpResource, McpServer } from "../engine-types"
+import type { AgentFile, McpConfig } from "../types"
+import { mcpAccess } from "../mcp-access"
 import { t } from "../i18n"
 
 type McpEditorProps = {
   servers: McpServer[]
   /** The configured servers themselves, keyed by name, so one can be opened for editing. */
   configs?: Record<string, McpConfig>
+  /** What the connected servers expose (H-34), as the engine reports it. */
+  resources?: McpResource[]
+  /** The agent files, so the panel can say who can reach each server (H-34). */
+  agents?: AgentFile[]
   busy: boolean
   onAdd: (name: string, config: McpConfig) => void
   onRemove: (name: string) => void
@@ -24,6 +29,9 @@ const statusLabel = (server: McpServer) => {
   const value = (server.status as { status?: string }).status
   return value ?? "unknown"
 }
+
+/** Why a server is not working, when the engine said: a failed one carries the reason (H-34). */
+const statusError = (server: McpServer) => (server.status as { error?: string }).error
 
 /**
  * `KEY=value` lines, one per line, as the engine's map.
@@ -66,6 +74,18 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
   const [headers, setHeaders] = createSignal("")
   const [timeout, setTimeout] = createSignal("")
   const [enabled, setEnabled] = createSignal(true)
+
+  // Who can reach each server (H-34), from the agent files the engine reads.
+  const access = createMemo(
+    () =>
+      new Map(
+        mcpAccess(
+          props.servers.map((server) => server.name),
+          props.agents ?? [],
+        ).map((entry) => [entry.server, entry.agents]),
+      ),
+  )
+  const resourcesFor = (server: string) => (props.resources ?? []).filter((resource) => resource.client === server)
 
   const reset = () => {
     setName("")
@@ -136,29 +156,68 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
           <For each={props.servers}>
             {(server) => (
               <li class="fc-mcp-row">
-                <span class="fc-mcp-name">{server.name}</span>
-                <span class="fc-chip">{statusLabel(server)}</span>
-                <button class="fc-button" type="button" disabled={props.busy} onClick={() => edit(server)}>
-                  {t("Edit")}
-                </button>
-                <button
-                  class="fc-button"
-                  type="button"
-                  disabled={props.busy}
-                  onClick={() =>
-                    statusLabel(server) === "connected" ? props.onDisconnect(server.name) : props.onConnect(server.name)
-                  }
+                <div class="fc-mcp-line">
+                  <span class="fc-mcp-name">{server.name}</span>
+                  <span class="fc-chip">{statusLabel(server)}</span>
+                  <button class="fc-button" type="button" disabled={props.busy} onClick={() => edit(server)}>
+                    {t("Edit")}
+                  </button>
+                  <button
+                    class="fc-button"
+                    type="button"
+                    disabled={props.busy}
+                    onClick={() =>
+                      statusLabel(server) === "connected" ? props.onDisconnect(server.name) : props.onConnect(server.name)
+                    }
+                  >
+                    {statusLabel(server) === "connected" ? t("Disconnect") : t("Connect")}
+                  </button>
+                  <button
+                    class="fc-button fc-button-danger"
+                    type="button"
+                    disabled={props.busy}
+                    onClick={() => props.onRemove(server.name)}
+                  >
+                    {t("Remove")}
+                  </button>
+                </div>
+
+                {/* Why it is not working, when the engine said so (H-34). */}
+                <Show when={statusError(server)}>{(error) => <p class="fc-mcp-error">{error()}</p>}</Show>
+
+                {/*
+                  What it exposes (H-34). The engine reports resources; it does not report tools —
+                  they bypass its registry, so only the calls it made are known, and those are on the
+                  context panel with their latency.
+                */}
+                <Show when={resourcesFor(server.name).length > 0}>
+                  <div class="fc-mcp-resources">
+                    <span class="fc-section-label">{t("Resources")}</span>
+                    <ul>
+                      <For each={resourcesFor(server.name)}>
+                        {(resource) => (
+                          <li class="fc-mcp-resource">
+                            <span class="fc-mcp-resource-name">{resource.name}</span>
+                            <bdi class="fc-mcp-resource-uri" dir="ltr">
+                              {resource.uri}
+                            </bdi>
+                            <Show when={resource.mimeType}>{(mime) => <span class="fc-chip">{mime()}</span>}</Show>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </div>
+                </Show>
+
+                {/* Who can reach it: an agent's `tools` map is where access lives (H-34). */}
+                <Show
+                  when={(access().get(server.name) ?? []).length > 0}
+                  fallback={<p class="fc-mcp-access-none">{t("No agent allows this server yet.")}</p>}
                 >
-                  {statusLabel(server) === "connected" ? t("Disconnect") : t("Connect")}
-                </button>
-                <button
-                  class="fc-button fc-button-danger"
-                  type="button"
-                  disabled={props.busy}
-                  onClick={() => props.onRemove(server.name)}
-                >
-                  {t("Remove")}
-                </button>
+                  <p class="fc-mcp-access">
+                    {t("Agents that allow it: {agents}", { agents: (access().get(server.name) ?? []).join(", ") })}
+                  </p>
+                </Show>
               </li>
             )}
           </For>
@@ -302,6 +361,8 @@ export const McpManager: Component<McpManagerProps> = (props) => (
         <McpEditor
           servers={props.servers}
           configs={props.configs}
+          resources={props.resources}
+          agents={props.agents}
           busy={props.busy}
           onAdd={props.onAdd}
           onRemove={props.onRemove}
