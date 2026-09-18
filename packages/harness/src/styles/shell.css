@@ -3789,6 +3789,25 @@ button.fc-status {
   color: var(--fc-accent);
 }
 
+.fc-keybind-row {
+  display: inline-flex;
+  gap: var(--fc-space-1);
+  align-items: center;
+}
+
+.fc-confirm-message {
+  margin: 0 0 var(--fc-space-3);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+  line-height: 1.5;
+}
+
+.fc-settings-note {
+  margin: 0 0 var(--fc-space-2);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
 .fc-folder-select {
   height: 24px;
   max-width: 200px;

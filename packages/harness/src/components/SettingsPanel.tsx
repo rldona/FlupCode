@@ -3,6 +3,7 @@ import type { ModelInfo } from "../engine-types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
+import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
 import { isDeprecated } from "../model-catalog"
@@ -28,7 +29,8 @@ type SettingsPanelProps = {
   /** "provider/model" for suggestions, or "" for the automatic small model. */
   suggestionModel: string
   notifications: boolean
-  paletteKey: string
+  /** The editable shortcuts (H-24). */
+  keybinds: Keybinds
   /** Permissions the reader granted with "Allow always"; the engine applies them to every session. */
   savedPermissions: Array<{ id: string; action: string; resource: string }>
   onRevokePermission: (id: string) => void
@@ -44,12 +46,23 @@ type SettingsPanelProps = {
   onToggleReplySuggestions: () => void
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
-  onPaletteKey: (value: string) => void
+  onKeybind: (action: KeybindAction, binding: string) => void
   onOpenMcp: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
   onOpenAbout: () => void
   onClose: () => void
+}
+
+/** What each bindable action is called, reusing the command names already translated. */
+const KEYBIND_LABELS: Record<KeybindAction, string> = {
+  palette: "Command palette",
+  newSession: "New session",
+  toggleSidebar: "Toggle sidebar",
+  toggleContextPanel: "Toggle context panel",
+  settings: "Settings",
+  compact: "Compact the current session",
+  split: "Split view",
 }
 
 function groupModels(models: ModelInfo[]) {
@@ -367,10 +380,33 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
             <section class="fc-settings-section">
               <h3 class="fc-settings-title">{t("Shortcuts")}</h3>
-              <label class="fc-settings-row">
-                <span>{t("Command palette")}</span>
-                <KeyCapture value={props.paletteKey} onChange={props.onPaletteKey} />
-              </label>
+              <p class="fc-settings-note">
+                {t("Click a key and press the new one. A key belongs to one action: giving it away clears the other.")}
+              </p>
+              <For each={KEYBIND_ACTIONS}>
+                {(action) => (
+                  <label class="fc-settings-row">
+                    <span>{t(KEYBIND_LABELS[action])}</span>
+                    <span class="fc-keybind-row">
+                      <KeyCapture
+                        value={props.keybinds[action]}
+                        onChange={(binding) => props.onKeybind(action, binding)}
+                      />
+                      <Show when={props.keybinds[action]}>
+                        <button
+                          class="fc-icon-button"
+                          type="button"
+                          title={t("Clear")}
+                          aria-label={t("Clear")}
+                          onClick={() => props.onKeybind(action, "")}
+                        >
+                          ×
+                        </button>
+                      </Show>
+                    </span>
+                  </label>
+                )}
+              </For>
             </section>
 
             <section class="fc-settings-section">
