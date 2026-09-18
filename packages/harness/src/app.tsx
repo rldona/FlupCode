@@ -3446,6 +3446,19 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
+  // Each task of a worktree run wrote on its own branch (H-29); merging and cleaning up are the two
+  // things a reader does with them once the run is over.
+  const mergeWorktrees = (id: string) =>
+    void createHarnessClient(harnessServerUrl())
+      .runs.mergeWorktrees(id)
+      .then((result) => toast(t("Merged {n} worktrees", { n: result.merged.length }), "success"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  const cleanupWorktrees = (id: string) =>
+    void createHarnessClient(harnessServerUrl())
+      .runs.cleanupWorktrees(id)
+      .then((result) => toast(t("Removed {n} worktrees", { n: result.removed.length }), "success"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+
   /**
    * Do a task again (H-12). The server adds it as a new task of the same run, so the stream carries
    * it back like any other and nothing here has to guess where it goes.
@@ -4878,6 +4891,8 @@ export const App: Component = () => {
         onClear={clearRuns}
         onStopAll={stopAllRuns}
         onApprove={approveRun}
+        onMergeWorktrees={mergeWorktrees}
+        onCleanupWorktrees={cleanupWorktrees}
         activity={taskActivity() ?? {}}
         touched={touched() ?? {}}
         tools={taskTools() ?? {}}

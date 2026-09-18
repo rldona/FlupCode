@@ -1050,6 +1050,12 @@ const ES: Record<string, string> = {
   "Nothing added.": "No hay nada añadido.",
   "Add URL": "Añadir URL",
   "Skill sources saved": "Fuentes de skills guardadas",
+
+  // Worktrees per task (H-29)
+  "Merge worktrees": "Fusionar los worktrees",
+  "Clean up": "Limpiar",
+  "Merged {n} worktrees": "Fusionados {n} worktrees",
+  "Removed {n} worktrees": "Eliminados {n} worktrees",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
