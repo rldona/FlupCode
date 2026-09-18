@@ -56,6 +56,19 @@ describe("an external command (H-38)", () => {
     expect(result.ok).toBe(false)
   })
 
+  test("a command the shell forked is killed with it, pipes and all", async () => {
+    // The shape that failed on Linux: killing only the shell leaves `sleep` alive holding the pipes,
+    // so the read never sees the end and the kill looks like a hang.
+    const result = await runExternal({
+      command: "sleep 30 & wait",
+      directory: process.cwd(),
+      limitMs: 50,
+      pollMs: 10,
+    })
+    expect(result.timedOut).toBe(true)
+    expect(result.ok).toBe(false)
+  })
+
   test("what it prints is kept in full until the cap, and the tail after", async () => {
     const seen: string[] = []
     const result = await runExternal({

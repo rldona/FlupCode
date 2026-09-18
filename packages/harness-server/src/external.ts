@@ -68,6 +68,10 @@ export async function runExternal(input: {
     stdout: "pipe",
     stderr: "pipe",
     stdin: "ignore",
+    // Its own process group, so a stop can take the whole thing. A login shell may fork the command
+    // instead of replacing itself with it, and killing only the shell leaves the real process alive
+    // holding the pipes — which reads as a hang, not as a kill, and is how this failed on Linux.
+    detached: true,
     env: { ...process.env, NO_COLOR: "1" },
   })
 
@@ -84,15 +88,26 @@ export async function runExternal(input: {
       input.onOutput?.(output)
     }
   }
+  /** The group goes, not just the shell: what was started is the command, whatever it forked. */
+  const kill = () => {
+    if (child.exitCode !== null) return
+    try {
+      process.kill(-child.pid, "SIGKILL")
+    } catch {
+      // Windows has no process groups. The direct child is still better than nothing.
+      child.kill()
+    }
+  }
   const watcher = setInterval(() => {
+    if (child.exitCode !== null) return
     if (input.stopped?.()) {
       stopped = true
-      child.kill()
+      kill()
       return
     }
     if (input.limitMs && Date.now() - startedAt > input.limitMs) {
       timedOut = true
-      child.kill()
+      kill()
     }
   }, input.pollMs ?? POLL_MS)
 
