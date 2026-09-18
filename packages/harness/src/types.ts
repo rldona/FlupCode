@@ -41,7 +41,30 @@ export type Workflow = {
   description: string
   /** The names it asks for. The launcher fills the first one with whatever was typed after it. */
   inputs: string[]
-  tasks: Array<{ id: string; kind?: TaskKind; agent?: string; gate?: "human" }>
+  tasks: Array<{
+    id: string
+    kind?: TaskKind
+    agent?: string
+    gate?: "human"
+    /** The tasks it waits for (H-28); an empty list means it is a root. */
+    dependsOn?: string[]
+    /** `true` is the same as an empty `dependsOn`: it does not follow the task above it. */
+    parallel?: boolean
+    /** Run only if an earlier task ended a certain way (H-28). */
+    when?: TaskCondition
+  }>
+}
+
+/**
+ * A workflow as it is written on disk (H-28), for the editor: the file's path and its text, not just
+ * the shape the runner reads.
+ */
+export type WorkflowFile = {
+  name: string
+  scope: "project" | "global"
+  path: string
+  source: string
+  workflow: Workflow
 }
 
 /**

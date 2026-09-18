@@ -1,8 +1,20 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { TEMPLATES, duration, fill, findWorkflow, listWorkflows, parseWorkflow, seedTemplates, tasksFor } from "./workflow"
+import {
+  TEMPLATES,
+  duration,
+  fill,
+  findWorkflow,
+  listWorkflows,
+  parseWorkflow,
+  readWorkflow,
+  removeWorkflow,
+  saveWorkflow,
+  seedTemplates,
+  tasksFor,
+} from "./workflow"
 
 const made: string[] = []
 const scratch = () => {
@@ -179,6 +191,70 @@ tasks:
       "x",
     )!
     expect(workflow.tasks[0]!.when).toBeUndefined()
+  })
+})
+
+describe("editing a workflow file (H-28)", () => {
+  test("reads the file a project would run, source and all", async () => {
+    const shared = scratch()
+    const project = scratch()
+    process.env.XDG_DATA_HOME = shared
+    write(join(shared, "flupcode", "workflows"), "feature.yaml", "name: feature\ntasks:\n  - id: a\n    prompt: shared\n")
+    write(join(project, ".flupcode", "workflows"), "feature.yaml", "name: feature\ntasks:\n  - id: a\n    prompt: mine\n")
+
+    const found = await readWorkflow("feature", project)
+    expect(found?.scope).toBe("project")
+    expect(found?.source).toContain("mine")
+    expect(found?.path).toContain(join(".flupcode", "workflows", "feature.yaml"))
+    // A name nobody wrote down is not a workflow, and is not invented.
+    expect(await readWorkflow("ghost", project)).toBeUndefined()
+  })
+
+  test("writes a workflow it can read back, and refuses one it cannot", async () => {
+    const shared = scratch()
+    process.env.XDG_DATA_HOME = shared
+    const project = scratch()
+
+    const refused = await saveWorkflow({ name: "broken", source: "tasks: [", scope: "project", directory: project })
+    expect(refused).toHaveProperty("problem")
+
+    const saved = await saveWorkflow({
+      name: "feature",
+      source: "name: feature\ntasks:\n  - id: plan\n    prompt: plan\n",
+      scope: "project",
+      directory: project,
+    })
+    expect(saved).toHaveProperty("saved")
+    expect((await readWorkflow("feature", project))?.workflow.tasks[0]!.id).toBe("plan")
+
+    // Editing keeps the filename, so a save is never a silent rename; and the id taken from the
+    // body is the name the launcher addresses it by.
+    const renamed = await saveWorkflow({
+      name: "feature",
+      source: "name: renamed\ntasks:\n  - id: plan\n    prompt: plan\n",
+      scope: "project",
+      directory: project,
+    })
+    expect(renamed).toHaveProperty("saved")
+    expect(existsSync(join(project, ".flupcode", "workflows", "renamed.yaml"))).toBe(true)
+  })
+
+  test("a project's workflow needs a folder, and can be removed", async () => {
+    const shared = scratch()
+    process.env.XDG_DATA_HOME = shared
+    const project = scratch()
+    expect(await saveWorkflow({ name: "x", source: "name: x\ntasks:\n  - id: a\n    prompt: a\n", scope: "project" }))
+      .toHaveProperty("problem")
+
+    await saveWorkflow({
+      name: "x",
+      source: "name: x\ntasks:\n  - id: a\n    prompt: a\n",
+      scope: "project",
+      directory: project,
+    })
+    expect(await removeWorkflow("x", project)).toBe(true)
+    expect(await readWorkflow("x", project)).toBeUndefined()
+    expect(await removeWorkflow("x", project)).toBe(false)
   })
 })
 

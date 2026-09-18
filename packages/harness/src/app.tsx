@@ -74,6 +74,7 @@ import type {
   SessionPrefs,
   Task,
   Workflow,
+  WorkflowFile,
   StashedPrompt,
   ContextPack,
   ProjectMemory,
@@ -121,6 +122,7 @@ import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
+import { WorkflowsPanel } from "./components/WorkflowsPanel"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
@@ -167,6 +169,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "stash", descriptionKey: "Save the current prompt" },
   { name: "stashes", descriptionKey: "View saved prompts" },
   { name: "skills", descriptionKey: "Skills" },
+  { name: "workflows", descriptionKey: "Workflows" },
   { name: "memory", descriptionKey: "Memory" },
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
@@ -431,6 +434,7 @@ export const App: Component = () => {
   const contextOpen = () => screen() === "context"
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
+  const workflowsScreenOpen = () => screen() === "workflows"
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -725,7 +729,7 @@ export const App: Component = () => {
    * Keyed by the folder as well as the server: a repository's own workflows win over the shared
    * ones, so the list is different depending on where the session is working.
    */
-  const [workflows] = createResource(
+  const [workflows, { refetch: refetchWorkflows }] = createResource(
     () => `${harnessServerUrl()}\n${modelLocation() ?? ""}`,
     async (key) => {
       const [url = "", directory = ""] = key.split("\n")
@@ -1845,6 +1849,10 @@ export const App: Component = () => {
       }
       if (name === "skills") {
         setSkillsOpen(true)
+        return
+      }
+      if (name === "workflows") {
+        showScreen("workflows")
         return
       }
       if (name === "memory") {
@@ -3495,8 +3503,26 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const approveRun = (id: string) => {
-    void createHarnessClient(harnessServerUrl())
+  // The workflow editor (H-28): the file as written, saved back, and removed. Each one refreshes the
+  // list, because a save can rename a workflow and a delete removes a row.
+  const readWorkflowFile = (name: string) =>
+    createHarnessClient(harnessServerUrl()).workflows.get(name, modelLocation())
+  const saveWorkflowFile = (name: string, input: { source: string; directory?: string; scope?: "project" | "global" }) =>
+    createHarnessClient(harnessServerUrl())
+      .workflows.save(name, input)
+      .then((saved) => {
+        void refetchWorkflows()
+        return saved
+      })
+  const deleteWorkflowFile = (name: string) =>
+    createHarnessClient(harnessServerUrl())
+      .workflows.remove(name, modelLocation())
+      .then((removed) => {
+        void refetchWorkflows()
+        return removed
+      })
+
+  const approveRun = (id: string) => {    void createHarnessClient(harnessServerUrl())
       .runs.approve(id)
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
@@ -4224,6 +4250,11 @@ export const App: Component = () => {
         setSkillsOpen(true)
         return
       }
+      if (name === "workflows") {
+        setPrompt("")
+        showScreen("workflows")
+        return
+      }
       if (name === "memory") {
         setPrompt("")
         setMemoryOpen(true)
@@ -4458,6 +4489,7 @@ export const App: Component = () => {
             onContext={() => showScreen("context")}
             onAgents={() => showScreen("agents")}
             onSkills={() => showScreen("skills")}
+            onWorkflows={() => showScreen("workflows")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
@@ -5167,6 +5199,17 @@ export const App: Component = () => {
           setSkillsOpen(false)
         }}
         onClose={() => setSkillsOpen(false)}
+      />
+      <WorkflowsPanel
+        open={workflowsScreenOpen()}
+        files={workflows() ?? []}
+        loading={workflows.loading}
+        serverAvailable={routinesServerAvailable()}
+        directory={modelLocation()}
+        onRead={readWorkflowFile}
+        onSave={saveWorkflowFile}
+        onDelete={deleteWorkflowFile}
+        onClose={() => leaveScreen()}
       />
       <MemoryPanel
         open={memoryOpen()}

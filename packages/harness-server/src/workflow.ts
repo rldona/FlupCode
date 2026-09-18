@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, rmSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { TaskCondition, TaskInput } from "./types"
@@ -251,6 +251,91 @@ export async function listWorkflows(directory?: string) {
 
 export async function findWorkflow(name: string, directory?: string) {
   return (await listWorkflows(directory)).find((workflow) => workflow.name === name)
+}
+
+/**
+ * Where a workflow lives and what it says (H-28), for the editor.
+ *
+ * The list is by name, but a file is by path, and editing needs both. A project's file wins, exactly
+ * as it does when running one, so opening `feature` edits the one that would run in this folder.
+ */
+export type WorkflowFile = {
+  name: string
+  scope: "project" | "global"
+  path: string
+  /** The file as written, so a person edits the YAML rather than the parsed shape. */
+  source: string
+  workflow: Workflow
+}
+
+const workflowExtensions = [".yaml", ".yml"]
+
+const findByName = async (directory: string, name: string) => {
+  if (!existsSync(directory)) return undefined
+  for (const entry of readdirSync(directory)) {
+    if (!workflowExtensions.some((extension) => entry.endsWith(extension))) continue
+    const path = join(directory, entry)
+    const source = await Bun.file(path)
+      .text()
+      .catch(() => undefined)
+    if (source === undefined) continue
+    const workflow = parseWorkflow(source, entry.replace(/\.ya?ml$/, ""))
+    if (workflow?.name === name) return { path, source, workflow }
+  }
+  return undefined
+}
+
+export async function readWorkflow(name: string, directory?: string) {
+  const places: Array<{ scope: "project" | "global"; directory: string }> = []
+  if (directory) places.push({ scope: "project", directory: projectWorkflowsDirectory(directory) })
+  places.push({ scope: "global", directory: userWorkflowsDirectory() })
+  for (const place of places) {
+    const found = await findByName(place.directory, name)
+    if (found) return { name, scope: place.scope, ...found }
+  }
+  return undefined
+}
+
+/** A filename a workflow name can become: lowercase, dashes, no separators. */
+const fileSlug = (name: string) =>
+  name
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "") || "workflow"
+
+/**
+ * Writes a workflow file (H-28).
+ *
+ * What is written is validated by reading it back, so a file that would not run cannot be saved as
+ * one. An existing workflow keeps its filename — an edit is not a rename — and only what is missing
+ * is created.
+ */
+export async function saveWorkflow(input: {
+  name: string
+  source: string
+  directory?: string
+  scope?: "project" | "global"
+}): Promise<{ saved: WorkflowFile } | { problem: string }> {
+  const workflow = parseWorkflow(input.source, input.name)
+  if (!workflow) return { problem: "That is not a workflow this server can read" }
+  const scope = input.scope ?? (input.directory ? "project" : "global")
+  if (scope === "project" && !input.directory) return { problem: "A project's workflow needs a folder" }
+  const directory =
+    scope === "project" ? projectWorkflowsDirectory(input.directory!) : userWorkflowsDirectory()
+  mkdirSync(directory, { recursive: true })
+  const existing = await findByName(directory, workflow.name)
+  const path = existing?.path ?? join(directory, `${fileSlug(workflow.name)}.yaml`)
+  await Bun.write(path, input.source)
+  return { saved: { name: workflow.name, scope, path, source: input.source, workflow } }
+}
+
+/** Forgets a workflow file. A project's is tried first, the same order reads use. */
+export async function removeWorkflow(name: string, directory?: string) {
+  const found = await readWorkflow(name, directory)
+  if (!found) return false
+  rmSync(found.path, { force: true })
+  return true
 }
 
 /**

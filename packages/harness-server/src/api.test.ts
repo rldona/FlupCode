@@ -239,6 +239,60 @@ tasks:
     else process.env.XDG_DATA_HOME = previousDataHome
   })
 
+  // H-28's editor: the file as written, saved back only if the server can still read it. The name is
+  // not one of the seeded templates, so the global folder cannot stand in for the project's file.
+  test("reads a workflow's source, saves an edit, and deletes it", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-edit-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "custom.yaml"),
+      "name: custom\ntasks:\n  - id: plan\n    prompt: plan\n",
+    )
+
+    const read = await handler(
+      new Request(`http://localhost/harness/workflows/custom?directory=${encodeURIComponent(directory)}`),
+    )
+    expect(read.status).toBe(200)
+    const body = (await read.json()).data
+    expect(body.scope).toBe("project")
+    expect(body.source).toContain("prompt: plan")
+
+    const saved = await handler(
+      new Request("http://localhost/harness/workflows/custom", {
+        method: "PUT",
+        body: JSON.stringify({
+          source: "name: custom\ntasks:\n  - id: plan\n    prompt: edited\n",
+          directory,
+        }),
+      }),
+    )
+    expect(saved.status).toBe(201)
+    expect(readFileSync(join(directory, ".flupcode", "workflows", "custom.yaml"), "utf8")).toContain("edited")
+
+    // What would not run cannot be saved as a workflow.
+    const refused = await handler(
+      new Request("http://localhost/harness/workflows/custom", {
+        method: "PUT",
+        body: JSON.stringify({ source: "tasks: [", directory }),
+      }),
+    )
+    expect(refused.status).toBe(400)
+
+    const removed = await handler(
+      new Request(`http://localhost/harness/workflows/custom?directory=${encodeURIComponent(directory)}`, {
+        method: "DELETE",
+      }),
+    )
+    expect(removed.status).toBe(200)
+    const gone = await handler(
+      new Request(`http://localhost/harness/workflows/custom?directory=${encodeURIComponent(directory)}`),
+    )
+    expect(gone.status).toBe(404)
+    repository.close()
+  })
+
   test("says which input it is missing, and which workflow it has never heard of", async () => {
     const { repository, handler } = open()
     const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-"))
