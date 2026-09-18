@@ -1,4 +1,6 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { basename } from "node:path"
+import { pathToFileURL } from "node:url"
 
 type Result<T> = { data?: T; error?: unknown }
 
@@ -150,6 +152,13 @@ export class Engine {
     directory?: string
     agent?: string
     model?: { providerID: string; id: string; variant?: string }
+    /**
+     * Files to hand the turn as parts (H-31), read by the engine's own Read tool.
+     *
+     * A path is not text: a `file` part with a `file://` URL is how the engine puts a file's contents
+     * in front of the model, and a path typed into the message would not be.
+     */
+    files?: Array<{ path: string; filename?: string }>
   }) {
     return unwrap(
       this.client.session.promptAsync({
@@ -162,7 +171,15 @@ export class Engine {
               ...(input.model.variant ? { variant: input.model.variant } : {}),
             }
           : {}),
-        parts: [{ type: "text", text: input.text }],
+        parts: [
+          { type: "text", text: input.text },
+          ...(input.files ?? []).map((file) => ({
+            type: "file" as const,
+            mime: "text/plain",
+            url: pathToFileURL(file.path).toString(),
+            filename: file.filename ?? basename(file.path),
+          })),
+        ],
       }),
     )
   }
@@ -319,6 +336,34 @@ export class Engine {
     await this.waitForIdle(session.id, { directory: input.directory, timeoutMs: 120_000 })
     const answer = await this.lastAnswer(session.id, input.directory)
     return (answer?.text ?? "").trim()
+  }
+
+  /**
+   * A closing note for one task, for the next one to start from (H-31).
+   *
+   * §6.2's "a handoff, not a transcript": the next task gets what this one decided, rejected and left
+   * pending — not its conversation. A session of its own, like the commit message, so the note costs
+   * no turn of the step it is about. An empty answer means the caller keeps what it had.
+   */
+  async handoff(input: { directory?: string; task: string; answer: string }): Promise<string> {
+    const session = await this.createSession({
+      ...(input.directory ? { directory: input.directory } : {}),
+      title: `${input.task} — handoff`,
+    })
+    await this.prompt({
+      sessionID: session.id,
+      ...(input.directory ? { directory: input.directory } : {}),
+      text: [
+        "Summarise this step for the next one.",
+        "Answer with at most 15 lines under these headings, facts only, no preamble:",
+        "Decided, Rejected, Risks, Files, Pending.",
+        "",
+        `Step: ${input.task}`,
+        input.answer,
+      ].join("\n"),
+    })
+    await this.waitForIdle(session.id, { directory: input.directory, timeoutMs: 120_000 })
+    return (await this.lastAnswer(session.id, input.directory))?.text?.trim() ?? ""
   }
 
   async lastAnswer(sessionID: string, directory?: string) {

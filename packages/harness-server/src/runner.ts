@@ -4,6 +4,7 @@ import type { Run, Task } from "./types"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
+import { packFiles, packRefs } from "./packs"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -41,14 +42,14 @@ const failureSummary = (report: { steps: Array<{ name: string; exitCode: number 
  * conversation. It keeps the prompt small and the dependency explicit — and it is why a task stores
  * its output at all.
  */
-function compose(task: Task, handoff: string | undefined) {
-  if (!handoff) return task.prompt
-  return [
-    `Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`,
-    handoff.slice(0, 4000),
-    "",
-    task.prompt,
-  ].join("\n")
+function compose(task: Task, handoff: string | undefined, context?: string) {
+  const body = !handoff
+    ? task.prompt
+    : [`Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`, handoff.slice(0, 4000), "", task.prompt].join(
+        "\n",
+      )
+  if (!context) return body
+  return [`Context packs:`, context, "", body].join("\n")
 }
 
 /**
@@ -135,6 +136,36 @@ export class TaskRunner {
   }
 
   /**
+   * A closing note for a task, for the next one and for the record (H-31).
+   *
+   * Written by the engine in a session of its own, so it costs no turn of the task it is about, and
+   * kept as a `handoff` artifact so a run can be read back without the transcripts. The raw answer is
+   * the fallback: a note that could not be written must not lose what the task actually said.
+   */
+  private async handoffNote(run: Run, task: Task, answer: string | undefined, directory?: string) {
+    if (!answer) return undefined
+    const engine = this.engine as Engine & { handoff?: unknown }
+    // A test that fakes the engine has no note to write; the caller gets the answer it already had.
+    if (typeof engine.handoff !== "function") return answer
+    try {
+      const note = await this.engine.handoff({ directory, task: task.name, answer })
+      if (!note) return answer
+      this.repository.addArtifact({
+        kind: "handoff",
+        title: `${task.name} — handoff`,
+        producer: "harness",
+        content: note,
+        directory,
+        runID: run.id,
+        taskID: task.id,
+      })
+      return note
+    } catch {
+      return answer
+    }
+  }
+
+  /**
    * Runs what is queued, and says why it stopped.
    *
    * `paused` is a run that reached a human gate and is waiting to be let through — not an ending,
@@ -150,6 +181,13 @@ export class TaskRunner {
     // Re-read: the run gained its session after it was started, when the caller decided the work
     // needed a thread of its own.
     const parentID = tasks.length > 1 ? (this.repository.getRun(run.id)?.sessionID ?? run.sessionID) : undefined
+    // The run's context packs (H-31), resolved once: the files a task gets as `file` parts, and
+    // anything else as a text block. Same for every task, because the pack is the run's, not one's.
+    const packs = run.packs && run.packs.length > 0 && options.directory
+      ? packFiles(packRefs(this.repository.listPacks(options.directory), run.packs), options.directory)
+      : { files: [], others: [] }
+    const context = packs.others.length > 0 ? packs.others.join("\n") : undefined
+    const contextFiles = packs.files.map((path) => ({ path }))
     let handoff: string | undefined
 
     for (let task = nextQueued(); task; task = nextQueued()) {
@@ -210,10 +248,11 @@ export class TaskRunner {
           this.repository.attachTaskSession(task.id, session.id)
           await this.engine.prompt({
             sessionID: session.id,
-            text: compose(task, handoff),
+            text: compose(task, handoff, context),
             directory: options.directory,
             agent: task.agent,
             model: task.model,
+            ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
           })
           await this.engine.waitForIdle(session.id, {
             directory: options.directory,
@@ -226,7 +265,10 @@ export class TaskRunner {
             tokens: answer?.tokens,
             cost: answer?.cost,
           })
-          handoff = answer?.text
+          // What the next task starts from (H-31): a closing note, not the whole answer. The note is
+          // kept as an artifact so the run can be read back, and the raw answer is the fallback when
+          // the note cannot be written.
+          handoff = await this.handoffNote(run, task, answer?.text, options.directory)
           // Findings (H-32). Tried after every agent task rather than only after a review: an
           // answer with no parseable block simply has none, and it costs one regular expression.
           // A task that was asked for them and produced none has genuinely found nothing.
