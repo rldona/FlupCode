@@ -385,22 +385,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 <span class="fc-nav-icon">⛭</span>
                 {t("Runs")}
               </button>
-              <button class="fc-nav-item" type="button" onClick={props.onUsage}>
-                <span class="fc-nav-icon">▦</span>
-                {t("Cost")}
-              </button>
-              <button class="fc-nav-item" type="button" onClick={props.onContext}>
-                <span class="fc-nav-icon">◫</span>
-                {t("Context")}
-              </button>
-              <button class="fc-nav-item" type="button" onClick={props.onAgents}>
-                <span class="fc-nav-icon">◍</span>
-                {t("Agents")}
-              </button>
-              <button class="fc-nav-item" type="button" onClick={props.onSkills}>
-                <span class="fc-nav-icon">✦</span>
-                {t("Skills")}
-              </button>
               <button class="fc-nav-item" type="button" onClick={props.onWorkflows}>
                 <span class="fc-nav-icon">⛓</span>
                 {t("Workflows")}
@@ -620,6 +604,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                     disabled: UNAVAILABLE_FEATURES.has("routines"),
                     onSelect: () => props.onRoutines(),
                   },
+                  // The inspector screens live here rather than in the nav: they are consulted,
+                  // not worked in, and the nav keeps the work.
+                  { label: t("Cost"), icon: "▦", onSelect: props.onUsage },
+                  { label: t("Context"), icon: "◫", onSelect: props.onContext },
+                  { label: t("Agents"), icon: "◍", onSelect: props.onAgents },
+                  { label: t("Skills"), icon: "✦", onSelect: props.onSkills },
                   { label: t("MCP servers"), icon: "◫", onSelect: props.onMcp },
                   { label: t("Config (advanced)"), icon: "{}", onSelect: props.onConfig },
                   { label: t("Remote control"), icon: "◉", onSelect: props.onRemote },
