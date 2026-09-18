@@ -11,6 +11,10 @@ import { cascade, DEFAULT_BOUNDS } from "./window-bounds"
 
 const DEV_URL = process.env.FLUPCODE_DEV_URL ?? "http://localhost:4444"
 
+// Electron names the app after the package, so the menu bar and its Hide/Quit items read
+// "@flupcode/desktop". The bundle is called FlupCode; the app calls itself that too.
+app.setName("FlupCode")
+
 /** Where the page draws the window's top strip itself, controls and all. */
 const OWNS_TITLE_BAR = process.platform === "darwin" || process.platform === "win32"
 
