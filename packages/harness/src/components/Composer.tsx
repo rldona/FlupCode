@@ -2,7 +2,6 @@ import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type 
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, BranchState, CheckLog, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
-import { toast } from "../toast"
 import { ModeMenu } from "./ModeMenu"
 import { DeliveryMenu } from "./DeliveryMenu"
 import { FolderMenu } from "./FolderMenu"
@@ -11,9 +10,11 @@ import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { ComposerMenu } from "./ComposerMenu"
-import { applyMention, filterCommands, mentionItems, mentionToken, slashQuery, type MentionItem } from "../composer-menus"
+import { applyMention, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
 import { stepHistory } from "../prompt-history"
-import { dictationAvailable, startDictation } from "../dictation"
+import { dictationAvailable } from "../dictation"
+import { isCowork, isPlainChat, useDictation } from "../composer-core"
+import { MobileComposer } from "./MobileComposer"
 import { primaryAgents } from "../agents"
 import type { AppView, ChatClass } from "../chat"
 import type { Delivery } from "../pending-prompts"
@@ -78,6 +79,9 @@ type ComposerProps = {
   agents: AgentInfo[]
   /** Artifacts the `@` menu can reach, alongside files and agents (H-26). */
   artifacts?: Array<{ path: string; title?: string }>
+  /** Context packs the `@` menu can reach, and a way to save the draft's refs as one (H-26). */
+  packs?: Array<{ name: string; refs: string[] }>
+  onSavePack?: (refs: string[]) => void
   agent: string
   permissionMode: string
   /** What the engine should do with a prompt sent while the turn is running; only shown then. */
@@ -105,11 +109,10 @@ type ComposerProps = {
   onPermissionModeChange: (id: string) => void
 }
 
-export const Composer: Component<ComposerProps> = (props) => {
+const DesktopComposer: Component<ComposerProps> = (props) => {
   let fileInput: HTMLInputElement | undefined
   let input: HTMLTextAreaElement | undefined
-  let stopDictation: (() => void) | undefined
-  const [listening, setListening] = createSignal(false)
+  const { listening, toggle: toggleVoice } = useDictation((text) => props.onInput(text))
   const [dragging, setDragging] = createSignal(false)
   const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
   // Browsing sent prompts: the one shown, and the draft to return to past the newest.
@@ -140,8 +143,6 @@ export const Composer: Component<ComposerProps> = (props) => {
     }
     return true
   }
-
-  onCleanup(() => stopDictation?.())
 
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -183,8 +184,8 @@ export const Composer: Component<ComposerProps> = (props) => {
   // commands, mentions, folder, permission and delivery menus, and the context meter. The class is
   // what decides: a cowork session in a split pane is out of the Chat tab and still hides the agent.
   const tabChat = () => props.mode === "chat"
-  const chat = () => props.mode === "chat" && props.chatClass === "chat"
-  const cowork = () => props.chatClass === "cowork"
+  const chat = () => isPlainChat(props.mode, props.chatClass)
+  const cowork = () => isCowork(props.chatClass)
   // With a conversation open, only the other class starts something new, so only it says "New".
   const chatLabel = () => (props.sessionOpen && cowork() ? t("New chat") : t("Chat"))
   const coworkLabel = () => (props.sessionOpen && !cowork() ? t("New cowork") : t("Cowork"))
@@ -212,6 +213,7 @@ export const Composer: Component<ComposerProps> = (props) => {
       files: fileResults(),
       agents: primaryAgents(props.agents),
       artifacts: props.artifacts ?? [],
+      packs: props.packs ?? [],
     })
 
   createEffect(() => {
@@ -240,8 +242,12 @@ export const Composer: Component<ComposerProps> = (props) => {
   })
   const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
   const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
+  const menuCanSavePack = () => !!props.onSavePack && refsIn(props.value).length > 0
   const mentionMenuOpen = () =>
-    !menusDismissed() && commandQuery() === undefined && mentionQuery() !== undefined && mentionCandidates().length > 0
+    !menusDismissed() &&
+    commandQuery() === undefined &&
+    mentionQuery() !== undefined &&
+    (mentionCandidates().length > 0 || menuCanSavePack())
   const closeMenus = () => {
     if (commandMenuOpen()) props.onInput("")
     else setDismissedAt(props.value)
@@ -269,28 +275,6 @@ export const Composer: Component<ComposerProps> = (props) => {
   const insertMention = (item: MentionItem) => {
     props.onInput(applyMention(props.value, item))
     setFileResults([])
-  }
-
-  const toggleVoice = () => {
-    if (listening()) {
-      stopDictation?.()
-      stopDictation = undefined
-      return
-    }
-    const base = props.value
-    const stop = startDictation({
-      lang: navigator.language,
-      onTranscript: (text) => props.onInput(`${base} ${text}`.trim()),
-      onError: (code) =>
-        toast(code ? `${t("Voice dictation failed")} (${code})` : t("Voice dictation failed"), "error"),
-      onEnd: () => {
-        stopDictation = undefined
-        setListening(false)
-      },
-    })
-    if (!stop) return
-    stopDictation = stop
-    setListening(true)
   }
 
   return (
@@ -346,6 +330,18 @@ export const Composer: Component<ComposerProps> = (props) => {
               const item = mentionCandidates()[index]
               if (item) insertMention(item)
             }}
+            footer={
+              <Show when={props.onSavePack && refsIn(props.value).length > 0}>
+                <button
+                  class="fc-command-item fc-command-save"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => props.onSavePack?.(refsIn(props.value))}
+                >
+                  <span class="fc-command-name">{t("Save these as a pack")}</span>
+                </button>
+              </Show>
+            }
           />
         </Show>
 
@@ -559,7 +555,7 @@ export const Composer: Component<ComposerProps> = (props) => {
               aria-label={t("Voice dictation")}
               aria-pressed={listening()}
               disabled={!dictationAvailable()}
-              onClick={toggleVoice}
+              onClick={() => toggleVoice(props.value)}
             >
               <DockIcon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
             </button>
@@ -631,3 +627,18 @@ export const Composer: Component<ComposerProps> = (props) => {
     </footer>
   )
 }
+
+/**
+ * The prompt field, in the two shapes it is drawn in (H-26).
+ *
+ * One component and one prop surface; `variant` picks the layout. The rules that must not diverge —
+ * when a menu opens, what a mention is, what a chat means, the microphone — live in
+ * `composer-menus` and `composer-core`, so a fix in one reaches both.
+ */
+export type ComposerVariant = "desktop" | "mobile"
+
+export const Composer: Component<ComposerProps & { variant?: ComposerVariant }> = (props) => (
+  <Show when={props.variant !== "mobile"} fallback={<MobileComposer {...props} />}>
+    <DesktopComposer {...props} />
+  </Show>
+)

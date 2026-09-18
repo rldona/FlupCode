@@ -1,4 +1,4 @@
-import { For, Show, type Component } from "solid-js"
+import { For, Show, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
 
 export type MenuItem = {
@@ -22,6 +22,8 @@ export const ComposerMenu: Component<{
   onPick: (index: number) => void
   onHover?: (index: number) => void
   ref?: (element: HTMLDivElement) => void
+  /** An action under the items, for the `@` menu's "save these as a pack". */
+  footer?: JSX.Element
 }> = (props) => (
   <div class="fc-command-menu" ref={(element) => props.ref?.(element)}>
     <For each={props.items}>
@@ -46,5 +48,6 @@ export const ComposerMenu: Component<{
         </button>
       )}
     </For>
+    <Show when={props.footer}>{props.footer}</Show>
   </div>
 )

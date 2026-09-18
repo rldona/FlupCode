@@ -77,6 +77,16 @@ export type StashedPrompt = {
   createdAt: number
 }
 
+/** A context pack (H-26): a named set of references to pull back into a prompt. */
+export type ContextPack = {
+  id: string
+  name: string
+  refs: string[]
+  /** The folder it belongs to; absent means every project. */
+  directory?: string
+  createdAt: number
+}
+
 /** What a reader keeps about a session that the engine does not (H-18): pins and tags. */
 export type SessionPrefs = {
   sessionID: string

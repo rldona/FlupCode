@@ -26,6 +26,7 @@ import type {
   ToolUses,
   SkillFile,
   CommandFile,
+  ContextPack,
   Finding,
   GitCommit,
   PullRequest,
@@ -1007,6 +1008,18 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<StashedPrompt>(baseUrl, "/harness/stash", { method: "POST", body: JSON.stringify({ text }) }),
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/stash/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    /** Context packs (H-26): named sets of references the composer can pull back into a prompt. */
+    packs: {
+      list: (directory?: string) =>
+        harnessRequest<ContextPack[]>(
+          baseUrl,
+          directory ? `/harness/packs?directory=${encodeURIComponent(directory)}` : "/harness/packs",
+        ),
+      save: (input: { name: string; refs: string[]; directory?: string }) =>
+        harnessRequest<ContextPack>(baseUrl, "/harness/packs", { method: "POST", body: JSON.stringify(input) }),
+      remove: (id: string) =>
+        harnessRequest<boolean>(baseUrl, `/harness/packs/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     workflows: {
       /** What this project can run. A project's own win over the ones shared across projects. */
