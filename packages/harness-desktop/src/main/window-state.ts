@@ -1,39 +1,37 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { app } from "electron"
+import { decodeWindowStates, type WindowBounds } from "./window-bounds"
 
-type Bounds = {
-  width: number
-  height: number
-  x?: number
-  y?: number
-}
-
-const DEFAULT_BOUNDS: Bounds = { width: 1280, height: 840 }
+/**
+ * Where the windows were (H-36).
+ *
+ * One entry per window, not one for the app: with several windows open, a single set of bounds is
+ * the last one to close, and every window then reopens on top of the others. An older file held a
+ * single object and is still read.
+ */
 
 function stateFile() {
   return join(app.getPath("userData"), "window-state.json")
 }
 
-export function loadBounds(): Bounds {
+export function loadWindowStates(): WindowBounds[] {
   try {
-    if (!existsSync(stateFile())) return DEFAULT_BOUNDS
-    const raw = JSON.parse(readFileSync(stateFile(), "utf8")) as Partial<Bounds>
-    return {
-      width: typeof raw.width === "number" ? raw.width : DEFAULT_BOUNDS.width,
-      height: typeof raw.height === "number" ? raw.height : DEFAULT_BOUNDS.height,
-      x: typeof raw.x === "number" ? raw.x : undefined,
-      y: typeof raw.y === "number" ? raw.y : undefined,
-    }
+    if (!existsSync(stateFile())) return []
+    return decodeWindowStates(JSON.parse(readFileSync(stateFile(), "utf8")))
   } catch {
-    return DEFAULT_BOUNDS
+    return []
   }
 }
 
-export function saveBounds(bounds: Bounds) {
+export function saveWindowState(index: number, bounds: WindowBounds) {
   try {
-    writeFileSync(stateFile(), JSON.stringify(bounds))
+    const states = loadWindowStates()
+    states[index] = bounds
+    writeFileSync(stateFile(), JSON.stringify(states))
   } catch {
     return
   }
 }
+
+export { DEFAULT_BOUNDS, type WindowBounds } from "./window-bounds"
