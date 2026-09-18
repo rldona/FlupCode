@@ -133,6 +133,8 @@ export type Run = {
   toolLimitMs?: number
   /** This run was allowed to reach outside its project. Stated on screen, because it is unusual. */
   outside?: boolean
+  /** Context packs every task of this run is given (H-31), by name. */
+  packs?: string[]
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
 }

@@ -56,6 +56,14 @@ export type Run = {
    * only restrict, and a bypass is stated.
    */
   outside?: boolean
+  /**
+   * Context packs to give every task in this run (H-31).
+   *
+   * A pack is a named set of references; the runner turns the ones that are files into `file` parts
+   * and the rest into a context block, so a run works from what previous ones learned without
+   * replaying a transcript.
+   */
+  packs?: string[]
 }
 
 export type RoutineInput = {
@@ -300,7 +308,12 @@ export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 
 /** Runs, whatever asked for them. */
 export type RunRepository = {
-  startRun(source: RunSource, now: number, directory?: string, options?: Pick<Run, "toolLimitMs" | "outside">): Run
+  startRun(
+    source: RunSource,
+    now: number,
+    directory?: string,
+    options?: Pick<Run, "toolLimitMs" | "outside" | "packs">,
+  ): Run
   /** Hold a run at a gate: not running, not finished, waiting for a person. */
   awaitRun(runID: string): void
   /** Let it through, and say whether there was anything to let through. */

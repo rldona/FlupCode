@@ -738,3 +738,19 @@ describe("harness files API", () => {
     repository.close()
   })
 })
+
+describe("harness runs API", () => {
+  test("a run remembers the context packs it was started with", async () => {
+    const { handler, repository } = open()
+    const started = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "one", prompt: "go" }], packs: ["ctx", "notes"] }),
+      }),
+    )
+    const run = (await started.json()).data
+    expect(run.packs).toEqual(["ctx", "notes"])
+    await settled(repository, run.id)
+    repository.close()
+  })
+})
