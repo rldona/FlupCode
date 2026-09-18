@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
 import { compareRuns, type RunSnapshot } from "../compare"
 import type { Run } from "../types"
@@ -6,6 +6,9 @@ import type { Run } from "../types"
 type ComparePanelProps = {
   open: boolean
   runs: Run[]
+  /** The pair a best-of-n landed on (H-44), picked as soon as the panel opens. */
+  initialLeft?: string
+  initialRight?: string
   /** Everything the comparison needs about one run: itself, its tasks and what they changed. */
   onLoad: (id: string) => Promise<RunSnapshot>
   onClose: () => void
@@ -48,6 +51,19 @@ export const ComparePanel: Component<ComparePanelProps> = (props) => {
     const b = right()
     return a && b ? compareRuns(a, b) : []
   }
+
+  // A best-of-n opens this panel with its first two runs already chosen (H-44). An ordinary visit
+  // has no pair and the reader picks, exactly as before.
+  createEffect(
+    on(
+      () => [props.open, props.initialLeft, props.initialRight] as const,
+      ([open, presetLeft, presetRight]) => {
+        if (!open || !presetLeft) return
+        void pick("left", presetLeft)
+        if (presetRight) void pick("right", presetRight)
+      },
+    ),
+  )
 
   const picker = (side: "left" | "right", value: () => string | undefined) => (
     <select

@@ -10,7 +10,7 @@ import type {
   TaskInput,
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
-import { MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { eventStream, resumeFrom } from "./stream"
 
 const json = (value: unknown, status = 200) =>
@@ -302,6 +302,52 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         },
         202,
       )
+    }
+    // The same task on N models at once (H-44): one run each, so H-33's comparison can put any two
+    // of them side by side. The models arrive as the keys a person types — provider/model.
+    if (path[1] === "best-of-n" && request.method === "POST") {
+      const body = (await readJSON(request)) as
+        | {
+            prompt?: unknown
+            models?: unknown
+            directory?: unknown
+            packs?: unknown
+            worktrees?: unknown
+            policy?: unknown
+          }
+        | undefined
+      const prompt = typeof body?.prompt === "string" ? body.prompt.trim() : ""
+      if (!prompt) return error("A best-of-n needs a task to run", 400)
+      const models = Array.isArray(body?.models)
+        ? body.models
+            .filter((model): model is string => typeof model === "string")
+            .map((model) => model.trim())
+            .filter(Boolean)
+        : []
+      const unique = [...new Set(models)]
+      // One is not a comparison: with a single model there is nothing to put side by side.
+      if (unique.length < 2) return error("A best-of-n needs two models at least", 400)
+      const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
+      const packs = Array.isArray(body?.packs) ? body.packs.filter((name): name is string => typeof name === "string") : []
+      const policy = policyFrom(body?.policy)
+      try {
+        return json(
+          {
+            data: await scheduler.runBestOfN({
+              prompt,
+              models: unique,
+              directory,
+              ...(packs.length > 0 ? { packs } : {}),
+              ...(body?.worktrees === true ? { worktrees: true } : {}),
+              ...(policy ? { policy } : {}),
+            }),
+          },
+          202,
+        )
+      } catch (cause) {
+        if (cause instanceof InvalidModelError) return error(cause.message, 400)
+        return error(cause instanceof Error ? cause.message : String(cause), 500)
+      }
     }
     if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "tasks") {
       return repository.getRun(path[2])

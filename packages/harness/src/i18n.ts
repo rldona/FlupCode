@@ -313,6 +313,16 @@ const ES: Record<string, string> = {
   "Neither changed a file.": "Ninguna cambió un fichero.",
   "{left} files on the left, {right} on the right, {shared} in both.":
     "{left} ficheros a la izquierda, {right} a la derecha, {shared} en ambas.",
+  // Best of N (H-44)
+  "Best of N": "Mejor de N",
+  "Best of N: one task, several models": "Mejor de N: una tarea, varios modelos",
+  "The same task on several models, each in its own run, then compare what they did.":
+    "La misma tarea en varios modelos, cada uno en su propia ejecución, y luego compara lo que hicieron.",
+  Task: "Tarea",
+  "What should each model do?": "¿Qué debería hacer cada modelo?",
+  "Remove {name}": "Quitar {name}",
+  "Pick one more: a comparison needs two.": "Elige uno más: una comparación necesita dos.",
+  "A worktree per attempt": "Un worktree por intento",
   Resources: "Recursos",
   "No agent allows this server yet.": "Ningún agente permite todavía este servidor.",
   "Agents that allow it: {agents}": "Agentes que lo permiten: {agents}",

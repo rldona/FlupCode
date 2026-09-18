@@ -2,6 +2,39 @@ import type { ModelInfo } from "./engine-types"
 
 type ModelRef = { providerID: string; id: string }
 
+/** The key a model is named by, in favourites and in `provider/model`: the same shape a policy uses. */
+export function modelKey(model: ModelRef) {
+  return `${model.providerID}/${model.id}`
+}
+
+/**
+ * The catalog as a picker draws it: what the search kept, grouped by provider, with favourites
+ * first and models on their way out below the ones still being released.
+ *
+ * Shared so a second picker cannot order the same catalog differently — H-44's best-of-n picks
+ * several models at once and has to agree with the one that picks a single one.
+ */
+export function groupedModels(models: ModelInfo[], query: string, favorites: string[]) {
+  const needle = query.trim().toLowerCase()
+  const filtered = needle
+    ? models.filter((model) => `${model.name} ${model.id} ${model.providerID}`.toLowerCase().includes(needle))
+    : models
+  const byProvider = new Map<string, ModelInfo[]>()
+  for (const model of filtered) {
+    byProvider.set(model.providerID, [...(byProvider.get(model.providerID) ?? []), model])
+  }
+  return [...byProvider.entries()].map(([providerID, items]) => ({
+    providerID,
+    items: [...items].sort((a, b) => {
+      const aFav = favorites.includes(modelKey(a)) ? 0 : 1
+      const bFav = favorites.includes(modelKey(b)) ? 0 : 1
+      if (aFav !== bFav) return aFav - bFav
+      if (isDeprecated(a) !== isDeprecated(b)) return isDeprecated(a) ? 1 : -1
+      return a.name.localeCompare(b.name)
+    }),
+  }))
+}
+
 /** The engine drops a model from its catalog; a session pinned to it fails on its next turn. */
 export function hasModel(models: ModelInfo[], ref: ModelRef | undefined) {
   if (!ref) return false
