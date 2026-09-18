@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, type Component } fro
 import { t } from "../i18n"
 import type { SkillFile } from "../types"
 import type { SkillInfo } from "../engine-types"
+import type { SkillSourceKind, SkillSources } from "../skill-sources"
 
 type SkillCatalogueProps = {
   open: boolean
@@ -12,6 +13,10 @@ type SkillCatalogueProps = {
   loading: boolean
   serverAvailable: boolean
   hasProject: boolean
+  /** Extra places the engine reads skills from: folders and URLs (H-27). */
+  sources: SkillSources
+  onAddSource: (kind: SkillSourceKind, value: string) => void
+  onRemoveSource: (kind: SkillSourceKind, value: string) => void
   onRead: (path: string) => Promise<string>
   onSave: (draft: { name: string; scope: "global" | "project"; description: string; body: string }) => Promise<unknown>
   onDelete: (path: string) => Promise<unknown>
@@ -66,6 +71,8 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
   const [problem, setProblem] = createSignal<string>()
   const [saved, setSaved] = createSignal<string>()
   const [confirming, setConfirming] = createSignal<string>()
+  const [newPath, setNewPath] = createSignal("")
+  const [newUrl, setNewUrl] = createSignal("")
 
   const read = (file: SkillFile) => {
     if (openPath() === file.path) {
@@ -193,6 +200,88 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               </For>
             </section>
           </Show>
+
+          {/*
+            Configuration, not a diagnostic: it goes below the two lists that answer "why is mine
+            not here", and above the loaded ones it explains (H-27).
+          */}
+          <section class="fc-usage-block fc-skill-sources">
+            <h2>{t("Where else skills come from")}</h2>
+            <p class="fc-usage-note">
+              {t("A folder the engine also reads, or a URL it fetches from. This is configuration, so it applies everywhere.")}
+            </p>
+            <Show
+              when={props.sources.paths.length + props.sources.urls.length > 0}
+              fallback={<p class="fc-settings-hint">{t("Nothing added.")}</p>}
+            >
+              <For
+                each={[
+                  ...props.sources.paths.map((value) => ({ kind: "path" as const, value })),
+                  ...props.sources.urls.map((value) => ({ kind: "url" as const, value })),
+                ]}
+              >
+                {(source) => (
+                  <div class="fc-usage-row fc-skill-row">
+                    <span class="fc-diff-status">{source.kind === "url" ? "url" : "path"}</span>
+                    <span class="fc-usage-key" title={source.value}>
+                      {source.value}
+                    </span>
+                    <button
+                      class="fc-button"
+                      type="button"
+                      onClick={() => props.onRemoveSource(source.kind, source.value)}
+                    >
+                      {t("Remove")}
+                    </button>
+                  </div>
+                )}
+              </For>
+            </Show>
+            <div class="fc-field-row">
+              <label class="fc-field">
+                <span>{t("Folder")}</span>
+                <input
+                  class="fc-question-custom"
+                  placeholder="/home/me/my-skills"
+                  value={newPath()}
+                  onInput={(event) => setNewPath(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                class="fc-button"
+                type="button"
+                disabled={!newPath().trim()}
+                onClick={() => {
+                  props.onAddSource("path", newPath())
+                  setNewPath("")
+                }}
+              >
+                {t("Add folder")}
+              </button>
+            </div>
+            <div class="fc-field-row">
+              <label class="fc-field">
+                <span>{t("URL")}</span>
+                <input
+                  class="fc-question-custom"
+                  placeholder="https://example.com/.well-known/skills/"
+                  value={newUrl()}
+                  onInput={(event) => setNewUrl(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                class="fc-button"
+                type="button"
+                disabled={!newUrl().trim()}
+                onClick={() => {
+                  props.onAddSource("url", newUrl())
+                  setNewUrl("")
+                }}
+              >
+                {t("Add URL")}
+              </button>
+            </div>
+          </section>
 
           <section class="fc-usage-block">
             <h2>
