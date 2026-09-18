@@ -676,6 +676,7 @@ const ES: Record<string, string> = {
   "Session forked": "Sesión bifurcada",
   "Session compacted": "Sesión compactada",
   "Compacting session…": "Compactando sesión…",
+  retrying: "reintentando",
   "Checkpoint of this session": "Resumen del estado de la sesión",
   "Session renamed": "Sesión renombrada",
   "Session moved": "Sesión movida",
