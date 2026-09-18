@@ -162,6 +162,7 @@ import { duration, listWorkflows } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
+import { FileError, readProjectFile } from "./files"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch, discard as gitDiscard, patchForCommit } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
@@ -597,6 +598,22 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         return json({ data: { removed: true } })
       } catch (cause) {
         if (cause instanceof CommandError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+
+    // Files to look at (H-19). The engine lists and finds; this is the one that reads the text,
+    // confined to the folder and capped, because a viewer is not a download.
+    if (path[1] === "files" && path[2] === "read" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const directory = params.get("directory") ?? ""
+      if (!directory) return error("A folder is required", 400)
+      const file = params.get("path") ?? ""
+      if (!file) return error("A path is required", 400)
+      try {
+        return json({ data: readProjectFile({ directory, path: file }) })
+      } catch (cause) {
+        if (cause instanceof FileError) return error(cause.message, cause.status)
         throw cause
       }
     }

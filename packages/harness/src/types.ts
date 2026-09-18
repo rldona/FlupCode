@@ -87,6 +87,15 @@ export type ContextPack = {
   createdAt: number
 }
 
+/** One file's text, read to look at it (H-19). */
+export type FileText = {
+  path: string
+  content: string
+  bytes: number
+  truncated: boolean
+  binary: boolean
+}
+
 /** What a reader keeps about a session that the engine does not (H-18): pins and tags. */
 export type SessionPrefs = {
   sessionID: string

@@ -8,6 +8,7 @@ import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
+import { FilesPanel } from "./components/FilesPanel"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
 import type { TaskActivity, TaskTools, TouchedFiles } from "./types"
 import type {
@@ -167,6 +168,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "routines", descriptionKey: "Scheduled tasks" },
   { name: "remote", descriptionKey: "Remote control / mobile" },
   { name: "artifacts", descriptionKey: "Artifacts" },
+  { name: "files", descriptionKey: "Files" },
   { name: "about", descriptionKey: "About FlupCode" },
   // Actions that used to live only in a menu, now reachable from the launcher too (H-24). Kept at
   // the end so the ones people already know stay where they were.
@@ -418,6 +420,7 @@ export const App: Component = () => {
   const routinesOpen = () => screen() === "routines"
   const runsOpen = () => screen() === "runs"
   const artifactsOpen = () => screen() === "artifacts"
+  const filesOpen = () => screen() === "files"
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
@@ -818,6 +821,19 @@ export const App: Component = () => {
       .then(() => setArtifactList(artifactList().filter((artifact) => artifact.id !== id)))
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
+
+  // The file tree and viewer (H-19): the engine lists and finds, the harness server reads the text.
+  const listFiles = (path?: string) => {
+    const directory = vcsDirectory()
+    if (!directory) return Promise.resolve([])
+    return createClient(serverUrl())
+      .file.list({ directory, ...(path ? { path } : {}) })
+      .catch(() => [])
+  }
+  const searchFileEntries = async (query: string) =>
+    (await createClient(serverUrl()).file.find({ query, limit: 40 })).data
+  const readFileText = (path: string) =>
+    createHarnessClient(harnessServerUrl()).files.read({ directory: vcsDirectory() ?? "", path })
   const updateArtifact = (id: string, input: { pinned?: boolean; expiresAt?: number | null }) => {
     void createHarnessClient(harnessServerUrl())
       .artifacts
@@ -1739,6 +1755,10 @@ export const App: Component = () => {
       }
       if (name === "artifacts") {
         showScreen("artifacts")
+        return
+      }
+      if (name === "files") {
+        showScreen("files")
         return
       }
       if (name === "skills") {
@@ -4858,6 +4878,14 @@ export const App: Component = () => {
         onRead={readSkillFile}
         onSave={saveSkill}
         onDelete={deleteSkillFile}
+        onClose={() => leaveScreen()}
+      />
+      <FilesPanel
+        open={filesOpen()}
+        directory={vcsDirectory()}
+        list={listFiles}
+        search={searchFileEntries}
+        read={readFileText}
         onClose={() => leaveScreen()}
       />
       <AgentsPanel
