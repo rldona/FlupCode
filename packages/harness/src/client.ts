@@ -688,6 +688,12 @@ export function createClient(baseUrl = resolveServerUrl()) {
       set: (input: { providerID: string; key: string }) =>
         unwrap(client.auth.set({ providerID: input.providerID, auth: { type: "api", key: input.key } })),
       remove: (input: { providerID: string }) => unwrap(client.auth.remove({ providerID: input.providerID })),
+      /**
+       * The engine resolves providers once and caches them, key included, so a credential saved
+       * afterwards is written but never used: requests keep going out with the previous key.
+       * Disposing drops that cached state so the next request reads the credentials again.
+       */
+      reload: () => unwrap(client.global.dispose()),
     },
     integration: {
       list: () => unwrap(client.v2.integration.list()),
