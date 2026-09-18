@@ -65,9 +65,32 @@ const Hunk: Component<{
   /** Findings for this file, by the line they are anchored to. */
   comments: Map<number, Finding[]>
   onResolve: (id: string, resolved: boolean) => void
+  /** Whether this hunk can go into the next commit, and whether it is going in. */
+  pick?: { selected: boolean; onToggle: (selected: boolean) => void }
+  /** Throws this hunk away. Absent where discarding is unavailable. */
+  onDiscard?: () => void
 }> = (props) => (
   <>
-    <div class="fc-diff-hunk-head">{hunkLabel(props.hunk)}</div>
+    <div class="fc-diff-hunk-head">
+      <Show when={props.pick}>
+        {(pick) => (
+          <label class="fc-diff-hunk-pick">
+            <input
+              type="checkbox"
+              checked={pick().selected}
+              aria-label={t("Include this hunk")}
+              onChange={(event) => pick().onToggle(event.currentTarget.checked)}
+            />
+          </label>
+        )}
+      </Show>
+      <span class="fc-diff-hunk-label">{hunkLabel(props.hunk)}</span>
+      <Show when={props.onDiscard}>
+        <button class="fc-pr-action fc-diff-discard" type="button" onClick={() => props.onDiscard?.()}>
+          {t("Discard")}
+        </button>
+      </Show>
+    </div>
     <For each={props.hunk.lines}>
       {(line) => (
         <>
@@ -104,6 +127,13 @@ export const FileDiff: Component<{
   /** Whether this file is going into the next commit. Absent where nothing is being committed. */
   selected?: boolean
   onSelect?: (selected: boolean) => void
+  /** Which of its hunks go into the next commit, when only some of them do (H-20). */
+  selectedHunks?: number[]
+  onHunk?: (index: number, selected: boolean) => void
+  /** Throws a hunk away, or the whole file. Absent where discarding is unavailable. */
+  onDiscardHunk?: (index: number) => void
+  onDiscardFile?: () => void
+  discarding?: boolean
   /** A review's points about this file (H-32). */
   findings?: Finding[]
   onResolveFinding?: (id: string, resolved: boolean) => void
@@ -161,6 +191,16 @@ export const FileDiff: Component<{
             <span class="fc-diff-minus">−{props.change.deletions}</span>
           </span>
         </button>
+        <Show when={props.onDiscardFile}>
+          <button
+            class="fc-pr-action fc-diff-discard-file"
+            type="button"
+            disabled={props.discarding}
+            onClick={() => props.onDiscardFile?.()}
+          >
+            {t("Discard")}
+          </button>
+        </Show>
       </div>
       <Show when={open()}>
         <Show
@@ -180,12 +220,21 @@ export const FileDiff: Component<{
                 {(finding) => <Comment finding={finding} onResolve={resolve} />}
               </For>
               <For each={hunks()}>
-                {(hunk) => (
+                {(hunk, index) => (
                   <Hunk
                     hunk={hunk}
                     lang={languageFor(props.change.file)}
                     comments={byLine()}
                     onResolve={resolve}
+                    pick={
+                      props.onHunk
+                        ? {
+                            selected: (props.selectedHunks ?? []).includes(index()),
+                            onToggle: (value) => props.onHunk?.(index(), value),
+                          }
+                        : undefined
+                    }
+                    onDiscard={props.onDiscardHunk ? () => props.onDiscardHunk?.(index()) : undefined}
                   />
                 )}
               </For>

@@ -1,6 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
@@ -323,6 +323,52 @@ describe("harness git API", () => {
     expect(await read.json()).toEqual({ data: { branch: "feature/x" } })
 
     expect((await post(handler, "branch", { directory, name: "main" })).status).toBe(409)
+    repository.close()
+  })
+
+  test("commits only the hunk that was picked", async () => {
+    const { handler, repository } = open()
+    const { directory, run } = await repo()
+    const lines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`)
+    writeFileSync(join(directory, "many.txt"), `${lines.join("\n")}\n`)
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "add many"])
+    writeFileSync(join(directory, "many.txt"), [`CHANGED 1`, ...lines.slice(1, 19), `CHANGED 20`].join("\n") + "\n")
+
+    const response = await post(handler, "commit", {
+      directory,
+      message: "one hunk",
+      paths: ["many.txt"],
+      hunks: { "many.txt": [0] },
+    })
+
+    expect(response.status).toBe(200)
+    const committed = await run(["show", "--pretty=", "HEAD"])
+    expect(committed).toContain("CHANGED 1")
+    expect(committed).not.toContain("CHANGED 20")
+    repository.close()
+  })
+
+  test("discards a change, and says when there is none to discard", async () => {
+    const { handler, repository } = open()
+    const { directory } = await repo()
+    writeFileSync(join(directory, "a.txt"), "two\n")
+
+    const discarded = await post(handler, "discard", { directory, path: "a.txt" })
+    expect(discarded.status).toBe(200)
+    expect(readFileSync(join(directory, "a.txt"), "utf8")).toBe("one\n")
+
+    expect((await post(handler, "discard", { directory, path: "a.txt" })).status).toBe(409)
+    expect((await post(handler, "discard", { directory })).status).toBe(400)
+    repository.close()
+  })
+
+  test("refuses to generate a message with nothing picked, before it reaches the engine", async () => {
+    const { handler, repository } = open()
+    const { directory } = await repo()
+    expect((await post(handler, "message", { directory, paths: [] })).status).toBe(400)
+    // A path git does not report as changed never gets as far as a model call either.
+    expect((await post(handler, "message", { directory, paths: ["a.txt"] })).status).toBe(409)
     repository.close()
   })
 })

@@ -46,6 +46,25 @@ const added = [
   "",
 ].join("\n")
 
+/** Two hunks far apart, so picking one of them is a real choice. */
+const twoHunks = [
+  "diff --git a/src/two.ts b/src/two.ts",
+  "index 1111111..2222222 100644",
+  "--- a/src/two.ts",
+  "+++ b/src/two.ts",
+  "@@ -1,3 +1,3 @@",
+  " one",
+  "-two",
+  "+TWO",
+  " three",
+  "@@ -20,3 +20,3 @@",
+  " twenty",
+  "-twentyone",
+  "+TWENTYONE",
+  " twentytwo",
+  "",
+].join("\n")
+
 const branchOnly = [
   "diff --git a/src/shipped.ts b/src/shipped.ts",
   "--- a/src/shipped.ts",
@@ -77,13 +96,15 @@ const long = [
 type Seen = {
   modes: string[]
   contexts: (string | null)[]
-  commits: Array<{ message: string; paths: string[] }>
+  commits: Array<{ message: string; paths: string[]; hunks?: Record<string, number[]> }>
   branches: string[]
   pullRequests: string[]
   logs: string[]
   restored: string[]
   planned: string[]
   resolved: Array<{ id: string; resolved: boolean }>
+  discards: Array<{ path: string; hunks?: number[] }>
+  generated: number
 }
 
 /** What `GET /harness/git/pr` answers, which is the whole of what the chip can know. */
@@ -99,9 +120,11 @@ async function openSession(
     findings?: unknown[]
     /** A working tree with nothing in it, which is when the bar has room for the PR's counts. */
     clean?: boolean
+    /** One file with two hunks, for choosing a hunk rather than a file. */
+    twoHunks?: boolean
   } = {},
 ) {
-  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [], restored: [], planned: [], resolved: [] }
+  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [], restored: [], planned: [], resolved: [], discards: [], generated: 0 }
   await page.addInitScript((panels) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -119,9 +142,26 @@ async function openSession(
     if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/harness/events") return new Promise(() => {})
     if (url.pathname === "/harness/git/commit") {
-      const body = route.request().postDataJSON() as { message: string; paths: string[] }
-      seen.commits.push({ message: body.message, paths: body.paths })
+      const body = route.request().postDataJSON() as {
+        message: string
+        paths: string[]
+        hunks?: Record<string, number[]>
+      }
+      seen.commits.push({
+        message: body.message,
+        paths: body.paths,
+        ...(body.hunks && Object.keys(body.hunks).length > 0 ? { hunks: body.hunks } : {}),
+      })
       return route.fulfill({ json: { data: { sha: "abc1234", subject: body.message, branch: "feature" } } })
+    }
+    if (url.pathname === "/harness/git/discard") {
+      const body = route.request().postDataJSON() as { path: string; hunks?: number[] }
+      seen.discards.push({ path: body.path, ...(body.hunks ? { hunks: body.hunks } : {}) })
+      return route.fulfill({ json: { data: { path: body.path } } })
+    }
+    if (url.pathname === "/harness/git/message") {
+      seen.generated += 1
+      return route.fulfill({ json: { data: { message: "Add the widget and its tests" } } })
     }
     if (url.pathname === "/harness/findings") {
       return route.fulfill({ json: { data: options.findings ?? [] } })
@@ -203,7 +243,14 @@ async function openSession(
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/vcs") return route.fulfill({ json: { branch: "feature", default_branch: "main" } })
-    if (url.pathname === "/vcs/status") return route.fulfill({ json: options.clean ? [] : status })
+    if (url.pathname === "/vcs/status")
+      return route.fulfill({
+        json: options.twoHunks
+          ? [{ file: "src/two.ts", additions: 2, deletions: 2, status: "modified" }]
+          : options.clean
+            ? []
+            : status,
+      })
     if (url.pathname === "/vcs/diff") {
       const mode = url.searchParams.get("mode") ?? "git"
       seen.modes.push(mode)
@@ -215,6 +262,10 @@ async function openSession(
       if (options.long)
         return route.fulfill({
           json: [{ file: "src/long.ts", patch: long, additions: 100, deletions: 100, status: "modified" }],
+        })
+      if (options.twoHunks)
+        return route.fulfill({
+          json: [{ file: "src/two.ts", patch: twoHunks, additions: 2, deletions: 2, status: "modified" }],
         })
       return route.fulfill({
         json: [
@@ -333,6 +384,47 @@ test("committing is the server running git, not a turn spent asking a model to",
   await expect.poll(() => seen.commits).toEqual([{ message: "only the server", paths: ["src/server.ts"] }])
   // The composer stayed empty: nothing was sent to the engine to make this happen.
   await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
+})
+
+test("only the hunks that were picked go into the commit", async ({ page }) => {
+  const seen = await openSession(page, [], { twoHunks: true })
+  await page.goto("/changes")
+  await expect(page.getByText("src/two.ts")).toBeVisible()
+
+  // Both hunks are in to begin with; unticking one is the choice.
+  const hunks = page.locator(".fc-diff-hunk-pick input")
+  await expect(hunks).toHaveCount(2)
+  await hunks.nth(1).uncheck()
+
+  await page.getByRole("textbox", { name: /Commit message|Mensaje del commit/ }).fill("first hunk only")
+  await page.getByRole("button", { name: /^(Commit|Confirmar)$/ }).click()
+
+  await expect
+    .poll(() => seen.commits)
+    .toEqual([{ message: "first hunk only", paths: ["src/two.ts"], hunks: { "src/two.ts": [0] } }])
+})
+
+test("a hunk can be discarded, and so can a whole file", async ({ page }) => {
+  const seen = await openSession(page, [], { twoHunks: true })
+  await page.goto("/changes")
+
+  await page.locator(".fc-diff-discard").first().click()
+  await expect.poll(() => seen.discards).toEqual([{ path: "src/two.ts", hunks: [0] }])
+
+  await page.locator(".fc-diff-discard-file").click()
+  await expect.poll(() => seen.discards).toContainEqual({ path: "src/two.ts" })
+})
+
+test("the commit message can be written from the picked change", async ({ page }) => {
+  const seen = await openSession(page, [], { twoHunks: true })
+  await page.goto("/changes")
+
+  await page.getByRole("button", { name: /Generate message|Generar mensaje/ }).click()
+
+  await expect(page.getByRole("textbox", { name: /Commit message|Mensaje del commit/ })).toHaveValue(
+    "Add the widget and its tests",
+  )
+  expect(seen.generated).toBe(1)
 })
 
 test("a commit needs a message and at least one file", async ({ page }) => {
