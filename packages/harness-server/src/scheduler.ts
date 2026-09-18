@@ -95,12 +95,15 @@ export class RoutineScheduler {
     outside?: boolean
     /** Context packs every task of this run is given (H-31). */
     packs?: string[]
+    /** Give each writing task its own worktree (H-29). */
+    worktrees?: boolean
   }) {
     if (input.tasks.length === 0) throw new Error("A run needs at least one task")
     const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory, {
       ...(input.toolLimitMs ? { toolLimitMs: input.toolLimitMs } : {}),
       ...(input.outside ? { outside: true } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
+      ...(input.worktrees ? { worktrees: true } : {}),
     })
     this.repository.addTasks(run.id, input.tasks)
     // More than one task means a thread of its own: the run's session is what a person reads, and
@@ -129,7 +132,13 @@ export class RoutineScheduler {
    * takes. That is the point of writing processes down as files: the supervisor, the stream,
    * verification and the retry do not learn anything new.
    */
-  async runWorkflow(input: { name: string; inputs?: Record<string, string>; directory?: string; packs?: string[] }) {
+  async runWorkflow(input: {
+    name: string
+    inputs?: Record<string, string>
+    directory?: string
+    packs?: string[]
+    worktrees?: boolean
+  }) {
     const workflow = await findWorkflow(input.name, input.directory)
     if (!workflow) throw new UnknownWorkflowError(input.name)
     const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
@@ -141,6 +150,7 @@ export class RoutineScheduler {
       ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),
       ...(workflow.outside ? { outside: true } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
+      ...(input.worktrees ? { worktrees: true } : {}),
     })
   }
 

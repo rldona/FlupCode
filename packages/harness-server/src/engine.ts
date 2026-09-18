@@ -142,6 +142,32 @@ export class Engine {
   }
 
   /**
+   * A worktree of its own for a task (H-29).
+   *
+   * The engine does the git work — `git worktree add` on a new `opencode/<name>` branch under its
+   * data directory — so the branch, the sandbox bookkeeping and the eventual cleanup all stay its.
+   * A task writes here and the primary checkout is left alone until somebody merges.
+   */
+  async createWorktree(input: { directory?: string; name?: string }): Promise<{ name: string; branch?: string; directory: string }> {
+    return (await unwrap(
+      this.client.worktree.create({
+        ...(input.directory ? { directory: input.directory } : {}),
+        worktreeCreateInput: { ...(input.name ? { name: input.name } : {}) },
+      }),
+    )) as { name: string; branch?: string; directory: string }
+  }
+
+  /** Removes a worktree and the branch it was on. The engine's own bookkeeping too. */
+  async removeWorktree(input: { directory: string; project?: string }) {
+    return unwrap(
+      this.client.worktree.remove({
+        ...(input.project ? { directory: input.project } : {}),
+        worktreeRemoveInput: { directory: input.directory },
+      }),
+    )
+  }
+
+  /**
    * Ask, through the legacy runtime — the one every Code and Chat turn goes to since H-01, where
    * subagents, MCP, retries and titles live, and where a question or permission raised by this work
    * can be answered from the app at all. It returns before the turn does.

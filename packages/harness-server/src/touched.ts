@@ -80,7 +80,8 @@ export async function filesPerTask(directory: string, checkpoints: Checkpoint[])
     const previous = checkpoints[index - 1]
     // For the first, the checkpoint's own parent: where the folder was when the run began.
     const from = previous?.sha ?? `${checkpoint.sha}^`
-    const files = await changedBetween(directory, from, checkpoint.sha)
+    // Each point knows the tree it was taken in (H-29); a worktree task's diff is not the run's.
+    const files = await changedBetween(checkpoint.directory || directory, from, checkpoint.sha)
     out.push({
       ...(checkpoint.taskID ? { taskID: checkpoint.taskID } : {}),
       checkpointID: checkpoint.id,

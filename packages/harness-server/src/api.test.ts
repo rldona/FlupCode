@@ -754,3 +754,23 @@ describe("harness runs API", () => {
     repository.close()
   })
 })
+
+describe("harness worktree API", () => {
+  test("cleans up a run's worktrees through the engine, and leaves the folder alone", async () => {
+    const { handler, repository, scheduler } = open()
+    const removed: string[] = []
+    Object.assign(scheduler, {
+      engine: { removeWorktree: async (input: { directory: string }) => void removed.push(input.directory) },
+    })
+
+    const run = repository.startRun({ type: "manual" }, 1000, "/work/demo")
+    repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    const task = repository.listTasks(run.id)[0]!
+    repository.attachTaskDirectory(task.id, "/work/.flupcode/wt/build")
+
+    const response = await handler(new Request(`http://x/harness/runs/${run.id}/worktrees/cleanup`, { method: "POST" }))
+    expect(await response.json()).toEqual({ data: { removed: ["/work/.flupcode/wt/build"] } })
+    expect(removed).toEqual(["/work/.flupcode/wt/build"])
+    repository.close()
+  })
+})

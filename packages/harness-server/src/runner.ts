@@ -52,6 +52,16 @@ function compose(task: Task, handoff: string | undefined, context?: string) {
   return [`Context packs:`, context, "", body].join("\n")
 }
 
+/** A name the engine can turn into a folder and a branch: lowercase, dashes, no spaces. */
+function worktreeName(task: string) {
+  const slug = task
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+  return slug || "task"
+}
+
 /**
  * Runs the tasks of a run, in order.
  *
@@ -181,13 +191,15 @@ export class TaskRunner {
     // Re-read: the run gained its session after it was started, when the caller decided the work
     // needed a thread of its own.
     const parentID = tasks.length > 1 ? (this.repository.getRun(run.id)?.sessionID ?? run.sessionID) : undefined
-    // The run's context packs (H-31), resolved once: the files a task gets as `file` parts, and
-    // anything else as a text block. Same for every task, because the pack is the run's, not one's.
-    const packs = run.packs && run.packs.length > 0 && options.directory
-      ? packFiles(packRefs(this.repository.listPacks(options.directory), run.packs), options.directory)
-      : { files: [], others: [] }
-    const context = packs.others.length > 0 ? packs.others.join("\n") : undefined
-    const contextFiles = packs.files.map((path) => ({ path }))
+    // The run's context packs (H-31), as refs. Which of them are files depends on the tree the task
+    // runs in, and with worktrees (H-29) that is the task's, not the run's.
+    const packRefsList =
+      run.packs && run.packs.length > 0 && options.directory
+        ? packRefs(this.repository.listPacks(options.directory), run.packs)
+        : []
+    // Where a verify task checks: the tree of the task it is checking. The primary checkout unless
+    // that task was isolated in a worktree.
+    let executorDirectory = options.directory
     let handoff: string | undefined
 
     for (let task = nextQueued(); task; task = nextQueued()) {
@@ -200,7 +212,9 @@ export class TaskRunner {
       // session and no model: it costs time, not tokens, which is what makes it worth running after
       // every attempt rather than once at the end.
       if (task.kind === "verify") {
-        const report = await runVerify(options.directory ?? process.cwd(), { stopped })
+        // The tree the step it checks ran in (H-29): a worktree task is verified in its own worktree,
+        // or the verdict would be about code nobody changed.
+        const report = await runVerify(executorDirectory ?? process.cwd(), { stopped })
         const evidence = evidenceText(report)
         this.repository.finishTask(task.id, stopped() ? "stopped" : report.ok ? "success" : "failed", {
           output: evidence,
@@ -213,14 +227,14 @@ export class TaskRunner {
           title: `${task.name} — ${report.ok ? "passed" : "failed"}`,
           producer: "harness",
           content: evidence,
-          directory: options.directory,
+          directory: executorDirectory,
           runID: run.id,
           taskID: task.id,
         })
         // Every failure the checks named, anchored on its line (H-22, and the structured output
         // H-21 asks of this gate). They are findings like a review's, which means they are drawn on
         // the diff by the machinery H-32 already built: a broken test lands on the line that broke.
-        this.recordFailures(report, run.id, task.id, options.directory)
+        this.recordFailures(report, run.id, task.id, executorDirectory)
         // The evidence is the handoff: whatever runs next is told exactly what failed.
         handoff = evidence
         if (!report.ok && !stopped()) {
@@ -236,8 +250,27 @@ export class TaskRunner {
         }
       } else {
         try {
+          // Its own tree, when the run asked for it (H-29). Created before the session so everything
+          // the task does — its prompt, its answer, its checkpoints, its findings — belongs to it.
+          let taskDirectory = options.directory
+          if (run.worktrees && options.directory && typeof this.engine.createWorktree === "function") {
+            const worktree = await this.engine
+              .createWorktree({ directory: options.directory, name: worktreeName(task.name) })
+              .catch(() => undefined)
+            if (worktree) {
+              taskDirectory = worktree.directory
+              this.repository.attachTaskDirectory(task.id, taskDirectory)
+            }
+          }
+          // What the run's packs point at, in this task's tree.
+          const packs =
+            packRefsList.length > 0 && taskDirectory
+              ? packFiles(packRefsList, taskDirectory)
+              : { files: [], others: [] }
+          const context = packs.others.length > 0 ? packs.others.join("\n") : undefined
+          const contextFiles = packs.files.map((path) => ({ path }))
           const session = await this.engine.createSession({
-            directory: options.directory,
+            directory: taskDirectory,
             parentID,
             title: task.name,
             // Confined to the project unless this run said otherwise (H-47). The harness has always
@@ -249,26 +282,28 @@ export class TaskRunner {
           await this.engine.prompt({
             sessionID: session.id,
             text: compose(task, handoff, context),
-            directory: options.directory,
+            directory: taskDirectory,
             agent: task.agent,
             model: task.model,
             ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
           })
           await this.engine.waitForIdle(session.id, {
-            directory: options.directory,
+            directory: taskDirectory,
             stopped,
             ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
           })
-          const answer = await this.engine.lastAnswer(session.id, options.directory)
+          const answer = await this.engine.lastAnswer(session.id, taskDirectory)
           this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
             output: answer?.text,
             tokens: answer?.tokens,
             cost: answer?.cost,
           })
+          // The next task, especially a verify, looks at this task's tree, not the run's folder.
+          executorDirectory = taskDirectory
           // What the next task starts from (H-31): a closing note, not the whole answer. The note is
           // kept as an artifact so the run can be read back, and the raw answer is the fallback when
           // the note cannot be written.
-          handoff = await this.handoffNote(run, task, answer?.text, options.directory)
+          handoff = await this.handoffNote(run, task, answer?.text, taskDirectory)
           // Findings (H-32). Tried after every agent task rather than only after a review: an
           // answer with no parseable block simply has none, and it costs one regular expression.
           // A task that was asked for them and produced none has genuinely found nothing.
@@ -278,7 +313,7 @@ export class TaskRunner {
               found.findings.map((finding) => ({
                 ...finding,
                 source: "review" as const,
-                directory: options.directory,
+                directory: taskDirectory,
                 runID: run.id,
                 taskID: task.id,
               })),
@@ -295,10 +330,11 @@ export class TaskRunner {
       //
       // Failing to record one must not fail the task. The folder may not be a repository at all,
       // and losing a finished piece of work over a missing undo would be the worse trade.
-      if (options.directory) {
+      if (executorDirectory) {
         try {
           const checkpoint = await take({
-            directory: options.directory,
+            // The task's own tree (H-29), so the point is about what that task changed.
+            directory: executorDirectory,
             title: task.name,
             // What this step concluded (H-15), so the point reads as more than a sha.
             summary: handoff,

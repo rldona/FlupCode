@@ -647,3 +647,58 @@ describe("context packs and handoffs (H-31)", () => {
     repository.close()
   })
 })
+
+describe("a run with worktrees (H-29)", () => {
+  test("a task is given its own tree, and it is recorded on the task", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-worktrees-"))
+    scratch.push(directory)
+    const worktree = join(directory, "..", "flupcode-worktree-one")
+    const prompts: Array<{ text: string; directory?: string }> = []
+    const created: Array<{ directory?: string; name?: string }> = []
+    const engine = {
+      createWorktree: async (input: { directory?: string; name?: string }) => {
+        created.push(input)
+        return { name: input.name ?? "task", directory: worktree }
+      },
+      createSession: async () => ({ id: "ses_one" }),
+      prompt: async (input: { text: string; directory?: string }) => void prompts.push(input),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory, { worktrees: true })
+    repository.addTasks(run.id, [{ name: "Find the bug", prompt: "Do it" }])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    // A slug the engine can turn into a folder and a branch, not the task's spaces.
+    expect(created).toEqual([{ directory, name: "find-the-bug" }])
+    expect(prompts[0]!.directory).toBe(worktree)
+    expect(repository.listTasks(run.id)[0]!.directory).toBe(worktree)
+    repository.close()
+  })
+
+  test("a run that did not ask for them does not create one", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-noworktrees-"))
+    scratch.push(directory)
+    let asked = 0
+    const engine = {
+      createWorktree: async () => {
+        asked++
+        return { name: "task", directory }
+      },
+      createSession: async () => ({ id: "ses_one" }),
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [{ name: "one", prompt: "go" }])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    expect(asked).toBe(0)
+    repository.close()
+  })
+})

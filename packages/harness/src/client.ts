@@ -966,6 +966,18 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** Merge the worktrees this run's tasks wrote in, back into its folder (H-29). */
+      mergeWorktrees: (id: string) =>
+        harnessRequest<{ merged: Array<{ taskID: string; branch: string; sha: string }> }>(
+          baseUrl,
+          `/harness/runs/${encodeURIComponent(id)}/worktrees/merge`,
+          { method: "POST" },
+        ),
+      /** Remove the worktrees this run's tasks wrote in (H-29). */
+      cleanupWorktrees: (id: string) =>
+        harnessRequest<{ removed: string[] }>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/worktrees/cleanup`, {
+          method: "POST",
+        }),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
       stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
       /** Let a run through the gate it stopped at. Refusing it is stopping it. */
@@ -1036,7 +1048,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           baseUrl,
           directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
         ),
-      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[] }) =>
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean }) =>
         harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
           method: "POST",
           body: JSON.stringify(input),
