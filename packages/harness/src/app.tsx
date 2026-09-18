@@ -123,6 +123,7 @@ import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
 import { WorkflowsPanel } from "./components/WorkflowsPanel"
+import { WorkflowLaunchDialog, type WorkflowLaunch } from "./components/WorkflowLaunchDialog"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
 import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
@@ -3477,30 +3478,36 @@ export const App: Component = () => {
   /**
    * Start a workflow from the composer.
    *
-   * Everything typed after the name fills its first input, which is what `/feature add search`
-   * means. A workflow that asks for more than one cannot be said on a single line, so it says so
-   * rather than starting with the rest of them empty.
+   * Everything typed after the name fills its first input, which is what `/feature add search` means.
+   * A workflow that asks for more than one cannot be said on a single line, so it opens the launcher
+   * instead of refusing — or, worse, starting with the rest of them empty (H-28).
    */
+  const [launching, setLaunching] = createSignal<{ workflow: Workflow; args?: string }>()
+  const runWorkflow = (name: string, launch: Partial<WorkflowLaunch>) =>
+    createHarnessClient(harnessServerUrl())
+      .workflows.run(name, {
+        ...(launch.inputs ? { inputs: launch.inputs } : {}),
+        directory: modelLocation(),
+        ...(launch.packs && launch.packs.length > 0 ? { packs: launch.packs } : {}),
+        ...(launch.worktrees ? { worktrees: true } : {}),
+        ...(launch.policy ? { policy: launch.policy } : {}),
+      })
+      // Straight to the supervisor: a run nobody can see is the thing this replaces.
+      .then(() => showScreen("runs"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   const startWorkflow = (workflow: Workflow, args: string) => {
-    const [first, ...rest] = workflow.inputs
-    if (rest.length > 0) {
-      const inputs = workflow.inputs.join(", ")
-      toast(t("{name} asks for {inputs}, which is more than one line can say", { name: workflow.name, inputs }), "error")
+    if (workflow.inputs.length > 1) {
+      setPrompt("")
+      setLaunching({ workflow, args })
       return
     }
+    const first = workflow.inputs[0]
     if (first && !args.trim()) {
       toast(t("{name} needs {input}", { name: workflow.name, input: first }), "info")
       return
     }
     setPrompt("")
-    void createHarnessClient(harnessServerUrl())
-      .workflows.run(workflow.name, {
-        ...(first ? { inputs: { [first]: args.trim() } } : {}),
-        directory: modelLocation(),
-      })
-      // Straight to the supervisor: a run nobody can see is the thing this replaces.
-      .then(() => showScreen("runs"))
-      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+    void runWorkflow(workflow.name, first ? { inputs: { [first]: args.trim() } } : {})
   }
 
   // The workflow editor (H-28): the file as written, saved back, and removed. Each one refreshes the
@@ -4892,6 +4899,18 @@ export const App: Component = () => {
         onSave={savePack}
         onClose={() => setPackRefs(undefined)}
       />
+      <WorkflowLaunchDialog
+        open={!!launching()}
+        workflow={launching()?.workflow}
+        packs={packs()}
+        initialArgs={launching()?.args}
+        onLaunch={(launch) => {
+          const workflow = launching()?.workflow
+          setLaunching(undefined)
+          if (workflow) void runWorkflow(workflow.name, launch)
+        }}
+        onClose={() => setLaunching(undefined)}
+      />
       <TagsDialog
         open={!!tagsTarget()}
         title={tagsTarget()?.title ? t("Tags · {name}", { name: tagsTarget()!.title }) : t("Tags")}
@@ -5209,6 +5228,7 @@ export const App: Component = () => {
         onRead={readWorkflowFile}
         onSave={saveWorkflowFile}
         onDelete={deleteWorkflowFile}
+        onRun={(workflow) => setLaunching({ workflow })}
         onClose={() => leaveScreen()}
       />
       <MemoryPanel

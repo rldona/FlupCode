@@ -8378,6 +8378,17 @@ button.fc-status {
   resize: vertical;
 }
 
+/* How a workflow is launched (H-28): inputs, packs, worktrees and a policy in one place. */
+.fc-launch-modal {
+  max-width: 520px;
+}
+
+.fc-launch-packs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+}
+
 /* ── The diff viewer (H-06) ───────────────────────────────────────────────── */
 
 .fc-changes-branch {
