@@ -4,6 +4,7 @@ import { Effect, Layer, Record, Result, Schema, Context } from "effect"
 import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
+import { Credential } from "@opencode-ai/core/credential"
 
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 
@@ -53,7 +54,13 @@ const layer = Layer.effect(
   Service,
   Effect.gen(function* () {
     const fsys = yield* FSUtil.Service
+    const credential = yield* Credential.Service
     const decode = Schema.decodeUnknownOption(Info)
+
+    const stored = Effect.fn("Auth.stored")(function* () {
+      const data = (yield* fsys.readJson(file).pipe(Effect.orElseSucceed(() => ({})))) as Record<string, unknown>
+      return Record.filterMap(data, (value) => Result.fromOption(decode(value), () => undefined))
+    })
 
     const all = Effect.fn("Auth.all")(function* () {
       if (process.env.OPENCODE_AUTH_CONTENT) {
@@ -62,8 +69,13 @@ const layer = Layer.effect(
         } catch (err) {}
       }
 
-      const data = (yield* fsys.readJson(file).pipe(Effect.orElseSucceed(() => ({})))) as Record<string, unknown>
-      return Record.filterMap(data, (value) => Result.fromOption(decode(value), () => undefined))
+      // Credentials created through the v2 integration flow live in the database, so
+      // surface them here too; auth.json entries still win when both exist.
+      const credentials = yield* credential.all()
+      return {
+        ...Object.fromEntries(credentials.map((item) => [item.integrationID as string, fromCredential(item.value)])),
+        ...(yield* stored()),
+      } as Record<string, Info>
     })
 
     const get = Effect.fn("Auth.get")(function* (providerID: string) {
@@ -72,7 +84,7 @@ const layer = Layer.effect(
 
     const set = Effect.fn("Auth.set")(function* (key: string, info: Info) {
       const norm = key.replace(/\/+$/, "")
-      const data = yield* all()
+      const data = yield* stored()
       if (norm !== key) delete data[key]
       delete data[norm + "/"]
       yield* fsys
@@ -82,7 +94,7 @@ const layer = Layer.effect(
 
     const remove = Effect.fn("Auth.remove")(function* (key: string) {
       const norm = key.replace(/\/+$/, "")
-      const data = yield* all()
+      const data = yield* stored()
       delete data[key]
       delete data[norm]
       yield* fsys.writeJson(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
@@ -92,6 +104,19 @@ const layer = Layer.effect(
   }),
 )
 
-export const node = LayerNode.make({ service: Service, layer: layer, deps: [FSUtil.node] })
+function fromCredential(value: Credential.Value): Info {
+  if (value.type === "key") return new Api({ type: "api", key: value.key })
+  const metadata = value.metadata ?? {}
+  return new Oauth({
+    type: "oauth",
+    refresh: value.refresh,
+    access: value.access,
+    expires: value.expires,
+    ...(typeof metadata.accountId === "string" ? { accountId: metadata.accountId } : {}),
+    ...(typeof metadata.enterpriseUrl === "string" ? { enterpriseUrl: metadata.enterpriseUrl } : {}),
+  })
+}
+
+export const node = LayerNode.make({ service: Service, layer: layer, deps: [FSUtil.node, Credential.node] })
 
 export * as Auth from "."

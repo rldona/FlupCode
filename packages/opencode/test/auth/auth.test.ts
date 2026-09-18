@@ -1,10 +1,14 @@
 import { describe, expect } from "bun:test"
+import path from "path"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
+import { Credential } from "@opencode-ai/core/credential"
+import { Global } from "@opencode-ai/core/global"
+import { Integration } from "@opencode-ai/core/integration"
 import { Effect } from "effect"
 import { Auth } from "../../src/auth"
 import { testEffect } from "../lib/effect"
 
-const it = testEffect(LayerNode.compile(Auth.node))
+const it = testEffect(LayerNode.compile(LayerNode.group([Auth.node, Credential.node])))
 
 describe("Auth", () => {
   it.instance("set normalizes trailing slashes in keys", () =>
@@ -70,6 +74,40 @@ describe("Auth", () => {
       yield* auth.remove("anthropic")
       const after = yield* auth.all()
       expect(after["anthropic"]).toBeUndefined()
+    }),
+  )
+
+  it.instance("exposes credentials created through the v2 integration flow", () =>
+    Effect.gen(function* () {
+      const auth = yield* Auth.Service
+      const credentials = yield* Credential.Service
+      yield* credentials.create({
+        integrationID: Integration.ID.make("github-copilot"),
+        value: Credential.OAuth.make({
+          type: "oauth",
+          methodID: Integration.MethodID.make("device"),
+          access: "gho_access",
+          refresh: "gho_refresh",
+          expires: 1,
+        }),
+      })
+      yield* credentials.create({
+        integrationID: Integration.ID.make("deepseek"),
+        value: Credential.Key.make({ type: "key", key: "credential-key" }),
+      })
+      yield* auth.set("deepseek", { type: "api", key: "file-key" })
+
+      const copilot = yield* auth.get("github-copilot")
+      expect(copilot).toEqual({ type: "oauth", access: "gho_access", refresh: "gho_refresh", expires: 1 })
+
+      // auth.json wins when the same provider exists in both stores
+      const deepseek = yield* auth.get("deepseek")
+      expect(deepseek).toEqual({ type: "api", key: "file-key" })
+
+      // writing auth.json must not copy credentials out of the database
+      expect(yield* Effect.promise(() => Bun.file(path.join(Global.Path.data, "auth.json")).json())).toEqual({
+        deepseek: { type: "api", key: "file-key" },
+      })
     }),
   )
 })
