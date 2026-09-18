@@ -123,6 +123,28 @@ describe("installEnginePlugins", () => {
     expect(await readdir(uses)).toEqual(["ses_abc.json"])
   })
 
+  test("the installed plugin times each call it sees finish", async () => {
+    const config = await temp()
+    const uses = await temp()
+    process.env.FLUPCODE_TOOL_USES_DIR = uses
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    // The engine pairs a call's before and after by its callID. The after carries the duration.
+    await hooks["tool.execute.before"]({ tool: "docs_search", sessionID: "ses_abc", callID: "call_1" })
+    await hooks["tool.execute.after"]({ tool: "docs_search", sessionID: "ses_abc", callID: "call_1" })
+
+    const written = JSON.parse(await readFile(path.join(uses, "ses_abc.json"), "utf8"))
+    expect(written.calls).toHaveLength(1)
+    expect(written.calls[0].tool).toBe("docs_search")
+    expect(written.calls[0].ms).toBeGreaterThanOrEqual(0)
+
+    // An after with no matching before is not timed rather than claimed to be instantaneous.
+    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_abc", callID: "never_started" })
+    const after = JSON.parse(await readFile(path.join(uses, "ses_abc.json"), "utf8"))
+    expect(after.calls).toHaveLength(1)
+  })
+
   test("the installed plugin adds effort levels from the models.dev cache", async () => {
     const config = await temp()
     const models = path.join(config, "models.json")

@@ -4,7 +4,8 @@ import { t } from "../i18n"
 
 type ActivityHeatmapProps = {
   days: ActivityDay[]
-  comparison: string
+  /** A line under the grid, when there is something to compare the reading against. */
+  comparison?: string
 }
 
 export const ActivityHeatmap: Component<ActivityHeatmapProps> = (props) => {

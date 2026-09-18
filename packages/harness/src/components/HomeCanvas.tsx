@@ -1,15 +1,19 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { formatTokens, modelColor, type ActivityDay, type UsageMetrics, type UsageRange } from "../metrics"
 import { t } from "../i18n"
+import type { UsageReport } from "../types"
+import { duration, money, scaleOf, share } from "./UsagePanel"
 import { ActivityHeatmap } from "./ActivityHeatmap"
 
 type HomeCanvasProps = {
   displayName: string
   range: UsageRange
   metrics: UsageMetrics
-  messages: number | undefined
   activity: ActivityDay[]
-  comparison: { ratio: number; name: string } | undefined
+  /** What the runs cost, from the harness (H-16). Absent when the server is not there or not asked. */
+  usage?: UsageReport
+  usageLoading: boolean
+  serverAvailable: boolean
   error: string | undefined
   onRangeChange: (range: UsageRange) => void
 }
@@ -70,20 +74,98 @@ const ModelUsage: Component<{ metrics: UsageMetrics }> = (props) => {
   )
 }
 
+/**
+ * What the runs cost, on the home screen (H-16).
+ *
+ * The dashboard used to count the reader's sessions and, to do it, downloaded up to thirty
+ * transcripts every time it opened. The harness already knows what it spent — which run, task,
+ * agent, model and attempt — and prices it, so this shows that instead, and nothing is fetched to
+ * count what is already stored.
+ */
+const HarnessUsage: Component<{ usage?: UsageReport; loading: boolean; serverAvailable: boolean }> = (props) => {
+  const totals = () => props.usage?.totals
+  const retries = () => props.usage?.retries
+  const busiest = createMemo(() => scaleOf(props.usage?.byDay ?? []))
+
+  return (
+    <section class="fc-usage-block fc-home-usage">
+      <h2>{t("Runs")}</h2>
+      <Show
+        when={props.serverAvailable}
+        fallback={<p class="fc-usage-note">{t("The harness server is not reachable, so there is nothing to show here.")}</p>}
+      >
+        <Show
+          when={totals() && totals()!.tasks > 0}
+          fallback={
+            <p class="fc-usage-note">{props.loading ? t("Reading…") : t("Nothing has run in this window.")}</p>
+          }
+        >
+          <div class="fc-usage-tiles">
+            <div class="fc-usage-tile">
+              <span class="fc-usage-tile-value">{money(totals()!.cost)}</span>
+              <span class="fc-usage-tile-label">{t("Spent")}</span>
+            </div>
+            <div class="fc-usage-tile">
+              <span class="fc-usage-tile-value">{formatTokens(totals()!.tokens)}</span>
+              <span class="fc-usage-tile-label">{t("Tokens")}</span>
+            </div>
+            <div class="fc-usage-tile">
+              <span class="fc-usage-tile-value">{totals()!.runs}</span>
+              <span class="fc-usage-tile-label">{t("Runs")}</span>
+            </div>
+            <div class="fc-usage-tile">
+              <span class="fc-usage-tile-value">{duration(totals()!.ms)}</span>
+              <span class="fc-usage-tile-label">{t("Time")}</span>
+            </div>
+            <div class="fc-usage-tile fc-usage-tile-warn" classList={{ "fc-usage-tile-quiet": retries()!.tasks === 0 }}>
+              <span class="fc-usage-tile-value">{money(retries()!.cost)}</span>
+              <span class="fc-usage-tile-label">
+                {t("On retries ({n}%)", { n: share(retries()!.cost, totals()!.cost) })}
+              </span>
+            </div>
+          </div>
+
+          <Show when={(props.usage?.byDay.length ?? 0) > 1}>
+            <div class="fc-usage-days">
+              <For each={props.usage?.byDay ?? []}>
+                {(day) => (
+                  <div class="fc-usage-day" title={`${day.day} · ${money(day.cost)}`}>
+                    <span
+                      class="fc-usage-day-bar"
+                      style={{ height: `${Math.max(2, share(day.cost || day.tokens, busiest()))}%` }}
+                    />
+                    <span class="fc-usage-day-label">{day.day.slice(5)}</span>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+
+          <Show when={(props.usage?.byModel.length ?? 0) > 0}>
+            <For each={props.usage?.byModel ?? []}>
+              {(entry) => (
+                <div class="fc-usage-row">
+                  <span class="fc-usage-key">{entry.key}</span>
+                  <span class="fc-usage-cost">
+                    {formatTokens(entry.tokens)} · {money(entry.cost)}
+                  </span>
+                </div>
+              )}
+            </For>
+          </Show>
+        </Show>
+      </Show>
+    </section>
+  )
+}
+
 export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   const [tab, setTab] = createSignal<"summary" | "models">("summary")
   const greeting = () =>
     props.displayName.trim() ? t("What's next, {name}?", { name: props.displayName.trim() }) : t("What's next?")
 
-  const comparisonText = () => {
-    const value = props.comparison
-    if (!value) return ""
-    return t("You used ~{ratio}× more tokens than {name}.", { ratio: value.ratio, name: value.name })
-  }
-
   const stats = () => [
     { label: t("Sessions"), value: String(props.metrics.sessions) },
-    { label: t("Messages"), value: props.messages === undefined ? "…" : String(props.messages) },
     { label: t("Total tokens"), value: formatTokens(props.metrics.tokens) },
     { label: t("Active days"), value: String(props.metrics.activeDays) },
     { label: t("Current streak"), value: `${props.metrics.currentStreak}d` },
@@ -100,6 +182,8 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
       <Show when={props.error}>
         <div class="fc-error">{props.error}</div>
       </Show>
+
+      <HarnessUsage usage={props.usage} loading={props.usageLoading} serverAvailable={props.serverAvailable} />
 
       <div class="fc-card">
         <div class="fc-card-header">
@@ -162,7 +246,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
               )}
             </For>
           </div>
-          <ActivityHeatmap days={props.activity} comparison={comparisonText()} />
+          <ActivityHeatmap days={props.activity} />
         </Show>
       </div>
     </section>

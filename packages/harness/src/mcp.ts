@@ -14,6 +14,37 @@ export type McpToolUse = {
   tools: Array<{ name: string; count: number }>
 }
 
+export type McpLatency = {
+  server: string
+  calls: number
+  averageMs: number
+  slowestMs: number
+}
+
+/**
+ * How long a session's calls into each MCP server took (H-16).
+ *
+ * The engine reports no timing of its own, but FlupCode's engine plugin times every call, and the
+ * name carries the server it belongs to. Only completed calls are here: a call still running has no
+ * duration yet, and one that failed never reported an end.
+ */
+export function mcpLatency(servers: McpServer[], calls: Array<{ tool: string; ms?: number }>): McpLatency[] {
+  return servers.flatMap((server) => {
+    const prefix = `${mcpName(server.name)}_`
+    const mine = calls.filter((call) => call.tool.startsWith(prefix) && typeof call.ms === "number")
+    if (mine.length === 0) return []
+    const total = mine.reduce((sum, call) => sum + (call.ms ?? 0), 0)
+    return [
+      {
+        server: server.name,
+        calls: mine.length,
+        averageMs: Math.round(total / mine.length),
+        slowestMs: Math.max(...mine.map((call) => call.ms ?? 0)),
+      },
+    ]
+  })
+}
+
 /**
  * Which of the tools a session ran belong to which of its MCP servers.
  *

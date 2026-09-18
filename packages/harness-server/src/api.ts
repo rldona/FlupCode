@@ -36,6 +36,18 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
   }
 }
 
+/** A model and an optional variant, or nothing. Used by a manual retry to change model (H-12). */
+const modelFrom = (value: unknown): TaskInput["model"] => {
+  if (!value || typeof value !== "object") return undefined
+  const model = value as Record<string, unknown>
+  if (typeof model.providerID !== "string" || typeof model.id !== "string") return undefined
+  return {
+    providerID: model.providerID,
+    id: model.id,
+    ...(typeof model.variant === "string" ? { variant: model.variant } : {}),
+  }
+}
+
 const taskFrom = (value: unknown): TaskInput | undefined => {
   if (!value || typeof value !== "object") return undefined
   const input = value as Record<string, unknown>
@@ -152,6 +164,7 @@ import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } fro
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
+import { registerPlans } from "./plans"
 import { summarise } from "./usage"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./context"
@@ -243,6 +256,20 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         data: await filesPerTask(run.directory, repository.listCheckpoints({ runID: run.id }).reverse()),
       })
     }
+    // What each task of a run spent its time on (H-16), from the calls FlupCode's engine plugin
+    // timed. Read through the task's session, because that is what the plugin wrote against.
+    if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "tools") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      const tasks = repository.listTasks(run.id)
+      return json({
+        data: tasks.map((task) => ({
+          taskID: task.id,
+          name: task.name,
+          calls: task.sessionID ? usedTools(task.sessionID).calls : [],
+        })),
+      })
+    }
     if (path[1] === "runs" && request.method === "POST" && path[2] === "stop" && !path[3]) {
       return json({ data: { stopped: await scheduler.stopAll() } })
     }
@@ -260,6 +287,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const resumed = scheduler.approve(run.id)
       return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
     }
+    // Doing a task again (H-12), as a new task of the same run, optionally on another model.
+    if (path[1] === "tasks" && request.method === "POST" && path[2] && path[3] === "retry") {
+      if (!repository.getTask(path[2])) return error("Task not found", 404)
+      const body = (await readJSON(request)) as { model?: unknown } | undefined
+      try {
+        const created = scheduler.retryTask(path[2], { model: modelFrom(body?.model) })
+        return created ? json({ data: created }, 202) : error("Task not found", 404)
+      } catch (cause) {
+        return error(cause instanceof Error ? cause.message : String(cause), 409)
+      }
+    }
     if (path[1] === "runs" && request.method === "DELETE" && !path[2]) {
       // Clearing the list is clearing what is over. A run still going is not history yet.
       return json({ data: { removed: repository.removeFinishedRuns().length } })
@@ -276,9 +314,19 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     // Artifacts (H-14): what runs left behind, and what a person kept.
     if (path[1] === "artifacts" && request.method === "GET" && !path[2]) {
       const query = new URL(request.url).searchParams
+      const directory = query.get("directory") ?? undefined
+      // Plans the agent wrote live on disk and the harness never produced; index them while
+      // somebody is looking at this folder's artifacts, which is when it is worth doing (H-14).
+      if (directory) {
+        try {
+          registerPlans(repository, directory)
+        } catch {
+          // An unreadable plans folder is not a reason to fail the list.
+        }
+      }
       return json({
         data: repository.listArtifacts({
-          directory: query.get("directory") ?? undefined,
+          directory,
           runID: query.get("runID") ?? undefined,
           kind: (query.get("kind") as ArtifactKind | null) ?? undefined,
         }),
@@ -290,6 +338,18 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       return json({ data: repository.addArtifact(input) }, 201)
     }
     if (path[1] === "artifacts" && request.method === "GET" && path[2] && !path[3]) {
+      const artifact = repository.getArtifact(path[2])
+      return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
+    }
+    // Keeping one in front, or saying when it may be forgotten (H-14). Both change the same row.
+    if (path[1] === "artifacts" && request.method === "PATCH" && path[2] && !path[3]) {
+      if (!repository.getArtifact(path[2])) return error("Artifact not found", 404)
+      const body = (await readJSON(request)) as { pinned?: unknown; expiresAt?: unknown } | undefined
+      if (typeof body?.pinned === "boolean") repository.setArtifactPinned(path[2], body.pinned)
+      if (body && "expiresAt" in body) {
+        const expiresAt = typeof body.expiresAt === "number" && body.expiresAt > 0 ? body.expiresAt : undefined
+        repository.setArtifactRetention(path[2], expiresAt)
+      }
       const artifact = repository.getArtifact(path[2])
       return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
     }

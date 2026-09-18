@@ -16,6 +16,8 @@ export type TouchedFiles = {
   taskID?: string
   checkpointID: string
   title: string
+  /** What the step concluded (H-15), so the marker says what the point was for. */
+  summary?: string
   /** Paths, relative to the folder. Empty when the task changed nothing, which is worth showing. */
   files: Array<{ path: string; status: "added" | "modified" | "deleted" }>
 }
@@ -83,6 +85,7 @@ export async function filesPerTask(directory: string, checkpoints: Checkpoint[])
       ...(checkpoint.taskID ? { taskID: checkpoint.taskID } : {}),
       checkpointID: checkpoint.id,
       title: checkpoint.title,
+      ...(checkpoint.summary ? { summary: checkpoint.summary } : {}),
       files,
     })
   }

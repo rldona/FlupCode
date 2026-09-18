@@ -26,10 +26,15 @@ export type Checkpoint = {
   /** The commit object. Nothing points at it but our own ref. */
   sha: string
   title: string
+  /** What the step concluded, so the point is readable without opening the run (H-15). Capped. */
+  summary?: string
   runID?: string
   taskID?: string
   createdAt: number
 }
+
+/** A marker, not a copy of the transcript: enough to recognise the point, no more. */
+export const CHECKPOINT_SUMMARY_LIMIT = 2000
 
 export type RestorePlan = {
   /** Files the restore would write, overwriting whatever is there. */
@@ -128,6 +133,7 @@ const id = () => `cp_${Date.now().toString(36)}${Math.random().toString(36).slic
 export async function take(input: {
   directory: string
   title: string
+  summary?: string
   runID?: string
   taskID?: string
 }): Promise<Checkpoint> {
@@ -140,11 +146,13 @@ export async function take(input: {
     ["commit-tree", tree, ...parents, "-m", input.title || "checkpoint"],
     "Could not record a checkpoint",
   )
+  const summary = input.summary?.trim()
   const checkpoint: Checkpoint = {
     id: id(),
     directory: input.directory,
     sha,
     title: input.title,
+    ...(summary ? { summary: summary.slice(0, CHECKPOINT_SUMMARY_LIMIT) } : {}),
     runID: input.runID,
     taskID: input.taskID,
     createdAt: Date.now(),

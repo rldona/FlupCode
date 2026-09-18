@@ -19,6 +19,10 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     intervalMs: options.intervalMs,
   })
   scheduler.start()
+  // Forget what was told to expire (H-14). At startup, so a server that was away for a while acts
+  // on it, and hourly after that. Pinned ones are never touched, and nothing expires by default.
+  repository.removeExpiredArtifacts()
+  const sweep = setInterval(() => repository.removeExpiredArtifacts(), 60 * 60 * 1000)
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",
@@ -29,6 +33,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     repository,
     scheduler,
     stop: () => {
+      clearInterval(sweep)
       scheduler.stop()
       repository.close()
       server.stop()
