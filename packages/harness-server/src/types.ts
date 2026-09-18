@@ -161,19 +161,27 @@ export type TaskCondition = {
  * What a task does.
  *
  * `agent` is a turn of the engine. `verify` is not: it runs the project's own commands and keeps
- * what they printed (H-22). Keeping them as kinds of the same thing is what lets a run be a mix —
+ * what they printed (H-22). `external` is not either: another vendor's CLI does the work (H-38),
+ * declared as a command. Keeping them as kinds of the same thing is what lets a run be a mix —
  * do the work, then check it — without the supervisor, the stream or the store learning a new
  * shape.
  */
-export type TaskKind = "agent" | "verify"
+export type TaskKind = "agent" | "verify" | "external"
 
 export type TaskInput = {
   name: string
-  /** What the agent is asked. A verify task has nothing to say to a model, so it may be empty. */
+  /** What the agent is asked. A verify or external task has nothing to say to a model, so it may be empty. */
   prompt: string
   kind?: TaskKind
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /**
+   * The command an `external` task runs (H-38).
+   *
+   * `{{prompt}}` is the task's prompt, quoted before it is put there. It runs in the task's tree
+   * through a login shell, and what it printed is what the task answered.
+   */
+  command?: string
   /**
    * On a verify task: how many times the work before it may be attempted again if it fails (H-22).
    *

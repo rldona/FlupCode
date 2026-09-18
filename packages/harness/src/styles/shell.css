@@ -8402,6 +8402,10 @@ button.fc-status {
   stroke-dasharray: 4 3;
 }
 
+.fc-workflow-node[data-kind="external"] rect {
+  stroke-dasharray: 2 2;
+}
+
 .fc-workflow-node text {
   fill: var(--fc-text);
   font-size: var(--fc-text-sm);

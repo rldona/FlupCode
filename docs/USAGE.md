@@ -374,8 +374,10 @@ tasks:
 | `inputs` | the workflow | the names its prompts fill with `{{name}}` |
 | `id` | a task | its name in Runs |
 | `agent` | a task | which agent answers it |
-| `prompt` | a task | what it is asked; a `verify` task has none |
+| `prompt` | a task | what it is asked; a `verify` or `external` task has none for a model |
 | `kind: verify` | a task | the harness runs your commands instead of a model |
+| `kind: external` | a task | another vendor's CLI runs it instead of a model (H-38) |
+| `command` | an `external` task | the command it runs; `{{prompt}}` is the task's prompt, quoted |
 | `onFail: { max: N }` | a `verify` task | attempt the work before it again, up to N times |
 | `gate: human` | a task | hold the run here until somebody lets it through |
 | `limits: { tool: 10m }` | the workflow | stop a task whose single tool call runs longer than that |
@@ -395,6 +397,32 @@ write after the name fills its first input:
 ```
 
 You land in Runs, where the run is already going.
+
+### Other CLIs as workers
+
+A task can be run by another vendor's CLI instead of the engine, declared as a command:
+
+```yaml
+tasks:
+  - id: codex
+    kind: external
+    command: codex exec --sandbox workspace-write {{prompt}}
+    prompt: Fix the failing test
+```
+
+`{{prompt}}` is the task's prompt, quoted before it is put there; the workflow's `{{name}}` inputs are
+filled the same way. The command runs in the task's own tree — its worktree, when the run uses them —
+through a login shell, so a CLI installed for you is found. What it prints is what the task answered:
+a later task is handed it, a non-zero exit ends the run with the output kept, and **Stop** and the
+run's ceiling kill the process. There is no session, no model and no tokens: the vendor bills those.
+
+The command is yours, not FlupCode's. Flags change between CLI versions, so nothing here guesses them:
+`codex exec … {{prompt}}` and `gemini -p {{prompt}}` are examples of the shape, not presets. What is
+kept is the last 8 kB of output, and a point is taken after the task like after any writing task.
+
+An external worker is **not confined** the way the engine's tools are (H-47): its CLI runs with your
+user's authority and with its own permissions. Treat the command as you would treat running it
+yourself.
 
 ### Gates
 
