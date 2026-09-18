@@ -587,3 +587,63 @@ describe("a ceiling on one tool call", () => {
     repository.close()
   })
 })
+
+describe("context packs and handoffs (H-31)", () => {
+  test("a run's packs reach a task as file parts, and the rest as text", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-packs-"))
+    scratch.push(directory)
+    mkdirSync(join(directory, "src"), { recursive: true })
+    writeFileSync(join(directory, "src", "answers.ts"), "export const answers = 42\n")
+    repository.savePack({ name: "ctx", refs: ["@src/answers.ts", "@artifact:report"], directory })
+
+    const sent: Array<{ text: string; files?: Array<{ path: string }> }> = []
+    const engine = {
+      createSession: async () => ({ id: `ses_${sent.length}` }),
+      prompt: async (input: { text: string; files?: Array<{ path: string }> }) =>
+        void sent.push({ text: input.text, files: input.files }),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory, { packs: ["ctx"] })
+    repository.addTasks(run.id, [{ name: "build", prompt: "Do it" }])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    // The file is a part the engine reads; the artifact is not a file, so it is said in the prompt.
+    expect(sent[0]!.files?.map((file) => file.path)).toEqual([join(directory, "src", "answers.ts")])
+    expect(sent[0]!.text).toContain("Context packs:")
+    expect(sent[0]!.text).toContain("@artifact:report")
+    repository.close()
+  })
+
+  test("a closing note is kept as an artifact and handed to the next task", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-handoff-"))
+    scratch.push(directory)
+    const prompts: string[] = []
+    const engine = {
+      createSession: async () => ({ id: `ses_${prompts.length}` }),
+      prompt: async (input: { text: string }) => void prompts.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "The raw answer" }),
+      handoff: async () => "Decided: use the server",
+    } as never
+
+    const run = repository.startRun(manual, 1000)
+    repository.addTasks(run.id, [
+      { name: "one", prompt: "First" },
+      { name: "two", prompt: "Second" },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    const notes = repository.listArtifacts({ runID: run.id, kind: "handoff" })
+    // One per agent task: the note after the last one is for whoever reads the run back.
+    expect(notes).toHaveLength(2)
+    expect(notes[0]!.content).toContain("Decided: use the server")
+    // The next task is handed the note, not the whole answer.
+    expect(prompts[1]).toContain("Decided: use the server")
+    expect(prompts[1]).not.toContain("The raw answer")
+    repository.close()
+  })
+})

@@ -198,7 +198,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
       const body = (await readJSON(request)) as
-        | { tasks?: unknown; directory?: unknown; toolLimit?: unknown; outside?: unknown }
+        | { tasks?: unknown; directory?: unknown; toolLimit?: unknown; outside?: unknown; packs?: unknown }
         | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
       if (tasks.length === 0) {
@@ -208,6 +208,8 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       // `toolLimit` is written the way a person writes it — "10m" — and read by the same parser the
       // workflow files use, so the two cannot drift (H-47).
       const toolLimitMs = duration(body?.toolLimit)
+      // Context packs the run's tasks are given (H-31), by name.
+      const packs = Array.isArray(body?.packs) ? body.packs.filter((name): name is string => typeof name === "string") : []
       return json(
         {
           data: await scheduler.runTasks({
@@ -215,6 +217,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
             directory,
             ...(toolLimitMs ? { toolLimitMs } : {}),
             ...(body?.outside === true ? { outside: true } : {}),
+            ...(packs.length > 0 ? { packs } : {}),
           }),
         },
         202,
@@ -822,7 +825,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       return json({ data: await listWorkflows(directory || undefined) })
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
-      const body = (await readJSON(request)) as { inputs?: unknown; directory?: unknown } | undefined
+      const body = (await readJSON(request)) as { inputs?: unknown; directory?: unknown; packs?: unknown } | undefined
       const inputs: Record<string, string> = {}
       if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
         for (const [name, value] of Object.entries(body.inputs as Record<string, unknown>)) {
@@ -830,8 +833,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         }
       }
       const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
+      const packs = Array.isArray(body?.packs) ? body.packs.filter((name): name is string => typeof name === "string") : []
       try {
-        const run = await scheduler.runWorkflow({ name: decodeURIComponent(path[2]), inputs, directory })
+        const run = await scheduler.runWorkflow({
+          name: decodeURIComponent(path[2]),
+          inputs,
+          directory,
+          ...(packs.length > 0 ? { packs } : {}),
+        })
         return json({ data: run }, 202)
       } catch (cause) {
         if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)

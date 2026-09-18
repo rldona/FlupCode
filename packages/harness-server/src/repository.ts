@@ -448,23 +448,27 @@ const decodeRun = (row: RunRow): Run => ({
  * A run is driven twice — once when it starts and again when somebody lets it through a gate — and a
  * limit that lived only in the first call would quietly stop applying at the second.
  */
-const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside"> => {
+const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside" | "packs"> => {
   if (!value) return {}
   try {
-    const parsed = JSON.parse(value) as { toolLimitMs?: unknown; outside?: unknown }
+    const parsed = JSON.parse(value) as { toolLimitMs?: unknown; outside?: unknown; packs?: unknown }
     return {
       ...(typeof parsed.toolLimitMs === "number" && parsed.toolLimitMs > 0 ? { toolLimitMs: parsed.toolLimitMs } : {}),
       ...(parsed.outside === true ? { outside: true } : {}),
+      ...(Array.isArray(parsed.packs)
+        ? { packs: parsed.packs.filter((entry): entry is string => typeof entry === "string") }
+        : {}),
     }
   } catch {
     return {}
   }
 }
 
-const encodeOptions = (run: Pick<Run, "toolLimitMs" | "outside">) => {
+const encodeOptions = (run: Pick<Run, "toolLimitMs" | "outside" | "packs">) => {
   const options = {
     ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
     ...(run.outside ? { outside: true } : {}),
+    ...(run.packs && run.packs.length > 0 ? { packs: run.packs } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
 }
@@ -637,7 +641,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       )
   }
 
-  startRun(source: RunSource, now: number, directory?: string, options: Pick<Run, "toolLimitMs" | "outside"> = {}) {
+  startRun(source: RunSource, now: number, directory?: string, options: Pick<Run, "toolLimitMs" | "outside" | "packs"> = {}) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
       this.insertRun(run)
