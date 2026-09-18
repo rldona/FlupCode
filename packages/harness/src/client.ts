@@ -246,8 +246,18 @@ export function createClient(baseUrl = resolveServerUrl()) {
     config: async () =>
       (await unwrap(client.config.get())) as { compaction?: { auto?: boolean; reserved?: number } },
     session: {
-      list: (input?: { order?: "asc" | "desc"; limit?: number }) =>
+      /**
+       * The engine's list, searched and paged server-side (H-18).
+       *
+       * `search` matches the title, `limit` bounds a page and the response's `cursor.next` is what a
+       * reader loads the next one with. The old wrapper capped the list at 200 and never used either,
+       * so a session older than the last 200 simply did not exist for this app.
+       */
+      list: (input?: { order?: "asc" | "desc"; limit?: number; search?: string; cursor?: string; directory?: string }) =>
         unwrap(client.v2.session.list({ ...input, limit: input?.limit ?? 200 })),
+      /** Archive a session, or bring it back (H-18). Zero is the engine's "not archived". */
+      setArchived: (sessionID: string, archived: boolean) =>
+        unwrap(client.session.update({ sessionID, time: { archived: archived ? Date.now() : 0 } })),
       create: async (input?: {
         model?: { id: string; providerID: string; variant?: string }
         location?: { directory: string }
