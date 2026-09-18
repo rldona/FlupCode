@@ -329,8 +329,14 @@ appears only once that folder is opened again.
 New skills are written the way the engine reads them — a folder of their own, a `SKILL.md`, and a
 `name`.
 
-Installing one from a URL is not here yet: it means editing the project's `opencode.jsonc`, and a
-round trip through JSON eats the comments in it.
+**Saving a session as a skill.** With a code session open, `skillify` (from the palette, or
+`/skillify`) asks that session to write down what it just did as
+`.opencode/skills/<name>/SKILL.md`. It is one visible turn: the agent uses its own write tool, and the
+file appears in **Skills** like any other, ready to edit. In a chat it says so instead, because a chat
+has no project to write into.
+
+Extra sources — another folder, or a URL — are added from the Skills screen, which writes
+`skills.paths`/`skills.urls` into the engine's configuration.
 
 ## What a run is allowed to do
 

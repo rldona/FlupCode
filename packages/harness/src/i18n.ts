@@ -265,6 +265,9 @@ const ES: Record<string, string> = {
   "Budget (cost)": "Presupuesto (coste)",
   Replay: "Reproducir",
   "Replay this session": "Reproducir esta sesión",
+  // Learned skills (H-43)
+  "Save this session as a skill": "Guardar esta sesión como skill",
+  "Skills come from code sessions": "Las skills salen de sesiones de código",
   "Session OS": "Session OS",
   "What this session did, event by event.": "Lo que hizo esta sesión, evento a evento.",
   "No events yet.": "Todavía no hay eventos.",
@@ -300,8 +303,8 @@ const ES: Record<string, string> = {
   Synthetic: "Sintético",
   Compare: "Comparar",
   "Compare two runs": "Comparar dos ejecuciones",
-  "Two runs against each other: what they spent, how long, what they touched and what the check said.":
-    "Dos ejecuciones frente a frente: qué gastaron, cuánto tardaron, qué tocaron y qué dijo la comprobación.",
+  "Two runs against each other: what they spent, how long, what they touched, what the check said — and the context each was given.":
+    "Dos ejecuciones frente a frente: qué gastaron, cuánto tardaron, qué tocaron, qué dijo la comprobación y qué contexto recibió cada una.",
   "No runs to compare yet.": "Todavía no hay ejecuciones que comparar.",
   "First run": "Primera ejecución",
   "Second run": "Segunda ejecución",
