@@ -526,6 +526,22 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "packs" && request.method === "DELETE" && path[2] && !path[3]) {
       return repository.removePack(path[2]) ? json({ data: true }) : error("Pack not found", 404)
     }
+    // A conversation kept here so a link can read it (H-35). Markdown, because that is what the
+    // reader made; the link serves it, so the harness is the host and not the engine's remote.
+    if (path[1] === "shares" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as { title?: unknown; markdown?: unknown } | undefined
+      const markdown = typeof body?.markdown === "string" ? body.markdown : ""
+      if (!markdown.trim()) return error("A conversation to share is required", 400)
+      const share = repository.saveShare({ title: typeof body?.title === "string" ? body.title : "", markdown })
+      return json({ data: { id: share.id, title: share.title, url: `/harness/shares/${share.id}` } }, 201)
+    }
+    if (path[1] === "shares" && request.method === "GET" && path[2] && !path[3]) {
+      const share = repository.getShare(path[2])
+      if (!share) return error("Not found", 404)
+      return new Response(share.markdown, {
+        headers: { "content-type": "text/markdown; charset=utf-8" },
+      })
+    }
     // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
     // adding the engine's session totals on top would count every task twice.
     if (path[1] === "usage" && request.method === "GET") {

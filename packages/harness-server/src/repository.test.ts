@@ -329,3 +329,19 @@ describe("context packs (H-26)", () => {
     repository.close()
   })
 })
+
+describe("shared conversations (H-35)", () => {
+  test("keeps one and reads it back", () => {
+    const repository = open()
+    const share = repository.saveShare({ title: "Fix login", markdown: "# Fix login\n" })
+    expect(repository.getShare(share.id)).toEqual(share)
+    expect(repository.getShare("nope")).toBeUndefined()
+    repository.close()
+  })
+
+  test("a conversation with no title still has one", () => {
+    const repository = open()
+    expect(repository.saveShare({ title: "   ", markdown: "x" }).title).toBe("Conversation")
+    repository.close()
+  })
+})

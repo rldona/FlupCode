@@ -24,6 +24,7 @@ import type {
   SessionPrefs,
   StashedPrompt,
   ContextPack,
+  SharedConversation,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -166,6 +167,12 @@ CREATE TABLE IF NOT EXISTS context_packs (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS context_packs_directory ON context_packs(directory, name);
+CREATE TABLE IF NOT EXISTS shared_conversations (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  markdown TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -377,6 +384,15 @@ function readRefs(value: string): string[] {
     return []
   }
 }
+
+type SharedConversationRow = { id: string; title: string; markdown: string; created_at: number }
+
+const decodeShare = (row: SharedConversationRow): SharedConversation => ({
+  id: row.id,
+  title: row.title,
+  markdown: row.markdown,
+  createdAt: row.created_at,
+})
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
   id: row.id,
@@ -1179,6 +1195,25 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   removePack(id: string) {
     return this.db.query("DELETE FROM context_packs WHERE id = ?1").run(id).changes > 0
+  }
+
+  /** Keeps a conversation so a link can read it (H-35). */
+  saveShare(input: { title: string; markdown: string }) {
+    const share: SharedConversation = {
+      id: crypto.randomUUID(),
+      title: input.title.trim() || "Conversation",
+      markdown: input.markdown,
+      createdAt: Date.now(),
+    }
+    this.db
+      .query("INSERT INTO shared_conversations (id, title, markdown, created_at) VALUES (?1, ?2, ?3, ?4)")
+      .run(share.id, share.title, share.markdown, share.createdAt)
+    return share
+  }
+
+  getShare(id: string) {
+    const row = this.db.query("SELECT * FROM shared_conversations WHERE id = ?1").get(id) as SharedConversationRow | null
+    return row ? decodeShare(row) : undefined
   }
 
   removeFinishedRuns() {
