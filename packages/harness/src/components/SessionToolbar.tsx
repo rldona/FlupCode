@@ -1,16 +1,57 @@
-import { Show, createSignal, type Component } from "solid-js"
+import { For, Show, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
 import type { ProjectItem } from "../types"
 import { t } from "../i18n"
 import { isCoworkSession } from "../chat"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 
+type SessionBreadcrumbProps = {
+  /** The ancestors and the session itself, oldest first. One entry draws nothing. */
+  chain: SessionInfo[]
+  onOpen: (id: string) => void
+}
+
+/**
+ * Where a session sits in its lineage (H-18).
+ *
+ * A forked or subagent session is a child of another, and the engine keeps that in `parentID`. The
+ * path back is drawn here so a reader can see it is one, and step up to the parent, instead of the
+ * child reading as a session that came from nowhere.
+ */
+export const SessionBreadcrumb: Component<SessionBreadcrumbProps> = (props) => {
+  // Ancestors only: the session's own title follows the separators, so repeating it here would read
+  // "Parent › Child Child".
+  const ancestors = () => props.chain.slice(0, -1)
+  return (
+    <Show when={ancestors().length > 0}>
+      <nav class="fc-session-lineage" aria-label={t("Lineage")}>
+        <For each={ancestors()}>
+          {(session) => (
+            <>
+              <button class="fc-session-lineage-link" type="button" onClick={() => props.onOpen(session.id)}>
+                {session.title || t("Session without title")}
+              </button>
+              <span class="fc-session-lineage-sep" aria-hidden="true">
+                ›
+              </span>
+            </>
+          )}
+        </For>
+      </nav>
+    </Show>
+  )
+}
+
 type SessionTitleProps = {
   session: SessionInfo
+  /** Ancestors and this session, oldest first, so a child shows where it came from (H-18). */
+  lineage?: SessionInfo[]
+  onOpenLineage?: (id: string) => void
 }
 
 export const SessionTitle: Component<SessionTitleProps> = (props) => (
   <div class="fc-session-heading">
+    <SessionBreadcrumb chain={props.lineage ?? [props.session]} onOpen={(id) => props.onOpenLineage?.(id)} />
     <span class="fc-session-heading-title" title={props.session.title}>
       {props.session.title || t("Session without title")}
     </span>

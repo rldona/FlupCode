@@ -143,6 +143,8 @@ type CommandPaletteProps = {
   onRun: (id: string) => void
   onFile: (path: string) => void
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
+  /** Sessions matching the query that the loaded page does not hold (H-18). */
+  searchSessions: (query: string) => Promise<SessionInfo[]>
 }
 
 /**
@@ -157,6 +159,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
   let input: HTMLInputElement | undefined
   const [query, setQuery] = createSignal("")
   const [files, setFiles] = createSignal<FileSystemEntry[]>([])
+  const [remoteSessions, setRemoteSessions] = createSignal<SessionInfo[]>([])
   const [active, setActive] = createSignal(0)
   const [tab, setTab] = createSignal<Kind>()
 
@@ -164,6 +167,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     if (!props.open) return
     setQuery("")
     setFiles([])
+    setRemoteSessions([])
     setActive(0)
     setTab(undefined)
     queueMicrotask(() => input?.focus())
@@ -173,22 +177,31 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     const value = query().trim()
     if (!props.open || value.length < 2) {
       setFiles([])
+      setRemoteSessions([])
       return
     }
     const handle = setTimeout(async () => {
-      try {
-        setFiles(await props.searchFiles(value))
-      } catch {
-        setFiles([])
-      }
+      // Files and sessions are asked for together: both reach past what is already on screen.
+      const [found, sessions] = await Promise.all([
+        props.searchFiles(value).catch(() => [] as FileSystemEntry[]),
+        props.searchSessions(value).catch(() => [] as SessionInfo[]),
+      ])
+      setFiles(found)
+      setRemoteSessions(sessions)
     }, 150)
     onCleanup(() => clearTimeout(handle))
+  })
+
+  // The loaded sessions plus whatever the server found beyond them, without a session twice.
+  const sessions = createMemo(() => {
+    const known = new Set(props.sessions.map((session) => session.id))
+    return [...props.sessions, ...remoteSessions().filter((session) => !known.has(session.id))]
   })
 
   const all = createMemo(() =>
     search(query(), {
       commands: props.commands,
-      sessions: props.sessions,
+      sessions: sessions(),
       projects: props.projects,
       artifacts: props.artifacts,
       routines: props.routines,

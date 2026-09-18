@@ -55,7 +55,7 @@ import {
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { browser, isLocalPreview } from "./browser"
-import type { ModelInfo } from "./engine-types"
+import type { ModelInfo, SessionInfo } from "./engine-types"
 import type {
   Artifact,
   Attachment,
@@ -509,13 +509,46 @@ export const App: Component = () => {
   })
   const serverStatus = () =>
     health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
+  // How many sessions one page asks for, and how many each "Load more" adds (H-18). The list used to
+  // stop at a hard 200; paging means the oldest session is reachable without fetching everything.
+  const SESSION_PAGE = 80
+  const [sessionLimit, setSessionLimit] = createSignal(SESSION_PAGE)
   const [sessions, { refetch: refetchSessions }] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).session.list(),
+    () => (ready() ? `${serverUrl()}\n${sessionLimit()}` : undefined),
+    async (key) => {
+      const [url = "", limit = String(SESSION_PAGE)] = key.split("\n")
+      return createClient(url).session.list({ limit: Number(limit) })
+    },
   )
+  const hasMoreSessions = () => !!sessions()?.cursor?.next
+  const loadMoreSessions = () => setSessionLimit((limit) => limit + SESSION_PAGE)
+  // Server-side session search (H-18), for the palette: it reaches sessions the page above never
+  // loaded. The title is what the engine matches; the palette still searches folders too.
+  const searchSessions = (query: string) =>
+    createClient(serverUrl())
+      .session.list({ search: query, limit: 50 })
+      .then((response) => response.data ?? [])
+      .catch(() => [] as SessionInfo[])
   // Reply suggestions run in throwaway child sessions that are never shown.
   const sessionList = () => sessions()?.data?.filter((session) => !isSuggestionSession(session))
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
+  // The walk back from this session to its root, oldest first, for the breadcrumb (H-18). A parent
+  // not on the loaded page stops the walk rather than inventing a step.
+  const lineage = createMemo(() => {
+    const start = selectedSession()
+    if (!start) return []
+    const chain = [start]
+    const seen = new Set([start.id])
+    let parentID = start.parentID
+    while (parentID && !seen.has(parentID)) {
+      const parent = sessionList()?.find((session) => session.id === parentID)
+      if (!parent) break
+      chain.unshift(parent)
+      seen.add(parent.id)
+      parentID = parent.parentID
+    }
+    return chain
+  })
   // A project the reader opened a session in stays open. The list used to expand only the selected
   // session's project and collapse the previous one, so choosing a session lower down removed the
   // rows above it and the sidebar's scroll jumped up. Expansion is now something the list only adds.
@@ -3321,6 +3354,18 @@ export const App: Component = () => {
     })
   }
 
+  // Archiving is the engine's own `time.archived` (H-18): the session stays, it just leaves the
+  // list. Bringing it back is the same call with zero.
+  const archiveSession = (id: string, archived: boolean) => {
+    void createClient(serverUrl())
+      .session.setArchived(id, archived)
+      .then(() => {
+        if (archived && selected() === id) setSelected(undefined)
+        return refetchSessions()
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
   const deleteProject = (directory: string) => {
     const sessions = (sessionList() ?? []).filter((session) => (session.location?.directory ?? "") === directory)
     if (sessions.length === 0) return
@@ -3949,7 +3994,7 @@ export const App: Component = () => {
               hostRemote={hostRemotePill()}
               sessionTitle={
                 <Show when={!splitActive() && selectedSession()}>
-                  {(session) => <SessionTitle session={session()} />}
+                  {(session) => <SessionTitle session={session()} lineage={lineage()} onOpenLineage={selectSession} />}
                 </Show>
               }
               sessionActions={
@@ -4016,9 +4061,12 @@ export const App: Component = () => {
             sessionTags={sessionTags()}
             expandedProjects={expanded()}
             noFolderSessions={noFolderSessions()}
+            hasMoreSessions={hasMoreSessions()}
             onDisplayName={updateDisplayName}
             onToggleSessionPin={togglePin}
             onEditTags={editTags}
+            onArchiveSession={archiveSession}
+            onLoadMoreSessions={loadMoreSessions}
             onToggleProject={toggleProject}
             onNewSession={newSession}
             onSelectSession={selectSession}
@@ -4390,6 +4438,7 @@ export const App: Component = () => {
         onRun={() => showScreen("runs")}
         onFile={(path) => setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
         searchFiles={searchFiles}
+        searchSessions={searchSessions}
       />
       <McpManager
         open={mcpOpen()}

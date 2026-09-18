@@ -45,10 +45,15 @@ type SidebarProps = {
   sessionTags: Record<string, string[]>
   expandedProjects: Record<string, boolean>
   noFolderSessions: string[]
+  /** Whether the server has another page of sessions to load (H-18). */
+  hasMoreSessions: boolean
   onDisplayName: (value: string) => void
   onToggleSessionPin: (id: string) => void
   /** Opens the dialog that edits a session's tags, so this only asks for it (H-18). */
   onEditTags: (id: string) => void
+  /** Archives a session, or brings it back (H-18). */
+  onArchiveSession: (id: string, archived: boolean) => void
+  onLoadMoreSessions: () => void
   onToggleProject: (id: string) => void
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
@@ -98,11 +103,18 @@ export const Sidebar: Component<SidebarProps> = (props) => {
 
   // Narrowing the list by tag is the one filter a reader can do here that the palette cannot (H-18).
   const [tagFilter, setTagFilter] = createSignal<string>()
+  // Archived sessions are out of the way by default and brought back on request (H-18).
+  const [showArchived, setShowArchived] = createSignal(false)
   const tagOf = (id: string) => props.sessionTags[id] ?? []
   const allTags = createMemo(() => [...new Set(Object.values(props.sessionTags).flat())].sort((a, b) => a.localeCompare(b)))
+  const archived = (session: SessionInfo) => !!session.time?.archived
+  const hasArchived = createMemo(() => sortedSessions().some(archived))
   const visibleSessions = createMemo(() => {
     const only = tagFilter()
-    return only ? sortedSessions().filter((session) => tagOf(session.id).includes(only)) : sortedSessions()
+    return sortedSessions().filter((session) => {
+      if (!showArchived() && archived(session)) return false
+      return !only || tagOf(session.id).includes(only)
+    })
   })
 
   const groups = createMemo(() => {
@@ -158,6 +170,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           onSelect: () => props.onToggleSessionPin(session.id),
         },
         { label: t("Edit tags…"), icon: "🏷", onSelect: () => props.onEditTags(session.id) },
+        {
+          label: archived(session) ? t("Unarchive") : t("Archive"),
+          icon: "▣",
+          onSelect: () => props.onArchiveSession(session.id, !archived(session)),
+        },
         { label: t("Rename"), icon: "✎", onSelect: () => props.onRenameSession(session.id) },
         ...(props.view === "code"
           ? [
@@ -453,6 +470,20 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             <section class="fc-sidebar-section">
             <div class="fc-section-header">
               <span class="fc-section-label">{t("Projects")}</span>
+              {/* Only offered once something is archived: a toggle that always finds nothing is furniture. */}
+              <Show when={hasArchived()}>
+                <button
+                  class="fc-icon-button"
+                  classList={{ "fc-icon-button-active": showArchived() }}
+                  type="button"
+                  title={showArchived() ? t("Hide archived") : t("Show archived")}
+                  aria-label={showArchived() ? t("Hide archived") : t("Show archived")}
+                  aria-pressed={showArchived()}
+                  onClick={() => setShowArchived((value) => !value)}
+                >
+                  ▣
+                </button>
+              </Show>
               <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
                 ↻
               </button>
@@ -505,6 +536,13 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
             </Show>
             </section>
+          </Show>
+
+          {/* The engine has more sessions than the page asked for (H-18). */}
+          <Show when={props.hasMoreSessions}>
+            <button class="fc-load-more" type="button" onClick={props.onLoadMoreSessions}>
+              {t("Load more")}
+            </button>
           </Show>
         </div>
 

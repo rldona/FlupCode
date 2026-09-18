@@ -293,3 +293,106 @@ test("a session is pinned and tagged on the server, and a tag filters the list",
   await filter.locator(".fc-session-tag", { hasText: "work" }).click()
   await expect(filter.locator(".fc-session-tag", { hasText: "work" })).toHaveClass(/fc-session-tag-active/)
 })
+
+// H-18: archiving is the engine's own time.archived, and the list hides it until asked.
+test("a session can be archived, and brought back on request", async ({ page }) => {
+  let archived = false
+  const patches: unknown[] = []
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_a"))
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/stash") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/session-prefs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") {
+      const list = sessions.map((session) =>
+        session.id === "ses_a" && archived ? { ...session, time: { ...session.time, archived: 123 } } : session,
+      )
+      return route.fulfill({ json: { data: list, cursor: {} } })
+    }
+    if (url.pathname === "/session/ses_a" && route.request().method() === "PATCH") {
+      const body = route.request().postDataJSON() as { time?: { archived?: number } }
+      patches.push(body)
+      archived = !!body?.time?.archived
+      return route.fulfill({ json: { data: {} } })
+    }
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await expect(page.locator(".fc-sidebar")).toBeVisible()
+  await expect(page.locator(".fc-session-row", { hasText: "Fix the parser" })).toHaveCount(1)
+
+  await page.locator(".fc-session-row", { hasText: "Fix the parser" }).first().locator(".fc-session-action").click()
+  await page.locator(".fc-menu-item", { hasText: "Archive" }).click()
+  await expect.poll(() => patches.length).toBeGreaterThan(0)
+  // Out of the list by default, and offered back behind the toggle.
+  await expect(page.locator(".fc-session-row", { hasText: "Fix the parser" })).toHaveCount(0)
+  const toggle = page.getByRole("button", { name: /Show archived|Mostrar archivadas/ })
+  await toggle.click()
+  await expect(page.locator(".fc-session-row", { hasText: "Fix the parser" })).toHaveCount(1)
+})
+
+// H-18: a child session shows the path back to its parent, and the path is walkable.
+test("a child session shows the path back to its parent", async ({ page }) => {
+  const child = { ...sessionAt("ses_child", "Fix the parser child", "/work/alpha"), parentID: "ses_a" }
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_child"))
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/stash") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/session-prefs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({ json: { data: [sessions[0], child], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await expect(page.locator(".fc-sidebar")).toBeVisible()
+
+  const lineage = page.locator(".fc-session-lineage")
+  await expect(lineage).toContainText("Fix the parser")
+  await lineage.getByRole("button", { name: "Fix the parser" }).click()
+  await expect(page.locator(".fc-session-lineage")).toHaveCount(0)
+  await expect(page.locator(".fc-session-heading-title")).toContainText("Fix the parser")
+})
