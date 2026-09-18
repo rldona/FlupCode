@@ -243,6 +243,7 @@ const ES: Record<string, string> = {
     "{name} pide {inputs}, y eso no cabe en una línea",
   "Manual run": "Ejecución manual",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
+  "Run timeline": "Línea de tiempo de la ejecución",
   "That session is no longer in the engine": "Esa sesión ya no está en el motor",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":
