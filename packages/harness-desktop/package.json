@@ -62,7 +62,10 @@
         }
       ],
       "category": "public.app-category.developer-tools",
-      "identity": null,
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
       "artifactName": "FlupCode-mac-${arch}.${ext}",
       "icon": "build/icon-mac.png",
       "extendInfo": {

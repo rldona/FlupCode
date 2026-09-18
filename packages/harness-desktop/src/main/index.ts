@@ -6,7 +6,8 @@ import { initRemoteHost } from "./remote"
 import { engineCredentials, ensureHarnessServer, ensureServer, stopServer } from "./server"
 import { initSpeech, speechAvailable, stopSpeech } from "./speech"
 import { initAutoUpdate, checkForUpdates } from "./updater"
-import { loadBounds, saveBounds } from "./window-state"
+import { loadWindowStates, saveWindowState } from "./window-state"
+import { cascade, DEFAULT_BOUNDS } from "./window-bounds"
 
 const DEV_URL = process.env.FLUPCODE_DEV_URL ?? "http://localhost:4444"
 
@@ -46,8 +47,14 @@ function registerRendererProtocol() {
   })
 }
 
+/** How many windows have been opened, which is also where each one's bounds are remembered. */
+let windowsOpened = 0
+
 function createWindow() {
-  const bounds = loadBounds()
+  const index = windowsOpened++
+  const states = loadWindowStates()
+  // Its own remembered bounds, or the first window's stepped down so they do not stack exactly.
+  const bounds = cascade(states[index] ?? states[0] ?? DEFAULT_BOUNDS, index)
   const credentials = engineCredentials()
 
   const window = new BrowserWindow({
@@ -84,7 +91,7 @@ function createWindow() {
     },
   })
 
-  window.on("close", () => saveBounds(window.getBounds()))
+  window.on("close", () => saveWindowState(index, window.getBounds()))
 
   // Windows paints its own window buttons, so it has to be told the colours the page is using.
   // Nothing else can: the palette and the light/dark choice live in the renderer's storage.

@@ -316,6 +316,12 @@ const ES: Record<string, string> = {
   Resources: "Recursos",
   "No agent allows this server yet.": "Ningún agente permite todavía este servidor.",
   "Agents that allow it: {agents}": "Agentes que lo permiten: {agents}",
+  "Open sessions": "Sesiones abiertas",
+  "Untitled session": "Sesión sin título",
+  "Close tab": "Cerrar pestaña",
+  "Next session tab": "Siguiente pestaña",
+  "Previous session tab": "Pestaña anterior",
+  "Close this session tab": "Cerrar esta pestaña",
   "That session is no longer in the engine": "Esa sesión ya no está en el motor",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":

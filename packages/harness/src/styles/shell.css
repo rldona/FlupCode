@@ -8557,6 +8557,61 @@ button.fc-status {
   font-variant-numeric: tabular-nums;
 }
 
+/* ── Session tabs (H-36) ──────────────────────────────────────────────────── */
+
+.fc-session-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px var(--fc-space-2) 0;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-session-tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 220px;
+  border: 1px solid transparent;
+  border-bottom: none;
+  border-radius: var(--fc-radius-sm) var(--fc-radius-sm) 0 0;
+}
+
+.fc-session-tab-active {
+  background: var(--fc-bg-elevated);
+  border-color: var(--fc-border);
+}
+
+.fc-session-tab-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  border: none;
+  background: none;
+  color: var(--fc-text-muted);
+  padding: 4px var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+  cursor: pointer;
+}
+
+.fc-session-tab-active .fc-session-tab-name {
+  color: var(--fc-text);
+}
+
+.fc-session-tab-close {
+  border: none;
+  background: none;
+  color: var(--fc-text-muted);
+  padding: 0 6px;
+  cursor: pointer;
+}
+
+.fc-session-tab-close:hover {
+  color: var(--fc-text);
+}
+
 /* ── The diff viewer (H-06) ───────────────────────────────────────────────── */
 
 .fc-changes-branch {
