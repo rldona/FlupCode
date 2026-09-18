@@ -146,6 +146,26 @@ test("the list scrolls under + New, and + New does not move", async ({ page }) =
   expect((await page.locator(".fc-new").boundingBox())!.y).toBe(newBefore)
 })
 
+// The inspector screens live in the profile menu now: they are consulted, not worked in, and the
+// nav on the left keeps the work.
+test("cost, context, agents and skills moved from the nav to the profile menu", async ({ page }) => {
+  await open(page)
+
+  for (const name of ["Cost", "Context", "Agents", "Skills"]) {
+    await expect(page.locator(".fc-nav").getByRole("button", { name, exact: true })).toHaveCount(0)
+  }
+
+  await page.locator(".fc-profile-button").click()
+  const menu = page.locator(".fc-menu")
+  for (const name of ["Cost", "Context", "Agents", "Skills"]) {
+    await expect(menu.getByText(name, { exact: true })).toBeVisible()
+  }
+
+  // And they are still the doors to their screens.
+  await menu.getByText("Context", { exact: true }).click()
+  await expect(page).toHaveURL(/\/context$/)
+})
+
 test("opening a session below does not collapse the project above it", async ({ page }) => {
   const many = [
     ...Array.from({ length: 6 }, (_, index) => sessionAt(`ses_a${index}`, `Alpha ${index}`, "/work/alpha")),
