@@ -25,6 +25,7 @@ import type {
   StashedPrompt,
   ContextPack,
   SharedConversation,
+  ProjectMemory,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -173,6 +174,13 @@ CREATE TABLE IF NOT EXISTS shared_conversations (
   markdown TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS project_memory (
+  id TEXT PRIMARY KEY,
+  directory TEXT NOT NULL,
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS project_memory_directory ON project_memory(directory, created_at);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -391,6 +399,15 @@ const decodeShare = (row: SharedConversationRow): SharedConversation => ({
   id: row.id,
   title: row.title,
   markdown: row.markdown,
+  createdAt: row.created_at,
+})
+
+type ProjectMemoryRow = { id: string; directory: string; text: string; created_at: number }
+
+const decodeMemory = (row: ProjectMemoryRow): ProjectMemory => ({
+  id: row.id,
+  directory: row.directory,
+  text: row.text,
   createdAt: row.created_at,
 })
 
@@ -1214,6 +1231,31 @@ export class SqliteRoutineRepository implements RoutineRepository {
   getShare(id: string) {
     const row = this.db.query("SELECT * FROM shared_conversations WHERE id = ?1").get(id) as SharedConversationRow | null
     return row ? decodeShare(row) : undefined
+  }
+
+  /** A project's notes, oldest first, so they read in the order they were written (H-37). */
+  listProjectMemory(directory: string) {
+    const rows = this.db
+      .query("SELECT * FROM project_memory WHERE directory = ?1 ORDER BY created_at ASC, rowid ASC")
+      .all(directory) as ProjectMemoryRow[]
+    return rows.map(decodeMemory)
+  }
+
+  addProjectMemory(input: { directory: string; text: string }) {
+    const note: ProjectMemory = {
+      id: crypto.randomUUID(),
+      directory: input.directory,
+      text: input.text.trim(),
+      createdAt: Date.now(),
+    }
+    this.db
+      .query("INSERT INTO project_memory (id, directory, text, created_at) VALUES (?1, ?2, ?3, ?4)")
+      .run(note.id, note.directory, note.text, note.createdAt)
+    return note
+  }
+
+  removeProjectMemory(id: string) {
+    return this.db.query("DELETE FROM project_memory WHERE id = ?1").run(id).changes > 0
   }
 
   removeFinishedRuns() {
