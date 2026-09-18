@@ -36,3 +36,6 @@ logs/
 tsconfig.tsbuildinfo
 playwright-report
 test-results
+
+# Trunk writes its caches, logs and downloaded tools here; nothing in it belongs to the repo.
+.trunk/
