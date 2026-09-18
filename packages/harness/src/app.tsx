@@ -4144,6 +4144,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.auth.set({ providerID, key })
       await current.integration.connectKey({ integrationID: providerID, key, label: providerID }).catch(() => undefined)
+      await current.auth.reload().catch(() => undefined)
       void refetchProviderDirectory()
       void refetchModelDirectory()
       void refetchModels()
@@ -4160,6 +4161,7 @@ export const App: Component = () => {
         if (connection.type !== "credential") continue
         await current.integration.disconnect(connection.id)
       }
+      await current.auth.reload().catch(() => undefined)
       void refetchProviderDirectory()
       void refetchModelDirectory()
       void refetchModels()
@@ -4184,10 +4186,15 @@ export const App: Component = () => {
 
   const finishOAuth = () => {
     const refresh = () => {
-      void refetchProviderDirectory()
-      void refetchModelDirectory()
-      void refetchModels()
-      void refetchIntegrations()
+      void client()
+        .auth.reload()
+        .catch(() => undefined)
+        .then(() => {
+          void refetchProviderDirectory()
+          void refetchModelDirectory()
+          void refetchModels()
+          void refetchIntegrations()
+        })
     }
     refresh()
     // The engine marks the attempt complete just before persisting the
