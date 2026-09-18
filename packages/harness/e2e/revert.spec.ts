@@ -83,7 +83,8 @@ test("confirming a revert commits it on the legacy runtime", async ({ page }) =>
   const harness = await openSession(page)
 
   await page.getByRole("button", { name: /^Menu$|^Menú$/ }).click()
-  await page.getByRole("button", { name: /Confirm revert|Confirmar reversión/ }).click()
+  // The menu is a menu since H-24: its rows are menuitems, not generic buttons.
+  await page.getByRole("menuitem", { name: /Confirm revert|Confirmar reversión/ }).click()
 
   // The v2 commit looks the boundary up in the v2 message table and dies for a legacy one.
   await expect.poll(() => harness.calls.some((call) => call.path === "/session/ses_r/revert/commit")).toBe(true)

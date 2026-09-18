@@ -43,6 +43,8 @@ export const STORAGE_KEYS = {
   onboarded: "flupcode.onboarded",
   locale: "flupcode.locale",
   notifications: "flupcode.notifications",
+  /** The editable shortcut map (H-24). `paletteKey` is the old single-key form, read for migration. */
+  keybinds: "flupcode.keybinds",
   paletteKey: "flupcode.paletteKey",
   expandedProjects: "flupcode.expandedProjects",
   sidebarWidth: "flupcode.sidebarWidth",

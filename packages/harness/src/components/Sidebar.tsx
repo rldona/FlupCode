@@ -152,7 +152,44 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     return key === group.id
   }
 
-  const openSessionMenu = (event: MouseEvent, session: SessionInfo) => {
+  /** Just the point a menu is opened at, so a long press can open one without a MouseEvent. */
+  type MenuPoint = { clientX: number; clientY: number; preventDefault: () => void; stopPropagation: () => void }
+
+  /**
+   * Opens a menu on a long press (H-24). Touch screens have no right-click, and without this the
+   * session and project menus were unreachable on a phone.
+   */
+  const longPress = (open: (point: MenuPoint) => void) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let fired = false
+    const clear = () => {
+      clearTimeout(timer)
+      timer = undefined
+    }
+    return {
+      onPointerDown: (event: PointerEvent) => {
+        if (event.pointerType !== "touch") return
+        fired = false
+        const { clientX, clientY } = event
+        timer = setTimeout(() => {
+          fired = true
+          open({ clientX, clientY, preventDefault: () => {}, stopPropagation: () => {} })
+        }, 500)
+      },
+      onPointerUp: clear,
+      onPointerMove: clear,
+      onPointerCancel: clear,
+      // The press already opened the menu; the click it ends with must not also select the row.
+      onClickCapture: (event: MouseEvent) => {
+        if (!fired) return
+        fired = false
+        event.preventDefault()
+        event.stopPropagation()
+      },
+    }
+  }
+
+  const openSessionMenu = (event: MenuPoint, session: SessionInfo) => {
     event.preventDefault()
     event.stopPropagation()
     const pinned = props.pinnedSessions.includes(session.id)
@@ -190,7 +227,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     })
   }
 
-  const openProjectMenu = (event: MouseEvent, group: ProjectGroup) => {
+  const openProjectMenu = (event: MenuPoint, group: ProjectGroup) => {
     event.preventDefault()
     event.stopPropagation()
     setMenu({
@@ -218,6 +255,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           props.selectedSession !== row.session.id && props.splitSessions.includes(row.session.id),
       }}
       onContextMenu={(event) => openSessionMenu(event, row.session)}
+      {...longPress((point) => openSessionMenu(point, row.session))}
     >
       <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
         <span
@@ -505,7 +543,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 <For each={groups()}>
                   {(group) => (
                     <div class="fc-project-group">
-                      <div class="fc-project-row" onContextMenu={(event) => openProjectMenu(event, group)}>
+                      <div
+                        class="fc-project-row"
+                        onContextMenu={(event) => openProjectMenu(event, group)}
+                        {...longPress((point) => openProjectMenu(point, group))}
+                      >
                         <button class="fc-project-toggle" type="button" onClick={() => props.onToggleProject(group.id)}>
                           <span class="fc-project-name">{group.name}</span>
                         </button>
