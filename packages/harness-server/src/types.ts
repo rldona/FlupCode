@@ -122,7 +122,19 @@ export type RoutineCreateOptions = {
   runs?: Array<Omit<Run, "source">>
 }
 
-export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
+export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped" | "skipped"
+
+/**
+ * When a task is allowed to run, said in terms of an earlier task's outcome (H-28).
+ *
+ * `{ task: verify, is: failed }` is "only when the check failed": the escape hatch that makes a
+ * recovery step declarative instead of a special case in the runner. The named task is a dependency
+ * whether or not `dependsOn` repeats it, because the condition cannot be answered until it is done.
+ */
+export type TaskCondition = {
+  task: string
+  is: Array<Exclude<TaskStatus, "queued" | "running">>
+}
 
 /**
  * One executable unit of a run.
@@ -132,9 +144,10 @@ export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
  * (§6.2). It runs as a child of the run's session, so the engine keeps the lineage and the harness
  * does not have to invent one.
  *
- * `dependsOn` is absent on purpose: v1 runs tasks in order, and the audit puts the DAG in H-28. An
- * order is a dependency list everyone already understands, and it is the one thing a sequential
- * runner can honour without pretending to more.
+ * `dependsOn` is what turns a run's tasks into a graph (H-28). A task with explicit `dependsOn` runs
+ * once every named task has settled and one of them succeeded; a task with an explicit empty list is
+ * a root, which is how `parallel: true` in a workflow is written down. Absent means the v1 rule still
+ * holds — this task follows the one before it — so a workflow that says nothing runs in order.
  */
 /**
  * What a task does.
@@ -166,6 +179,16 @@ export type TaskInput = {
   retryOf?: string
   /** `human` stops the run when this task is done, until somebody lets it through (H-21). */
   gate?: "human"
+  /**
+   * The tasks this one waits for, by name (H-28).
+   *
+   * An explicit list replaces the v1 "after the one before it" rule; an explicit **empty** list makes
+   * the task a root, which is how a workflow writes `parallel: true`. Names are resolved against the
+   * run, so a retry that repeats a name keeps its dependents waiting for the newest attempt.
+   */
+  dependsOn?: string[]
+  /** Run only if an earlier task ended a certain way; otherwise this task is skipped (H-28). */
+  when?: TaskCondition
 }
 
 export type Task = TaskInput & {

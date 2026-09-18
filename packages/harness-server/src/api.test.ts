@@ -161,6 +161,29 @@ describe("harness runs API", () => {
     repository.close()
   })
 
+  // H-28: a caller can build a graph by hand, not only from a workflow file.
+  test("keeps what a task waits for, and the condition that lets it run", async () => {
+    const { repository, handler } = open()
+    const started = await handler(
+      new Request("http://localhost/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          tasks: [
+            { name: "build", prompt: "build", dependsOn: [] },
+            { name: "report", prompt: "report", dependsOn: ["build"], when: { task: "build", is: ["failed"] } },
+          ],
+        }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    const [build, report] = repository.listTasks(run.id)
+    expect(build!.dependsOn).toEqual([])
+    expect(report).toMatchObject({ dependsOn: ["build"], when: { task: "build", is: ["failed"] } })
+    await settled(repository, run.id)
+    repository.close()
+  })
+
   // H-21: a workflow is a file that turns into a run of tasks. Everything after that is the path a
   // manual run already takes.
   test("starts a run from a workflow the project wrote down", async () => {

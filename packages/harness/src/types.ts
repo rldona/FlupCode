@@ -159,7 +159,13 @@ export type Run = {
   tasks?: Task[]
 }
 
-export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
+export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped" | "skipped"
+
+/** When a task is allowed to run, in terms of an earlier task's outcome (H-28). */
+export type TaskCondition = {
+  task: string
+  is: Array<Exclude<TaskStatus, "queued" | "running">>
+}
 
 /** What a task does: a turn of the engine, or the project's own checks (H-22). */
 export type TaskKind = "agent" | "verify"
@@ -177,6 +183,10 @@ export type Task = {
   retryOf?: string
   /** `human` holds the run here until somebody reads what it did and lets it through. */
   gate?: "human"
+  /** The tasks this one waited for, by name (H-28). An empty list means it was a root. */
+  dependsOn?: string[]
+  /** The condition that let it run, when it declared one (H-28). */
+  when?: TaskCondition
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
   sessionID?: string

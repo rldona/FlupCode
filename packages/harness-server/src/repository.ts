@@ -14,6 +14,7 @@ import type {
   Run,
   RunSource,
   Task,
+  TaskCondition,
   TaskInput,
   TaskStatus,
   RunStatus,
@@ -90,6 +91,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   gate TEXT,
   agent TEXT,
   model_json TEXT,
+  depends_on TEXT,
+  when_json TEXT,
   session_id TEXT,
   directory TEXT,
   status TEXT NOT NULL,
@@ -245,6 +248,8 @@ type TaskRow = {
   gate: string | null
   agent: string | null
   model_json: string | null
+  depends_on: string | null
+  when_json: string | null
   session_id: string | null
   directory: string | null
   status: TaskStatus
@@ -269,6 +274,8 @@ const decodeTask = (row: TaskRow): Task => ({
   gate: row.gate === "human" ? "human" : undefined,
   agent: row.agent ?? undefined,
   model: decodeModel(row.model_json),
+  dependsOn: decodeDependsOn(row.depends_on),
+  when: decodeWhen(row.when_json),
   sessionID: row.session_id ?? undefined,
   directory: row.directory ?? undefined,
   status: row.status,
@@ -448,6 +455,31 @@ const decodeModel = (value: string | null) => {
   }
 }
 
+/** The tasks a task waits for (H-28). A malformed list is treated as none rather than crashing a run. */
+const decodeDependsOn = (value: string | null) => {
+  if (!value) return undefined
+  try {
+    const list = JSON.parse(value) as unknown
+    if (!Array.isArray(list)) return undefined
+    return list.filter((entry): entry is string => typeof entry === "string")
+  } catch {
+    return undefined
+  }
+}
+
+/** The condition that lets a task run (H-28). Same rule: an unreadable one means "no condition". */
+const decodeWhen = (value: string | null): TaskCondition | undefined => {
+  if (!value) return undefined
+  try {
+    const condition = JSON.parse(value) as { task?: unknown; is?: unknown }
+    if (typeof condition.task !== "string" || !Array.isArray(condition.is)) return undefined
+    const is = condition.is.filter((entry): entry is TaskCondition["is"][number] => typeof entry === "string")
+    return is.length > 0 ? { task: condition.task, is } : undefined
+  } catch {
+    return undefined
+  }
+}
+
 const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine => ({
   id: row.id,
   name: row.name,
@@ -557,6 +589,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("findings", "source", "TEXT")
     this.addColumn("runs", "options", "TEXT")
     this.addColumn("tasks", "directory", "TEXT")
+    this.addColumn("tasks", "depends_on", "TEXT")
+    this.addColumn("tasks", "when_json", "TEXT")
     this.addColumn("checkpoints", "summary", "TEXT")
     this.addColumn("artifacts", "pinned", "INTEGER")
     this.addColumn("artifacts", "expires_at", "INTEGER")
@@ -1303,8 +1337,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, gate, agent, model_json, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'queued')`,
+               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'queued')`,
           )
           .run(
             task.id,
@@ -1319,6 +1353,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.gate ?? null,
             task.agent ?? null,
             task.model ? JSON.stringify(task.model) : null,
+            task.dependsOn !== undefined ? JSON.stringify(task.dependsOn) : null,
+            task.when ? JSON.stringify(task.when) : null,
           )
       }
     })()

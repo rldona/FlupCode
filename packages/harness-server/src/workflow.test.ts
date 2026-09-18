@@ -93,6 +93,95 @@ tasks:
   })
 })
 
+describe("the graph a workflow declares (H-28)", () => {
+  test("`dependsOn` is read as written, by id", () => {
+    const workflow = parseWorkflow(
+      `name: fan
+tasks:
+  - id: read
+    prompt: read it
+  - id: left
+    dependsOn: [read]
+    prompt: left
+  - id: right
+    dependsOn: [read]
+    prompt: right
+  - id: join
+    dependsOn: [left, right]
+    prompt: join
+`,
+      "x",
+    )!
+    expect(workflow.tasks.map((task) => task.dependsOn)).toEqual([undefined, ["read"], ["read"], ["left", "right"]])
+  })
+
+  test("`parallel: true` is an explicit no-dependency, and a task that says nothing follows the one above", () => {
+    const workflow = parseWorkflow(
+      `name: fan
+tasks:
+  - id: a
+    prompt: a
+  - id: b
+    parallel: true
+    prompt: b
+  - id: c
+    prompt: c
+`,
+      "x",
+    )!
+    expect(tasksFor(workflow, {})).toEqual([
+      { name: "a", prompt: "a", kind: "agent" },
+      // A root: it does not wait for `a`.
+      { name: "b", prompt: "b", kind: "agent", dependsOn: [] },
+      // And `c` still follows `b`, because it said nothing.
+      { name: "c", prompt: "c", kind: "agent" },
+    ])
+  })
+
+  test("`when` names an outcome, and the task it names is a dependency anyway", () => {
+    const workflow = parseWorkflow(
+      `name: recover
+tasks:
+  - id: build
+    prompt: build
+  - id: check
+    kind: verify
+  - id: report
+    when:
+      task: check
+      is: [failed, stopped]
+    prompt: say what broke
+`,
+      "x",
+    )!
+    expect(workflow.tasks[2]!.when).toEqual({ task: "check", is: ["failed", "stopped"] })
+  })
+
+  test("a dependency that is not a task, and a cycle, are refused before a run waits forever", () => {
+    expect(
+      parseWorkflow("name: x\ntasks:\n  - id: a\n    dependsOn: [ghost]\n    prompt: a\n", "x"),
+    ).toBeUndefined()
+    expect(
+      parseWorkflow(
+        "name: x\ntasks:\n  - id: a\n    dependsOn: [b]\n    prompt: a\n  - id: b\n    dependsOn: [a]\n    prompt: b\n",
+        "x",
+      ),
+    ).toBeUndefined()
+  })
+
+  test("two tasks cannot share an id, because a dependency would be ambiguous", () => {
+    expect(parseWorkflow("name: x\ntasks:\n  - id: a\n    prompt: one\n  - id: a\n    prompt: two\n", "x")).toBeUndefined()
+  })
+
+  test("a `when` that names nothing is dropped, not guessed at", () => {
+    const workflow = parseWorkflow(
+      "name: x\ntasks:\n  - id: a\n    when: { is: failed }\n    prompt: a\n",
+      "x",
+    )!
+    expect(workflow.tasks[0]!.when).toBeUndefined()
+  })
+})
+
 describe("where workflows come from", () => {
   test("a project's own wins over the one shared across projects", async () => {
     const shared = scratch()
