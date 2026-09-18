@@ -226,6 +226,12 @@ export type Task = {
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
   sessionID?: string
+  /**
+   * The tree the task ran in (H-29): the project folder, or the worktree it was given. Its
+   * checkpoints, its diff and its findings belong to that tree, so that is what "checkpoints"
+   * opens (H-32's noted gap).
+   */
+  directory?: string
   status: TaskStatus
   startedAt?: number
   finishedAt?: number

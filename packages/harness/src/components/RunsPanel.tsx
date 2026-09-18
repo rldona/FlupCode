@@ -414,7 +414,9 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                                 <button
                                   class="fc-run-open"
                                   type="button"
-                                  onClick={() => props.onOpenChanges?.(run.directory)}
+                                  // The task's tree, when it had one of its own (H-29): a worktree
+                                  // task's points are anchored there, not in the run's folder (H-32).
+                                  onClick={() => props.onOpenChanges?.(task.directory ?? run.directory)}
                                 >
                                   {t("Checkpoints")}
                                 </button>
