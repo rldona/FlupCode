@@ -1014,6 +1014,16 @@ const ES: Record<string, string> = {
   Optional: "Opcional",
   Template: "Plantilla",
   Global: "Global",
+
+  // Permission policy editor (H-25)
+  "The engine asks by default. A rule per tool, and `*` for the rest.":
+    "El motor pregunta por defecto. Una regla por herramienta, y `*` para el resto.",
+  "Everything else": "Todo lo demás",
+  "Rules by pattern": "Reglas por patrón",
+  "Kept as they are. Pattern rules are edited in the advanced configuration.":
+    "Se dejan como están. Las reglas por patrón se editan en la configuración avanzada.",
+  "Editing the policy needs the engine running.": "Para editar la política hace falta el motor en marcha.",
+  "Permissions saved": "Permisos guardados",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
