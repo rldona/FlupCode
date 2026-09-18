@@ -9,7 +9,7 @@ import { UsagePanel } from "./components/UsagePanel"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
-import type { TaskActivity, TouchedFiles } from "./types"
+import type { TaskActivity, TaskTools, TouchedFiles } from "./types"
 import type {
   PermissionV2Request,
   QuestionV2Request,
@@ -27,7 +27,7 @@ import {
   resolveServerUrl,
 } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import { activityByDay, comparison, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
+import { activityByDay, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
 import {
   SUGGESTION_SESSION_TTL,
@@ -669,6 +669,21 @@ export const App: Component = () => {
       .then(() => setArtifactList(artifactList().filter((artifact) => artifact.id !== id)))
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
+  const updateArtifact = (id: string, input: { pinned?: boolean; expiresAt?: number | null }) => {
+    void createHarnessClient(harnessServerUrl())
+      .artifacts
+      .update(id, input)
+      // Pinned first, so the row moves to where the list says it should be instead of waiting for
+      // the next refresh to look right.
+      .then((updated) =>
+        setArtifactList(
+          artifactList()
+            .map((artifact) => (artifact.id === id ? updated : artifact))
+            .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.createdAt - a.createdAt),
+        ),
+      )
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
     (key) => {
@@ -818,21 +833,49 @@ export const App: Component = () => {
     onCleanup(() => clearTimeout(timer))
   })
 
-  const touchedKey = () => {
+  // The runs on screen, as a key that changes only when one of them changes shape or status. Shared
+  // by the three per-run reads below, so they refetch together and only when there is a reason to.
+  const runsDetailKey = () => {
     if (!runsOpen() || !routinesServerAvailable()) return undefined
     const shape = runs()
       .map((run) => `${run.id}:${run.tasks?.length ?? 0}:${run.status}`)
       .join("|")
     return shape ? `${harnessServerUrl()}\n${shape}` : undefined
   }
-  const [touched] = createResource(touchedKey, async (key) => {
-    const [url = "", shape = ""] = key.split("\n")
+  const runIDsOf = (key: string) =>
+    key
+      .split("\n")[1]
+      ?.split("|")
+      .map((entry) => entry.split(":")[0]!)
+      .filter(Boolean) ?? []
+
+  const [touched] = createResource(runsDetailKey, async (key) => {
+    const [url = ""] = key.split("\n")
     const client = createHarnessClient(url)
-    const ids = shape.split("|").map((entry) => entry.split(":")[0]!)
-    const lists = await Promise.all(ids.map((id) => client.runs.files(id).catch(() => undefined)))
+    const lists = await Promise.all(runIDsOf(key).map((id) => client.runs.files(id).catch(() => undefined)))
     const byTask: Record<string, TouchedFiles> = {}
     for (const list of lists) for (const entry of list ?? []) if (entry.taskID) byTask[entry.taskID] = entry
     return byTask
+  })
+  const [taskTools] = createResource(runsDetailKey, async (key) => {
+    const [url = ""] = key.split("\n")
+    const client = createHarnessClient(url)
+    const lists = await Promise.all(runIDsOf(key).map((id) => client.runs.tools(id).catch(() => undefined)))
+    const byTask: Record<string, TaskTools> = {}
+    for (const list of lists) for (const entry of list ?? []) byTask[entry.taskID] = entry
+    return byTask
+  })
+  const [runArtifacts] = createResource(runsDetailKey, async (key) => {
+    const [url = ""] = key.split("\n")
+    const client = createHarnessClient(url)
+    const ids = runIDsOf(key)
+    const lists = await Promise.all(ids.map((id) => client.artifacts.list({ runID: id }).catch(() => undefined)))
+    const byRun: Record<string, Artifact[]> = {}
+    ids.forEach((id, index) => {
+      const list = lists[index]
+      if (list) byRun[id] = list
+    })
+    return byRun
   })
 
   // What the runs cost (H-16). Read only while the screen is open: it is an aggregation over every
@@ -2186,6 +2229,12 @@ export const App: Component = () => {
         })
     })
 
+    // The runs still going, for the phone supervisor (H-12). Finished ones are history; a phone is
+    // for seeing what needs an answer, not for reading back.
+    const remoteRuns = createMemo(() =>
+      mobileRemote() ? runs().filter((run) => run.status === "running" || run.status === "awaiting") : [],
+    )
+
     const mobileScreen = () => (selected() || mobileComposing() ? "session" : "home")
     const openMobileSession = (sessionID: string) => {
       selectSession(sessionID)
@@ -2216,30 +2265,21 @@ export const App: Component = () => {
     const filteredSessions = createMemo(() => filterByRange(countedSessions(), range()))
     const metrics = createMemo(() => computeMetrics(filteredSessions()))
     const activity = createMemo(() => activityByDay(countedSessions(), 365))
-    const comparisonLine = createMemo(() => comparison(metrics().tokens))
-    const [messageCount] = createResource(
-      () => {
-        if (selected()) return undefined
-        const ids = filteredSessions()
-          .slice(0, 30)
-          .map((session) => session.id)
-        return ids.length ? ids.join(",") : undefined
-      },
-      async (key) => {
-        const client = createClient(serverUrl())
-        const counts = await Promise.all(
-          key.split(",").map(async (id) => {
-            try {
-              const response = await client.message.list({ sessionID: id })
-              return response.data.length
-            } catch {
-              return 0
-            }
-          }),
-        )
-        return counts.reduce((sum, value) => sum + value, 0)
-      },
-    )
+    // What the runs cost (H-16), on the home screen. The harness knows the why — which run, task,
+    // agent and model — and can price it, which is what the old session-counted dashboard could not.
+    // The transcript download it used to do to count messages is gone with it.
+    const homeUsageKey = () => {
+      // Only while the home is what is actually on screen: a full-screen panel covers it, and the
+      // home's request would show up in that panel's own.
+      if (screen() !== undefined || selected() || chatView() || mobileRemote()) return undefined
+      if (!routinesServerAvailable()) return undefined
+      const days = range() === "all" ? 0 : range() === "7d" ? 7 : 30
+      return `${harnessServerUrl()}\n${days}`
+    }
+    const [homeUsage] = createResource(homeUsageKey, (key) => {
+      const [url = "", days = "0"] = key.split("\n")
+      return createHarnessClient(url).usage({ days: Number(days) || undefined })
+    })
 
     const artifacts = () => {
       const files = new Set<string>()
@@ -3009,6 +3049,29 @@ export const App: Component = () => {
   const approveRun = (id: string) => {
     void createHarnessClient(harnessServerUrl())
       .runs.approve(id)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  /**
+   * Do a task again (H-12). The server adds it as a new task of the same run, so the stream carries
+   * it back like any other and nothing here has to guess where it goes.
+   */
+  const retryTask = (taskID: string, model?: { providerID: string; id: string; variant?: string }) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.retry(taskID, model ? { model } : {})
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  /**
+   * Steer a running task by sending a message to its own session. The legacy runner absorbs a prompt
+   * sent while a turn is going, so this is a steer and not a second turn (H-01, H-12).
+   */
+  const steerTask = (taskID: string, text: string) => {
+    const run = runs().find((entry) => (entry.tasks ?? []).some((task) => task.id === taskID))
+    const task = run?.tasks?.find((entry) => entry.id === taskID)
+    if (!task?.sessionID) return
+    void createClient(serverUrl())
+      .session.send({ sessionID: task.sessionID, ...(run?.directory ? { directory: run.directory } : {}), text })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
@@ -3984,7 +4047,9 @@ export const App: Component = () => {
                     sessions={remoteSessions()}
                     loading={sessions.loading}
                     projects={projects()}
+                    runs={remoteRuns()}
                     onOpen={openMobileSession}
+                    onOpenRun={openMobileSession}
                     onNew={startMobileSession}
                     onAddDevice={() => setRemoteOpen(true)}
                   />
@@ -3996,9 +4061,11 @@ export const App: Component = () => {
                   displayName={displayName()}
                   range={range()}
                   metrics={metrics()}
-                  messages={messageCount()}
                   activity={activity()}
-                  comparison={comparisonLine()}
+                  usage={homeUsage()}
+                  usageLoading={homeUsage.loading}
+                  serverAvailable={routinesServerAvailable()}
+                  active={screen() === undefined}
                   error={error()}
                   onRangeChange={setRange}
                 />
@@ -4368,9 +4435,18 @@ export const App: Component = () => {
         onApprove={approveRun}
         activity={taskActivity() ?? {}}
         touched={touched() ?? {}}
+        tools={taskTools() ?? {}}
+        artifacts={runArtifacts() ?? {}}
+        models={modelList()}
+        onRetry={retryTask}
+        onSteer={steerTask}
         onOpenSession={(id) => {
           leaveScreen()
           selectSession(id)
+        }}
+        onOpenChanges={(directory) => {
+          setTargetDirectory(directory)
+          showScreen("changes")
         }}
         onClose={() => leaveScreen()}
       />
@@ -4416,6 +4492,7 @@ export const App: Component = () => {
         prompts={capturedPrompts()}
         promptsLoading={capturedPrompts.loading}
         toolUses={toolUses()?.tools}
+        toolCalls={toolUses()?.calls}
         onRead={readInstruction}
         onClose={() => leaveScreen()}
       />
@@ -4533,6 +4610,7 @@ export const App: Component = () => {
         serverAvailable={routinesServerAvailable()}
         onCopy={copyPath}
         onRemove={removeArtifact}
+        onUpdate={updateArtifact}
         onOpenRun={() => showScreen("runs")}
         onClose={() => leaveScreen()}
       />

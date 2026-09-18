@@ -440,4 +440,68 @@ describe("the tools a session ran", () => {
     if (previous === undefined) delete process.env.FLUPCODE_TOOL_USES_DIR
     else process.env.FLUPCODE_TOOL_USES_DIR = previous
   })
+
+  test("what each task spent its time on is read through the session it ran in (H-16)", async () => {
+    const shared = mkdtempSync(join(tmpdir(), "flupcode-api-task-tools-"))
+    made.push(shared)
+    const previous = process.env.FLUPCODE_TOOL_USES_DIR
+    process.env.FLUPCODE_TOOL_USES_DIR = shared
+    writeFileSync(
+      join(shared, "ses_task.json"),
+      JSON.stringify({
+        at: 5,
+        tools: { bash: { count: 1, last: 1_700_000_000_000 } },
+        calls: [{ tool: "bash", ms: 12 }],
+      }),
+    )
+
+    const { handler, repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(run.id, [{ name: "do it", prompt: "x" }])
+    repository.attachTaskSession(task!.id, "ses_task")
+
+    const response = await handler(new Request(`http://x/harness/runs/${run.id}/tools`))
+    expect((await response.json()).data).toEqual([
+      { taskID: task!.id, name: "do it", calls: [{ tool: "bash", ms: 12 }] },
+    ])
+
+    const missing = await handler(new Request("http://x/harness/runs/nope/tools"))
+    expect(missing.status).toBe(404)
+    repository.close()
+    if (previous === undefined) delete process.env.FLUPCODE_TOOL_USES_DIR
+    else process.env.FLUPCODE_TOOL_USES_DIR = previous
+  })
+})
+
+describe("doing a task again (H-12)", () => {
+  test("a retry is a new task of the same run, which is reopened to pick it up", async () => {
+    const { handler, repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(run.id, [{ name: "do it", prompt: "x" }])
+    repository.finishRun(run.id, "failed", "the check failed", 2000)
+
+    const response = await handler(new Request(`http://x/harness/tasks/${task!.id}/retry`, { method: "POST" }))
+    expect(response.status).toBe(202)
+    const created = (await response.json()).data
+    expect(created).toMatchObject({ name: "do it", attempt: 2, retryOf: task!.id, status: "queued" })
+    // The run was finished; it is open again so the new task is actually run.
+    expect(repository.getRun(run.id)?.status).toBe("running")
+    await settled(repository, run.id)
+
+    const missing = await handler(new Request("http://x/harness/tasks/nope/retry", { method: "POST" }))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+
+  test("a run waiting at a gate refuses a retry, saying why", async () => {
+    const { handler, repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(run.id, [{ name: "do it", prompt: "x" }])
+    repository.awaitRun(run.id)
+
+    const response = await handler(new Request(`http://x/harness/tasks/${task!.id}/retry`, { method: "POST" }))
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toMatch(/approve or stop/i)
+    repository.close()
+  })
 })

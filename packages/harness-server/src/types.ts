@@ -175,6 +175,13 @@ export type ArtifactInput = {
   runID?: string
   taskID?: string
   sessionID?: string
+  /** Kept in front of the rest, and never swept, however old it gets (H-14). */
+  pinned?: boolean
+  /**
+   * When this may be forgotten (H-14). Absent means never — retention is stated, not assumed, so
+   * evidence is not deleted because a default said so.
+   */
+  expiresAt?: number
 }
 
 export type Artifact = ArtifactInput & {
@@ -201,6 +208,7 @@ export type ServerEvent =
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
   | { type: "artifact.created"; artifact: Artifact }
+  | { type: "artifact.changed"; artifact: Artifact }
   | { type: "checkpoint.added"; checkpoint: Checkpoint }
   | { type: "checkpoint.removed"; checkpointID: string }
   | { type: "findings.added"; findings: Finding[] }
@@ -212,6 +220,13 @@ export type Checkpoint = {
   directory: string
   sha: string
   title: string
+  /**
+   * What the step that produced this point concluded (H-15).
+   *
+   * The task's own answer, kept here so the point says what it was for without opening the run.
+   * Capped: this is a marker, not a copy of the transcript.
+   */
+  summary?: string
   runID?: string
   taskID?: string
   createdAt: number
@@ -250,6 +265,8 @@ export type RunRepository = {
   awaitRun(runID: string): void
   /** Let it through, and say whether there was anything to let through. */
   resumeRun(runID: string): boolean
+  /** Put a finished run back to running so a manual retry can add a task to it (H-12). */
+  reopenRun(runID: string): boolean
   /** Give a run the work it is made of, in the order it will be done. */
   addTasks(runID: string, inputs: TaskInput[]): Task[]
   listTasks(runID: string): Task[]
@@ -277,6 +294,12 @@ export type RunRepository = {
   listArtifacts(filter?: { directory?: string; runID?: string; kind?: ArtifactKind }, limit?: number): Artifact[]
   getArtifact(id: string): Artifact | undefined
   removeArtifact(id: string): boolean
+  /** Keep one in front of the rest, or let it fall back into the list (H-14). */
+  setArtifactPinned(id: string, pinned: boolean): Artifact | undefined
+  /** Set when it may be forgotten; `undefined` means never (H-14). */
+  setArtifactRetention(id: string, expiresAt: number | undefined): Artifact | undefined
+  /** Forget everything whose stated retention has passed. Pinned ones are never swept. */
+  removeExpiredArtifacts(now?: number): number
   /** A run left behind by a server that stopped mid-flight is not running any more. */
   recoverRunning(now: number): void
 }

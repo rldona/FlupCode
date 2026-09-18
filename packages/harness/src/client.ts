@@ -35,6 +35,7 @@ import type {
   Run,
   Task,
   TaskActivity,
+  TaskTools,
   TouchedFiles,
   UsageReport,
   Workflow,
@@ -935,6 +936,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<TaskActivity[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/activity`),
       /** What each task changed on disk, from the checkpoints taken around it. */
       files: (id: string) => harnessRequest<TouchedFiles[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/files`),
+      /** What each task spent its time on, from the tool calls the engine plugin timed (H-16). */
+      tools: (id: string) => harnessRequest<TaskTools[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tools`),
+      /** Do a task again as a new task of the same run, optionally on another model (H-12). */
+      retry: (taskID: string, input: { model?: Task["model"] } = {}) =>
+        harnessRequest<Task>(baseUrl, `/harness/tasks/${encodeURIComponent(taskID)}/retry`, {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
       stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
       /** Let a run through the gate it stopped at. Refusing it is stopping it. */
@@ -953,6 +962,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const search = query.toString()
         return harnessRequest<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
       },
+      /** Keep one in front, or say when it may be forgotten (H-14). `expiresAt` null clears it. */
+      update: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) =>
+        harnessRequest<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        }),
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },

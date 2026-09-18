@@ -168,6 +168,40 @@ export class RoutineScheduler {
     return this.repository.getRun(runID)
   }
 
+  /**
+   * Do a task again, as a new task of the same run (H-12).
+   *
+   * A retry is a new task rather than the same one run twice, for the reason H-22 settled: repeating
+   * the row would erase what the first attempt did, said and cost. It is added to the run the task
+   * belongs to, so the run stays what is being supervised, and a run that had finished is reopened —
+   * which is the whole point of retrying from the supervisor. A run at a gate is refused: it has
+   * nobody driving it, so the task would sit queued forever.
+   */
+  retryTask(taskID: string, options: { model?: TaskInput["model"] } = {}) {
+    const task = this.repository.getTask(taskID)
+    if (!task) return undefined
+    const run = this.repository.getRun(task.runID)
+    if (!run) return undefined
+    if (run.status === "awaiting") throw new Error("Approve or stop the run before retrying a task")
+    const [created] = this.repository.addTasks(run.id, [
+      {
+        name: task.name,
+        prompt: task.prompt,
+        kind: task.kind,
+        agent: task.agent,
+        model: options.model ?? task.model,
+        attempt: (task.attempt ?? 1) + 1,
+        retryOf: task.id,
+      },
+    ])
+    // A run still going picks the new task up by itself; a finished one has to be reopened first.
+    if (run.status !== "running") {
+      this.repository.reopenRun(run.id)
+      void this.drive(run.id, run.directory)
+    }
+    return created
+  }
+
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(runID, status, error)
     this.writeReport(runID, status, error)

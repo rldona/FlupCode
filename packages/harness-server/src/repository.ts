@@ -27,6 +27,18 @@ import type {
 export const ARTIFACT_LIMIT = 1_000_000
 
 /**
+ * The identity of an artifact's text, so the same report written twice is recognised (H-14).
+ *
+ * Over the stored form rather than the raw one, so a reader comparing a plan against what was
+ * indexed sees the same hash the repository kept.
+ */
+export const artifactHash = (content: string) =>
+  Bun.hash(content.length > ARTIFACT_LIMIT ? content.slice(0, ARTIFACT_LIMIT) : content).toString(16)
+
+/** The slice of the repository that indexing plans needs, so it takes no more than that (H-14). */
+export type ArtifactRepository = Pick<SqliteRoutineRepository, "addArtifact" | "listArtifacts">
+
+/**
  * Runs are their own table, keyed by what asked for them rather than owned by a routine, and there
  * is a log of what changed so a client can catch up instead of polling. The lock is keyed by a
  * string for the same reason: what must not run twice at once is a run, and a routine is only one
@@ -98,6 +110,8 @@ CREATE TABLE IF NOT EXISTS artifacts (
   truncated INTEGER,
   hash TEXT,
   producer TEXT NOT NULL,
+  pinned INTEGER,
+  expires_at INTEGER,
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS artifacts_created_at ON artifacts(created_at DESC);
@@ -107,6 +121,7 @@ CREATE TABLE IF NOT EXISTS checkpoints (
   directory TEXT NOT NULL,
   sha TEXT NOT NULL,
   title TEXT NOT NULL,
+  summary TEXT,
   run_id TEXT,
   task_id TEXT,
   created_at INTEGER NOT NULL
@@ -239,6 +254,8 @@ type ArtifactRow = {
   truncated: number | null
   hash: string | null
   producer: string
+  pinned: number | null
+  expires_at: number | null
   created_at: number
 }
 
@@ -247,6 +264,7 @@ type CheckpointRow = {
   directory: string
   sha: string
   title: string
+  summary: string | null
   run_id: string | null
   task_id: string | null
   created_at: number
@@ -298,6 +316,8 @@ const decodeArtifact = (row: ArtifactRow): Artifact => ({
   ...(row.bytes !== null ? { bytes: row.bytes } : {}),
   ...(row.truncated ? { truncated: true } : {}),
   ...(row.hash !== null ? { hash: row.hash } : {}),
+  ...(row.pinned ? { pinned: true } : {}),
+  ...(row.expires_at !== null ? { expiresAt: row.expires_at } : {}),
 })
 
 type EventRow = { seq: number; created_at: number; payload_json: string }
@@ -399,6 +419,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("runs", "directory", "TEXT")
     this.addColumn("findings", "source", "TEXT")
     this.addColumn("runs", "options", "TEXT")
+    this.addColumn("checkpoints", "summary", "TEXT")
+    this.addColumn("artifacts", "pinned", "INTEGER")
+    this.addColumn("artifacts", "expires_at", "INTEGER")
   }
 
   private addColumn(table: string, column: string, definition: string) {
@@ -608,6 +631,24 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return true
   }
 
+  /**
+   * Put a finished run back to running so a new task can be done (H-12).
+   *
+   * A manual retry adds a task to the run it belongs to rather than starting a second run, so the
+   * run stays the thing that is being supervised. A run already running or waiting at a gate is left
+   * alone: the first would pick the task up on its own, and the second has nobody driving it.
+   */
+  reopenRun(runID: string) {
+    const changed =
+      this.db
+        .query("UPDATE runs SET status = 'running', finished_at = NULL, error = NULL WHERE id = ?1 AND status NOT IN ('running', 'awaiting')")
+        .run(runID).changes > 0
+    if (!changed) return false
+    const run = this.getRun(runID)
+    if (run) this.append({ type: "run.changed", run })
+    return true
+  }
+
   // ---- artifacts ------------------------------------------------------------------------------
 
   addArtifact(input: ArtifactInput, now = Date.now()) {
@@ -623,14 +664,14 @@ export class SqliteRoutineRepository implements RoutineRepository {
       createdAt: now,
       ...(content !== undefined ? { content } : {}),
       ...(truncated ? { bytes: full.length, truncated: true } : {}),
-      ...(content !== undefined ? { hash: Bun.hash(content).toString(16) } : {}),
+      ...(content !== undefined ? { hash: artifactHash(content) } : {}),
     }
     this.db
       .query(
         `INSERT INTO artifacts
            (id, directory, run_id, task_id, session_id, kind, title, mime, content, path, bytes, truncated, hash,
-            producer, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+            producer, pinned, expires_at, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)`,
       )
       .run(
         artifact.id,
@@ -647,6 +688,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         artifact.truncated ? 1 : null,
         artifact.hash ?? null,
         artifact.producer,
+        artifact.pinned ? 1 : null,
+        artifact.expiresAt ?? null,
         artifact.createdAt,
       )
     this.append({ type: "artifact.created", artifact })
@@ -672,7 +715,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const rows = this.db
       .query(
         `SELECT * FROM artifacts ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
-         ORDER BY created_at DESC LIMIT ?${values.length}`,
+         ORDER BY COALESCE(pinned, 0) DESC, created_at DESC LIMIT ?${values.length}`,
       )
       .all(...(values as never[])) as ArtifactRow[]
     return rows.map(decodeArtifact)
@@ -683,6 +726,35 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return row ? decodeArtifact(row) : undefined
   }
 
+  setArtifactPinned(id: string, pinned: boolean) {
+    const changed = this.db.query("UPDATE artifacts SET pinned = ?1 WHERE id = ?2").run(pinned ? 1 : null, id).changes
+    if (!changed) return undefined
+    const artifact = this.getArtifact(id)
+    if (artifact) this.append({ type: "artifact.changed", artifact })
+    return artifact
+  }
+
+  setArtifactRetention(id: string, expiresAt: number | undefined) {
+    const changed = this.db
+      .query("UPDATE artifacts SET expires_at = ?1 WHERE id = ?2")
+      .run(expiresAt ?? null, id).changes
+    if (!changed) return undefined
+    const artifact = this.getArtifact(id)
+    if (artifact) this.append({ type: "artifact.changed", artifact })
+    return artifact
+  }
+
+  /**
+   * Forget what was told to expire (H-14). Never a pinned one: it was explicitly kept, and a sweep
+   * that ignores that is worse than no sweep. Nothing is removed by a default — only a stated date.
+   */
+  removeExpiredArtifacts(now = Date.now()) {
+    const removed = this.db
+      .query("DELETE FROM artifacts WHERE expires_at IS NOT NULL AND expires_at <= ?1 AND COALESCE(pinned, 0) = 0")
+      .run(now).changes
+    return removed
+  }
+
   /**
    * Checkpoints (H-15). The commit lives in the reader's own repository; this is the index of them,
    * which is what lets the app list them without walking git's refs on every render.
@@ -690,14 +762,15 @@ export class SqliteRoutineRepository implements RoutineRepository {
   addCheckpoint(checkpoint: Checkpoint) {
     this.db
       .query(
-        `INSERT INTO checkpoints (id, directory, sha, title, run_id, task_id, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`,
+        `INSERT INTO checkpoints (id, directory, sha, title, summary, run_id, task_id, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
       )
       .run(
         checkpoint.id,
         checkpoint.directory,
         checkpoint.sha,
         checkpoint.title,
+        checkpoint.summary ?? null,
         checkpoint.runID ?? null,
         checkpoint.taskID ?? null,
         checkpoint.createdAt,
@@ -729,6 +802,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       directory: row.directory,
       sha: row.sha,
       title: row.title,
+      ...(row.summary ? { summary: row.summary } : {}),
       ...(row.run_id ? { runID: row.run_id } : {}),
       ...(row.task_id ? { taskID: row.task_id } : {}),
       createdAt: row.created_at,
