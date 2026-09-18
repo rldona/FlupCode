@@ -149,6 +149,7 @@ import {
 } from "./local-network"
 import { normalizeRoutineSchedule } from "./routine-schedule"
 import { skillifyPrompt } from "./skillify"
+import { resumePrompt } from "./resume"
 
 type Client = ReturnType<typeof createClient>
 
@@ -179,6 +180,7 @@ function isTypingTarget(target: EventTarget | null) {
 const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: boolean }> = [
   { name: "new", descriptionKey: "New session…" },
   { name: "compact", descriptionKey: "Compact the current session", session: true },
+  { name: "resume", descriptionKey: "Checkpoint of this session", session: true },
   { name: "steps", descriptionKey: "Show or hide tool steps" },
   { name: "mcp", descriptionKey: "MCP servers…" },
   { name: "stash", descriptionKey: "Save the current prompt" },
@@ -1888,14 +1890,20 @@ export const App: Component = () => {
         // An action that acts on the open session is not offered when there is none.
         disabled: UNAVAILABLE_FEATURES.has(command.name) || (command.session === true && !selected()),
       })),
-      ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
-      ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
-      // A workflow is a command: that is the audit's "launcher unificado", and the reason it goes in
-      // the same list rather than a menu of its own.
-      ...(workflows() ?? []).map((workflow) => ({
-        name: workflow.name,
-        description: workflow.description || t("Workflow"),
-      })),
+      // A chat has no project behind it, so the engine's commands, its skills and its workflows are
+      // not offered there: what is typed after a built-in is a message, as it has always been.
+      ...(chatView()
+        ? []
+        : [
+            ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
+            ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
+            // A workflow is a command: that is the audit's "launcher unificado", and the reason it
+            // goes in the same list rather than a menu of its own.
+            ...(workflows() ?? []).map((workflow) => ({
+              name: workflow.name,
+              description: workflow.description || t("Workflow"),
+            })),
+          ]),
     ]
 
     const pastes = new Map<string, string>()
@@ -1993,6 +2001,14 @@ export const App: Component = () => {
       }
       if (name === "skillify") {
         skillifySession()
+        return
+      }
+      if (name === "compact") {
+        compactSession()
+        return
+      }
+      if (name === "resume") {
+        resumeSession()
         return
       }
       if (name === "next-tab") {
@@ -4424,14 +4440,29 @@ export const App: Component = () => {
     submitPrompt(skillifyPrompt(), [], keepDraft)
   }
 
+  /**
+   * Writes down where the session stands. It is only a prompt, so it runs the same in Code, Chat and
+   * Cowork — through the path each view already uses to send — and compacting the session stays on
+   * `/compact`, which is the engine's job.
+   */
+  const resumeSession = (keepDraft = true) => {
+    if (!selected()) {
+      toast(t("No session"), "info")
+      return
+    }
+    if (chatView()) {
+      return composerChatClass() === "cowork"
+        ? sendCowork(resumePrompt(), [], keepDraft)
+        : sendChat(resumePrompt(), [], keepDraft)
+    }
+    submitPrompt(resumePrompt(), [], keepDraft)
+  }
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
     if (!text && files.length === 0) return
     recordPrompt(text)
-    if (chatView()) {
-      return composerChatClass() === "cowork" ? sendCowork(text, files) : sendChat(text, files)
-    }
 
     if (text.startsWith("/")) {
       const [rawName, ...rest] = text.slice(1).split(/\s+/)
@@ -4442,10 +4473,8 @@ export const App: Component = () => {
         toast(t("Coming soon"), "info")
         return
       }
-      // A workflow is launched like a command, with what was typed after it as its first input
-      // (H-21): `/feature add search to the sidebar`. Built-in names are matched first, so a
-      // workflow cannot take one over by being written down.
-      const workflow = workflowNamed(name)
+      // A workflow belongs to a project, so it is launched in Code only; a chat has no workflows.
+      const workflow = chatView() ? undefined : workflowNamed(name)
       if (workflow) {
         startWorkflow(workflow, args)
         return
@@ -4463,6 +4492,11 @@ export const App: Component = () => {
       if (name === "compact") {
         setPrompt("")
         compactSession()
+        return
+      }
+      if (name === "resume") {
+        setPrompt("")
+        resumeSession(false)
         return
       }
       if (name === "steps") {
@@ -4561,6 +4595,11 @@ export const App: Component = () => {
         setConfigOpen(true)
         return
       }
+      // A chat has no engine commands or project skills: the built-ins have run by now, and what is
+      // left is a message like any other, which is how a chat could always use `/anything`.
+      if (chatView()) {
+        return composerChatClass() === "cowork" ? sendCowork(text, files) : sendChat(text, files)
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -4579,6 +4618,10 @@ export const App: Component = () => {
         return sessionID
       })
       return
+    }
+
+    if (chatView()) {
+      return composerChatClass() === "cowork" ? sendCowork(text, files) : sendChat(text, files)
     }
 
     if (text.startsWith("!")) {
@@ -5112,7 +5155,6 @@ export const App: Component = () => {
         <Show when={contextPanelShown()}>
           <PanelBoundary name={t("The context panel")}>
             <RightAside
-              usage={contextUsage()}
               todos={todos()}
               onClearTodos={clearTodos}
               subagents={subagents()}
