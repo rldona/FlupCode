@@ -383,12 +383,20 @@ describe("a ceiling written in the file (H-47)", () => {
     expect(workflow?.toolLimitMs).toBe(600_000)
     // Not declared is not opened: confinement is the default and leaving it is written down.
     expect(workflow?.outside).toBeUndefined()
+    // And the shell stays available unless the file refuses it (H-47).
+    expect(workflow?.shell).toBeUndefined()
 
     const open = parseWorkflow(
       ["name: wide", "outside: true", "tasks:", "  - id: one", "    prompt: do it"].join("\n"),
       "file",
     )
     expect(open?.outside).toBe(true)
+
+    const sealed = parseWorkflow(
+      ["name: sealed", "shell: false", "tasks:", "  - id: one", "    prompt: do it"].join("\n"),
+      "file",
+    )
+    expect(sealed?.shell).toBe(false)
   })
 
   test("a limit nobody can read leaves the workflow usable", () => {

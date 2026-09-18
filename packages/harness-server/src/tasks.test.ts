@@ -551,12 +551,29 @@ describe("a task confined to its project", () => {
     repository.close()
   })
 
+  test("a run with no shell is denied the bash tool as well", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-noshell-"))
+    scratch.push(directory)
+    const created: Array<Record<string, unknown>> = []
+
+    const run = repository.startRun(manual, 1000, directory, { shell: false })
+    repository.addTasks(run.id, [{ name: "one", prompt: "do it" }])
+    await new TaskRunner(repository, recordingSessions(created)).execute(run, { directory })
+
+    expect(created[0]!.permission).toEqual([
+      { permission: "external_directory", pattern: "*", action: "deny" },
+      { permission: "bash", pattern: "*", action: "deny" },
+    ])
+    repository.close()
+  })
+
   test("the choice survives a run being picked up again at a gate", () => {
     // A run is driven twice, and an option that lived only in the request would stop applying at
     // the second entry — which is exactly when nobody is watching.
     const repository = open()
-    const run = repository.startRun(manual, 1000, "/work", { outside: true, toolLimitMs: 600_000 })
-    expect(repository.getRun(run.id)).toMatchObject({ outside: true, toolLimitMs: 600_000 })
+    const run = repository.startRun(manual, 1000, "/work", { outside: true, shell: false, toolLimitMs: 600_000 })
+    expect(repository.getRun(run.id)).toMatchObject({ outside: true, shell: false, toolLimitMs: 600_000 })
     repository.close()
   })
 })
