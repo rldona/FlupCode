@@ -10,6 +10,8 @@ import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
+import { ComposerMenu } from "./ComposerMenu"
+import { applyMention, filterCommands, mentionItems, mentionToken, slashQuery, type MentionItem } from "../composer-menus"
 import { stepHistory } from "../prompt-history"
 import { dictationAvailable, startDictation } from "../dictation"
 import { primaryAgents } from "../agents"
@@ -74,6 +76,8 @@ type ComposerProps = {
   /** The folder of the open session, or the one picked for a new session. The picker only shows without one. */
   targetDirectory: string | undefined
   agents: AgentInfo[]
+  /** Artifacts the `@` menu can reach, alongside files and agents (H-26). */
+  artifacts?: Array<{ path: string; title?: string }>
   agent: string
   permissionMode: string
   /** What the engine should do with a prompt sent while the turn is running; only shown then. */
@@ -185,19 +189,9 @@ export const Composer: Component<ComposerProps> = (props) => {
   const chatLabel = () => (props.sessionOpen && cowork() ? t("New chat") : t("Chat"))
   const coworkLabel = () => (props.sessionOpen && !cowork() ? t("New cowork") : t("Cowork"))
 
-  const commandQuery = () => {
-    const value = props.value
-    if (chat() || !value.startsWith("/")) return
-    const body = value.slice(1)
-    if (body.includes(" ")) return
-    return body.toLowerCase()
-  }
+  const commandQuery = () => slashQuery(props.value, chat())
 
-  const filteredCommands = () => {
-    const query = commandQuery()
-    if (query === undefined) return []
-    return props.commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
-  }
+  const filteredCommands = () => filterCommands(props.commands, commandQuery())
 
   // The highlighted command is the first match of every new query.
   createEffect(() => {
@@ -211,18 +205,17 @@ export const Composer: Component<ComposerProps> = (props) => {
     setCommandIndex((index) => (index + delta + count) % count)
   }
 
-  const mentionToken = () => {
-    const value = props.value
-    if (chat()) return
-    const at = value.lastIndexOf("@")
-    if (at === -1) return
-    const token = value.slice(at + 1)
-    if (token.includes(" ")) return
-    return token
-  }
+  const mentionQuery = () => mentionToken(props.value, chat())
+  // Files come from the engine, agents and artifacts are already here; the `@` menu offers all three.
+  const mentionCandidates = () =>
+    mentionItems(mentionQuery() ?? "", {
+      files: fileResults(),
+      agents: primaryAgents(props.agents),
+      artifacts: props.artifacts ?? [],
+    })
 
   createEffect(() => {
-    const token = mentionToken()
+    const token = mentionQuery()
     if (token === undefined || commandQuery() !== undefined) {
       setFileResults([])
       return
@@ -248,7 +241,7 @@ export const Composer: Component<ComposerProps> = (props) => {
   const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
   const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
   const mentionMenuOpen = () =>
-    !menusDismissed() && commandQuery() === undefined && mentionToken() !== undefined && fileResults().length > 0
+    !menusDismissed() && commandQuery() === undefined && mentionQuery() !== undefined && mentionCandidates().length > 0
   const closeMenus = () => {
     if (commandMenuOpen()) props.onInput("")
     else setDismissedAt(props.value)
@@ -273,11 +266,8 @@ export const Composer: Component<ComposerProps> = (props) => {
     menu?.querySelectorAll<HTMLElement>(".fc-command-item")[index]?.scrollIntoView({ block: "nearest" })
   })
 
-  const insertMention = (path: string) => {
-    const value = props.value
-    const at = value.lastIndexOf("@")
-    if (at === -1) return
-    props.onInput(`${value.slice(0, at)}@${path} `)
+  const insertMention = (item: MentionItem) => {
+    props.onInput(applyMention(props.value, item))
     setFileResults([])
   }
 
@@ -326,41 +316,37 @@ export const Composer: Component<ComposerProps> = (props) => {
         <Show when={props.repo}>{(repo) => <RepoBar {...repo()} pullRequest={props.pullRequest} />}</Show>
 
         <Show when={commandMenuOpen()}>
-          <div class="fc-command-menu" ref={menu}>
-            <For each={filteredCommands()}>
-              {(command, index) => (
-                <button
-                  class="fc-command-item"
-                  classList={{ "fc-command-item-active": commandIndex() === index() && !command.disabled }}
-                  type="button"
-                  disabled={command.disabled}
-                  onMouseEnter={() => setCommandIndex(index())}
-                  onClick={() => props.onCommandPick(command.name)}
-                >
-                  <span class="fc-command-name">/{command.name}</span>
-                  <Show when={command.description}>
-                    <span class="fc-command-desc">{command.description}</span>
-                  </Show>
-                  <Show when={command.disabled}>
-                    <span class="fc-command-soon">{t("Soon")}</span>
-                  </Show>
-                </button>
-              )}
-            </For>
-          </div>
+          <ComposerMenu
+            items={filteredCommands().map((command) => ({
+              key: command.name,
+              label: `/${command.name}`,
+              hint: command.description,
+              disabled: command.disabled,
+              soon: command.disabled,
+            }))}
+            active={commandIndex()}
+            ref={(element) => (menu = element)}
+            onHover={setCommandIndex}
+            onPick={(index) => {
+              const command = filteredCommands()[index]
+              if (command) props.onCommandPick(command.name)
+            }}
+          />
         </Show>
 
         <Show when={mentionMenuOpen()}>
-          <div class="fc-command-menu" ref={menu}>
-            <For each={fileResults()}>
-              {(file) => (
-                <button class="fc-command-item" type="button" onClick={() => insertMention(file.path)}>
-                  <span class="fc-command-name">@{file.path}</span>
-                  <span class="fc-command-desc">{file.type}</span>
-                </button>
-              )}
-            </For>
-          </div>
+          <ComposerMenu
+            items={mentionCandidates().map((item) => ({
+              key: `${item.kind}:${item.value}`,
+              label: item.label,
+              hint: item.hint,
+            }))}
+            ref={(element) => (menu = element)}
+            onPick={(index) => {
+              const item = mentionCandidates()[index]
+              if (item) insertMention(item)
+            }}
+          />
         </Show>
 
         <div
