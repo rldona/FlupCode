@@ -198,23 +198,29 @@ const compacted = [
   compaction("c1", "manual", "## Resumen\n\n- A quedó hecha.", now + 10),
 ]
 
-const contextTokens = (page: Page) => page.locator(".fc-aside-section").first().locator(".fc-aside-row span").first()
+/** The meter lives in the composer's popover: the right panel is for watching work. */
+const openMeter = async (page: Page) => {
+  await page.locator(".fc-context-button").click()
+  return page.locator(".fc-context-popover")
+}
 
 test("the meter sizes the session the compaction left, not the history it folded", async ({ page }) => {
   await openSession(page, compacted)
 
-  await expect(contextTokens(page)).toContainText("~")
-  await expect(contextTokens(page)).toHaveAttribute("title", /Estimated|Estimado/)
+  const value = (await openMeter(page)).locator(".fc-context-strong")
+  await expect(value).toContainText("~")
+  await expect(value).toHaveAttribute("title", /Estimated|Estimado/)
   // 11.1k is the wrap the first step paid plus the summary the engine kept; the 474.0k the summary
   // itself reports is the request that wrote it, not what the next prompt will send.
-  await expect(contextTokens(page)).toContainText("11.1k")
+  await expect(value).toContainText("11.1k")
 })
 
 test("a step after the compaction measures the session again", async ({ page }) => {
   await openSession(page, [...compacted, assistant("a2", "Voy.", now + 20, { input: 10_000, read: 11_000 })])
 
-  await expect(contextTokens(page)).toContainText("21.0k")
-  await expect(contextTokens(page)).not.toContainText("~")
+  const value = (await openMeter(page)).locator(".fc-context-strong")
+  await expect(value).toContainText("21.0k")
+  await expect(value).not.toContainText("~")
 })
 
 test("a cleared tool result says the engine dropped it from the context", async ({ page }) => {
@@ -238,22 +244,17 @@ test("warns before the engine folds the session, and says how much room is left"
   await openSession(page, turn(120_000, 60_000))
 
   // 180k counted against a 200k window that keeps 8k for the answer.
-  const aside = page.locator(".fc-aside-section").first()
-  await expect(aside.locator(".fc-aside-compaction")).toContainText("192.0k")
-  await expect(aside.locator(".fc-meter")).toHaveClass(/fc-meter-near/)
-
-  await page.locator(".fc-context-button").click()
-  const popover = page.locator(".fc-context-popover")
+  await expect(page.locator(".fc-context")).toHaveClass(/fc-context-near/)
+  const popover = await openMeter(page)
+  await expect(popover.locator(".fc-context-compaction")).toContainText("192.0k")
   await expect(popover.locator(".fc-context-compaction")).toContainText(/12.0k (left|restantes)/)
 })
 
 test("says the engine folds it now once the budget is gone", async ({ page }) => {
   await openSession(page, turn(470_000, 4_000))
 
-  const aside = page.locator(".fc-aside-compaction")
-  await expect(aside).toContainText(/next step|siguiente paso/)
-  await page.locator(".fc-context-button").click()
-  await expect(page.locator(".fc-context-popover")).toContainText(/next step|siguiente paso/)
+  const popover = await openMeter(page)
+  await expect(popover.locator(".fc-context-compaction")).toContainText(/next step|siguiente paso/)
 })
 
 test("the meter's figures read as a list, not as a table of ruled rows", async ({ page }) => {
