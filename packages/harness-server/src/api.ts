@@ -356,6 +356,34 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "artifacts" && request.method === "DELETE" && path[2] && !path[3]) {
       return repository.removeArtifact(path[2]) ? json({ data: true }) : error("Artifact not found", 404)
     }
+    // What a reader kept about a session (H-18): pins and tags, which the engine's session list
+    // does not carry back, so they live here and travel to every device that reads this server.
+    if (path[1] === "session-prefs" && request.method === "GET" && !path[2]) {
+      return json({ data: repository.listSessionPrefs() })
+    }
+    if (path[1] === "session-prefs" && request.method === "PATCH" && path[2] && !path[3]) {
+      const body = (await readJSON(request)) as { pinned?: unknown; tags?: unknown } | undefined
+      let prefs = repository.getSessionPrefs(path[2])
+      if (typeof body?.pinned === "boolean") prefs = repository.setSessionPinned(path[2], body.pinned)
+      if (Array.isArray(body?.tags)) {
+        const tags = body.tags.filter((tag): tag is string => typeof tag === "string")
+        prefs = repository.setSessionTags(path[2], tags)
+      }
+      return json({ data: prefs ?? { sessionID: path[2], pinned: false, tags: [], updatedAt: Date.now() } })
+    }
+    // Prompts set aside, so they are there on any device (H-18).
+    if (path[1] === "stash" && request.method === "GET" && !path[2]) {
+      return json({ data: repository.listStash() })
+    }
+    if (path[1] === "stash" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as { text?: unknown } | undefined
+      const text = typeof body?.text === "string" ? body.text.trim() : ""
+      if (!text) return error("A prompt to stash is required", 400)
+      return json({ data: repository.addToStash(text) }, 201)
+    }
+    if (path[1] === "stash" && request.method === "DELETE" && path[2] && !path[3]) {
+      return repository.removeFromStash(path[2]) ? json({ data: true }) : error("Stashed prompt not found", 404)
+    }
     // What the runs cost (H-16). Only runs: the harness never sees an ordinary chat turn, and
     // adding the engine's session totals on top would count every task twice.
     if (path[1] === "usage" && request.method === "GET") {

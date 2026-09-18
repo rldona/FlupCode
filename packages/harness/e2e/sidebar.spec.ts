@@ -223,3 +223,72 @@ test("a search result opens the thing it names", async ({ page }) => {
   await expect(page.locator(".fc-palette")).toHaveCount(0)
   await expect(page.locator(".fc-topbar-title, .fc-session-title").first()).toContainText("Fix the parser")
 })
+
+// H-18: pins and tags are kept by the harness server, not the browser, so they travel to the phone.
+test("a session is pinned and tagged on the server, and a tag filters the list", async ({ page }) => {
+  const calls: Array<{ sessionID: string; body: unknown }> = []
+  const prefs: Record<string, { sessionID: string; pinned: boolean; tags: string[]; updatedAt: number }> = {}
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_a"))
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/stash") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/session-prefs" && route.request().method() === "GET")
+      return route.fulfill({ json: { data: Object.values(prefs) } })
+    if (url.pathname.startsWith("/harness/session-prefs/") && route.request().method() === "PATCH") {
+      const sessionID = url.pathname.split("/").pop()!
+      const body = route.request().postDataJSON() as { pinned?: boolean; tags?: string[] }
+      calls.push({ sessionID, body })
+      const current = prefs[sessionID] ?? { sessionID, pinned: false, tags: [], updatedAt: 0 }
+      const next = { ...current, ...body, sessionID, updatedAt: Date.now() }
+      prefs[sessionID] = next
+      return route.fulfill({ json: { data: next } })
+    }
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await expect(page.locator(".fc-sidebar")).toBeVisible()
+
+  const row = page.locator(".fc-session-row", { hasText: "Fix the parser" }).first()
+
+  // Pinning asks the server; it is not written to the browser.
+  await row.locator(".fc-session-action").click()
+  await page.locator(".fc-menu-item", { hasText: "Pin" }).click()
+  await expect.poll(() => calls.at(-1)?.body).toEqual({ pinned: true })
+  await expect(page.locator(".fc-sidebar-section", { hasText: /Pinned|Fijado/ })).toContainText("Fix the parser")
+
+  // Tagging asks the server too, and the tag becomes a filter chip.
+  await row.locator(".fc-session-action").click()
+  await page.locator(".fc-menu-item", { hasText: "Edit tags" }).click()
+  await page.locator('.fc-modal input[aria-label="Tags"]').fill("work, home")
+  await page.getByRole("button", { name: "Save" }).click()
+  await expect.poll(() => calls.at(-1)?.body).toEqual({ tags: ["work", "home"] })
+
+  const filter = page.locator(".fc-tag-filter")
+  await expect(filter).toContainText("work")
+  await filter.locator(".fc-session-tag", { hasText: "work" }).click()
+  await expect(filter.locator(".fc-session-tag", { hasText: "work" })).toHaveClass(/fc-session-tag-active/)
+})

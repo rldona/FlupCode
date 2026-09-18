@@ -3742,8 +3742,50 @@ button.fc-status {
 
 .fc-session-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 2px;
+}
+
+/* Tags on a session row (H-18): a second line, so they never squeeze the title. */
+.fc-session-tags {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 6px 4px 20px;
+}
+
+.fc-session-tag {
+  padding: 0 7px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 10px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+.fc-session-tag:hover {
+  color: var(--fc-text);
+}
+
+.fc-session-tag-active {
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
+}
+
+/* The tag filter above the lists, and the preview inside the tags dialog. */
+.fc-tag-filter {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: var(--fc-space-2) var(--fc-space-3) 0;
+}
+
+.fc-tag-filter-preview {
+  padding: var(--fc-space-2) 0 0;
 }
 
 .fc-session-row-active {

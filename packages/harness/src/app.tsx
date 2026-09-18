@@ -66,6 +66,7 @@ import type {
   RoutineInput,
   RoutineRun,
   Run,
+  SessionPrefs,
   Task,
   Workflow,
   StashedPrompt,
@@ -92,6 +93,7 @@ import { ModelSwitchDialog } from "./components/ModelSwitchDialog"
 import { ModelUnavailableDock } from "./components/ModelUnavailableDock"
 import { FolderDialog } from "./components/FolderDialog"
 import { RenameDialog } from "./components/RenameDialog"
+import { TagsDialog } from "./components/TagsDialog"
 import { permissionMode } from "./permission-modes"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
@@ -323,7 +325,6 @@ export const App: Component = () => {
     if (status === "busy" || status === "retry") setRunning(sessionID, true)
     if (type === "session.idle" || status === "idle") setRunning(sessionID, false)
   }
-  const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
   )
@@ -453,9 +454,10 @@ export const App: Component = () => {
   })
   const [stashOpen, setStashOpen] = createSignal(false)
   const [renameTarget, setRenameTarget] = createSignal<{ id: string; title: string }>()
-  const [stashes, setStashes] = createSignal<StashedPrompt[]>(
-    readStorage<StashedPrompt[]>(STORAGE_KEYS.stashedPrompts, []),
-  )
+  const [tagsTarget, setTagsTarget] = createSignal<{ id: string; title: string; tags: string[] }>()
+  // Filled from the harness server below (H-18): a stash kept in the browser was neither durable
+  // nor visible on the phone.
+  const [stashes, setStashes] = createSignal<StashedPrompt[]>([])
 
   const client = () => createClient(serverUrl())
   // Never reject: an errored resource throws on every read and freezes the effects that depend on it.
@@ -661,6 +663,48 @@ export const App: Component = () => {
     harnessServerUrl()
     modelLocation()
     void refreshArtifacts()
+  })
+
+  /**
+   * What a reader pinned or tagged (H-18), and the prompts they set aside.
+   *
+   * Read once from the harness server and then followed on its stream, like runs and artifacts. When
+   * the server is unreachable these are simply empty: there is no browser copy to fall back to, by
+   * design — the whole point of moving them there is that every device sees the same ones.
+   */
+  const [sessionPrefs, setSessionPrefs] = createSignal<Record<string, SessionPrefs>>({})
+  const prefsFor = (id: string) => sessionPrefs()[id]
+  const pinnedSessions = () =>
+    Object.values(sessionPrefs())
+      .filter((prefs) => prefs.pinned)
+      .map((prefs) => prefs.sessionID)
+  const applyPrefs = (prefs: SessionPrefs) => {
+    const next = { ...sessionPrefs() }
+    // A session with nothing kept is dropped, so no empty entry lingers in the map.
+    if (!prefs.pinned && prefs.tags.length === 0) delete next[prefs.sessionID]
+    else next[prefs.sessionID] = prefs
+    setSessionPrefs(next)
+  }
+  const sessionTags = createMemo(() => {
+    const out: Record<string, string[]> = {}
+    for (const prefs of Object.values(sessionPrefs())) if (prefs.tags.length > 0) out[prefs.sessionID] = prefs.tags
+    return out
+  })
+  createEffect(() => {
+    const url = harnessServerUrl()
+    if (!routinesServerAvailable() || !url) return
+    void createHarnessClient(url)
+      .sessionPrefs.list()
+      .then((list) => {
+        const map: Record<string, SessionPrefs> = {}
+        for (const prefs of list) map[prefs.sessionID] = prefs
+        setSessionPrefs(map)
+      })
+      .catch(() => undefined)
+    void createHarnessClient(url)
+      .stash.list()
+      .then(setStashes)
+      .catch(() => undefined)
   })
 
   const removeArtifact = (id: string) => {
@@ -2421,10 +2465,26 @@ export const App: Component = () => {
       setSelected(history()[index])
     }
 
+    // Pins live on the harness server (H-18), so this is a request rather than a browser write. The
+    // answer, and the stream event that follows it, are what move the row.
     const togglePin = (id: string) => {
-      const next = pinned().includes(id) ? pinned().filter((value) => value !== id) : [...pinned(), id]
-      setPinned(next)
-      writeStorage(STORAGE_KEYS.pinnedSessions, next)
+      const pinned = !prefsFor(id)?.pinned
+      void createHarnessClient(harnessServerUrl())
+        .sessionPrefs.update(id, { pinned })
+        .then(applyPrefs)
+        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+    }
+
+    const setTags = (id: string, tags: string[]) => {
+      void createHarnessClient(harnessServerUrl())
+        .sessionPrefs.update(id, { tags })
+        .then(applyPrefs)
+        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+    }
+
+    const editTags = (id: string) => {
+      const session = sessionList()?.find((entry) => entry.id === id)
+      setTagsTarget({ id, title: session ? sessionTitle(session) : t("Session"), tags: prefsFor(id)?.tags ?? [] })
     }
 
     const toggleProject = (id: string) => {
@@ -2697,34 +2757,38 @@ export const App: Component = () => {
       setAttachments((list) => list.filter((item) => item.uri !== uri))
     }
 
-    const newId = () =>
-      typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-
-    const persistStashes = (next: StashedPrompt[]) => {
-      setStashes(next)
-      writeStorage(STORAGE_KEYS.stashedPrompts, next)
-    }
-
+    // The stash lives on the harness server (H-18), so it is the same list on every device. The
+    // stream event adds it back; this only asks and, once it answers, shows it.
     const stashPrompt = (text: string, clear: boolean) => {
       const value = text.trim()
       if (!value) {
         toast(t("No prompt to save"), "info")
         return
       }
-      persistStashes([{ id: newId(), text: value, createdAt: Date.now() }, ...stashes()])
-      if (clear) setPrompt("")
-      toast(t("Prompt saved"), "success")
+      void createHarnessClient(harnessServerUrl())
+        .stash.add(value)
+        .then((prompt) => {
+          setStashes((list) => [prompt, ...list])
+          if (clear) setPrompt("")
+          toast(t("Prompt saved"), "success")
+        })
+        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
     }
 
     const restoreStash = (id: string) => {
       const item = stashes().find((entry) => entry.id === id)
       if (!item) return
       setPrompt(item.text)
-      persistStashes(stashes().filter((entry) => entry.id !== id))
+      removeStash(id)
       setStashOpen(false)
     }
 
-    const removeStash = (id: string) => persistStashes(stashes().filter((entry) => entry.id !== id))
+    const removeStash = (id: string) => {
+      setStashes((list) => list.filter((entry) => entry.id !== id))
+      void createHarnessClient(harnessServerUrl())
+        .stash.remove(id)
+        .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+    }
 
     const setRoutineState = (next: Routine[]) => {
       setRoutines(next)
@@ -2775,7 +2839,28 @@ export const App: Component = () => {
     run?: unknown
     runID?: unknown
     task?: unknown
+    prefs?: unknown
+    prompt?: unknown
+    promptID?: unknown
   }) => {
+      // What a reader keeps about a session, and their stash (H-18). The whole thing travels in the
+      // event, so a pin on the phone is a pin on the desk without either asking again.
+      if (event.type === "session.changed") {
+        const prefs = event.prefs as SessionPrefs | undefined
+        if (prefs?.sessionID) applyPrefs(prefs)
+        return
+      }
+      if (event.type === "stash.added") {
+        const prompt = event.prompt as StashedPrompt | undefined
+        if (prompt?.id && !stashes().some((entry) => entry.id === prompt.id))
+          setStashes((list) => [prompt, ...list])
+        return
+      }
+      if (event.type === "stash.removed" && typeof event.promptID === "string") {
+        const removed = event.promptID
+        setStashes((list) => list.filter((entry) => entry.id !== removed))
+        return
+      }
       if (event.type === "routine.changed") {
         const routine = normalizeRoutine(event.routine)
         if (!routine) return
@@ -3927,11 +4012,13 @@ export const App: Component = () => {
             selectedSession={selected()}
             runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
             blockedSessions={blockedSessions()}
-            pinnedSessions={pinned()}
+            pinnedSessions={pinnedSessions()}
+            sessionTags={sessionTags()}
             expandedProjects={expanded()}
             noFolderSessions={noFolderSessions()}
             onDisplayName={updateDisplayName}
             onToggleSessionPin={togglePin}
+            onEditTags={editTags}
             onToggleProject={toggleProject}
             onNewSession={newSession}
             onSelectSession={selectSession}
@@ -4367,6 +4454,17 @@ export const App: Component = () => {
         initial={renameTarget()?.title ?? ""}
         onSave={commitRename}
         onClose={() => setRenameTarget(undefined)}
+      />
+      <TagsDialog
+        open={!!tagsTarget()}
+        title={tagsTarget()?.title ? t("Tags · {name}", { name: tagsTarget()!.title }) : t("Tags")}
+        initial={tagsTarget()?.tags ?? []}
+        onSave={(tags) => {
+          const target = tagsTarget()
+          if (target) setTags(target.id, tags)
+          setTagsTarget(undefined)
+        }}
+        onClose={() => setTagsTarget(undefined)}
       />
       <SettingsPanel
         open={settingsOpen()}

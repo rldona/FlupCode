@@ -505,3 +505,46 @@ describe("doing a task again (H-12)", () => {
     repository.close()
   })
 })
+
+describe("what a reader keeps about a session (H-18)", () => {
+  const json = { "content-type": "application/json" }
+
+  test("a session can be pinned and tagged, and the two do not clobber each other", async () => {
+    const { handler, repository } = open()
+    const patch = (body: unknown) =>
+      handler(
+        new Request("http://x/harness/session-prefs/ses_a", { method: "PATCH", headers: json, body: JSON.stringify(body) }),
+      )
+
+    expect((await (await patch({ pinned: true })).json()).data).toMatchObject({ sessionID: "ses_a", pinned: true })
+    // The same tag twice is one tag.
+    expect((await (await patch({ tags: ["work", "work"] })).json()).data).toMatchObject({
+      pinned: true,
+      tags: ["work"],
+    })
+
+    const list = await handler(new Request("http://x/harness/session-prefs"))
+    expect((await list.json()).data).toHaveLength(1)
+    repository.close()
+  })
+
+  test("a prompt can be stashed, listed and removed", async () => {
+    const { handler, repository } = open()
+    const created = await handler(
+      new Request("http://x/harness/stash", { method: "POST", headers: json, body: JSON.stringify({ text: "later" }) }),
+    )
+    expect(created.status).toBe(201)
+    const prompt = (await created.json()).data
+
+    expect((await (await handler(new Request("http://x/harness/stash"))).json()).data).toEqual([prompt])
+
+    const blank = await handler(
+      new Request("http://x/harness/stash", { method: "POST", headers: json, body: JSON.stringify({ text: "   " }) }),
+    )
+    expect(blank.status).toBe(400)
+
+    const removed = await handler(new Request(`http://x/harness/stash/${prompt.id}`, { method: "DELETE" }))
+    expect(removed.status).toBe(200)
+    repository.close()
+  })
+})

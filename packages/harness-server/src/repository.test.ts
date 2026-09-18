@@ -233,3 +233,59 @@ describe("SqliteRoutineRepository", () => {
     repository.close()
   })
 })
+
+describe("what a reader keeps about a session (H-18)", () => {
+  test("pin and tags merge, so keeping one does not drop the other", () => {
+    const repository = open()
+    repository.setSessionPinned("ses_a", true)
+    repository.setSessionTags("ses_a", ["work"])
+
+    expect(repository.getSessionPrefs("ses_a")).toMatchObject({ sessionID: "ses_a", pinned: true, tags: ["work"] })
+
+    // Unpinning keeps the tags, and the row stays because there is still something to say.
+    repository.setSessionPinned("ses_a", false)
+    expect(repository.getSessionPrefs("ses_a")).toMatchObject({ pinned: false, tags: ["work"] })
+    repository.close()
+  })
+
+  test("a session that keeps nothing has no row, and says so once", () => {
+    const repository = open()
+    const seen: string[] = []
+    repository.subscribe((entry) => seen.push(entry.event.type))
+
+    repository.setSessionPinned("ses_a", true)
+    // The change is published, and so is the emptying: a device that stopped pinning has to learn it.
+    expect(repository.setSessionPinned("ses_a", false)).toMatchObject({ pinned: false, tags: [] })
+    expect(seen).toEqual(["session.changed", "session.changed"])
+    expect(repository.getSessionPrefs("ses_a")).toBeUndefined()
+    expect(repository.listSessionPrefs()).toEqual([])
+    repository.close()
+  })
+
+  test("tags are trimmed and de-duplicated, and only the ones kept are listed", () => {
+    const repository = open()
+    repository.setSessionTags("ses_a", [" work ", "work", "", "  ", "shared"])
+    repository.setSessionPinned("ses_b", true)
+
+    expect(repository.getSessionPrefs("ses_a")?.tags).toEqual(["work", "shared"])
+    // Newest change first, and a session with no prefs is not in the list.
+    expect(repository.listSessionPrefs().map((prefs) => prefs.sessionID)).toEqual(["ses_a", "ses_b"])
+    repository.close()
+  })
+
+  test("a stash survives a restart because it is in the database, not a browser", () => {
+    const path = scratch()
+    const before = open(path)
+    const added = before.addToStash("review the pull request", 1000)
+    before.close()
+
+    const after = open(path)
+    expect(after.listStash()).toEqual([added])
+    // Newest first.
+    after.addToStash("later", 2000)
+    expect(after.listStash().map((prompt) => prompt.text)).toEqual(["later", "review the pull request"])
+    expect(after.removeFromStash(added.id)).toBe(true)
+    expect(after.removeFromStash(added.id)).toBe(false)
+    after.close()
+  })
+})
