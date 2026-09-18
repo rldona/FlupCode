@@ -161,6 +161,7 @@ import { CAPABILITIES } from "./capabilities"
 import { duration, listWorkflows } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
+import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
@@ -520,6 +521,55 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         return json({ data: { removed: true } })
       } catch (cause) {
         if (cause instanceof SkillError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+
+    // Commands you can edit (H-25). Same shape as agents: the files behind the slash commands the
+    // engine already lists, so writing one here shows up in the palette without anything else.
+    if (path[1] === "commands" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      return json({
+        data: listCommandFiles(params.get("directory") ?? undefined, params.get("project") ?? undefined),
+      })
+    }
+    if (path[1] === "commands" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as
+        | {
+            name?: unknown
+            scope?: unknown
+            fields?: unknown
+            template?: unknown
+            directory?: unknown
+            project?: unknown
+          }
+        | undefined
+      const name = typeof body?.name === "string" ? body.name.trim() : ""
+      const scope = body?.scope === "global" ? "global" : "project"
+      const fields =
+        body?.fields && typeof body.fields === "object" && !Array.isArray(body.fields)
+          ? (body.fields as Record<string, unknown>)
+          : {}
+      const template = typeof body?.template === "string" ? body.template : ""
+      const directory = typeof body?.directory === "string" ? body.directory : undefined
+      const project = typeof body?.project === "string" ? body.project : undefined
+      try {
+        const written = writeCommandFile({ name, scope, fields, template }, directory, project)
+        return json({ data: { path: written } })
+      } catch (cause) {
+        if (cause instanceof CommandError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "commands" && request.method === "DELETE" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      const wanted = params.get("path") ?? ""
+      if (!wanted) return error("A path is required", 400)
+      try {
+        deleteCommandFile(wanted, params.get("directory") ?? undefined, params.get("project") ?? undefined)
+        return json({ data: { removed: true } })
+      } catch (cause) {
+        if (cause instanceof CommandError) return error(cause.message, cause.status)
         throw cause
       }
     }

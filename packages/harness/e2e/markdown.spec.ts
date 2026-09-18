@@ -121,6 +121,7 @@ test("turning thinking on in Settings puts it back, closed", async ({ page }) =>
     .getByRole("button", { name: /Customize|Personalizar/ })
     .first()
     .click()
+  await page.getByRole("tab", { name: /Conversation|Conversación/ }).click()
   await page
     .locator(".fc-settings-row")
     .filter({ hasText: /Show thinking|Mostrar el razonamiento/ })

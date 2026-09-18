@@ -149,6 +149,7 @@ test("Settings names the engine it is talking to", async ({ page }) => {
     .getByRole("button", { name: /Customize|Personalizar/ })
     .first()
     .click()
+  await page.getByRole("tab", { name: /Server|Servidor/ }).click()
   const engine = page.locator(".fc-settings-row").filter({ hasText: /^Engine|^Motor/ })
   await expect(engine).toContainText("1.18.30")
 })

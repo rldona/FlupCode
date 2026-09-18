@@ -44,7 +44,32 @@ export type Workflow = {
   tasks: Array<{ id: string; kind?: TaskKind; agent?: string; gate?: "human" }>
 }
 
-export type McpConfig = { type: "local"; command: string[] } | { type: "remote"; url: string }
+/**
+ * How an MCP server is configured (H-25), widened to what the engine actually reads.
+ *
+ * Until now the form could only say a command or a URL, so the keys that make a server usable —
+ * environment, working directory, headers, timeout, whether it starts at all — were only reachable
+ * by hand-editing the config.
+ */
+export type McpLocalConfig = {
+  type: "local"
+  command: string[]
+  cwd?: string
+  environment?: Record<string, string>
+  enabled?: boolean
+  /** Milliseconds; the engine defaults to 5000. */
+  timeout?: number
+}
+
+export type McpRemoteConfig = {
+  type: "remote"
+  url: string
+  headers?: Record<string, string>
+  enabled?: boolean
+  timeout?: number
+}
+
+export type McpConfig = McpLocalConfig | McpRemoteConfig
 
 export type StashedPrompt = {
   id: string
@@ -274,6 +299,24 @@ export type AgentFile = {
   root: string
   fields: Record<string, unknown>
   prompt: string
+  bytes: number
+  /** Why this one cannot be saved from here: its frontmatter did not parse. */
+  problem?: string
+}
+
+/**
+ * A command's file on disk (H-25).
+ *
+ * `name` is what the engine calls it, which is its path under the command folder: a nested file is
+ * a nested slash command (`git/release`). `template` is the body the arguments are filled into.
+ */
+export type CommandFile = {
+  name: string
+  path: string
+  scope: "global" | "project"
+  root: string
+  fields: Record<string, unknown>
+  template: string
   bytes: number
   /** Why this one cannot be saved from here: its frontmatter did not parse. */
   problem?: string
