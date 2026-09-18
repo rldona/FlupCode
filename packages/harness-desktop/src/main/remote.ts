@@ -3,7 +3,7 @@ import { hostname } from "node:os"
 import { join } from "node:path"
 import { BrowserWindow, app, ipcMain, safeStorage } from "electron"
 import { createRemoteHost, type RemoteHostStore } from "@flupcode/remote"
-import { SERVER_URL, engineCredentials } from "./server"
+import { HARNESS_SERVER_URL, SERVER_URL, engineCredentials } from "./server"
 
 /** Remote control host (ADR-0010): keychain-backed storage and the IPC bridge for the renderer. */
 
@@ -49,6 +49,7 @@ export function initRemoteHost() {
     save: writeStore,
     engine: SERVER_URL,
     engineCredentials: engineCredentials(),
+    harness: HARNESS_SERVER_URL,
     defaultRelay: process.env.FLUPCODE_RELAY_URL ?? "wss://relay.flupcode.com",
     appUrl: process.env.FLUPCODE_APP_URL ?? "https://app.flupcode.com/",
     hostName: hostname(),
