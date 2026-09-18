@@ -218,7 +218,7 @@ const readJSON = async (request: Request) => {
 }
 
 import { CAPABILITIES } from "./capabilities"
-import { duration, listWorkflows } from "./workflow"
+import { duration, listWorkflows, readWorkflow, removeWorkflow, saveWorkflow } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
@@ -981,6 +981,30 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "workflows" && request.method === "GET" && !path[2]) {
       const directory = new URL(request.url).searchParams.get("directory") ?? undefined
       return json({ data: await listWorkflows(directory || undefined) })
+    }
+    // One workflow, as it is written on disk, for the editor (H-28).
+    if (path[1] === "workflows" && request.method === "GET" && path[2]) {
+      const directory = new URL(request.url).searchParams.get("directory") ?? undefined
+      const found = await readWorkflow(decodeURIComponent(path[2]), directory || undefined)
+      return found ? json({ data: found }) : error("Workflow not found", 404)
+    }
+    if (path[1] === "workflows" && request.method === "PUT" && path[2]) {
+      const body = (await readJSON(request)) as
+        | { source?: unknown; directory?: unknown; scope?: unknown }
+        | undefined
+      if (typeof body?.source !== "string") return error("A workflow is written as `source`", 400)
+      const result = await saveWorkflow({
+        name: decodeURIComponent(path[2]),
+        source: body.source,
+        directory: typeof body.directory === "string" && body.directory ? body.directory : undefined,
+        scope: body.scope === "global" ? "global" : body.scope === "project" ? "project" : undefined,
+      })
+      return "problem" in result ? error(result.problem, 400) : json({ data: result.saved }, 201)
+    }
+    if (path[1] === "workflows" && request.method === "DELETE" && path[2]) {
+      const directory = new URL(request.url).searchParams.get("directory") ?? undefined
+      const removed = await removeWorkflow(decodeURIComponent(path[2]), directory || undefined)
+      return removed ? json({ data: true }) : error("Workflow not found", 404)
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
       const body = (await readJSON(request)) as
