@@ -4986,6 +4986,7 @@ export const App: Component = () => {
         files={skillFiles() ?? []}
         skills={skills()?.data ?? []}
         loading={skillFiles.loading}
+        skillsLoading={skills.loading}
         serverAvailable={routinesServerAvailable()}
         hasProject={!!vcsDirectory()}
         sources={skillSources()}

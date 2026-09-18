@@ -33,6 +33,14 @@ const unnamed = {
 
 type Options = { files?: unknown[]; skills?: unknown[]; sourcePaths?: string[]; sourceUrls?: string[] }
 
+/** A row of the "Loaded" section. Scoped to it so a row elsewhere never makes the match ambiguous. */
+const loadedRow = (page: Page, name: string) =>
+  page
+    .locator(".fc-usage-block")
+    .filter({ hasText: "Loaded" })
+    .locator(".fc-skill-row")
+    .filter({ hasText: name })
+
 async function open(page: Page, options: Options = {}) {
   const saved: Array<Record<string, unknown>> = []
   const deleted: string[] = []
@@ -108,7 +116,7 @@ test("a skill the engine drops is named first, with what it wants", async ({ pag
 test("the loaded ones say where they come from", async ({ page }) => {
   await open(page)
 
-  const row = page.locator(".fc-skill-row").filter({ hasText: "effect" })
+  const row = loadedRow(page, "effect")
   await expect(row).toContainText("project")
   await expect(row).toContainText("Work with Effect v4")
 })
@@ -117,7 +125,7 @@ test("nothing is read from disk until a skill is opened", async ({ page }) => {
   await open(page)
   await expect(page.locator(".fc-pr-log")).toHaveCount(0)
 
-  await page.locator(".fc-skill-row").filter({ hasText: "effect" }).click()
+  await loadedRow(page, "effect").click()
 
   await expect(page.locator(".fc-pr-log")).toContainText("Use Effect v4.")
 })
@@ -180,7 +188,7 @@ test("a file that exists but is not loaded does not explain away a missing skill
 
 test("deleting asks first", async ({ page }) => {
   const { deleted } = await open(page)
-  await page.locator(".fc-skill-row").filter({ hasText: "effect" }).click()
+  await loadedRow(page, "effect").click()
   await page.getByRole("button", { name: /^Delete$|^Borrar$/ }).click()
 
   await expect(page.locator(".fc-confirm-inline")).toContainText("effect")

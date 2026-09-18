@@ -11,6 +11,12 @@ type SkillCatalogueProps = {
   /** What the engine says it has, which includes ones with no file — the built-in one. */
   skills: SkillInfo[]
   loading: boolean
+  /**
+   * The engine's list is still on its way. Until it arrives an empty `skills` means "not asked yet",
+   * not "the engine has nothing": a loaded file would otherwise flash as "written, and not picked up
+   * yet" and be counted as a second `effect` row.
+   */
+  skillsLoading: boolean
   serverAvailable: boolean
   hasProject: boolean
   /** Extra places the engine reads skills from: folders and URLs (H-27). */
@@ -120,8 +126,8 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
 
   const loaded = createMemo(() => props.files.filter((file) => file.loaded))
   const notLoaded = createMemo(() => ignored(props.files))
-  const waiting = createMemo(() => notPickedUp(props.skills, props.files))
-  const orphans = createMemo(() => withoutFiles(props.skills, props.files))
+  const waiting = createMemo(() => (props.skillsLoading ? [] : notPickedUp(props.skills, props.files)))
+  const orphans = createMemo(() => (props.skillsLoading ? [] : withoutFiles(props.skills, props.files)))
 
   createEffect(() => {
     if (!props.open) {
