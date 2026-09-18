@@ -548,3 +548,15 @@ describe("what a reader keeps about a session (H-18)", () => {
     repository.close()
   })
 })
+
+describe("health", () => {
+  test("says what the server can answer, so a newer client does not ask for what is not here", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/health"))
+    expect(await response.json()).toMatchObject({
+      healthy: true,
+      capabilities: expect.arrayContaining(["session-prefs", "stash"]),
+    })
+    repository.close()
+  })
+})

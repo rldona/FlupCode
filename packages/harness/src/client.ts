@@ -929,7 +929,7 @@ async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestIn
 
 export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
   return {
-    health: () => harnessRequest<{ healthy: boolean }>(baseUrl, "/harness/health"),
+    health: () => harnessRequest<{ healthy: boolean; capabilities?: string[] }>(baseUrl, "/harness/health"),
     /**
      * What the server changed, as it changes it. A different origin from the engine, so the
      * connection it holds does not come out of the handful the browser allows for talking to it.
