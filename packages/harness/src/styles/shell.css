@@ -3021,6 +3021,21 @@ button.fc-status {
   flex-direction: column;
 }
 
+.fc-permissions-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+}
+
+.fc-permission-pattern {
+  overflow: hidden;
+  max-width: 55%;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (max-width: 620px) {
   .fc-settings-layout {
     grid-template-columns: minmax(0, 1fr);
