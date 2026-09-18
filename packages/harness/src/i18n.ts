@@ -987,6 +987,33 @@ const ES: Record<string, string> = {
   "Hide until there is something new to say": "Ocultar hasta que haya algo nuevo que decir",
   "{additions} added, {deletions} removed on this branch": "{additions} añadidas, {deletions} quitadas en esta rama",
 
+  // Settings as a rail of sections, and the editors inside it (H-25)
+  "Settings sections": "Secciones de ajustes",
+  Editors: "Editores",
+  "Agents and skills are edited on their own screens, where the files they came from are shown.":
+    "Los agentes y los skills se editan en sus propias pantallas, donde se ven los ficheros de los que salen.",
+  "A command is a slash command. What is written here shows up in the palette.":
+    "Un comando es un comando de barra. Lo que se escriba aquí aparece en la paleta.",
+  "Editing commands needs the harness server running.": "Para editar comandos hace falta el servidor del harness.",
+  "No commands yet.": "Todavía no hay comandos.",
+  "A slash makes a nested command.": "Una barra crea un comando anidado.",
+  "New command": "Nuevo comando",
+  "Run in a subtask": "Ejecutar en una subtarea",
+  "What the command says. $ARGUMENTS is what was typed after it.":
+    "Lo que dice el comando. $ARGUMENTS es lo que se escribió después.",
+  "Click again to delete": "Pulsa otra vez para borrar",
+  "Start on launch": "Arrancar al iniciar",
+  "Working directory": "Directorio de trabajo",
+  "Timeout (ms)": "Tiempo límite (ms)",
+  "One KEY=value per line.": "Un KEY=value por línea.",
+  "One Header=value per line.": "Un Header=value por línea.",
+  Headers: "Cabeceras",
+  Environment: "Entorno",
+  Command: "Comando",
+  Type: "Tipo",
+  Optional: "Opcional",
+  Template: "Plantilla",
+  Global: "Global",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

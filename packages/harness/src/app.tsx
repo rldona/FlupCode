@@ -96,6 +96,7 @@ import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
 import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
+import type { CommandDraft } from "./components/CommandsPanel"
 import { ModelPicker } from "./components/ModelPicker"
 import { ModelSwitchDialog } from "./components/ModelSwitchDialog"
 import { ModelUnavailableDock } from "./components/ModelUnavailableDock"
@@ -1133,6 +1134,36 @@ export const App: Component = () => {
     await createHarnessClient(harnessServerUrl()).agents.remove({ path, ...(directory ? { directory } : {}) })
     setAgentsRefresh((count) => count + 1)
   }
+  // Commands you can edit (H-25). The files behind the engine's slash commands; the palette already
+  // reads what the engine lists, so a save here shows up without touching the palette.
+  const [commandsRefresh, setCommandsRefresh] = createSignal(0)
+  const commandFilesKey = () => {
+    if (!settingsOpen() || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${commandsRefresh()}`
+  }
+  const [commandFiles] = createResource(commandFilesKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).commands.list(directory ? { directory } : {})
+  })
+  const saveCommand = (draft: CommandDraft) => {
+    const directory = vcsDirectory()
+    void createHarnessClient(harnessServerUrl())
+      .commands.save({ ...draft, ...(directory ? { directory } : {}) })
+      .then(() => setCommandsRefresh((count) => count + 1))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+  const deleteCommand = (path: string) => {
+    const directory = vcsDirectory()
+    void createHarnessClient(harnessServerUrl())
+      .commands.remove({ path, ...(directory ? { directory } : {}) })
+      .then(() => setCommandsRefresh((count) => count + 1))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+  // The configured MCP servers (H-25): so the form can open one for editing, not just add a new one.
+  const [mcpConfigs, { refetch: refetchMcpConfigs }] = createResource(
+    () => ((settingsOpen() || mcpOpen()) && ready() ? serverUrl() : undefined),
+    async (url) => createClient(url).mcp.config(),
+  )
   const toolsKey = () => ((contextOpen() || agentsOpen()) && ready() ? serverUrl() : undefined)
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
   /**
@@ -3610,6 +3641,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.mcp.add({ server, config })
       void refetchMcp()
+      void refetchMcpConfigs()
       return undefined
     }, t("MCP server added"))
 
@@ -3617,6 +3649,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.mcp.remove({ server })
       void refetchMcp()
+      void refetchMcpConfigs()
       return undefined
     }, t("MCP server removed"))
 
@@ -4582,6 +4615,7 @@ export const App: Component = () => {
       <McpManager
         open={mcpOpen()}
         servers={mcp()?.data ?? []}
+        configs={mcpConfigs()?.data ?? {}}
         busy={busy()}
         onAdd={addMcp}
         onRemove={removeMcp}
@@ -4689,6 +4723,17 @@ export const App: Component = () => {
         keybinds={keybinds()}
         savedPermissions={savedPermissions()?.data ?? []}
         onRevokePermission={revokePermission}
+        commandFiles={commandFiles() ?? []}
+        commandAgents={(agents()?.data ?? []).map((agent) => agent.id)}
+        onSaveCommand={saveCommand}
+        onDeleteCommand={deleteCommand}
+        mcpServers={mcp()?.data ?? []}
+        mcpConfigs={mcpConfigs()?.data ?? {}}
+        mcpBusy={false}
+        onAddMcp={addMcp}
+        onRemoveMcp={removeMcp}
+        onConnectMcp={connectMcp}
+        onDisconnectMcp={disconnectMcp}
         onTheme={updateTheme}
         onColorTheme={updateColorTheme}
         onLocale={setLocale}
@@ -4700,9 +4745,13 @@ export const App: Component = () => {
         onToggleReasoning={toggleReasoning}
         onToggleNotifications={toggleNotifications}
         onKeybind={changeKeybind}
-        onOpenMcp={() => {
+        onOpenAgents={() => {
           setSettingsOpen(false)
-          setMcpOpen(true)
+          showScreen("agents")
+        }}
+        onOpenSkills={() => {
+          setSettingsOpen(false)
+          showScreen("skills")
         }}
         onOpenRemote={() => {
           setSettingsOpen(false)

@@ -2932,6 +2932,114 @@ button.fc-status {
   gap: var(--fc-space-2);
 }
 
+/*
+  A rail and a panel instead of one long scroll: eleven sections in a column is a page nobody finds
+  anything in, and the editors (commands, MCP) need room next to the settings they belong to.
+*/
+.fc-modal-settings {
+  width: min(820px, 100%);
+}
+
+.fc-settings-layout {
+  display: grid;
+  grid-template-columns: 168px minmax(0, 1fr);
+  gap: var(--fc-space-4);
+  min-height: 420px;
+}
+
+.fc-settings-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-right: var(--fc-space-3);
+  border-right: 1px solid var(--fc-border);
+}
+
+.fc-settings-nav-item {
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-settings-nav-item:hover {
+  background: color-mix(in srgb, var(--fc-text) 8%, transparent);
+  color: var(--fc-text);
+}
+
+.fc-settings-nav-active {
+  background: color-mix(in srgb, var(--fc-text) 12%, transparent);
+  color: var(--fc-text);
+  font-weight: 600;
+}
+
+.fc-command-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-command-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+.fc-command-open {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-2);
+  padding: 8px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text);
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-command-row-open .fc-command-open {
+  border-color: var(--fc-focus-border);
+}
+
+.fc-command-scope {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-command-form {
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 620px) {
+  .fc-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .fc-settings-nav {
+    flex-direction: row;
+    overflow-x: auto;
+    padding: 0 0 var(--fc-space-2);
+    border-right: 0;
+    border-bottom: 1px solid var(--fc-border);
+  }
+
+  .fc-settings-nav-item {
+    white-space: nowrap;
+  }
+}
+
 .fc-settings-title {
   margin: 0;
   font-size: var(--fc-text-xs);
@@ -7997,6 +8105,23 @@ button.fc-status {
   flex-wrap: wrap;
   gap: 12px;
   align-items: flex-end;
+}
+
+.fc-field-area {
+  resize: vertical;
+  padding: 8px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: var(--fc-text);
+  font-family: var(--fc-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fc-field-hint {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
 }
 
 .fc-check {

@@ -25,6 +25,7 @@ import type {
   CapturedPrompt,
   ToolUses,
   SkillFile,
+  CommandFile,
   Finding,
   GitCommit,
   PullRequest,
@@ -891,6 +892,11 @@ export function createClient(baseUrl = resolveServerUrl()) {
           data: Object.entries(status ?? {}).map(([name, value]) => ({ name, status: value })) as McpServer[],
         }
       },
+      /** The configured servers themselves, so the form can open one for editing instead of guessing. */
+      config: async () => {
+        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
+        return { data: (config?.mcp ?? {}) as Record<string, McpConfig> }
+      },
       add: async (input: { server: string; config: McpConfig }) => {
         const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
         await patchConfig(baseUrl, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } })
@@ -1124,6 +1130,33 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const search = new URLSearchParams({ path: input.path })
         if (input.directory) search.set("directory", input.directory)
         return harnessRequest<{ removed: boolean }>(baseUrl, `/harness/skills?${search}`, { method: "DELETE" })
+      },
+    },
+    /** Commands you can edit (H-25): the markdown files behind the engine's slash commands. */
+    commands: {
+      list: (input: { directory?: string; project?: string }) => {
+        const search = new URLSearchParams()
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<CommandFile[]>(baseUrl, `/harness/commands${search.size ? `?${search}` : ""}`)
+      },
+      save: (input: {
+        name: string
+        scope: "global" | "project"
+        fields: Record<string, unknown>
+        template: string
+        directory?: string
+        project?: string
+      }) =>
+        harnessRequest<{ path: string }>(baseUrl, "/harness/commands", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      remove: (input: { path: string; directory?: string; project?: string }) => {
+        const search = new URLSearchParams({ path: input.path })
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<{ removed: boolean }>(baseUrl, `/harness/commands?${search}`, { method: "DELETE" })
       },
     },
     /** Findings (H-32): a review's points, anchored to a file and a line. */
