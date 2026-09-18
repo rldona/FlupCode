@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   model_json TEXT,
   depends_on TEXT,
   when_json TEXT,
+  foreach_source TEXT,
   session_id TEXT,
   directory TEXT,
   status TEXT NOT NULL,
@@ -250,6 +251,7 @@ type TaskRow = {
   model_json: string | null
   depends_on: string | null
   when_json: string | null
+  foreach_source: string | null
   session_id: string | null
   directory: string | null
   status: TaskStatus
@@ -276,6 +278,7 @@ const decodeTask = (row: TaskRow): Task => ({
   model: decodeModel(row.model_json),
   dependsOn: decodeDependsOn(row.depends_on),
   when: decodeWhen(row.when_json),
+  foreach: row.foreach_source ?? undefined,
   sessionID: row.session_id ?? undefined,
   directory: row.directory ?? undefined,
   status: row.status,
@@ -591,6 +594,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("tasks", "directory", "TEXT")
     this.addColumn("tasks", "depends_on", "TEXT")
     this.addColumn("tasks", "when_json", "TEXT")
+    this.addColumn("tasks", "foreach_source", "TEXT")
     this.addColumn("checkpoints", "summary", "TEXT")
     this.addColumn("artifacts", "pinned", "INTEGER")
     this.addColumn("artifacts", "expires_at", "INTEGER")
@@ -1337,8 +1341,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, 'queued')`,
+               (id, run_id, position, name, prompt, kind, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 'queued')`,
           )
           .run(
             task.id,
@@ -1355,6 +1359,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.model ? JSON.stringify(task.model) : null,
             task.dependsOn !== undefined ? JSON.stringify(task.dependsOn) : null,
             task.when ? JSON.stringify(task.when) : null,
+            task.foreach ?? null,
           )
       }
     })()

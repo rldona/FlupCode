@@ -5,6 +5,7 @@ import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./v
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs } from "./packs"
+import { parsePlan } from "./plan"
 import { budgetReason, fallbackModel, modelForTask } from "./policy"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
@@ -250,8 +251,9 @@ export class TaskRunner {
    * listed.
    */
   private dependencies(task: Task, tasks: Task[]): string[] {
-    const explicit =
-      task.dependsOn !== undefined
+    const explicit = task.foreach
+      ? [task.foreach]
+      : task.dependsOn !== undefined
         ? task.dependsOn
         : task.retryOf
           ? []
@@ -417,6 +419,10 @@ export class TaskRunner {
     this.repository.startTask(task.id, Date.now())
     let directory = this.directoryFor(task, tasks, context)
     try {
+      // A `foreach` task is a fan-out marker, not work (H-28): the plan it names is ready, so one task
+      // is added per step and this row says what was expanded. Its dependents wait for all of them
+      // because the steps share its name.
+      if (task.foreach) return this.expand(task, context)
       // A verify task runs the project's own commands and keeps what they printed (H-22). No session
       // and no model: it costs time, not tokens, which is what makes it worth running after every
       // attempt rather than once at the end.
@@ -540,6 +546,41 @@ export class TaskRunner {
       this.repository.finishTask(task.id, stopped() ? "stopped" : "failed", { error: message(cause) })
       if (!stopped()) context.failure = message(cause)
     }
+  }
+
+  /**
+   * Turns a `foreach` task into one task per step of the plan it names (H-28).
+   *
+   * The steps share the template's name on purpose: `settled` then means "every step is done", so a
+   * task that depends on the template waits for the whole fan-out without knowing it was one. A plan
+   * with no readable steps is not a failure — the model may simply not have planned — so the marker
+   * says so and nothing is added.
+   */
+  private expand(task: Task, context: RunContext) {
+    const source = this.repository
+      .listTasks(context.run.id)
+      .filter((entry) => entry.name === task.foreach && entry.status === "success")
+      .at(-1)
+    const items = parsePlan(source?.output)
+    if (items.length === 0) {
+      this.repository.finishTask(task.id, "success", { output: `No steps in ${task.foreach}'s plan` })
+      return
+    }
+    this.repository.addTasks(
+      context.run.id,
+      items.map((item) => ({
+        name: task.name,
+        prompt: task.prompt.replace(/\{\{\s*item\s*\}\}/g, item),
+        kind: task.kind,
+        ...(task.agent ? { agent: task.agent } : {}),
+        ...(task.model ? { model: task.model } : {}),
+        // A root: it exists because the plan is ready, and it runs alongside its siblings.
+        dependsOn: [],
+      })),
+    )
+    this.repository.finishTask(task.id, "success", {
+      output: items.map((item, index) => `${index + 1}. ${item}`).join("\n"),
+    })
   }
 
   /**
