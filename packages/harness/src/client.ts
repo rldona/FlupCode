@@ -45,6 +45,7 @@ import type {
   TouchedFiles,
   UsageReport,
   Workflow,
+  WorkflowFile,
 } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
@@ -1084,11 +1085,29 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           baseUrl,
           directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
         ),
-      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean }) =>
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown }) =>
         harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** The file as written, for the editor (H-28). */
+      get: (name: string, directory?: string) =>
+        harnessRequest<WorkflowFile>(
+          baseUrl,
+          `/harness/workflows/${encodeURIComponent(name)}${directory ? `?directory=${encodeURIComponent(directory)}` : ""}`,
+        ),
+      /** Writes it back, validated by the server: what would not run cannot be saved as a workflow. */
+      save: (name: string, input: { source: string; directory?: string; scope?: "project" | "global" }) =>
+        harnessRequest<WorkflowFile>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}`, {
+          method: "PUT",
+          body: JSON.stringify(input),
+        }),
+      remove: (name: string, directory?: string) =>
+        harnessRequest<boolean>(
+          baseUrl,
+          `/harness/workflows/${encodeURIComponent(name)}${directory ? `?directory=${encodeURIComponent(directory)}` : ""}`,
+          { method: "DELETE" },
+        ),
     },
     /**
      * Git (H-20), which only the harness server can run.

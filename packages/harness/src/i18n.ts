@@ -244,6 +244,18 @@ const ES: Record<string, string> = {
   "Manual run": "Ejecución manual",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Run timeline": "Línea de tiempo de la ejecución",
+  Workflows: "Flujos de trabajo",
+  "Workflow graph": "Grafo del flujo",
+  "Processes written down as files: the plan, the build, the check, and what waits for what.":
+    "Procesos escritos como ficheros: el plan, el build, la comprobación y qué espera a qué.",
+  "New workflow": "Nuevo flujo",
+  Here: "Aquí",
+  "None in this project yet.": "Todavía no hay ninguno en este proyecto.",
+  "Where it is written": "Dónde se escribe",
+  "This project (.flupcode/workflows)": "Este proyecto (.flupcode/workflows)",
+  "Everywhere (~/.local/share/flupcode/workflows)": "En todas partes (~/.local/share/flupcode/workflows)",
+  "Workflow source": "Fuente del flujo",
+  "Saved. It is what this project will run next time.": "Guardado. Es lo que este proyecto ejecutará la próxima vez.",
   "That session is no longer in the engine": "Esa sesión ya no está en el motor",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":

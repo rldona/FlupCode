@@ -8261,7 +8261,7 @@ button.fc-status {
 .fc-run-lane {
   position: relative;
   height: 18px;
-  background: var(--fc-surface-sunken, var(--fc-border));
+  background: var(--fc-bg-subtle);
   border-radius: var(--fc-radius-sm);
 }
 
@@ -8320,6 +8320,62 @@ button.fc-status {
 
 .fc-run-bar-pending[data-status="skipped"] {
   text-decoration: line-through;
+}
+
+/* ── The workflow editor (H-28) ───────────────────────────────────────────── */
+
+.fc-workflow-row {
+  cursor: pointer;
+}
+
+.fc-workflow-row-active {
+  background: var(--fc-accent-soft);
+}
+
+.fc-workflow-graph {
+  overflow-x: auto;
+  margin: var(--fc-space-2) 0;
+  padding: var(--fc-space-2);
+  background: var(--fc-bg-subtle);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-workflow-graph svg {
+  width: 100%;
+  height: auto;
+  max-height: 240px;
+}
+
+.fc-workflow-node rect {
+  fill: var(--fc-bg-elevated);
+  stroke: var(--fc-border);
+}
+
+.fc-workflow-node[data-kind="verify"] rect {
+  stroke-dasharray: 4 3;
+}
+
+.fc-workflow-node text {
+  fill: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-workflow-node-mark {
+  fill: var(--fc-text-muted);
+  text-anchor: end;
+}
+
+.fc-workflow-edge {
+  stroke: var(--fc-border);
+  stroke-width: 1.5;
+}
+
+.fc-workflow-source {
+  width: 100%;
+  min-height: 240px;
+  font-family: var(--fc-font-mono, ui-monospace, monospace);
+  white-space: pre;
+  resize: vertical;
 }
 
 /* ── The diff viewer (H-06) ───────────────────────────────────────────────── */
