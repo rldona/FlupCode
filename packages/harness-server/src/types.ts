@@ -24,6 +24,22 @@ export type RoutineSchedule =
 export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
 
 /**
+ * How a run spends (H-30).
+ *
+ * Models are named by role — the agent a task runs as — because that is what a process says about
+ * who does what; a task that names its own model still wins. The budget is checked between tasks,
+ * and reaching it pauses the run rather than killing it, so a person can say "carry on".
+ */
+export type RunPolicy = {
+  /** A model per role, as "provider/model". */
+  models?: Record<string, string>
+  /** The model a task is retried on after it fails. */
+  fallback?: string
+  /** Stop and ask before spending past these. */
+  budget?: { tokens?: number; cost?: number }
+}
+
+/**
  * `awaiting` is a run that stopped on purpose at a human gate (H-21) and is waiting to be let
  * through. It is not finished — it has no `finishedAt` — and it is not running either, which is why
  * it cannot be either of the four that existed.
@@ -72,6 +88,12 @@ export type Run = {
    * is untouched until somebody merges.
    */
   worktrees?: boolean
+  /** How this run spends (H-30): a model per role, a fallback, and a budget. */
+  policy?: RunPolicy
+  /** Why it is waiting: a person at a gate, or a budget that was reached. */
+  paused?: "gate" | "budget"
+  /** Somebody said to carry on past the budget, so it is not checked again. */
+  budgetApproved?: boolean
 }
 
 export type RoutineInput = {
@@ -327,12 +349,16 @@ export type RunRepository = {
     source: RunSource,
     now: number,
     directory?: string,
-    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees">,
+    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy">,
   ): Run
   /** Hold a run at a gate: not running, not finished, waiting for a person. */
   awaitRun(runID: string): void
   /** Let it through, and say whether there was anything to let through. */
   resumeRun(runID: string): boolean
+  /** Why a run is waiting (H-30). */
+  setPaused(runID: string, paused: "gate" | "budget"): void
+  /** A person let it past the budget (H-30). */
+  approveBudget(runID: string): void
   /** Put a finished run back to running so a manual retry can add a task to it (H-12). */
   reopenRun(runID: string): boolean
   /** Give a run the work it is made of, in the order it will be done. */

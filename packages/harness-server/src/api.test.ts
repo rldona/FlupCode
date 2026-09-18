@@ -774,3 +774,33 @@ describe("harness worktree API", () => {
     repository.close()
   })
 })
+
+describe("harness run policy API", () => {
+  test("a run keeps the policy it was started with, and drops what it cannot read", async () => {
+    const { handler, repository } = open()
+    const started = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          tasks: [{ name: "one", prompt: "go" }],
+          policy: { models: { build: "a/b" }, fallback: "a/c", budget: { tokens: 100 } },
+        }),
+      }),
+    )
+    const run = (await started.json()).data
+    expect(run.policy).toEqual({ models: { build: "a/b" }, fallback: "a/c", budget: { tokens: 100 } })
+    await settled(repository, run.id)
+
+    // A budget that is not a number is not a budget, so nothing is enforced.
+    const garbage = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "one", prompt: "go" }], policy: { budget: { tokens: -5 } } }),
+      }),
+    )
+    const clean = (await garbage.json()).data
+    expect(clean.policy).toBeUndefined()
+    await settled(repository, clean.id)
+    repository.close()
+  })
+})

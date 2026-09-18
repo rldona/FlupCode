@@ -5,6 +5,7 @@ import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./v
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
 import { packFiles, packRefs } from "./packs"
+import { budgetReason, fallbackModel, modelForTask } from "./policy"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -85,21 +86,23 @@ export class TaskRunner {
    *
    * Returns false when there is no budget left, or nothing before the check to attempt again.
    */
-  private scheduleRetry(runID: string, verify: Task, evidence: string) {
+  private scheduleRetry(run: Run, verify: Task, evidence: string) {
     const budget = verify.retries ?? 0
     if (budget <= 0) return false
     const executor = this.repository
-      .listTasks(runID)
+      .listTasks(run.id)
       .filter((entry) => entry.kind === "agent" && entry.position < verify.position)
       .at(-1)
     if (!executor) return false
-    this.repository.addTasks(runID, [
+    this.repository.addTasks(run.id, [
       {
         name: executor.name,
         prompt: retryPrompt(executor, evidence),
         kind: "agent",
         agent: executor.agent,
-        model: executor.model,
+        // The policy's fallback, when it names one (H-30): a retry that repeats the failed model is
+        // asking the same question and expecting a different answer.
+        model: fallbackModel(run.policy, executor.model),
         attempt: executor.attempt + 1,
         retryOf: executor.id,
       },
@@ -143,6 +146,25 @@ export class TaskRunner {
         })),
     )
     if (findings.length > 0) this.repository.addFindings(findings)
+  }
+
+  /**
+   * Whether the run has spent its budget, and should stop and ask (H-30).
+   *
+   * Summed from the tasks because that is where a token count is first written — after the turn, not
+   * during it. A run whose budget was already approved is not asked again.
+   */
+  private pauseForBudget(run: Run) {
+    if (run.budgetApproved || !run.policy?.budget) return false
+    const totals = this.repository
+      .listTasks(run.id)
+      .reduce((sum, task) => ({ tokens: sum.tokens + (task.tokens ?? 0), cost: sum.cost + (task.cost ?? 0) }), {
+        tokens: 0,
+        cost: 0,
+      })
+    if (!budgetReason(run.policy, totals)) return false
+    this.repository.setPaused(run.id, "budget")
+    return true
   }
 
   /**
@@ -235,6 +257,8 @@ export class TaskRunner {
         // H-21 asks of this gate). They are findings like a review's, which means they are drawn on
         // the diff by the machinery H-32 already built: a broken test lands on the line that broke.
         this.recordFailures(report, run.id, task.id, executorDirectory)
+        // The checks cost time, not tokens, but the run they belong to may already be over budget.
+        if (this.pauseForBudget(run)) return "paused"
         // The evidence is the handoff: whatever runs next is told exactly what failed.
         handoff = evidence
         if (!report.ok && !stopped()) {
@@ -242,7 +266,7 @@ export class TaskRunner {
           // retry carries the evidence in its own prompt, so the handoff is cleared, not repeated.
           // It is handed the parsed failures rather than the log: the same information, without the
           // stack traces, paid for on every attempt.
-          if (this.scheduleRetry(run.id, task, focusedEvidence(report))) {
+          if (this.scheduleRetry(run, task, focusedEvidence(report))) {
             handoff = undefined
             continue
           }
@@ -284,7 +308,8 @@ export class TaskRunner {
             text: compose(task, handoff, context),
             directory: taskDirectory,
             agent: task.agent,
-            model: task.model,
+            // Its own model, or the policy's for the role it runs as (H-30).
+            model: modelForTask(task, run.policy),
             ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
           })
           await this.engine.waitForIdle(session.id, {
@@ -298,6 +323,8 @@ export class TaskRunner {
             tokens: answer?.tokens,
             cost: answer?.cost,
           })
+          // Over budget: stop and ask, before spending on a closing note that nobody asked for.
+          if (this.pauseForBudget(run)) return "paused"
           // The next task, especially a verify, looks at this task's tree, not the run's folder.
           executorDirectory = taskDirectory
           // What the next task starts from (H-31): a closing note, not the whole answer. The note is
@@ -348,7 +375,10 @@ export class TaskRunner {
       }
       // A human gate (H-21): the work is done and nothing else starts until somebody has read it.
       // Whatever is queued stays queued, so letting it through is the same loop, entered again.
-      if (task.gate === "human" && !stopped()) return "paused"
+      if (task.gate === "human" && !stopped()) {
+        this.repository.setPaused(run.id, "gate")
+        return "paused"
+      }
     }
     return "done"
   }
