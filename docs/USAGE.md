@@ -327,10 +327,15 @@ round trip through JSON eats the comments in it.
 A task is **confined to its project**. FlupCode has always told the engine where to start; it now
 also tells it where to stop, by denying the engine's own `external_directory` permission — the one
 `read`, `write`, `edit`, `glob`, `grep` and `apply_patch` ask for before touching a path outside the
-project. A task that tries gets a refusal it can read, and nobody is prompted.
+project. The engine's shell asks the same permission for an external `workdir` and for the paths of
+the commands its parser understands (`cat`, `rm`, `cp`, `cd`…), so a `cat /etc/passwd` is refused
+too. A task that tries gets a refusal it can read, and nobody is prompted.
 
-**The shell is not covered.** The engine's shell tool does not make that check, so a command can
-still read outside the project. This is stated rather than papered over.
+**That is a boundary, not a sandbox.** There is no sandbox: a command the parser does not read
+(`grep`, `sed`, an interpreter), a redirection or an expansion can still reach outside. A run that
+cannot afford that says so — `shell: false` in a workflow file, or `"shell": false` when starting a
+run — and the engine hides the shell tool and refuses every command. It is exact, and it is the only
+complete stop the engine offers. A run that refused it shows **No shell commands** in Runs.
 
 A workflow can open the boundary with `outside: true`, and a run can be started with `outside` in
 its request. It is never the default.
@@ -375,6 +380,7 @@ tasks:
 | `gate: human` | a task | hold the run here until somebody lets it through |
 | `limits: { tool: 10m }` | the workflow | stop a task whose single tool call runs longer than that |
 | `outside: true` | the workflow | let its tasks reach outside the project (off by default) |
+| `shell: false` | the workflow | refuse the shell for its tasks: the engine hides the tool and denies every command |
 
 Four come with FlupCode — **feature**, **bugfix**, **refactor** and **review** — written to
 `~/.local/share/flupcode/workflows` the first time the server starts. They are yours to edit: nothing

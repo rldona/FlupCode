@@ -102,6 +102,8 @@ export class RoutineScheduler {
     directory?: string
     toolLimitMs?: number
     outside?: boolean
+    /** Refuse the shell for every task of this run (H-47). Absent means the engine's own tools. */
+    shell?: boolean
     /** Context packs every task of this run is given (H-31). */
     packs?: string[]
     /** Give each writing task its own worktree (H-29). */
@@ -113,6 +115,7 @@ export class RoutineScheduler {
     const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory, {
       ...(input.toolLimitMs ? { toolLimitMs: input.toolLimitMs } : {}),
       ...(input.outside ? { outside: true } : {}),
+      ...(input.shell === false ? { shell: false } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
@@ -195,9 +198,11 @@ export class RoutineScheduler {
     return this.runTasks({
       tasks: tasksFor(workflow, input.inputs ?? {}),
       directory: input.directory,
-      // A workflow is a file, so its ceiling and its bypass are written in the file too (H-47).
+      // A workflow is a file, so its ceiling, its bypass and its shell are written in the file too
+      // (H-47).
       ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),
       ...(workflow.outside ? { outside: true } : {}),
+      ...(workflow.shell === false ? { shell: false } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
