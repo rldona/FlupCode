@@ -1,7 +1,7 @@
 import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
 import type { ModelInfo } from "../engine-types"
-import type { McpServer } from "../engine-types"
-import type { CommandFile, McpConfig } from "../types"
+import type { McpResource, McpServer } from "../engine-types"
+import type { AgentFile, CommandFile, McpConfig } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
@@ -52,6 +52,9 @@ type SettingsPanelProps = {
   /** The configured MCP servers and their config, so one can be edited here (H-25). */
   mcpServers: McpServer[]
   mcpConfigs: Record<string, McpConfig>
+  /** What the servers expose and who may use them (H-34). */
+  mcpResources?: McpResource[]
+  agentFiles?: AgentFile[]
   mcpBusy: boolean
   onAddMcp: (name: string, config: McpConfig) => void
   onRemoveMcp: (name: string) => void
@@ -501,6 +504,8 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <McpEditor
                     servers={props.mcpServers}
                     configs={props.mcpConfigs}
+                    resources={props.mcpResources}
+                    agents={props.agentFiles}
                     busy={props.mcpBusy}
                     onAdd={props.onAddMcp}
                     onRemove={props.onRemoveMcp}
