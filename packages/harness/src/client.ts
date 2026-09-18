@@ -246,6 +246,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
      *  ones. Only what this side asks for is typed; the rest of the config is the engine's. */
     config: async () =>
       (await unwrap(client.config.get())) as { compaction?: { auto?: boolean; reserved?: number } },
+    /** Writes back one key of the engine's config and leaves the rest as it is (H-25). */
+    updateConfig: (patch: Record<string, unknown>) => patchConfig(baseUrl, patch),
     session: {
       /**
        * The engine's list, searched and paged server-side (H-18).

@@ -7,6 +7,7 @@ import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
 import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
 import { McpEditor } from "./McpManager"
+import { PermissionsPanel } from "./PermissionsPanel"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
@@ -38,6 +39,10 @@ type SettingsPanelProps = {
   /** Permissions the reader granted with "Allow always"; the engine applies them to every session. */
   savedPermissions: Array<{ id: string; action: string; resource: string }>
   onRevokePermission: (id: string) => void
+  /** The engine's `permission` policy, as it is on disk (H-25). */
+  permissionPolicy: unknown
+  permissionServerAvailable: boolean
+  onSavePermissionPolicy: (policy: Record<string, unknown>) => void
   /** The editable commands (H-25): the files behind the engine's slash commands. */
   commandFiles: CommandFile[]
   /** Agent names for a command's `agent` field. */
@@ -463,28 +468,14 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
               <Show when={section() === "permissions"}>
                 <section class="fc-settings-section">
-                  <h3 class="fc-settings-title">{t("Remembered permissions")}</h3>
-                  {/* "Allow always" wrote these and nothing ever showed them again, so a grant made once
-                      in one session kept applying everywhere with no way to take it back. */}
-                  <Show
-                    when={props.savedPermissions.length > 0}
-                    fallback={<p class="fc-settings-hint">{t("Nothing is allowed always")}</p>}
-                  >
-                    <ul class="fc-saved-permissions">
-                      <For each={props.savedPermissions}>
-                        {(saved) => (
-                          <li class="fc-settings-row">
-                            <span>
-                              <code>{saved.action}</code> · <code>{saved.resource}</code>
-                            </span>
-                            <button class="fc-button" type="button" onClick={() => props.onRevokePermission(saved.id)}>
-                              {t("Revoke")}
-                            </button>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
-                  </Show>
+                  <h3 class="fc-settings-title">{t("Permissions")}</h3>
+                  <PermissionsPanel
+                    policy={props.permissionPolicy}
+                    savedPermissions={props.savedPermissions}
+                    onRevokePermission={props.onRevokePermission}
+                    onSave={props.onSavePermissionPolicy}
+                    serverAvailable={props.permissionServerAvailable}
+                  />
                 </section>
               </Show>
 

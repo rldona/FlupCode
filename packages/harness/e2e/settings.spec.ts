@@ -66,7 +66,12 @@ async function openApp(page: Page) {
     if (url.pathname === "/mcp" && request.method() === "GET")
       return route.fulfill({ json: { docs: { status: "connected" } } })
     if (url.pathname === "/config" && request.method() === "GET")
-      return route.fulfill({ json: { mcp: { docs: { type: "remote", url: "https://docs.example" } } } })
+      return route.fulfill({
+        json: {
+          mcp: { docs: { type: "remote", url: "https://docs.example" } },
+          permission: { edit: "allow", bash: { "rm -rf *": "deny" } },
+        },
+      })
     if (url.pathname === "/config" && request.method() === "PATCH") {
       calls.patches.push({ path: url.pathname, body: request.postDataJSON() })
       return route.fulfill({ json: {} })
@@ -141,4 +146,20 @@ test("an MCP server can be given an environment and headers, not just a command"
         local1: { type: "local", command: ["npx", "-y", "server"], environment: { API_KEY: "abc", DEBUG: "true" } },
       },
     })
+})
+
+test("the permission policy is edited, and pattern rules are kept", async ({ page }) => {
+  const calls = await openApp(page)
+  const dialog = await openSettings(page)
+
+  await dialog.getByRole("tab", { name: "Permissions" }).click()
+  // A pattern rule is shown, not editable here — and it must survive the save.
+  await expect(dialog.locator(".fc-permission-pattern")).toContainText("rm -rf")
+
+  await dialog.locator(".fc-settings-row", { hasText: "edit" }).getByRole("combobox").selectOption("deny")
+  await dialog.getByRole("button", { name: "Save" }).click()
+
+  await expect
+    .poll(() => calls.patches.find((call) => call.path === "/config")?.body)
+    .toMatchObject({ permission: { edit: "deny", bash: { "rm -rf *": "deny" } } })
 })
