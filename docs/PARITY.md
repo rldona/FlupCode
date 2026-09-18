@@ -64,7 +64,7 @@ Paths are relative to `packages/`.
 | Inline diff per edit + full diff viewer       | ✅ (Pierre)        | 🟡       | LCS diff on the main thread; the panel shows a raw patch       |
 | Subagent cards, compaction and revert markers | ✅                 | ❌       | subagents are a row of chips (`SubagentList.tsx`)              |
 | LSP diagnostics under edits                   | ✅                 | 🟡       | the runtime produces them; the transcript does not render them |
-| Line comments on a diff                       | ✅                 | ❌       | —                                                              |
+| Line comments on a diff                       | ✅                 | ✅       | own viewer anchors findings to the new file's line, resolve/reopen (`FileDiff.tsx`, H-32) |
 
 ## 5. Permissions & questions
 
@@ -97,7 +97,7 @@ Paths are relative to `packages/`.
 | ------------------------------------- | ----------------- | -------- | ---------------------------------------------------- |
 | Embedded terminal                     | ✅ (tabs, replay) | 🟡       | `Terminal.tsx`: one per panel, no tabs, no reconnect |
 | File tree, viewer, text/symbol search | ✅                | 🔌       | `fs.list/read`, `find.text/symbols` unused           |
-| Review panel per git / branch / turn  | ✅                | 🟡       | raw patch in a `<pre>` (`WorkspacePanels.tsx`)       |
+| Review panel per git / branch / turn  | ✅                | 🟡       | the Changes panel carries findings as line comments (H-32); no per-turn panel |
 | Git: branch and +/-                   | ✅                | 🟡       | `RepoBar.tsx`; "Commit" sends a prompt               |
 | Worktrees and workspaces              | ✅                | 🔌       | `/experimental/worktree` unused                      |
 
@@ -128,19 +128,20 @@ Paths are relative to `packages/`.
 
 ## Where the work is
 
-The audit's P0 block: the legacy runtime for Code (H-01 ✅), an event-driven store (H-02 ✅), a
-resilient event stream (H-03 ✅), secure defaults (H-04 ✅), removing the placebos (H-05 ✅),
-adopting `session-ui` (H-06 — open), queue and steer (H-07 ✅), complete permissions (H-08 ✅) and
-error states (H-09 ✅).
+The audit's P0 block is done: the legacy runtime for Code (H-01 ✅), an event-driven store (H-02 ✅), a
+resilient event stream (H-03 ✅), secure defaults (H-04 ✅), removing the placebos (H-05 ✅), adopting
+`session-ui` (H-06 ✅ except the composer v2), queue and steer (H-07 ✅), complete permissions (H-08 ✅)
+and error states (H-09 ✅).
 
-H-06 is partly done. Markdown is upstream's renderer now, and reasoning is back in the transcript.
-What is left is the diff viewer and the per-tool renderers, and there is a concrete obstacle in the
-way: `packages/session-ui` compiles under `@tsconfig/node22`, while the harness extends
-`@tsconfig/bun`, which turns on `verbatimModuleSyntax` and `noUncheckedIndexedAccess`. The markdown
-entry point happens to satisfy both; `components/file.tsx` and `pierre/*` do not, and a project
-typechecks the source it imports. Taking them needs either those two flags relaxed for the whole
-harness — 15k lines of its own code — or `session-ui` made to compile under them upstream. Neither
-is worth a diff viewer on its own, so it waits for the tool renderers to make the case.
+Where `session-ui` was adopted, it pays: the transcript's markdown is upstream's renderer (Shiki in a
+worker) and reasoning is back. The diff viewer and its line comments are FlupCode's own (H-06, H-32),
+and adopting `session-ui` for them was **decided against** in H-32, with the obstacle measured:
+`packages/session-ui` compiles under `@tsconfig/node22`, while the harness extends `@tsconfig/bun`,
+which turns on `verbatimModuleSyntax` and `noUncheckedIndexedAccess`. The markdown entry point
+satisfies both; `components/file.tsx`, `pierre/*`, and the `@opencode-ai/ui` components the line
+comments pull in do not — and the repo does not touch upstream (ADR-0001). Taking them needs either
+those two flags relaxed for the whole harness — 15k lines of its own code — or `session-ui` made to
+compile under them upstream. Neither is worth a viewer whose job the own one already does.
 
 `docs/ROADMAP.md` still describes the older plan. `docs/AUDIT-2026-09.md` §17 is the priced backlog
 and supersedes it wherever the two disagree.
