@@ -264,12 +264,13 @@ describe("what a reader keeps about a session (H-18)", () => {
 
   test("tags are trimmed and de-duplicated, and only the ones kept are listed", () => {
     const repository = open()
-    repository.setSessionTags("ses_a", [" work ", "work", "", "  ", "shared"])
-    repository.setSessionPinned("ses_b", true)
+    // Explicit times: two writes in the same millisecond used to leave "newest first" to the clock.
+    repository.setSessionTags("ses_a", [" work ", "work", "", "  ", "shared"], 1000)
+    repository.setSessionPinned("ses_b", true, 2000)
 
     expect(repository.getSessionPrefs("ses_a")?.tags).toEqual(["work", "shared"])
     // Newest change first, and a session with no prefs is not in the list.
-    expect(repository.listSessionPrefs().map((prefs) => prefs.sessionID)).toEqual(["ses_a", "ses_b"])
+    expect(repository.listSessionPrefs().map((prefs) => prefs.sessionID)).toEqual(["ses_b", "ses_a"])
     repository.close()
   })
 
