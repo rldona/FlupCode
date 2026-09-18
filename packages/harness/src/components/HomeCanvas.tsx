@@ -14,6 +14,14 @@ type HomeCanvasProps = {
   usage?: UsageReport
   usageLoading: boolean
   serverAvailable: boolean
+  /**
+   * Whether the home is the surface actually on screen.
+   *
+   * A full-screen panel is drawn over the home rather than replacing it, so this is false while one
+   * is open. Without it the home's texts would sit in the DOM behind that panel and collide with
+   * the panel's own — a cost screen looking for "nothing has run" found two.
+   */
+  active: boolean
   error: string | undefined
   onRangeChange: (range: UsageRange) => void
 }
@@ -96,9 +104,7 @@ const HarnessUsage: Component<{ usage?: UsageReport; loading: boolean; serverAva
       >
         <Show
           when={totals() && totals()!.tasks > 0}
-          fallback={
-            <p class="fc-usage-note">{props.loading ? t("Reading…") : t("Nothing has run in this window.")}</p>
-          }
+          fallback={<p class="fc-usage-note">{props.loading ? t("Reading…") : t("No runs recorded yet.")}</p>}
         >
           <div class="fc-usage-tiles">
             <div class="fc-usage-tile">
@@ -183,7 +189,9 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
         <div class="fc-error">{props.error}</div>
       </Show>
 
-      <HarnessUsage usage={props.usage} loading={props.usageLoading} serverAvailable={props.serverAvailable} />
+      <Show when={props.active}>
+        <HarnessUsage usage={props.usage} loading={props.usageLoading} serverAvailable={props.serverAvailable} />
+      </Show>
 
       <div class="fc-card">
         <div class="fc-card-header">

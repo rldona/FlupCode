@@ -811,6 +811,7 @@ const ES: Record<string, string> = {
   "{n} days": "{n} días",
   "Only {project}": "Sólo {project}",
   "Nothing has run in this window.": "No se ha ejecutado nada en esta ventana.",
+  "No runs recorded yet.": "Todavía no hay ejecuciones registradas.",
   Tokens: "Tokens",
   "On retries ({n}%)": "En reintentos ({n}%)",
   "By day": "Por día",

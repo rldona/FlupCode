@@ -4065,6 +4065,7 @@ export const App: Component = () => {
                   usage={homeUsage()}
                   usageLoading={homeUsage.loading}
                   serverAvailable={routinesServerAvailable()}
+                  active={screen() === undefined}
                   error={error()}
                   onRangeChange={setRange}
                 />
