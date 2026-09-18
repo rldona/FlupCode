@@ -228,13 +228,16 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     </Show>
                     {/* A gate is a question: let it through, or stop it. There is no third answer. */}
                     <Show when={run.status === "awaiting"}>
+                      <Show when={run.paused === "budget"}>
+                        <span class="fc-run-meta">{t("Paused at its budget")}</span>
+                      </Show>
                       <button
                         class="fc-run-open"
                         type="button"
                         disabled={!props.serverAvailable}
                         onClick={() => props.onApprove(run.id)}
                       >
-                        {t("Approve")}
+                        {run.paused === "budget" ? t("Carry on") : t("Approve")}
                       </button>
                     </Show>
                     {/* A run of worktrees (H-29): its tasks wrote on their own branches, so there is

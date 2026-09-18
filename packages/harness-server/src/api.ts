@@ -1,5 +1,13 @@
 import { normalizeRoutineSchedule } from "./validation"
-import type { ArtifactInput, ArtifactKind, RoutineCreateOptions, RoutineInput, RunStatus, TaskInput } from "./types"
+import type {
+  ArtifactInput,
+  ArtifactKind,
+  RoutineCreateOptions,
+  RoutineInput,
+  RunPolicy,
+  RunStatus,
+  TaskInput,
+} from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { eventStream, resumeFrom } from "./stream"
@@ -57,13 +65,47 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
   // A verify task has nothing to say to a model: it runs the project's commands. Requiring a prompt
   // for it would only make callers invent one.
   if (kind === "agent" && !prompt) return undefined
+  const model = modelFrom(input.model)
   return {
     name: input.name.trim(),
     prompt,
     kind,
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
+    ...(model ? { model } : {}),
     ...(kind === "verify" ? { retries: retriesFrom(input.retries) } : {}),
   }
+}
+
+/**
+ * How a run spends (H-30), as it arrives from a caller.
+ *
+ * Everything is optional and anything unreadable is dropped rather than guessed at: a policy that
+ * half-parsed into a budget nobody asked for would stop runs for the wrong reason.
+ */
+const policyFrom = (value: unknown): RunPolicy | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const input = value as { models?: unknown; fallback?: unknown; budget?: unknown }
+  const models: Record<string, string> = {}
+  if (input.models && typeof input.models === "object" && !Array.isArray(input.models)) {
+    for (const [role, model] of Object.entries(input.models as Record<string, unknown>)) {
+      if (typeof model === "string" && model.trim()) models[role] = model.trim()
+    }
+  }
+  const rawBudget = input.budget && typeof input.budget === "object" && !Array.isArray(input.budget)
+    ? (input.budget as { tokens?: unknown; cost?: unknown })
+    : undefined
+  const budget = rawBudget
+    ? {
+        ...(typeof rawBudget.tokens === "number" && rawBudget.tokens > 0 ? { tokens: Math.floor(rawBudget.tokens) } : {}),
+        ...(typeof rawBudget.cost === "number" && rawBudget.cost > 0 ? { cost: rawBudget.cost } : {}),
+      }
+    : undefined
+  const policy: RunPolicy = {
+    ...(Object.keys(models).length > 0 ? { models } : {}),
+    ...(typeof input.fallback === "string" && input.fallback.trim() ? { fallback: input.fallback.trim() } : {}),
+    ...(budget && Object.keys(budget).length > 0 ? { budget } : {}),
+  }
+  return Object.keys(policy).length > 0 ? policy : undefined
 }
 
 /**
@@ -213,6 +255,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
             outside?: unknown
             packs?: unknown
             worktrees?: unknown
+            policy?: unknown
           }
         | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
@@ -225,6 +268,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const toolLimitMs = duration(body?.toolLimit)
       // Context packs the run's tasks are given (H-31), by name.
       const packs = Array.isArray(body?.packs) ? body.packs.filter((name): name is string => typeof name === "string") : []
+      const policy = policyFrom(body?.policy)
       return json(
         {
           data: await scheduler.runTasks({
@@ -234,6 +278,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
             ...(body?.outside === true ? { outside: true } : {}),
             ...(packs.length > 0 ? { packs } : {}),
             ...(body?.worktrees === true ? { worktrees: true } : {}),
+            ...(policy ? { policy } : {}),
           }),
         },
         202,
@@ -888,7 +933,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
       const body = (await readJSON(request)) as
-        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown }
+        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown }
         | undefined
       const inputs: Record<string, string> = {}
       if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
@@ -898,6 +943,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       }
       const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
       const packs = Array.isArray(body?.packs) ? body.packs.filter((name): name is string => typeof name === "string") : []
+      const policy = policyFrom(body?.policy)
       try {
         const run = await scheduler.runWorkflow({
           name: decodeURIComponent(path[2]),
@@ -905,6 +951,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           directory,
           ...(packs.length > 0 ? { packs } : {}),
           ...(body?.worktrees === true ? { worktrees: true } : {}),
+          ...(policy ? { policy } : {}),
         })
         return json({ data: run }, 202)
       } catch (cause) {
