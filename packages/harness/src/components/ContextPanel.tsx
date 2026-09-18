@@ -2,8 +2,9 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatTokens } from "../metrics"
 import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
-import { mcpToolUses } from "../mcp"
-import type { CapturedPrompt, ContextReport } from "../types"
+import { mcpLatency, mcpToolUses } from "../mcp"
+import type { CapturedPrompt, ContextReport, ToolCall } from "../types"
+import { duration } from "./UsagePanel"
 
 export type ContextTokens = {
   input: number
@@ -33,6 +34,8 @@ type ContextPanelProps = {
   promptsLoading: boolean
   /** The tools this session ran, by name, as FlupCode's engine plugin recorded them. */
   toolUses?: Record<string, { count: number; last: number }>
+  /** The completed calls, timed, so an MCP server's latency can be shown (H-16). */
+  toolCalls?: ToolCall[]
   onRead: (path: string) => Promise<string>
   onClose: () => void
 }
@@ -99,6 +102,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
     props.mcp.filter((server) => (server.status as { status?: string } | undefined)?.status === "connected"),
   )
   const mcpUses = createMemo(() => mcpToolUses(props.mcp, props.toolUses ?? {}))
+  const mcpTimes = createMemo(() => mcpLatency(props.mcp, props.toolCalls ?? []))
 
   return (
     <Show when={props.open}>
@@ -236,6 +240,27 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                         {entry.tools
                           .map((tool) => `${tool.name}${tool.count > 1 ? ` ×${tool.count}` : ""}`)
                           .join(", ")}
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </Show>
+              {/*
+                How long those calls took (H-16). The engine reports no timing of its own; the calls
+                the plugin timed are what a reader can go on when a server feels slow.
+              */}
+              <Show when={mcpTimes().length > 0}>
+                <p class="fc-usage-note">{t("How long this session's calls into them took:")}</p>
+                <For each={mcpTimes()}>
+                  {(entry) => (
+                    <div class="fc-usage-row fc-mcp-use">
+                      <span class="fc-usage-key">{entry.server}</span>
+                      <span class="fc-context-excerpt">
+                        {t("{calls} calls · {average} average · slowest {slowest}", {
+                          calls: entry.calls,
+                          average: duration(entry.averageMs),
+                          slowest: duration(entry.slowestMs),
+                        })}
                       </span>
                     </div>
                   )}

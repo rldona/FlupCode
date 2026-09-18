@@ -83,18 +83,19 @@ export default {
 const REPLACED_FILES = ["reasoning-variants.ts", "reasoning-variants.js"]
 
 /**
- * tool-uses: what tools a session ran. The engine names an MCP tool `<server>_<tool>`, and while it
- * never reports which tools a server offers — they bypass the tool registry, so no endpoint lists
- * them — it does hand every call to this hook, which is enough to say which of them a session used.
+ * tool-uses: what tools a session ran, and how long each took. The engine names an MCP tool
+ * `<server>_<tool>`, and while it never reports which tools a server offers — they bypass the tool
+ * registry, so no endpoint lists them — it does hand every call to these hooks, which is enough to
+ * say which of them a session used and where its time went (H-16).
  *
  * Every tool goes in, not only the MCP ones: telling them apart needs the server list, which lives on
  * the other side of this file, and a name is a name.
  */
 export const TOOL_USES_PLUGIN = {
   file: "flupcode-tool-uses.js",
-  source: `// Installed by FlupCode. Records which tools each session ran, so the Context screen can say which
-// of an MCP server's tools a session actually used. Regenerated when FlupCode starts the engine;
-// edits here are overwritten.
+  source: `// Installed by FlupCode. Records which tools each session ran and how long each took, so the Context
+// screen can say which of an MCP server's tools a session used and the supervisor can draw a
+// timeline. Regenerated when FlupCode starts the engine; edits here are overwritten.
 import { mkdir, readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -114,6 +115,13 @@ const queues = new Map()
 // cannot fill the file.
 const MOST = 200
 
+// A timeline, not a full history: enough to see where a session spent its time without growing
+// without bound on a long one.
+const MOST_CALLS = 500
+
+// When each running call started, by the id the engine gave it. Removed when it finishes.
+const running = new Map()
+
 function serial(file, work) {
   const tail = queues.get(file) || Promise.resolve()
   const next = tail.then(work, work)
@@ -121,28 +129,71 @@ function serial(file, work) {
   return next
 }
 
-async function record(sessionID, tool) {
+function load(file) {
+  return readFile(file, "utf8").then(JSON.parse).catch(() => ({}))
+}
+
+function callsOf(previous) {
+  return previous && Array.isArray(previous.calls) ? previous.calls.slice(-MOST_CALLS) : []
+}
+
+// The engine hands the same callID to before and after, which is what pairs them up. A session with
+// no callID still gets a key, so a solo call is timed; two at once would only share a duration.
+function timedKey(sessionID, callID, tool) {
+  return sessionID + "|" + (callID || tool) + "|" + tool
+}
+
+async function began(sessionID, tool, callID) {
   // The id names a file, so anything that is not an engine-shaped id is refused rather than written.
   if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
   if (typeof tool !== "string" || !tool) return
+  running.set(timedKey(sessionID, callID, tool), Date.now())
+  // A call whose end never arrives must not grow this forever.
+  if (running.size > 1000) {
+    const oldest = running.keys().next().value
+    if (oldest !== undefined) running.delete(oldest)
+  }
   const folder = directory()
   const file = path.join(folder, sessionID + ".json")
   await serial(file, async () => {
-    const previous = await readFile(file, "utf8").then(JSON.parse).catch(() => ({}))
+    const previous = await load(file)
     const tools = previous && previous.tools && typeof previous.tools === "object" ? previous.tools : {}
     const known = tools[tool]
     if (!known && Object.keys(tools).length >= MOST) return
     const count = known && typeof known.count === "number" ? known.count : 0
     tools[tool] = { count: count + 1, last: Date.now() }
     await mkdir(folder, { recursive: true })
-    await writeFile(file, JSON.stringify({ at: Date.now(), tools }))
+    await writeFile(file, JSON.stringify({ at: Date.now(), tools, calls: callsOf(previous) }))
+  })
+}
+
+async function finished(sessionID, tool, callID) {
+  if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
+  if (typeof tool !== "string" || !tool) return
+  const key = timedKey(sessionID, callID, tool)
+  const start = running.get(key)
+  running.delete(key)
+  // Without a start there is nothing to time; the call was already counted by before.
+  if (start === undefined) return
+  const folder = directory()
+  const file = path.join(folder, sessionID + ".json")
+  await serial(file, async () => {
+    const previous = await load(file)
+    const tools = previous && previous.tools && typeof previous.tools === "object" ? previous.tools : {}
+    const calls = callsOf(previous)
+    calls.push({ tool: tool, start: start, ms: Math.max(0, Date.now() - start) })
+    await mkdir(folder, { recursive: true })
+    await writeFile(file, JSON.stringify({ at: Date.now(), tools: tools, calls: calls }))
   })
 }
 
 // Only this is exported: the engine treats every exported function as a plugin of its own.
 export const flupcodeToolUses = async () => ({
-  "tool.execute.before": async ({ tool, sessionID }) => {
-    await record(sessionID, tool).catch(() => {})
+  "tool.execute.before": async ({ tool, sessionID, callID }) => {
+    await began(sessionID, tool, callID).catch(() => {})
+  },
+  "tool.execute.after": async ({ tool, sessionID, callID }) => {
+    await finished(sessionID, tool, callID).catch(() => {})
   },
 })
 `,

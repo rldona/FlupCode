@@ -84,6 +84,19 @@ export const CheckpointList: Component<CheckpointListProps> = (props) => {
                 </button>
               </div>
 
+              {/*
+                What the step concluded (H-15). Folded away because a point is usually read as a
+                line, but there when the name alone does not say what changed.
+              */}
+              <Show when={checkpoint.summary}>
+                {(summary) => (
+                  <details class="fc-checkpoint-summary">
+                    <summary>{t("What this point holds")}</summary>
+                    <pre>{summary()}</pre>
+                  </details>
+                )}
+              </Show>
+
               <Show when={asking() === checkpoint.id}>
                 <div class="fc-checkpoint-plan">
                   <Show when={loading()}>

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { mcpToolName, mcpToolUses } from "./mcp"
+import { mcpLatency, mcpToolName, mcpToolUses } from "./mcp"
 import type { McpServer } from "./engine-types"
 
 const server = (name: string) => ({ name, status: { status: "connected" } }) as unknown as McpServer
@@ -32,5 +32,32 @@ describe("mcpToolUses", () => {
     const uses = mcpToolUses([server("docs"), server("linear")], { [mcpToolName("linear", "create_issue")]: { count: 1 } })
     expect(uses.map((entry) => entry.server)).toEqual(["linear"])
     expect(mcpToolUses([server("docs")], { bash: { count: 4 } })).toEqual([])
+  })
+})
+
+describe("mcpLatency", () => {
+  test("averages the timed calls by the server that owns them", () => {
+    const servers = [server("docs"), server("linear")]
+    const calls = [
+      { tool: mcpToolName("docs", "search"), ms: 100 },
+      { tool: mcpToolName("docs", "search"), ms: 300 },
+      { tool: mcpToolName("linear", "create_issue"), ms: 50 },
+      { tool: "bash", ms: 9000 },
+    ]
+
+    expect(mcpLatency(servers, calls)).toEqual([
+      { server: "docs", calls: 2, averageMs: 200, slowestMs: 300 },
+      { server: "linear", calls: 1, averageMs: 50, slowestMs: 50 },
+    ])
+  })
+
+  test("counts only calls that reported a duration, and says nothing about a server with none", () => {
+    const servers = [server("docs"), server("linear")]
+    // A call still running has no end, so it is not counted as instantaneous.
+    const calls = [
+      { tool: mcpToolName("docs", "search"), start: 1_000 },
+      { tool: mcpToolName("linear", "create_issue") },
+    ]
+    expect(mcpLatency(servers, calls)).toEqual([])
   })
 })

@@ -211,10 +211,34 @@ describe("usedTools", () => {
       bash: { count: 3, last: 1_700_000_000_000 },
       docs_search: { count: 1, last: 1_700_000_000_001 },
     })
+    // A file written before calls were timed has none, rather than pretending to.
+    expect(usedTools("ses_abc").calls).toEqual([])
+  })
+
+  test("reads the timed calls back, dropping any that cannot be read whole", () => {
+    mkdirSync(join(root, "uses"), { recursive: true })
+    writeFileSync(
+      join(root, "uses", "ses_timed.json"),
+      JSON.stringify({
+        at: 5,
+        tools: { docs_search: { count: 2, last: 1_700_000_000_000 } },
+        calls: [
+          { tool: "docs_search", start: 1_700_000_000_000, ms: 120 },
+          { tool: "bash", ms: 8 },
+          { tool: "bash", start: "yesterday", ms: "fast" },
+          { ms: 5 },
+        ],
+      }),
+    )
+    expect(usedTools("ses_timed").calls).toEqual([
+      { tool: "docs_search", start: 1_700_000_000_000, ms: 120 },
+      { tool: "bash", ms: 8 },
+      { tool: "bash" },
+    ])
   })
 
   test("a session that ran nothing, and an id that is not one, both read as nothing", () => {
-    expect(usedTools("ses_missing")).toEqual({ tools: {} })
-    expect(usedTools("../ses_abc")).toEqual({ tools: {} })
+    expect(usedTools("ses_missing")).toEqual({ tools: {}, calls: [] })
+    expect(usedTools("../ses_abc")).toEqual({ tools: {}, calls: [] })
   })
 })

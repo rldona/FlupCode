@@ -4,7 +4,7 @@ import { remote } from "../remote"
 import { RemoteNotifications } from "./RemoteNotifications"
 import { ViewTabs } from "./Topbar"
 import type { AppView } from "../chat"
-import type { ProjectItem } from "../types"
+import type { ProjectItem, Run } from "../types"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
 
@@ -28,7 +28,10 @@ type RemoteHomeProps = {
   sessions: RemoteSessionItem[]
   loading: boolean
   projects: ProjectItem[]
+  /** The runs still going, so a phone can see what the harness is working on (H-12). */
+  runs: Run[]
   onOpen: (sessionID: string) => void
+  onOpenRun: (sessionID: string) => void
   onNew: (directory: string | undefined) => void
   onAddDevice: () => void
 }
@@ -115,6 +118,47 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
         </button>
         <RemoteNotifications />
       </section>
+
+      {/*
+        What the harness is working on (H-12). The supervisor was desktop-only; a phone that can open
+        a session should also be able to see which run needs it, which is the one thing a person away
+        from the desk wants.
+      */}
+      <Show when={props.view === "code" && props.runs.length > 0}>
+        <section class="fc-remote-home-section">
+          <h2 class="fc-remote-home-heading">{t("Runs")}</h2>
+          <For each={props.runs}>
+            {(run) => {
+              const tasks = () => run.tasks ?? []
+              const current = () =>
+                tasks().find((task) => task.status === "running") ?? tasks().find((task) => task.status === "queued")
+              const done = () =>
+                tasks().filter((task) => task.status !== "running" && task.status !== "queued").length
+              return (
+                <button
+                  class="fc-remote-card"
+                  type="button"
+                  disabled={!run.sessionID}
+                  onClick={() => run.sessionID && props.onOpenRun(run.sessionID)}
+                >
+                  <span
+                    class={`fc-remote-dot fc-remote-dot-${run.status === "awaiting" ? "waiting" : "busy"}`}
+                    role="img"
+                    aria-label={run.status === "awaiting" ? t("Needs your input") : t("Working")}
+                  />
+                  <span class="fc-remote-card-main">
+                    <span class="fc-remote-card-title">{current()?.name ?? t("Run")}</span>
+                    <span class="fc-remote-card-meta">
+                      {run.status === "awaiting" ? t("Needs your input") : t("Working")}
+                      {tasks().length > 1 ? ` · ${done()}/${tasks().length}` : ""}
+                    </span>
+                  </span>
+                </button>
+              )
+            }}
+          </For>
+        </section>
+      </Show>
 
       <section class="fc-remote-home-section">
         <div class="fc-remote-home-row">

@@ -47,6 +47,19 @@ describe("filesPerTask", () => {
     ])
   })
 
+  test("carries what the task concluded, so the run view can show the point's summary", async () => {
+    const checkpoint = await take({
+      directory,
+      title: "write",
+      summary: "Wrote the plan and the first draft",
+      taskID: "task_1",
+    })
+
+    expect((await filesPerTask(directory, [checkpoint]))[0]!.summary).toBe(
+      "Wrote the plan and the first draft",
+    )
+  })
+
   test("the first task is compared against where the folder was when the run began", async () => {
     write("made.txt", "by the first task\n")
     const only = await take({ directory, title: "write", taskID: "task_1" })

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { drop, exists, planRestore, restore, take } from "./checkpoint"
+import { CHECKPOINT_SUMMARY_LIMIT, drop, exists, planRestore, restore, take } from "./checkpoint"
 
 let directory = ""
 
@@ -72,6 +72,18 @@ describe("take", () => {
 
     await run(["gc", "--prune=now", "--quiet"])
     expect(await exists(directory, checkpoint.sha)).toBe(true)
+  })
+
+  test("keeps what the step concluded, cut to a marker's length", async () => {
+    const checkpoint = await take({ directory, title: "after a task", summary: "Did the thing" })
+    expect(checkpoint.summary).toBe("Did the thing")
+
+    const huge = await take({ directory, title: "noisy", summary: "x".repeat(CHECKPOINT_SUMMARY_LIMIT + 500) })
+    // A marker, not a copy of the transcript: the first page is enough to recognise the point.
+    expect(huge.summary).toHaveLength(CHECKPOINT_SUMMARY_LIMIT)
+
+    const blank = await take({ directory, title: "manual", summary: "   " })
+    expect(blank.summary).toBeUndefined()
   })
 
   test("works in a repository with no commit yet, and with nobody's name configured", async () => {
