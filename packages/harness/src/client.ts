@@ -1029,8 +1029,20 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      * to run two commands.
      */
     git: {
-      commit: (input: { directory: string; message: string; paths: string[] }) =>
+      commit: (input: { directory: string; message: string; paths: string[]; hunks?: Record<string, number[]> }) =>
         harnessRequest<GitCommit>(baseUrl, "/harness/git/commit", { method: "POST", body: JSON.stringify(input) }),
+      /** Throws away a change, or the named hunks of one (H-20). */
+      discard: (input: { directory: string; path: string; hunks?: number[] }) =>
+        harnessRequest<{ path: string }>(baseUrl, "/harness/git/discard", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      /** A commit message for the picked change, written by the engine (H-20). */
+      message: (input: { directory: string; paths: string[]; hunks?: Record<string, number[]> }) =>
+        harnessRequest<{ message: string }>(baseUrl, "/harness/git/message", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
       branch: (input: { directory: string; name: string }) =>
         harnessRequest<{ branch: string }>(baseUrl, "/harness/git/branch", {
           method: "POST",

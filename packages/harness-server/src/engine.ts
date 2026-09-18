@@ -293,6 +293,34 @@ export class Engine {
     return { tool: toolNameOf(tool)!, detail: detailOf(tool.state?.input), since: toolStartOf(tool) }
   }
 
+  /**
+   * A commit message for a diff, from a session of its own.
+   *
+   * Not a turn in the reader's session: the whole point of H-20 was that committing should not spend
+   * the conversation's context. The prompt is the diff and the instruction to answer with the message
+   * alone, and the session is a throwaway with no folder history behind it.
+   */
+  async commitMessage(input: { directory?: string; diff: string }): Promise<string> {
+    const session = await this.createSession({
+      ...(input.directory ? { directory: input.directory } : {}),
+      title: "Commit message",
+    })
+    await this.prompt({
+      sessionID: session.id,
+      ...(input.directory ? { directory: input.directory } : {}),
+      text: [
+        "Write a commit message for the change below.",
+        "Answer with the message alone: a short subject line, and a body only if it needs one.",
+        "No code fences, no quotes, no preamble.",
+        "",
+        input.diff,
+      ].join("\n"),
+    })
+    await this.waitForIdle(session.id, { directory: input.directory, timeoutMs: 120_000 })
+    const answer = await this.lastAnswer(session.id, input.directory)
+    return (answer?.text ?? "").trim()
+  }
+
   async lastAnswer(sessionID: string, directory?: string) {
     const messages = (await unwrap(
       this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
