@@ -9,7 +9,27 @@ export function setApplicationMenu(handlers: MenuHandlers) {
   const isMac = process.platform === "darwin"
 
   const template: MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: "appMenu" } as MenuItemConstructorOptions] : []),
+    // The app menu is written out rather than taken from its role: on macOS an update check belongs
+    // under About, which is where anyone looks for it, and a role menu has no room for it.
+    ...(isMac
+      ? [
+          {
+            label: "FlupCode",
+            submenu: [
+              { role: "about" },
+              { label: "Check for Updates…", click: () => handlers.onCheckUpdates() },
+              { type: "separator" },
+              { role: "services" },
+              { type: "separator" },
+              { role: "hide" },
+              { role: "hideOthers" },
+              { role: "unhide" },
+              { type: "separator" },
+              { role: "quit" },
+            ],
+          } as MenuItemConstructorOptions,
+        ]
+      : []),
     {
       label: "File",
       submenu: [
@@ -36,8 +56,13 @@ export function setApplicationMenu(handlers: MenuHandlers) {
     {
       role: "help",
       submenu: [
-        { label: "Check for Updates…", click: () => handlers.onCheckUpdates() },
-        { type: "separator" },
+        // Windows and Linux have no app menu, so the check lives here for them.
+        ...(isMac
+          ? []
+          : [
+              { label: "Check for Updates…", click: () => handlers.onCheckUpdates() } as MenuItemConstructorOptions,
+              { type: "separator" } as MenuItemConstructorOptions,
+            ]),
         {
           label: "FlupCode on GitHub",
           click: () => void shell.openExternal("https://github.com/rldona/FlupCode"),
