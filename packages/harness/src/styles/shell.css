@@ -8429,6 +8429,135 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+/* The file tree and viewer (H-19): tree on the left, one file's text on the right. */
+.fc-files-layout {
+  display: grid;
+  grid-template-columns: minmax(200px, 300px) minmax(0, 1fr);
+  gap: var(--fc-space-4);
+  min-height: 0;
+  flex: 1;
+}
+
+.fc-files-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.fc-files-search {
+  width: 100%;
+}
+
+.fc-files-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-files-entry {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text);
+  font-size: 13px;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-files-entry:hover {
+  background: color-mix(in srgb, var(--fc-text) 8%, transparent);
+}
+
+.fc-files-entry-active {
+  background: color-mix(in srgb, var(--fc-text) 12%, transparent);
+}
+
+.fc-files-caret {
+  flex-shrink: 0;
+  width: 12px;
+  color: var(--fc-text-muted);
+}
+
+.fc-files-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-files-viewer {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-files-viewer-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--fc-border);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-files-viewer-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--fc-font-mono);
+}
+
+.fc-files-viewer-meta {
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-files-code {
+  flex: 1;
+  overflow: auto;
+  padding: 8px 0;
+  font-family: var(--fc-font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fc-files-code-line {
+  display: flex;
+  gap: 12px;
+  min-width: max-content;
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.fc-files-code-no {
+  width: 44px;
+  flex-shrink: 0;
+  text-align: end;
+  color: var(--fc-text-muted);
+  user-select: none;
+}
+
+@media (max-width: 720px) {
+  .fc-files-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .fc-diff-line {
   display: flex;
   gap: 8px;

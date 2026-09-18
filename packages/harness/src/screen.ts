@@ -5,9 +5,19 @@
  * `/runs` with `index.html` instead of a 404: Vite does it on its own, `vercel.json` rewrites it,
  * and the desktop app's renderer protocol falls back to the page for any address that is not a file.
  */
-export type Screen = "routines" | "runs" | "artifacts" | "changes" | "usage" | "context" | "agents" | "skills"
+export type Screen = "routines" | "runs" | "artifacts" | "changes" | "usage" | "context" | "agents" | "skills" | "files"
 
-const SCREENS: readonly Screen[] = ["routines", "runs", "artifacts", "changes", "usage", "context", "agents", "skills"]
+const SCREENS: readonly Screen[] = [
+  "routines",
+  "runs",
+  "artifacts",
+  "changes",
+  "usage",
+  "context",
+  "agents",
+  "skills",
+  "files",
+]
 
 /** The screen the path names, if it names one. Anything else is the home screen. */
 export function screenFromPath(pathname: string): Screen | undefined {

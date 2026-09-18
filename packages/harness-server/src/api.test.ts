@@ -708,3 +708,33 @@ describe("harness context packs API", () => {
     repository.close()
   })
 })
+
+describe("harness files API", () => {
+  test("reads a file inside the folder and refuses one outside it", async () => {
+    const { handler, repository } = open()
+    const root = mkdtempSync(join(tmpdir(), "flupcode-files-api-"))
+    made.push(root)
+    mkdirSync(join(root, "src"), { recursive: true })
+    writeFileSync(join(root, "src", "a.ts"), "export const a = 1\n")
+
+    const read = await handler(
+      new Request(
+        `http://x/harness/files/read?directory=${encodeURIComponent(root)}&path=${encodeURIComponent("src/a.ts")}`,
+      ),
+    )
+    expect(await read.json()).toEqual({
+      data: { path: "src/a.ts", content: "export const a = 1\n", bytes: 19, truncated: false, binary: false },
+    })
+
+    const outside = await handler(
+      new Request(
+        `http://x/harness/files/read?directory=${encodeURIComponent(root)}&path=${encodeURIComponent("../escape")}`,
+      ),
+    )
+    expect(outside.status).toBe(400)
+
+    const noFolder = await handler(new Request("http://x/harness/files/read?path=a.ts"))
+    expect(noFolder.status).toBe(400)
+    repository.close()
+  })
+})

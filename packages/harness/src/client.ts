@@ -27,6 +27,7 @@ import type {
   SkillFile,
   CommandFile,
   ContextPack,
+  FileText,
   Finding,
   GitCommit,
   PullRequest,
@@ -1020,6 +1021,13 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<ContextPack>(baseUrl, "/harness/packs", { method: "POST", body: JSON.stringify(input) }),
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/packs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    /** One file's text to look at (H-19), confined to the folder and capped by the server. */
+    files: {
+      read: (input: { directory: string; path: string }) => {
+        const search = new URLSearchParams({ directory: input.directory, path: input.path })
+        return harnessRequest<FileText>(baseUrl, `/harness/files/read?${search}`)
+      },
     },
     workflows: {
       /** What this project can run. A project's own win over the ones shared across projects. */
