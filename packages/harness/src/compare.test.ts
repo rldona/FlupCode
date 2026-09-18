@@ -52,6 +52,12 @@ describe("summarising a run for comparison (H-33)", () => {
   test("a run with no check has no verdict, rather than a made-up one", () => {
     expect(runSnapshot(run(), [task({})], []).verdict).toBeUndefined()
   })
+
+  // H-40: two executions of a workflow can also differ by what they were handed.
+  test("keeps the context packs the run was given, and none when it had none", () => {
+    expect(runSnapshot(run({ packs: ["ctx", "notes"] }), [], []).packs).toEqual(["ctx", "notes"])
+    expect(runSnapshot(run(), [], []).packs).toBeUndefined()
+  })
 })
 
 describe("comparing two runs", () => {
@@ -71,6 +77,8 @@ describe("comparing two runs", () => {
     expect(row("Duration")!.delta).toBe("−30s")
     expect(row("Tasks")!.b).toContain("1 skipped")
     expect(row("Verdict")).toEqual({ label: "Verdict", a: "—", b: "—" })
+    // A list of names is a value, not something to subtract: "none" is what the other run was given.
+    expect(row("Context packs")).toEqual({ label: "Context packs", a: "—", b: "—" })
   })
 
   test("reads a duration the way a person would", () => {
