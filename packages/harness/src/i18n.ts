@@ -1042,6 +1042,14 @@ const ES: Record<string, string> = {
   bytes: "bytes",
   "showing the beginning": "mostrando el principio",
   "That file is not text.": "Ese archivo no es texto.",
+
+  // Extra skill sources (H-27)
+  "Where else skills come from": "De dónde más salen las skills",
+  "A folder the engine also reads, or a URL it fetches from. This is configuration, so it applies everywhere.":
+    "Una carpeta que el motor también lee, o una URL de la que descarga. Esto es configuración, así que aplica en todas partes.",
+  "Nothing added.": "No hay nada añadido.",
+  "Add URL": "Añadir URL",
+  "Skill sources saved": "Fuentes de skills guardadas",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

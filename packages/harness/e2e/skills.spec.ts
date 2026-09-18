@@ -31,11 +31,12 @@ const unnamed = {
   reason: "It has no `name` in its frontmatter, so the engine skips it",
 }
 
-type Options = { files?: unknown[]; skills?: unknown[] }
+type Options = { files?: unknown[]; skills?: unknown[]; sourcePaths?: string[]; sourceUrls?: string[] }
 
 async function open(page: Page, options: Options = {}) {
   const saved: Array<Record<string, unknown>> = []
   const deleted: string[] = []
+  const patches: Array<Record<string, unknown>> = []
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -74,6 +75,14 @@ async function open(page: Page, options: Options = {}) {
           ],
         },
       })
+    if (url.pathname === "/config" && route.request().method() === "GET")
+      return route.fulfill({
+        json: { skills: { paths: options.sourcePaths ?? ["/opt/skills"], urls: options.sourceUrls ?? [] } },
+      })
+    if (url.pathname === "/config" && route.request().method() === "PATCH") {
+      patches.push(JSON.parse(route.request().postData() ?? "{}") as Record<string, unknown>)
+      return route.fulfill({ json: {} })
+    }
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
     if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
@@ -81,7 +90,7 @@ async function open(page: Page, options: Options = {}) {
   })
   await page.goto("/skills")
   await expect(page.getByRole("heading", { name: /^Skills$/ })).toBeVisible()
-  return { saved: () => saved, deleted: () => deleted }
+  return { saved: () => saved, deleted: () => deleted, patches: () => patches }
 }
 
 test("a skill the engine drops is named first, with what it wants", async ({ page }) => {
@@ -179,4 +188,27 @@ test("deleting asks first", async ({ page }) => {
 
   await page.locator(".fc-confirm-inline").getByRole("button", { name: /^Delete$|^Borrar$/ }).click()
   await expect.poll(() => deleted()).toEqual(["/work/demo/.opencode/skills/effect/SKILL.md"])
+})
+
+test("a folder or a URL can be added as an extra skill source, and removed", async ({ page }) => {
+  const api = await open(page)
+  await expect(page.getByText("/opt/skills")).toBeVisible()
+
+  await page.getByPlaceholder("/home/me/my-skills").fill("/home/me/skills")
+  await page.getByRole("button", { name: "Add folder" }).click()
+  await expect
+    .poll(() => api.patches())
+    .toEqual([{ skills: { paths: ["/opt/skills", "/home/me/skills"], urls: [] } }])
+
+  await page.getByPlaceholder("https://example.com/.well-known/skills/").fill("https://example.com/skills")
+  await page.getByRole("button", { name: "Add URL" }).click()
+  await expect
+    .poll(() => api.patches().at(-1))
+    .toEqual({ skills: { paths: ["/opt/skills", "/home/me/skills"], urls: ["https://example.com/skills"] } })
+
+  // Removing the original folder writes the list without it, and the URL stays.
+  await page.locator(".fc-skill-row", { hasText: "/opt/skills" }).getByRole("button", { name: "Remove" }).click()
+  await expect
+    .poll(() => api.patches().at(-1))
+    .toEqual({ skills: { paths: ["/home/me/skills"], urls: ["https://example.com/skills"] } })
 })

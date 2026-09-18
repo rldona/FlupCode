@@ -9,6 +9,7 @@ import { UsagePanel } from "./components/UsagePanel"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
 import { FilesPanel } from "./components/FilesPanel"
+import { addSource, removeSource, normalizeSources, EMPTY_SOURCES, type SkillSourceKind, type SkillSources } from "./skill-sources"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
 import type { TaskActivity, TaskTools, TouchedFiles } from "./types"
 import type {
@@ -834,6 +835,32 @@ export const App: Component = () => {
     (await createClient(serverUrl()).file.find({ query, limit: 40 })).data
   const readFileText = (path: string) =>
     createHarnessClient(harnessServerUrl()).files.read({ directory: vcsDirectory() ?? "", path })
+
+  // Extra skill sources (H-27). The engine reads its own folders; `skills.paths`/`skills.urls` add
+  // more, and writing them is a `PATCH /config`, so this is the engine's to own.
+  const [skillSources, setSkillSources] = createSignal<SkillSources>(EMPTY_SOURCES)
+  createEffect(() => {
+    if (!skillsScreenOpen() || !ready()) return
+    void createClient(serverUrl())
+      .config()
+      .then((config) => setSkillSources(normalizeSources((config as { skills?: unknown }).skills)))
+      .catch(() => undefined)
+  })
+  const writeSkillSources = (next: SkillSources) =>
+    createClient(serverUrl())
+      .updateConfig({ skills: { paths: next.paths, urls: next.urls } })
+      .then(() => toast(t("Skill sources saved"), "success"))
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  const addSkillSource = (kind: SkillSourceKind, value: string) => {
+    const next = addSource(skillSources(), kind, value)
+    setSkillSources(next)
+    void writeSkillSources(next)
+  }
+  const removeSkillSource = (kind: SkillSourceKind, value: string) => {
+    const next = removeSource(skillSources(), kind, value)
+    setSkillSources(next)
+    void writeSkillSources(next)
+  }
   const updateArtifact = (id: string, input: { pinned?: boolean; expiresAt?: number | null }) => {
     void createHarnessClient(harnessServerUrl())
       .artifacts
@@ -4875,6 +4902,9 @@ export const App: Component = () => {
         loading={skillFiles.loading}
         serverAvailable={routinesServerAvailable()}
         hasProject={!!vcsDirectory()}
+        sources={skillSources()}
+        onAddSource={addSkillSource}
+        onRemoveSource={removeSkillSource}
         onRead={readSkillFile}
         onSave={saveSkill}
         onDelete={deleteSkillFile}
