@@ -2,13 +2,18 @@ import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { touchDevice } from "../remote"
 import type { EngineProfile } from "../client"
+import type { LocalNetworkState } from "../local-network"
 import logo from "../assets/flupcode-logo.png"
 
 type OnboardingProps = {
   open: boolean
   serverHealthy: boolean | undefined
-  /** The engine is reachable but the browser blocked the response (CORS, mixed content). */
+  /** The engine is reachable but the browser blocked the response (CORS, mixed content, LNA). */
   serverBlocked: boolean
+  /** The browser's Local Network Access permission, when this page needs one (H-45). */
+  localNetwork: LocalNetworkState
+  allowingLocalNetwork: boolean
+  onAllowLocalNetwork: () => void
   /** Whether the engine is FlupCode's build or the stock OpenCode CLI. */
   engineProfile: EngineProfile | undefined
   serverInput: string
@@ -77,13 +82,29 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
 
       <Show when={props.serverBlocked}>
         <p class="fc-onboarding-text">
-          {t(
-            "The engine is running, but the browser refused the connection. Start it with the command below and connect again.",
-          )}{" "}
+          {props.localNetwork === "unsupported"
+            ? t(
+                "The engine is running, but the browser refused the connection. Start it with the command below and connect again.",
+              )
+            : props.localNetwork === "denied"
+              ? t(
+                  "The engine is running, but local network access is blocked for this site. Allow it in your browser's site settings, then connect again.",
+                )
+              : t("The engine is running. This web page needs your permission to reach it on this device.")}{" "}
           <a class="fc-link" href={GETTING_STARTED} target="_blank" rel="noreferrer">
             {t("Troubleshooting")}
           </a>
         </p>
+        <Show when={props.localNetwork === "prompt"}>
+          <button
+            class="fc-button fc-button-primary"
+            type="button"
+            disabled={props.allowingLocalNetwork}
+            onClick={props.onAllowLocalNetwork}
+          >
+            {props.allowingLocalNetwork ? t("Asking…") : t("Allow access")}
+          </button>
+        </Show>
       </Show>
 
       <Show when={props.serverHealthy !== true}>

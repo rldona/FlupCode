@@ -475,7 +475,18 @@ const ES: Record<string, string> = {
   "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.":
     "Este engine ({version}) no coincide con la versión para la que se generó esta build de FlupCode ({target}). Actualiza el engine o FlupCode.",
   "The engine is running, but the browser refused the connection. Start it with the command below and connect again.":
-    "El engine está en marcha, pero el navegador rechazó la conexión. Arrácalo con el comando de abajo y vuelve a conectar.",
+    "El engine está en marcha, pero el navegador rechazó la conexión. Arráncalo con el comando de abajo y vuelve a conectar.",
+  // Local Network Access (H-45)
+  "Allow access": "Permitir acceso",
+  "Asking…": "Preguntando…",
+  "This web page needs your permission to reach the engine on this device before it can connect.":
+    "Esta página web necesita tu permiso para llegar al engine de este dispositivo antes de poder conectar.",
+  "Local network access is blocked for this site. Allow it in your browser's site settings, then try again.":
+    "El acceso a la red local está bloqueado para este sitio. Permítelo en los ajustes del navegador para este sitio y vuelve a intentarlo.",
+  "The engine is running. This web page needs your permission to reach it on this device.":
+    "El engine está en marcha. Esta página web necesita tu permiso para llegar a él en este dispositivo.",
+  "The engine is running, but local network access is blocked for this site. Allow it in your browser's site settings, then connect again.":
+    "El engine está en marcha, pero el acceso a la red local está bloqueado para este sitio. Permítelo en los ajustes del navegador y vuelve a conectar.",
   "FlupCode needs the OpenCode engine. Install it once, then start it:":
     "FlupCode necesita el engine de OpenCode. Instálalo una vez y arráncalo:",
   "FlupCode is a client and does not ship the engine.": "FlupCode es un cliente y no incluye el engine.",

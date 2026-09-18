@@ -52,6 +52,16 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 The `--cors` origin is required because the page and the engine are different origins. The app
 connects to `http://localhost:4096` by default (change it in **Settings → Server**).
 
+**The first connection asks for local network access.** Chrome 141 and later treat a public page
+reaching a service on your machine as a *local network request*, gated behind a permission the user
+grants once per site. FlupCode asks for it from the button in the connection banner — the prompt only
+appears while a connection to a local device is being made and it has to succeed, so the engine has
+to be running first — and once granted the browser remembers it for `app.flupcode.com`. If it was
+denied, allow it again from the site settings beside the address; FlupCode says that instead of
+pretending the engine is down. The permission is only asked for, and calls are only annotated with
+their address space, when the engine is on loopback or the local network — the desktop app and a
+local dev server are not gated and never see the prompt.
+
 The site deploys from Vercel on pushes to `power` only (no preview deployments for other branches),
 and each Vercel project skips its build when the push did not touch it: `packages/landing` for the
 landing, and `packages/harness` or the packages it builds from for the app (`ignoreCommand` in each
@@ -749,6 +759,10 @@ server.
   allows notifications for the browser or the installed app, and that the computer is awake with
   remote control on. On iPhone they only work from the Home Screen app. A custom relay needs VAPID
   keys (see `packages/relay/README.md`).
+- **"This web page needs your permission to reach the engine on this device"** — allow local network
+  access from the banner; if it was denied before, the site settings beside the address (Chrome: the
+  icon left of the URL → Permissions) bring it back. The engine has to be running for the prompt to
+  appear.
 - **"Notifications are blocked for this site"** — allow notifications for `app.flupcode.com` in the
   browser's site settings (Chrome: ⋮ → Settings → Site settings → Notifications).
 - **The installed phone app still shows an old icon** — uninstall it and install it again; browsers
