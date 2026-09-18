@@ -256,6 +256,12 @@ const ES: Record<string, string> = {
   "Everywhere (~/.local/share/flupcode/workflows)": "En todas partes (~/.local/share/flupcode/workflows)",
   "Workflow source": "Fuente del flujo",
   "Saved. It is what this project will run next time.": "Guardado. Es lo que este proyecto ejecutará la próxima vez.",
+  "Run {name}": "Ejecutar {name}",
+  "Context packs": "Paquetes de contexto",
+  "A worktree per writing task": "Un worktree por tarea que escribe",
+  "Fallback model": "Modelo de reserva",
+  "Budget (tokens)": "Presupuesto (tokens)",
+  "Budget (cost)": "Presupuesto (coste)",
   "That session is no longer in the engine": "Esa sesión ya no está en el motor",
   "Connect them": "Conectarlos",
   "{count} providers have a key in the engine's configuration that sessions cannot use yet":

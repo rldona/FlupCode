@@ -117,3 +117,76 @@ test("deleting asks first and then removes the file", async ({ page }) => {
   await page.locator(".fc-confirm-inline").getByRole("button", { name: /^Delete$|^Borrar$/ }).click()
   await expect.poll(() => removed).toBe(1)
 })
+
+// H-28: a workflow with more than one input had nowhere to put the rest, and a run's packs,
+// worktrees and policy were API-only. The launcher is where those selectors live.
+test("a two-input workflow is launched from a dialog that carries packs, worktrees and a policy", async ({ page }) => {
+  const deploy = {
+    name: "deploy",
+    description: "Ship it",
+    inputs: ["env", "goal"],
+    tasks: [{ id: "ship", kind: "agent", agent: "build" }],
+  }
+  let started: { name?: string; body?: unknown } = {}
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health")
+      return route.fulfill({ json: { data: { healthy: true, capabilities: ["packs"] } } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [deploy] } })
+    if (url.pathname === "/harness/packs")
+      return route.fulfill({ json: { data: [{ id: "p1", name: "notes", refs: [], createdAt: 0 }] } })
+    if (url.pathname === "/harness/workflows/deploy/runs" && route.request().method() === "POST") {
+      started = { name: "deploy", body: route.request().postDataJSON() }
+      return route.fulfill({ json: { data: { id: "run_d", source: { type: "manual" }, status: "running", startedAt: 0 } } })
+    }
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ json: { data: [] } })
+  })
+  await page.goto("/")
+
+  const input = page.locator(".fc-composer textarea.fc-input")
+  await input.fill("/deploy staging")
+  await input.press("Enter")
+
+  const dialog = page.locator(".fc-launch-modal")
+  await expect(dialog).toBeVisible()
+  // What was typed after the name filled the first input; the second starts empty, and the dialog
+  // will not launch until it is answered.
+  await expect(dialog.getByPlaceholder("env")).toHaveValue("staging")
+  const run = dialog.getByRole("button", { name: /^Run$|^Ejecutar$/ })
+  await expect(run).toBeDisabled()
+
+  await dialog.getByPlaceholder("goal").fill("ship the cache fix")
+  await dialog.getByLabel(/worktree/i).check()
+  await dialog.getByLabel("notes").check()
+  await dialog.getByPlaceholder("provider/model").fill("a/backup")
+  await expect(run).toBeEnabled()
+  await run.click()
+
+  await expect.poll(() => started.name).toBe("deploy")
+  expect(started.body).toMatchObject({
+    inputs: { env: "staging", goal: "ship the cache fix" },
+    packs: ["notes"],
+    worktrees: true,
+    policy: { fallback: "a/backup" },
+  })
+  await expect(page).toHaveURL(/\/runs$/)
+})

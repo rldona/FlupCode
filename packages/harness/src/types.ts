@@ -36,6 +36,13 @@ export type Artifact = {
 }
 
 /** A process written down, as the app reads it. Mirrors `harness-server`'s own type (H-21). */
+/** How a run spends (H-30), as the launcher and the editor hand it over. */
+export type RunPolicy = {
+  models?: Record<string, string>
+  fallback?: string
+  budget?: { tokens?: number; cost?: number }
+}
+
 export type Workflow = {
   name: string
   description: string
@@ -169,11 +176,7 @@ export type Run = {
   /** Each writing task ran in its own worktree (H-29). */
   worktrees?: boolean
   /** How this run spends (H-30): a model per role, a fallback, and a budget. */
-  policy?: {
-    models?: Record<string, string>
-    fallback?: string
-    budget?: { tokens?: number; cost?: number }
-  }
+  policy?: RunPolicy
   /** Why it is waiting: a person at a gate, or a budget it reached. */
   paused?: "gate" | "budget"
   /** Somebody let it past the budget. */
