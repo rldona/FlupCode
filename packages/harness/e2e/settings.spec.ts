@@ -239,3 +239,21 @@ test("an MCP server shows its failure, its resources and the agents that allow i
   // A server no agent allows says so instead of looking open.
   await expect(dialog.locator(".fc-mcp-access-none")).toHaveCount(1)
 })
+
+test("a conversation toggle survives a reload", async ({ page }) => {
+  await openApp(page)
+  let dialog = await openSettings(page)
+  await dialog.getByRole("tab", { name: "Conversation" }).click()
+
+  const tools = dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("button")
+  await expect(tools).toHaveText(/^Yes$|^Sí$/)
+  await tools.click()
+  await expect(tools).toHaveText(/^No$/)
+
+  await page.reload()
+  dialog = await openSettings(page)
+  await dialog.getByRole("tab", { name: "Conversation" }).click()
+  await expect(dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("button")).toHaveText(
+    /^No$/,
+  )
+})

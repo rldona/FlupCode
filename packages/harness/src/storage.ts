@@ -58,6 +58,7 @@ export const STORAGE_KEYS = {
   permissionMode: "flupcode.permissionMode",
   delivery: "flupcode.delivery",
   showReasoning: "flupcode.showReasoning",
+  showTools: "flupcode.showTools",
   selectedSession: "flupcode.selectedSession",
   selectedModel: "flupcode.selectedModel",
   confirmModelSwitch: "flupcode.confirmModelSwitch",
