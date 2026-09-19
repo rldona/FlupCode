@@ -320,6 +320,26 @@ export class RoutineScheduler {
     return this.repository.getTask(task.id)
   }
 
+  /**
+   * Pick up a run that ended with work still queued (HF-5).
+   *
+   * A restart, a stop, or a failure can leave tasks behind that never ran. Anything already
+   * settled stays as it is — history is not rewritten — and the drive continues from the first
+   * task the graph allows. A requeued task may repeat side effects its lost attempt already made,
+   * which is why the requeue reason stays on the row.
+   */
+  resume(runID: string) {
+    const run = this.repository.getRun(runID)
+    if (!run) return undefined
+    if (run.status === "running" || run.status === "awaiting")
+      throw new Error("The run is still active; stop it before resuming")
+    const tasks = this.repository.listTasks(run.id)
+    if (!tasks.some((task) => task.status === "queued")) throw new Error("Nothing left to resume: every task settled")
+    this.repository.reopenRun(run.id)
+    void this.drive(run.id, run.directory)
+    return this.repository.getRun(run.id)
+  }
+
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(runID, status, error)
     this.writeReport(runID, status, error)
