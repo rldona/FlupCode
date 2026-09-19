@@ -57,9 +57,16 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
       ([open, workflow, args]) => {
         if (!open || !workflow) return
         const [first] = workflow.inputs
-        // Only the first input can come from the composer's one line; the rest start empty on purpose,
-        // because a launch with a half-filled workflow is the bug this dialog fixes.
-        setInputs(Object.fromEntries(workflow.inputs.map((name) => [name, name === first ? (args ?? "") : ""])))
+        // Only the first input can come from the composer's one line; the rest start from the
+        // file's defaults, because a launch with the rest empty is the bug this dialog fixes.
+        setInputs(
+          Object.fromEntries(
+            workflow.inputs.map((name) => [
+              name,
+              name === first ? (args ?? workflow.inputDefaults?.[name] ?? "") : (workflow.inputDefaults?.[name] ?? ""),
+            ]),
+          ),
+        )
         setPacks([])
         setWorktrees(false)
         setUntil("")
@@ -112,7 +119,8 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
                 <input
                   class="fc-question-custom"
                   value={inputs()[name] ?? ""}
-                  placeholder={name}
+                  placeholder={props.workflow?.inputHelp?.[name] ?? props.workflow?.inputDefaults?.[name] ?? name}
+                  title={props.workflow?.inputHelp?.[name]}
                   onInput={(event) => setInputs((current) => ({ ...current, [name]: event.currentTarget.value }))}
                 />
               </label>

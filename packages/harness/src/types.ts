@@ -48,6 +48,10 @@ export type Workflow = {
   description: string
   /** The names it asks for. The launcher fills the first one with whatever was typed after it. */
   inputs: string[]
+  /** Defaults so the launcher starts filled in (HF-2). */
+  inputDefaults?: Record<string, string>
+  /** One-line help per input (HF-2). */
+  inputHelp?: Record<string, string>
   tasks: Array<{
     id: string
     kind?: TaskKind

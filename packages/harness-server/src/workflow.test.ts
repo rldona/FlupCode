@@ -6,6 +6,7 @@ import {
   TEMPLATES,
   UnknownTaskError,
   duration,
+  explainWorkflow,
   fill,
   findWorkflow,
   listWorkflows,
@@ -295,6 +296,42 @@ describe("editing a workflow file (H-28)", () => {
     expect(await removeWorkflow("x", project)).toBe(true)
     expect(await readWorkflow("x", project)).toBeUndefined()
     expect(await removeWorkflow("x", project)).toBe(false)
+  })
+
+  test("HF-2: explains why a file is not a workflow", () => {
+    expect(explainWorkflow("tasks: [", "x").ok).toBe(false)
+    expect(explainWorkflow("name: empty\ntasks: []\n", "x")).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("at least one task"),
+    })
+    expect(explainWorkflow("name: x\ntasks:\n  - id: a\n    prompt: one\n  - id: a\n    prompt: two\n", "x")).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("share an id"),
+    })
+    expect(
+      explainWorkflow("name: x\ntasks:\n  - id: a\n    dependsOn: [ghost]\n    prompt: a\n", "x"),
+    ).toMatchObject({ ok: false, problem: expect.stringContaining("ghost") })
+    expect(explainWorkflow("name: x\ntasks:\n  - id: a\n    prompt: a\n", "x").ok).toBe(true)
+  })
+
+  test("HF-2: inputs carry defaults that fill prompts", () => {
+    const workflow = parseWorkflow(
+      `name: review
+inputs:
+  - name: scope
+    default: "all changes"
+    description: What to review
+tasks:
+  - id: review
+    prompt: "Review {{scope}}"
+`,
+      "x",
+    )!
+    expect(workflow.inputs).toEqual(["scope"])
+    expect(workflow.inputDefaults).toEqual({ scope: "all changes" })
+    expect(workflow.inputHelp).toEqual({ scope: "What to review" })
+    expect(tasksFor(workflow, {})[0]!.prompt).toBe("Review all changes")
+    expect(tasksFor(workflow, { scope: "HEAD" })[0]!.prompt).toBe("Review HEAD")
   })
 })
 
