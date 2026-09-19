@@ -120,9 +120,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     })
   })
 
+  const isPinned = (session: SessionInfo) => props.pinnedSessions.includes(session.id)
+  // A pinned session is listed under Pinned and nowhere else; leaving it in the chats list and the
+  // project groups would render the same row twice.
+  const pinned = createMemo(() => visibleSessions().filter(isPinned))
+  const unpinned = createMemo(() => visibleSessions().filter((session) => !isPinned(session)))
+
   const groups = createMemo(() => {
     const map = new Map<string, ProjectGroup>()
-    for (const session of visibleSessions()) {
+    for (const session of unpinned()) {
       const directory = props.noFolderSessions.includes(session.id) ? undefined : session.location?.directory
       const key = directory ?? "__none__"
       let group = map.get(key)
@@ -143,8 +149,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       return a.name.localeCompare(b.name)
     })
   })
-
-  const pinned = createMemo(() => visibleSessions().filter((session) => props.pinnedSessions.includes(session.id)))
 
   const isExpanded = (group: ProjectGroup) => {
     const state = props.expandedProjects[group.id]
@@ -471,17 +475,17 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             </section>
           </Show>
 
-          <Show when={props.view === "chat"}>
+          <Show when={props.view === "chat" && (unpinned().length > 0 || pinned().length === 0)}>
             <section class="fc-sidebar-section">
             <div class="fc-section-header">
               <span class="fc-section-label">{t("Chats")}</span>
             </div>
             <Show
-              when={!props.sessionsLoading || visibleSessions().length > 0}
+              when={!props.sessionsLoading || unpinned().length > 0}
               fallback={<Loader class="fc-loader-inline" label={t("Loading chats")} />}
             >
               <Show
-                when={visibleSessions().length > 0}
+                when={unpinned().length > 0}
                 fallback={
                   <div class="fc-empty-state">
                     <span class="fc-empty-title">{t("No chats yet")}</span>
@@ -489,7 +493,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   </div>
                 }
               >
-                <For each={visibleSessions()}>{(session) => <SessionRow session={session} />}</For>
+                <For each={unpinned()}>{(session) => <SessionRow session={session} />}</For>
               </Show>
             </Show>
             </section>
@@ -525,10 +529,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               <Show
                 when={groups().length > 0}
                 fallback={
-                  <div class="fc-empty-state">
-                    <span class="fc-empty-title">{t("No sessions")}</span>
-                    <span class="fc-empty-hint">{t("Create one with New")}</span>
-                  </div>
+                  <Show when={pinned().length === 0}>
+                    <div class="fc-empty-state">
+                      <span class="fc-empty-title">{t("No sessions")}</span>
+                      <span class="fc-empty-hint">{t("Create one with New")}</span>
+                    </div>
+                  </Show>
                 }
               >
                 <For each={groups()}>

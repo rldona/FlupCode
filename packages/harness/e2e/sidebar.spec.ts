@@ -303,6 +303,13 @@ test("a session is pinned and tagged on the server, and a tag filters the list",
   await expect.poll(() => calls.at(-1)?.body).toEqual({ pinned: true })
   await expect(page.locator(".fc-sidebar-section", { hasText: /Pinned|Fijado/ })).toContainText("Fix the parser")
 
+  // A pinned session moves out of Chats; the same row must not be listed twice.
+  await expect(page.locator(".fc-session-row", { hasText: "Fix the parser" })).toHaveCount(1)
+  const chatsSection = page
+    .locator(".fc-sidebar-section")
+    .filter({ has: page.locator(".fc-section-label", { hasText: /^Chats$/ }) })
+  await expect(chatsSection.locator(".fc-session-row", { hasText: "Fix the parser" })).toHaveCount(0)
+
   // Tagging asks the server too, and the tag becomes a filter chip.
   await row.locator(".fc-session-action").click()
   await page.locator(".fc-menu-item", { hasText: "Edit tags" }).click()
