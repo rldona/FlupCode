@@ -68,7 +68,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
           ),
         )
         setPacks([])
-        setWorktrees(false)
+        setWorktrees(workflow.worktrees ?? false)
         setUntil("")
         setFallback("")
         setBudgetTokens("")

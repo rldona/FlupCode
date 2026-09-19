@@ -68,6 +68,8 @@ export type Workflow = {
     /** One task per step of the named task's plan; `{{item}}` is the step (H-28). */
     foreach?: string
   }>
+  /** `worktrees: true` in the file — each writing task gets its own tree (HF-3). */
+  worktrees?: boolean
 }
 
 /**

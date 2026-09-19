@@ -223,13 +223,13 @@ export class RoutineScheduler {
     return this.runTasks({
       tasks: tasksFor(workflow, input.inputs ?? {}, until),
       directory,
-      // A workflow is a file, so its ceiling, its bypass and its shell are written in the file too
-      // (H-47).
+      // A workflow is a file, so its ceiling, its bypass, its trees and its shell are written
+      // in the file too (H-47, H-29); the launcher can still ask for worktrees on top.
       ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),
       ...(workflow.outside ? { outside: true } : {}),
       ...(workflow.shell === false ? { shell: false } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
-      ...(input.worktrees ? { worktrees: true } : {}),
+      ...(input.worktrees || workflow.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
     })
   }
