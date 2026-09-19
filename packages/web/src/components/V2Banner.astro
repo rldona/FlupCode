@@ -6,11 +6,11 @@
 
 <style>
   .v2-banner {
-    --banner-bg: hsl(62, 84%, 88%);
-    --banner-bg-hover: hsl(62, 84%, 84%);
-    --banner-text: hsl(0, 5%, 12%);
-    --banner-badge-bg: hsl(0, 5%, 12%);
-    --banner-badge-text: hsl(0, 20%, 99%);
+    --banner-bg: var(--color-background-weak);
+    --banner-bg-hover: hsl(0, 8%, 94%);
+    --banner-text: var(--color-text-strong);
+    --banner-badge-bg: var(--color-background-strong);
+    --banner-badge-text: var(--color-text-inverted);
 
     position: fixed;
     top: var(--sl-nav-height);
@@ -33,11 +33,7 @@
 
   @media (prefers-color-scheme: dark) {
     .v2-banner {
-      --banner-bg: hsl(60, 24%, 11%);
-      --banner-bg-hover: hsl(60, 24%, 14%);
-      --banner-text: hsl(62, 100%, 90%);
-      --banner-badge-bg: hsl(62, 100%, 90%);
-      --banner-badge-text: hsl(0, 9%, 7%);
+      --banner-bg-hover: hsl(0, 6%, 14%);
     }
   }
 
