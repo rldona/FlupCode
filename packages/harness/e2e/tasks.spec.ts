@@ -165,3 +165,74 @@ test("clear all takes the tasks the engine never finished", async ({ page }) => 
 
   await expect(items).toHaveCount(0)
 })
+
+/**
+ * The resources behind the panel hold the last session's value while the open one loads. Read as the
+ * open session's, they offered the panel for work that belonged to the session left behind, which is
+ * the flash of it a reader saw right after switching.
+ */
+test("switching to an idle session never flashes the panel the last one opened", async ({ page }) => {
+  const other = { ...session, id: "ses_other", title: "Other" }
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_tasks"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ json: { data: [] } })
+  })
+  const slow = () => new Promise((resolve) => setTimeout(resolve, 500))
+  await page.route("http://127.0.0.1:9/**", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session, other], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/session/ses_tasks/message")
+      return route.fulfill({ json: { data: [message(false)], cursor: {} } })
+    if (url.pathname === "/session/ses_tasks/children" || url.pathname === "/api/session/ses_tasks/children")
+      return route.fulfill({ json: [] })
+    if (url.pathname === "/session/ses_tasks/todo" || url.pathname === "/api/session/ses_tasks/todo")
+      return route.fulfill({ json: TODOS })
+    // The session being opened answers late, so a panel driven by the one left behind has time to
+    // show itself before its own empty context lands.
+    if (url.pathname === "/api/session/ses_other/message") {
+      await slow()
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    }
+    if (url.pathname === "/session/ses_other/children" || url.pathname === "/api/session/ses_other/children") {
+      await slow()
+      return route.fulfill({ json: [] })
+    }
+    if (url.pathname === "/session/ses_other/todo" || url.pathname === "/api/session/ses_other/todo") {
+      await slow()
+      return route.fulfill({ json: [] })
+    }
+    if (url.pathname === "/permission") return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await expect(page.locator(".fc-rightaside")).toBeVisible()
+
+  // Clearing the tasks leaves the panel closed on this session.
+  await page.getByRole("button", { name: /^Clear all$|^Borrar todo$/ }).click()
+  await expect(page.locator(".fc-rightaside")).toHaveCount(0)
+
+  // Watch for the panel reappearing while the next session loads its own, empty context.
+  await page.evaluate(() => {
+    ;(window as unknown as { flashed: boolean }).flashed = false
+    new MutationObserver(() => {
+      if (document.querySelector(".fc-rightaside")) (window as unknown as { flashed: boolean }).flashed = true
+    }).observe(document.body, { childList: true, subtree: true })
+  })
+  await page.locator(".fc-session-row", { hasText: "Other" }).click()
+  await page.waitForTimeout(1000)
+  expect(await page.evaluate(() => (window as unknown as { flashed: boolean }).flashed)).toBe(false)
+})
