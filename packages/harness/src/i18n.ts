@@ -867,6 +867,7 @@ const ES: Record<string, string> = {
   "This relay does not deliver notifications": "Este relay no envía notificaciones",
   Devices: "Dispositivos",
   "Add device": "Añadir dispositivo",
+  "Remove device": "Quitar dispositivo",
   "Tap to connect": "Toca para conectar",
   "Filter sessions": "Filtrar sesiones",
   "Active sessions": "Activas",

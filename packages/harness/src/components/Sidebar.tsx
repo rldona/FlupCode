@@ -28,6 +28,8 @@ type SidebarProps = {
   /** Chat lists conversations flat; Code groups sessions by project. */
   view: AppView
   onViewChange: (view: AppView) => void
+  /** Which tabs have sessions working right now, for the dot on their icons. */
+  viewActivity: { chat: boolean; code: boolean }
   /**
    * The name and the view tabs. The desktop app has neither here: its window strip runs the width of
    * the window and carries the tabs, and the name is the window's own.
@@ -340,7 +342,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           <Show when={props.showBrand}>
             <div class="fc-sidebar-brand">
               <span class="fc-sidebar-brand-name">FlupCode</span>
-              <ViewTabs view={props.view} onChange={props.onViewChange} />
+              <ViewTabs view={props.view} onChange={props.onViewChange} activity={props.viewActivity} />
             </div>
           </Show>
           <div class="fc-sidebar-new">

@@ -367,17 +367,22 @@ export const App: Component = () => {
   }
   // A v2 run is many steps, and the next one only starts once the model streams again, so a step's end
   // says nothing about the run; nor does anything arrive when a run is stopped between steps. While a
-  // run goes on, ask the engine whether it still lists the session as active.
+  // run goes on, ask the engine whether it still lists the session as active. A legacy turn — every
+  // Code and Chat turn — never appears there, only in its folder's status map, so both are asked: a
+  // lost `session.idle` otherwise leaves the status line spinning over a turn that already ended.
   const watchRun = (sessionID: string, delay: number) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.set(
       sessionID,
       setTimeout(async () => {
-        const active = await createClient(serverUrl())
-          .session.active()
-          .catch(() => undefined)
+        const engine = createClient(serverUrl())
+        const directory = sessionDirectory(sessionID)
+        const [active, status] = await Promise.all([
+          engine.session.active().catch(() => undefined),
+          directory ? engine.session.status({ directory }).catch(() => undefined) : undefined,
+        ])
         if (!idleTimers.has(sessionID)) return
-        if (!active?.has(sessionID)) return setRunning(sessionID, false)
+        if (!active?.has(sessionID) && !status?.has(sessionID)) return setRunning(sessionID, false)
         setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
         watchRun(sessionID, 2000)
       }, delay),
@@ -396,7 +401,11 @@ export const App: Component = () => {
     if (type === "session.next.step.ended" || type === "session.next.step.failed") return watchRun(sessionID, 700)
     // Legacy runs (chats) report their own status, which already spans every step.
     const status = data?.status?.type
-    if (status === "busy" || status === "retry") setRunning(sessionID, true)
+    if (status === "busy" || status === "retry") {
+      setRunning(sessionID, true)
+      // The turn's end arrives as `session.idle` on a stream; when that is lost, this poll notices.
+      if (sessionDirectory(sessionID)) watchRun(sessionID, 2000)
+    }
     // The engine only says why it is waiting while it retries, so the notice is kept until the turn
     // moves on; otherwise the status line falls back to "Thinking…" between attempts.
     setRetryState((state) => {
@@ -711,6 +720,13 @@ export const App: Component = () => {
       .catch(() => [] as SessionInfo[])
   // Reply suggestions run in throwaway child sessions that are never shown.
   const sessionList = () => sessions()?.data?.filter((session) => !isSuggestionSession(session))
+  // The sessions working right now, listed under the home card. Top-level only: a child's work is
+  // its parent's, and the parent is what a click should open.
+  const activeSessions = createMemo(() =>
+    (sessionList() ?? [])
+      .filter((session) => !session.parentID && !session.time.archived && runState()[session.id] === true)
+      .sort((a, b) => b.time.updated - a.time.updated),
+  )
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
   // The walk back from this session to its root, oldest first, for the breadcrumb (H-18). A parent
   // not on the loaded page stops the walk rather than inventing a step.
@@ -761,6 +777,11 @@ export const App: Component = () => {
     session ? sessionChatClass(session, chatsDirectory()) : undefined
   const isPlainChat = (session: ClassifiedSession | undefined) => chatClass(session) === "chat"
   const isChatLike = (session: ClassifiedSession | undefined) => chatClass(session) !== undefined
+  // Which tab's icon earns a dot: any session working under that kind. Chat covers chats and Cowork.
+  const viewActivity = createMemo(() => ({
+    chat: activeSessions().some((session) => isChatLike(session)),
+    code: activeSessions().some((session) => !isChatLike(session)),
+  }))
   const selectedChatClass = () => chatClass(selectedSession())
   // The Chat/Cowork choice for the next new conversation, remembered like the tab itself. A
   // selected session answers with its own class; with none, the remembered choice does.
@@ -2207,6 +2228,41 @@ export const App: Component = () => {
       if (refetchTimer) clearTimeout(refetchTimer)
     })
 
+    /**
+     * Which sessions are working, asked of the engine itself.
+     *
+     * Events only report what happens while a stream is open, so a run that started before this
+     * window connected — one followed from the desktop, say — has no event to announce it.
+     * `/api/session/active` only knows about v2 runs, and a legacy turn — which is now every Code
+     * and Chat turn — shows up in its folder's status map instead. The folder of a session nobody
+     * is streaming is still asked: the home lists what is working before anything is opened.
+     */
+    const resyncRuns = async (engine: ReturnType<typeof createClient>, directories: string[]) => {
+      const sessions = untrack(sessionList)
+      const [v2, legacy] = await Promise.all([
+        engine.session.active().catch(() => new Set<string>()),
+        Promise.all(
+          directories.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
+        ),
+      ])
+      const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
+      const known = new Set([
+        ...v2,
+        ...(sessions ?? [])
+          .filter((session) => directories.includes(session.location?.directory ?? ""))
+          .map((session) => session.id),
+      ])
+      Object.entries(runState())
+        .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
+        .forEach(([id]) => setRunning(id, false))
+      running.forEach((id) => {
+        setRunning(id, true)
+        // A legacy run in a folder this window cannot name is left to its idle event: without the
+        // folder there is no status map to ask, and clearing it on the v2 set alone would be a lie.
+        if (v2.has(id) || sessionDirectory(id)) watchRun(id, 2000)
+      })
+    }
+
     createEffect(() => {
       if (!ready()) return
       const url = serverUrl()
@@ -2219,37 +2275,9 @@ export const App: Component = () => {
             // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
             // every reconnection resyncs the state the events would have carried. Missing the blocked
             // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
-            void (async () => {
-              // Both runtimes have to be asked: `/api/session/active` only knows about v2 runs, and a
-              // legacy turn — which is now every Code and Chat turn — shows up in its folder's status
-              // map instead. A session in a folder nobody is watching has no source here, so it keeps
-              // whatever it had rather than being called idle on no evidence.
-              const engine = createClient(url)
-              // Untracked: this effect owns the global stream, and re-running it on every change of
-              // the open session would drop and reopen that stream for no reason.
-              const folders = untrack(watchedDirectories)
-              const sessions = untrack(sessionList)
-              const [v2, legacy] = await Promise.all([
-                engine.session.active().catch(() => new Set<string>()),
-                Promise.all(
-                  folders.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
-                ),
-              ])
-              const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
-              const known = new Set([
-                ...v2,
-                ...(sessions ?? [])
-                  .filter((session) => folders.includes(session.location?.directory ?? ""))
-                  .map((session) => session.id),
-              ])
-              Object.entries(runState())
-                .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
-                .forEach(([id]) => setRunning(id, false))
-              running.forEach((id) => {
-                setRunning(id, true)
-                if (v2.has(id)) watchRun(id, 2000)
-              })
-            })().catch(() => undefined)
+            // Untracked: this effect owns the global stream, and re-running it on every change of
+            // the session list or the open session would drop and reopen that stream for no reason.
+            void untrack(() => resyncRuns(createClient(url), runDirectories())).catch(() => undefined)
             void refetchPermissions()
             void refetchQuestions()
             void refetchBlocked()
@@ -2374,6 +2402,25 @@ export const App: Component = () => {
       )
       return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
     }
+
+    /** Every folder a loaded session lives in, plus the folders followed live. */
+    const runDirectories = () => [
+      ...new Set([
+        ...watchedDirectories(),
+        ...(sessionList() ?? []).flatMap((session) => session.location?.directory ?? []),
+      ]),
+    ]
+    // A string so a refetched-but-equal list does not re-seed the run state on every turn's refetch.
+    const listedDirectories = createMemo(() =>
+      [...new Set((sessionList() ?? []).flatMap((session) => session.location?.directory ?? []))].sort().join("\n"),
+    )
+    // The list arrives after the global stream connects, and a legacy run started in another window
+    // has no event here; re-seed once the folders the list knows about are in.
+    createEffect(() => {
+      const directories = listedDirectories()
+      if (!directories || !ready()) return
+      void resyncRuns(createClient(serverUrl()), directories.split("\n")).catch(() => undefined)
+    })
 
     /**
      * One legacy message event as a change to a transcript. The part types are remembered because a
@@ -2841,21 +2888,6 @@ export const App: Component = () => {
     const filteredSessions = createMemo(() => filterByRange(countedSessions(), range()))
     const metrics = createMemo(() => computeMetrics(filteredSessions()))
     const activity = createMemo(() => activityByDay(countedSessions(), 365))
-    // What the runs cost (H-16), on the home screen. The harness knows the why — which run, task,
-    // agent and model — and can price it, which is what the old session-counted dashboard could not.
-    // The transcript download it used to do to count messages is gone with it.
-    const homeUsageKey = () => {
-      // Only while the home is what is actually on screen: a full-screen panel covers it, and the
-      // home's request would show up in that panel's own.
-      if (screen() !== undefined || selected() || chatView() || mobileRemote()) return undefined
-      if (!routinesServerAvailable()) return undefined
-      const days = range() === "all" ? 0 : range() === "7d" ? 7 : 30
-      return `${harnessServerUrl()}\n${days}`
-    }
-    const [homeUsage] = createResource(homeUsageKey, (key) => {
-      const [url = "", days = "0"] = key.split("\n")
-      return createHarnessClient(url).usage({ days: Number(days) || undefined })
-    })
 
     const artifacts = () => {
       const files = new Set<string>()
@@ -4743,6 +4775,7 @@ export const App: Component = () => {
               onToggleSidebar={toggleSidebar}
               view={view()}
               onViewChange={changeView}
+              viewActivity={viewActivity()}
               codeChrome={codeChrome()}
               sidebarCollapsed={collapsed()}
               contextPanel={
@@ -4820,6 +4853,7 @@ export const App: Component = () => {
             displayName={displayName()}
             view={view()}
             onViewChange={changeView}
+            viewActivity={viewActivity()}
             sessions={viewSessions()}
             sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
             selectedSession={selected()}
@@ -4993,6 +5027,7 @@ export const App: Component = () => {
                   <RemoteHome
                     view={view()}
                     onViewChange={changeView}
+                    viewActivity={viewActivity()}
                     sessions={remoteSessions()}
                     loading={sessions.loading}
                     projects={projects()}
@@ -5011,10 +5046,8 @@ export const App: Component = () => {
                   range={range()}
                   metrics={metrics()}
                   activity={activity()}
-                  usage={homeUsage()}
-                  usageLoading={homeUsage.loading}
-                  serverAvailable={routinesServerAvailable()}
-                  active={screen() === undefined}
+                  activeSessions={activeSessions()}
+                  onOpenSession={selectSession}
                   error={error()}
                   onRangeChange={setRange}
                 />

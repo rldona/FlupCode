@@ -698,6 +698,45 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+/* The sessions working right now, under the home card. No heading: the rows are the whole list. */
+.fc-active-sessions {
+  width: min(680px, 100%);
+  margin: var(--fc-space-4) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-active-session {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  padding: 8px 12px;
+  border: 0;
+  border-radius: var(--fc-radius-md);
+  background: transparent;
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-active-session:hover {
+  background: color-mix(in srgb, var(--fc-border) 35%, transparent);
+}
+
+.fc-active-session .fc-session-dot {
+  flex-shrink: 0;
+}
+
+.fc-active-session .fc-session-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .fc-stat-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
@@ -5439,6 +5478,41 @@ button.fc-status {
   min-width: 0;
 }
 
+/* The device row's own tap target, beside the remove button rather than wrapping it. */
+.fc-remote-device-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-3);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+
+.fc-remote-device-forget {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 20px;
+  line-height: 1;
+}
+
+.fc-remote-device-forget:active {
+  background: color-mix(in srgb, var(--fc-border) 50%, transparent);
+  color: var(--fc-text);
+}
+
 .fc-remote-card-title {
   font-size: var(--fc-text-lg);
   font-weight: 500;
@@ -5530,6 +5604,14 @@ button.fc-status {
   font-size: var(--fc-text-md);
 }
 
+/* On a section heading's line it shrinks to the heading's height instead of the touch size. */
+.fc-remote-home-row .fc-remote-pill {
+  align-self: center;
+  height: var(--fc-control-md);
+  padding: 0 var(--fc-space-3);
+  font-size: var(--fc-text-sm);
+}
+
 .fc-remote-empty {
   margin: 0 var(--fc-space-2);
   color: var(--fc-text-muted);
@@ -5585,10 +5667,18 @@ button.fc-status {
   border-bottom: 1px solid var(--fc-border);
 }
 
+/* The session's back arrow: its own tap target, centered in height and hugging the header edge. */
 .fc-mobile-back {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
   width: var(--fc-control-lg);
   height: var(--fc-control-lg);
-  font-size: 20px;
+  margin-inline-start: calc(var(--fc-space-3) * -1);
+  padding: 0;
+  padding-inline-start: var(--fc-space-2);
+  font-size: 28px;
+  line-height: 1;
 }
 
 .fc-mobile-heading {
@@ -7213,6 +7303,7 @@ button.fc-status {
 }
 
 .fc-view-tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -7226,6 +7317,17 @@ button.fc-status {
   transition:
     background var(--fc-motion-fast),
     color var(--fc-motion-fast);
+}
+
+/* A session working under this tab, on the icon's top corner. Nothing working, no dot. */
+.fc-view-tab-dot {
+  position: absolute;
+  top: 1px;
+  inset-inline-end: 4px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--fc-accent);
 }
 
 .fc-view-tab:hover {
@@ -9724,16 +9826,6 @@ button.fc-status {
   margin: 0 0 var(--fc-space-2);
   font-size: var(--fc-text-sm);
   font-weight: 600;
-}
-
-/* What the runs cost, on the home screen (H-16): its own block above the session card. */
-.fc-home-usage {
-  max-width: 1120px;
-  padding: var(--fc-space-3);
-  border: 1px solid var(--fc-border);
-  border-radius: var(--fc-radius-md);
-  margin: 0 auto var(--fc-space-4);
-  background: var(--fc-bg-elevated);
 }
 
 .fc-usage-note {
