@@ -8,13 +8,13 @@
 //
 // The light "plate" shapes (rounded app icons, apple-touch, maskable, og) are
 // reused from the current committed files so their geometry stays identical;
-// the script only recolours the plate to #F5F5F5 and drops the new logo on top.
+// the script only recolours the plate to #FFEDD5 and drops the new logo on top.
 // Requires macOS (AppKit). No external tooling.
 
 import AppKit
 
 let DEVICE_RGB = CGColorSpaceCreateDeviceRGB()
-let PLATE = CGColor(colorSpace: DEVICE_RGB, components: [245.0 / 255, 245.0 / 255, 245.0 / 255, 1])!
+let PLATE = CGColor(colorSpace: DEVICE_RGB, components: [255.0 / 255, 237.0 / 255, 213.0 / 255, 1])!
 
 enum Basis {
     case width
@@ -38,17 +38,17 @@ struct Target {
 }
 
 let targets: [Target] = [
-    Target(path: "packages/harness-desktop/build/icon.png", width: 1024, height: 1024, plate: true, fraction: 0.700, basis: .width),
-    Target(path: "packages/harness-desktop/build/icon-mac.png", width: 1024, height: 1024, plate: true, fraction: 0.650, basis: .width, scale: 0.805, frame: "packages/harness-desktop/build/icon.png"),
-    Target(path: "packages/harness/public/apple-touch-icon.png", width: 180, height: 180, plate: true, fraction: 0.722, basis: .width),
-    Target(path: "packages/harness/public/icon-192.png", width: 192, height: 192, plate: true, fraction: 0.698, basis: .width),
-    Target(path: "packages/harness/public/icon-512.png", width: 512, height: 512, plate: true, fraction: 0.700, basis: .width),
+    Target(path: "packages/harness-desktop/build/icon.png", width: 1024, height: 1024, plate: true, fraction: 0.600, basis: .width),
+    Target(path: "packages/harness-desktop/build/icon-mac.png", width: 1024, height: 1024, plate: true, fraction: 0.600, basis: .width, scale: 0.805, frame: "packages/harness-desktop/build/icon.png"),
+    Target(path: "packages/harness/public/apple-touch-icon.png", width: 180, height: 180, plate: true, fraction: 0.600, basis: .width),
+    Target(path: "packages/harness/public/icon-192.png", width: 192, height: 192, plate: true, fraction: 0.600, basis: .width),
+    Target(path: "packages/harness/public/icon-512.png", width: 512, height: 512, plate: true, fraction: 0.600, basis: .width),
     Target(path: "packages/harness/public/icon-maskable-512.png", width: 512, height: 512, plate: true, fraction: 0.555, basis: .width),
     Target(path: "packages/harness/src/assets/flupcode-logo.png", width: 256, height: 256, plate: false, fraction: 0.900, basis: .width),
-    Target(path: "packages/landing/assets/apple-touch-icon.png", width: 180, height: 180, plate: true, fraction: 0.722, basis: .width),
+    Target(path: "packages/landing/assets/apple-touch-icon.png", width: 180, height: 180, plate: true, fraction: 0.600, basis: .width),
     Target(path: "packages/landing/assets/flupcode-logo.png", width: 320, height: 320, plate: false, fraction: 0.900, basis: .width),
-    Target(path: "packages/landing/assets/icon-192.png", width: 192, height: 192, plate: true, fraction: 0.698, basis: .width),
-    Target(path: "packages/landing/assets/og.png", width: 1200, height: 630, plate: true, fraction: 0.800, basis: .height),
+    Target(path: "packages/landing/assets/icon-192.png", width: 192, height: 192, plate: true, fraction: 0.600, basis: .width),
+    Target(path: "packages/landing/assets/og.png", width: 1200, height: 630, plate: true, fraction: 0.680, basis: .height),
 ]
 
 func loadCGImage(_ path: String) -> CGImage? {
