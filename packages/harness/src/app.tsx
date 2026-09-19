@@ -702,19 +702,36 @@ export const App: Component = () => {
   })
   const serverStatus = () =>
     health.loading ? t("Connecting") : health()?.healthy === true ? t("Connected") : t("Offline")
-  // How many sessions one page asks for, and how many each "Load more" adds (H-18). The list used to
-  // stop at a hard 200; paging means the oldest session is reachable without fetching everything.
+  // How many sessions one page asks for (H-18), and how many pages are loaded. The list used to stop
+  // at a hard 200; the engine returns a cursor instead, so "Load more" walks it a page at a time and
+  // the oldest session stays reachable without fetching everything.
   const SESSION_PAGE = 80
-  const [sessionLimit, setSessionLimit] = createSignal(SESSION_PAGE)
+  const [sessionPages, setSessionPages] = createSignal(1)
   const [sessions, { refetch: refetchSessions }] = createResource(
-    () => (ready() ? `${serverUrl()}\n${sessionLimit()}` : undefined),
+    () => (ready() ? `${serverUrl()}\n${sessionPages()}` : undefined),
     async (key) => {
-      const [url = "", limit = String(SESSION_PAGE)] = key.split("\n")
-      return createClient(url).session.list({ limit: Number(limit) })
+      const [url = "", pages = "1"] = key.split("\n")
+      const client = createClient(url)
+      const data: SessionInfo[] = []
+      let cursor: string | undefined
+      for (let page = 0; page < Number(pages); page++) {
+        const response = await client.session.list({ limit: SESSION_PAGE, cursor })
+        data.push(...(response.data ?? []))
+        cursor = response.cursor?.next ?? undefined
+        // A short page is the end of the list: asking again would only get less.
+        if ((response.data?.length ?? 0) < SESSION_PAGE || !cursor) break
+      }
+      return { data, cursor: { next: cursor } }
     },
   )
-  const hasMoreSessions = () => !!sessions()?.cursor?.next
-  const loadMoreSessions = () => setSessionLimit((limit) => limit + SESSION_PAGE)
+  // The engine sets a cursor beside every non-empty page, so the cursor alone cannot say whether
+  // more exist. A page that came back full is the honest signal; a short one is the end of the list.
+  const hasMoreSessions = () => {
+    const result = sessions()
+    const count = result?.data?.length ?? 0
+    return count > 0 && count % SESSION_PAGE === 0 && !!result?.cursor?.next
+  }
+  const loadMoreSessions = () => setSessionPages((pages) => pages + 1)
   // Server-side session search (H-18), for the palette: it reaches sessions the page above never
   // loaded. The title is what the engine matches; the palette still searches folders too.
   const searchSessions = (query: string) =>
