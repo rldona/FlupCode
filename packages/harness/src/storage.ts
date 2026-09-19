@@ -24,6 +24,7 @@ export const STORAGE_KEYS = {
   appTextSize: "flupcode.appTextSize",
   chatTextSize: "flupcode.chatTextSize",
   clearedTodos: "flupcode.clearedTodos",
+  clearedSubagents: "flupcode.clearedSubagents",
   usageResetAt: "flupcode.usageResetAt",
   replySuggestions: "flupcode.replySuggestions",
   suggestionModel: "flupcode.suggestionModel",

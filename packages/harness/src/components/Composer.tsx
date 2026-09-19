@@ -34,6 +34,8 @@ type ComposerProps = {
   sending: boolean
   /** The model is working on the open session: the send button becomes Stop while the input is empty. */
   generating: boolean
+  /** The engine is folding the session: its own turn must finish before a prompt can be sent. */
+  compacting?: boolean
   onStop: () => void
   models: ModelInfo[]
   modelKey: string | undefined
@@ -473,6 +475,8 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               }
               if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
                 event.preventDefault()
+                // A fold is a turn of its own, and a prompt sent into it would join or interrupt it.
+                if (props.compacting) return
                 props.onSend()
               }
             }}
@@ -488,10 +492,12 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               <button
                 class="fc-input-send"
                 type="button"
-                title={t("Send")}
+                title={props.compacting ? t("Wait for the session to finish compacting") : t("Send")}
                 aria-label={t("Send")}
                 onClick={props.onSend}
-                disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
+                disabled={
+                  props.compacting || props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)
+                }
               >
                 <DockIcon path="M12 19V5M6 11l6-6 6 6" size={18} />
               </button>
