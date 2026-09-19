@@ -466,7 +466,12 @@ export const App: Component = () => {
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   /** A routine the sidebar asked the screen to open on, cleared once it has. */
   const [routineFocus, setRoutineFocus] = createSignal<string>()
-  const [showTools, setShowTools] = createSignal(true)
+  const [showTools, setShowTools] = createSignal(readStorage(STORAGE_KEYS.showTools, true))
+  const toggleTools = () => {
+    const next = !showTools()
+    setShowTools(next)
+    writeStorage(STORAGE_KEYS.showTools, next)
+  }
   // The model's thinking stays out of the conversation unless it is asked for, as in Claude Code.
   const [showReasoning, setShowReasoning] = createSignal(readStorage(STORAGE_KEYS.showReasoning, false))
   const toggleReasoning = () => {
@@ -4630,7 +4635,7 @@ export const App: Component = () => {
       }
       if (name === "steps") {
         setPrompt("")
-        setShowTools((value) => !value)
+        toggleTools()
         return
       }
       if (name === "mcp") {
@@ -5504,7 +5509,7 @@ export const App: Component = () => {
         onServerInput={setServerInput}
         onServerCommit={commitServer}
         onModelChange={changeModel}
-        onToggleTools={() => setShowTools((value) => !value)}
+        onToggleTools={toggleTools}
         onToggleReasoning={toggleReasoning}
         onToggleSessionTabs={toggleSessionTabs}
         onToggleNotifications={toggleNotifications}
