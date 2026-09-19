@@ -51,7 +51,7 @@ export const Loader: Component<LoaderProps> = (props) => {
         <i />
       </span>
       <span class="fc-loader-time">{elapsed()}</span>
-      <Show when={total() !== undefined}>
+      <Show when={(total() ?? 0) > 0}>
         <span class="fc-loader-sep">·</span>
         <span class="fc-loader-meta">
           {formatTokens(total()!)} {t("tokens")}
