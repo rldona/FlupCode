@@ -79,8 +79,8 @@ type ComposerProps = {
   /** The folder of the open session, or the one picked for a new session. The picker only shows without one. */
   targetDirectory: string | undefined
   agents: AgentInfo[]
-  /** Artifacts the `@` menu can reach, alongside files and agents (H-26). */
-  artifacts?: Array<{ path: string; title?: string }>
+  /** Artifacts the `@` menu can reach, alongside files and agents (H-26, HF-6). */
+  artifacts?: Array<{ id?: string; path?: string; title?: string; kind?: string }>
   /** Context packs the `@` menu can reach, and a way to save the draft's refs as one (H-26). */
   packs?: Array<{ name: string; refs: string[] }>
   onSavePack?: (refs: string[]) => void

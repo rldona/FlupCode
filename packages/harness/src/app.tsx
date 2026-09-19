@@ -5266,8 +5266,12 @@ export const App: Component = () => {
                 projects={projects()}
                 targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
                 agents={agents()?.data ?? []}
-                artifacts={artifactList().flatMap((artifact) =>
-                  artifact.path ? [{ path: artifact.path, title: artifact.title }] : [],
+                artifacts={artifactList().flatMap((artifact): Array<{ id?: string; path?: string; title?: string; kind?: string }> =>
+                  artifact.path
+                    ? [{ path: artifact.path, title: artifact.title }]
+                    : artifact.content
+                      ? [{ id: artifact.id, title: artifact.title, kind: artifact.kind }]
+                      : [],
                 )}
                 packs={packs()}
                 onSavePack={(refs) => setPackRefs(refs)}
