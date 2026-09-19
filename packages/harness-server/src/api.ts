@@ -482,6 +482,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const resumed = scheduler.approve(run.id)
       return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
     }
+    // Picking up a run that ended with work still queued (HF-5).
+    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "resume") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      try {
+        const resumed = scheduler.resume(run.id)
+        return resumed ? json({ data: resumed }, 202) : error("Run not found", 404)
+      } catch (cause) {
+        return error(cause instanceof Error ? cause.message : String(cause), 409)
+      }
+    }
     // Doing a task again (H-12), as a new task of the same run, optionally on another model.
     if (path[1] === "tasks" && request.method === "POST" && path[2] && path[3] === "retry") {
       if (!repository.getTask(path[2])) return error("Task not found", 404)

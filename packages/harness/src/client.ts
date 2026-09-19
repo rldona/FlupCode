@@ -1012,6 +1012,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<Run[]>(baseUrl, "/harness/best-of-n", { method: "POST", body: JSON.stringify(input) }),
       /** A run with the tasks it is made of; the list leaves them out. */
       get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
+      /** Pick up a run that ended with work still queued (HF-5). */
+      resume: (id: string) =>
+        harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
       /** What its running tasks are doing right now. Polled while somebody watches, never stored. */
       activity: (id: string) =>

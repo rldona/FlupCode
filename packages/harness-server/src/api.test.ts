@@ -827,8 +827,7 @@ describe("doing a task again (H-12)", () => {
   })
 })
 
-describe("taking a queued task off the run (HF-4)", () => {
-  test("a queued task is stopped with a reason, and work in flight is refused", async () => {
+describe("taking a queued task off the run (HF-4)", () => {  test("a queued task is stopped with a reason, and work in flight is refused", async () => {
     const { handler, repository } = open()
     const run = repository.startRun({ type: "manual" }, 1000)
     const [waiting, busy] = repository.addTasks(run.id, [
@@ -847,6 +846,72 @@ describe("taking a queued task off the run (HF-4)", () => {
 
     const missing = await handler(new Request("http://x/harness/tasks/nope/cancel", { method: "POST" }))
     expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("resuming a run that ended with work queued (HF-5)", () => {
+  const passingProject = (directory: string) => {
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 0\n")
+  }
+
+  test("remaining queued work runs, and settled work is not rewritten", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-resume-"))
+    made.push(directory)
+    passingProject(directory)
+    const run = repository.startRun({ type: "manual" }, 1000, directory)
+    const [first, second] = repository.addTasks(run.id, [
+      { name: "first", prompt: "", kind: "verify" },
+      { name: "second", prompt: "", kind: "verify" },
+    ])
+    repository.finishTask(first!.id, "success", { output: "ok" }, 1500)
+    repository.finishRun(run.id, "failed", "killed", 1600)
+
+    const resumed = await handler(new Request(`http://x/harness/runs/${run.id}/resume`, { method: "POST" }))
+    expect(resumed.status).toBe(202)
+    await settled(repository, run.id)
+
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.status}`)).toEqual([
+      "first:success",
+      "second:success",
+    ])
+    expect(repository.getRun(run.id)?.status).toBe("success")
+    repository.close()
+  })
+
+  test("an active run, a settled run, and a missing run are refused", async () => {
+    const { handler, repository } = open()
+    const active = repository.startRun({ type: "manual" }, 1000)
+    repository.addTasks(active.id, [{ name: "work", prompt: "x" }])
+
+    const busy = await handler(new Request(`http://x/harness/runs/${active.id}/resume`, { method: "POST" }))
+    expect(busy.status).toBe(409)
+
+    const done = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(done.id, [{ name: "work", prompt: "x" }])
+    repository.finishTask(task!.id, "success", {}, 1500)
+    repository.finishRun(done.id, "success", undefined, 1600)
+    const settledRun = await handler(new Request(`http://x/harness/runs/${done.id}/resume`, { method: "POST" }))
+    expect(settledRun.status).toBe(409)
+
+    const missing = await handler(new Request("http://x/harness/runs/nope/resume", { method: "POST" }))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+
+  test("a restart requeues work that was in flight", async () => {
+    const { repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [flying] = repository.addTasks(run.id, [{ name: "flying", prompt: "x" }])
+    repository.startTask(flying!.id, 1500)
+
+    repository.recoverRunning(2000)
+
+    expect(repository.getRun(run.id)?.status).toBe("failed")
+    expect(repository.getTask(flying!.id)).toMatchObject({ status: "queued" })
+    expect(repository.getTask(flying!.id)?.error).toMatch(/restarted/i)
     repository.close()
   })
 })

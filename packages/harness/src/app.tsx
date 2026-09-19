@@ -3946,6 +3946,16 @@ export const App: Component = () => {
   }
 
   /**
+   * Pick up a run that ended with work still queued (HF-5). Settled tasks stay as they are;
+   * the drive continues from the first task the graph allows.
+   */
+  const resumeRun = (id: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.resume(id)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  /**
    * Steer a running task by sending a message to its own session. The legacy runner absorbs a prompt
    * sent while a turn is going, so this is a steer and not a second turn (H-01, H-12).
    */
@@ -5577,6 +5587,7 @@ export const App: Component = () => {
         onRetry={retryTask}
         onSteer={steerTask}
         onCancelTask={cancelTask}
+        onResume={resumeRun}
         onBestOfN={() => setBestOfNOpen(true)}
         onOpenSession={(id) => {
           leaveScreen()

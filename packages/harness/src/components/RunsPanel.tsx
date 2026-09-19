@@ -37,6 +37,8 @@ type RunsPanelProps = {
   onSteer: (taskID: string, text: string) => void
   /** Takes a queued task off the run without stopping the rest (HF-4). */
   onCancelTask: (taskID: string) => void
+  /** Picks up a run that ended with work still queued (HF-5). */
+  onResume: (id: string) => void
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
   onClose: () => void
@@ -278,14 +280,30 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     <Show
                       when={going(run)}
                       fallback={
-                        <button
-                          class="fc-run-open fc-run-danger"
-                          type="button"
-                          disabled={!props.serverAvailable}
-                          onClick={() => setConfirming(run.id)}
-                        >
-                          {t("Delete")}
-                        </button>
+                        <>
+                          {/* A run that ended with work still queued can be picked up (HF-5). */}
+                          <Show
+                            when={(run.status === "failed" || run.status === "stopped") &&
+                              (run.tasks ?? []).some((task) => task.status === "queued")}
+                          >
+                            <button
+                              class="fc-run-open"
+                              type="button"
+                              disabled={!props.serverAvailable}
+                              onClick={() => props.onResume(run.id)}
+                            >
+                              {t("Resume")}
+                            </button>
+                          </Show>
+                          <button
+                            class="fc-run-open fc-run-danger"
+                            type="button"
+                            disabled={!props.serverAvailable}
+                            onClick={() => setConfirming(run.id)}
+                          >
+                            {t("Delete")}
+                          </button>
+                        </>
                       }
                     >
                       <button
