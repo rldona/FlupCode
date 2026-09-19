@@ -106,8 +106,8 @@ swift script/branding.swift [source.png]
 
 (macOS only, AppKit.) Source of truth: `assets/flupcode-tentative-logo.png` on a `#F5F5F5`
 plate. The approved mac geometry (`packages/harness-desktop/build/icon-mac.png`) follows the
-macOS grid: plate at 824/1024 (`scale: 0.805`) with the artwork at `fraction: 0.68`
-(~560x711). `icon.png` (Windows/Linux) keeps the full-bleed plate with `fraction: 0.70`.
+macOS grid: plate at 824/1024 (`scale: 0.805`) with the artwork at `fraction: 0.65`
+(~535x679). `icon.png` (Windows/Linux) keeps the full-bleed plate with `fraction: 0.70`.
 Transparent logos (`flupcode-logo.png`) fit the whole artwork inside the canvas. Keep these
 values when the logo changes so every build mounts the same icon.
 
