@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   TEMPLATES,
+  UnknownTaskError,
   duration,
   fill,
   findWorkflow,
@@ -102,6 +103,25 @@ tasks:
       { name: "plan", prompt: "Plan search", kind: "agent", agent: "plan" },
       { name: "verify", prompt: "", kind: "verify", retries: 2 },
     ])
+  })
+
+  test("stops at the named task when asked (HF-1)", () => {
+    const workflow = parseWorkflow(
+      `name: feature
+tasks:
+  - id: plan
+    prompt: plan it
+  - id: build
+    prompt: build it
+  - id: verify
+    kind: verify
+`,
+      "x",
+    )!
+    expect(tasksFor(workflow, {}, "plan").map((task) => task.name)).toEqual(["plan"])
+    expect(tasksFor(workflow, {}, "build").map((task) => task.name)).toEqual(["plan", "build"])
+    expect(tasksFor(workflow, {}, "verify").map((task) => task.name)).toEqual(["plan", "build", "verify"])
+    expect(() => tasksFor(workflow, {}, "nope")).toThrow(UnknownTaskError)
   })
 })
 

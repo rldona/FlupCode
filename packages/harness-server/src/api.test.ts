@@ -420,6 +420,45 @@ tasks:
     repository.close()
   })
 
+  test("HF-1: runs until the named task, and refuses unknown tasks and checkpoints", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-hf1-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "feature.yaml"),
+      "name: feature\ninputs: [goal]\ntasks:\n  - id: plan\n    prompt: \"Plan {{goal}}\"\n  - id: build\n    prompt: build\n",
+    )
+
+    const partial = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory, until: "plan" }),
+      }),
+    )
+    expect(partial.status).toBe(202)
+    const run = (await partial.json()).data
+    expect(repository.listTasks(run.id).map((task) => task.name)).toEqual(["plan"])
+    await settled(repository, run.id)
+
+    const unknownTask = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory, until: "nope" }),
+      }),
+    )
+    expect(unknownTask.status).toBe(400)
+
+    const unknownCheckpoint = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory, fromCheckpoint: "ckpt_nope" }),
+      }),
+    )
+    expect(unknownCheckpoint.status).toBe(404)
+    repository.close()
+  })
+
   // Stopping answers for any run, not just a routine's: the supervisor has the run id and nothing else.
   test("stops a run by its own id", async () => {
     const { repository, handler } = open()

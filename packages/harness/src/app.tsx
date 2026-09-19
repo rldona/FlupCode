@@ -3825,6 +3825,7 @@ export const App: Component = () => {
         ...(launch.packs && launch.packs.length > 0 ? { packs: launch.packs } : {}),
         ...(launch.worktrees ? { worktrees: true } : {}),
         ...(launch.policy ? { policy: launch.policy } : {}),
+        ...(launch.until ? { until: launch.until } : {}),
       })
       // Straight to the supervisor: a run nobody can see is the thing this replaces.
       .then(() => showScreen("runs"))
@@ -5326,6 +5327,7 @@ export const App: Component = () => {
         artifacts={artifactList()}
         routines={routines()}
         runs={runs()}
+        workflows={workflows() ?? []}
         onClose={() => setPaletteOpen(false)}
         onCommand={runCommand}
         onSession={selectSession}
@@ -5339,6 +5341,10 @@ export const App: Component = () => {
           showScreen("routines")
         }}
         onRun={() => showScreen("runs")}
+        onWorkflow={(name) => {
+          const workflow = workflowNamed(name)
+          if (workflow) setLaunching({ workflow })
+        }}
         onFile={(path) => setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
         searchFiles={searchFiles}
         searchSessions={searchSessions}
