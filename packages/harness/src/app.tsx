@@ -1848,9 +1848,18 @@ export const App: Component = () => {
         const sessionID = selected()
         return ready() && sessionID ? { url: serverUrl(), sessionID } : undefined
       },
-      async (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
+      async (source) => {
+        const response = await createClient(source.url).session.children({ sessionID: source.sessionID })
+        // The session is kept with the list so a reader who just switched cannot read the last
+        // session's children as this one's, which would open the panel for work that is not here.
+        return { sessionID: source.sessionID, data: response.data ?? [] }
+      },
     )
-    const subagents = () => children()?.data?.filter((session) => !isSuggestionSession(session))
+    const subagents = () => {
+      const result = children()
+      if (!result || result.sessionID !== selected()) return []
+      return result.data.filter((session) => !isSuggestionSession(session))
+    }
 
     // Subagents the reader removed from the context panel, per session. The children belong to the
     // engine, so removal only hides them here, and one spawned later still shows up.
@@ -1932,17 +1941,22 @@ export const App: Component = () => {
       },
       async (key) => {
         const [url = "", sessionID = "", directory = ""] = key.split("\n")
-        return createClient(url)
+        const data = await createClient(url)
           .session.todos({ sessionID, directory: directory || undefined })
           .then((result) => result.data ?? [])
           .catch(() => undefined)
+        // Kept with the session for the same reason as the children list: a resource holds the last
+        // session's value while the open one loads, and that is not this session's work.
+        return { sessionID, data }
       },
     )
     // The model does not always close its own list: a task it was working on when the turn ended is
     // left in_progress, in the engine's store as much as in the transcript. Once nothing is running,
     // what is still in progress is work that finished and was never marked, so it reads as done.
     const allTodos = () => {
-      const list = engineTodos() ?? transcriptTodos()
+      const stored = engineTodos()
+      const list =
+        stored && stored.sessionID === selected() && stored.data !== undefined ? stored.data : transcriptTodos()
       if (generating()) return list
       return list.map((todo) => (todo.status === "in_progress" ? { ...todo, status: "completed" } : todo))
     }
@@ -3165,6 +3179,11 @@ export const App: Component = () => {
      * and starts again, and a stretch the reader opened through is left open when it ends.
      */
     createEffect(() => {
+      const sessionID = selected()
+      // The session's own context is still loading while the resources hold the last session's
+      // value: deciding now would offer the panel for work that belongs to the session left behind,
+      // which is the flash of it a reader sees right after switching.
+      if (sessionID && (children()?.sessionID !== sessionID || engineTodos()?.sessionID !== sessionID)) return
       const work =
         todos().some((todo) => todo.status !== "completed") ||
         (subagents() ?? []).some((child) => !!runState()[child.id] || blockedSessions().includes(child.id))
