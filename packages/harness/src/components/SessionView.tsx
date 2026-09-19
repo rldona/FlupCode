@@ -883,6 +883,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const isCompactionMessage = (message: SessionMessageInfo) =>
     message.type === "compaction" ||
     (message.type === "assistant" && (message as { summary?: boolean }).summary === true)
+  /**
+   * Whether the fold has landed. The legacy engine announces the summary as an empty assistant
+   * message and streams the text into it, so a boundary drawn at its arrival claims a compaction
+   * that is still running; the v2 record is written once, already whole.
+   */
+  const isCompactionSettled = (message: SessionMessageInfo) =>
+    message.type === "compaction" || (message as { time?: { completed?: number } }).time?.completed !== undefined
   const isCompactionTrigger = (message: SessionMessageInfo) => !!(message as { compaction?: unknown }).compaction
   const isAutoCompaction = (message: SessionMessageInfo) =>
     (message as { reason?: "auto" | "manual" }).reason === "auto" || compactionAuto(message)
@@ -1174,7 +1181,9 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       </Show>
                         }
                       >
-                        <CompactionMarker summary={messageText(message)} auto={isAutoCompaction(message)} />
+                        <Show when={isCompactionSettled(message)}>
+                          <CompactionMarker summary={messageText(message)} auto={isAutoCompaction(message)} />
+                        </Show>
                       </Show>
                     }
                   >

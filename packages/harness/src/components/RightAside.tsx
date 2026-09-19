@@ -12,6 +12,8 @@ type RightAsideProps = {
   onClearTodos: (contents: string[]) => void
   /** This session's child sessions, if it has spawned any. */
   subagents: SessionInfo[] | undefined
+  /** Hides listed children by their session id. */
+  onClearSubagents: (ids: string[]) => void
   onOpenSubagent: (id: string) => void
   /** Which of those the engine is working on, and which are waiting on a permission. */
   runningSubagents: string[]
@@ -24,7 +26,7 @@ type RightAsideProps = {
   sessionID?: string
 }
 
-export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: 300 }
+export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: 340 }
 
 const mark = (status: string) => {
   if (status === "completed") return "✓"
@@ -115,17 +117,6 @@ export const RightAside: Component<RightAsideProps> = (props) => {
                       {mark(todo.status)}
                     </span>
                     <span class="fc-aside-todo-text">{todo.content}</span>
-                    <Show when={todo.status === "completed"}>
-                      <button
-                        class="fc-aside-todo-remove"
-                        type="button"
-                        title={t("Remove task")}
-                        aria-label={`${t("Remove task")}: ${todo.content}`}
-                        onClick={() => props.onClearTodos([todo.content])}
-                      >
-                        ×
-                      </button>
-                    </Show>
                   </li>
                 )}
               </For>
@@ -136,6 +127,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         <SubagentList
           sessions={props.subagents}
           onOpen={props.onOpenSubagent}
+          onClear={props.onClearSubagents}
           running={props.runningSubagents}
           blocked={props.blockedSubagents}
         />

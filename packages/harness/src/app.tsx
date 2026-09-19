@@ -1852,6 +1852,26 @@ export const App: Component = () => {
     )
     const subagents = () => children()?.data?.filter((session) => !isSuggestionSession(session))
 
+    // Subagents the reader removed from the context panel, per session. The children belong to the
+    // engine, so removal only hides them here, and one spawned later still shows up.
+    const [clearedSubagents, setClearedSubagents] = createSignal<Record<string, string[]>>(
+      readStorage(STORAGE_KEYS.clearedSubagents, {}),
+    )
+    const clearSubagents = (ids: string[]) => {
+      const sessionID = selected()
+      if (!sessionID) return
+      const next = {
+        ...clearedSubagents(),
+        [sessionID]: [...new Set([...(clearedSubagents()[sessionID] ?? []), ...ids])],
+      }
+      setClearedSubagents(next)
+      writeStorage(STORAGE_KEYS.clearedSubagents, next)
+    }
+    const visibleSubagents = () => {
+      const cleared = clearedSubagents()[selected() ?? ""] ?? []
+      return subagents()?.filter((session) => !cleared.includes(session.id))
+    }
+
     // A tab closed while a suggestion ran leaves its session behind: delete those once they are stale.
     const removedSuggestions = new Set<string>()
     createEffect(() => {
@@ -5148,6 +5168,7 @@ export const App: Component = () => {
                 value={prompt()}
                 sending={busy()}
                 generating={!!selected() && generating()}
+                compacting={compacting()}
                 onStop={stopSession}
                 models={modelList()}
                 modelKey={modelKey()}
@@ -5252,7 +5273,8 @@ export const App: Component = () => {
             <RightAside
               todos={todos()}
               onClearTodos={clearTodos}
-              subagents={subagents()}
+              subagents={visibleSubagents()}
+              onClearSubagents={clearSubagents}
               onOpenSubagent={selectSession}
               runningSubagents={Object.keys(runState()).filter((id) => runState()[id])}
               blockedSubagents={blockedSessions()}
