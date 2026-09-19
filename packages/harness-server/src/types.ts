@@ -250,7 +250,7 @@ export type Task = TaskInput & {
  * The project is a directory rather than an id: that is what the harness actually knows about where
  * work happens, and inventing an id for it would mean keeping a second name for the same thing.
  */
-export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff"
+  export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff" | "screenshot"
 
 export type ArtifactProducer = "agent" | "user" | "harness"
 
