@@ -20,6 +20,7 @@ type RunTaskDetailProps = {
   onOpenSession: (id: string) => void
   onRetry: (taskID: string, model?: { providerID: string; id: string; variant?: string }) => void
   onSteer: (taskID: string, text: string) => void
+  onCancel: (taskID: string) => void
   onOpenChanges: (directory?: string) => void
   onClose: () => void
 }
@@ -122,6 +123,17 @@ export const RunTaskDetail: Component<RunTaskDetailProps> = (props) => {
               {t("Open session")}
             </button>
           )}
+        </Show>
+        {/* A queued task never started, so it can go without stopping the run (HF-4). */}
+        <Show when={props.task.status === "queued"}>
+          <button
+            class="fc-button"
+            type="button"
+            disabled={!props.serverAvailable}
+            onClick={() => props.onCancel(props.task.id)}
+          >
+            {t("Cancel")}
+          </button>
         </Show>
         <button class="fc-button" type="button" disabled={!props.serverAvailable} onClick={retry}>
           {t("Retry")}
