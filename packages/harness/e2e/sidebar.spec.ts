@@ -419,3 +419,62 @@ test("a child session shows the path back to its parent", async ({ page }) => {
   await expect(page.locator(".fc-session-lineage")).toHaveCount(0)
   await expect(page.locator(".fc-session-heading-title")).toContainText("Fix the parser")
 })
+
+// H-18: "Load more" walks the engine's cursor instead of guessing from it, so only a full page
+// offers another and the next page's sessions join the list.
+test("Load more follows the cursor and stops at the end of the list", async ({ page }) => {
+  const first = Array.from({ length: 80 }, (_, index) =>
+    sessionAt(`ses_page_${index}`, `Page one ${index}`, "/work/alpha"),
+  )
+  const second = [sessionAt("ses_page_old", "Older than page one", "/work/beta")]
+  const cursors: Array<string | null> = []
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem(
+      "flupcode.expandedProjects",
+      JSON.stringify({ "/work/alpha": true, "/work/beta": true }),
+    )
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/workflows") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") {
+      // The first page comes back full and names where the next one starts; the second is short,
+      // which is how the reader knows the list has ended.
+      cursors.push(url.searchParams.get("cursor"))
+      return url.searchParams.has("cursor")
+        ? route.fulfill({ json: { data: second, cursor: {} } })
+        : route.fulfill({ json: { data: first, cursor: { next: "page-2" } } })
+    }
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  const loadMore = page.locator(".fc-load-more")
+  await expect(loadMore).toBeVisible()
+  await expect(page.locator(".fc-session-row", { hasText: "Older than page one" })).toHaveCount(0)
+
+  await loadMore.click()
+  // The next page is asked for through the cursor the first one named, not by asking for more items.
+  await expect.poll(() => cursors.includes("page-2")).toBe(true)
+  await expect(page.locator(".fc-session-row", { hasText: "Older than page one" })).toHaveCount(1)
+  await expect(loadMore).toHaveCount(0)
+})
