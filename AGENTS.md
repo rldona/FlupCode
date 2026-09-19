@@ -24,6 +24,12 @@ Examples: `fix(tui): simplify thinking toggle styling`, `docs: update contributi
 - Production reaches Vercel later, from `power`, through the normal merge flow. Do not run the `vercel` CLI to deploy a preview.
 - Both `packages/harness/vercel.json` and `packages/landing/vercel.json` disable deployments for every branch except `power` (`git.deploymentEnabled`).
 
+## Branding
+
+- Never hand-edit raster brand assets. Regenerate them with `swift script/branding.swift` (macOS only).
+- Source of truth is `assets/flupcode-tentative-logo.png` on a `#F5F5F5` plate.
+- The approved mac icon geometry is plate `scale: 0.805` (macOS 824/1024 grid) with artwork `fraction: 0.68`. See "Icon geometry" in `docs/RELEASE.md` and keep these values so every build mounts the same icon.
+
 ## Style Guide
 
 ### General Principles
