@@ -1,3 +1,7 @@
+<p align="center">
+  <a href="https://flupcode.com"><img src="assets/flupcode-tentative-logo.png" alt="FlupCode" width="180" /></a>
+</p>
+
 # FlupCode
 
 **A Claude Code–style web & desktop harness for OpenCode.**
