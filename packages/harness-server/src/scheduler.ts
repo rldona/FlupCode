@@ -305,6 +305,21 @@ export class RoutineScheduler {
     return created
   }
 
+  /**
+   * Take a queued task off the run (HF-4).
+   *
+   * Only queued work can be cancelled: a running task has an engine turn in flight, which is
+   * stopped by stopping the run instead. Dependents decide against the stopped row through the
+   * same `decide` path as any other failure, so nothing behind it runs blind and the skip says why.
+   */
+  cancelTask(taskID: string) {
+    const task = this.repository.getTask(taskID)
+    if (!task) return undefined
+    if (task.status !== "queued") throw new Error("Only a queued task can be cancelled; stop the run to halt one in flight")
+    this.repository.finishTask(task.id, "stopped", { error: "Cancelled" }, Date.now())
+    return this.repository.getTask(task.id)
+  }
+
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(runID, status, error)
     this.writeReport(runID, status, error)

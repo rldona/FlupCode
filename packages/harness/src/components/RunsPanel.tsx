@@ -35,6 +35,8 @@ type RunsPanelProps = {
   onRetry: (taskID: string, model?: { providerID: string; id: string; variant?: string }) => void
   /** Sends a message to a running task's own session, which steers it (H-12). */
   onSteer: (taskID: string, text: string) => void
+  /** Takes a queued task off the run without stopping the rest (HF-4). */
+  onCancelTask: (taskID: string) => void
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
   onClose: () => void
@@ -484,6 +486,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                 onOpenSession={props.onOpenSession}
                 onRetry={props.onRetry}
                 onSteer={props.onSteer}
+                onCancel={props.onCancelTask}
                 onOpenChanges={props.onOpenChanges ?? (() => undefined)}
                 onClose={() => setSelectedTask(undefined)}
               />

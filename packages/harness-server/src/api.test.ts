@@ -827,6 +827,30 @@ describe("doing a task again (H-12)", () => {
   })
 })
 
+describe("taking a queued task off the run (HF-4)", () => {
+  test("a queued task is stopped with a reason, and work in flight is refused", async () => {
+    const { handler, repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [waiting, busy] = repository.addTasks(run.id, [
+      { name: "later", prompt: "later" },
+      { name: "now", prompt: "now" },
+    ])
+    repository.startTask(busy!.id, 1500)
+
+    const cancelled = await handler(new Request(`http://x/harness/tasks/${waiting!.id}/cancel`, { method: "POST" }))
+    expect(cancelled.status).toBe(200)
+    expect((await cancelled.json()).data).toMatchObject({ id: waiting!.id, status: "stopped" })
+    expect(repository.getTask(waiting!.id)?.error).toBe("Cancelled")
+
+    const running = await handler(new Request(`http://x/harness/tasks/${busy!.id}/cancel`, { method: "POST" }))
+    expect(running.status).toBe(409)
+
+    const missing = await handler(new Request("http://x/harness/tasks/nope/cancel", { method: "POST" }))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
 describe("what a reader keeps about a session (H-18)", () => {
   const json = { "content-type": "application/json" }
 
