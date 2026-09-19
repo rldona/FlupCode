@@ -499,6 +499,33 @@ button.fc-row-main {
   overflow: hidden;
 }
 
+/* The session's name belongs to the whole bar, not to the group of controls at its left. Centered
+   only while the bar keeps one line: below that it wraps, and an absolute title would land on top
+   of the controls. Physical left is avoided so RTL centers the same way. */
+@media (min-width: 721px) {
+  .fc-topbar {
+    position: relative;
+  }
+
+  .fc-topbar .fc-session-heading {
+    position: absolute;
+    inset-inline-start: 50%;
+    transform: translateX(-50%);
+    justify-content: center;
+    flex: none;
+    max-width: min(40vw, 560px);
+    margin: 0;
+    /* Its box spans the middle of the bar; only what can be used takes the pointer, so the controls
+       it may overlap on a narrow window stay clickable. */
+    pointer-events: none;
+  }
+
+  .fc-topbar .fc-session-heading-title,
+  .fc-topbar .fc-session-lineage-link {
+    pointer-events: auto;
+  }
+}
+
 .fc-session-heading-title {
   font-weight: 500;
   font-size: var(--fc-text-sm);
