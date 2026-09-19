@@ -382,7 +382,11 @@ export const App: Component = () => {
           directory ? engine.session.status({ directory }).catch(() => undefined) : undefined,
         ])
         if (!idleTimers.has(sessionID)) return
-        if (!active?.has(sessionID) && !status?.has(sessionID)) return setRunning(sessionID, false)
+        // A poll nobody answered says nothing. Clearing the run on a missing answer would end the
+        // status line because the engine was briefly unreachable, which is the very thing this poll
+        // exists to prevent, so keep the run and ask again.
+        if (active === undefined && status === undefined) return watchRun(sessionID, 2000)
+        if (active?.has(sessionID) !== true && status?.has(sessionID) !== true) return setRunning(sessionID, false)
         setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
         watchRun(sessionID, 2000)
       }, delay),
@@ -2239,22 +2243,27 @@ export const App: Component = () => {
      */
     const resyncRuns = async (engine: ReturnType<typeof createClient>, directories: string[]) => {
       const sessions = untrack(sessionList)
-      const [v2, legacy] = await Promise.all([
-        engine.session.active().catch(() => new Set<string>()),
-        Promise.all(
-          directories.map((directory) => engine.session.status({ directory }).catch(() => new Set<string>())),
-        ),
+      const [v2Result, ...legacyResults] = await Promise.all([
+        engine.session.active().catch(() => undefined),
+        ...directories.map((directory) => engine.session.status({ directory }).catch(() => undefined)),
       ])
-      const running = new Set([...v2, ...legacy.flatMap((set) => [...set])])
+      const v2 = v2Result ?? new Set<string>()
+      const legacy = new Set(legacyResults.flatMap((set) => (set ? [...set] : [])))
+      const running = new Set([...v2, ...legacy])
       const known = new Set([
         ...v2,
         ...(sessions ?? [])
           .filter((session) => directories.includes(session.location?.directory ?? ""))
           .map((session) => session.id),
       ])
-      Object.entries(runState())
-        .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
-        .forEach(([id]) => setRunning(id, false))
+      // A source that could not be reached answers nothing, so its silence is not evidence: clearing
+      // on it would end a run because the engine was briefly away. Only clear once every source
+      // answered and none of them lists the session.
+      const answered = v2Result !== undefined && legacyResults.every((set) => set !== undefined)
+      if (answered)
+        Object.entries(runState())
+          .filter(([id, isRunning]) => isRunning && known.has(id) && !running.has(id))
+          .forEach(([id]) => setRunning(id, false))
       running.forEach((id) => {
         setRunning(id, true)
         // A legacy run in a folder this window cannot name is left to its idle event: without the
