@@ -209,8 +209,21 @@ export function fill(text: string, inputs: Record<string, string>) {
   return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (whole, name: string) => inputs[name] ?? whole)
 }
 
+/** Thrown when `until` names no task of the workflow (HF-1). */
+export class UnknownTaskError extends Error {
+  constructor(readonly task: string) {
+    super(`No task called ${task}`)
+    this.name = "UnknownTaskError"
+  }
+}
+
 /** The tasks a run is made of, in the order the file wrote them. */
-export function tasksFor(workflow: Workflow, inputs: Record<string, string>): TaskInput[] {
+export function tasksFor(workflow: Workflow, inputs: Record<string, string>, until?: string): TaskInput[] {
+  if (until !== undefined) {
+    const trimmed = until.trim()
+    if (!workflow.tasks.some((task) => task.id === trimmed)) throw new UnknownTaskError(trimmed)
+    workflow = { ...workflow, tasks: workflow.tasks.slice(0, workflow.tasks.findIndex((task) => task.id === trimmed) + 1) }
+  }
   return workflow.tasks.map((task) => ({
     name: task.id,
     prompt: task.prompt ? fill(task.prompt, inputs) : "",

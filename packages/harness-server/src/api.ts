@@ -10,7 +10,8 @@ import type {
   TaskInput,
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
-import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler, CheckpointNotFoundError } from "./scheduler"
+import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 
@@ -1069,7 +1070,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
       const body = (await readJSON(request)) as
-        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown }
+        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown; until?: unknown; fromCheckpoint?: unknown }
         | undefined
       const inputs: Record<string, string> = {}
       if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
@@ -1088,11 +1089,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           ...(packs.length > 0 ? { packs } : {}),
           ...(body?.worktrees === true ? { worktrees: true } : {}),
           ...(policy ? { policy } : {}),
+          ...(typeof body?.until === "string" && body.until.trim() ? { until: body.until.trim() } : {}),
+          ...(typeof body?.fromCheckpoint === "string" && body.fromCheckpoint.trim()
+            ? { fromCheckpoint: body.fromCheckpoint.trim() }
+            : {}),
         })
         return json({ data: run }, 202)
       } catch (cause) {
         if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)
         if (cause instanceof MissingInputsError) return error(cause.message, 400)
+        if (cause instanceof UnknownTaskError) return error(cause.message, 400)
+        if (cause instanceof CheckpointNotFoundError) return error(cause.message, 404)
         return error(cause instanceof Error ? cause.message : String(cause), 500)
       }
     }
