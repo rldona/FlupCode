@@ -17,7 +17,7 @@ type ArtifactsPanelProps = {
 }
 
 /** What each kind is called. Only the ones the harness writes today are offered as filters. */
-const KINDS: ArtifactKind[] = ["report", "verdict", "plan", "handoff", "diff", "log", "file"]
+const KINDS: ArtifactKind[] = ["report", "verdict", "plan", "handoff", "diff", "log", "file", "screenshot"]
 
 const when = (at: number) => new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
 
@@ -41,10 +41,18 @@ const size = (artifact: Artifact) => {
 export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
   const [kind, setKind] = createSignal<ArtifactKind>()
   const [openID, setOpenID] = createSignal<string>()
+  const [query, setQuery] = createSignal("")
 
   const shown = createMemo(() => {
     const only = kind()
-    return only ? props.artifacts.filter((artifact) => artifact.kind === only) : props.artifacts
+    const needle = query().trim().toLowerCase()
+    return props.artifacts.filter(
+      (artifact) =>
+        (!only || artifact.kind === only) &&
+        (!needle ||
+          artifact.title.toLowerCase().includes(needle) ||
+          (artifact.content ?? "").toLowerCase().includes(needle)),
+    )
   })
   const opened = createMemo(() => props.artifacts.find((artifact) => artifact.id === openID()))
   // Only the kinds that are actually there: a filter that always finds nothing is furniture.
@@ -70,8 +78,16 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
           <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
         </Show>
 
-        <Show when={kinds().length > 1}>
+        <Show when={props.artifacts.length > 0}>
           <div class="fc-routines-toolbar">
+            <input
+              class="fc-question-custom fc-routines-search"
+              value={query()}
+              placeholder={t("Search artifacts")}
+              aria-label={t("Search artifacts")}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+            />
+            <Show when={kinds().length > 1}>
             <div class="fc-routines-tabs">
               <button
                 class="fc-routines-tab"
@@ -94,6 +110,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                 )}
               </For>
             </div>
+            </Show>
           </div>
         </Show>
 

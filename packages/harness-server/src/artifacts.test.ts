@@ -27,6 +27,21 @@ describe("what a run leaves behind", () => {
     repository.close()
   })
 
+  test("HF-7: is found by words in its title or content, including screenshots", () => {
+    const repository = open()
+    repository.addArtifact({ kind: "report", title: "Weekly review", producer: "harness", content: "nothing much" })
+    repository.addArtifact({ kind: "verdict", title: "check", producer: "harness", content: "the review failed" })
+    repository.addArtifact({ kind: "screenshot", title: "login page", producer: "user", content: "pixels", mime: "image/png" })
+
+    expect(repository.listArtifacts({ q: "review" }).map((e) => e.title).sort()).toEqual(["Weekly review", "check"])
+    expect(repository.listArtifacts({ q: "REVIEW" }).map((e) => e.title).sort()).toEqual(["Weekly review", "check"])
+    expect(repository.listArtifacts({ q: "pixels", kind: "screenshot" }).map((e) => e.title)).toEqual(["login page"])
+    // A LIKE wildcard in the query is text, not a pattern.
+    expect(repository.listArtifacts({ q: "%" })).toEqual([])
+    expect(repository.listArtifacts({ q: "  " })).toHaveLength(3)
+    repository.close()
+  })
+
   test("text too long is cut, and says how long it was", () => {
     const repository = open()
     const huge = "x".repeat(ARTIFACT_LIMIT + 500)

@@ -145,7 +145,7 @@ const retriesFrom = (value: unknown) => {
   return Math.min(MAX_RETRIES, Math.floor(value))
 }
 
-const KINDS: ArtifactKind[] = ["plan", "report", "verdict", "diff", "log", "file", "handoff"]
+const KINDS: ArtifactKind[] = ["plan", "report", "verdict", "diff", "log", "file", "handoff", "screenshot"]
 
 const artifactFrom = (value: unknown): ArtifactInput | undefined => {
   if (!value || typeof value !== "object") return undefined
@@ -545,6 +545,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           directory,
           runID: query.get("runID") ?? undefined,
           kind: (query.get("kind") as ArtifactKind | null) ?? undefined,
+          q: query.get("q") ?? undefined,
         }),
       })
     }
@@ -556,6 +557,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "artifacts" && request.method === "GET" && path[2] && !path[3]) {
       const artifact = repository.getArtifact(path[2])
       return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
+    }
+    // One artifact as Markdown or JSON, for downloading or linking (HF-7).
+    if (path[1] === "artifacts" && request.method === "GET" && path[2] && path[3] === "export") {
+      const artifact = repository.getArtifact(path[2])
+      if (!artifact) return error("Artifact not found", 404)
+      const format = new URL(request.url).searchParams.get("format") ?? "md"
+      if (format !== "md" && format !== "json") return error("format is md or json", 400)
+      if (format === "json") return json({ data: artifact })
+      const when = new Date(artifact.createdAt).toISOString()
+      const body = [`# ${artifact.title}`, "", `${artifact.kind} · kept ${when}`, "", artifact.content ?? ""].join("\n")
+      return new Response(body, { headers: { "content-type": "text/markdown; charset=utf-8" } })
     }
     // Keeping one in front, or saying when it may be forgotten (H-14). Both change the same row.
     if (path[1] === "artifacts" && request.method === "PATCH" && path[2] && !path[3]) {

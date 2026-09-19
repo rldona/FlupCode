@@ -850,8 +850,42 @@ describe("taking a queued task off the run (HF-4)", () => {  test("a queued task
   })
 })
 
-describe("resuming a run that ended with work queued (HF-5)", () => {
-  const passingProject = (directory: string) => {
+describe("artifact search and export (HF-7)", () => {
+  test("lists by words, keeps screenshots, and exports as md or json", async () => {
+    const { handler, repository } = open()
+    const shot = repository.addArtifact({ kind: "screenshot", title: "login", producer: "user", content: "pixels" })
+    repository.addArtifact({ kind: "report", title: "weekly", producer: "harness", content: "nothing" })
+
+    const found = await handler(new Request("http://x/harness/artifacts?q=pixels"))
+    expect((await found.json()).data.map((entry: { title: string }) => entry.title)).toEqual(["login"])
+
+    const kept = await handler(
+      new Request("http://x/harness/artifacts", {
+        method: "POST",
+        body: JSON.stringify({ kind: "screenshot", title: "shot", content: "more pixels" }),
+      }),
+    )
+    expect(kept.status).toBe(201)
+
+    const md = await handler(new Request(`http://x/harness/artifacts/${shot.id}/export?format=md`))
+    expect(md.headers.get("content-type")).toContain("text/markdown")
+    const text = await md.text()
+    expect(text).toContain("# login")
+    expect(text).toContain("pixels")
+
+    const asJson = await handler(new Request(`http://x/harness/artifacts/${shot.id}/export?format=json`))
+    expect((await asJson.json()).data).toMatchObject({ id: shot.id, title: "login" })
+
+    const badFormat = await handler(new Request(`http://x/harness/artifacts/${shot.id}/export?format=pdf`))
+    expect(badFormat.status).toBe(400)
+
+    const missing = await handler(new Request("http://x/harness/artifacts/nope/export"))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("resuming a run that ended with work queued (HF-5)", () => {  const passingProject = (directory: string) => {
     mkdirSync(join(directory, ".flupcode"), { recursive: true })
     writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 0\n")
   }

@@ -902,7 +902,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return artifact
   }
 
-  listArtifacts(filter: { directory?: string; runID?: string; kind?: ArtifactKind } = {}, limit = 100) {
+  listArtifacts(filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string } = {}, limit = 100) {
     const where: string[] = []
     const values: unknown[] = []
     if (filter.directory) {
@@ -916,6 +916,13 @@ export class SqliteRoutineRepository implements RoutineRepository {
     if (filter.kind) {
       values.push(filter.kind)
       where.push(`kind = ?${values.length}`)
+    }
+    // Text search over title and inline content (HF-7). LIKE wildcards in the query are escaped
+    // so searching for `100%` finds that, not everything.
+    if (filter.q?.trim()) {
+      const needle = `%${filter.q.trim().replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+      values.push(needle, needle)
+      where.push(`(title LIKE ?${values.length - 1} ESCAPE '\\' OR content LIKE ?${values.length} ESCAPE '\\')`)
     }
     values.push(limit)
     const rows = this.db
