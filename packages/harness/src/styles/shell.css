@@ -4420,7 +4420,7 @@ button.fc-status {
 
 .fc-rightaside {
   position: relative;
-  width: 300px;
+  width: 340px;
   flex-shrink: 0;
   display: flex;
   border-left: 1px solid var(--fc-border);
@@ -4465,7 +4465,11 @@ button.fc-status {
   letter-spacing: 0.04em;
   color: var(--fc-text-muted);
   display: flex;
+  align-items: center;
   justify-content: space-between;
+  /* The actions drop to a line of their own rather than breaking a label across two. */
+  flex-wrap: wrap;
+  gap: 12px 8px;
 }
 
 .fc-aside-row {
@@ -6974,6 +6978,7 @@ button.fc-status {
   display: inline-flex;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
 }
 
 .fc-aside-clear {
@@ -6986,35 +6991,11 @@ button.fc-status {
   letter-spacing: inherit;
   text-transform: none;
   font-weight: 500;
+  white-space: nowrap;
 }
 
 .fc-aside-clear:hover {
   background: color-mix(in srgb, var(--fc-border) 80%, transparent);
-  color: var(--fc-text);
-}
-
-.fc-aside-todo-remove {
-  flex-shrink: 0;
-  width: 20px;
-  height: 20px;
-  margin-left: 4px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--fc-text-muted);
-  font-size: 15px;
-  line-height: 1;
-  opacity: 0;
-  transition: opacity var(--fc-motion-fast);
-}
-
-.fc-aside-todo:hover .fc-aside-todo-remove,
-.fc-aside-todo-remove:focus-visible {
-  opacity: 1;
-}
-
-.fc-aside-todo-remove:hover {
-  background: color-mix(in srgb, var(--fc-border) 55%, transparent);
   color: var(--fc-text);
 }
 
