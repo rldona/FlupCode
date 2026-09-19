@@ -24,6 +24,8 @@ export type RemoteSessionItem = {
 type RemoteHomeProps = {
   view: AppView
   onViewChange: (view: AppView) => void
+  /** Which tabs have sessions working right now, for the dot on their icons. */
+  viewActivity: { chat: boolean; code: boolean }
   /** This tab's sessions: chats or code sessions. */
   sessions: RemoteSessionItem[]
   loading: boolean
@@ -52,7 +54,7 @@ const STATE_LABEL: Record<RemoteSessionState, string> = {
 }
 
 export const RemoteHome: Component<RemoteHomeProps> = (props) => {
-  const [filter, setFilter] = createSignal<"all" | "active">("all")
+  const [filter, setFilter] = createSignal<"all" | "active">("active")
   const [picking, setPicking] = createSignal(false)
   const [now, setNow] = createSignal(Date.now())
   const timer = setInterval(() => setNow(Date.now()), 30_000)
@@ -92,30 +94,45 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
     <div class="fc-remote-home">
       <div class="fc-remote-home-top">
         <h1 class="fc-remote-home-title">{props.view === "chat" ? t("Chats") : t("Code")}</h1>
-        <ViewTabs view={props.view} onChange={props.onViewChange} />
+        <ViewTabs view={props.view} onChange={props.onViewChange} activity={props.viewActivity} />
       </div>
 
       <section class="fc-remote-home-section">
-        <h2 class="fc-remote-home-heading">{t("Devices")}</h2>
+        <div class="fc-remote-home-row">
+          <h2 class="fc-remote-home-heading">{t("Devices")}</h2>
+          <button class="fc-remote-pill" type="button" onClick={props.onAddDevice}>
+            <span aria-hidden="true">+</span> {t("Add device")}
+          </button>
+        </div>
         <For each={remote.hosts()}>
           {(host) => (
-            <button
+            <div
               class="fc-remote-card fc-remote-device"
               classList={{ "fc-remote-card-active": remote.activeHost()?.hostId === host.hostId }}
-              type="button"
-              onClick={() => pickHost(host.hostId)}
             >
-              <span class={`fc-remote-dot fc-remote-dot-${hostState(host.hostId)}`} aria-hidden="true" />
-              <span class="fc-remote-card-main">
-                <span class="fc-remote-card-title">{host.name}</span>
-                <span class="fc-remote-card-meta">{hostLabel(host.hostId)}</span>
-              </span>
-            </button>
+              <button class="fc-remote-device-main" type="button" onClick={() => pickHost(host.hostId)}>
+                <span class={`fc-remote-dot fc-remote-dot-${hostState(host.hostId)}`} aria-hidden="true" />
+                <span class="fc-remote-card-main">
+                  <span class="fc-remote-card-title">{host.name}</span>
+                  <span class="fc-remote-card-meta">{hostLabel(host.hostId)}</span>
+                </span>
+              </button>
+              {/* Only a device this phone is not using can be removed here; the active one has to be
+                  disconnected first, from the panel the row itself opens. */}
+              <Show when={remote.activeHost()?.hostId !== host.hostId}>
+                <button
+                  class="fc-remote-device-forget"
+                  type="button"
+                  title={t("Remove device")}
+                  aria-label={t("Remove device")}
+                  onClick={() => remote.forget(host.hostId)}
+                >
+                  ×
+                </button>
+              </Show>
+            </div>
           )}
         </For>
-        <button class="fc-remote-pill" type="button" onClick={props.onAddDevice}>
-          <span aria-hidden="true">+</span> {t("Add device")}
-        </button>
         <RemoteNotifications />
       </section>
 

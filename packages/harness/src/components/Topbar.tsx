@@ -18,6 +18,8 @@ type TopbarProps = {
   onToggleSidebar: () => void
   view: AppView
   onViewChange: (view: AppView) => void
+  /** Which tabs have sessions working right now, for the dot on their icons. */
+  viewActivity: { chat: boolean; code: boolean }
   /** True where the Code chrome applies: the Code tab, or a Cowork conversation in the Chat tab. */
   codeChrome: boolean
   /** The Chat / Code tabs live at the top of the sidebar; while it is hidden they show here. */
@@ -70,7 +72,12 @@ export const TopbarIcons = {
 }
 
 /** Chat / Code switch, like Claude's: two icon tabs in one pill. */
-export const ViewTabs: Component<{ view: AppView; onChange: (view: AppView) => void }> = (props) => (
+export const ViewTabs: Component<{
+  view: AppView
+  onChange: (view: AppView) => void
+  /** A tab whose own sessions are working shows a dot; a quiet one shows nothing. */
+  activity?: { chat: boolean; code: boolean }
+}> = (props) => (
   <div class="fc-view-tabs" role="tablist" aria-label={t("View")}>
     <button
       class="fc-view-tab"
@@ -83,6 +90,9 @@ export const ViewTabs: Component<{ view: AppView; onChange: (view: AppView) => v
       onClick={() => props.onChange("chat")}
     >
       <TopIcon d={TopbarIcons.chat} />
+      <Show when={props.activity?.chat}>
+        <span class="fc-view-tab-dot" aria-hidden="true" />
+      </Show>
     </button>
     <button
       class="fc-view-tab"
@@ -95,6 +105,9 @@ export const ViewTabs: Component<{ view: AppView; onChange: (view: AppView) => v
       onClick={() => props.onChange("code")}
     >
       <TopIcon d={TopbarIcons.code} />
+      <Show when={props.activity?.code}>
+        <span class="fc-view-tab-dot" aria-hidden="true" />
+      </Show>
     </button>
   </div>
 )
@@ -128,7 +141,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
           <TopIcon d={TopbarIcons.forward} />
         </button>
         <Show when={props.showTabs}>
-          <ViewTabs view={props.view} onChange={props.onViewChange} />
+          <ViewTabs view={props.view} onChange={props.onViewChange} activity={props.viewActivity} />
         </Show>
         {props.sessionTitle}
       </div>
