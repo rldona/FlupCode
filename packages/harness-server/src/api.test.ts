@@ -459,6 +459,29 @@ tasks:
     repository.close()
   })
 
+  test("HF-2: a default answers the input it names", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-hf2-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "review.yaml"),
+      'name: review\ninputs:\n  - name: scope\n    default: all changes\ntasks:\n  - id: review\n    prompt: "Review {{scope}}"\n',
+    )
+
+    const started = await handler(
+      new Request("http://localhost/harness/workflows/review/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: {}, directory }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    expect(repository.listTasks(run.id)[0]!.prompt).toBe("Review all changes")
+    await settled(repository, run.id)
+    repository.close()
+  })
+
   // Stopping answers for any run, not just a routine's: the supervisor has the run id and nothing else.
   test("stops a run by its own id", async () => {
     const { repository, handler } = open()
