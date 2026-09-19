@@ -122,10 +122,22 @@ func generate(source: CGImage, bounds: CGRect, target: Target) throws {
         ctx.setBlendMode(.normal)
     }
 
-    let base = (target.basis == .width ? Double(w) : Double(h)) * target.scale * target.fraction
-    let aspect = bounds.width / bounds.height
-    let drawWidth = target.basis == .width ? base : base * Double(aspect)
-    let drawHeight = target.basis == .width ? base / Double(aspect) : base
+    // Transparent artwork must fit inside the canvas on both axes; scaling by
+    // a single basis overflows when the art isn't square (e.g. a portrait
+    // logo scaled by width gets cropped top and bottom).
+    let drawWidth: Double
+    let drawHeight: Double
+    if target.plate {
+        let base = (target.basis == .width ? Double(w) : Double(h)) * target.scale * target.fraction
+        let aspect = bounds.width / bounds.height
+        drawWidth = target.basis == .width ? base : base * Double(aspect)
+        drawHeight = target.basis == .width ? base / Double(aspect) : base
+    } else {
+        let fit =
+            min(Double(w) / bounds.width, Double(h) / bounds.height) * target.fraction
+        drawWidth = bounds.width * fit
+        drawHeight = bounds.height * fit
+    }
     let x = (Double(w) - drawWidth) / 2
     let y = (Double(h) - drawHeight) / 2
 
