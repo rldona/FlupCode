@@ -482,6 +482,44 @@ tasks:
     repository.close()
   })
 
+  test("HF-3: a file's worktrees reach the run without being asked", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-hf3-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "treed.yaml"),
+      "name: treed\nworktrees: true\ntasks:\n  - id: a\n    prompt: a\n",
+    )
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "plain.yaml"),
+      "name: plain\ntasks:\n  - id: a\n    prompt: a\n",
+    )
+
+    const treed = await handler(
+      new Request("http://localhost/harness/workflows/treed/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: {}, directory }),
+      }),
+    )
+    expect(treed.status).toBe(202)
+    const treedRun = (await treed.json()).data
+    expect(treedRun.worktrees).toBe(true)
+    await settled(repository, treedRun.id)
+
+    const plain = await handler(
+      new Request("http://localhost/harness/workflows/plain/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: {}, directory }),
+      }),
+    )
+    expect(plain.status).toBe(202)
+    const plainRun = (await plain.json()).data
+    expect(plainRun.worktrees).toBeFalsy()
+    await settled(repository, plainRun.id)
+    repository.close()
+  })
+
   // Stopping answers for any run, not just a routine's: the supervisor has the run id and nothing else.
   test("stops a run by its own id", async () => {
     const { repository, handler } = open()
