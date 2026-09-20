@@ -17,6 +17,8 @@ type McpEditorProps = {
   onRemove: (name: string) => void
   onConnect: (name: string) => void
   onDisconnect: (name: string) => void
+  /** Starts the engine's OAuth flow for a server that needs it (SE-2). */
+  onOAuth: (name: string) => void
 }
 
 type McpManagerProps = McpEditorProps & {
@@ -26,9 +28,12 @@ type McpManagerProps = McpEditorProps & {
 }
 
 const statusLabel = (server: McpServer) => {
-  const value = (server.status as { status?: string }).status
+  const value = (server.status as { status?: string } | undefined)?.status
   return value ?? "unknown"
 }
+
+/** Plain connect cannot finish these: only the engine's OAuth flow can (SE-2). */
+export const needsOAuth = (server: McpServer) => statusLabel(server) === "needs_auth"
 
 /** Why a server is not working, when the engine said: a failed one carries the reason (H-34). */
 const statusError = (server: McpServer) => (server.status as { error?: string }).error
@@ -172,6 +177,13 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                   >
                     {statusLabel(server) === "connected" ? t("Disconnect") : t("Connect")}
                   </button>
+                  {/* OAuth the engine offers: open its authorization URL, then wait for its
+                      callback. Plain connect cannot finish these (SE-2). */}
+                  <Show when={needsOAuth(server)}>
+                    <button class="fc-button" type="button" disabled={props.busy} onClick={() => props.onOAuth(server.name)}>
+                      {t("Connect with OAuth")}
+                    </button>
+                  </Show>
                   <button
                     class="fc-button fc-button-danger"
                     type="button"
@@ -368,6 +380,7 @@ export const McpManager: Component<McpManagerProps> = (props) => (
           onRemove={props.onRemove}
           onConnect={props.onConnect}
           onDisconnect={props.onDisconnect}
+          onOAuth={props.onOAuth}
         />
       </div>
     </div>

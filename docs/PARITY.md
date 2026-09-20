@@ -85,7 +85,8 @@ Paths are relative to `packages/`.
 | Feature                                                   | Upstream | FlupCode | Evidence                                               |
 | --------------------------------------------------------- | -------- | -------- | ------------------------------------------------------ |
 | MCP: status, add local/remote, connect/disconnect         | ✅       | ✅       | `client.mcp.*` → `/mcp` + the configuration            |
-| MCP: OAuth, per-server logs, resources, per-agent access  | ✅       | ❌       | `/mcp/:name/auth`, `/experimental/resource` unused     |
+| MCP: OAuth                                            | ✅       | ✅       | `needs_auth` → "Connect with OAuth" (`auth/start` + `authenticate`), validated live 2026-09-20 |
+| MCP: per-server logs, resources, per-agent access     | ✅       | 🟡       | resources + per-agent access via `McpEditor`; no per-server logs yet |
 | Agent list and switch                                     | ✅       | 🟡       | the menu only appears with more than one primary agent |
 | Subagents via the task tool, `subagent_depth`, background | ✅       | ✅       | Code runs on the legacy runtime, which has them        |
 | Commands with agent/model/variant overrides, subtask      | ✅       | 🟡       | runs them, no overrides                                |
