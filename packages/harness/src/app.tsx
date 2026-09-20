@@ -112,7 +112,6 @@ import { RenameDialog } from "./components/RenameDialog"
 import { TagsDialog } from "./components/TagsDialog"
 import { ConfirmDialog } from "./components/ConfirmDialog"
 import { permissionMode } from "./permission-modes"
-import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
@@ -576,7 +575,8 @@ export const App: Component = () => {
       onOpen: () => setRemoteOpen(true),
     }
   }
-  const [providersOpen, setProvidersOpen] = createSignal(false)
+  /** The providers section is showing: its directory, methods and links load like a screen did. */
+  const providersSectionVisible = () => settingsOpen() && settingsSection() === "providers"
   const [folderOpen, setFolderOpen] = createSignal(false)
 
   const [skillsOpen, setSkillsOpen] = createSignal(false)
@@ -1178,7 +1178,7 @@ export const App: Component = () => {
     async (url) => createClient(url).integration.list(),
   )
   createEffect(() => {
-    if (!providersOpen()) return
+    if (!providersSectionVisible()) return
     void refetchProviderDirectory()
     void refetchIntegrations()
   })
@@ -1186,7 +1186,7 @@ export const App: Component = () => {
   // them used to happen on its own on every load, which sent every key through the page (and, while
   // remote-controlling, to the phone). Now the providers panel offers it and the reader asks for it.
   const [unlinkedProviders, { refetch: refetchUnlinkedProviders }] = createResource(
-    () => (ready() && providersOpen() ? serverUrl() : undefined),
+    () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
     async (url) => createClient(url).provider.unlinked(),
   )
   const linkConfiguredKeys = () =>
@@ -2159,7 +2159,7 @@ export const App: Component = () => {
         return
       }
       if (name === "providers") {
-        setProvidersOpen(true)
+        openSettings("providers")
         return
       }
       if (name === "toggle-sidebar") {
@@ -5035,7 +5035,7 @@ export const App: Component = () => {
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
             onArtifacts={() => showScreen("artifacts")}
-            onProviders={() => setProvidersOpen(true)}
+            onProviders={() => openSettings("providers")}
             onConfig={() => setConfigOpen(true)}
             onRemote={() => setRemoteOpen(true)}
             onMcp={() => openSettings("mcp")}
@@ -5499,23 +5499,6 @@ export const App: Component = () => {
         searchFiles={searchFiles}
         searchSessions={searchSessions}
       />
-      <ProvidersPanel
-        open={providersOpen()}
-        providers={providerDirectory()?.all ?? []}
-        auth={providerAuth() ?? {}}
-        connected={providerDirectory()?.connected ?? []}
-        integrations={integrations()?.data ?? []}
-        unlinked={unlinkedProviders() ?? []}
-        busy={busy()}
-        onSave={saveProvider}
-        onRemove={removeProvider}
-        onOAuth={startOAuth}
-        onOAuthStatus={oAuthStatus}
-        onOAuthCancel={cancelOAuth}
-        onOAuthDone={finishOAuth}
-        onLinkConfigured={linkConfiguredKeys}
-        onClose={() => setProvidersOpen(false)}
-      />
       <ModelPicker
         open={modelPickerOpen()}
         models={modelList()}
@@ -5668,6 +5651,19 @@ export const App: Component = () => {
         agentsHasProject={!!vcsDirectory()}
         onSaveAgent={saveAgent}
         onDeleteAgent={deleteAgent}
+        providersList={providerDirectory()?.all ?? []}
+        providerAuth={providerAuth() ?? {}}
+        providerConnected={providerDirectory()?.connected ?? []}
+        providerIntegrations={integrations()?.data ?? []}
+        providerUnlinked={unlinkedProviders() ?? []}
+        providersBusy={busy()}
+        onSaveProvider={saveProvider}
+        onRemoveProvider={removeProvider}
+        onProviderOAuth={startOAuth}
+        onProviderOAuthStatus={oAuthStatus}
+        onProviderOAuthCancel={cancelOAuth}
+        onProviderOAuthDone={finishOAuth}
+        onLinkConfiguredProviders={linkConfiguredKeys}
         onOpenSkills={() => {
           setSettingsOpen(false)
           showScreen("skills")
