@@ -33,9 +33,9 @@ Status: `todo` · `doing` · `done` · `cut`
 | --- | --- | --- | --- |
 | F1-1 | P0 | Fork, remotes, branch model (`dev` mirror / `power`) | done |
 | F1-2 | P0 | `upstream-sync` GitHub Action (`dev` FF + PR to `power`) | done |
-| F1-3 | P0 | Rebrand: name, icons, about, non-affiliation notice | doing |
+| F1-3 | P0 | Rebrand: name, icons, about, non-affiliation notice | done |
 | F1-4 | P0 | Base docs (README, ARCHITECTURE, UPSTREAM, CONTRIBUTING) | done |
-| F1-5 | P1 | Product build/release pipeline | todo |
+| F1-5 | P1 | Product build/release pipeline | done |
 | F1-6 | P1 | Set `power` as default branch on the fork | done |
 
 ## F2 — Design system & shell (Claude Code style)
@@ -47,17 +47,17 @@ Status: `todo` · `doing` · `done` · `cut`
 | F2-3 | P0 | Sidebar: nav sections (Nuevo/Artefactos/Rutinas/Personalizar) | done |
 | F2-4 | P0 | Sidebar: project list with quick-create, pin, search/filter | done |
 | F2-5 | P0 | Greeting header + home canvas | done |
-| F2-6 | P0 | Composer dock: context chips, attachments, voice, model/variant | doing |
+| F2-6 | P0 | Composer dock: context chips, attachments, voice, model/variant | done |
 | F2-7 | P1 | Sidebar footer: profile / plan indicator | doing |
-| F2-8 | P1 | Empty states, skeletons, toasts | todo |
+| F2-8 | P1 | Empty states, skeletons, toasts | done |
 
 ## F3 — TUI parity
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F3-1 | P0 | Slash commands + command palette in harness | todo |
-| F3-2 | P0 | `@` mentions and `!` shell mode | todo |
-| F3-3 | P0 | Permissions & questions docks | todo |
+| F3-1 | P0 | Slash commands + command palette in harness | doing |
+| F3-2 | P0 | `@` mentions and `!` shell mode | doing |
+| F3-3 | P0 | Permissions & questions docks | done |
 | F3-4 | P0 | Undo/redo, revert, fork, compact | todo |
 | F3-5 | P0 | Session list/switch, share/unshare, export | todo |
 | F3-6 | P0 | Agents, subagents, todos | todo |
