@@ -126,6 +126,23 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
     }
   }
 
+  /**
+   * Adding a folder: the desktop app can open the OS picker, so the button does that and there is no
+   * box to type in. In a browser there is no picker, so the box stays and the button reads it.
+   */
+  const nativeFolderPicker = () =>
+    typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function"
+  const chooseFolder = async () => {
+    if (nativeFolderPicker()) {
+      const picked = await window.flupcode?.chooseFolder?.()
+      if (picked) props.onAddSource("path", picked)
+      return
+    }
+    if (!newPath().trim()) return
+    props.onAddSource("path", newPath())
+    setNewPath("")
+  }
+
   const loaded = createMemo(() => props.files.filter((file) => file.loaded))
   const notLoaded = createMemo(() => ignored(props.files))
   const access = createMemo(
@@ -262,23 +279,22 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               </For>
             </Show>
             <div class="fc-field-row">
-              <label class="fc-field">
-                <span>{t("Folder")}</span>
-                <input
-                  class="fc-question-custom"
-                  placeholder="/home/me/my-skills"
-                  value={newPath()}
-                  onInput={(event) => setNewPath(event.currentTarget.value)}
-                />
-              </label>
+              <Show when={!nativeFolderPicker()}>
+                <label class="fc-field">
+                  <span>{t("Folder")}</span>
+                  <input
+                    class="fc-question-custom"
+                    placeholder="/home/me/my-skills"
+                    value={newPath()}
+                    onInput={(event) => setNewPath(event.currentTarget.value)}
+                  />
+                </label>
+              </Show>
               <button
                 class="fc-button"
                 type="button"
-                disabled={!newPath().trim()}
-                onClick={() => {
-                  props.onAddSource("path", newPath())
-                  setNewPath("")
-                }}
+                disabled={!nativeFolderPicker() && !newPath().trim()}
+                onClick={() => void chooseFolder()}
               >
                 {t("Add folder")}
               </button>
@@ -336,19 +352,46 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                         {t("Agents that load it: {agents}", { agents: (access().get(file.name!) ?? []).join(", ") })}
                       </p>
                     </Show>
-                    <Show when={openPath() === file.path}>
-                      <pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>
-                      <div class="fc-routines-header-actions">
+                  </div>
+                )}
+              </For>
+              </div>
+              {/* Read in a dialog: a SKILL.md is prose, and under its row it was cramped. */}
+              <Show when={props.files.find((file) => file.path === openPath())}>
+                {(file) => (
+                  <div class="fc-modal-backdrop" onClick={() => setOpenPath(undefined)}>
+                    <div
+                      class="fc-modal fc-form-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label={file().name ?? file().path}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div class="fc-modal-header">
+                        <span class="fc-modal-heading">{file().name ?? file().path}</span>
+                        <button
+                          class="fc-icon-button"
+                          type="button"
+                          aria-label={t("Close")}
+                          onClick={() => setOpenPath(undefined)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div class="fc-modal-body">
+                        <pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>
+                      </div>
+                      <div class="fc-dialog-actions">
                         <Show
-                          when={confirming() === file.path}
+                          when={confirming() === file().path}
                           fallback={
-                            <button class="fc-button" type="button" onClick={() => setConfirming(file.path)}>
+                            <button class="fc-button" type="button" onClick={() => setConfirming(file().path)}>
                               {t("Delete")}
                             </button>
                           }
                         >
                           <span class="fc-confirm-inline">
-                            <span>{t("Delete {name}?", { name: file.name ?? file.path })}</span>
+                            <span>{t("Delete {name}?", { name: file().name ?? file().path })}</span>
                             <button class="fc-button" type="button" onClick={() => setConfirming(undefined)}>
                               {t("Cancel")}
                             </button>
@@ -356,7 +399,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                               class="fc-button fc-button-danger"
                               type="button"
                               onClick={async () => {
-                                await props.onDelete(file.path)
+                                await props.onDelete(file().path)
                                 setConfirming(undefined)
                                 setOpenPath(undefined)
                               }}
@@ -366,11 +409,10 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                           </span>
                         </Show>
                       </div>
-                    </Show>
+                    </div>
                   </div>
                 )}
-              </For>
-              </div>
+              </Show>
             </Show>
           </section>
 
@@ -389,6 +431,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                     ×
                   </button>
                 </div>
+                <div class="fc-modal-body">
                 <p class="fc-modal-note">
                   {t("Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.")}
                 </p>
@@ -434,6 +477,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               </label>
               <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
               <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
+              </div>
               <div class="fc-dialog-actions">
                 <button class="fc-button" type="button" onClick={() => setCreating(false)}>
                   {t("Cancel")}

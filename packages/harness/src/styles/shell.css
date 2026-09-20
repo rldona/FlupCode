@@ -3033,7 +3033,7 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-4);
-  max-height: 60vh;
+  max-height: min(72vh, 820px);
   overflow-y: auto;
   /* Room between the content and the scrollbar. */
   padding-right: var(--fc-space-4);
@@ -3051,7 +3051,8 @@ button.fc-status {
   anything in, and the editors (commands, MCP) need room next to the settings they belong to.
 */
 .fc-modal-settings {
-  width: min(820px, 100%);
+  width: min(1120px, 100%);
+  max-height: min(92vh, 1040px);
 }
 
 .fc-settings-layout {
@@ -8756,11 +8757,47 @@ button.fc-status {
 }
 
 /* The wide dialog the editor screens share: a form, a file, a routine. Centred by the backdrop. */
-.fc-workflow-modal,
-.fc-form-modal {
+.fc-workflow-modal {
   width: min(760px, 100%);
   max-height: min(88vh, 960px);
   overflow-y: auto;
+}
+
+/* A form dialog keeps its header and its actions put; only the body scrolls. */
+.fc-form-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 100%);
+  max-height: min(88vh, 960px);
+  overflow: hidden;
+  padding: 0;
+  gap: 0;
+}
+
+.fc-form-modal .fc-modal-header {
+  flex: 0 0 auto;
+  padding: var(--fc-space-4);
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-form-modal .fc-modal-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--fc-space-4);
+}
+
+.fc-form-modal .fc-dialog-actions {
+  flex: 0 0 auto;
+  padding: var(--fc-space-3) var(--fc-space-4);
+  border-top: 1px solid var(--fc-border);
+}
+
+.fc-form-modal .fc-routine-editor-grid {
+  margin-top: 0;
 }
 
 .fc-workflow-modal-title {
