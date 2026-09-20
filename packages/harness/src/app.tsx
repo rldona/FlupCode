@@ -963,7 +963,9 @@ export const App: Component = () => {
     const directory = modelLocation()
     try {
       const list = await createHarnessClient(harnessServerUrl()).artifacts.list(directory ? { directory } : {})
-      setArtifactList(list)
+      // A server that answers without a list keeps the last one instead of clearing it: the list is
+      // rendered and searched as an array, and `undefined` there took the whole app down.
+      if (list) setArtifactList(list)
       setArtifactsFailure(undefined)
     } catch (cause) {
       setArtifactsFailure(cause instanceof Error ? cause : new Error(String(cause)))
@@ -5564,7 +5566,7 @@ export const App: Component = () => {
                 projects={projects()}
                 targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
                 agents={agents()?.data ?? []}
-                artifacts={artifactList().flatMap((artifact): Array<{ id?: string; path?: string; title?: string; kind?: string }> =>
+                artifacts={(artifactList() ?? []).flatMap((artifact): Array<{ id?: string; path?: string; title?: string; kind?: string }> =>
                   artifact.path
                     ? [{ path: artifact.path, title: artifact.title }]
                     : artifact.content
