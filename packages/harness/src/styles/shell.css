@@ -8392,10 +8392,29 @@ button.fc-status {
 }
 
 .fc-diff-hunk-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 3px 12px;
   color: var(--fc-text-muted);
   background: color-mix(in srgb, var(--fc-text-muted) 8%, transparent);
+}
+
+.fc-diff-hunk-label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: pre;
+}
+
+.fc-diff-hunk-pick {
+  display: flex;
+  align-items: center;
+}
+
+.fc-diff-discard,
+.fc-diff-discard-file {
+  flex-shrink: 0;
 }
 
 .fc-diff-line {

@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { branch, commit, currentBranch, isRepository } from "./git"
+import { branch, commit, currentBranch, discard, isRepository } from "./git"
 
 /** A throwaway repository. Every test here writes to git, so none of them may share one. */
 let directory = ""
@@ -78,6 +78,68 @@ describe("commit", () => {
     const plain = mkdtempSync(join(tmpdir(), "flupcode-plain-"))
     expect(commit({ directory: plain, message: "m", paths: ["a"] })).rejects.toThrow(/not a git repository/)
     rmSync(plain, { recursive: true, force: true })
+  })
+
+  test("stages only the chosen hunk, and leaves the other in the working tree", async () => {
+    const lines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`)
+    write("many.txt", `${lines.join("\n")}\n`)
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "add many"])
+    write("many.txt", [`CHANGED 1`, ...lines.slice(1, 19), `CHANGED 20`].join("\n") + "\n")
+
+    await commit({ directory, message: "only the first hunk", paths: ["many.txt"], hunks: { "many.txt": [0] } })
+
+    const committed = await run(["show", "--pretty=", "HEAD"])
+    expect(committed).toContain("CHANGED 1")
+    expect(committed).not.toContain("CHANGED 20")
+    // The hunk that was not chosen is still there to commit next, or to discard.
+    expect(await run(["diff", "--", "many.txt"])).toContain("CHANGED 20")
+    expect(readFileSync(join(directory, "many.txt"), "utf8")).toContain("CHANGED 20")
+  })
+
+  test("a hunk commit still refuses a path git does not report as changed", async () => {
+    expect(commit({ directory, message: "m", paths: ["kept.txt"], hunks: { "kept.txt": [0] } })).rejects.toThrow(
+      /No longer changed/,
+    )
+  })
+})
+
+describe("discard", () => {
+  test("puts a whole file back to what git has", async () => {
+    write("kept.txt", "two\n")
+    await discard({ directory, path: "kept.txt" })
+    expect(readFileSync(join(directory, "kept.txt"), "utf8")).toBe("one\n")
+  })
+
+  test("removes a file git has never seen when the whole file is discarded", async () => {
+    write("new.txt", "hi\n")
+    await discard({ directory, path: "new.txt" })
+    expect(existsSync(join(directory, "new.txt"))).toBe(false)
+  })
+
+  test("discards only the chosen hunk from the working tree", async () => {
+    const lines = Array.from({ length: 20 }, (_, index) => `line ${index + 1}`)
+    write("many.txt", `${lines.join("\n")}\n`)
+    await run(["add", "-A"])
+    await run(["commit", "-qm", "add many"])
+    write("many.txt", [`CHANGED 1`, ...lines.slice(1, 19), `CHANGED 20`].join("\n") + "\n")
+
+    // Hunks are numbered as the diff shows them: index 1 is the later change.
+    await discard({ directory, path: "many.txt", hunks: [1] })
+
+    const left = readFileSync(join(directory, "many.txt"), "utf8")
+    expect(left).toContain("CHANGED 1")
+    expect(left).not.toContain("CHANGED 20")
+    expect(left).toContain("line 20")
+  })
+
+  test("a new file has no hunks to choose, and says so", async () => {
+    write("new.txt", "hi\n")
+    expect(discard({ directory, path: "new.txt", hunks: [0] })).rejects.toThrow(/has no hunks/)
+  })
+
+  test("refuses a path that is not changed", async () => {
+    expect(discard({ directory, path: "kept.txt" })).rejects.toThrow(/not changed/)
   })
 })
 

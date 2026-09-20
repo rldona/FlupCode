@@ -162,7 +162,7 @@ import { duration, listWorkflows } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
-import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
+import { GitError, branch as gitBranch, commit as gitCommit, currentBranch, discard as gitDiscard, patchForCommit } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
@@ -650,13 +650,64 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     // Git (H-20). The server is the only part of FlupCode that can run it: the client is a browser,
     // and the engine's `/vcs` routes read the tree but never write to it.
     if (path[1] === "git" && path[2] === "commit" && request.method === "POST") {
-      const body = (await readJSON(request)) as { directory?: unknown; message?: unknown; paths?: unknown } | undefined
+      const body = (await readJSON(request)) as
+        | { directory?: unknown; message?: unknown; paths?: unknown; hunks?: unknown }
+        | undefined
       const directory = typeof body?.directory === "string" ? body.directory : ""
       if (!directory) return error("A folder is required", 400)
       const message = typeof body?.message === "string" ? body.message : ""
       const paths = Array.isArray(body?.paths) ? body.paths.filter((value): value is string => typeof value === "string") : []
+      // Per path, the hunk indices to stage; a path absent is staged whole.
+      const hunks: Record<string, number[]> = {}
+      if (body?.hunks && typeof body.hunks === "object" && !Array.isArray(body.hunks)) {
+        for (const [file, value] of Object.entries(body.hunks as Record<string, unknown>)) {
+          if (Array.isArray(value)) hunks[file] = value.filter((index): index is number => typeof index === "number")
+        }
+      }
       try {
-        return json({ data: await gitCommit({ directory, message, paths }) })
+        return json({ data: await gitCommit({ directory, message, paths, hunks }) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    // Throws away a change, or the named hunks of one (H-20). The other direction from staging: the
+    // reader looks at a diff and decides that this part of it should not have happened.
+    if (path[1] === "git" && path[2] === "discard" && request.method === "POST") {
+      const body = (await readJSON(request)) as { directory?: unknown; path?: unknown; hunks?: unknown } | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      if (!directory) return error("A folder is required", 400)
+      const file = typeof body?.path === "string" ? body.path : ""
+      if (!file) return error("A path is required", 400)
+      const hunks = Array.isArray(body?.hunks)
+        ? body.hunks.filter((index): index is number => typeof index === "number")
+        : undefined
+      try {
+        return json({ data: await gitDiscard({ directory, path: file, hunks }) })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    // A commit message for the picked change, written by the engine in a session of its own (H-20).
+    if (path[1] === "git" && path[2] === "message" && request.method === "POST") {
+      const body = (await readJSON(request)) as
+        | { directory?: unknown; paths?: unknown; hunks?: unknown }
+        | undefined
+      const directory = typeof body?.directory === "string" ? body.directory : ""
+      if (!directory) return error("A folder is required", 400)
+      const paths = Array.isArray(body?.paths) ? body.paths.filter((value): value is string => typeof value === "string") : []
+      if (paths.length === 0) return error("Nothing was selected", 400)
+      try {
+        const diff = await patchForCommit({ directory, paths })
+        if (!diff.trim()) return error("There is nothing to describe", 409)
+        // Capped: a commit message is not worth an unbounded prompt, and a huge diff is a prompt the
+        // model reads at a price the reader did not ask for.
+        const message = await scheduler.engine.commitMessage({
+          directory,
+          diff: diff.length > 12_000 ? `${diff.slice(0, 12_000)}\n… (truncated)` : diff,
+        })
+        return message ? json({ data: { message } }) : error("The engine did not answer with a message", 502)
       } catch (cause) {
         if (cause instanceof GitError) return error(cause.message, cause.status)
         throw cause
