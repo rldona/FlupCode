@@ -1252,11 +1252,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                               </svg>
                             </button>
                           </Show>
+                          {/* Rewinding needs an idle session: the engine refuses mid-turn (UN). */}
                           <button
                             class="fc-message-action"
                             type="button"
-                            title={t("Edit")}
+                            title={props.busy ? t("Stop the turn first") : t("Edit")}
                             aria-label={t("Edit")}
+                            disabled={props.busy}
                             onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
                           >
                             <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
