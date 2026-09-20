@@ -641,11 +641,12 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     container.scrollTo({ top: container.scrollHeight, behavior: motion() })
   }
 
-  // Follows the end while content grows (streaming, tool output, refreshed history). The body only
-  // exists once the transcript has loaded and is recreated on reload, so it is observed from its ref.
+  // Growing content never follows on its own: streaming, tool output and refreshed history only tell
+  // the "back to end" button whether the reader has fallen behind. The body exists once the
+  // transcript has loaded and is recreated on reload, so it is observed from its ref.
   const growth = new ResizeObserver(() => {
-    if (stick()) requestAnimationFrame(scrollToBottom)
-    else if (container) setAwayFromEnd(container.scrollHeight - container.scrollTop - container.clientHeight > 200)
+    if (!container) return
+    setAwayFromEnd(container.scrollHeight - container.scrollTop - container.clientHeight > 200)
   })
   onCleanup(() => growth.disconnect())
   const observeBody = (element: HTMLDivElement) => {
@@ -666,19 +667,25 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   onCleanup(() => frameWidth.disconnect())
   const observeFrame = (element: HTMLDivElement) => frameWidth.observe(element)
 
+  // Land at the end once per session switch, then leave the transcript alone. Content growing below
+  // never drags the reader back, so scrolling up stays where the reader left it. The delayed
+  // attempts cover lazy rendering; `scrollToBottom` still re-checks `stick`, so scrolling during
+  // that window wins. They live outside the effect so a message update cannot cancel them.
+  let settleTimers: Array<ReturnType<typeof setTimeout>> = []
+  const clearSettleTimers = () => {
+    settleTimers.forEach((timer) => clearTimeout(timer))
+    settleTimers = []
+  }
+  onCleanup(clearSettleTimers)
   createEffect(() => {
     const first = props.messages?.[0]?.id
-    props.busy
-    const switched = first !== firstMessageID
-    if (switched) {
-      firstMessageID = first
-      setVisibleCount(80)
-      setStick(true)
-    }
-    if (!stick()) return
-    requestAnimationFrame(scrollToBottom)
-    const timers = [setTimeout(scrollToBottom, 80), setTimeout(scrollToBottom, 320)]
-    onCleanup(() => timers.forEach((timer) => clearTimeout(timer)))
+    if (first === firstMessageID) return
+    firstMessageID = first
+    setVisibleCount(80)
+    setStick(true)
+    clearSettleTimers()
+    scrollToBottom()
+    settleTimers = [setTimeout(scrollToBottom, 80), setTimeout(scrollToBottom, 320)]
   })
 
   return (
