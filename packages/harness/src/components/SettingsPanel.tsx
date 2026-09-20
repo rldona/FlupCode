@@ -86,8 +86,9 @@ type SettingsPanelProps = {
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
   onKeybind: (action: KeybindAction, binding: string) => void
-  /** The section to show when the panel opens (CU-1). Absent means the first one. */
-  initialSection?: SettingsSection
+  /** The visible section, owned by app so keys and callers can read it (CU-1). */
+  section?: SettingsSection
+  onSectionChange: (section: SettingsSection) => void
   /** What the agents section edits: files on disk plus what the engine reports (CU-1). */
   agentsList: AgentInfo[]
   agentTools: string[]
@@ -176,11 +177,10 @@ function groupModels(models: ModelInfo[]) {
 }
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
-  const [section, setSection] = createSignal<SettingsSection>("appearance")
-  // Open callers name the section; reopening starts there instead of where it was left (CU-1).
-  createEffect(() => {
-    if (props.open) setSection(props.initialSection ?? "appearance")
-  })
+  // The section lives in app (CU-1): resource keys and the sidebar read it, so tab clicks
+  // must be visible outside this panel.
+  const section = () => props.section ?? "appearance"
+  const setSection = (next: SettingsSection) => props.onSectionChange(next)
   // Resetting asks for a second click within a few seconds.
   const [confirmReset, setConfirmReset] = createSignal(false)
   let confirmTimer: ReturnType<typeof setTimeout> | undefined

@@ -5643,7 +5643,8 @@ export const App: Component = () => {
         onToggleSessionTabs={toggleSessionTabs}
         onToggleNotifications={toggleNotifications}
         onKeybind={changeKeybind}
-        initialSection={settingsSection()}
+        section={settingsSection() ?? "appearance"}
+        onSectionChange={setSettingsSection}
         agentsList={folderAgents() ?? []}
         agentTools={engineTools() ?? []}
         agentModelsList={agentModels()}
