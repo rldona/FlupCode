@@ -69,7 +69,10 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
         </div>
 
         <Show when={!props.serverAvailable}>
-          <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
+          <div class="fc-routines-notice">
+            <span class="fc-routines-notice-icon">⚠</span>
+            <span>{t("The harness server is not reachable, so this is the last it said.")}</span>
+          </div>
         </Show>
 
         <Show when={props.artifacts.length > 0}>

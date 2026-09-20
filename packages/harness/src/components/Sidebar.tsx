@@ -15,6 +15,20 @@ import logo from "../assets/flupcode-logo.png"
 /** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
 export const SIDEBAR_WIDTH_DEFAULT = 280
 
+/** Sessions with no folder of their own are listed under this bucket, last. */
+const NO_FOLDER_GROUP = "__none__"
+
+/**
+ * The group a session is listed under: its project folder, or the no-folder bucket. The app keeps a
+ * session's group open across selection so opening a row lower down cannot remove the rows above it
+ * and jump the list; that effect has to name the same group this file does, or the no-folder group
+ * still collapses.
+ */
+export function sessionGroupKey(session: SessionInfo, noFolderSessions: string[]) {
+  if (noFolderSessions.includes(session.id)) return NO_FOLDER_GROUP
+  return session.location?.directory ?? NO_FOLDER_GROUP
+}
+
 type ProjectGroup = {
   id: string
   name: string
@@ -134,8 +148,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   const groups = createMemo(() => {
     const map = new Map<string, ProjectGroup>()
     for (const session of unpinned()) {
-      const directory = props.noFolderSessions.includes(session.id) ? undefined : session.location?.directory
-      const key = directory ?? "__none__"
+      const key = sessionGroupKey(session, props.noFolderSessions)
+      const directory = key === NO_FOLDER_GROUP ? undefined : key
       let group = map.get(key)
       if (!group) {
         group = {
@@ -160,8 +174,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     if (state !== undefined) return state
     const selected = props.sessions?.find((session) => session.id === props.selectedSession)
     if (!selected) return false
-    const key = props.noFolderSessions.includes(selected.id) ? "__none__" : (selected.location?.directory ?? "__none__")
-    return key === group.id
+    return sessionGroupKey(selected, props.noFolderSessions) === group.id
   }
 
   /** Just the point a menu is opened at, so a long press can open one without a MouseEvent. */

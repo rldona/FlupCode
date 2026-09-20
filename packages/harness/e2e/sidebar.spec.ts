@@ -185,6 +185,30 @@ test("opening a session below does not collapse the project above it", async ({ 
   await expect(alpha).toHaveCount(6)
 })
 
+// A no-folder session keeps its bucket open when another session opens, the same as a project row:
+// the bucket is expanded only because it holds the selection, and forgetting that removed its rows
+// and clamped the list's scroll when the reader picked something else.
+test("opening a project session keeps the no-folder list open", async ({ page }) => {
+  const many = [
+    ...Array.from({ length: 6 }, (_, index) => sessionAt(`ses_a${index}`, `Alpha ${index}`, "/work/alpha")),
+    // No location at all: the engine groups these under "No folder", last.
+    ...Array.from({ length: 6 }, (_, index) => ({
+      ...sessionAt(`ses_nf${index}`, `Loose ${index}`, "/work/none"),
+      location: undefined,
+    })),
+  ]
+  await open(page, { sessions: many, selected: "ses_nf0" })
+
+  const loose = page.locator(".fc-session-row").filter({ hasText: /^Loose / })
+  await expect(loose).toHaveCount(6)
+
+  await page.locator(".fc-project-group").filter({ hasText: "alpha" }).locator(".fc-project-toggle").click()
+  await page.locator(".fc-session-row").filter({ hasText: "Alpha 5" }).click()
+
+  // Opening a project session must not tear the no-folder rows out from under the reader.
+  await expect(loose).toHaveCount(6)
+})
+
 test("the tabs are the kinds that matched, and picking one narrows to it", async ({ page }) => {
   await open(page, { routines })
   await page.locator(".fc-sidebar-search").click()
