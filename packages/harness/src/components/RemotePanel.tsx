@@ -1,10 +1,12 @@
-import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import QRCode from "qrcode"
 import type { RemoteHostState } from "@flupcode/remote"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { desktopRemote, remote, type RemoteErrorCode } from "../remote"
+import { enginePort, lanServeCommand, reachabilityLabel, tunnelCommand } from "../remote-share"
 import { RemoteNotifications } from "./RemoteNotifications"
+import { probeServer, type ServerStatus } from "../client"
 
 type RemotePanelProps = {
   open: boolean
@@ -326,6 +328,38 @@ const ClientView: Component = () => {
 const LocalNetwork: Component<{ open: boolean; initialUrl: string }> = (props) => {
   const [url, setUrl] = createSignal(props.initialUrl)
   const [svg, setSvg] = createSignal("")
+  const [copied, setCopied] = createSignal<string>()
+
+  const port = createMemo(() => enginePort(url()))
+  const lan = createMemo(() => lanServeCommand(port(), window.location.origin))
+  const tunnel = createMemo(() => tunnelCommand(port()))
+
+  // Whether the URL answers, probed on open and a beat after each edit (TN-2). One probe at a
+  // time: an edit while one is in flight drops it instead of stacking probes.
+  const [reach, setReach] = createSignal<ServerStatus | undefined>()
+  createEffect(() => {
+    if (!props.open) return
+    const value = url().trim()
+    if (!value) {
+      setReach(undefined)
+      return
+    }
+    setReach(undefined)
+    const handle = setTimeout(() => {
+      void probeServer(value).then(setReach, () => setReach("offline"))
+    }, 600)
+    onCleanup(() => clearTimeout(handle))
+  })
+
+  const copy = (text: string, what: string) => {
+    void navigator.clipboard?.writeText(text).then(
+      () => {
+        setCopied(what)
+        setTimeout(() => setCopied((current) => (current === what ? undefined : current)), 2000)
+      },
+      () => toast(t("Could not copy"), "error"),
+    )
+  }
 
   createEffect(() => {
     if (!props.open) return
@@ -352,10 +386,24 @@ const LocalNetwork: Component<{ open: boolean; initialUrl: string }> = (props) =
         <button class="fc-button" type="button" onClick={() => void navigator.clipboard?.writeText(url())}>
           {t("Copy URL")}
         </button>
+        <Show when={url().trim()}>
+          <span class="fc-run-meta">{reachabilityLabel(reach())}</span>
+        </Show>
       </div>
-      <p class="fc-modal-license">
-        {t("To expose on the network:")} OPENCODE_SERVER_PASSWORD=… opencode serve --hostname 0.0.0.0 --port 4096
-      </p>
+      <p class="fc-modal-license">{t("To expose on the network:")}</p>
+      <div class="fc-modal-links">
+        <code class="fc-permission-pattern">{lan()}</code>
+        <button class="fc-button" type="button" onClick={() => copy(lan(), "lan")}>
+          {copied() === "lan" ? t("Copied") : t("Copy serve command")}
+        </button>
+      </div>
+      <p class="fc-modal-license">{t("Or through a tunnel, without opening ports:")}</p>
+      <div class="fc-modal-links">
+        <code class="fc-permission-pattern">{tunnel()}</code>
+        <button class="fc-button" type="button" onClick={() => copy(tunnel(), "tunnel")}>
+          {copied() === "tunnel" ? t("Copied") : t("Copy tunnel command")}
+        </button>
+      </div>
     </details>
   )
 }
