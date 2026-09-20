@@ -1,0 +1,89 @@
+import type { SqliteRoutineRepository } from "./repository"
+import type { StoredEvent } from "./types"
+
+/** Sent often enough that a client watching for silence can tell a quiet server from a dead socket. */
+export const HEARTBEAT_MS = 10_000
+
+/**
+ * A client that falls this far behind is dropped rather than buffered. A queue that grows without a
+ * bound turns one slow reader into the server's memory problem, and the client loses nothing by
+ * being dropped: it reconnects with the sequence it last saw and reads the rest from the database.
+ */
+export const MAX_PENDING = 500
+
+const frame = (entry: StoredEvent) => `id: ${entry.seq}\ndata: ${JSON.stringify(entry.event)}\n\n`
+
+/**
+ * The server's event stream.
+ *
+ * Everything the store writes carries a sequence number, so a client says where it got to — in
+ * `Last-Event-ID` or `?after=` — and gets what it missed from the database before it starts
+ * following along. That is the difference between this and asking every five seconds: no gap, and
+ * nothing asked for that has not changed.
+ */
+export function eventStream(repository: SqliteRoutineRepository, afterSeq: number) {
+  let unsubscribe: (() => void) | undefined
+  let heartbeat: ReturnType<typeof setInterval> | undefined
+
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder()
+      const send = (text: string) => {
+        try {
+          controller.enqueue(encoder.encode(text))
+          return true
+        } catch {
+          return false
+        }
+      }
+
+      let cursor = afterSeq
+      // The catch-up is read before the subscription starts publishing, and anything that arrives
+      // while it runs is caught by the sequence check below rather than sent twice.
+      for (const entry of repository.listEvents(afterSeq, MAX_PENDING)) {
+        cursor = entry.seq
+        send(frame(entry))
+      }
+
+      unsubscribe = repository.subscribe((entry) => {
+        if (entry.seq <= cursor) return
+        cursor = entry.seq
+        if (!send(frame(entry))) close()
+      })
+
+      heartbeat = setInterval(() => {
+        if (!send(": heartbeat\n\n")) close()
+      }, HEARTBEAT_MS)
+
+      send(`: connected ${cursor}\n\n`)
+    },
+    cancel() {
+      close()
+    },
+  })
+
+  function close() {
+    unsubscribe?.()
+    unsubscribe = undefined
+    if (heartbeat) clearInterval(heartbeat)
+    heartbeat = undefined
+  }
+
+  return new Response(body, {
+    headers: {
+      "content-type": "text/event-stream",
+      "cache-control": "no-cache",
+      connection: "keep-alive",
+      "access-control-allow-origin": "*",
+      "access-control-expose-headers": "*",
+    },
+  })
+}
+
+/** Where a client says it got to: the header a browser resends by itself, or an explicit cursor. */
+export function resumeFrom(request: Request) {
+  const header = Number(request.headers.get("last-event-id"))
+  if (Number.isFinite(header) && header > 0) return header
+  const after = Number(new URL(request.url).searchParams.get("after"))
+  return Number.isFinite(after) && after > 0 ? after : 0
+}

@@ -3,7 +3,7 @@ import { isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
 import { initRemoteHost } from "./remote"
-import { engineCredentials, ensureServer, stopServer } from "./server"
+import { engineCredentials, ensureHarnessServer, ensureServer, stopServer } from "./server"
 import { initSpeech, speechAvailable, stopSpeech } from "./speech"
 import { initAutoUpdate, checkForUpdates } from "./updater"
 import { loadBounds, saveBounds } from "./window-state"
@@ -88,6 +88,7 @@ app.whenReady().then(async () => {
   // The engine starts first: it is what decides the password, which both the remote host and the
   // window need in order to reach it.
   await ensureServer()
+  await ensureHarnessServer()
   remote = initRemoteHost()
   createWindow()
 
