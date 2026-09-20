@@ -80,6 +80,9 @@ type SettingsPanelProps = {
   onDisplayName: (value: string) => void
   onServerInput: (value: string) => void
   onServerCommit: () => void
+  /** Drops the engine's cached instances so it re-reads its configuration (agents, skills). */
+  onServerReload: () => void
+  serverReloading: boolean
   onModelChange: (key: string) => void
   onToggleTools: () => void
   onToggleReasoning: () => void
@@ -202,6 +205,21 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     clearTimeout(confirmTimer)
     setConfirmReset(false)
     resetUsage()
+  }
+  // Reloading drops the turns in flight, so it asks for a second click within a few seconds too.
+  const [confirmReload, setConfirmReload] = createSignal(false)
+  let reloadTimer: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(reloadTimer))
+  const reload = () => {
+    if (!confirmReload()) {
+      setConfirmReload(true)
+      clearTimeout(reloadTimer)
+      reloadTimer = setTimeout(() => setConfirmReload(false), 4000)
+      return
+    }
+    clearTimeout(reloadTimer)
+    setConfirmReload(false)
+    props.onServerReload()
   }
   return (
     <Show when={props.open}>
@@ -668,6 +686,32 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     <button class="fc-button" type="button" onClick={props.onServerCommit}>
                       {t("Save")}
                     </button>
+                  </div>
+                  <div class="fc-settings-row">
+                    <span>{t("Configuration")}</span>
+                    <button
+                      class="fc-button"
+                      classList={{ "fc-button-danger": confirmReload() }}
+                      type="button"
+                      disabled={props.serverReloading}
+                      onClick={reload}
+                    >
+                      <Show when={props.serverReloading}>
+                        <span class="fc-spinner" aria-hidden="true">
+                          ◐
+                        </span>{" "}
+                      </Show>
+                      {props.serverReloading
+                        ? t("Reloading…")
+                        : confirmReload()
+                          ? t("Click again to reload")
+                          : t("Reload engine")}
+                    </button>
+                  </div>
+                  <div class="fc-settings-hint">
+                    {t(
+                      "Reloading rereads the engine's configuration, so new or edited agents and skills take effect. It drops the turns in flight.",
+                    )}
                   </div>
                 </section>
               </Show>
