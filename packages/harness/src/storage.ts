@@ -34,6 +34,7 @@ export const STORAGE_KEYS = {
   stashedPrompts: "flupcode.stashedPrompts",
   promptHistory: "flupcode.promptHistory",
   view: "flupcode.view",
+  splitPanes: "flupcode.splitPanes",
   theme: "flupcode.theme",
   routines: "flupcode.routines",
   onboarded: "flupcode.onboarded",

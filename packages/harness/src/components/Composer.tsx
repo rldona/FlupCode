@@ -14,6 +14,8 @@ import type { AppView } from "../chat"
 type ComposerProps = {
   /** Chats get a plain input: no commands, mentions, folder, agent, permissions or context meter. */
   mode: AppView
+  /** In split view only the focused pane's input answers window shortcuts (⌘U). */
+  inactive?: boolean
   value: string
   sending: boolean
   /** The model is working on the open session: the send button becomes Stop while the input is empty. */
@@ -136,6 +138,7 @@ export const Composer: Component<ComposerProps> = (props) => {
 
   onMount(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (props.inactive) return
       if ((event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "u") {
         event.preventDefault()
         fileInput?.click()

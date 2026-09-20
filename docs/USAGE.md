@@ -138,6 +138,20 @@ code sessions; each tab has its own list, home and input.
 - They are sent through the engine's legacy prompt (the one that accepts a system prompt), and
   stream on that folder's event stream (`/event?directory=…`).
 
+## Split view
+
+Run and follow several sessions side by side (usually two). Right-click a session in the sidebar and
+choose **Split view**: it opens next to the open session, each with its own header, transcript, live
+stream, permission and question prompts, and input.
+
+- Click a pane to focus it. The sidebar, the top bar and the context panel follow the focused pane, and
+  opening another session from the sidebar shows it there.
+- Chats and code sessions can share a split. Up to four panes; closing down to one returns to the
+  single view. The split is remembered across reloads.
+- **New** or switching tabs leaves split view. Panes send plain prompts: slash commands, `!` shell
+  and reply suggestions stay in the single view.
+- Not available on narrow windows or phones.
+
 ## Sessions
 
 The session toolbar offers agent selection, Fork, Compact, Undo, Redo, Confirm revert, Rename,
