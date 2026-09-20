@@ -22,6 +22,10 @@ Projects in the sidebar, quick create, filter, persistent pinning and a target-f
 
 ## F4-3 — Unified "Personalizar" · P1 · done
 
+One rail surface (CU-1–CU-3, `docs/tickets/CU-unified-settings.md`): agents,
+providers and the single MCP editor live as Settings sections. Standalone agents
+screen, MCP modal and providers modal retired.
+
 **Acceptance**
 - One surface for appearance, models, agents, permissions, commands, MCP and shortcuts.
 
