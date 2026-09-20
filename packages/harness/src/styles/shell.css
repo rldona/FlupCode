@@ -6863,7 +6863,7 @@ button.fc-status {
   padding: 2px 6px;
   border: none;
   border-radius: 6px;
-  background: transparent;
+  background: color-mix(in srgb, var(--fc-border) 45%, transparent);
   color: var(--fc-text-muted);
   font: inherit;
   letter-spacing: inherit;
@@ -6872,7 +6872,7 @@ button.fc-status {
 }
 
 .fc-aside-clear:hover {
-  background: color-mix(in srgb, var(--fc-border) 55%, transparent);
+  background: color-mix(in srgb, var(--fc-border) 80%, transparent);
   color: var(--fc-text);
 }
 
