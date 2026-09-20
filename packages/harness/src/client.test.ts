@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { subscribeEvents } from "./client"
+import { createClient, isSessionGone, subscribeEvents } from "./client"
 import { setEngineTransport } from "./transport"
 
 afterEach(() => setEngineTransport(undefined))
@@ -56,4 +56,36 @@ test("a stream that keeps beating is not dropped", async () => {
 
   await read().catch(() => undefined)
   expect(seen).toEqual(["session.idle"])
+})
+
+/** A transport that answers every message read with the same status and body. */
+function engine(status: number, body: unknown) {
+  setEngineTransport({
+    fetch: async (input) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
+      const payload = /\/message$/.test(url.pathname) ? body : { data: [] }
+      return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+}
+
+test("a session the engine no longer has is told apart from an engine that is away", async () => {
+  engine(404, { _tag: "SessionNotFoundError", sessionID: "gone", message: "no such session" })
+  const missing = await createClient("http://engine").message.list({ sessionID: "gone" }).then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+  expect(isSessionGone(missing)).toBe(true)
+
+  // An engine that is away must not look like a session that is gone: the session stays put and the
+  // transcript goes stale instead of being dropped.
+  engine(503, { message: "engine away" })
+  const away = await createClient("http://engine").message.list({ sessionID: "away" }).then(
+    () => undefined,
+    (error: unknown) => error,
+  )
+  expect(isSessionGone(away)).toBe(false)
 })

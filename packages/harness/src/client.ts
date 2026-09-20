@@ -189,11 +189,30 @@ async function patchConfig(baseUrl: string, patch: Record<string, unknown>) {
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
 
+/**
+ * A failed engine call, keeping the error's `_tag`. The app needs the tag, not just the message, to
+ * tell a session the engine no longer has (`SessionNotFoundError`) from the engine being unreachable:
+ * one means drop the stale session, the other means say the truth and leave it in place.
+ */
+export class EngineError extends Error {
+  constructor(
+    message: string,
+    readonly tag?: string,
+  ) {
+    super(message)
+    this.name = "EngineError"
+  }
+}
+
+export function isSessionGone(cause: unknown) {
+  return cause instanceof EngineError && cause.tag === "SessionNotFoundError"
+}
+
 async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
   const result = await call
   if (result.error !== undefined && result.error !== null) {
-    const error = result.error as { message?: string }
-    throw new Error(error?.message ?? "Request failed")
+    const error = result.error as { message?: string; _tag?: string }
+    throw new EngineError(error?.message ?? "Request failed", error?._tag)
   }
   return result.data as T
 }
