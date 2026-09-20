@@ -374,6 +374,16 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           {/* The nav scrolls with the lists under it; "+ New" is the one thing that stays put. */}
           <nav class="fc-nav">
             <Show when={props.view === "code"}>
+              {/* Live first: runs are what the harness is doing now, workflows launch them,
+                  artifacts are what they leave, routines run on their own. */}
+              <button class="fc-nav-item" type="button" onClick={props.onRuns}>
+                <span class="fc-nav-icon">⛭</span>
+                {t("Runs")}
+              </button>
+              <button class="fc-nav-item" type="button" onClick={props.onWorkflows}>
+                <span class="fc-nav-icon">⛓</span>
+                {t("Workflows")}
+              </button>
               <button
                 class="fc-nav-item"
                 type="button"
@@ -386,14 +396,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 <Show when={UNAVAILABLE_FEATURES.has("artifacts")}>
                   <span class="fc-nav-soon">{t("Soon")}</span>
                 </Show>
-              </button>
-              <button class="fc-nav-item" type="button" onClick={props.onRuns}>
-                <span class="fc-nav-icon">⛭</span>
-                {t("Runs")}
-              </button>
-              <button class="fc-nav-item" type="button" onClick={props.onWorkflows}>
-                <span class="fc-nav-icon">⛓</span>
-                {t("Workflows")}
               </button>
               <button
                 class="fc-nav-item"
