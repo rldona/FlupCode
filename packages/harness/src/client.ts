@@ -74,20 +74,25 @@ export const engineTargetVersion =
   typeof __FLUPCODE_ENGINE_VERSION__ === "string" ? __FLUPCODE_ENGINE_VERSION__ : undefined
 
 /** Why the engine is unreachable, as far as the browser can tell. */
-export type ServerStatus = "online" | "offline" | "blocked"
+export type ServerStatus = "online" | "offline" | "blocked" | "unauthorized"
 
 /**
  * A request the browser blocks (CORS, mixed content, Local Network Access) rejects exactly like a
  * server that is not running, so `no-cors` tells them apart: it needs no permission to send, so an
  * opaque success means the engine is listening and something else withheld the response.
+ *
+ * A `401`/`403` resolves like any other response, so the engine reads as reachable; it is named
+ * separately because the fix is neither starting a server nor allowing an origin, but the
+ * credentials the browser has no way to send (see `transport.ts`).
  */
 export async function probeServer(baseUrl: string): Promise<ServerStatus> {
   const health = `${baseUrl.replace(/\/$/, "")}/global/health`
-  const reachable = await engineFetch(health, { signal: AbortSignal.timeout(2000) }).then(
-    () => true,
-    () => false,
-  )
-  if (reachable) return "online"
+  const response = await engineFetch(health, { signal: AbortSignal.timeout(2000) }).catch(() => undefined)
+  if (response) {
+    if (response.status === 401 || response.status === 403) return "unauthorized"
+    void response.body?.cancel()
+    return "online"
+  }
   const listening = await engineFetch(health, { mode: "no-cors", signal: AbortSignal.timeout(2000) }).then(
     () => true,
     () => false,

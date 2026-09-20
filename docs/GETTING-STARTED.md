@@ -94,6 +94,7 @@ means the engine is listening but the browser refused to hand the response to th
 | Symptom                                          | Cause                                                                            | Fix                                                                                        |
 | ------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
 | "Server offline"                                 | No engine is running, or the port is wrong                                       | Start `opencode serve`, check the server URL in Settings                                   |
+| "Authentication required"                        | The engine was started with `OPENCODE_SERVER_PASSWORD` (a browser page cannot send it) | Restart it without that variable, or use the desktop app (see below)                  |
 | "Connection blocked by the browser"              | The engine was started without `--cors` for this origin                          | Stop it and start it again with `--cors <page origin>`                                     |
 | Nothing connects on **Safari**                   | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content)  | Use the **desktop app**, which is not subject to the mixed-content rule                    |
 | Chrome shows a Local Network Access prompt       | Chromium gates public→loopback requests                                          | Allow it; FlupCode's engine answers the preflight once it is granted                       |
@@ -102,6 +103,21 @@ means the engine is listening but the browser refused to hand the response to th
 | FlupCode warns "stock OpenCode engine"           | The engine is the published CLI, without FlupCode's patches                      | Run the engine from this fork's source (see [Start the engine](#step-2--start-the-engine)) |
 | FlupCode warns the engine version does not match | The engine is a different release than this FlupCode build was generated against | Update the engine, or update FlupCode                                                      |
 | "FlupCode Not Opened" / SmartScreen              | Builds are not signed yet                                                        | See [Installing a release](USAGE.md#installing-a-release)                                  |
+
+### The engine asks for a password
+
+If the engine prints `401` for every call, it was started with `OPENCODE_SERVER_PASSWORD` set — for
+example because another OpenCode process exported it into the shell. A **browser page cannot send
+credentials**: only the desktop app hands them to the page it loads, so the web app and the source
+checkout read the engine as offline even though it is running.
+
+Start the engine without that variable:
+
+```bash
+env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
+```
+
+Or open the desktop app, which starts its own engine and signs in for you.
 
 ### Why Safari needs the desktop app
 

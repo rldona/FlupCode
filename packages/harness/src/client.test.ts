@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { createClient, isSessionGone, subscribeEvents } from "./client"
+import { createClient, isSessionGone, probeServer, subscribeEvents } from "./client"
 import { setEngineTransport } from "./transport"
 
 afterEach(() => setEngineTransport(undefined))
@@ -88,6 +88,37 @@ test("a session the engine no longer has is told apart from an engine that is aw
     (error: unknown) => error,
   )
   expect(isSessionGone(away)).toBe(false)
+})
+
+test("an engine that answers 401 is named as needing authentication, not as stopped", async () => {
+  const answer = (status: number) => {
+    setEngineTransport({
+      fetch: async () => new Response("{}", { status }),
+      socket: () => {
+        throw new Error("not used")
+      },
+    })
+    return probeServer("http://engine")
+  }
+
+  // A password-protected engine is reachable and handing back a refusal; the browser has no way to
+  // send credentials, so the fix is neither "start it" nor "allow the origin".
+  expect(await answer(401)).toBe("unauthorized")
+  expect(await answer(403)).toBe("unauthorized")
+  expect(await answer(200)).toBe("online")
+})
+
+test("an engine that does not answer at all is offline", async () => {
+  setEngineTransport({
+    fetch: async () => {
+      throw new TypeError("Failed to fetch")
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  expect(await probeServer("http://engine")).toBe("offline")
 })
 
 test("saving a credential drops the engine's cached providers, so the new key is the one used", async () => {

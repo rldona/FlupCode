@@ -702,10 +702,15 @@ export const App: Component = () => {
       const result = await createClient(url)
         .health.get()
         .catch(() => ({ healthy: false, version: undefined as string | undefined }))
-      if (result.healthy) return { ...result, blocked: false }
-      return { ...result, blocked: (await probeServer(url)) === "blocked" }
+      if (result.healthy) return { ...result, blocked: false, authRequired: false }
+      const status = await probeServer(url)
+      return { ...result, blocked: status === "blocked", authRequired: status === "unauthorized" }
     },
   )
+  // The engine answers but refuses the call: it was started with `OPENCODE_SERVER_PASSWORD`, and a
+  // browser page has no credentials to send (only the desktop app injects any). Named apart from a
+  // stopped engine so the banner can point at the fix instead of "start it".
+  const serverAuthRequired = () => health()?.authRequired === true
   // A memo, not a plain accessor: the health poll writes a fresh resource value every 10s, and a
   // plain accessor would pass that on to every effect and resource source reading it — dropping and
   // reopening the event streams, and refetching sessions, messages and both blocked registries, on
@@ -5174,11 +5179,25 @@ export const App: Component = () => {
               when={localNetworkAsking()}
               fallback={
                 <>
-                  <span>
-                    {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
-                    {t("start it and connect from Settings")} ·{" "}
-                    <code>opencode serve --port 4096 --cors {window.location.origin}</code>
-                  </span>
+                  <Show
+                    when={serverAuthRequired()}
+                    fallback={
+                      <span>
+                        {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
+                        {t("start it and connect from Settings")} ·{" "}
+                        <code>opencode serve --port 4096 --cors {window.location.origin}</code>
+                      </span>
+                    }
+                  >
+                    <span>
+                      {t("The engine is asking for authentication")} —{" "}
+                      {t("restart it without a password, or use the desktop app")} ·{" "}
+                      <code>
+                        env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors{" "}
+                        {window.location.origin}
+                      </code>
+                    </span>
+                  </Show>
                   <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
                     {t("Retry")}
                   </button>
@@ -5931,6 +5950,7 @@ export const App: Component = () => {
         }}
         serverHealthy={health()?.healthy}
         serverBlocked={health()?.blocked === true}
+        serverAuthRequired={serverAuthRequired()}
         localNetwork={localNetwork()}
         allowingLocalNetwork={allowingLocalNetwork()}
         onAllowLocalNetwork={() => void allowLocalNetwork()}
