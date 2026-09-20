@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, onCleanup, type Component, type JS
 import type { AgentInfo, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment } from "../types"
 import { t } from "../i18n"
+import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import { speechRecognition, type SpeechRecognitionLike } from "./Composer"
 
@@ -36,20 +37,6 @@ type MobileComposerProps = {
 type Sheet = "context" | "mode" | "agent" | "model" | "effort"
 
 const key = (model: ModelInfo) => `${model.providerID}/${model.id}`
-
-const EFFORT_LABELS: Record<string, string> = {
-  none: "None",
-  minimal: "Minimal",
-  low: "Low",
-  medium: "Medium",
-  high: "High",
-  xhigh: "Extra",
-  max: "Max",
-}
-
-/** A readable name for an effort variant id (`xhigh` → "Extra"). */
-export const effortLabel = (id: string) =>
-  EFFORT_LABELS[id] ? t(EFFORT_LABELS[id]!) : id.charAt(0).toUpperCase() + id.slice(1)
 
 const Icon: Component<{ path: string; size?: number }> = (props) => (
   <svg viewBox="0 0 24 24" width={props.size ?? 22} height={props.size ?? 22} aria-hidden="true">
