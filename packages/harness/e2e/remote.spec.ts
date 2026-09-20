@@ -209,6 +209,13 @@ test.describe("on a phone", () => {
     await expect(page.locator(".fc-mobile-header")).toContainText("New session")
     await page.goBack()
     await expect(home).toBeVisible()
+
+    // Reopening the app starts on the home, even after a session was open.
+    await card.click()
+    await expect(page.locator(".fc-mobile-header")).toContainText("Fix the login flow")
+    await page.reload()
+    await expect(home).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator(".fc-mobile-header")).toHaveCount(0)
     host.stop()
   })
 
