@@ -15,7 +15,19 @@ const session = {
 }
 
 const messages = {
-  data: [{ id: "msg_r", type: "user", text: "Change the API", time: { created: now } }],
+  // The turn is over: a completed assistant reply follows the prompt, so the app reads the
+  // session as idle and Edit is enabled. A bare user message alone reads as "still generating",
+  // which correctly disables Edit but makes the test wait forever.
+  data: [
+    { id: "msg_r", type: "user", text: "Change the API", time: { created: now } },
+    {
+      id: "msg_a",
+      type: "assistant",
+      agent: "build",
+      time: { created: now, completed: now + 1 },
+      content: [{ type: "text", text: "Done." }],
+    },
+  ],
   cursor: {},
 }
 
