@@ -286,8 +286,9 @@
             </a>
           </div>
           <p class="download-note">
-            Builds are <strong>unsigned</strong>. On macOS, right-click → Open the first time (or allow it in System
-            Settings → Privacy &amp; Security). On Windows, pick “More info → Run anyway”. Prefer the browser? Open
+            Builds are <strong>unsigned</strong>. On macOS, if it says “FlupCode is damaged”, run
+            <code>xattr -dr com.apple.quarantine /Applications/FlupCode.app</code> (or right-click → Open). On Windows,
+            pick “More info → Run anyway”. Prefer the browser? Open
             <a href="https://app.flupcode.com" target="_blank" rel="noreferrer">app.flupcode.com</a> and start the engine with
             <code>opencode serve --cors https://app.flupcode.com</code>.
           </p>
