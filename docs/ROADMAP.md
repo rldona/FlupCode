@@ -33,10 +33,10 @@ record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 58 | — |
+| done | 59 | — |
 | doing | 0 | — |
 | blocked | 2 | F3-16, F5-4 |
-| todo | 6 | F2-2, F3-10, F3-13, F3-17, F4-3, F6-4 |
+| todo | 5 | F2-2, F3-10, F3-17, F4-3, F6-4 |
 | **total** | **66** | |
 
 ### What remains
@@ -113,7 +113,7 @@ Corrected, and now really done:
 | F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | todo (a list, no manager) |
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
-| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | todo (raw JSON; MCP has a form) |
+| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done (SE-1 pattern rules, SE-2 MCP OAuth, verified 2026-09-20) |
 | F3-14 | P2 | MCP add/configure UI | done (wired 2026-09-16) |
 | F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | blocked |
