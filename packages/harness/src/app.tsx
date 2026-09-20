@@ -764,21 +764,39 @@ export const App: Component = () => {
     for (const prefs of Object.values(sessionPrefs())) if (prefs.tags.length > 0) out[prefs.sessionID] = prefs.tags
     return out
   })
+  // What the server says it can answer (H-18). The client can be newer than the server it talks to
+  // — a dev frontend against a packaged sidecar — and asking for a route it does not have is a 404
+  // in every browser console. `/harness/health` lists them; an older server lists none.
+  const [harnessCapabilities, setHarnessCapabilities] = createSignal<string[]>([])
+  createEffect(() => {
+    const url = harnessServerUrl()
+    if (!url) return
+    void createHarnessClient(url)
+      .health()
+      .then((health) => setHarnessCapabilities(health.capabilities ?? []))
+      .catch(() => setHarnessCapabilities([]))
+  })
+  const supports = (capability: string) => harnessCapabilities().includes(capability)
+
   createEffect(() => {
     const url = harnessServerUrl()
     if (!routinesServerAvailable() || !url) return
-    void createHarnessClient(url)
-      .sessionPrefs.list()
-      .then((list) => {
-        const map: Record<string, SessionPrefs> = {}
-        for (const prefs of list) map[prefs.sessionID] = prefs
-        setSessionPrefs(map)
-      })
-      .catch(() => undefined)
-    void createHarnessClient(url)
-      .stash.list()
-      .then(setStashes)
-      .catch(() => undefined)
+    if (supports("session-prefs")) {
+      void createHarnessClient(url)
+        .sessionPrefs.list()
+        .then((list) => {
+          const map: Record<string, SessionPrefs> = {}
+          for (const prefs of list) map[prefs.sessionID] = prefs
+          setSessionPrefs(map)
+        })
+        .catch(() => undefined)
+    }
+    if (supports("stash")) {
+      void createHarnessClient(url)
+        .stash.list()
+        .then(setStashes)
+        .catch(() => undefined)
+    }
   })
 
   const removeArtifact = (id: string) => {

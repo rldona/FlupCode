@@ -49,7 +49,9 @@ async function open(page: Page, options: { routines?: unknown[]; sessions?: unkn
   }, options.selected)
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    // A server with the H-18 routes lists them; the client only asks for what it declares.
+    if (url.pathname === "/harness/health")
+      return route.fulfill({ json: { data: { healthy: true, capabilities: ["session-prefs", "stash"] } } })
     if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: options.routines ?? [] } })
     if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
@@ -237,7 +239,8 @@ test("a session is pinned and tagged on the server, and a tag filters the list",
   })
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
+    if (url.pathname === "/harness/health")
+      return route.fulfill({ json: { data: { healthy: true, capabilities: ["session-prefs", "stash"] } } })
     if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/harness/artifacts") return route.fulfill({ json: { data: [] } })
