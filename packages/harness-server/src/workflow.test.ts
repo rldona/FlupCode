@@ -333,6 +333,32 @@ tasks:
     expect(tasksFor(workflow, {})[0]!.prompt).toBe("Review all changes")
     expect(tasksFor(workflow, { scope: "HEAD" })[0]!.prompt).toBe("Review HEAD")
   })
+
+  test("HF-3: a file can ask for worktrees, and a verify names its recovery", () => {
+    const workflow = parseWorkflow(
+      `name: feature
+inputs: [goal]
+worktrees: true
+tasks:
+  - id: build
+    prompt: "Build {{goal}}"
+  - id: check
+    kind: verify
+    dependsOn: [build]
+  - id: explain
+    prompt: explain
+    dependsOn: [check]
+    when: { task: check, is: [failed] }
+`,
+      "x",
+    )!
+    expect(workflow.worktrees).toBe(true)
+    const tasks = tasksFor(workflow, { goal: "search" })
+    expect(tasks.map((task) => task.name)).toEqual(["build", "check", "explain"])
+    expect(tasks[2]).toMatchObject({ when: { task: "check", is: ["failed"] } })
+    // And a file that says nothing about trees asks for none: isolation is stated, never default.
+    expect(parseWorkflow("name: x\ntasks:\n  - id: a\n    prompt: a\n", "x")!.worktrees).toBeUndefined()
+  })
 })
 
 describe("where workflows come from", () => {
