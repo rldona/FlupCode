@@ -21,7 +21,13 @@ export const About: Component<AboutProps> = (props) => {
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
-        <div class="fc-modal" role="dialog" aria-modal="true" aria-label={t("About FlupCode")} onClick={(event) => event.stopPropagation()}>
+        <div
+          class="fc-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("About FlupCode")}
+          onClick={(event) => event.stopPropagation()}
+        >
           <div class="fc-modal-header">
             <span class="fc-modal-heading">
               <Show when={props.onBack}>

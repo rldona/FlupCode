@@ -15,16 +15,7 @@ export type UsageMetrics = {
   weeks: Array<{ label: string; total: number; segments: Array<{ name: string; tokens: number }> }>
 }
 
-const MODEL_COLORS = [
-  "#6ea8fe",
-  "#7aa2d6",
-  "#4f7fc4",
-  "#3b6fb0",
-  "#8b5cf6",
-  "#a78bfa",
-  "#64748b",
-  "#94a3b8",
-]
+const MODEL_COLORS = ["#6ea8fe", "#7aa2d6", "#4f7fc4", "#3b6fb0", "#8b5cf6", "#a78bfa", "#64748b", "#94a3b8"]
 
 export function modelColor(index: number) {
   return MODEL_COLORS[index % MODEL_COLORS.length]!
@@ -102,9 +93,7 @@ export function computeMetrics(filtered: SessionInfo[]): UsageMetrics {
     if (!name) continue
     counts.set(name, (counts.get(name) ?? 0) + 1)
   }
-  const models = [...counts.entries()]
-    .map(([name, count]) => ({ name, count }))
-    .sort((a, b) => b.count - a.count)
+  const models = [...counts.entries()].map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count)
 
   const usageMap = new Map<string, { input: number; output: number; total: number }>()
   for (const session of filtered) {

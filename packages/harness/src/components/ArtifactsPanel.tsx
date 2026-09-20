@@ -11,38 +11,44 @@ type ArtifactsPanelProps = {
 export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
   return (
     <Show when={props.open}>
-    <div class="fc-modal-backdrop" onClick={props.onClose}>
-      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" aria-label={t("Artifacts")} onClick={(event) => event.stopPropagation()}>
-        <div class="fc-modal-header">
-          <span>{t("Artifacts")}</span>
-          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-            ×
-          </button>
-        </div>
-        <Show
-          when={props.artifacts.length > 0}
-          fallback={
-            <div class="fc-empty-state">
-              <span class="fc-empty-title">{t("No artifacts yet")}</span>
-              <span class="fc-empty-hint">{t("Files changed by the session appear here")}</span>
-            </div>
-          }
+      <div class="fc-modal-backdrop" onClick={props.onClose}>
+        <div
+          class="fc-modal fc-modal-wide"
+          role="dialog"
+          aria-modal="true"
+          aria-label={t("Artifacts")}
+          onClick={(event) => event.stopPropagation()}
         >
-          <ul class="fc-artifact-list">
-            <For each={props.artifacts}>
-              {(path) => (
-                <li class="fc-artifact-row">
-                  <span class="fc-artifact-path">{path}</span>
-                  <button class="fc-button" type="button" onClick={() => props.onCopy(path)}>
-                    {t("Copy")}
-                  </button>
-                </li>
-              )}
-            </For>
-          </ul>
-        </Show>
+          <div class="fc-modal-header">
+            <span>{t("Artifacts")}</span>
+            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
+              ×
+            </button>
+          </div>
+          <Show
+            when={props.artifacts.length > 0}
+            fallback={
+              <div class="fc-empty-state">
+                <span class="fc-empty-title">{t("No artifacts yet")}</span>
+                <span class="fc-empty-hint">{t("Files changed by the session appear here")}</span>
+              </div>
+            }
+          >
+            <ul class="fc-artifact-list">
+              <For each={props.artifacts}>
+                {(path) => (
+                  <li class="fc-artifact-row">
+                    <span class="fc-artifact-path">{path}</span>
+                    <button class="fc-button" type="button" onClick={() => props.onCopy(path)}>
+                      {t("Copy")}
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
       </div>
-    </div>
     </Show>
   )
 }

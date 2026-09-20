@@ -189,7 +189,19 @@ const BrowserPanel: Component = () => {
         }
       >
         <Show when={reloadKey()} keyed>
-          {(_key) => <iframe class="fc-browser-frame" src={url()} title={t("Browser")} />}
+          {(_key) => (
+            // The panel shows whatever the agent or the reader typed, so the page is untrusted: the
+            // sandbox keeps it from navigating this window, opening dialogs or reaching the top
+            // frame. `allow-same-origin` only keeps the page in its own origin (which is never the
+            // harness's), so it still cannot touch anything here.
+            <iframe
+              class="fc-browser-frame"
+              src={url()}
+              title={t("Browser")}
+              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+              referrerpolicy="no-referrer"
+            />
+          )}
         </Show>
       </Show>
     </div>

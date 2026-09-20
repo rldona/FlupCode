@@ -20,9 +20,37 @@ function loopback(init: RequestInit | undefined): RequestInit {
   return extended
 }
 
+/**
+ * The desktop app gives the engine it starts a password, so nothing else on the machine can drive
+ * the agent — the engine accepts every `http://localhost:*` origin, so any page served from another
+ * local port could otherwise reach it. It hands this page the credentials to use; a browser talking
+ * to an engine the user started themselves has none and sends nothing extra. Over remote control the
+ * tunnel adds its own, so this only applies to direct calls.
+ */
+export function engineCredentials() {
+  return typeof window === "undefined" ? undefined : window.flupcode?.engineAuth
+}
+
+function authorized(input: Request | string | URL, init: RequestInit | undefined): RequestInit {
+  const credentials = engineCredentials()
+  if (!credentials) return loopback(init)
+  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
+  headers.set("authorization", `Basic ${credentials}`)
+  return loopback({ ...init, headers })
+}
+
+/** A socket cannot carry a header, so the engine also reads the same credentials from the query. */
+function authorizedSocketUrl(url: string) {
+  const credentials = engineCredentials()
+  if (!credentials) return url
+  const target = new URL(url)
+  target.searchParams.set("auth_token", credentials)
+  return target.toString()
+}
+
 const local: EngineTransport = {
-  fetch: (input, init) => globalThis.fetch(input, loopback(init)),
-  socket: (url) => new WebSocket(url),
+  fetch: (input, init) => globalThis.fetch(input, authorized(input, init)),
+  socket: (url) => new WebSocket(authorizedSocketUrl(url)),
 }
 
 let current = local

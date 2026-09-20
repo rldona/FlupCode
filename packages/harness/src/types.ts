@@ -28,7 +28,6 @@ export type Routine = {
   lastRunAt?: number
 }
 
-
 export type ProjectItem = {
   id: string
   directory: string

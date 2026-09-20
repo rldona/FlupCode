@@ -69,7 +69,26 @@ const KEYWORDS = new Set([
 
 const CONSTANTS = new Set(["true", "false", "null", "undefined", "None", "True", "False", "nil", "NaN"])
 
-const HASH_COMMENT = new Set(["bash", "sh", "shell", "zsh", "python", "py", "yaml", "yml", "ruby", "rb", "toml", "ini", "conf", "makefile", "dockerfile", "r", "perl", "pl"])
+const HASH_COMMENT = new Set([
+  "bash",
+  "sh",
+  "shell",
+  "zsh",
+  "python",
+  "py",
+  "yaml",
+  "yml",
+  "ruby",
+  "rb",
+  "toml",
+  "ini",
+  "conf",
+  "makefile",
+  "dockerfile",
+  "r",
+  "perl",
+  "pl",
+])
 const DASH_COMMENT = new Set(["sql", "lua", "haskell", "hs", "elm"])
 
 export function escapeHtml(value: string) {
