@@ -1507,6 +1507,7 @@ export const App: Component = () => {
       <ModelPicker
         open={modelPickerOpen()}
         models={modelList()}
+        loading={models.loading}
         selectedKey={modelKey()}
         favorites={favorites()}
         onSelect={pickModel}

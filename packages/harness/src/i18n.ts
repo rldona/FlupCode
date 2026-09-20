@@ -93,6 +93,8 @@ const ES: Record<string, string> = {
   Commit: "Commit",
   "Default model": "Modelo por defecto",
   "Choose a model": "Elige un modelo",
+  "Loading models…": "Cargando modelos…",
+  "No models": "Sin modelos",
   "Search models": "Buscar modelos",
   Favorite: "Favorito",
   Model: "Modelo",
