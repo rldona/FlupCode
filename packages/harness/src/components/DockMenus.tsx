@@ -123,12 +123,19 @@ const ICONS = {
   hammer:
     "M15 12l-8.373 8.373a1 1 0 1 1-3-3L12 9M18 15l4-4M21.5 11.5l-1.914-1.914A2 2 0 0 1 19 8.172V7l-2.26-2.26a6 6 0 0 0-4.202-1.756L9 2.96l.92.82A6.18 6.18 0 0 1 12 8.4V10l2 2h1.172a2 2 0 0 1 1.414.586L18.5 14.5",
   bulb: "M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5M9 18h6M10 22h4",
+  robot:
+    "M12 8V4H8M9 13v2M15 13v2M2 14h2M20 14h2M6 8h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8a2 2 0 0 1 2-2Z",
 }
 
-/** Hammer for build, bulb for plan; other agents get no icon. */
+/** Hammer for build, bulb for plan; every other agent gets a robot. */
 const AGENT_ICONS: Record<string, string> = {
   build: ICONS.hammer,
   plan: ICONS.bulb,
+}
+
+/** The dock icon for an agent: the built-in's own, a robot for anything else. */
+export function agentIconPath(id: string) {
+  return AGENT_ICONS[id] ?? ICONS.robot
 }
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform)
@@ -273,7 +280,7 @@ export const AgentMenu: Component<{
       <For each={props.agents}>
         {(agent) => (
           <MenuItem
-            icon={AGENT_ICONS[agent.id] ? <DockIcon path={AGENT_ICONS[agent.id]!} /> : undefined}
+            icon={<DockIcon path={agentIconPath(agent.id)} />}
             label={agent.id.charAt(0).toUpperCase() + agent.id.slice(1)}
             active={agent.id === props.value}
             onClick={() => {
