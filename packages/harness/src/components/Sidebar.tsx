@@ -286,7 +286,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           }
         >
           <span class="fc-session-hand" role="img" aria-label={t("Waiting for answer")} title={t("Waiting for answer")}>
-            👋
+            ✋
           </span>
         </Show>
         <span class="fc-session-title">{sessionTitle(row.session) || t("New session")}</span>
