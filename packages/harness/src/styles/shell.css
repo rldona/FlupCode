@@ -3442,6 +3442,16 @@ button.fc-status {
   background: var(--fc-border);
 }
 
+/* A row that reads like a card but is not one to press: a built-in agent, an unloaded skill. */
+.fc-routine-card-static {
+  cursor: default;
+}
+
+.fc-routine-card-static:hover {
+  border-color: var(--fc-border);
+  background: var(--fc-bg-elevated);
+}
+
 .fc-routines-detail,
 .fc-routine-editor {
   padding: 22px;
@@ -8745,7 +8755,9 @@ button.fc-status {
   gap: 8px;
 }
 
-.fc-workflow-modal {
+/* The wide dialog the editor screens share: a form, a file, a routine. Centred by the backdrop. */
+.fc-workflow-modal,
+.fc-form-modal {
   width: min(760px, 100%);
   max-height: min(88vh, 960px);
   overflow-y: auto;
@@ -8812,9 +8824,12 @@ button.fc-status {
   resize: vertical;
 }
 
-/* How a workflow is launched (H-28): inputs, packs, worktrees and a policy in one place. */
+/* How a workflow is launched (H-28): inputs, packs, worktrees and a policy in one place. As wide as
+   the other editor dialogs, and the same ceiling, so a long launch scrolls inside it. */
 .fc-launch-modal {
-  max-width: 520px;
+  width: min(760px, 100%);
+  max-height: min(88vh, 960px);
+  overflow-y: auto;
 }
 
 .fc-launch-textarea {
