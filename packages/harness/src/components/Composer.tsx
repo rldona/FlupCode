@@ -1,6 +1,6 @@
 import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
-import type { Attachment, CommandOption, ProjectItem } from "../types"
+import type { Attachment, BranchState, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { ModeMenu } from "./ModeMenu"
@@ -8,6 +8,7 @@ import { DeliveryMenu } from "./DeliveryMenu"
 import { FolderMenu } from "./FolderMenu"
 import { EffortMenu } from "./EffortMenu"
 import { ContextMeter } from "./ContextMeter"
+import { PullRequestChip } from "./PullRequestChip"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { stepHistory } from "../prompt-history"
@@ -43,6 +44,14 @@ type ComposerProps = {
     /** Opens the diff viewer on this folder. */
     onOpenChanges?: () => void
     onClear?: () => void
+  }
+  /** Where the branch stands on GitHub, drawn above the repo bar. Absent when `gh` cannot say. */
+  pullRequest?: {
+    state: BranchState | undefined
+    creating: boolean
+    suggestedTitle: string
+    onOpenPullRequest: (title: string) => void
+    onOpen: (url: string) => void
   }
   attachments: Attachment[]
   commands: CommandOption[]
@@ -287,6 +296,7 @@ export const Composer: Component<ComposerProps> = (props) => {
       }}
     >
       <div class="fc-composer-inner">
+        <Show when={props.pullRequest}>{(pr) => <PullRequestChip {...pr()} />}</Show>
         <Show when={props.repo}>{(repo) => <RepoBar {...repo()} />}</Show>
 
         <Show when={commandMenuOpen()}>

@@ -2484,6 +2484,43 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
+  // Where the branch stands on GitHub (H-20), for the chip above the composer.
+  //
+  // Polled rather than streamed, because GitHub is the one telling us and nobody here is listening
+  // to it: every 20 seconds while checks are still running, every two minutes once they have
+  // settled. `branchTick` is bumped by the timer and by anything that changes the branch, so a
+  // commit or a new branch is reflected without waiting for the next poll.
+  const [branchTick, setBranchTick] = createSignal(0)
+  const branchKey = () => {
+    const directory = vcsDirectory()
+    if (!ready() || !directory || !routinesServerAvailable()) return undefined
+    return `${harnessServerUrl()}\n${directory}\n${branchTick()}`
+  }
+  const [branchState] = createResource(branchKey, (key) => {
+    const [url = "", directory = ""] = key.split("\n")
+    return createHarnessClient(url).git.state(directory)
+  })
+  createEffect(() => {
+    if (!branchKey()) return
+    const running = (branchState()?.pullRequest?.checks.running ?? 0) > 0
+    const timer = setTimeout(() => setBranchTick((tick) => tick + 1), running ? 20_000 : 120_000)
+    onCleanup(() => clearTimeout(timer))
+  })
+  const [openingPullRequest, setOpeningPullRequest] = createSignal(false)
+  const openPullRequest = (title: string) => {
+    const directory = vcsDirectory()
+    if (!directory) return
+    setOpeningPullRequest(true)
+    void createHarnessClient(harnessServerUrl())
+      .git.openPullRequest({ directory, title })
+      .then((made) => {
+        toast(t("Opened #{number}", { number: made?.number ?? "" }), "success")
+        setBranchTick((tick) => tick + 1)
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+      .finally(() => setOpeningPullRequest(false))
+  }
+
   // Git (H-20). Committing was a prompt: `"Commit the current changes with a clear message."` went
   // to the model, which then ran the commands itself. A whole turn, paid for in tokens, to run two
   // commands the server can run for nothing — and with no say in what went into the commit.
@@ -2499,6 +2536,7 @@ export const App: Component = () => {
         void refetchChanges()
         void refetchVcsStatus()
         void refetchVcsInfo()
+        setBranchTick((tick) => tick + 1)
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
       .finally(() => setCommitting(false))
@@ -2512,6 +2550,7 @@ export const App: Component = () => {
         toast(t('Now on "{branch}"', { branch: made?.branch ?? name }), "success")
         void refetchVcsInfo()
         void refetchChanges()
+        setBranchTick((tick) => tick + 1)
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
@@ -3602,6 +3641,17 @@ export const App: Component = () => {
                         onCommit: commitChanges,
                         onOpenChanges: openChanges,
                         onClear: !selected() && targetDirectory() ? () => changeTargetDirectory(undefined) : undefined,
+                      }
+                    : undefined
+                }
+                pullRequest={
+                  vcsDirectory() && !chatView()
+                    ? {
+                        state: branchState(),
+                        creating: openingPullRequest(),
+                        suggestedTitle: branchState()?.subject ?? branchState()?.branch ?? "",
+                        onOpenPullRequest: openPullRequest,
+                        onOpen: (url) => window.open(url, "_blank", "noopener,noreferrer"),
                       }
                     : undefined
                 }

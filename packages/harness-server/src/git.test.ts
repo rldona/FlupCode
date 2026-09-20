@@ -104,3 +104,19 @@ test("isRepository tells the two apart", async () => {
   expect(await isRepository(plain)).toBe(false)
   rmSync(plain, { recursive: true, force: true })
 })
+
+test("a missing git is an answer, not a crash", async () => {
+  // `Bun.spawn` throws for a binary that is not on PATH. Left to propagate it would come out of the
+  // API as a 500 rather than as "this folder is not a git repository".
+  const empty = mkdtempSync(join(tmpdir(), "flupcode-nopath-"))
+  const previous = process.env.PATH
+  process.env.PATH = empty
+  try {
+    expect(await isRepository(directory)).toBe(false)
+    expect(await currentBranch(directory)).toBe("")
+    expect(commit({ directory, message: "m", paths: ["kept.txt"] })).rejects.toThrow(/not a git repository/)
+  } finally {
+    process.env.PATH = previous
+    rmSync(empty, { recursive: true, force: true })
+  }
+})
