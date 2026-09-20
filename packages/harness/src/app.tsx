@@ -5040,19 +5040,22 @@ export const App: Component = () => {
       }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
+        setPrompt("")
         void run(async (current) => {
           const sessionID = selected() ?? (await current.session.create()).id
           await current.session.skill({ sessionID, skill: skill.name })
-          setPrompt("")
           return sessionID
         })
         return
       }
+      // The draft is spent the moment the command is run, like every built-in above clears it. Doing
+      // it after the round trip left `/content list` sitting in the box while the engine answered, and
+      // stuck there for good if the call failed.
+      setPrompt("")
       void run(async (current) => {
         const model = selectedModel()
         const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
         await current.session.command({ sessionID, command: name, ...(args ? { arguments: args } : {}) })
-        setPrompt("")
         return sessionID
       })
       return
