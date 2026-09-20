@@ -9,8 +9,11 @@ import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { stepHistory } from "../prompt-history"
+import type { AppView } from "../chat"
 
 type ComposerProps = {
+  /** Chats get a plain input: no commands, mentions, folder, agent, permissions or context meter. */
+  mode: AppView
   value: string
   sending: boolean
   /** The model is working on the open session: the send button becomes Stop while the input is empty. */
@@ -158,9 +161,11 @@ export const Composer: Component<ComposerProps> = (props) => {
     props.onAttach(Array.from(files))
   }
 
+  const chat = () => props.mode === "chat"
+
   const commandQuery = () => {
     const value = props.value
-    if (!value.startsWith("/")) return
+    if (chat() || !value.startsWith("/")) return
     const body = value.slice(1)
     if (body.includes(" ")) return
     return body.toLowerCase()
@@ -174,6 +179,7 @@ export const Composer: Component<ComposerProps> = (props) => {
 
   const mentionToken = () => {
     const value = props.value
+    if (chat()) return
     const at = value.lastIndexOf("@")
     if (at === -1) return
     const token = value.slice(at + 1)
@@ -318,7 +324,7 @@ export const Composer: Component<ComposerProps> = (props) => {
             class="fc-input"
             classList={{ "fc-input-suggesting": !!props.suggestion && !props.value }}
             rows={1}
-            placeholder={props.suggestion ?? t("Type / for commands")}
+            placeholder={props.suggestion ?? (chat() ? t("Write a message…") : t("Type / for commands"))}
             value={props.value}
             onInput={(event) => props.onInput(event.currentTarget.value)}
             onPaste={(event) => {
@@ -405,13 +411,17 @@ export const Composer: Component<ComposerProps> = (props) => {
         <div class="fc-composer-bottom">
           <div class="fc-composer-left">
             <AddMenu
-              canAddFolder={!props.targetDirectory}
+              canAddFolder={!chat() && !props.targetDirectory}
               onAddFiles={() => fileInput?.click()}
               onAddFolder={props.onOpenFolder}
-              onSlashCommands={() => {
-                if (!props.value.startsWith("/")) props.onInput("/")
-                input?.focus()
-              }}
+              onSlashCommands={
+                chat()
+                  ? undefined
+                  : () => {
+                      if (!props.value.startsWith("/")) props.onInput("/")
+                      input?.focus()
+                    }
+              }
             />
             <button
               class="fc-dock-icon"
@@ -425,7 +435,7 @@ export const Composer: Component<ComposerProps> = (props) => {
             >
               <DockIcon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
             </button>
-            <Show when={!props.targetDirectory}>
+            <Show when={!chat() && !props.targetDirectory}>
               <FolderMenu
                 value={props.targetDirectory}
                 projects={props.projects}
@@ -433,13 +443,15 @@ export const Composer: Component<ComposerProps> = (props) => {
                 onOpenFolder={props.onOpenFolder}
               />
             </Show>
-            <Show when={props.value.startsWith("!")}>
+            <Show when={!chat() && props.value.startsWith("!")}>
               <span class="fc-chip fc-chip-active">{t("Shell")}</span>
             </Show>
-            <Show when={primaryAgents(props.agents).length > 1}>
-              <AgentMenu agents={primaryAgents(props.agents)} value={props.agent} onChange={props.onAgentChange} />
+            <Show when={!chat()}>
+              <Show when={primaryAgents(props.agents).length > 1}>
+                <AgentMenu agents={primaryAgents(props.agents)} value={props.agent} onChange={props.onAgentChange} />
+              </Show>
+              <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
             </Show>
-            <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
           </div>
 
           <div class="fc-composer-right">
@@ -457,12 +469,14 @@ export const Composer: Component<ComposerProps> = (props) => {
               disabled={props.variants.length === 0}
               onChange={props.onVariantChange}
             />
-            <ContextMeter
-              used={props.usage.used}
-              limit={props.usage.limit}
-              cost={props.usage.cost}
-              tokens={props.usage.tokens}
-            />
+            <Show when={!chat()}>
+              <ContextMeter
+                used={props.usage.used}
+                limit={props.usage.limit}
+                cost={props.usage.cost}
+                tokens={props.usage.tokens}
+              />
+            </Show>
           </div>
         </div>
       </div>

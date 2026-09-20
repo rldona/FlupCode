@@ -21,6 +21,8 @@ type SessionViewProps = {
   liveText?: string
   liveReasoning?: string
   showTools: boolean
+  /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
+  chat?: boolean
   onEditUser: (messageID: string, text: string) => void
 }
 
@@ -333,6 +335,7 @@ function turnCommit(messages: SessionMessageInfo[], index: number) {
 
 const TurnFooter: Component<{
   agent: string
+  hideAgent?: boolean
   model?: { providerID: string; id: string }
   duration?: string
   commit?: { hash: string; inText: boolean }
@@ -351,7 +354,9 @@ const TurnFooter: Component<{
       </Show>
       <div class="fc-turn-footer">
         <span class="fc-turn-icon">▣</span>
-        <span>{props.agent}</span>
+        <Show when={!props.hideAgent}>
+          <span>{props.agent}</span>
+        </Show>
         <Show when={model()}>
           <span>{model()}</span>
         </Show>
@@ -414,6 +419,13 @@ function assistantSegments(message: SessionMessageAssistant, showTools: boolean,
   return segments
 }
 
+/** Stopping a run ends its message with an abort error, which is not a failure to show in red. */
+export function stoppedByUser(error: unknown) {
+  if (!error || typeof error !== "object") return false
+  const { name, type, _tag } = error as { name?: unknown; type?: unknown; _tag?: unknown }
+  return [name, type, _tag].some((value) => typeof value === "string" && /abort|interrupt/i.test(value))
+}
+
 const AssistantMessage: Component<{
   message: SessionMessageAssistant
   showTools: boolean
@@ -445,7 +457,12 @@ const AssistantMessage: Component<{
           )}
         </Index>
         <Show when={props.message.error}>
-          <div class="fc-message-error">{t("Error generating the response")}</div>
+          <Show
+            when={stoppedByUser(props.message.error)}
+            fallback={<div class="fc-message-error">{t("Error generating the response")}</div>}
+          >
+            <div class="fc-message-stopped">{t("Stopped")}</div>
+          </Show>
         </Show>
       </div>
     </Show>
@@ -702,13 +719,15 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                           message={message as SessionMessageAssistant}
                           showTools={props.showTools}
                           showRole={
-                            fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant"
+                            !props.chat &&
+                            (fullIndex(index()) === 0 || props.messages?.[fullIndex(index()) - 1]?.type !== "assistant")
                           }
                           toolRuns={toolRuns()}
                         />
                         <Show when={isTurnEnd(fullIndex(index()))}>
                           <TurnFooter
                             {...turnMeta(fullIndex(index()))}
+                            hideAgent={props.chat}
                             commit={turnCommit(props.messages ?? [], fullIndex(index()))}
                             modelName={props.modelName}
                           />
@@ -719,13 +738,15 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                     <div class="fc-message fc-message-user" data-chapter={message.id}>
                       <div class="fc-message-role">{t("You")}</div>
                       <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
-                      <button
-                        class="fc-message-edit"
-                        type="button"
-                        onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
-                      >
-                        {t("Edit")}
-                      </button>
+                      <Show when={!props.chat}>
+                        <button
+                          class="fc-message-edit"
+                          type="button"
+                          onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+                        >
+                          {t("Edit")}
+                        </button>
+                      </Show>
                     </div>
                   </Show>
                 )}

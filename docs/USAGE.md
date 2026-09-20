@@ -120,6 +120,19 @@ protected your PC": click **More info → Run anyway**.
 Built-in commands: `/new`, `/compact`, `/steps`, `/mcp`, `/stash`, `/stashes`, `/settings`,
 `/about`.
 
+## Chats
+
+The **Chat / Code** tabs in the top bar (and on the phone home) switch between conversations and
+code sessions; each tab has its own list, home and input.
+
+- A chat is a plain conversation: the model can search and read the web, but cannot read, write or
+  run anything on your computer. Chats have no folder, agent, permission mode, workspace panels
+  or context panel.
+- Chats are sessions the engine keeps in its own state folder (`GET /path` → `state`), so every
+  device paired with the same computer sees the same chats.
+- They are sent through the engine's legacy prompt (the one that accepts a system prompt), and
+  stream on that folder's event stream (`/event?directory=…`).
+
 ## Sessions
 
 The session toolbar offers agent selection, Fork, Compact, Undo, Redo, Confirm revert, Rename,

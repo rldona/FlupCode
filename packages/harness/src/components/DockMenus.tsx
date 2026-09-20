@@ -108,7 +108,8 @@ export const AddMenu: Component<{
   canAddFolder: boolean
   onAddFiles: () => void
   onAddFolder: () => void
-  onSlashCommands: () => void
+  /** Left out in chats, which have no commands. */
+  onSlashCommands?: () => void
 }> = (props) => (
   <DockPopover class="fc-dock-icon" title={t("Add")} label={<DockIcon path={ICONS.plus} size={20} />}>
     {(close) => (
@@ -132,14 +133,18 @@ export const AddMenu: Component<{
             }}
           />
         </Show>
-        <MenuItem
-          icon={<DockIcon path={ICONS.slash} />}
-          label={t("Slash commands")}
-          onClick={() => {
-            close()
-            props.onSlashCommands()
-          }}
-        />
+        <Show when={props.onSlashCommands}>
+          {(open) => (
+            <MenuItem
+              icon={<DockIcon path={ICONS.slash} />}
+              label={t("Slash commands")}
+              onClick={() => {
+                close()
+                open()()
+              }}
+            />
+          )}
+        </Show>
       </>
     )}
   </DockPopover>
