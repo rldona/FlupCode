@@ -53,6 +53,16 @@ export const FolderMenu: Component<FolderMenuProps> = (props) => {
             placeholder={t("Filter projects")}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
+          <button
+            class="fc-folder-item fc-folder-open"
+            type="button"
+            onClick={() => {
+              setOpen(false)
+              props.onOpenFolder()
+            }}
+          >
+            {t("Open folder…")}
+          </button>
           <button class="fc-folder-item" type="button" onClick={() => select(undefined)}>
             <span>{t("No folder")}</span>
             <Show when={!props.value}>
@@ -69,9 +79,6 @@ export const FolderMenu: Component<FolderMenuProps> = (props) => {
               </button>
             )}
           </For>
-          <button class="fc-folder-item fc-folder-open" type="button" onClick={() => { setOpen(false); props.onOpenFolder() }}>
-            {t("Open folder…")}
-          </button>
         </div>
       </Show>
     </div>
