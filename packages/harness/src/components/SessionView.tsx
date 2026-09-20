@@ -539,15 +539,28 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     }),
   )
   const [activeChapter, setActiveChapter] = createSignal<string>()
+  let jumpedTo: string | undefined
+  let jumpedAt = 0
   let chapterFrame = 0
   const trackChapter = () => {
     cancelAnimationFrame(chapterFrame)
     chapterFrame = requestAnimationFrame(() => {
       if (!container || !body) return
-      const top = container.getBoundingClientRect().top + 120
+      // A prompt picked in the navigator stays current until the reader scrolls by hand, even if
+      // the chat cannot scroll far enough to bring it to the top.
+      if (jumpedTo && readerInput < jumpedAt) return setActiveChapter(jumpedTo)
+      jumpedTo = undefined
+      // At the end the last prompt is the current one, even when its short answer leaves it low on
+      // screen; otherwise it is the last prompt that has reached the upper part of the chat.
+      if (container.scrollHeight - container.scrollTop - container.clientHeight < 8) {
+        setActiveChapter(chapters().at(-1)?.id)
+        return
+      }
+      const rect = container.getBoundingClientRect()
+      const line = rect.top + rect.height * 0.4
       let current: string | undefined
       for (const element of body.querySelectorAll<HTMLElement>("[data-chapter]")) {
-        if (element.getBoundingClientRect().top > top) break
+        if (element.getBoundingClientRect().top > line) break
         current = element.dataset.chapter
       }
       setActiveChapter(current ?? chapters()[0]?.id)
@@ -563,6 +576,8 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     const index = (props.messages ?? []).findIndex((message) => message.id === id)
     if (index < 0) return
     setStick(false)
+    jumpedTo = id
+    jumpedAt = performance.now()
     // Render older messages first when the prompt is above the loaded window.
     if (index < offset()) setVisibleCount(total() - index + 20)
     setActiveChapter(id)
