@@ -82,6 +82,7 @@
   /* Semantic accents. `*-bg` tokens are the tinted backgrounds mixed at a low percentage. */
   --fc-warning: #8a5a00;
   --fc-favorite: #b7791f;
+  --fc-merged: #8250df;
   --fc-diff-add: #0f7a4a;
   --fc-diff-del: #b42318;
   --fc-diff-add-bg: #2ecc71;
@@ -115,6 +116,8 @@
   --fc-font-ui: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   /* The FlupCode name and the home greetings. */
   --fc-font-brand: "Nunito Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Named in docs/DESIGN.md §3 and written out by hand in twenty-one rules until now. */
+  --fc-font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   --fc-text-xs: 11px;
   --fc-text-sm: 12px;
   --fc-text-md: 14px;
@@ -141,6 +144,7 @@
   --fc-success-soft: #12b76a;
   --fc-warning: #f5b80c;
   --fc-favorite: #f5b80c;
+  --fc-merged: #a371f7;
   --fc-diff-add: #7ee2a8;
   --fc-diff-del: #f19a90;
   --fc-diff-add-bg: #2ecc71;
@@ -173,6 +177,7 @@
   --fc-success-soft: #12b76a;
   --fc-warning: #d9a441;
   --fc-favorite: #f5b80c;
+  --fc-merged: #8250df;
   --fc-diff-add: #7ee2a8;
   --fc-diff-del: #f19a90;
   --fc-diff-add-bg: #2ecc71;
@@ -203,6 +208,7 @@
   --fc-success-soft: #12b76a;
   --fc-warning: #d9a441;
   --fc-favorite: #f5b80c;
+  --fc-merged: #a371f7;
   --fc-diff-add: #7ee2a8;
   --fc-diff-del: #f19a90;
   --fc-diff-add-bg: #2ecc71;
@@ -236,6 +242,7 @@
   --fc-success-soft: #12b76a;
   --fc-warning: #a86a00;
   --fc-favorite: #b7791f;
+  --fc-merged: #8250df;
   --fc-diff-add: #027a48;
   --fc-diff-del: #b42318;
   --fc-diff-add-bg: #2ecc71;
@@ -266,6 +273,7 @@
   --fc-success-soft: #12b76a;
   --fc-warning: #d9a441;
   --fc-favorite: #d9a441;
+  --fc-merged: #a371f7;
   --fc-diff-add: #8fbf7f;
   --fc-diff-del: #d9705f;
   --fc-diff-add-bg: #2ecc71;
@@ -299,6 +307,7 @@
   --fc-success-soft: #12b76a;
   --fc-warning: #d9a441;
   --fc-favorite: #d9a441;
+  --fc-merged: #a371f7;
   --fc-diff-add: #93c98a;
   --fc-diff-del: #e0897a;
   --fc-diff-add-bg: #2ecc71;

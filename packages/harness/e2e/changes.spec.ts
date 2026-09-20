@@ -92,7 +92,14 @@ type BranchFixture = Record<string, unknown>
 async function openSession(
   page: Page,
   panels: string[] = [],
-  options: { long?: boolean; branch?: BranchFixture; checkpoints?: unknown[]; findings?: unknown[] } = {},
+  options: {
+    long?: boolean
+    branch?: BranchFixture
+    checkpoints?: unknown[]
+    findings?: unknown[]
+    /** A working tree with nothing in it, which is when the bar has room for the PR's counts. */
+    clean?: boolean
+  } = {},
 ) {
   const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [], restored: [], planned: [], resolved: [] }
   await page.addInitScript((panels) => {
@@ -196,7 +203,7 @@ async function openSession(
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/vcs") return route.fulfill({ json: { branch: "feature", default_branch: "main" } })
-    if (url.pathname === "/vcs/status") return route.fulfill({ json: status })
+    if (url.pathname === "/vcs/status") return route.fulfill({ json: options.clean ? [] : status })
     if (url.pathname === "/vcs/diff") {
       const mode = url.searchParams.get("mode") ?? "git"
       seen.modes.push(mode)
@@ -415,17 +422,20 @@ test("a branch with no pull request offers to open one, and says when it must pu
     branch: { available: true, branch: "feature/thing", repository: "rldona/FlupCode", pushed: false, subject: "feat: the thing" },
   })
 
-  const chip = page.locator(".fc-pr-chip")
-  await expect(chip).toContainText("feature/thing")
-  await expect(chip).toContainText("rldona/FlupCode")
+  // One bar, not two: the branch, the repository and the button to open a pull request are the
+  // same fact about where you are, and they are on the same row as the folder.
+  const bar = page.locator(".fc-repo-bar")
+  await expect(page.locator(".fc-repo-bar")).toHaveCount(1)
+  await expect(bar).toContainText("feature/thing")
+  await expect(bar).toContainText("rldona/FlupCode")
   // Pushing is part of it, so the button says so rather than doing it quietly.
-  await chip.getByRole("button", { name: /Push and create PR|Subir y crear PR/ }).click()
+  await bar.getByRole("button", { name: /Push and create PR|Subir y crear PR/ }).click()
 
   // The title starts as the branch's last commit subject, and stays editable.
-  const title = chip.getByRole("textbox", { name: /Pull request title|Título del PR/ })
+  const title = bar.getByRole("textbox", { name: /Pull request title|Título del PR/ })
   await expect(title).toHaveValue("feat: the thing")
   await title.fill("feat: something better")
-  await chip.getByRole("button", { name: /^(Open|Abrir)$/ }).click()
+  await bar.getByRole("button", { name: /^(Open|Abrir)$/ }).click()
 
   await expect.poll(() => seen.pullRequests).toEqual(["feat: something better"])
   await expect(page.locator(".fc-toast")).toContainText("42")
@@ -434,11 +444,23 @@ test("a branch with no pull request offers to open one, and says when it must pu
 test("an open pull request shows its number, its size and what CI says", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest({}) })
 
-  const chip = page.locator(".fc-pr-chip")
-  await expect(chip.getByRole("button", { name: "#121" })).toBeVisible()
-  await expect(chip).toContainText("+835")
-  await expect(chip).toContainText("−25")
-  await expect(chip.locator(".fc-pr-checks")).toHaveAttribute("data-verdict", "passed")
+  const bar = page.locator(".fc-repo-bar")
+  await expect(bar.getByRole("button", { name: "#121" })).toBeVisible()
+  await expect(bar.locator(".fc-pr-checks")).toHaveAttribute("data-verdict", "passed")
+  // One pair of counts at a time. This folder has uncommitted changes, so those are the ones on
+  // the bar — two `+N −N` pairs side by side is a bar nobody can read. The pull request's size is
+  // on its number.
+  await expect(bar.locator(".fc-repo-counts")).toContainText("+3")
+  await expect(bar).not.toContainText("+835")
+  await expect(bar.getByRole("button", { name: "#121" })).toHaveAttribute("title", /835/)
+})
+
+test("with nothing uncommitted, the counts on the bar are the pull request's", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({}), clean: true })
+
+  const bar = page.locator(".fc-repo-bar")
+  await expect(bar).toContainText("+835")
+  await expect(bar).toContainText("−25")
 })
 
 test("checks still running are not reported as a verdict", async ({ page }) => {
@@ -462,17 +484,98 @@ test("a failed check says how many, in the colour that means it", async ({ page 
   await expect(checks).toContainText(/2 failed|2 han fallado/)
 })
 
-test("a merged pull request says merged, and stops talking about CI", async ({ page }) => {
+test("a merged pull request gets a row of its own, and stops talking about CI", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
 
-  await expect(page.locator(".fc-pr-state")).toContainText(/Merged|Mergeado/)
+  // A pull request that is over is a different fact from where you are, so it is drawn as one —
+  // under the bar, in the state's colour, with its number, its repository and its branch.
+  const done = page.locator(".fc-pr-done")
+  await expect(done).toHaveAttribute("data-state", "merged")
+  await expect(done).toContainText(/Merged|Mergeado/)
+  await expect(done.getByRole("button", { name: "#121" })).toBeVisible()
+  await expect(done).toContainText("FlupCode")
+  await expect(done).toContainText("feature/thing")
   await expect(page.locator(".fc-pr-checks")).toHaveCount(0)
+})
+
+test("the bar behind a merged pull request still offers to open the next one", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
+
+  // This is why it is two rows and not one: the branch is still a branch you can open a PR from.
+  await expect(page.locator(".fc-repo-bar")).toBeVisible()
+  await expect(page.locator(".fc-pr-done")).toBeVisible()
+})
+
+test("a merged row can be waved away on its own", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({ state: "merged" }) })
+
+  await page.locator(".fc-pr-done").getByRole("button", { name: /Hide this|^Ocultar$/ }).click()
+
+  await expect(page.locator(".fc-pr-done")).toHaveCount(0)
+  // The bar is about the branch, not about the pull request that ended: it stays.
+  await expect(page.locator(".fc-repo-bar")).toBeVisible()
+})
+
+test("a closed pull request is drawn as closed, not as merged", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({ state: "closed" }) })
+
+  const done = page.locator(".fc-pr-done")
+  await expect(done).toHaveAttribute("data-state", "closed")
+  await expect(done).toContainText(/Closed|Cerrado/)
 })
 
 test("without gh there is no chip at all, rather than a chip that cannot say", async ({ page }) => {
   await openSession(page)
   await expect(page.locator(".fc-repo-bar")).toBeVisible()
   await expect(page.locator(".fc-pr-chip")).toHaveCount(0)
+})
+
+test("the branch and its pull request are one bar, not two", async ({ page }) => {
+  // The complaint this came from: two stacked bubbles above the composer for one fact about where
+  // you are, which left the reader joining them up and cost a line of the screen.
+  await openSession(page, [], { branch: withPullRequest({}) })
+
+  await expect(page.locator(".fc-repo-bar")).toHaveCount(1)
+  const bar = page.locator(".fc-repo-bar")
+  await expect(bar).toContainText("demo")
+  await expect(bar).toContainText("feature/thing")
+  await expect(bar.getByRole("button", { name: "#121" })).toBeVisible()
+  // The chip is inside it, not stacked above it.
+  await expect(bar.locator(".fc-pr-chip")).toHaveCount(1)
+})
+
+test("the failing checks do get a bubble of their own, under the bar", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest(failing) })
+  await expect(page.locator(".fc-pr-failures")).toHaveCount(0)
+
+  await page.locator(".fc-pr-checks-open").click()
+
+  // Opened on purpose and long: this one is a different thing from the bar.
+  const failures = page.locator(".fc-pr-failures")
+  await expect(failures).toBeVisible()
+  await expect(page.locator(".fc-repo-bar .fc-pr-failures")).toHaveCount(0)
+})
+
+test("the bar can be closed, and comes back when there is something new to say", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({}) })
+  await expect(page.locator(".fc-repo-bar")).toBeVisible()
+
+  await page.getByRole("button", { name: /Hide this|^Ocultar$/ }).click()
+  await expect(page.locator(".fc-repo-bar")).toHaveCount(0)
+
+  // Not a setting: it hides this branch in this state. A reload is a new page and a new bar.
+  await page.reload()
+  await expect(page.locator(".fc-repo-bar")).toBeVisible()
+})
+
+test("the repository is named only when it is not the folder's name again", async ({ page }) => {
+  // The folder here is `demo` and the repository is `rldona/FlupCode`, so it is worth saying.
+  await openSession(page, [], { branch: withPullRequest({}) })
+  await expect(page.locator(".fc-pr-repo")).toContainText("rldona/FlupCode")
+
+  // Printing `demo demo` would be noise on a row that is already full.
+  await openSession(page, [], { branch: withPullRequest({ repository: "rldona/demo" }) })
+  await expect(page.locator(".fc-pr-repo")).toHaveCount(0)
 })
 
 test("a failed check can be asked why, without leaving for a browser", async ({ page }) => {
