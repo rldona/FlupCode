@@ -8,6 +8,8 @@ export type MenuItem = {
   disabled?: boolean
   /** Shown at the end instead of the hint, as a small tag. */
   soon?: boolean
+  /** Where a `/` entry comes from: command, skill or workflow (SK-2). Built-ins show none. */
+  badge?: string
 }
 
 /**
@@ -38,8 +40,11 @@ export const ComposerMenu: Component<{
           onMouseEnter={() => props.onHover?.(index())}
           onClick={() => props.onPick(index())}
         >
-          <span class="fc-command-name">{item.label}</span>
-          <Show when={item.hint}>
+                            <span class="fc-command-name">{item.label}</span>
+                            <Show when={item.badge}>
+                              <span class="fc-palette-badge">{item.badge}</span>
+                            </Show>
+                            <Show when={item.hint}>
             <span class="fc-command-desc">{item.hint}</span>
           </Show>
           <Show when={item.soon}>
