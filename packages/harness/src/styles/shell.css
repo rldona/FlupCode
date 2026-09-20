@@ -3519,7 +3519,6 @@ button.fc-status {
 
 .fc-routines-header h1,
 .fc-routine-editor h2,
-.fc-routines-detail h2,
 .fc-routines-empty h2 {
   margin: 0;
   font-size: clamp(24px, 3vw, 34px);
@@ -3528,7 +3527,6 @@ button.fc-status {
 
 .fc-routines-header p,
 .fc-routine-editor-heading p,
-.fc-routines-detail-top p,
 .fc-routines-empty p {
   margin: 8px 0 0;
   color: var(--fc-text-muted);
@@ -3543,8 +3541,7 @@ button.fc-status {
   text-transform: uppercase;
 }
 
-.fc-routines-header-actions,
-.fc-routine-detail-actions {
+.fc-routines-header-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -3611,10 +3608,7 @@ button.fc-status {
 }
 
 .fc-routines-layout {
-  display: grid;
-  grid-template-columns: minmax(280px, 0.85fr) minmax(360px, 1.15fr);
-  align-items: stretch;
-  gap: 20px;
+  display: block;
   margin-top: 20px;
 }
 
@@ -3705,22 +3699,8 @@ button.fc-status {
   background: var(--fc-bg-elevated);
 }
 
-.fc-routines-detail-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 260px;
-  color: var(--fc-text-muted);
-}
-
-.fc-routines-detail-top {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-}
-
-.fc-routine-detail-actions {
-  margin-top: 24px;
+.fc-detail-modal.fc-routines-detail {
+  padding: 0;
 }
 
 .fc-routine-facts {
@@ -3754,7 +3734,7 @@ button.fc-status {
 }
 
 .fc-routine-detail-section h3 {
-  margin: 0 0 10px;
+  margin: 0 0 var(--fc-section-title-gap);
   font-size: 13px;
 }
 
@@ -3888,7 +3868,7 @@ button.fc-status {
   .fc-routines-layout,
   .fc-routine-editor-heading { flex-direction: column; }
   .fc-routines-header-actions { width: 100%; }
-  .fc-routines-layout { display: flex; }
+  .fc-routines-layout { display: flex; align-items: stretch; }
   .fc-routines-detail { order: -1; }
   .fc-routines-search { width: 100%; }
 }
@@ -8249,6 +8229,20 @@ button.fc-status {
   background: var(--fc-bg-elevated);
 }
 
+.fc-detail-modal .fc-run-detail {
+  position: static;
+  top: auto;
+  flex: 1 1 auto;
+  width: 100%;
+  max-height: none;
+  margin-top: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
+}
+
 .fc-run-detail-head {
   display: flex;
   gap: var(--fc-space-2);
@@ -8301,7 +8295,7 @@ button.fc-status {
 }
 
 .fc-run-detail-section h3 {
-  margin: 0 0 var(--fc-space-1);
+  margin: 0 0 var(--fc-section-title-gap);
   color: var(--fc-text-muted);
   font-size: var(--fc-text-xs);
   font-weight: 600;
@@ -8487,12 +8481,16 @@ button.fc-status {
   font-size: var(--fc-text-xs);
 }
 
+.fc-artifact-toolbar {
+  border-bottom: 0;
+}
+
 .fc-artifact-kinds {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   max-width: 1120px;
-  margin: var(--fc-space-4) auto 0;
+  margin: var(--fc-space-4) auto var(--fc-space-4);
 }
 
 .fc-artifact-card {
@@ -8955,7 +8953,7 @@ button.fc-status {
   display: flex;
   align-items: center;
   gap: 8px;
-  margin-bottom: var(--fc-space-2);
+  margin-bottom: var(--fc-section-title-gap);
 }
 
 .fc-workflow-list-head h2 {
@@ -8999,7 +8997,8 @@ button.fc-status {
 }
 
 /* A form dialog keeps its header and its actions put; only the body scrolls. */
-.fc-form-modal {
+.fc-form-modal,
+.fc-detail-modal {
   display: flex;
   flex-direction: column;
   width: min(760px, 100%);
@@ -9009,13 +9008,15 @@ button.fc-status {
   gap: 0;
 }
 
-.fc-form-modal .fc-modal-header {
+.fc-form-modal .fc-modal-header,
+.fc-detail-modal .fc-modal-header {
   flex: 0 0 auto;
   padding: var(--fc-space-4);
   border-bottom: 1px solid var(--fc-border);
 }
 
-.fc-form-modal .fc-modal-body {
+.fc-form-modal .fc-modal-body,
+.fc-detail-modal .fc-modal-body {
   display: flex;
   flex: 1 1 auto;
   flex-direction: column;
@@ -9025,10 +9026,20 @@ button.fc-status {
   padding: var(--fc-space-4);
 }
 
-.fc-form-modal .fc-dialog-actions {
+.fc-form-modal .fc-dialog-actions,
+.fc-detail-modal .fc-dialog-actions {
   flex: 0 0 auto;
   padding: var(--fc-space-3) var(--fc-space-4);
   border-top: 1px solid var(--fc-border);
+}
+
+.fc-detail-modal {
+  width: min(680px, 100%);
+}
+
+/* A question in a dialog's footer reads from the edge, its answers stay right, as .fc-confirm-inline. */
+.fc-detail-modal .fc-dialog-actions > span:first-child {
+  margin-inline-end: auto;
 }
 
 .fc-form-modal .fc-routine-editor-grid {
@@ -10254,7 +10265,7 @@ button.fc-status {
   display: flex;
   gap: var(--fc-space-2);
   align-items: baseline;
-  padding-bottom: var(--fc-space-2);
+  padding-bottom: var(--fc-section-title-gap);
 }
 
 .fc-checkpoints-hint {

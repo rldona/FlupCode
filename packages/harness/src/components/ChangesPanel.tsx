@@ -38,7 +38,6 @@ type ChangesPanelProps = {
   /** A review's points about these files (H-32). */
   findings: Finding[]
   onResolveFinding: (id: string, resolved: boolean) => void
-  onClose: () => void
 }
 
 const name = (directory: string) => directory.split("/").filter(Boolean).at(-1) ?? directory
@@ -180,9 +179,6 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
           <div class="fc-routines-header-actions">
             <button class="fc-button" type="button" disabled={props.loading} onClick={props.onRefresh}>
               {props.loading ? t("Reading…") : t("Refresh")}
-            </button>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
             </button>
           </div>
         </div>
