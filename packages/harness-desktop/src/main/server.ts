@@ -91,7 +91,12 @@ function resolveHarnessServer(): { command: string; args: string[]; cwd?: string
     return { command: process.env.FLUPCODE_HARNESS_SERVER, args: [] }
   }
 
-  const packaged = join(process.resourcesPath, "harness-server", "flupcode-harness")
+  // `bun build --compile` writes `flupcode-harness.exe` on Windows whatever the outfile says, so the
+  // packaged binary is looked for under the name it actually has. Asking for the wrong one is how
+  // 1.8.0 shipped a Windows app with no server at all, silently: electron-builder skipped a resource
+  // that did not exist and the build stayed green.
+  const packagedName = process.platform === "win32" ? "flupcode-harness.exe" : "flupcode-harness"
+  const packaged = join(process.resourcesPath, "harness-server", packagedName)
   if (existsSync(packaged)) return { command: packaged, args: [] }
 
   const directory = repoHarnessDir()
