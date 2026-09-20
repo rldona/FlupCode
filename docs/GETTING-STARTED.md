@@ -91,15 +91,16 @@ FlupCode tells the two apart on purpose: **"Sin conexión al servidor" / Server 
 nothing answered; **"Conexión bloqueada por el navegador" / Connection blocked by the browser**
 means the engine is listening but the browser refused to hand the response to the page.
 
-| Symptom                                    | Cause                                                                           | Fix                                                                     |
-| ------------------------------------------ | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| "Server offline"                           | No engine is running, or the port is wrong                                      | Start `opencode serve`, check the server URL in Settings                |
-| "Connection blocked by the browser"        | The engine was started without `--cors` for this origin                         | Stop it and start it again with `--cors <page origin>`                  |
-| Nothing connects on **Safari**             | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content) | Use the **desktop app**, which is not subject to the mixed-content rule |
-| Chrome shows a Local Network Access prompt | Chromium gates public→loopback requests                                         | Allow it; FlupCode's engine answers the preflight once it is granted    |
-| Empty model selector                       | No provider connected                                                           | Connect one in OpenCode, or leave **Auto** enabled                      |
-| The sidebar does not list TUI sessions     | The dev engine uses a different database                                        | Start the engine with `OPENCODE_DISABLE_CHANNEL_DB=1`                   |
-| "FlupCode Not Opened" / SmartScreen        | Builds are not signed yet                                                       | See [Installing a release](USAGE.md#installing-a-release)               |
+| Symptom                                    | Cause                                                                           | Fix                                                                                        |
+| ------------------------------------------ | ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| "Server offline"                           | No engine is running, or the port is wrong                                      | Start `opencode serve`, check the server URL in Settings                                   |
+| "Connection blocked by the browser"        | The engine was started without `--cors` for this origin                         | Stop it and start it again with `--cors <page origin>`                                     |
+| Nothing connects on **Safari**             | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content) | Use the **desktop app**, which is not subject to the mixed-content rule                    |
+| Chrome shows a Local Network Access prompt | Chromium gates public→loopback requests                                         | Allow it; FlupCode's engine answers the preflight once it is granted                       |
+| Empty model selector                       | No provider connected                                                           | Connect one in OpenCode, or leave **Auto** enabled                                         |
+| The sidebar does not list TUI sessions     | The dev engine uses a different database                                        | Start the engine with `OPENCODE_DISABLE_CHANNEL_DB=1`                                      |
+| FlupCode warns "stock OpenCode engine"     | The engine is the published CLI, without FlupCode's patches                     | Run the engine from this fork's source (see [Start the engine](#step-2--start-the-engine)) |
+| "FlupCode Not Opened" / SmartScreen        | Builds are not signed yet                                                       | See [Installing a release](USAGE.md#installing-a-release)                                  |
 
 ### Why Safari needs the desktop app
 

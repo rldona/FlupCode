@@ -1,6 +1,7 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { touchDevice } from "../remote"
+import type { EngineProfile } from "../client"
 import logo from "../assets/flupcode-logo.png"
 
 type OnboardingProps = {
@@ -8,6 +9,8 @@ type OnboardingProps = {
   serverHealthy: boolean | undefined
   /** The engine is reachable but the browser blocked the response (CORS, mixed content). */
   serverBlocked: boolean
+  /** Whether the engine is FlupCode's build or the stock OpenCode CLI. */
+  engineProfile: EngineProfile | undefined
   serverInput: string
   onServerInput: (value: string) => void
   onConnect: () => void
@@ -60,6 +63,17 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
               ? t("Connection blocked by the browser")
               : t("Server offline")}
       </div>
+
+      <Show when={props.serverHealthy === true && props.engineProfile === "stock"}>
+        <p class="fc-onboarding-text">
+          {t(
+            "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.",
+          )}{" "}
+          <a class="fc-link" href={GETTING_STARTED} target="_blank" rel="noreferrer">
+            {t("How to run FlupCode's engine")}
+          </a>
+        </p>
+      </Show>
 
       <Show when={props.serverBlocked}>
         <p class="fc-onboarding-text">

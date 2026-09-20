@@ -46,6 +46,23 @@ export async function probeServer(baseUrl: string): Promise<ServerStatus> {
   return listening ? "blocked" : "offline"
 }
 
+/** Whether the connected engine is FlupCode's build (with its patches) or the stock OpenCode CLI. */
+export type EngineProfile = "flupcode" | "stock" | "unknown"
+
+/**
+ * FlupCode's engine exposes the memory API at `/api/memory`; the stock OpenCode CLI does not, and
+ * its UI catch-all answers HTML for that path. Content type, not the status code, tells them apart
+ * because that catch-all also returns 200.
+ */
+export async function probeEngineProfile(baseUrl: string): Promise<EngineProfile> {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/api/memory`, {
+    signal: AbortSignal.timeout(2000),
+  }).catch(() => undefined)
+  if (!response) return "unknown"
+  void response.body?.cancel()
+  return (response.headers.get("content-type") ?? "").includes("application/json") ? "flupcode" : "stock"
+}
+
 async function* subscribeEvents(baseUrl: string, signal?: AbortSignal, path = "/api/event") {
   const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     headers: { Accept: "text/event-stream" },
