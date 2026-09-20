@@ -1026,6 +1026,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** Take a queued task off the run; running work is stopped with the run (HF-4). */
+      cancelTask: (taskID: string) =>
+        harnessRequest<Task>(baseUrl, `/harness/tasks/${encodeURIComponent(taskID)}/cancel`, { method: "POST" }),
       /** Merge the worktrees this run's tasks wrote in, back into its folder (H-29). */
       mergeWorktrees: (id: string) =>
         harnessRequest<{ merged: Array<{ taskID: string; branch: string; sha: string }> }>(

@@ -493,6 +493,16 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         return error(cause instanceof Error ? cause.message : String(cause), 409)
       }
     }
+    // Taking a queued task off the run (HF-4). Running work is stopped with the run, not alone.
+    if (path[1] === "tasks" && request.method === "POST" && path[2] && path[3] === "cancel") {
+      if (!repository.getTask(path[2])) return error("Task not found", 404)
+      try {
+        const cancelled = scheduler.cancelTask(path[2])
+        return cancelled ? json({ data: cancelled }) : error("Task not found", 404)
+      } catch (cause) {
+        return error(cause instanceof Error ? cause.message : String(cause), 409)
+      }
+    }
     if (path[1] === "runs" && request.method === "DELETE" && !path[2]) {
       // Clearing the list is clearing what is over. A run still going is not history yet.
       return json({ data: { removed: repository.removeFinishedRuns().length } })

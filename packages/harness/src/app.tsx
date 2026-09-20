@@ -3936,6 +3936,16 @@ export const App: Component = () => {
   }
 
   /**
+   * Take a queued task off its run (HF-4). The stream carries the stopped row back like any
+   * other change, so nothing here has to guess where it goes.
+   */
+  const cancelTask = (taskID: string) => {
+    void createHarnessClient(harnessServerUrl())
+      .runs.cancelTask(taskID)
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  /**
    * Steer a running task by sending a message to its own session. The legacy runner absorbs a prompt
    * sent while a turn is going, so this is a steer and not a second turn (H-01, H-12).
    */
@@ -5566,6 +5576,7 @@ export const App: Component = () => {
         models={modelList()}
         onRetry={retryTask}
         onSteer={steerTask}
+        onCancelTask={cancelTask}
         onBestOfN={() => setBestOfNOpen(true)}
         onOpenSession={(id) => {
           leaveScreen()
