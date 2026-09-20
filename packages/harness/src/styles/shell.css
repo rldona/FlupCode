@@ -1315,10 +1315,11 @@ button.fc-status {
 
 .fc-image-preview-image {
   display: block;
-  max-width: 100%;
-  /* The flex parent hugs the image, so a percentage max-height has nothing definite to resolve
-     against: measure against the window minus the backdrop's own padding instead. */
-  max-height: calc(100vh - 2 * var(--fc-space-4));
+  /* The flex parent hugs the image, so a percentage max-width/max-height has nothing definite to
+     resolve against: measure against the window minus the backdrop's own padding instead. Keep the
+     image at 75% of that available area so it never crowds the screen edges. */
+  max-width: calc((100vw - 2 * var(--fc-space-4)) * 0.75);
+  max-height: calc((100vh - 2 * var(--fc-space-4)) * 0.75);
   border-radius: var(--fc-radius-md);
   background: var(--fc-bg-elevated);
   object-fit: contain;
@@ -8510,12 +8511,67 @@ button.fc-status {
 
 /* ── The workflow editor (H-28) ───────────────────────────────────────────── */
 
+/* The list is the routines' card shape, so a workflow reads as the same kind of row. */
+.fc-workflow-list {
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+}
+
+.fc-workflow-list-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: var(--fc-space-2);
+}
+
+.fc-workflow-list-head h2 {
+  margin: 0;
+  font-size: var(--fc-text-sm);
+  font-weight: 600;
+}
+
+.fc-workflow-count {
+  padding: 1px 7px;
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  background: var(--fc-bg-subtle);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-workflow-empty {
+  margin: 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
 .fc-workflow-row {
   cursor: pointer;
 }
 
-.fc-workflow-row-active {
-  background: var(--fc-accent-soft);
+/* The detail is a dialog too, and it has to stay on screen with a graph and a textarea in it. */
+.fc-workflow-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fc-workflow-modal {
+  width: min(760px, 100%);
+  max-height: min(88vh, 960px);
+  overflow-y: auto;
+}
+
+.fc-workflow-modal-title {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fc-workflow-modal .fc-workflow-source {
+  min-height: 260px;
 }
 
 .fc-workflow-graph {
