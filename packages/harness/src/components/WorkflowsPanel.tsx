@@ -196,9 +196,6 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
             >
               {t("New workflow")}
             </button>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
           </div>
         </div>
 
