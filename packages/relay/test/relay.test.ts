@@ -124,8 +124,9 @@ describe("relay", () => {
 
   test("rejects a host that cannot prove its id", async () => {
     const victim = await loadHostIdentity(await createHostIdentity())
-    const socket = new WebSocket(`${relay.url}/host?id=${victim.hostId}`)
+    // Create the attacker before connecting: the challenge can arrive before an awaited step ends.
     const attacker = await loadHostIdentity(await createHostIdentity())
+    const socket = new WebSocket(`${relay.url}/host?id=${victim.hostId}`)
     socket.onmessage = (event) => {
       const message = JSON.parse(String(event.data)) as { t: string; nonce: string }
       if (message.t === "challenge")
