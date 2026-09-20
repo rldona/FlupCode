@@ -850,8 +850,7 @@ describe("taking a queued task off the run (HF-4)", () => {  test("a queued task
   })
 })
 
-describe("artifact search and export (HF-7)", () => {
-  test("lists by words, keeps screenshots, and exports as md or json", async () => {
+describe("artifact search and export (HF-7)", () => {  test("lists by words, keeps screenshots, and exports as md or json", async () => {
     const { handler, repository } = open()
     const shot = repository.addArtifact({ kind: "screenshot", title: "login", producer: "user", content: "pixels" })
     repository.addArtifact({ kind: "report", title: "weekly", producer: "harness", content: "nothing" })
@@ -881,6 +880,117 @@ describe("artifact search and export (HF-7)", () => {
 
     const missing = await handler(new Request("http://x/harness/artifacts/nope/export"))
     expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("routines that run a workflow with a policy (HF-8)", () => {
+  const writeWorkflow = (directory: string) => {
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "nightly.yaml"),
+      'name: nightly\ninputs: [scope]\ntasks:\n  - id: check\n    kind: verify\n',
+    )
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 0\n")
+  }
+
+  test("creates with workflow and policy, and runs its tasks on demand", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-routine-hf8-"))
+    made.push(directory)
+    writeWorkflow(directory)
+
+    const created = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Nightly",
+          description: "",
+          prompt: "Check it",
+          schedule: { type: "manual" },
+          projectDirectory: directory,
+          workflow: { name: "nightly", inputs: { scope: "all" } },
+          policy: { fallback: "a/backup" },
+        }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+    expect(routine).toMatchObject({
+      workflow: { name: "nightly", inputs: { scope: "all" } },
+      policy: { fallback: "a/backup" },
+    })
+
+    const started = await handler(new Request(`http://x/harness/routines/${routine.id}/runs`, { method: "POST" }))
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    await settled(repository, run.id)
+
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.status}`)).toEqual(["check:success"])
+    expect(repository.getRun(run.id)).toMatchObject({ status: "success", policy: { fallback: "a/backup" } })
+    repository.close()
+  })
+
+  test("refuses an unknown workflow and missing inputs, on save and on run", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-routine-hf8b-"))
+    made.push(directory)
+    writeWorkflow(directory)
+    const base = {
+      name: "Nightly",
+      description: "",
+      prompt: "Check it",
+      schedule: { type: "manual" },
+      projectDirectory: directory,
+    }
+
+    const ghost = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ ...base, workflow: { name: "nope" } }),
+      }),
+    )
+    expect(ghost.status).toBe(404)
+
+    // Required inputs are checked at save time, not at 2am.
+    const empty = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ ...base, workflow: { name: "nightly" } }),
+      }),
+    )
+    expect(empty.status).toBe(400)
+
+    const created = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ ...base, workflow: { name: "nightly", inputs: { scope: "all" } } }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+
+    const missing = await handler(new Request(`http://x/harness/routines/${routine.id}/runs`, { method: "POST" }))
+    expect(missing.status).toBe(202)
+    await settled(repository, (await missing.json()).data.id)
+
+    const override = await handler(
+      new Request(`http://x/harness/routines/${routine.id}/runs`, {
+        method: "POST",
+        body: JSON.stringify({ inputs: { scope: "all" } }),
+      }),
+    )
+    expect(override.status).toBe(202)
+    await settled(repository, (await override.json()).data.id)
+
+    const renamed = await handler(
+      new Request(`http://x/harness/routines/${routine.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...base, workflow: { name: "nope" } }),
+      }),
+    )
+    expect(renamed.status).toBe(404)
     repository.close()
   })
 })

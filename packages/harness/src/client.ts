@@ -1375,8 +1375,11 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         }),
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, { method: "DELETE" }),
-      run: (id: string) =>
-        harnessRequest<RoutineRun>(baseUrl, `/harness/routines/${encodeURIComponent(id)}/runs`, { method: "POST" }),
+      run: (id: string, inputs?: Record<string, string>) =>
+        harnessRequest<RoutineRun>(baseUrl, `/harness/routines/${encodeURIComponent(id)}/runs`, {
+          method: "POST",
+          ...(inputs ? { body: JSON.stringify({ inputs }) } : {}),
+        }),
       stop: (id: string, runID: string) =>
         harnessRequest<RoutineRun | undefined>(
           baseUrl,

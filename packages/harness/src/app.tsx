@@ -267,6 +267,16 @@ const normalizeRoutine = (value: unknown): Routine | undefined => {
     projectDirectory: typeof item.projectDirectory === "string" ? item.projectDirectory : undefined,
     agent: typeof item.agent === "string" ? item.agent : undefined,
     model,
+    workflow:
+      item.workflow && typeof item.workflow === "object" && "name" in item.workflow &&
+      typeof (item.workflow as { name: unknown }).name === "string" &&
+      (item.workflow as { name: string }).name.trim()
+        ? {
+            name: (item.workflow as { name: string }).name.trim(),
+            inputs: (item.workflow as { inputs?: unknown }).inputs as Record<string, string> | undefined,
+          }
+        : undefined,
+    policy: (item.policy ?? undefined) as Routine["policy"],
     enabled: item.enabled !== false,
     createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
     lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
