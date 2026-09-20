@@ -10,6 +10,7 @@
     "flupcode.onboarded",
     "flupcode.locale",
     "flupcode.theme",
+    "flupcode.colorTheme",
   ]
 
   const WORDS = {

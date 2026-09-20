@@ -7,15 +7,24 @@
       content="width=device-width, initial-scale=1, interactive-widget=resizes-content, viewport-fit=cover"
     />
     <script>
-      // Apply the saved theme before the first paint. The dark theme is otherwise applied when the
+      // Apply the saved mode and palette before the first paint. They are otherwise applied when the
       // app mounts, so the white fallback background flashes on reload, clearly visible in Electron.
+      // Keep these colours in sync with the `--fc-bg` values in styles/tokens.css.
       ;(() => {
         try {
           const stored = JSON.parse(localStorage.getItem("flupcode.theme") || "null")
           const mode = stored === "dark" || stored === "light" ? stored : "system"
           const dark = mode === "dark" || (mode === "system" && matchMedia("(prefers-color-scheme: dark)").matches)
+          const landing = JSON.parse(localStorage.getItem("flupcode.colorTheme") || "null") === "landing"
           document.documentElement.classList.toggle("fc-dark", dark)
-          document.documentElement.style.backgroundColor = dark ? "#0f0f0f" : "#ffffff"
+          if (landing) document.documentElement.dataset.fcTheme = "landing"
+          document.documentElement.style.backgroundColor = landing
+            ? dark
+              ? "#05060b"
+              : "#ffffff"
+            : dark
+              ? "#0f0f0f"
+              : "#ffffff"
         } catch {}
       })()
     </script>
