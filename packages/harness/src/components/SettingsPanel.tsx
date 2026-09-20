@@ -17,6 +17,7 @@ import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { effortLabel } from "../effort"
 import { KeyCapture } from "./KeyCapture"
+import { Toggle } from "./Toggle"
 import { AgentsPanel } from "./AgentsPanel"
 import { ModelMenu } from "./DockMenus"
 import { ModelPicker } from "./ModelPicker"
@@ -228,20 +229,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 
 /** The sections, in the order the rail shows them. */
 export const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((group) => group.items)
-
-/** A clear on/off switch: the knob's side and colour say the state, not a word to read. */
-const Toggle: Component<{ checked: boolean; label: string; onToggle: () => void }> = (props) => (
-  <button
-    class="fc-switch"
-    role="switch"
-    type="button"
-    aria-checked={props.checked}
-    aria-label={props.label}
-    onClick={props.onToggle}
-  >
-    <span class="fc-switch-knob" aria-hidden="true" />
-  </button>
-)
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   // The section lives in app (CU-1): resource keys and the sidebar read it, so tab clicks
