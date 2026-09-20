@@ -3243,6 +3243,17 @@ export const App: Component = () => {
       // The reader has taken over: from here the panel is theirs, not the work's to close later.
       openedForWork = false
     }
+    /**
+     * Hide the context panel outright (hide-empty-panel): unlike the toggle, calling it when the
+     * auto-manage effect already hid the panel is a no-op instead of reopening it. Clearing tasks
+     * to empty races exactly that effect, so the toggle is the wrong tool here.
+     */
+    const hideContextPanel = () => {
+      openedForWork = false
+      if (contextHidden()) return
+      setContextHidden(true)
+      writeStorage(STORAGE_KEYS.contextPanelHidden, true)
+    }
     const contextPanelShown = () => !!selectedSession() && !contextHidden()
 
     /**
@@ -5516,7 +5527,7 @@ export const App: Component = () => {
               blockedSubagents={blockedSessions()}
               width={contextWidth()}
               onResize={updateContextWidth}
-              onHide={toggleContextPanel}
+              onHide={hideContextPanel}
               serverUrl={serverUrl()}
               sessionID={selected()}
             />
