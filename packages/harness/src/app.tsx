@@ -103,9 +103,10 @@ export const App: Component = () => {
   const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
   const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
   const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
-  const [providers, { refetch: refetchProviders }] = createResource(serverUrl, async (url) =>
-    createClient(url).provider.list(),
+  const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(serverUrl, async (url) =>
+    createClient(url).provider.directory(),
   )
+  const [providerAuth] = createResource(serverUrl, async (url) => createClient(url).provider.auth())
   const [commands] = createResource(serverUrl, async (url) => createClient(url).command.list())
   const [permissions, { refetch: refetchPermissions }] = createResource(
     () => {
@@ -839,14 +840,14 @@ export const App: Component = () => {
   const saveProvider = (providerID: string, key: string) =>
     run(async (current) => {
       await current.auth.set({ providerID, key })
-      void refetchProviders()
+      void refetchProviderDirectory()
       return undefined
     }, t("Provider saved"))
 
   const removeProvider = (providerID: string) =>
     run(async (current) => {
       await current.auth.remove({ providerID })
-      void refetchProviders()
+      void refetchProviderDirectory()
       return undefined
     }, t("Provider removed"))
 
@@ -1264,7 +1265,9 @@ export const App: Component = () => {
       />
       <ProvidersPanel
         open={providersOpen()}
-        providers={providers()?.data ?? []}
+        providers={providerDirectory()?.all ?? []}
+        auth={providerAuth() ?? {}}
+        connected={providerDirectory()?.connected ?? []}
         busy={busy()}
         onSave={saveProvider}
         onRemove={removeProvider}
