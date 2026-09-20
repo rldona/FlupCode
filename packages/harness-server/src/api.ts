@@ -152,6 +152,7 @@ import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { summarise } from "./usage"
 import { FINDINGS_INSTRUCTION } from "./findings"
+import { instructionsFor, readInstruction } from "./context"
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
@@ -289,6 +290,26 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           repository.usageRows({ directory: params.get("directory") ?? undefined, since }),
         ),
       })
+    }
+
+    // What the model was given (H-17): which instruction files a turn in this folder would load.
+    // Read from disk by the engine's own rules, because the engine does not report them.
+    if (path[1] === "context" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      const directory = params.get("directory") ?? ""
+      if (!directory) return error("A folder is required", 400)
+      return json({ data: instructionsFor(directory, params.get("project") ?? undefined) })
+    }
+    if (path[1] === "context" && path[2] === "file" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const directory = params.get("directory") ?? ""
+      const wanted = params.get("path") ?? ""
+      if (!directory || !wanted) return error("A folder and a path are required", 400)
+      // Only a file this folder would actually load. The path arrives from a browser, and reading
+      // whatever it asks for would make this a file server.
+      const report = instructionsFor(directory, params.get("project") ?? undefined)
+      const content = readInstruction(report, wanted)
+      return content === undefined ? error("Not one of this folder's instruction files", 404) : json({ data: { content } })
     }
 
     // Findings (H-32): a review's points, anchored to a file and a line so the diff can carry them.
