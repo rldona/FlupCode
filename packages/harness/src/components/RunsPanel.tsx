@@ -174,9 +174,6 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                 {t("Clear finished")}
               </button>
             </Show>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
           </div>
         </div>
 

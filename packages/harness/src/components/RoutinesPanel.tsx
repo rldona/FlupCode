@@ -229,7 +229,6 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
             <p>{t("Run repeatable tasks in your OpenCode projects.")}</p>
           </div>
           <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>{t("Back to sessions")}</button>
             <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>＋ {t("New routine")}</button>
           </div>
         </div>
