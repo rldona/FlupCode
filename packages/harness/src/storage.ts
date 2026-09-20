@@ -36,4 +36,6 @@ export const STORAGE_KEYS = {
   workspaceWidth: "flupcode.workspaceWidth",
   favoriteModels: "flupcode.favoriteModels",
   permissionMode: "flupcode.permissionMode",
+  selectedSession: "flupcode.selectedSession",
+  selectedModel: "flupcode.selectedModel",
 } as const
