@@ -1,7 +1,6 @@
 import { Show, type JSX, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { AppView } from "../chat"
-import type { PanelPeek } from "../panel-peek"
 
 type TopbarProps = {
   healthLoading: boolean
@@ -12,14 +11,12 @@ type TopbarProps = {
   onBack: () => void
   onForward: () => void
   onToggleSidebar: () => void
-  /** Reveals the sidebar while the pointer rests on its toggle. */
-  sidebarPeek: PanelPeek
   view: AppView
   onViewChange: (view: AppView) => void
   /** The Chat / Code tabs live at the top of the sidebar; while it is hidden they show here. */
   sidebarCollapsed: boolean
   /** The session's right-hand context panel, when a session is open. */
-  contextPanel?: { open: boolean; onToggle: () => void; peek: PanelPeek }
+  contextPanel?: { open: boolean; onToggle: () => void }
   onOpenPalette: () => void
   onTogglePanel: (kind: string) => void
   sessionTitle?: JSX.Element
@@ -98,15 +95,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
   return (
     <header class="fc-topbar">
       <div class="fc-topbar-left">
-        <button
-          class="fc-nav-arrow"
-          type="button"
-          title={t("Toggle sidebar")}
-          ref={props.sidebarPeek.anchor}
-          onMouseEnter={props.sidebarPeek.show}
-          onMouseLeave={props.sidebarPeek.hide}
-          onClick={props.onToggleSidebar}
-        >
+        <button class="fc-nav-arrow" type="button" title={t("Toggle sidebar")} onClick={props.onToggleSidebar}>
           <TopIcon d={TopbarIcons.sidebar} />
         </button>
         <button class="fc-nav-arrow" type="button" title={t("Back")} disabled={!props.canGoBack} onClick={props.onBack}>
@@ -213,9 +202,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
               title={t("Toggle context panel")}
               aria-label={t("Toggle context panel")}
               aria-pressed={panel().open}
-              ref={panel().peek.anchor}
-              onMouseEnter={panel().peek.show}
-              onMouseLeave={panel().peek.hide}
               onClick={panel().onToggle}
             >
               <TopIcon d={TopbarIcons.contextPanel} />
