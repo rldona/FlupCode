@@ -103,8 +103,8 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 value={props.colorTheme}
                 onChange={(event) => props.onColorTheme(event.currentTarget.value)}
               >
-                <option value="default">{t("Default")}</option>
-                <option value="landing">{t("Landing")}</option>
+                <option value="flupcode">{t("FlupCode")}</option>
+                <option value="classic">{t("Classic")}</option>
               </select>
             </label>
             <label class="fc-settings-row">
