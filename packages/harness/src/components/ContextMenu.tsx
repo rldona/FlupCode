@@ -19,14 +19,18 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
   const close = () => props.onClose()
 
   onMount(() => {
-    const onDown = () => close()
+    const onDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest(".fc-menu")) return
+      close()
+    }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === "Escape") close()
     }
-    document.addEventListener("mousedown", onDown)
+    document.addEventListener("pointerdown", onDown, true)
     document.addEventListener("keydown", onKey)
     onCleanup(() => {
-      document.removeEventListener("mousedown", onDown)
+      document.removeEventListener("pointerdown", onDown, true)
       document.removeEventListener("keydown", onKey)
     })
   })

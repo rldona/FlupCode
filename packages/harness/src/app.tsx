@@ -19,6 +19,7 @@ import { SessionToolbar } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
 import { RightAside } from "./components/RightAside"
 import { McpManager } from "./components/McpManager"
+import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
@@ -73,6 +74,7 @@ export const App: Component = () => {
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
   const [remoteOpen, setRemoteOpen] = createSignal(false)
+  const [providersOpen, setProvidersOpen] = createSignal(false)
   const [artifactsOpen, setArtifactsOpen] = createSignal(false)
   const [skillsOpen, setSkillsOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
@@ -98,6 +100,9 @@ export const App: Component = () => {
   const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
   const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
   const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
+  const [providers, { refetch: refetchProviders }] = createResource(serverUrl, async (url) =>
+    createClient(url).provider.list(),
+  )
   const [commands] = createResource(serverUrl, async (url) => createClient(url).command.list())
   const [permissions, { refetch: refetchPermissions }] = createResource(
     () => {
@@ -810,6 +815,20 @@ export const App: Component = () => {
       return undefined
     }, t("MCP server disconnected"))
 
+  const saveProvider = (providerID: string, key: string) =>
+    run(async (current) => {
+      await current.auth.set({ providerID, key })
+      void refetchProviders()
+      return undefined
+    }, t("Provider saved"))
+
+  const removeProvider = (providerID: string) =>
+    run(async (current) => {
+      await current.auth.remove({ providerID })
+      void refetchProviders()
+      return undefined
+    }, t("Provider removed"))
+
   const editMessage = (messageID: string, text: string) => {
     const sessionID = selected()
     if (!sessionID) return
@@ -1043,6 +1062,10 @@ export const App: Component = () => {
         onSettings={() => setSettingsOpen(true)}
         onRoutines={() => setRoutinesOpen(true)}
         onArtifacts={() => setArtifactsOpen(true)}
+        onProviders={() => setProvidersOpen(true)}
+        onConfig={() => setConfigOpen(true)}
+        onRemote={() => setRemoteOpen(true)}
+        onMcp={() => setMcpOpen(true)}
       />
       <main class="fc-main">
         <Topbar
@@ -1183,6 +1206,14 @@ export const App: Component = () => {
         onConnect={connectMcp}
         onDisconnect={disconnectMcp}
         onClose={() => setMcpOpen(false)}
+      />
+      <ProvidersPanel
+        open={providersOpen()}
+        providers={providers()?.data ?? []}
+        busy={busy()}
+        onSave={saveProvider}
+        onRemove={removeProvider}
+        onClose={() => setProvidersOpen(false)}
       />
       <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
       <StashDialog
