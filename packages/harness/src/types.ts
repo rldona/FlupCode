@@ -27,3 +27,9 @@ export type Routine = {
 }
 
 export type SessionTags = Record<string, string[]>
+
+export type ProjectItem = {
+  id: string
+  directory: string
+  name: string
+}

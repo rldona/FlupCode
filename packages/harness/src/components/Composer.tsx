@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { FileSystemEntry, ModelInfo, ModelVariant, Project } from "@opencode-ai/client"
-import type { Attachment, CommandOption } from "../types"
+import type { FileSystemEntry, ModelInfo, ModelVariant } from "@opencode-ai/client"
+import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 
 type ComposerProps = {
@@ -13,7 +13,7 @@ type ComposerProps = {
   auto: boolean
   attachments: Attachment[]
   commands: CommandOption[]
-  projects: Project[]
+  projects: ProjectItem[]
   targetDirectory: string | undefined
   onInput: (value: string) => void
   onSend: () => void
@@ -29,10 +29,8 @@ type ComposerProps = {
   onTargetChange: (directory: string | undefined) => void
 }
 
-function projectLabel(project: Project) {
-  if (project.name) return project.name
-  const segments = project.worktree.split("/").filter(Boolean)
-  return segments.at(-1) ?? project.worktree
+function projectLabel(project: ProjectItem) {
+  return project.name || project.directory.split("/").filter(Boolean).at(-1) || project.directory
 }
 
 type SpeechRecognitionResult = {
@@ -175,7 +173,7 @@ export const Composer: Component<ComposerProps> = (props) => {
         >
           <option value="">{t("No folder")}</option>
           <For each={props.projects}>
-            {(project) => <option value={project.worktree}>{projectLabel(project)}</option>}
+            {(project) => <option value={project.directory}>{projectLabel(project)}</option>}
           </For>
         </select>
         <Show when={props.value.startsWith("!")}>

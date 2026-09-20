@@ -3,7 +3,7 @@ import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
-import type { Attachment, CommandOption, McpConfig, Routine, SessionTags, StashedPrompt } from "./types"
+import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, SessionTags, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
@@ -84,23 +84,20 @@ export const App: Component = () => {
   )
 
   const client = () => createClient(serverUrl())
-  const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
-  const [projects, { refetch: refetchProjects }] = createResource(serverUrl, (url) =>
-    createClient(url).project.list(),
-  )
-  const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, (url) =>
+  const [health] = createResource(serverUrl, async (url) => createClient(url).health.get())
+  const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, async (url) =>
     createClient(url).session.list(),
   )
-  const [models] = createResource(serverUrl, (url) => createClient(url).model.list())
-  const [defaultModel] = createResource(serverUrl, (url) => createClient(url).model.default())
-  const [agents] = createResource(serverUrl, (url) => createClient(url).agent.list())
-  const [skills] = createResource(serverUrl, (url) => createClient(url).skill.list())
-  const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, (url) => createClient(url).mcp.list())
-  const [commands] = createResource(serverUrl, (url) => createClient(url).command.list())
-  const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, (url) =>
+  const [models] = createResource(serverUrl, async (url) => createClient(url).model.list())
+  const [defaultModel] = createResource(serverUrl, async (url) => createClient(url).model.default())
+  const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
+  const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
+  const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
+  const [commands] = createResource(serverUrl, async (url) => createClient(url).command.list())
+  const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, async (url) =>
     createClient(url).permission.request.list(),
   )
-  const [questions, { refetch: refetchQuestions }] = createResource(serverUrl, (url) =>
+  const [questions, { refetch: refetchQuestions }] = createResource(serverUrl, async (url) =>
     createClient(url).question.request.list(),
   )
   const [messages, { refetch: refetchMessages }] = createResource(
@@ -108,14 +105,14 @@ export const App: Component = () => {
       const sessionID = selected()
       return sessionID ? { url: serverUrl(), sessionID } : undefined
     },
-    (source) => createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" }),
+    async (source) => createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" }),
   )
   const [children] = createResource(
     () => {
       const sessionID = selected()
       return sessionID ? { url: serverUrl(), sessionID } : undefined
     },
-    (source) => createClient(source.url).session.list({ parentID: source.sessionID }),
+    async (source) => createClient(source.url).session.list({ parentID: source.sessionID }),
   )
 
   const todos = () => {
@@ -315,6 +312,21 @@ export const App: Component = () => {
   const sessionList = () => sessions()?.data
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
 
+  const projects = createMemo(() => {
+    const map = new Map<string, ProjectItem>()
+    for (const session of sessionList() ?? []) {
+      const directory = session.location?.directory
+      if (!directory) continue
+      if (map.has(directory)) continue
+      map.set(directory, {
+        id: session.projectID || directory,
+        directory,
+        name: directory.split("/").filter(Boolean).at(-1) || directory,
+      })
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+  })
+
   const [range, setRange] = createSignal<UsageRange>("all")
   const filteredSessions = createMemo(() => filterByRange(sessionList() ?? [], range()))
   const metrics = createMemo(() => computeMetrics(filteredSessions()))
@@ -433,7 +445,6 @@ export const App: Component = () => {
   }
 
   const refresh = () => {
-    void refetchProjects()
     void refetchSessions()
   }
 
@@ -947,7 +958,7 @@ export const App: Component = () => {
         collapsed={collapsed()}
         displayName={displayName()}
         projects={projects()}
-        projectsLoading={projects.loading}
+        projectsLoading={sessions.loading}
         pinned={pinned()}
         sessions={sessionList()}
         sessionsLoading={sessions.loading}
@@ -982,7 +993,7 @@ export const App: Component = () => {
             <SessionToolbar
               session={session()}
               agents={agents()?.data ?? []}
-              projects={projects() ?? []}
+              projects={projects()}
               busy={busy()}
               reverting={!!session().revert}
               onFork={forkSession}
@@ -1057,7 +1068,7 @@ export const App: Component = () => {
           auto={auto()}
           attachments={attachments()}
           commands={commandOptions()}
-          projects={projects() ?? []}
+          projects={projects()}
           targetDirectory={targetDirectory()}
           onInput={setPrompt}
           onSend={send}

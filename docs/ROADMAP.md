@@ -26,9 +26,9 @@ _Last updated: 2026-09-12._
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 53 | all tickets except F3-16 and F5-4 |
+| done | 52 | all tickets except F3-14, F3-16 and F5-4 |
 | doing | 0 | — |
-| blocked | 2 | F3-16, F5-4 |
+| blocked | 3 | F3-14, F3-16, F5-4 |
 | todo | 0 | — |
 | **total** | **55** | |
 
@@ -36,6 +36,8 @@ _Last updated: 2026-09-12._
 
 All feasible tickets are done. The only open items are blocked on external constraints:
 
+- **F3-14 MCP manager** — the vendored client (`1.17.13`) calls `/api/mcp`, removed in the current
+  server (`1.18.30`); configure MCP through the engine config for now.
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets.
 - **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; export is available.
@@ -92,7 +94,7 @@ All feasible tickets are done. The only open items are blocked on external const
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
 | F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done |
-| F3-14 | P2 | MCP add/configure UI | done |
+| F3-14 | P2 | MCP add/configure UI | blocked |
 | F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | blocked |
 | F3-17 | P2 | Keybind/leader parity where sensible | done |
@@ -151,6 +153,14 @@ All feasible tickets are done. The only open items are blocked on external const
 
 ## Blockers
 
+- **F3-14 MCP manager** — the vendored client (`1.17.13`) calls `/api/mcp`, removed in the current
+  server (`1.18.30`); configure MCP through the engine config for now.
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; only export is available.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo.
+
+### Vendored client drift
+
+The harness uses OpenCode's vendored client (`1.17.13`) while the engine is `1.18.30`. Most routes
+still match, but `project` was removed (projects are now derived from session locations) and `mcp`
+no longer exists. Regenerating the client (`packages/client`) and re-vendoring it is the durable fix.

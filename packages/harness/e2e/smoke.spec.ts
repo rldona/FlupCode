@@ -29,3 +29,9 @@ test("opens the command palette", async ({ page }) => {
   await expect(page.getByPlaceholder(/Search commands/i)).toBeVisible()
   await page.keyboard.press("Escape")
 })
+
+test("sidebar loads projects", async ({ page }) => {
+  test.skip(!!process.env.CI, "requires a running OpenCode server")
+  await page.goto("/")
+  await expect(page.locator(".fc-skeleton")).toHaveCount(0)
+})
