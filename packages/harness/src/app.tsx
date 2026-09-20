@@ -102,37 +102,13 @@ export const App: Component = () => {
   const [sessions, { refetch: refetchSessions }] = createResource(serverUrl, async (url) =>
     createClient(url).session.list(),
   )
-  const [models] = createResource(serverUrl, async (url) => createClient(url).model.list())
+  const [models, { refetch: refetchModels }] = createResource(serverUrl, async (url) =>
+    createClient(url).model.list(),
+  )
   const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(serverUrl, async (url) =>
     createClient(url).model.directory(),
   )
-  const modelList = createMemo(() => {
-    const providers = modelDirectory()?.providers
-    if (providers && providers.length > 0) {
-      const result: ModelInfo[] = []
-      for (const provider of providers) {
-        for (const [modelID, model] of Object.entries(provider.models ?? {})) {
-          const entry = model as {
-            id?: string
-            headers?: Record<string, string>
-            variants?: Record<string, Record<string, unknown>>
-          }
-          result.push({
-            ...(model as object),
-            providerID: provider.id,
-            id: entry.id ?? modelID,
-            variants: Object.entries(entry.variants ?? {}).map(([variantID, body]) => ({
-              id: variantID,
-              headers: entry.headers ?? {},
-              body,
-            })),
-          } as unknown as ModelInfo)
-        }
-      }
-      if (result.length > 0) return result
-    }
-    return models()?.data ?? []
-  })
+  const modelList = createMemo(() => models()?.data ?? [])
   const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
   const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
   const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
@@ -897,16 +873,25 @@ export const App: Component = () => {
   const saveProvider = (providerID: string, key: string) =>
     run(async (current) => {
       await current.auth.set({ providerID, key })
+      await current.integration.connectKey({ integrationID: providerID, key, label: providerID }).catch(() => undefined)
       void refetchProviderDirectory()
       void refetchModelDirectory()
+      void refetchModels()
       return undefined
     }, t("Provider saved"))
 
   const removeProvider = (providerID: string) =>
     run(async (current) => {
       await current.auth.remove({ providerID })
+      const integrations = await current.integration.list()
+      const integration = integrations.data.find((item) => item.id === providerID)
+      for (const connection of integration?.connections ?? []) {
+        if (connection.type !== "credential") continue
+        await current.integration.disconnect(connection.id)
+      }
       void refetchProviderDirectory()
       void refetchModelDirectory()
+      void refetchModels()
       return undefined
     }, t("Provider removed"))
 
