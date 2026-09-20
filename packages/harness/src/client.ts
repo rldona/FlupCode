@@ -296,6 +296,18 @@ export function createClient(baseUrl = resolveServerUrl()) {
       /** Archive a session, or bring it back (H-18). Zero is the engine's "not archived". */
       setArchived: (sessionID: string, archived: boolean) =>
         unwrap(client.session.update({ sessionID, time: { archived: archived ? Date.now() : 0 } })),
+      /**
+       * Drop one message without reverting file changes (UN-1). The engine refuses while the
+       * session is busy, so callers abort and wait for idle first.
+       */
+      removeMessage: (input: { sessionID: string; messageID: string; directory?: string }) =>
+        unwrap(
+          client.session.deleteMessage({
+            sessionID: input.sessionID,
+            messageID: input.messageID,
+            ...(input.directory ? { directory: input.directory } : {}),
+          }),
+        ),
       create: async (input?: {
         model?: { id: string; providerID: string; variant?: string }
         location?: { directory: string }
