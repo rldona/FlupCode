@@ -583,6 +583,8 @@ button.fc-row-main {
 }
 
 .fc-model-button {
+  display: inline-flex;
+  align-items: center;
   height: 28px;
   max-width: 260px;
   padding: 0 10px;
@@ -991,6 +993,9 @@ button.fc-row-main {
 }
 
 .fc-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   height: 32px;
   padding: 0 14px;
   border: 1px solid var(--fc-border);
