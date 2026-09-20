@@ -60,7 +60,7 @@ import {
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { browser, isLocalPreview } from "./browser"
-import type { ModelInfo, SessionInfo } from "./engine-types"
+import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
   Artifact,
   Attachment,
@@ -1198,6 +1198,34 @@ export const App: Component = () => {
       void refetchModels()
       return undefined
     })
+
+  /** The Console org behind providers, when the engine has one (CO-1). */
+  const [consoleActive, { refetch: refetchConsoleActive }] = createResource(
+    () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
+    async (url) => createClient(url).console.active().catch(() => undefined),
+  )
+  const [consoleOrgs, { refetch: refetchConsoleOrgs }] = createResource(
+    () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
+    async (url) => createClient(url).console.orgs().catch(() => [] as ConsoleOrg[]),
+  )
+  /**
+   * Switch the Console org, then reread everything it manages (CO-1). Providers, models and
+   * integrations all hang off the active org, so all of them refresh.
+   */
+  const switchConsoleOrg = (org: ConsoleOrg) => {
+    void createClient(serverUrl())
+      .console.switchOrg({ accountID: org.accountID, orgID: org.orgID })
+      .then(() => {
+        void refetchConsoleActive()
+        void refetchConsoleOrgs()
+        void refetchProviderDirectory()
+        void refetchIntegrations()
+        void refetchModels()
+        void refetchModelDirectory()
+        toast(t("Console organization switched"), "success")
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
 
   const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
   const vcsKey = () => {
@@ -5675,6 +5703,9 @@ export const App: Component = () => {
         onProviderOAuthCancel={cancelOAuth}
         onProviderOAuthDone={finishOAuth}
         onLinkConfiguredProviders={linkConfiguredKeys}
+        consoleActive={consoleActive()}
+        consoleOrgs={consoleOrgs() ?? []}
+        onSwitchConsole={switchConsoleOrg}
         onOpenSkills={() => {
           setSettingsOpen(false)
           showScreen("skills")
