@@ -2573,6 +2573,11 @@ export const App: Component = () => {
       <FolderDialog
         open={folderOpen()}
         initial={targetDirectory()}
+        recents={projects()
+          .map((project) => project.directory)
+          .filter((directory) => directory !== chatsDirectory())}
+        home={async () => (await client().paths()).home}
+        list={(directory, path) => client().file.list({ directory, path })}
         onOpen={(path) => {
           setTargetDirectory(path)
           setFolderOpen(false)
