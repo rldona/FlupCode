@@ -175,6 +175,7 @@ const ES: Record<string, string> = {
   "Type the absolute path of a project folder to start a new project.":
     "Escribe la ruta absoluta de una carpeta de proyecto para empezar uno nuevo.",
   Cancel: "Cancelar",
+  "Choose folder…": "Elegir carpeta…",
   "What's your name?": "¿Cómo te llamas?",
   "Get started": "Empezar",
 

@@ -1,6 +1,12 @@
 import { Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 
+declare global {
+  interface Window {
+    flupcode?: { chooseFolder: () => Promise<string | undefined> }
+  }
+}
+
 type FolderDialogProps = {
   open: boolean
   initial?: string
@@ -10,6 +16,13 @@ type FolderDialogProps = {
 
 export const FolderDialog: Component<FolderDialogProps> = (props) => {
   const [value, setValue] = createSignal("")
+  const native = () => typeof window !== "undefined" && typeof window.flupcode?.chooseFolder === "function"
+
+  const choose = async () => {
+    const path = await window.flupcode?.chooseFolder()
+    if (path) props.onOpen(path)
+  }
+
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
@@ -37,10 +50,15 @@ export const FolderDialog: Component<FolderDialogProps> = (props) => {
               if (event.key === "Enter" && value().trim()) props.onOpen(value().trim())
             }}
           />
-          <div class="fc-settings-row">
+          <div class="fc-dialog-actions">
             <button class="fc-button" type="button" onClick={props.onClose}>
               {t("Cancel")}
             </button>
+            <Show when={native()}>
+              <button class="fc-button" type="button" onClick={() => void choose()}>
+                {t("Choose folder…")}
+              </button>
+            </Show>
             <button
               class="fc-button fc-button-primary"
               type="button"
