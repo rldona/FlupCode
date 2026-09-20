@@ -221,3 +221,18 @@ export type TouchedFiles = {
   title: string
   files: Array<{ path: string; status: "added" | "modified" | "deleted" }>
 }
+
+/** A review's point, anchored to a file and usually to a line (H-32). */
+export type Finding = {
+  id: string
+  directory?: string
+  runID?: string
+  taskID?: string
+  file: string
+  line?: number
+  severity: "high" | "medium" | "low"
+  title: string
+  detail?: string
+  resolved?: boolean
+  createdAt: number
+}

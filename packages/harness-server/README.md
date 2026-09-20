@@ -19,6 +19,10 @@ It owns:
   than through a shell; the branch's pull request and its checks, read with `gh`. The client is a browser and the engine's `/vcs` routes only read, so this is the only part
   of FlupCode that can write to a repository. What may be committed is what `git status` has just
   listed as changed.
+- **Findings** (H-32). A review's points, anchored to a file and usually to a line, parsed out of
+  what the agent answered and carried onto the diff. Forgiving about the shape a model writes, strict
+  about anchoring: a point with no file cannot become a comment on a line, so it is counted rather
+  than pretended into one.
 - **What it cost** (H-16). Every task the runs recorded, added up by model, agent, project and day —
   with work attempted a second time split out, because a bounded retry is a new task and so a second
   bill. Runs only: the harness never sees an ordinary chat turn.
@@ -56,6 +60,8 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
 | `POST /harness/git/pr` | push the branch if needed, then open a pull request |
 | `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |
+| `GET /harness/findings` | filtered by `directory`, `runID`, `open=1` |
+| `PATCH /harness/findings/:id/resolved` | set one aside, or bring it back |
 | `GET /harness/runs/:id/activity` | which tool each running task is inside, and since when |
 | `GET /harness/runs/:id/files` | what each task changed on disk, from the checkpoints around it |
 | `GET /harness/usage` | what the runs cost, filtered by `directory` and `days` |

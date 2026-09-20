@@ -116,7 +116,7 @@ describe("where workflows come from", () => {
 describe("the templates", () => {
   test("are written once and never written over", async () => {
     const directory = join(scratch(), "workflows")
-    expect(seedTemplates(directory).sort()).toEqual(["bugfix", "feature", "refactor", "review"])
+    expect(seedTemplates(directory).sort()).toEqual(["bugfix", "feature", "quality", "refactor", "review", "security"])
 
     writeFileSync(join(directory, "feature.yaml"), "name: feature\ntasks:\n  - id: mine\n    prompt: my own\n")
     // Seeding again must not undo an edit — that is the whole point of shipping them as files.
@@ -139,4 +139,28 @@ describe("the templates", () => {
       expect(tasks.at(-1)!.retries).toBeGreaterThan(0)
     }
   })
+})
+
+test("every template's prompt survives being read back, instruction and all", () => {
+  // The findings instruction is several lines. Interpolated without indenting it, the block scalar
+  // ends at its second line and the template stops parsing — silently, which is worse.
+  for (const [name, contents] of Object.entries(TEMPLATES)) {
+    const workflow = parseWorkflow(contents, name)
+    expect(workflow).toBeDefined()
+    for (const task of workflow!.tasks) {
+      if (task.kind === "verify") continue
+      expect(task.prompt!.length).toBeGreaterThan(20)
+      // Nothing of the YAML leaked into the prompt, which is what a broken block looks like.
+      expect(task.prompt).not.toContain("prompt: |")
+    }
+  }
+})
+
+test("the review presets ask for findings that can be anchored", () => {
+  for (const name of ["review", "security", "quality"]) {
+    const prompt = parseWorkflow(TEMPLATES[name]!, name)!.tasks[0]!.prompt
+    expect(prompt).toContain("fenced json block")
+    expect(prompt).toContain('"file"')
+    expect(prompt).toContain('"line"')
+  }
 })

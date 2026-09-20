@@ -722,6 +722,14 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Findings on the diff (H-32)
+  high: "alto",
+  medium: "medio",
+  low: "bajo",
+  Done: "Hecho",
+  Reopen: "Reabrir",
+  "{n} findings": "{n} hallazgos",
+
   // Supervision (H-12)
   working: "trabajando",
   "Changed no files": "No cambió ningún archivo",

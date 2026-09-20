@@ -2,6 +2,20 @@ import { existsSync, mkdirSync, readdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import type { TaskInput } from "./types"
+import { FINDINGS_INSTRUCTION } from "./findings"
+
+/**
+ * The findings instruction, indented to sit inside a `prompt: |` block.
+ *
+ * Interpolated raw, only its first line gets the block's indentation and every line after it lands
+ * at column zero — which ends the block scalar and leaves a template that does not parse. The
+ * templates are checked by a test for exactly that, and it is how this was found.
+ */
+const indented = (text: string, spaces = 6) =>
+  text
+    .split("\n")
+    .map((line, index) => (index === 0 || !line ? line : " ".repeat(spaces) + line))
+    .join("\n")
 
 /**
  * Workflows (H-21): a process written down, instead of remembered and retyped.
@@ -234,5 +248,43 @@ tasks:
 
       For each finding give the file, the line, what is wrong and how it fails.
       Say plainly if you find nothing.
+
+      ${indented(FINDINGS_INSTRUCTION)}
+`,
+  security: `name: security
+description: Review the current changes for security problems only
+inputs: [scope]
+tasks:
+  - id: review
+    agent: plan
+    prompt: |
+      Review the current changes{{scope}} for security problems only.
+
+      Look for: input that reaches a shell or a query unescaped, a path that can
+      escape its folder, a secret written to disk or to a log, a permission check
+      that can be skipped, and data sent somewhere it was not meant to go.
+
+      Report what an attacker could actually do, not what looks unusual. Say
+      plainly if you find nothing.
+
+      ${indented(FINDINGS_INSTRUCTION)}
+`,
+  quality: `name: quality
+description: Review the current changes for correctness and clarity
+inputs: [scope]
+tasks:
+  - id: review
+    agent: plan
+    prompt: |
+      Review the current changes{{scope}} for correctness and clarity.
+
+      Look for: a case the code gets wrong, an error swallowed, a name that
+      misleads, a comment that is no longer true, and a test that would pass
+      whether or not the code worked.
+
+      Give the input or the state that makes it go wrong. Say plainly if you
+      find nothing.
+
+      ${indented(FINDINGS_INSTRUCTION)}
 `,
 }
