@@ -22,7 +22,6 @@ type AgentsPanelProps = {
     prompt: string
   }) => Promise<unknown>
   onDelete: (path: string) => Promise<unknown>
-  onClose: () => void
 }
 
 /** The three the engine accepts, in the order they are worth choosing between. */
@@ -262,9 +261,6 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
           <div class="fc-routines-header-actions">
             <button class="fc-button fc-button-primary" type="button" onClick={startNew}>
               {t("New agent")}
-            </button>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
             </button>
           </div>
         </div>

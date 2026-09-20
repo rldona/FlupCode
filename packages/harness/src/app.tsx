@@ -115,7 +115,7 @@ import { ConfirmDialog } from "./components/ConfirmDialog"
 import { permissionMode } from "./permission-modes"
 import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
-import { SettingsPanel } from "./components/SettingsPanel"
+import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { RunsPanel } from "./components/RunsPanel"
 import { Onboarding } from "./components/Onboarding"
@@ -501,6 +501,15 @@ export const App: Component = () => {
   }
   const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
+  /** The settings section to show when the panel opens (CU-1). */
+  const [settingsSection, setSettingsSection] = createSignal<SettingsSection | undefined>(undefined)
+  /** Settings, opened on a section: agents and the rest live on one surface (F4-3). */
+  const openSettings = (section?: SettingsSection) => {
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
+  /** The agents section is showing: its files, tools and models load like a screen did. */
+  const agentsSectionVisible = () => settingsOpen() && settingsSection() === "agents"
   // Which full screen is open, and where in the URL it lives, so a reload comes back to it and the
   // browser's Back leaves it. One signal rather than a flag per screen: only one can be open, and
   // two flags could disagree.
@@ -527,7 +536,6 @@ export const App: Component = () => {
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
-  const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
   const replayOpen = () => screen() === "replay"
@@ -1395,7 +1403,7 @@ export const App: Component = () => {
    * rather than for the folder it is given — measured against the local engine. The rest of the app
    * still uses it, and that is its own ticket.
    */
-  const folderAgentsKey = () => (agentsOpen() && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
+  const folderAgentsKey = () => (agentsSectionVisible() && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
   const [folderAgents] = createResource(folderAgentsKey, (key) => {
     const [url = "", directory = ""] = key.split("\n")
     return createClient(url).agent.listFor(directory || undefined)
@@ -1406,7 +1414,7 @@ export const App: Component = () => {
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
     // Also when the MCP panel is open: who may reach a server is read from the agent files (H-34).
-    if ((!agentsOpen() && !settingsOpen() && !mcpOpen()) || !routinesServerAvailable()) return undefined
+    if ((!settingsOpen() && !mcpOpen()) || !routinesServerAvailable()) return undefined
     return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${agentsRefresh()}`
   }
   const [agentsRefresh, setAgentsRefresh] = createSignal(0)
@@ -1473,7 +1481,7 @@ export const App: Component = () => {
         toast(t("Permissions saved"))
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
-  const toolsKey = () => ((contextOpen() || agentsOpen()) && ready() ? serverUrl() : undefined)
+  const toolsKey = () => ((contextOpen() || agentsSectionVisible()) && ready() ? serverUrl() : undefined)
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
   /**
    * What this session's window actually holds.
@@ -5025,7 +5033,7 @@ export const App: Component = () => {
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
-            onAgents={() => showScreen("agents")}
+            onAgents={() => openSettings("agents")}
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
             onArtifacts={() => showScreen("artifacts")}
@@ -5672,10 +5680,14 @@ export const App: Component = () => {
         onToggleSessionTabs={toggleSessionTabs}
         onToggleNotifications={toggleNotifications}
         onKeybind={changeKeybind}
-        onOpenAgents={() => {
-          setSettingsOpen(false)
-          showScreen("agents")
-        }}
+        initialSection={settingsSection()}
+        agentsList={folderAgents() ?? []}
+        agentTools={engineTools() ?? []}
+        agentModelsList={agentModels()}
+        agentsLoading={agentFiles.loading}
+        agentsHasProject={!!vcsDirectory()}
+        onSaveAgent={saveAgent}
+        onDeleteAgent={deleteAgent}
         onOpenSkills={() => {
           setSettingsOpen(false)
           showScreen("skills")
@@ -5716,20 +5728,6 @@ export const App: Component = () => {
         list={listFiles}
         search={searchFileEntries}
         read={readFileText}
-        onClose={() => leaveScreen()}
-      />
-      <AgentsPanel
-        open={agentsOpen()}
-        files={agentFiles() ?? []}
-        agents={folderAgents() ?? []}
-        tools={engineTools() ?? []}
-        mcp={mcp()?.data ?? []}
-        models={agentModels()}
-        loading={agentFiles.loading}
-        serverAvailable={routinesServerAvailable()}
-        hasProject={!!vcsDirectory()}
-        onSave={saveAgent}
-        onDelete={deleteAgent}
         onClose={() => leaveScreen()}
       />
       <ContextPanel

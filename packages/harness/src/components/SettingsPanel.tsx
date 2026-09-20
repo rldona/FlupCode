@@ -1,10 +1,11 @@
-import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
-import type { ModelInfo } from "../engine-types"
+import { For, type Component, Show, createEffect, createSignal, onCleanup } from "solid-js"
+import type { AgentInfo, ModelInfo } from "../engine-types"
 import type { McpResource, McpServer } from "../engine-types"
 import type { AgentFile, CommandFile, McpConfig } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
+import { AgentsPanel } from "./AgentsPanel"
 import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
 import { McpEditor } from "./McpManager"
 import { PermissionsPanel } from "./PermissionsPanel"
@@ -76,7 +77,21 @@ type SettingsPanelProps = {
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
   onKeybind: (action: KeybindAction, binding: string) => void
-  onOpenAgents: () => void
+  /** The section to show when the panel opens (CU-1). Absent means the first one. */
+  initialSection?: SettingsSection
+  /** What the agents section edits: files on disk plus what the engine reports (CU-1). */
+  agentsList: AgentInfo[]
+  agentTools: string[]
+  agentModelsList: string[]
+  agentsLoading: boolean
+  agentsHasProject: boolean
+  onSaveAgent: (draft: {
+    name: string
+    scope: "global" | "project"
+    fields: Record<string, unknown>
+    prompt: string
+  }) => Promise<unknown>
+  onDeleteAgent: (path: string) => Promise<unknown>
   onOpenSkills: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
@@ -104,6 +119,7 @@ export type SettingsSection =
   | "shortcuts"
   | "permissions"
   | "commands"
+  | "agents"
   | "mcp"
   | "server"
   | "advanced"
@@ -118,6 +134,7 @@ export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = 
   { id: "shortcuts", label: "Shortcuts" },
   { id: "permissions", label: "Permissions" },
   { id: "commands", label: "Commands" },
+  { id: "agents", label: "Agents" },
   { id: "mcp", label: "MCP servers" },
   { id: "server", label: "Server" },
   { id: "advanced", label: "Advanced" },
@@ -135,6 +152,10 @@ function groupModels(models: ModelInfo[]) {
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   const [section, setSection] = createSignal<SettingsSection>("appearance")
+  // Open callers name the section; reopening starts there instead of where it was left (CU-1).
+  createEffect(() => {
+    if (props.open) setSection(props.initialSection ?? "appearance")
+  })
   // Resetting asks for a second click within a few seconds.
   const [confirmReset, setConfirmReset] = createSignal(false)
   let confirmTimer: ReturnType<typeof setTimeout> | undefined
@@ -517,6 +538,25 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 </section>
               </Show>
 
+              <Show when={section() === "agents"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Agents")}</h3>
+                  <AgentsPanel
+                    open
+                    files={props.agentFiles ?? []}
+                    agents={props.agentsList}
+                    tools={props.agentTools}
+                    mcp={props.mcpServers}
+                    models={props.agentModelsList}
+                    loading={props.agentsLoading}
+                    serverAvailable={props.permissionServerAvailable}
+                    hasProject={props.agentsHasProject}
+                    onSave={props.onSaveAgent}
+                    onDelete={props.onDeleteAgent}
+                  />
+                </section>
+              </Show>
+
               <Show when={section() === "mcp"}>
                 <section class="fc-settings-section">
                   <h3 class="fc-settings-title">{t("MCP servers")}</h3>
@@ -581,10 +621,10 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <section class="fc-settings-section">
                   <h3 class="fc-settings-title">{t("Editors")}</h3>
                   <p class="fc-settings-note">
-                    {t("Agents and skills are edited on their own screens, where the files they came from are shown.")}
+                    {t("Agents live under their own section now; skills keep their screen, where the files they came from are shown.")}
                   </p>
                   <div class="fc-settings-grid">
-                    <button class="fc-button" type="button" onClick={props.onOpenAgents}>
+                    <button class="fc-button" type="button" onClick={() => setSection("agents")}>
                       {t("Agents")}
                     </button>
                     <button class="fc-button" type="button" onClick={props.onOpenSkills}>
