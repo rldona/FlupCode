@@ -23,13 +23,14 @@ const sessions = [
   },
 ]
 
-async function open(page: Page) {
-  await page.addInitScript(() => {
+async function open(page: Page, options: { enabled?: boolean } = {}) {
+  await page.addInitScript((enabled?: boolean) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_1"))
     window.localStorage.setItem("flupcode.sessionTabs", JSON.stringify(["ses_1", "ses_2"]))
-  })
+    if (enabled) window.localStorage.setItem("flupcode.sessionTabsEnabled", JSON.stringify(true))
+  }, options.enabled)
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
@@ -43,8 +44,25 @@ async function open(page: Page) {
   await page.goto("/")
 }
 
-test("the open sessions are a strip: switching selects, closing goes to the neighbour", async ({ page }) => {
+// The strip is a preference, not the shape of the app: off unless Settings asks for it.
+test("the strip is off until settings turns it on", async ({ page }) => {
   await open(page)
+
+  // Stored tabs and all, a window that opens one session at a time shows no strip.
+  await expect(page.locator(".fc-session-tabs")).toHaveCount(0)
+
+  await page.locator(".fc-profile-button").click()
+  await page.locator(".fc-menu").getByText("Settings", { exact: true }).click()
+  const dialog = page.getByRole("dialog", { name: "Customize" })
+  await dialog.locator(".fc-settings-row", { hasText: "Open sessions as tabs" }).getByRole("button").click()
+
+  await expect(page.locator(".fc-session-tabs")).toHaveCount(1)
+  await expect(page.locator(".fc-session-tab")).toHaveCount(2)
+  expect(await page.evaluate(() => window.localStorage.getItem("flupcode.sessionTabsEnabled"))).toBe("true")
+})
+
+test("the open sessions are a strip: switching selects, closing goes to the neighbour", async ({ page }) => {
+  await open(page, { enabled: true })
 
   const tabs = page.locator(".fc-session-tab")
   await expect(tabs).toHaveCount(2)

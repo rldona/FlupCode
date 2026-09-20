@@ -30,6 +30,7 @@ type SettingsPanelProps = {
   modelKey: string | undefined
   showTools: boolean
   showReasoning: boolean
+  sessionTabs: boolean
   replySuggestions: boolean
   /** "provider/model" for suggestions, or "" for the automatic small model. */
   suggestionModel: string
@@ -69,6 +70,7 @@ type SettingsPanelProps = {
   onModelChange: (key: string) => void
   onToggleTools: () => void
   onToggleReasoning: () => void
+  onToggleSessionTabs: () => void
   onToggleReplySuggestions: () => void
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
@@ -245,6 +247,22 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
                     </select>
                   </label>
+                  <div class="fc-settings-row">
+                    <span class="fc-settings-usage">
+                      <span>{t("Open sessions as tabs")}</span>
+                      <span class="fc-settings-hint">
+                        {t("The sessions you open in this window stay in a strip above the conversation.")}
+                      </span>
+                    </span>
+                    <button
+                      class="fc-chip fc-chip-button"
+                      classList={{ "fc-chip-active": props.sessionTabs }}
+                      type="button"
+                      onClick={props.onToggleSessionTabs}
+                    >
+                      {props.sessionTabs ? t("Yes") : t("No")}
+                    </button>
+                  </div>
                 </section>
               </Show>
 

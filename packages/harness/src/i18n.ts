@@ -49,6 +49,9 @@ const ES: Record<string, string> = {
   "Resize context panel": "Cambiar el ancho del panel de contexto",
   "App text size": "Tamaño del texto de la app",
   "Chat text size": "Tamaño del texto del chat",
+  "Open sessions as tabs": "Abrir sesiones en pestañas",
+  "The sessions you open in this window stay in a strip above the conversation.":
+    "Las sesiones que abras en esta ventana se quedan en una tira sobre la conversación.",
   "Jump to a prompt": "Ir a un prompt",
   "Scroll to the end": "Ir al final",
   "Suggest replies": "Sugerir respuestas",
