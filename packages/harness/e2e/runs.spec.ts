@@ -226,3 +226,74 @@ test("the header clears every finished run in one request", async ({ page }) => 
   await expect(page.locator(".fc-run-card")).toHaveCount(1)
   await expect(page.getByRole("button", { name: /Clear finished|Limpiar terminadas/ })).toHaveCount(0)
 })
+
+// H-22: a verify task is the harness checking the work, so the supervisor shows what it checked and
+// what the commands printed — a run that says "success" because a model stopped talking is not
+// evidence of anything.
+test("a verify task shows its evidence, open when it failed", async ({ page }) => {
+  const failed = {
+    id: "run_v",
+    source: { type: "manual" },
+    status: "failed",
+    startedAt: now,
+    finishedAt: now + 5000,
+    error: "Verification failed: test",
+  }
+  const verifyTasks = [
+    {
+      id: "v1",
+      runID: "run_v",
+      position: 0,
+      name: "verify",
+      prompt: "",
+      kind: "verify",
+      status: "failed",
+      startedAt: now,
+      finishedAt: now + 5000,
+      error: "Verification failed: test",
+      output: "Verification: failed\n\n- typecheck (bun run typecheck) — ok, 2.0s\n- test (bun test) — exit 1, 3.0s\n\n### test\n```\nexpected 1, got 2\n```",
+    },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [failed] } })
+    if (url.pathname === "/harness/runs/run_v/tasks") return route.fulfill({ json: { data: verifyTasks } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
+
+  const task = page.locator(".fc-run-task")
+  await expect(task).toHaveCount(1)
+  // It says it was the harness that ran, not an agent.
+  await expect(task.locator(".fc-run-meta")).toContainText(/verify|verificación/)
+
+  // A failure is read, not clicked open: the evidence is already unfolded.
+  const evidence = task.locator(".fc-run-evidence")
+  await expect(evidence).toHaveAttribute("open", "")
+  await expect(evidence.locator("pre")).toContainText("expected 1, got 2")
+  await expect(evidence.locator("pre")).toContainText("- test (bun test) — exit 1")
+})

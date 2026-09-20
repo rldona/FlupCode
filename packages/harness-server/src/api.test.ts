@@ -1,7 +1,30 @@
-import { describe, expect, test } from "bun:test"
-import { createHarnessHandler } from "./api"
+import { afterAll, describe, expect, test } from "bun:test"
+import { MAX_RETRIES, createHarnessHandler } from "./api"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
+
+/**
+ * Waits for a run the request only started.
+ *
+ * `POST /harness/runs` answers 202 and leaves the runner going, so a test that closes its database
+ * straight after loses a race with the run's own last write — which is exactly how this test failed
+ * in CI and passed on a faster machine.
+ */
+const settled = async (repository: SqliteRoutineRepository, runID: string, timeoutMs = 10_000) => {
+  const deadline = Date.now() + timeoutMs
+  while (repository.getRun(runID)?.status === "running" && Date.now() < deadline) {
+    await Bun.sleep(10)
+  }
+  expect(repository.getRun(runID)?.status).not.toBe("running")
+}
+
+const made: string[] = []
+afterAll(() => {
+  for (const directory of made.splice(0)) rmSync(directory, { recursive: true, force: true })
+})
 
 const input = {
   name: "Check CI",
@@ -113,6 +136,28 @@ describe("harness runs API", () => {
     expect((await stopped.json()).data).toEqual({ stopped: 2 })
     // Neither had a session yet, so there was nothing for the engine to interrupt; both are marked.
     expect([first.id, second.id].every((id) => repository.getRun(id)?.id === id)).toBe(true)
+    repository.close()
+  })
+
+  // Every retry is a model turn and another round of the project's commands, so a number typed by
+  // mistake must not be able to spend an afternoon.
+  test("caps how many attempts a failed check may ask for", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-verify-"))
+    made.push(directory)
+
+    const started = await handler(
+      new Request("http://localhost/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "verify", kind: "verify", retries: 99 }], directory }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    expect(repository.listTasks(run.id)[0]!.retries).toBe(MAX_RETRIES)
+    // The run keeps going after the request answers: closing the database under it is what a server
+    // being shut down mid-run looks like, and the writes it is about to make would throw.
+    await settled(repository, run.id)
     repository.close()
   })
 

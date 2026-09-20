@@ -194,6 +194,9 @@ const ES: Record<string, string> = {
   "The harness server is not reachable, so this is the last it said.":
     "No se alcanza el servidor, así que esto es lo último que dijo.",
   "Nothing has run yet.": "Todavía no se ha ejecutado nada.",
+  Evidence: "Evidencia",
+  verify: "verificación",
+  "attempt {n}": "intento {n}",
   "Manual run": "Ejecución manual",
   "FlupCode is not following the engine right now": "FlupCode no está siguiendo al motor ahora mismo",
   "Connect them": "Conectarlos",

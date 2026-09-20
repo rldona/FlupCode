@@ -75,16 +75,41 @@ export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
  * order is a dependency list everyone already understands, and it is the one thing a sequential
  * runner can honour without pretending to more.
  */
+/**
+ * What a task does.
+ *
+ * `agent` is a turn of the engine. `verify` is not: it runs the project's own commands and keeps
+ * what they printed (H-22). Keeping them as kinds of the same thing is what lets a run be a mix —
+ * do the work, then check it — without the supervisor, the stream or the store learning a new
+ * shape.
+ */
+export type TaskKind = "agent" | "verify"
+
 export type TaskInput = {
   name: string
+  /** What the agent is asked. A verify task has nothing to say to a model, so it may be empty. */
   prompt: string
+  kind?: TaskKind
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /**
+   * On a verify task: how many times the work before it may be attempted again if it fails (H-22).
+   *
+   * The budget travels with the task and is spent as it is used — the verify task a retry schedules
+   * carries one less — so a run cannot loop, whatever goes wrong.
+   */
+  retries?: number
+  /** Which attempt this is, from 1. A retry is a new task, not the same one run twice. */
+  attempt?: number
+  /** The task this one attempts again. */
+  retryOf?: string
 }
 
 export type Task = TaskInput & {
   id: string
   runID: string
+  kind: TaskKind
+  attempt: number
   /** Where it sits in the run's order, from 0. */
   position: number
   status: TaskStatus
