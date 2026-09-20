@@ -123,6 +123,9 @@ export type McpRemoteConfig = {
 
 export type McpConfig = McpLocalConfig | McpRemoteConfig
 
+/** Where an MCP server is written: the global config file or the directory's own. */
+export type McpScope = "global" | "project"
+
 export type StashedPrompt = {
   id: string
   text: string

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { needsOAuth, pairsFrom, pairsToText } from "./McpManager"
+import { DEFAULT_MCP_SCOPE, needsOAuth, pairsFrom, pairsToText } from "./McpManager"
 
 describe("reading KEY=value lines", () => {
   test("one per line, trimmed, blanks and lines without a separator skipped", () => {
@@ -39,5 +39,11 @@ describe("which servers need OAuth", () => {
     expect(needsOAuth(server({ status: "failed", error: "nope" }))).toBe(false)
     expect(needsOAuth(server({ status: "disabled" }))).toBe(false)
     expect(needsOAuth(server(undefined))).toBe(false)
+  })
+})
+
+describe("where a new server is written", () => {
+  test("the editor defaults to Global", () => {
+    expect(DEFAULT_MCP_SCOPE).toBe("global")
   })
 })
