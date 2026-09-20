@@ -168,6 +168,31 @@ export const App: Component = () => {
   )
   const [providerAuth] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).provider.auth())
   const [commands] = createResource(() => (ready() ? serverUrl() : undefined), async (url) => createClient(url).command.list())
+
+  const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
+  const vcsKey = () => {
+    const directory = vcsDirectory()
+    return ready() && directory ? `${serverUrl()}::${directory}` : undefined
+  }
+  const vcsTarget = (key: string) => {
+    const separator = key.lastIndexOf("::")
+    return { url: key.slice(0, separator), directory: key.slice(separator + 2) }
+  }
+  const [vcsInfo, { refetch: refetchVcsInfo }] = createResource(vcsKey, (key) => {
+    const target = vcsTarget(key)
+    return createClient(target.url).vcs.get(target.directory)
+  })
+  const [vcsStatus, { refetch: refetchVcsStatus }] = createResource(vcsKey, (key) => {
+    const target = vcsTarget(key)
+    return createClient(target.url).vcs.status(target.directory)
+  })
+  const vcsTotals = () => {
+    const files = vcsStatus() ?? []
+    return files.reduce(
+      (sum, file) => ({ additions: sum.additions + file.additions, deletions: sum.deletions + file.deletions }),
+      { additions: 0, deletions: 0 },
+    )
+  }
   const [permissions, { refetch: refetchPermissions }] = createResource(
     () => {
       const sessionID = selected()
@@ -387,7 +412,11 @@ export const App: Component = () => {
       const wantSessions = pendingSessions
       pendingMessages = false
       pendingSessions = false
-      if (wantMessages) void refetchMessages()
+      if (wantMessages) {
+        void refetchMessages()
+        void refetchVcsInfo()
+        void refetchVcsStatus()
+      }
       if (wantSessions) void refetchSessions()
     }, 300)
   }
@@ -1336,6 +1365,11 @@ export const App: Component = () => {
     }, t("Message sent"))
   }
 
+  const commitChanges = () => {
+    setPrompt(t("Commit the current changes with a clear message."))
+    send()
+  }
+
   return (
     <div
       class="fc-app"
@@ -1493,6 +1527,17 @@ export const App: Component = () => {
           variants={variants()}
           variantKey={variantKey()}
           usage={contextUsage()}
+          repo={
+            vcsDirectory()
+              ? {
+                  directory: vcsDirectory()!,
+                  branch: vcsInfo()?.branch,
+                  additions: vcsTotals().additions,
+                  deletions: vcsTotals().deletions,
+                  onCommit: commitChanges,
+                }
+              : undefined
+          }
           attachments={attachments()}
           commands={commandOptions()}
           projects={projects()}

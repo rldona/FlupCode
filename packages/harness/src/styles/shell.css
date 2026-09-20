@@ -3810,3 +3810,67 @@ button.fc-row-main {
   height: 100%;
   background: var(--fc-accent);
 }
+
+.fc-repo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 5px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-repo-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fc-repo-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-repo-branch {
+  color: var(--fc-text-muted);
+  white-space: nowrap;
+}
+
+.fc-repo-branch::before {
+  content: "⎇ ";
+}
+
+.fc-repo-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.fc-repo-add {
+  color: #4ec97a;
+}
+
+.fc-repo-del {
+  color: #e0726a;
+}
+
+.fc-repo-commit {
+  height: 26px;
+  padding: 0 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-repo-commit:disabled {
+  color: var(--fc-text-muted);
+}
