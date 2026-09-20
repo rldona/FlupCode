@@ -21,7 +21,7 @@ const report = {
   ],
 }
 
-type Options = { report?: unknown; tools?: string[]; skills?: unknown[]; mcp?: unknown }
+type Options = { report?: unknown; tools?: string[]; skills?: unknown[]; mcp?: unknown; prompts?: unknown[] }
 
 async function open(page: Page, options: Options = {}) {
   let reads = 0
@@ -35,6 +35,8 @@ async function open(page: Page, options: Options = {}) {
     const url = new URL(route.request().url())
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
     if (url.pathname === "/harness/context") return route.fulfill({ json: { data: options.report ?? report } })
+    if (url.pathname === "/harness/context/system-prompt")
+      return route.fulfill({ json: { data: options.prompts ?? [] } })
     if (url.pathname === "/harness/context/file") {
       reads++
       return route.fulfill({ json: { data: { content: "# Project\nUse tabs, not spaces.\n" } } })
@@ -142,13 +144,37 @@ test("breaks this session's tokens into the five the engine reports", async ({ p
   await expect(block.locator(".fc-usage-row")).toHaveCount(5)
 })
 
-test("says out loud that the system prompt is not here, and why", async ({ page }) => {
-  await open(page)
+test("shows the system prompt the engine actually sent", async ({ page }) => {
+  await open(page, {
+    prompts: [
+      {
+        at: now,
+        providerID: "deepseek",
+        modelID: "flash",
+        system: ["You are opencode.\n\nInstructions from: /work/demo/AGENTS.md\n\nUse tabs, not spaces."],
+      },
+      // A title is a request too, and a small one. Both are listed rather than the newest winning.
+      { at: now - 60_000, providerID: "deepseek", modelID: "flash", system: ["You generate a title."] },
+    ],
+  })
 
-  // Showing the agent's two-line description and calling it the system prompt would be worse than
-  // showing nothing. The gap is stated instead.
   const block = page.locator(".fc-usage-block").filter({ hasText: /The system prompt|El system prompt/ })
-  await expect(block).toContainText(/cannot show it|no puede enseñarlo/)
-  await expect(block).toContainText(/needs a plugin|necesita un plugin/)
+  const rows = block.locator(".fc-context-row")
+  await expect(rows).toHaveCount(2)
+  await expect(rows.nth(0)).toContainText("deepseek/flash")
+
+  // Listed, not poured out: the prompt is behind the row.
+  await expect(block.locator(".fc-pr-log")).toHaveCount(0)
+  await rows.nth(0).click()
+  await expect(block.locator(".fc-pr-log")).toContainText("Instructions from: /work/demo/AGENTS.md")
+})
+
+test("nothing recorded says so, and says when it will be", async ({ page }) => {
+  await open(page, { prompts: [] })
+
+  const block = page.locator(".fc-usage-block").filter({ hasText: /The system prompt|El system prompt/ })
+  await expect(block).toContainText(/Nothing recorded yet|Todavía no hay nada grabado/)
+  await expect(block).toContainText(/restart|reiniciarse/)
+  // The agents are listed either way: their own prompt is part of the system prompt.
   await expect(block).toContainText("build")
 })
