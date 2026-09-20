@@ -3025,12 +3025,24 @@ export const App: Component = () => {
   }
 
   const compactSession = () => {
+    // Summarizing is the engine's compaction, and it needs the model to run the summary with.
+    const model = selectedModel() ?? selectedSession()?.model
+    if (!model) {
+      toast(t("Choose a model"), "info")
+      return
+    }
     void run(async (current) => {
-      const model = selectedModel()
-      const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
-      await current.session.compact({ sessionID })
+      const sessionID =
+        selected() ?? (await current.session.create({ model: { providerID: model.providerID, id: model.id } })).id
+      await current.session.compact({
+        sessionID,
+        directory: selectedSession()?.location?.directory,
+        providerID: model.providerID,
+        modelID: model.id,
+      })
+      void refetchMessages()
       return sessionID
-    })
+    }, t("Session compacted"))
   }
 
   const renameSession = (id?: string) => {
@@ -3456,13 +3468,8 @@ export const App: Component = () => {
         return
       }
       if (name === "compact") {
-        void run(async (current) => {
-          const model = selectedModel()
-          const sessionID = selected() ?? (await current.session.create(model ? { model } : {})).id
-          await current.session.compact({ sessionID })
-          setPrompt("")
-          return sessionID
-        })
+        setPrompt("")
+        compactSession()
         return
       }
       if (name === "steps") {
