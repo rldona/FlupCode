@@ -4,6 +4,7 @@ import {
   applyDelta,
   applyMessage,
   applyPart,
+  contentOf,
   fromLegacy,
   mergeTranscripts,
   removeMessage,
@@ -197,5 +198,82 @@ describe("applying one event at a time", () => {
     data = applyPart(data, { id: "p1", messageID: "m1", type: "text", text: "Hello" })
     expect(assistant(removePart(data, { messageID: "m1", partID: "p1" })).content).toEqual([])
     expect(removeMessage(data, "m1")).toEqual([])
+  })
+})
+
+const toolPart = (state: Record<string, unknown>) => ({
+  id: "t1",
+  messageID: "m1",
+  type: "tool",
+  tool: "compose_map",
+  state,
+})
+
+const toolContent = (data: SessionMessageInfo[]) =>
+  (
+    assistant(data).content[0] as {
+      state: { status?: string; content?: Array<{ type: string; text?: string; uri?: string; mime?: string; name?: string }> }
+    }
+  ).state.content
+
+describe("tool image attachments", () => {
+  test("a completed tool maps an image attachment to file content after the text", () => {
+    const entry = contentOf(
+      toolPart({
+        status: "completed",
+        input: {},
+        output: "mapa",
+        attachments: [{ mime: "image/png", url: "data:image/png;base64,AAA", filename: "map.png" }],
+      }),
+    ) as { state: { content: unknown[] } }
+    expect(entry.state.content).toEqual([
+      { type: "text", text: "mapa" },
+      { type: "file", uri: "data:image/png;base64,AAA", mime: "image/png", name: "map.png" },
+    ])
+  })
+
+  test("a non-image attachment is ignored and the text stays", () => {
+    const entry = contentOf(
+      toolPart({
+        status: "completed",
+        input: {},
+        output: "mapa",
+        attachments: [
+          { mime: "application/pdf", url: "data:application/pdf;base64,AAA", filename: "doc.pdf" },
+          { mime: "image/png", url: "", filename: "empty.png" },
+        ],
+      }),
+    ) as { state: { content: unknown[] } }
+    expect(entry.state.content).toEqual([{ type: "text", text: "mapa" }])
+  })
+
+  test("attachments never leak into a tool that is not completed", () => {
+    const entry = contentOf(
+      toolPart({
+        status: "running",
+        input: {},
+        attachments: [{ mime: "image/png", url: "data:image/png;base64,AAA", filename: "map.png" }],
+      }),
+    ) as { state: { content?: unknown } }
+    expect(entry.state.content).toBeUndefined()
+  })
+
+  test("a completed tool part arriving as an event carries its image too", () => {
+    let data = applyMessage([], info("m1", "assistant"))
+    data = applyPart(data, toolPart({ status: "running", input: {} }))
+    expect(toolContent(data)).toBeUndefined()
+    data = applyPart(
+      data,
+      toolPart({
+        status: "completed",
+        input: {},
+        output: "mapa",
+        attachments: [{ mime: "image/png", url: "data:image/png;base64,AAA", filename: "map.png" }],
+      }),
+    )
+    expect(toolContent(data)).toEqual([
+      { type: "text", text: "mapa" },
+      { type: "file", uri: "data:image/png;base64,AAA", mime: "image/png", name: "map.png" },
+    ])
   })
 })

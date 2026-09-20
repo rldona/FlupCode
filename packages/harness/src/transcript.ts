@@ -23,6 +23,12 @@ export type LegacyInfo = {
   cost?: number
 }
 
+export type LegacyAttachment = {
+  mime?: string
+  url?: string
+  filename?: string
+}
+
 export type LegacyPart = {
   id: string
   messageID?: string
@@ -36,7 +42,15 @@ export type LegacyPart = {
   auto?: boolean
   overflow?: boolean
   time?: { start?: number; end?: number }
-  state?: { status?: string; input?: unknown; output?: string; error?: string; time?: { compacted?: number } }
+  state?: {
+    status?: string
+    input?: unknown
+    output?: string
+    error?: string
+    /** Where a tool result carries what it returned besides text, like the PNG of a map. */
+    attachments?: LegacyAttachment[]
+    time?: { compacted?: number }
+  }
 }
 
 export type LegacyEntry = { info: LegacyInfo; parts: LegacyPart[] }
@@ -61,10 +75,27 @@ export function contentOf(part: LegacyPart) {
     state: {
       status: part.state?.status,
       input: part.state?.input,
-      content: part.state?.status === "completed" ? [{ type: "text", text: part.state.output ?? "" }] : undefined,
+      content:
+        part.state?.status === "completed"
+          ? [{ type: "text", text: part.state.output ?? "" }, ...toolFiles(part.state.attachments)]
+          : undefined,
       error: part.state?.status === "error" ? { message: part.state.error } : undefined,
     },
   }
+}
+
+/**
+ * The images a completed tool result carries, as v2 file content. Anything that is not an image
+ * with a url stays out: the views only know how to paint images, and the text entry keeps the
+ * output the text readers already parse.
+ */
+function toolFiles(attachments: LegacyAttachment[] | undefined) {
+  return (attachments ?? []).flatMap((attachment) => {
+    const uri = attachment.url
+    const mime = attachment.mime
+    if (!uri || !mime || !mime.startsWith("image/")) return []
+    return [{ type: "file" as const, uri, mime, ...(attachment.filename ? { name: attachment.filename } : {}) }]
+  })
 }
 
 /** The attachments of a user message, which the composer sent as file parts. */
