@@ -257,6 +257,7 @@ const ES: Record<string, string> = {
   "Sign in to {name}": "Iniciar sesión en {name}",
   "Waiting for authorization…": "Esperando autorización…",
   "The sign-in request expired. Try again.": "La solicitud de inicio de sesión caducó. Inténtalo de nuevo.",
+  "Sign in failed": "Error al iniciar sesión",
   "{count} models": "{count} modelos",
   Configured: "Configurado",
   "Not configured": "Sin configurar",
