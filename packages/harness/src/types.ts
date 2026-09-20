@@ -461,6 +461,53 @@ export type SkillFile = {
   shadows?: string
 }
 
+/** Where a config file lives: the global config or the project's own `.opencode`. */
+export type ConfigFileScope = "global" | "project"
+
+/** What a config file is: a tool module the engine scans, a guard a delivery profile names, or a config file. */
+export type ConfigFileKind = "tool" | "guard" | "config"
+
+/**
+ * A config file the engine would load. Mirrors `harness-server`'s own type.
+ *
+ * `missing` is a guard the config names but which is not on disk, so the engine would refuse it;
+ * `symlink` carries the link's target when the file is a link rather than one of its own.
+ */
+export type ConfigFileEntry = {
+  name: string
+  path: string
+  scope: ConfigFileScope
+  kind: ConfigFileKind
+  bytes: number
+  mtimeMs: number
+  symlink?: { target: string }
+  missing?: boolean
+}
+
+/** How exporting one file ended: copied, already there, in the way, left alone, or outside the repo. */
+export type ConfigFileExportClassification = "written" | "unchanged" | "conflicts" | "skipped" | "outside"
+
+/** One requested file, classified and mapped to where it would go in the repository. */
+export type ConfigFileExportEntry = {
+  path: string
+  target: string
+  classification: ConfigFileExportClassification
+  reason?: string
+}
+
+/** Copying config files into the user's own config repository. Mirrors `harness-server`'s own type. */
+export type ConfigFileExport = {
+  repo: string
+  /** True when nothing was written and this is only the plan. */
+  dryRun: boolean
+  written: string[]
+  unchanged: string[]
+  conflicts: string[]
+  skipped: string[]
+  outside: string[]
+  entries: ConfigFileExportEntry[]
+}
+
 /** An instruction file a turn in a folder would load (H-17). */
 export type InstructionFile = {
   path: string

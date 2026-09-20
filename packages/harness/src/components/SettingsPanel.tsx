@@ -150,6 +150,8 @@ type SettingsPanelProps = {
   onOpenSkills: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
+  /** The rest of the engine's config files: tools, guards and the global config. */
+  onOpenConfigFiles: () => void
   onOpenAbout: () => void
   onClose: () => void
 }
@@ -786,6 +788,9 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     </button>
                     <button class="fc-button" type="button" onClick={props.onOpenConfig}>
                       {t("Config (advanced)")}
+                    </button>
+                    <button class="fc-button" type="button" onClick={props.onOpenConfigFiles}>
+                      {t("Config files")}
                     </button>
                     <button class="fc-button" type="button" onClick={props.onOpenAbout}>
                       {t("About FlupCode")}

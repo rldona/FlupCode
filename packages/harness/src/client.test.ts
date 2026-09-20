@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test"
-import { createClient, isSessionGone, probeServer, subscribeEvents } from "./client"
+import { createClient, createHarnessClient, isSessionGone, probeServer, subscribeEvents } from "./client"
 import { setEngineTransport } from "./transport"
 
 afterEach(() => setEngineTransport(undefined))
@@ -232,4 +232,87 @@ test("removing an MCP server clears it from both configurations and disconnects 
     .sort()
   expect(patches).toEqual(["/config", "/global/config"])
   expect(calls.some((call) => call.path.endsWith("/disconnect"))).toBe(true)
+})
+
+type HarnessCall = { method: string; path: string; search: string; body?: unknown }
+
+/** Records every harness-server request, and answers with an empty list the calls can unwrap. */
+function recordingHarness(calls: HarnessCall[]) {
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      const text = request.method === "GET" ? "" : await request.text()
+      calls.push({
+        method: request.method.toUpperCase(),
+        path: url.pathname,
+        search: url.search,
+        body: text ? JSON.parse(text) : undefined,
+      })
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+}
+
+test("configFiles.list asks the harness for the folder's config files", async () => {
+  const calls: HarnessCall[] = []
+  recordingHarness(calls)
+
+  await createHarnessClient("http://harness").configFiles.list({ directory: "/work/demo" })
+
+  expect(calls).toEqual([
+    { method: "GET", path: "/harness/config-files", search: "?directory=%2Fwork%2Fdemo", body: undefined },
+  ])
+})
+
+test("configFiles.list with no folder asks for the global layers only", async () => {
+  const calls: HarnessCall[] = []
+  recordingHarness(calls)
+
+  await createHarnessClient("http://harness").configFiles.list()
+
+  expect(calls).toEqual([{ method: "GET", path: "/harness/config-files", search: "", body: undefined }])
+})
+
+test("configFiles.read names the file it wants to read", async () => {
+  const calls: HarnessCall[] = []
+  recordingHarness(calls)
+
+  await createHarnessClient("http://harness").configFiles.read({ path: "/c/tool/hello.js", directory: "/work/demo" })
+
+  expect(calls).toEqual([
+    {
+      method: "GET",
+      path: "/harness/config-files/read",
+      search: "?path=%2Fc%2Ftool%2Fhello.js&directory=%2Fwork%2Fdemo",
+      body: undefined,
+    },
+  ])
+})
+
+test("configFiles.export posts the chosen paths, and confirm only when asked", async () => {
+  const calls: HarnessCall[] = []
+  recordingHarness(calls)
+
+  const client = createHarnessClient("http://harness")
+  await client.configFiles.export({ directory: "/work/demo", paths: ["/c/tool/hello.js"] })
+  await client.configFiles.export({ directory: "/work/demo", paths: ["/c/tool/hello.js"], confirm: true })
+
+  expect(calls).toEqual([
+    {
+      method: "POST",
+      path: "/harness/config-files/export",
+      search: "",
+      body: { directory: "/work/demo", paths: ["/c/tool/hello.js"] },
+    },
+    {
+      method: "POST",
+      path: "/harness/config-files/export",
+      search: "",
+      body: { directory: "/work/demo", paths: ["/c/tool/hello.js"], confirm: true },
+    },
+  ])
 })

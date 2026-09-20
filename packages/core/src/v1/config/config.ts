@@ -54,6 +54,10 @@ export const Info = Schema.Struct({
         description:
           "Tool names whose returned image is an input to a delivered piece rather than the piece itself; FlupCode does not paint their image on its own, because the delivery re-attaches it.",
       }),
+      configRepo: Schema.optional(Schema.String).annotate({
+        description:
+          "Absolute path to the user's own config repository, which the FlupCode apps may export to; the engine only carries it.",
+      }),
       delivery: Schema.optional(
         Schema.Record(
           Schema.String,

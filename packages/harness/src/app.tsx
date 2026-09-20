@@ -131,6 +131,7 @@ import { ComparePanel } from "./components/ComparePanel"
 import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
+import { ConfigFilesPanel } from "./components/ConfigFilesPanel"
 import { canOpenLocalFiles, desktopRemote, openInEditor, openLocalPath, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
@@ -616,6 +617,7 @@ export const App: Component = () => {
   const [skillsOpen, setSkillsOpen] = createSignal(false)
   const [memoryOpen, setMemoryOpen] = createSignal(false)
   const [configOpen, setConfigOpen] = createSignal(false)
+  const [configFilesOpen, setConfigFilesOpen] = createSignal(false)
   const [notifications, setNotifications] = createSignal(readStorage(STORAGE_KEYS.notifications, false))
   const [keybinds, setKeybinds] = createSignal<Keybinds>(
     loadKeybinds(
@@ -1064,6 +1066,8 @@ export const App: Component = () => {
       .catch(() => setHarnessCapabilities([]))
   })
   const supports = (capability: string) => harnessCapabilities().includes(capability)
+  /** The config-files listing is the harness server's own, and only a recent one advertises it. */
+  const configFilesAvailable = () => !!harnessServerUrl() && supports("config-files")
 
   const [packs, setPacks] = createSignal<ContextPack[]>([])
 
@@ -1220,10 +1224,17 @@ export const App: Component = () => {
   )
   // The engine's own settings. The context meter needs the compaction ones: they are what decides
   // when the engine folds a session, and how much room the reader really has.
-  const [engineConfig] = createResource(
+  const [engineConfig, { refetch: refetchEngineConfig }] = createResource(
     () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
     async (key) => createClient(key.split("\n")[0]!).config(),
   )
+  /** Writes the repository the config-files export copies into, kept in the global config. */
+  const saveConfigRepo = (repo: string) => {
+    void createClient(serverUrl())
+      .updateGlobalConfig({ flupcode: { configRepo: repo } })
+      .then(() => refetchEngineConfig())
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
   // Which tools draw an image a delivery re-attaches is configuration, not knowledge: FlupCode reads
   // `flupcode.composeTools`, plus each delivery profile's own `composeTools`, and never names a tool
   // of any product itself.
@@ -6106,6 +6117,10 @@ export const App: Component = () => {
           setSettingsOpen(false)
           setConfigOpen(true)
         }}
+        onOpenConfigFiles={() => {
+          setSettingsOpen(false)
+          setConfigFilesOpen(true)
+        }}
         onOpenAbout={() => {
           setSettingsOpen(false)
           setAboutOpen(true)
@@ -6198,6 +6213,22 @@ export const App: Component = () => {
         onClose={() => setConfigOpen(false)}
         onBack={() => {
           setConfigOpen(false)
+          setSettingsOpen(true)
+        }}
+      />
+      <ConfigFilesPanel
+        open={configFilesOpen()}
+        harnessServerUrl={harnessServerUrl()}
+        directory={vcsDirectory()}
+        serverAvailable={configFilesAvailable()}
+        canOpenFiles={canOpenLocalFiles()}
+        configRepo={engineConfig()?.flupcode?.configRepo}
+        onSetConfigRepo={saveConfigRepo}
+        onOpenInEditor={(path) => void openInEditor(path)}
+        onReload={reloadEngineDefinitions}
+        onClose={() => setConfigFilesOpen(false)}
+        onBack={() => {
+          setConfigFilesOpen(false)
           setSettingsOpen(true)
         }}
       />

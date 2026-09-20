@@ -30,6 +30,8 @@ import type {
   SkillFile,
   CommandFile,
   ContextPack,
+  ConfigFileEntry,
+  ConfigFileExport,
   FileText,
   ProjectMemory,
   Finding,
@@ -330,6 +332,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
         flupcode?: {
           composeTools?: string[]
           delivery?: Record<string, { composeTools?: string[] }>
+          /** The repository `configFiles.export` copies global files into. */
+          configRepo?: string
         }
       },
     /** Writes back one key of the engine's config and leaves the rest as it is (H-25). */
@@ -1437,6 +1441,31 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         if (input.project) search.set("project", input.project)
         return harnessRequest<{ removed: boolean }>(baseUrl, `/harness/commands?${search}`, { method: "DELETE" })
       },
+    },
+    /**
+     * The rest of the engine's configuration: the tool modules it scans, the guards a delivery
+     * profile names, and the global config files. Export copies the chosen global ones into the
+     * repository the global config names, previewed first and never by running anything.
+     */
+    configFiles: {
+      list: (input: { directory?: string; project?: string } = {}) => {
+        const search = new URLSearchParams()
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<ConfigFileEntry[]>(baseUrl, `/harness/config-files${search.size ? `?${search}` : ""}`)
+      },
+      read: (input: { path: string; directory?: string; project?: string }) => {
+        const search = new URLSearchParams({ path: input.path })
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<{ path: string; text: string }>(baseUrl, `/harness/config-files/read?${search}`)
+      },
+      /** `confirm` omitted or false only plans: nothing is written until it is true. */
+      export: (input: { directory?: string; project?: string; paths: string[]; confirm?: boolean }) =>
+        harnessRequest<ConfigFileExport>(baseUrl, "/harness/config-files/export", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
     },
     /** Findings (H-32): a review's points, anchored to a file and a line. */
     findings: {

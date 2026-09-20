@@ -267,6 +267,7 @@ import { duration, findWorkflow, listWorkflows, readWorkflow, removeWorkflow, sa
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
+import { ConfigFileError, exportConfigFiles, listConfigFiles, readConfigFile } from "./config-files"
 import { FileError, readProjectFile } from "./files"
 import {
   GitError,
@@ -932,6 +933,58 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         return json({ data: { removed: true } })
       } catch (cause) {
         if (cause instanceof CommandError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+
+    // Config files you can look at and hand to your own config repository. The tools the engine
+    // scans, the guards a delivery profile names, and the global config files: the listing mirrors
+    // what the engine would actually load, and export copies a global one into the repository the
+    // global config names — confined, previewed first, and never by running anything.
+    if (path[1] === "config-files" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      return json({
+        data: listConfigFiles({
+          directory: params.get("directory") ?? undefined,
+          project: params.get("project") ?? undefined,
+        }),
+      })
+    }
+    if (path[1] === "config-files" && path[2] === "read" && request.method === "GET") {
+      const params = new URL(request.url).searchParams
+      const wanted = params.get("path") ?? ""
+      if (!wanted) return error("A path is required", 400)
+      try {
+        return json({
+          data: readConfigFile(wanted, {
+            directory: params.get("directory") ?? undefined,
+            project: params.get("project") ?? undefined,
+          }),
+        })
+      } catch (cause) {
+        if (cause instanceof ConfigFileError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "config-files" && path[2] === "export" && request.method === "POST") {
+      const body = (await readJSON(request)) as
+        | { directory?: unknown; project?: unknown; paths?: unknown; confirm?: unknown }
+        | undefined
+      const paths = Array.isArray(body?.paths)
+        ? body.paths.filter((entry): entry is string => typeof entry === "string" && !!entry)
+        : []
+      if (paths.length === 0) return error("Which config files to export is required", 400)
+      try {
+        return json({
+          data: await exportConfigFiles({
+            ...(typeof body?.directory === "string" ? { directory: body.directory } : {}),
+            ...(typeof body?.project === "string" ? { project: body.project } : {}),
+            paths,
+            ...(body?.confirm === true ? { confirm: true } : {}),
+          }),
+        })
+      } catch (cause) {
+        if (cause instanceof ConfigFileError) return error(cause.message, cause.status)
         throw cause
       }
     }

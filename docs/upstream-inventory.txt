@@ -71,6 +71,7 @@ packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts
 packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts
 packages/opencode/src/session/processor.ts
 packages/opencode/src/skill/index.ts
+packages/opencode/src/tool/registry.ts
 packages/opencode/test/agent/agent.test.ts
 packages/opencode/test/auth/auth.test.ts
 packages/opencode/test/config/reload.test.ts
@@ -78,6 +79,7 @@ packages/opencode/test/fixture/config.ts
 packages/opencode/test/server/httpapi-exercise/index.ts
 packages/opencode/test/server/httpapi-session.test.ts
 packages/opencode/test/session/system.test.ts
+packages/opencode/test/session/tools.test.ts
 packages/protocol/src/api.ts
 packages/protocol/src/errors.ts
 packages/protocol/src/groups/memory.ts

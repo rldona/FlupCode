@@ -1,6 +1,6 @@
-import { afterAll, describe, expect, test } from "bun:test"
+import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
@@ -1459,6 +1459,97 @@ describe("harness memory API", () => {
 
     expect((await handler(new Request(`http://x/harness/memory/${note.id}`, { method: "DELETE" }))).status).toBe(200)
     expect((await handler(new Request(`http://x/harness/memory/${note.id}`, { method: "DELETE" }))).status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("harness config files API", () => {
+  const saved: Record<string, string | undefined> = {}
+  let root = ""
+  let config = ""
+  let repo = ""
+
+  const write = (path: string, body: string) => {
+    mkdirSync(join(path, ".."), { recursive: true })
+    writeFileSync(path, body)
+  }
+
+  beforeEach(() => {
+    root = mkdtempSync(join(tmpdir(), "flupcode-harness-config-"))
+    config = join(root, "config")
+    repo = join(root, "repo")
+    mkdirSync(join(config, "tool"), { recursive: true })
+    mkdirSync(repo, { recursive: true })
+    write(join(config, "tool", "hello.js"), "export const hello = 1\n")
+    write(join(config, "opencode.json"), JSON.stringify({ flupcode: { configRepo: repo } }))
+    for (const key of ["OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "OPENCODE_TEST_HOME", "OPENCODE_DISABLE_PROJECT_CONFIG"]) {
+      saved[key] = process.env[key]
+      delete process.env[key]
+    }
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.XDG_CONFIG_HOME = join(root, "xdg")
+    process.env.OPENCODE_TEST_HOME = join(root, "home")
+  })
+
+  afterEach(() => {
+    for (const [key, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+    rmSync(root, { recursive: true, force: true })
+  })
+
+  test("lists and reads, and exports on confirm only", async () => {
+    const { handler, repository } = open()
+
+    const listed = await handler(new Request("http://x/harness/config-files"))
+    expect(listed.status).toBe(200)
+    const entries = (await listed.json()).data as Array<{ path: string; kind: string; scope: string }>
+    const tool = entries.find((entry) => entry.path === join(config, "tool", "hello.js"))!
+    expect(tool).toMatchObject({ kind: "tool", scope: "global" })
+
+    const read = await handler(new Request(`http://x/harness/config-files/read?path=${encodeURIComponent(tool.path)}`))
+    expect((await read.json()).data.text).toBe("export const hello = 1\n")
+
+    expect((await handler(new Request("http://x/harness/config-files/read?path=/etc/passwd"))).status).toBe(404)
+
+    const dry = await handler(
+      new Request("http://x/harness/config-files/export", { method: "POST", body: JSON.stringify({ paths: [tool.path] }) }),
+    )
+    expect((await dry.json()).data.written).toContain(tool.path)
+    expect(existsSync(join(repo, "tool", "hello.js"))).toBe(false)
+
+    const done = await handler(
+      new Request("http://x/harness/config-files/export", {
+        method: "POST",
+        body: JSON.stringify({ paths: [tool.path], confirm: true }),
+      }),
+    )
+    expect((await done.json()).data.written).toContain(tool.path)
+    expect(readFileSync(join(repo, "tool", "hello.js"), "utf8")).toBe("export const hello = 1\n")
+
+    const none = await handler(
+      new Request("http://x/harness/config-files/export", { method: "POST", body: JSON.stringify({ paths: [] }) }),
+    )
+    expect(none.status).toBe(400)
+    repository.close()
+  })
+
+  test("an export with no repository configured says so", async () => {
+    const { handler, repository } = open()
+    write(join(config, "opencode.json"), JSON.stringify({ flupcode: {} }))
+
+    const listed = await handler(new Request("http://x/harness/config-files"))
+    const tool = (await listed.json()).data.find((entry: { name: string }) => entry.name === "hello.js")
+
+    const refused = await handler(
+      new Request("http://x/harness/config-files/export", {
+        method: "POST",
+        body: JSON.stringify({ paths: [tool.path] }),
+      }),
+    )
+    expect(refused.status).toBe(400)
+    expect((await refused.json()).error).toMatch(/config repository/i)
     repository.close()
   })
 })
