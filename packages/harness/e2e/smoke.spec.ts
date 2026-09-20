@@ -76,3 +76,23 @@ test("sends a prompt and receives an answer", async ({ page }) => {
     timeout: 90_000,
   })
 })
+
+test("shows the startup error instead of a blank page and resets without losing pairings", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.remoteHosts", JSON.stringify([{ hostId: "kept" }]))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("stale"))
+  })
+  await page.route(/\/assets\/index-[^/]+\.js$/, (route) => route.abort())
+  await page.goto("/")
+  const alert = page.getByRole("alert")
+  await expect(alert).toContainText("FlupCode couldn't start")
+  await expect(alert).toContainText(/Failed to load .*\/assets\/index-/)
+
+  await page.unroute(/\/assets\/index-[^/]+\.js$/)
+  await page.evaluate(() => window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("stale")))
+  await alert.getByRole("button", { name: "Reset app data" }).click()
+  await expect(page.getByRole("button", { name: /New/ }).first()).toBeVisible()
+  await expect(page.getByRole("alert")).toHaveCount(0)
+  const stored = await page.evaluate(() => Object.keys(window.localStorage))
+  expect(stored).toContain("flupcode.remoteHosts")
+})

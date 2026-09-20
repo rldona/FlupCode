@@ -197,6 +197,11 @@ Paired phones reconnect on their own. Remove a phone from **Paired devices** on 
 revoke it immediately. The computer must stay awake with FlupCode open (or `flupcode remote`
 running). A desktop browser that pairs keeps the full desktop layout.
 
+The phone asks the browser to keep its data, so the pairing survives storage clean-ups; uninstalling
+the installed app still erases it, and the phone then has to pair again. If the app ever fails to
+start it shows the error with **Reload** and **Reset app data**, which clears saved app state but
+keeps paired computers.
+
 ### From a terminal: `flupcode remote`
 
 Without the desktop app — on a headless machine, over SSH, or if you live in the terminal — host
