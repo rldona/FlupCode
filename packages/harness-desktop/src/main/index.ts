@@ -98,15 +98,6 @@ function createWindow() {
 
   window.on("close", () => saveWindowState(index, window.getBounds()))
 
-  // Windows paints its own window buttons, so it has to be told the colours the page is using.
-  // Nothing else can: the palette and the light/dark choice live in the renderer's storage.
-  ipcMain.handle("flupcode:title-bar", (event, overlay: { color?: string; symbolColor?: string }) => {
-    if (process.platform !== "win32") return
-    const target = BrowserWindow.fromWebContents(event.sender)
-    if (!target || typeof overlay?.color !== "string" || typeof overlay?.symbolColor !== "string") return
-    target.setTitleBarOverlay({ color: overlay.color, symbolColor: overlay.symbolColor, height: 52 })
-  })
-
   const devUrl = process.env.FLUPCODE_DEV_URL
   if (devUrl || !app.isPackaged) {
     void window.loadURL(devUrl ?? DEV_URL)
@@ -137,6 +128,16 @@ app.whenReady().then(async () => {
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
+})
+
+// Windows paints its own window buttons, so it has to be told the colours the page is using.
+// Nothing else can: the palette and the light/dark choice live in the renderer's storage. Registered
+// once for the whole process: a handler is global, so registering it per window throws on the second.
+ipcMain.handle("flupcode:title-bar", (event, overlay: { color?: string; symbolColor?: string }) => {
+  if (process.platform !== "win32") return
+  const target = BrowserWindow.fromWebContents(event.sender)
+  if (!target || typeof overlay?.color !== "string" || typeof overlay?.symbolColor !== "string") return
+  target.setTitleBarOverlay({ color: overlay.color, symbolColor: overlay.symbolColor, height: 52 })
 })
 
 ipcMain.handle("flupcode:choose-folder", async () => {
