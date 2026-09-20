@@ -189,6 +189,14 @@ export type TaskInput = {
   dependsOn?: string[]
   /** Run only if an earlier task ended a certain way; otherwise this task is skipped (H-28). */
   when?: TaskCondition
+  /**
+   * One task per element of the plan a named task produced (H-28).
+   *
+   * The named task is the dependency. This row is the fan-out marker: when the plan is ready it is
+   * marked done and one task is added per step, each with `{{item}}` replaced. Its dependents wait
+   * for all of them because they share this name.
+   */
+  foreach?: string
 }
 
 export type Task = TaskInput & {

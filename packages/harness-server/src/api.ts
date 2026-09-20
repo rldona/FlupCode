@@ -79,6 +79,7 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
       ? { dependsOn: input.dependsOn.filter((entry): entry is string => typeof entry === "string" && !!entry.trim()) }
       : {}),
     ...(conditionFrom(input.when) ? { when: conditionFrom(input.when) } : {}),
+    ...(typeof input.foreach === "string" && input.foreach.trim() ? { foreach: input.foreach.trim() } : {}),
   }
 }
 

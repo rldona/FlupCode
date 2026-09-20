@@ -370,12 +370,19 @@ describe("a task's place in the graph (H-28)", () => {
     const repository = open()
     const run = repository.startRun({ type: "manual" }, 1000)
     const [task] = repository.addTasks(run.id, [
-      { name: "report", prompt: "say what broke", dependsOn: ["check"], when: { task: "check", is: ["failed"] } },
+      {
+        name: "report",
+        prompt: "say what broke",
+        dependsOn: ["check"],
+        when: { task: "check", is: ["failed"] },
+        foreach: "plan",
+      },
     ])
 
     expect(repository.getTask(task!.id)).toMatchObject({
       dependsOn: ["check"],
       when: { task: "check", is: ["failed"] },
+      foreach: "plan",
     })
     // An explicit empty list is a root, and it must not read back as "no opinion".
     const [root] = repository.addTasks(run.id, [{ name: "parallel", prompt: "go", dependsOn: [] }])

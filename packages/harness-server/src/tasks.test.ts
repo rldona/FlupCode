@@ -715,6 +715,69 @@ describe("a run as a graph (H-28)", () => {
   })
 })
 
+describe("a foreach task (H-28)", () => {
+  /** An engine whose planning task answers with a plan and whose other tasks answer "done". */
+  const planningEngine = (answer: string, prompts: string[]) => {
+    let calls = 0
+    return {
+      createSession: async () => ({ id: `ses_${prompts.length}` }),
+      prompt: async (input: { text: string }) => void prompts.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: ++calls === 1 ? answer : "done" }),
+    } as never
+  }
+
+  test("the plan becomes one task per step, and what follows waits for all of them", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-foreach-"))
+    scratch.push(directory)
+    const prompts: string[] = []
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Plan it" },
+      { name: "step", prompt: "Do: {{item}}", foreach: "plan" },
+      { name: "after", prompt: "Finish" },
+    ])
+    await new TaskRunner(repository, planningEngine('```json\n["one", "two"]\n```', prompts)).execute(run, {
+      directory,
+    })
+
+    const tasks = repository.listTasks(run.id)
+    const named = (name: string) => tasks.filter((task) => task.name === name)
+    // The marker plus one task per step, all sharing the name so a dependent waits for the fan-out.
+    expect(named("plan").map((task) => task.status)).toEqual(["success"])
+    expect(named("step").map((task) => task.status)).toEqual(["success", "success", "success"])
+    expect(named("after").map((task) => task.status)).toEqual(["success"])
+    expect(named("step")[0]!.output).toContain("1. one")
+    expect(prompts).toContain("Do: one")
+    expect(prompts).toContain("Do: two")
+    // `after` is last, because it waited for every step, not just the marker.
+    expect(prompts.at(-1)).toContain("Finish")
+    repository.close()
+  })
+
+  test("a plan nobody wrote is not a failure, and adds nothing", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-foreach-"))
+    scratch.push(directory)
+    const prompts: string[] = []
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "plan", prompt: "Plan it" },
+      { name: "step", prompt: "Do: {{item}}", foreach: "plan" },
+    ])
+    await new TaskRunner(repository, planningEngine("no block here", prompts)).execute(run, { directory })
+
+    const tasks = repository.listTasks(run.id)
+    expect(tasks.map((task) => `${task.name}:${task.status}`)).toEqual(["plan:success", "step:success"])
+    expect(tasks[1]!.output).toContain("No steps")
+    expect(prompts).toEqual(["Plan it"])
+    repository.close()
+  })
+})
+
 describe("context packs and handoffs (H-31)", () => {
   test("a run's packs reach a task as file parts, and the rest as text", async () => {
     const repository = open()

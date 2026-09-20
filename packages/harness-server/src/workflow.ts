@@ -3,6 +3,7 @@ import { homedir } from "node:os"
 import { join } from "node:path"
 import type { TaskCondition, TaskInput } from "./types"
 import { FINDINGS_INSTRUCTION } from "./findings"
+import { PLAN_INSTRUCTION } from "./plan"
 
 /**
  * The findings instruction, indented to sit inside a `prompt: |` block.
@@ -45,6 +46,8 @@ export type WorkflowTask = {
   parallel?: boolean
   /** Run only if an earlier task ended a certain way; otherwise it is skipped (H-28). */
   when?: TaskCondition
+  /** The task whose plan is split into one task per step (H-28). */
+  foreach?: string
 }
 
 export type Workflow = {
@@ -125,6 +128,7 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
     ...(dependsOn ? { dependsOn } : {}),
     ...(task.parallel === true ? { parallel: true as const } : {}),
     ...(conditionFrom(task.when) ? { when: conditionFrom(task.when) } : {}),
+    ...(typeof task.foreach === "string" && task.foreach.trim() ? { foreach: task.foreach.trim() } : {}),
   }
 }
 
@@ -149,7 +153,9 @@ const conditionFrom = (value: unknown): TaskCondition | undefined => {
  * A cycle is refused here rather than discovered by a run that waits forever.
  */
 const dependencies = (tasks: WorkflowTask[], task: WorkflowTask, index: number): string[] => {
-  const explicit = task.dependsOn ?? (task.parallel ? [] : index > 0 ? [tasks[index - 1]!.id] : [])
+  const explicit = task.foreach
+    ? [task.foreach]
+    : task.dependsOn ?? (task.parallel ? [] : index > 0 ? [tasks[index - 1]!.id] : [])
   const condition = task.when?.task
   return condition && !explicit.includes(condition) ? [...explicit, condition] : explicit
 }
@@ -206,6 +212,7 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>): Ta
     // which still means "after the task above".
     ...(task.dependsOn ? { dependsOn: task.dependsOn } : task.parallel ? { dependsOn: [] } : {}),
     ...(task.when ? { when: task.when } : {}),
+    ...(task.foreach ? { foreach: task.foreach } : {}),
   }))
 }
 
@@ -369,6 +376,8 @@ tasks:
       Create an implementation plan for: {{goal}}
 
       Say what you will change and why. Do not write the code yet.
+
+      ${indented(PLAN_INSTRUCTION)}
   - id: implement
     agent: build
     prompt: |
@@ -411,6 +420,8 @@ tasks:
       Plan this refactor: {{goal}}
 
       Say what moves, what stays, and what could break.
+
+      ${indented(PLAN_INSTRUCTION)}
   - id: refactor
     agent: build
     prompt: |

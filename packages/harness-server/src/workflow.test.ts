@@ -185,7 +185,27 @@ tasks:
     expect(parseWorkflow("name: x\ntasks:\n  - id: a\n    prompt: one\n  - id: a\n    prompt: two\n", "x")).toBeUndefined()
   })
 
-  test("a `when` that names nothing is dropped, not guessed at", () => {
+  test("`foreach` names the plan it is split from, and that task is the dependency", () => {
+    const workflow = parseWorkflow(
+      `name: fan
+tasks:
+  - id: plan
+    agent: plan
+    prompt: Plan it
+  - id: step
+    foreach: plan
+    agent: build
+    prompt: "Do: {{item}}"
+`,
+      "x",
+    )!
+    expect(workflow.tasks[1]!.foreach).toBe("plan")
+    expect(tasksFor(workflow, {})[1]).toMatchObject({ name: "step", foreach: "plan", prompt: "Do: {{item}}" })
+    // The plan it splits from must be a task here, or there is nothing to split.
+    expect(parseWorkflow("name: x\ntasks:\n  - id: a\n    foreach: ghost\n    prompt: a\n", "x")).toBeUndefined()
+  })
+
+  test("`when` that names nothing is dropped, not guessed at", () => {
     const workflow = parseWorkflow(
       "name: x\ntasks:\n  - id: a\n    when: { is: failed }\n    prompt: a\n",
       "x",
@@ -302,6 +322,14 @@ describe("the templates", () => {
       const tasks = parseWorkflow(TEMPLATES[name]!, name)!.tasks
       expect(tasks.at(-1)!.kind).toBe("verify")
       expect(tasks.at(-1)!.retries).toBeGreaterThan(0)
+    }
+  })
+
+  test("the ones that plan ask for steps a `foreach` could split", () => {
+    for (const name of ["feature", "refactor"]) {
+      const plan = parseWorkflow(TEMPLATES[name]!, name)!.tasks[0]!
+      expect(plan.id).toBe("plan")
+      expect(plan.prompt).toContain("fenced json block")
     }
   })
 })
