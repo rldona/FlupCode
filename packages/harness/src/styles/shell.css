@@ -1651,14 +1651,14 @@ button.fc-row-main {
 .fc-loader-dots {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
-  color: #d9a441;
+  gap: 4px;
+  color: var(--fc-accent);
   flex-shrink: 0;
 }
 
 .fc-loader-dots i {
-  width: 4px;
-  height: 4px;
+  width: 5px;
+  height: 5px;
   border-radius: 50%;
   background: currentColor;
   opacity: 0.25;
@@ -5564,4 +5564,20 @@ button.fc-row-main {
 
 .fc-tool-header:hover {
   background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+}
+
+.fc-toolgroup-count {
+  flex-shrink: 0;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-border) 70%, transparent);
+  color: var(--fc-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
 }
