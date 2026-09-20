@@ -13,7 +13,6 @@ type ArtifactsPanelProps = {
   /** Keep one in front, or say when it may be forgotten (H-14). */
   onUpdate: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) => void
   onOpenRun: (runID: string) => void
-  onClose: () => void
 }
 
 /** What each kind is called. Only the ones the harness writes today are offered as filters. */
