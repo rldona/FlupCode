@@ -1,18 +1,30 @@
 {
   "name": "FlupCode",
   "short_name": "FlupCode",
-  "description": "A Claude Code-style web and desktop harness for OpenCode.",
+  "description": "A web and desktop harness for OpenCode.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#ffffff",
-  "theme_color": "#c96442",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

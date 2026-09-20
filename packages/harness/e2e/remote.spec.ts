@@ -189,6 +189,7 @@ test.describe("on a phone", () => {
 
     const home = page.locator(".fc-remote-home")
     await expect(home).toBeVisible({ timeout: 15_000 })
+    await expect(home.getByRole("heading", { level: 1 })).toHaveText("Code")
     await expect(home.getByRole("button", { name: /e2e-mac/ })).toBeVisible()
     const card = home.getByRole("button", { name: /Fix the login flow/ })
     await expect(card).toContainText("flupcode · main")
