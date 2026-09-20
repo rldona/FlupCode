@@ -54,7 +54,7 @@ test("the strip is off until settings turns it on", async ({ page }) => {
   await page.locator(".fc-profile-button").click()
   await page.locator(".fc-menu").getByText("Settings", { exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Customize" })
-  await dialog.locator(".fc-settings-row", { hasText: "Open sessions as tabs" }).getByRole("button").click()
+  await dialog.locator(".fc-settings-row", { hasText: "Open sessions as tabs" }).getByRole("switch").click()
 
   await expect(page.locator(".fc-session-tabs")).toHaveCount(1)
   await expect(page.locator(".fc-session-tab")).toHaveCount(2)
