@@ -120,8 +120,8 @@ docs/                         # project documentation (this fork)
 > yourself:
 >
 > ```bash
-> opencode serve --port 4096                                  # desktop
-> opencode serve --port 4096 --cors https://app.flupcode.com  # hosted web app
+> env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096                                  # desktop
+> env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com  # hosted web app
 > ```
 
 Download the desktop app and the `flupcode` CLI from the
@@ -162,11 +162,13 @@ your machine. First install the OpenCode CLI (see [opencode.ai/docs](https://ope
 your platform), then start it with CORS enabled for the hosted origin:
 
 ```bash
-opencode serve --port 4096 --cors https://app.flupcode.com
+env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
 ```
 
 `--cors` is required because the page and the engine are different origins; the app connects to
-`http://localhost:4096` by default (change it in **Settings → Server**).
+`http://localhost:4096` by default (change it in **Settings → Server**). `env -u
+OPENCODE_SERVER_PASSWORD` keeps that variable out of the engine's environment, so a shell that
+exports it does not make the engine demand credentials a browser page cannot send.
 
 > The published OpenCode CLI tracks upstream and does **not** include FlupCode's core patches
 > (GitHub Copilot OAuth in the v2 catalog, session permission modes). To get those, run the engine
@@ -174,7 +176,7 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 >
 > ```bash
 > bun install
-> OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
+> env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
 >   --port 4096 --cors https://app.flupcode.com
 > ```
 
