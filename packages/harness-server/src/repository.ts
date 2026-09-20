@@ -1327,7 +1327,30 @@ export class SqliteRoutineRepository implements RoutineRepository {
          WHERE status IN ('running', 'awaiting')`,
       )
       .run(now)
+    // Work in flight died with the process, but its row says otherwise. Back to queued with the
+    // reason on it, so a resume picks it up — with the caveat that its side effects may already
+    // have happened, which the resume names (HF-5).
+    this.requeueActiveTasks("Harness server restarted while the task was active")
     this.db.query("DELETE FROM locks").run()
+  }
+
+  /**
+   * In-flight rows back to queued (HF-5).
+   *
+   * A task the runner had started but never finished has an unknown outcome: the engine may have
+   * done the work and only the record was lost. Requeueing keeps the reason visible so a resume is
+   * an explicit decision, not a silent replay.
+   */
+  requeueActiveTasks(reason: string) {
+    return this.db.transaction(() => {
+      const rows = this.db.query("SELECT id FROM tasks WHERE status = 'running'").all() as Array<{ id: string }>
+      for (const row of rows) {
+        this.db.query("UPDATE tasks SET status = 'queued', error = ?1 WHERE id = ?2 AND status = 'running'").run(reason, row.id)
+        const task = this.getTask(row.id)
+        if (task) this.append({ type: "task.changed", task })
+      }
+      return rows.map((row) => row.id)
+    })()
   }
 
   // ---- tasks ----------------------------------------------------------------------------------
