@@ -157,7 +157,7 @@ test("a pattern rule is edited in place, and survives the save", async ({ page }
   await expect(dialog.getByLabel("Pattern").first()).toHaveValue("rm -rf *")
   await dialog.getByLabel("Action").first().selectOption("ask")
 
-  await dialog.locator(".fc-settings-row", { hasText: "edit" }).getByRole("combobox").selectOption("deny")
+  await dialog.locator("label.fc-settings-row", { hasText: "edit" }).getByRole("combobox").selectOption("deny")
   await dialog.getByRole("button", { name: "Save" }).click()
 
   await expect
