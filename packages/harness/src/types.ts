@@ -96,6 +96,14 @@ export type FileText = {
   binary: boolean
 }
 
+/** A note the harness keeps about a project (H-37). */
+export type ProjectMemory = {
+  id: string
+  directory: string
+  text: string
+  createdAt: number
+}
+
 /** What a reader keeps about a session that the engine does not (H-18): pins and tags. */
 export type SessionPrefs = {
   sessionID: string
