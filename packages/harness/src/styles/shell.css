@@ -3656,3 +3656,156 @@ button.fc-row-main {
     font-size: var(--fc-text-lg);
   }
 }
+
+.fc-input-wrap {
+  position: relative;
+}
+
+.fc-input {
+  padding-right: 46px;
+}
+
+.fc-input-send {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text-muted);
+}
+
+.fc-input-send:hover:not(:disabled) {
+  color: var(--fc-text);
+}
+
+.fc-effort {
+  position: relative;
+}
+
+.fc-effort-button {
+  height: var(--fc-control-h);
+  padding: 0 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-effort-button:disabled {
+  color: var(--fc-text-muted);
+}
+
+.fc-effort-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: min(280px, 84vw);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+}
+
+.fc-effort-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-effort-title {
+  color: var(--fc-text-muted);
+}
+
+.fc-effort-value {
+  font-weight: 600;
+}
+
+.fc-effort-track {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--fc-text-muted);
+}
+
+.fc-effort-range {
+  flex: 1;
+  accent-color: var(--fc-accent);
+}
+
+.fc-context {
+  position: relative;
+}
+
+.fc-context-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--fc-control-h);
+  height: var(--fc-control-h);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text-muted);
+}
+
+.fc-context-popover {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  right: 0;
+  z-index: 50;
+  width: min(300px, 86vw);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.35);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-context-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fc-context-strong {
+  font-weight: 600;
+}
+
+.fc-context-muted {
+  color: var(--fc-text-muted);
+}
+
+.fc-context-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  overflow: hidden;
+}
+
+.fc-context-bar span {
+  display: block;
+  height: 100%;
+  background: var(--fc-accent);
+}
