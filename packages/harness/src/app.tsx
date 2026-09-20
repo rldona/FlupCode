@@ -49,7 +49,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
   { name: "routines", descriptionKey: "Scheduled tasks" },
-  { name: "remote", descriptionKey: "Remote access / mobile" },
+  { name: "remote", descriptionKey: "Remote control / mobile" },
   { name: "artifacts", descriptionKey: "Artifacts" },
   { name: "about", descriptionKey: "About FlupCode" },
 ]
@@ -1536,6 +1536,15 @@ export const App: Component = () => {
           onOpenPalette={() => setPaletteOpen(true)}
           workspace={panels()}
           onTogglePanel={togglePanel}
+          remote={
+            remote.activeHost()
+              ? {
+                  name: remote.activeHost()!.name,
+                  connected: remote.status() === "connected",
+                  onOpen: () => setRemoteOpen(true),
+                }
+              : undefined
+          }
           sessionTitle={
             <Show when={selectedSession()}>
               {(session) => (
@@ -1569,7 +1578,7 @@ export const App: Component = () => {
             </Show>
           }
         />
-        <Show when={onboarded() && !health.loading && health()?.healthy !== true}>
+        <Show when={onboarded() && !remote.activeHost() && !health.loading && health()?.healthy !== true}>
           <div class="fc-offline-banner">
             <span>
               {t("Server offline")} — {t("start it and connect from Settings")} ·{" "}

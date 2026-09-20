@@ -3906,3 +3906,63 @@ button.fc-row-main {
   flex-direction: column;
   gap: var(--fc-space-3);
 }
+
+.fc-remote-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+.fc-remote-pairing {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--fc-space-2);
+  text-align: center;
+}
+
+.fc-remote-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  font-size: 13px;
+}
+
+.fc-remote-advanced summary {
+  cursor: pointer;
+  color: var(--fc-text-muted);
+}
+
+.fc-remote-advanced[open] > :not(summary) + * {
+  margin-top: var(--fc-space-2);
+}
+
+.fc-status-remote {
+  border: none;
+  cursor: pointer;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 520px) {
+  .fc-topbar .fc-status-remote {
+    display: inline-flex;
+    max-width: 120px;
+  }
+}
+
+@media (max-width: 520px) {
+  .fc-modal .fc-status {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 520px) {
+  .fc-composer-bottom,
+  .fc-composer-left,
+  .fc-composer-right {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}

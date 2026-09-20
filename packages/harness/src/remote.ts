@@ -63,15 +63,41 @@ const [activeHostId, setActiveHostId] = createSignal<string | undefined>(
 const [status, setStatus] = createSignal<RemoteStatus>("idle")
 const [errorCode, setErrorCode] = createSignal<RemoteErrorCode | undefined>()
 
-/** Used while a remote host is selected but not reachable, so engine calls fail fast. */
-const pending: EngineTransport = {
-  fetch: () => Promise.reject(new TypeError("Remote connection not ready")),
-  socket: () => {
-    throw new Error("Remote connection not ready")
-  },
-}
+const TUNNEL_WAIT = 20_000
 
 let tunnel: TunnelClient | undefined
+let waiters: { resolve: (tunnel: TunnelClient) => void; reject: (error: Error) => void }[] = []
+
+/** Resolves with the open tunnel, waiting while the connection is being (re)established. */
+function openTunnel() {
+  if (tunnel && !tunnel.closed) return Promise.resolve(tunnel)
+  return new Promise<TunnelClient>((resolve, reject) => {
+    const waiter = {
+      resolve: (next: TunnelClient) => {
+        clearTimeout(timer)
+        resolve(next)
+      },
+      reject: (error: Error) => {
+        clearTimeout(timer)
+        reject(error)
+      },
+    }
+    const timer = setTimeout(() => {
+      waiters = waiters.filter((entry) => entry !== waiter)
+      reject(new TypeError("Remote connection not ready"))
+    }, TUNNEL_WAIT)
+    waiters.push(waiter)
+  })
+}
+
+/** Engine transport while a remote host is selected: always the latest tunnel. */
+const remoteTransport: EngineTransport = {
+  fetch: async (input, init) => (await openTunnel()).fetch(input, init),
+  socket: (url) => {
+    if (!tunnel || tunnel.closed) throw new Error("Remote connection not ready")
+    return tunnel.socket(url)
+  },
+}
 let retryTimer: ReturnType<typeof setTimeout> | undefined
 let attempt = 0
 let generation = 0
@@ -86,14 +112,17 @@ function saveActive(hostId: string | undefined) {
   writeStorage(STORAGE_KEYS.remoteActive, hostId ?? "")
 }
 
+class InsecureContextError extends Error {}
+
 function classify(error: unknown): RemoteErrorCode {
+  if (error instanceof InsecureContextError) return "insecure"
   if (error instanceof RelayConnectError && error.code === RelayClose.hostOffline) return "offline"
   if (error instanceof HandshakeError && error.message === "Rejected by host") return "revoked"
   return "failed"
 }
 
 async function open(input: { relay: string; hostId: string; mode: ChannelMode; id: string; psk: string }) {
-  if (!globalThis.crypto?.subtle) throw Object.assign(new Error("insecure"), { code: "insecure" as const })
+  if (!globalThis.crypto?.subtle) throw new InsecureContextError("Remote control needs a secure context")
   const wire = await connectRelayClient({ relay: input.relay, hostId: input.hostId })
   const channel = await connectChannel(wire, { mode: input.mode, id: input.id, psk: fromBase64Url(input.psk) })
   return createTunnelClient(channel)
@@ -104,7 +133,8 @@ function attach(next: TunnelClient, host: RemoteHost, current: number) {
   tunnel = next
   attempt = 0
   next.sendControl({ type: "device", name: deviceName() })
-  setEngineTransport({ fetch: next.fetch, socket: next.socket })
+  setEngineTransport(remoteTransport)
+  waiters.splice(0).forEach((waiter) => waiter.resolve(next))
   setErrorCode(undefined)
   setStatus("connected")
   next.onClose(() => {
@@ -125,7 +155,7 @@ async function connectHost(hostId: string, current = ++generation) {
   const host = hosts().find((entry) => entry.hostId === hostId)
   if (!host) return
   clearTimeout(retryTimer)
-  if (!tunnel) setEngineTransport(pending)
+  setEngineTransport(remoteTransport)
   if (status() !== "reconnecting") setStatus("connecting")
   const result = await open({
     relay: host.relay,
@@ -141,7 +171,7 @@ async function connectHost(hostId: string, current = ++generation) {
     return
   }
   if ("next" in result) return attach(result.next, host, current)
-  const code = (result.error as { code?: RemoteErrorCode }).code ?? classify(result.error)
+  const code = classify(result.error)
   if (code === "offline" || code === "failed") {
     setErrorCode(code)
     return schedule(host, current)
@@ -158,7 +188,7 @@ async function pair(link: PairingLink) {
   const next = await open({ relay: link.relay, hostId: link.host, mode: "pair", id: link.id, psk: link.secret }).catch(
     (error: unknown) => {
       if (current !== generation) return undefined
-      const code = (error as { code?: RemoteErrorCode }).code ?? classify(error)
+      const code = classify(error)
       setErrorCode(code === "revoked" ? "expired" : code)
       setStatus("error")
       return undefined
@@ -218,6 +248,7 @@ export const remote = {
     saveActive(undefined)
     tunnel?.close()
     tunnel = undefined
+    waiters.splice(0).forEach((waiter) => waiter.reject(new TypeError("Remote control disconnected")))
     setEngineTransport(undefined)
     setErrorCode(undefined)
     setStatus("idle")
@@ -246,3 +277,6 @@ export const remote = {
     if (hostId && hosts().some((host) => host.hostId === hostId)) void connectHost(hostId)
   },
 }
+
+// Route engine calls to the saved host from the very first request, before `resume` connects.
+if (!desktopRemote() && remote.activeHost()) setEngineTransport(remoteTransport)
