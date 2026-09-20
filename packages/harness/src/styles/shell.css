@@ -1219,6 +1219,11 @@ button.fc-row-main {
   gap: 6px;
 }
 
+.fc-message-user {
+  padding-left: 12px;
+  border-left: 2px solid var(--fc-accent);
+}
+
 .fc-message-role {
   font-size: var(--fc-text-xs);
   font-weight: 600;
@@ -1630,6 +1635,64 @@ button.fc-row-main {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.fc-tool-output-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.fc-tool-output-wrap .fc-tool-output {
+  align-self: stretch;
+  max-height: none;
+}
+
+.fc-tool-expand {
+  margin: 0 12px 10px;
+  padding: 2px 0;
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+  text-decoration: underline dotted;
+}
+
+.fc-tool-expand:hover {
+  color: var(--fc-text);
+}
+
+.fc-turn {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-bottom: 6px;
+}
+
+.fc-turn-commit {
+  color: var(--fc-text-muted);
+  font-size: 13px;
+}
+
+.fc-turn-commit code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--fc-text);
+}
+
+.fc-turn-footer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+}
+
+.fc-turn-icon {
+  color: var(--fc-accent);
+}
+
+.fc-turn-sep {
+  color: var(--fc-text-muted);
 }
 
 .fc-tool-body {

@@ -17,6 +17,7 @@ type SessionViewProps = {
   busy: boolean
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
+  modelName?: (ref: { providerID: string; id: string }) => string
   showTools: boolean
   onEditUser: (messageID: string, text: string) => void
 }
@@ -119,12 +120,34 @@ const DiffView: Component<{ oldText: string; newText: string }> = (props) => (
   </pre>
 )
 
+const ToolOutput: Component<{ text: string; maxLines?: number }> = (props) => {
+  const [expanded, setExpanded] = createSignal(false)
+  const lines = createMemo(() => props.text.replace(/\n+$/, "").split("\n"))
+  const cap = () => props.maxLines ?? 10
+  const truncated = () => lines().length > cap()
+  const visible = () => (expanded() || !truncated() ? lines().join("\n") : lines().slice(0, cap()).join("\n"))
+  return (
+    <div class="fc-tool-output-wrap">
+      <pre class="fc-tool-output">
+        {visible()}
+        {truncated() && !expanded() ? "\n…" : ""}
+      </pre>
+      <Show when={truncated()}>
+        <button class="fc-tool-expand" type="button" onClick={() => setExpanded((value) => !value)}>
+          {expanded() ? t("Click to collapse") : t("Click to expand")}
+        </button>
+      </Show>
+    </div>
+  )
+}
+
 const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
   const [open, setOpen] = createSignal(
     props.part.state.status === "error" ||
       props.part.name === "write" ||
       props.part.name === "edit" ||
-      props.part.name === "multiedit",
+      props.part.name === "multiedit" ||
+      props.part.name === "bash",
   )
   const input = createMemo(() => toolInput(props.part))
   const output = () => toolOutput(props.part)
@@ -155,10 +178,76 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
             <pre class="fc-tool-cmd">$ {command()}</pre>
           </Show>
           <Show when={output()}>
-            <pre class="fc-tool-output">{output()}</pre>
+            <ToolOutput text={output()} />
           </Show>
         </div>
       </Show>
+    </div>
+  )
+}
+
+function formatDuration(ms: number) {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`
+}
+
+function turnStart(messages: SessionMessageInfo[], index: number) {
+  let start = index
+  while (start > 0 && messages[start - 1]?.type === "assistant") start--
+  return start
+}
+
+function turnCommit(messages: SessionMessageInfo[], index: number) {
+  const start = turnStart(messages, index)
+  for (let cursor = index; cursor >= start; cursor--) {
+    const message = messages[cursor]
+    if (message?.type !== "assistant") continue
+    for (const part of (message as SessionMessageAssistant).content) {
+      if (part.type === "text") {
+        const match = /(?:commit|committed)[^\n]{0,40}?\b([0-9a-f]{7,40})\b/i.exec(part.text ?? "")
+        if (match?.[1]) return { hash: match[1], inText: true }
+      }
+      if (part.type === "tool" && part.name === "bash") {
+        const text = toolOutput(part)
+        const match = /\b([0-9a-f]{7,40})\b/.exec(text ?? "")
+        if (match?.[1] && /commit/i.test(text ?? "")) return { hash: match[1], inText: false }
+      }
+    }
+  }
+  return undefined
+}
+
+const TurnFooter: Component<{
+  agent: string
+  model?: { providerID: string; id: string }
+  duration?: string
+  commit?: { hash: string; inText: boolean }
+  modelName?: (ref: { providerID: string; id: string }) => string
+}> = (props) => {
+  const model = () => {
+    if (!props.model) return undefined
+    return props.modelName?.(props.model) ?? props.model.id
+  }
+  return (
+    <div class="fc-turn">
+      <Show when={props.commit && !props.commit.inText}>
+        <div class="fc-turn-commit">
+          {t("Commit")}: <code>{props.commit!.hash}</code>
+        </div>
+      </Show>
+      <div class="fc-turn-footer">
+        <span class="fc-turn-icon">▣</span>
+        <span>{props.agent}</span>
+        <Show when={model()}>
+          <span class="fc-turn-sep">·</span>
+          <span>{model()}</span>
+        </Show>
+        <Show when={props.duration}>
+          <span class="fc-turn-sep">·</span>
+          <span>{props.duration}</span>
+        </Show>
+      </div>
     </div>
   )
 }
@@ -198,6 +287,27 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
 export const SessionView: Component<SessionViewProps> = (props) => {
   let container: HTMLElement | undefined
   const [stick, setStick] = createSignal(true)
+
+  const turnMeta = (index: number) => {
+    const list = props.messages ?? []
+    const start = turnStart(list, index)
+    const first = list[start] as SessionMessageAssistant
+    const last = list[index] as SessionMessageAssistant
+    const created = first.time?.created
+    const completed = last.time?.completed
+    return {
+      agent: last.agent,
+      model: last.model,
+      duration: created && completed ? formatDuration(completed - created) : undefined,
+    }
+  }
+
+  const isTurnEnd = (index: number) => {
+    const next = props.messages?.[index + 1]
+    if (next?.type === "assistant") return false
+    if (!next) return !props.busy
+    return true
+  }
 
   createEffect(() => {
     props.messages
@@ -248,6 +358,13 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       showTools={props.showTools}
                       showRole={index() === 0 || props.messages?.[index() - 1]?.type !== "assistant"}
                     />
+                    <Show when={isTurnEnd(index())}>
+                      <TurnFooter
+                        {...turnMeta(index())}
+                        commit={turnCommit(props.messages ?? [], index())}
+                        modelName={props.modelName}
+                      />
+                    </Show>
                   </Show>
                 }
               >
