@@ -12,6 +12,7 @@ playground
 tmp
 dist
 out
+release
 ts-dist
 .turbo
 **/.serena
