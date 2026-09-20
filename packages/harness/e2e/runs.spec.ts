@@ -619,3 +619,68 @@ test("artifacts are listed by kind, read in place, and the session's files keep 
   await page.locator(".fc-run-card").first().getByRole("button", { name: /^(Delete|Eliminar)$/ }).click()
   await expect.poll(() => removed).toBe("a1")
 })
+
+// H-32's noted gap: a task that ran in its own worktree has its points, its diff and its
+// checkpoints anchored to that tree (H-29), so "Checkpoints" has to open the tree it ran in and not
+// the run's folder — which is where the findings would never show.
+test("a worktree task opens the tree it ran in", async ({ page }) => {
+  const worktreeRun = {
+    id: "run_w",
+    source: { type: "manual" },
+    status: "success",
+    startedAt: now,
+    finishedAt: now + 5000,
+    directory: "/work/demo",
+  }
+  const worktreeTasks = [
+    {
+      id: "w1",
+      runID: "run_w",
+      position: 0,
+      name: "review",
+      prompt: "review it",
+      status: "success",
+      startedAt: now,
+      finishedAt: now + 5000,
+      directory: "/work/.flupcode/wt/review",
+    },
+  ]
+  const worktreeFiles = [
+    { taskID: "w1", checkpointID: "c1", title: "review", files: [{ path: "src/a.ts", status: "modified" }] },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/model") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/vcs/diff") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/event" || url.pathname === "/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [worktreeRun] } })
+    if (url.pathname === "/harness/runs/run_w/tasks") return route.fulfill({ json: { data: worktreeTasks } })
+    if (url.pathname === "/harness/runs/run_w/files") return route.fulfill({ json: { data: worktreeFiles } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ json: { data: [] } })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
+
+  const task = page.locator(".fc-run-task")
+  await expect(task).toHaveCount(1)
+  await task.getByRole("button", { name: /Checkpoints/ }).click()
+
+  // The Changes screen opened for the worktree folder, not for the run's: the kicker names it.
+  await expect(page.locator(".fc-routines-kicker").first()).toHaveText("review")
+})
