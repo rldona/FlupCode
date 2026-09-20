@@ -1,5 +1,5 @@
 import { For, type Component, Show, createEffect, createSignal, onCleanup } from "solid-js"
-import type { AgentInfo, ModelInfo } from "../engine-types"
+import type { AgentInfo, ModelInfo, ModelVariant } from "../engine-types"
 import type {
   ConsoleOrg,
   ConsoleState,
@@ -15,8 +15,11 @@ import type {
 import type { AgentFile, CommandFile, McpConfig } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
+import { effortLabel } from "../effort"
 import { KeyCapture } from "./KeyCapture"
 import { AgentsPanel } from "./AgentsPanel"
+import { ModelMenu } from "./DockMenus"
+import { ModelPicker } from "./ModelPicker"
 import { ProvidersEditor } from "./ProvidersPanel"
 import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
 import { McpEditor } from "./McpManager"
@@ -85,6 +88,10 @@ type SettingsPanelProps = {
   onServerReload: () => void
   serverReloading: boolean
   onModelChange: (key: string) => void
+  /** The effort levels the selected model offers, and the stored one, for the default-effort select. */
+  modelVariants: ModelVariant[]
+  modelVariant: string | undefined
+  onModelVariantChange: (variant: string) => void
   onToggleTools: () => void
   onToggleReasoning: () => void
   onToggleSessionTabs: () => void
@@ -278,6 +285,19 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     setConfirmReload(false)
     props.onServerReload()
   }
+  // The full catalog is a modal of its own, opened from the model row's "More models".
+  const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
+  const modelLabel = () => {
+    const key = props.modelKey
+    if (!key) return t("Default model")
+    // The provider goes with the name: the same model name lives under several providers.
+    const model = props.models.find((entry) => `${entry.providerID}/${entry.id}` === key)
+    if (model) return `${model.name} · ${model.providerID}`
+    // The key is "provider/id", so a ref the catalog no longer serves still names its provider.
+    const [providerID, ...rest] = key.split("/")
+    const id = rest.join("/")
+    return providerID && id ? `${id} · ${providerID}` : key
+  }
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop fc-modal-backdrop-settings" onClick={props.onClose}>
@@ -419,41 +439,33 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               <Show when={section() === "model"}>
                 <section class="fc-settings-section">
                   <h3 class="fc-settings-title">{t("Model")}</h3>
-                  <label class="fc-settings-row">
+                  <div class="fc-settings-row">
                     <span>{t("Default")}</span>
-                    <select
-                      class="fc-toolbar-select"
-                      value={props.modelKey ?? ""}
-                      disabled={props.running}
-                      onChange={(event) => {
-                        const next = event.currentTarget.value
-                        // A native select moves on its own: put it back before asking, or cancelling
-                        // the warning would leave it showing a model the session is not using.
-                        event.currentTarget.value = props.modelKey ?? ""
-                        props.onModelChange(next)
-                      }}
-                    >
-                      <option value="" disabled selected={!props.modelKey}>
-                        {t("Default model")}
-                      </option>
-                      <For each={groupModels(props.models)}>
-                        {(group) => (
-                          <optgroup label={group.providerID}>
-                            <For each={group.items}>
-                              {(model) => (
-                                <option
-                                  value={`${model.providerID}/${model.id}`}
-                                  selected={props.modelKey === `${model.providerID}/${model.id}`}
-                                >
-                                  {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
-                                </option>
-                              )}
-                            </For>
-                          </optgroup>
-                        )}
-                      </For>
-                    </select>
-                  </label>
+                    <div class="fc-settings-controls">
+                      <ModelMenu
+                        label={modelLabel()}
+                        models={props.models}
+                        selectedKey={props.modelKey}
+                        favorites={props.favorites}
+                        placement="down"
+                        disabled={props.running}
+                        onSelect={(providerID, id) => props.onModelChange(`${providerID}/${id}`)}
+                        onMore={() => setModelPickerOpen(true)}
+                      />
+                      <select
+                        class="fc-toolbar-select"
+                        aria-label={t("Effort")}
+                        value={props.modelVariant ?? ""}
+                        disabled={props.running || props.modelVariants.length === 0}
+                        onChange={(event) => props.onModelVariantChange(event.currentTarget.value)}
+                      >
+                        <option value="">{t("Default")}</option>
+                        <For each={props.modelVariants}>
+                          {(variant) => <option value={variant.id}>{effortLabel(variant.id)}</option>}
+                        </For>
+                      </select>
+                    </div>
+                  </div>
                   <Show when={props.running}>
                     <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
                   </Show>
@@ -800,6 +812,18 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               </Show>
             </div>
           </div>
+          <ModelPicker
+            open={modelPickerOpen()}
+            models={props.models}
+            selectedKey={props.modelKey}
+            favorites={props.favorites}
+            onSelect={(providerID, id) => {
+              setModelPickerOpen(false)
+              props.onModelChange(`${providerID}/${id}`)
+            }}
+            onToggleFavorite={props.onToggleFavorite}
+            onClose={() => setModelPickerOpen(false)}
+          />
         </div>
       </div>
     </Show>

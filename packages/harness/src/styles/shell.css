@@ -3297,6 +3297,14 @@ button.fc-status {
   max-width: 60%;
 }
 
+/* Two controls on the right of a settings row (model and its effort) travel together. */
+.fc-settings-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  min-width: 0;
+}
+
 /* A clear on/off switch: the knob's side and the track's colour carry the state, not a word. */
 .fc-switch {
   position: relative;
@@ -7142,6 +7150,18 @@ button.fc-status {
 .fc-composer .fc-effort-popover,
 .fc-composer .fc-context-popover {
   transform-origin: bottom right;
+}
+
+/* A row inside a scrolling panel cannot rise: it would be clipped at the panel's top edge. */
+.fc-dock-popover-down {
+  top: calc(100% + 8px);
+  bottom: auto;
+  transform-origin: top left;
+  animation-name: fc-drop-in;
+}
+
+.fc-dock-popover-right.fc-dock-popover-down {
+  transform-origin: top right;
 }
 
 .fc-chapters-list,
