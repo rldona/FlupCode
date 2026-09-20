@@ -11,7 +11,6 @@ type ComparePanelProps = {
   initialRight?: string
   /** Everything the comparison needs about one run: itself, its tasks and what they changed. */
   onLoad: (id: string) => Promise<RunSnapshot>
-  onClose: () => void
 }
 
 /**
@@ -92,11 +91,6 @@ export const ComparePanel: Component<ComparePanelProps> = (props) => {
             <div class="fc-routines-kicker">{t("Session OS")}</div>
             <h1>{t("Compare")}</h1>
             <p>{t("Two runs against each other: what they spent, how long, what they touched, what the check said — and the context each was given.")}</p>
-          </div>
-          <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
           </div>
         </div>
 
