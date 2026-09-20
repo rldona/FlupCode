@@ -32,6 +32,8 @@ const message = {
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
 }
 
+const child = { ...session, id: "ses_child", parentID: "ses_tasks", title: "Analizar common-lib" }
+
 async function openSession(page: Page) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
@@ -54,6 +56,8 @@ async function openSession(page: Page) {
     if (url.pathname === "/vcs/status") return route.fulfill({ json: [] })
     if (url.pathname === "/api/session/ses_tasks/message")
       return route.fulfill({ json: { data: [message], cursor: {} } })
+    if (url.pathname === "/session/ses_tasks/children" || url.pathname === "/api/session/ses_tasks/children")
+      return route.fulfill({ json: [child] })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
@@ -83,4 +87,14 @@ test("the task list is a timeline, and each disc carries its state", async ({ pa
   expect(rail).not.toBe("none")
   const lastRail = await items.nth(3).evaluate((item) => getComputedStyle(item, "::before").content)
   expect(lastRail).toBe("none")
+})
+
+test("this session's subagents sit under the tasks, in the panel", async ({ page }) => {
+  await openSession(page)
+
+  const aside = page.locator(".fc-rightaside")
+  await expect(aside.locator(".fc-aside-title", { hasText: "Subagents" })).toBeVisible()
+  // A list of siblings, not chips across the top of the transcript.
+  await expect(aside.locator(".fc-subagent")).toHaveText(["Analizar common-lib"])
+  await expect(page.locator(".fc-subagents")).toHaveCount(0)
 })
