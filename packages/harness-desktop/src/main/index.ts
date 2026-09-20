@@ -1,4 +1,5 @@
-import { BrowserWindow, app, dialog, ipcMain, net, protocol } from "electron"
+import { BrowserWindow, app, dialog, ipcMain, net, protocol, shell } from "electron"
+import { execFile } from "node:child_process"
 import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
@@ -142,6 +143,29 @@ ipcMain.handle("flupcode:choose-folder", async () => {
   const result = await dialog.showOpenDialog({ properties: ["openDirectory", "createDirectory"] })
   if (result.canceled || result.filePaths.length === 0) return undefined
   return result.filePaths[0]
+})
+
+/**
+ * Open a local file: in the system's default app, or in a named one (H-14).
+ *
+ * macOS has `open -a <app>`, Windows resolves `code` through the `cmd` shell, and Linux runs the
+ * command directly. A failure is reported back to the renderer, not thrown into a void.
+ */
+ipcMain.handle("flupcode:open-path", async (_event, path: unknown, app?: unknown) => {
+  if (typeof path !== "string" || !path) return false
+  if (typeof app !== "string" || !app) {
+    const problem = await shell.openPath(path)
+    return problem === ""
+  }
+  return await new Promise<boolean>((resolve) => {
+    const [command, args] =
+      process.platform === "darwin"
+        ? (["open", ["-a", app, path]] as const)
+        : process.platform === "win32"
+          ? (["cmd", ["/c", app, path]] as const)
+          : ([app, [path]] as const)
+    execFile(command, args, (error) => resolve(!error))
+  })
 })
 
 app.on("before-quit", () => {

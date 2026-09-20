@@ -43,6 +43,10 @@ contextBridge.exposeInMainWorld("flupcode", {
   ownsTitleBar: process.platform === "darwin" || process.platform === "win32",
   setTitleBar: (overlay: { color: string; symbolColor: string }) =>
     ipcRenderer.invoke("flupcode:title-bar", overlay) as Promise<void>,
+  // Open a local file in the system's app, or in a named one (VS Code): a generated document is most
+  // useful in the editor it was written for (H-14).
+  openPath: (path: string, app?: string) =>
+    ipcRenderer.invoke("flupcode:open-path", path, app) as Promise<boolean>,
   remote,
   ...(speech ? { speech } : {}),
   ...(engineAuth ? { engineAuth } : {}),

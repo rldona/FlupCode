@@ -254,7 +254,20 @@ export type Task = TaskInput & {
  * The project is a directory rather than an id: that is what the harness actually knows about where
  * work happens, and inventing an id for it would mean keeping a second name for the same thing.
  */
-  export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff" | "screenshot"
+export const ARTIFACT_KINDS = [
+  "plan",
+  "report",
+  "verdict",
+  "diff",
+  "log",
+  "file",
+  "handoff",
+  "screenshot",
+  /** A document the agent produced and kept (H-14): a page, a report, an image, a PDF. */
+  "document",
+] as const
+
+export type ArtifactKind = (typeof ARTIFACT_KINDS)[number]
 
 export type ArtifactProducer = "agent" | "user" | "harness"
 
@@ -266,6 +279,12 @@ export type ArtifactInput = {
   content?: string
   /** A file that already exists, for anything that is not. */
   path?: string
+  /**
+   * The identity of this artifact's text, when the caller already knows it. `addArtifact` derives it
+   * from `content` when absent; a path-only artifact (an image, a PDF) passes a signature of the
+   * file so a rewritten one is still recognisable as a new snapshot (H-14).
+   */
+  hash?: string
   mime?: string
   directory?: string
   runID?: string
@@ -287,8 +306,6 @@ export type Artifact = ArtifactInput & {
   /** What the content was before it was cut, in characters. Absent when nothing was cut. */
   bytes?: number
   truncated?: boolean
-  /** Of the content, so the same report written twice is recognisable as the same thing. */
-  hash?: string
 }
 
 /**
