@@ -2,7 +2,9 @@
 
 Goal: stable, documented v1.0.
 
-## F7-1 — E2E, accessibility, i18n · P1 · todo
+## F7-1 — E2E, accessibility, i18n · P1 · doing
+
+Unit tests for metrics merged and focus-visible styles added. E2E and i18n coverage pending.
 
 **Acceptance**
 - E2E coverage for core flows (session, composer, permissions, settings).
