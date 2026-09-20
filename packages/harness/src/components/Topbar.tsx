@@ -68,6 +68,16 @@ export const Topbar: Component<TopbarProps> = (props) => {
         </button>
         <button
           class="fc-nav-arrow"
+          classList={{ "fc-icon-button-active": props.workspace.includes("terminal") }}
+          type="button"
+          title={t("Terminal")}
+          aria-label={t("Terminal")}
+          onClick={() => props.onTogglePanel("terminal")}
+        >
+          ⌨
+        </button>
+        <button
+          class="fc-nav-arrow"
           type="button"
           title={t("Command palette")}
           aria-label={t("Command palette")}

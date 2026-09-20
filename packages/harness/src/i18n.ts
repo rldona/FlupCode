@@ -86,6 +86,7 @@ const ES: Record<string, string> = {
   "Always ask before making changes": "Preguntar siempre antes de hacer cambios",
   "Automatically accept all file edits": "Aceptar automáticamente todas las ediciones",
   "Accepts all permissions": "Acepta todos los permisos",
+  Terminal: "Terminal",
   "Default model": "Modelo por defecto",
   "Choose a model": "Elige un modelo",
   "Search models": "Buscar modelos",

@@ -1525,6 +1525,18 @@ button.fc-row-main {
   color: var(--fc-accent);
 }
 
+.fc-terminal {
+  flex: 1;
+  min-height: 0;
+  padding: 6px 8px;
+  background: #101014;
+}
+
+.fc-terminal .xterm,
+.fc-terminal .xterm-viewport {
+  height: 100%;
+}
+
 .fc-flower {
   color: #d97757;
   animation: fc-flower-spin 1.6s steps(8, end) infinite;
