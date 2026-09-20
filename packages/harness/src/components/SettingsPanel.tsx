@@ -586,7 +586,6 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
               <Show when={section() === "agents"}>
                 <section class="fc-settings-section">
-                  <h3 class="fc-settings-title">{t("Agents")}</h3>
                   <AgentsPanel
                     open
                     files={props.agentFiles ?? []}
