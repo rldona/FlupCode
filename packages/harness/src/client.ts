@@ -24,6 +24,28 @@ export function resolveServerUrl() {
   return DEFAULT_SERVER_URL
 }
 
+/** Why the engine is unreachable, as far as the browser can tell. */
+export type ServerStatus = "online" | "offline" | "blocked"
+
+/**
+ * A request the browser blocks (CORS, mixed content, Local Network Access) rejects exactly like a
+ * server that is not running, so `no-cors` tells them apart: it needs no permission to send, so an
+ * opaque success means the engine is listening and something else withheld the response.
+ */
+export async function probeServer(baseUrl: string): Promise<ServerStatus> {
+  const health = `${baseUrl.replace(/\/$/, "")}/global/health`
+  const reachable = await engineFetch(health, { signal: AbortSignal.timeout(2000) }).then(
+    () => true,
+    () => false,
+  )
+  if (reachable) return "online"
+  const listening = await engineFetch(health, { mode: "no-cors", signal: AbortSignal.timeout(2000) }).then(
+    () => true,
+    () => false,
+  )
+  return listening ? "blocked" : "offline"
+}
+
 async function* subscribeEvents(baseUrl: string, signal?: AbortSignal, path = "/api/event") {
   const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     headers: { Accept: "text/event-stream" },

@@ -10,7 +10,7 @@ import type {
   SessionMessageAssistant,
   SessionMessageInfo,
 } from "./engine-types"
-import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./client"
+import { createClient, invalidateLegacyHistory, probeServer, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, contextFigures, filterByRange, type UsageRange } from "./metrics"
 import { usageResetAt } from "./usage-reset"
@@ -234,11 +234,15 @@ export const App: Component = () => {
 
   const client = () => createClient(serverUrl())
   // Never reject: an errored resource throws on every read and freezes the effects that depend on it.
-  const [health, { refetch: refetchHealth }] = createResource(serverUrl, (url) =>
-    createClient(url)
+  // When the health call fails, a `no-cors` probe tells a stopped engine apart from one the browser
+  // blocked (CORS, mixed content), so the onboarding can explain the right fix.
+  const [health, { refetch: refetchHealth }] = createResource(serverUrl, async (url) => {
+    const result = await createClient(url)
       .health.get()
-      .catch(() => ({ healthy: false, version: undefined })),
-  )
+      .catch(() => ({ healthy: false, version: undefined as string | undefined }))
+    if (result.healthy) return { ...result, blocked: false }
+    return { ...result, blocked: (await probeServer(url)) === "blocked" }
+  })
   const ready = () => health()?.healthy === true
 
   createEffect(() => {
@@ -2445,7 +2449,8 @@ export const App: Component = () => {
         <Show when={onboarded() && !remote.activeHost() && !health.loading && health()?.healthy !== true}>
           <div class="fc-offline-banner">
             <span>
-              {t("Server offline")} — {t("start it and connect from Settings")} ·{" "}
+              {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
+              {t("start it and connect from Settings")} ·{" "}
               <code>opencode serve --port 4096 --cors {window.location.origin}</code>
             </span>
             <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
@@ -2843,6 +2848,7 @@ export const App: Component = () => {
           setRemoteOpen(true)
         }}
         serverHealthy={health()?.healthy}
+        serverBlocked={health()?.blocked === true}
         serverInput={serverInput()}
         onServerInput={setServerInput}
         onConnect={() => {

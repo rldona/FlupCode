@@ -2791,6 +2791,21 @@ button.fc-status {
   word-break: break-all;
 }
 
+.fc-onboarding-command {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--fc-space-2);
+}
+
+.fc-onboarding-command .fc-onboarding-code {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-onboarding-command .fc-button {
+  flex: none;
+}
+
 .fc-offline-banner {
   display: flex;
   align-items: center;

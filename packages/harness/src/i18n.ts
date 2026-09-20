@@ -259,8 +259,19 @@ const ES: Record<string, string> = {
   "Checking the server…": "Comprobando el servidor…",
   "Server connected": "Servidor conectado",
   "Server offline": "Sin conexión al servidor",
-  "FlupCode needs the OpenCode engine. Start it, then connect:":
-    "FlupCode necesita el engine de OpenCode. Arráncalo y conéctate:",
+  "Connection blocked by the browser": "Conexión bloqueada por el navegador",
+  Troubleshooting: "Solución de problemas",
+  "The engine is running, but the browser refused the connection. Start it with the command below and connect again.":
+    "El engine está en marcha, pero el navegador rechazó la conexión. Arrácalo con el comando de abajo y vuelve a conectar.",
+  "FlupCode needs the OpenCode engine. Install it once, then start it:":
+    "FlupCode necesita el engine de OpenCode. Instálalo una vez y arráncalo:",
+  "FlupCode is a client and does not ship the engine.": "FlupCode es un cliente y no incluye el engine.",
+  "Install the OpenCode CLI": "Instala la CLI de OpenCode",
+  "Leave it running. If the engine is already running without --cors, stop it and start it with this command.":
+    "Déjalo en marcha. Si el engine ya está corriendo sin --cors, páralo y arráncalo con este comando.",
+  "No terminal? Use the desktop app, which starts the engine for you:":
+    "¿Sin terminal? Usa la app de escritorio, que arranca el engine por ti:",
+  "Download FlupCode": "Descargar FlupCode",
   "start it and connect from Settings": "arráncalo y conéctate desde Ajustes",
   Retry: "Reintentar",
   "Commit changes": "Confirmar cambios",
