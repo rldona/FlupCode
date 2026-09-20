@@ -4313,6 +4313,22 @@ export const App: Component = () => {
       return undefined
     }, t("MCP server disconnected"))
 
+  /**
+   * OAuth for a server that needs it (SE-2): the engine hands over the authorization URL, the
+   * reader approves it in a tab, and `authenticate` waits for the engine's callback before the
+   * list is read again. Opening the tab first matters: `authenticate` blocks until it completes.
+   */
+  const oauthMcp = (server: string) =>
+    run(async (current) => {
+      const started = (await current.mcp.authStart({ server })) as { authorizationUrl?: string }
+      if (!started?.authorizationUrl) throw new Error(t("This server did not offer OAuth"))
+      window.open(started.authorizationUrl, "_blank", "noopener,noreferrer")
+      await current.mcp.authenticate({ server })
+      void refetchMcp()
+      void refetchMcpResources()
+      return undefined
+    }, t("MCP server connected"))
+
   const saveProvider = (providerID: string, key: string) =>
     run(async (current) => {
       await current.auth.set({ providerID, key })
@@ -5488,6 +5504,7 @@ export const App: Component = () => {
         onRemove={removeMcp}
         onConnect={connectMcp}
         onDisconnect={disconnectMcp}
+        onOAuth={oauthMcp}
         onClose={() => setMcpOpen(false)}
         onBack={() => {
           setMcpOpen(false)
@@ -5642,6 +5659,7 @@ export const App: Component = () => {
         onRemoveMcp={removeMcp}
         onConnectMcp={connectMcp}
         onDisconnectMcp={disconnectMcp}
+        onOAuthMcp={oauthMcp}
         onTheme={updateTheme}
         onColorTheme={updateColorTheme}
         onLocale={setLocale}
