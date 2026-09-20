@@ -5048,3 +5048,70 @@ button.fc-row-main {
 .fc-transcript > .fc-transcript-body {
   max-width: calc(820px / var(--fc-chat-zoom, 1));
 }
+
+/* Attachments sit inside the input as thumbnails, above the text, like Claude Code's. */
+.fc-dock-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 12px 12px 0;
+}
+
+.fc-dock-attachment {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  overflow: hidden;
+  border: 1px solid var(--fc-border);
+  border-radius: 10px;
+  background: var(--fc-bg);
+}
+
+.fc-dock-attachment-image {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.fc-dock-attachment-file {
+  height: 100%;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  color: var(--fc-text-muted);
+}
+
+.fc-dock-attachment-name {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--fc-text);
+  font-size: 12px;
+  line-height: 16px;
+  overflow-wrap: anywhere;
+}
+
+.fc-dock-attachment-remove {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 50%;
+  background: rgb(0 0 0 / 0.65);
+  color: #fff;
+  opacity: 0;
+  transition: opacity var(--fc-motion-fast);
+}
+
+.fc-dock-attachment:hover .fc-dock-attachment-remove,
+.fc-dock-attachment-remove:focus-visible {
+  opacity: 1;
+}

@@ -243,27 +243,36 @@ export const Composer: Component<ComposerProps> = (props) => {
           </div>
         </Show>
 
-        <Show when={props.attachments.length > 0}>
-          <div class="fc-attachments">
-            <For each={props.attachments}>
-              {(attachment) => (
-                <span class="fc-attachment">
-                  <span class="fc-attachment-name">{attachment.name}</span>
-                  <button
-                    class="fc-attachment-remove"
-                    type="button"
-                    aria-label={`${t("Remove")} ${attachment.name}`}
-                    onClick={() => props.onRemoveAttachment(attachment.uri)}
-                  >
-                    ×
-                  </button>
-                </span>
-              )}
-            </For>
-          </div>
-        </Show>
-
         <div class="fc-input-wrap">
+          <Show when={props.attachments.length > 0}>
+            <div class="fc-dock-attachments">
+              <For each={props.attachments}>
+                {(attachment) => (
+                  <div class="fc-dock-attachment" title={attachment.name}>
+                    <Show
+                      when={attachment.uri.startsWith("data:image/")}
+                      fallback={
+                        <span class="fc-dock-attachment-file">
+                          <DockIcon path="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Zm0 0v5h5" size={22} />
+                          <span class="fc-dock-attachment-name">{attachment.name}</span>
+                        </span>
+                      }
+                    >
+                      <img class="fc-dock-attachment-image" src={attachment.uri} alt={attachment.name} />
+                    </Show>
+                    <button
+                      class="fc-dock-attachment-remove"
+                      type="button"
+                      aria-label={`${t("Remove")} ${attachment.name}`}
+                      onClick={() => props.onRemoveAttachment(attachment.uri)}
+                    >
+                      <DockIcon path="M7 7l10 10M17 7 7 17" size={12} />
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
           <textarea
             ref={input}
             class="fc-input"
