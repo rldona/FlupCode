@@ -25,6 +25,13 @@ export type {
   ProviderAuthMethod,
 } from "@opencode-ai/sdk/v2/client"
 
+export type {
+  IntegrationAttempt,
+  IntegrationAttemptStatus,
+  IntegrationInfo,
+  IntegrationOAuthMethod,
+} from "@opencode-ai/sdk/v2/client"
+
 export type McpServer = {
   name: string
   status: { status?: string } | unknown

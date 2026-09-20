@@ -980,6 +980,29 @@ button.fc-row-main {
   font-size: var(--fc-text-xs);
 }
 
+.fc-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+}
+
+.fc-modal-error {
+  margin: 0;
+  color: var(--fc-danger);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-link {
+  color: var(--fc-accent);
+  word-break: break-all;
+}
+
+.fc-status-line {
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
 .fc-docks {
   display: flex;
   flex-direction: column;
