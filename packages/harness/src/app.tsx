@@ -2,7 +2,7 @@ import { For, Show, createEffect, createMemo, createResource, createSignal, onCl
 import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import { computeMetrics, filterByRange, type UsageRange } from "./metrics"
+import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import type { Attachment, CommandOption, McpConfig, StashedPrompt } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
@@ -19,6 +19,7 @@ import { SubagentList } from "./components/SubagentList"
 import { TodoDock } from "./components/TodoDock"
 import { McpManager } from "./components/McpManager"
 import { StashDialog } from "./components/StashDialog"
+import { SettingsPanel } from "./components/SettingsPanel"
 
 type Client = ReturnType<typeof createClient>
 
@@ -29,6 +30,7 @@ const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "mcp", description: "Servidores MCP" },
   { name: "stash", description: "Guardar el prompt actual" },
   { name: "stashes", description: "Ver prompts guardados" },
+  { name: "settings", description: "Personalizar OpenHarness" },
   { name: "about", description: "Acerca de OpenHarness" },
 ]
 
@@ -51,6 +53,8 @@ export const App: Component = () => {
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   const [showTools, setShowTools] = createSignal(true)
   const [mcpOpen, setMcpOpen] = createSignal(false)
+  const [settingsOpen, setSettingsOpen] = createSignal(false)
+  const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
   const [stashOpen, setStashOpen] = createSignal(false)
   const [stashes, setStashes] = createSignal<StashedPrompt[]>(
     readStorage<StashedPrompt[]>(STORAGE_KEYS.stashedPrompts, []),
@@ -162,6 +166,10 @@ export const App: Component = () => {
       setStashOpen(true)
       return
     }
+    if (name === "settings") {
+      setSettingsOpen(true)
+      return
+    }
     setPrompt(`/${name} `)
   }
 
@@ -250,6 +258,8 @@ export const App: Component = () => {
   const [range, setRange] = createSignal<UsageRange>("all")
   const filteredSessions = createMemo(() => filterByRange(sessionList() ?? [], range()))
   const metrics = createMemo(() => computeMetrics(filteredSessions()))
+  const activity = createMemo(() => activityByDay(sessionList() ?? [], 365))
+  const comparisonLine = createMemo(() => comparison(metrics().tokens))
   const [messageCount] = createResource(
     () => {
       const ids = filteredSessions()
@@ -315,6 +325,23 @@ export const App: Component = () => {
     setDisplayName(value)
     writeStorage(STORAGE_KEYS.displayName, value)
   }
+
+  const updateTheme = (value: string) => {
+    setTheme(value)
+    writeStorage(STORAGE_KEYS.theme, value)
+  }
+
+  createEffect(() => {
+    const mode = theme()
+    const media = window.matchMedia("(prefers-color-scheme: dark)")
+    const apply = () => {
+      const dark = mode === "dark" || (mode === "system" && media.matches)
+      document.documentElement.classList.toggle("oh-dark", dark)
+    }
+    apply()
+    media.addEventListener("change", apply)
+    onCleanup(() => media.removeEventListener("change", apply))
+  })
 
   const commitServer = () => {
     const next = serverInput().trim()
@@ -633,6 +660,11 @@ export const App: Component = () => {
         setStashOpen(true)
         return
       }
+      if (name === "settings") {
+        setPrompt("")
+        setSettingsOpen(true)
+        return
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -696,6 +728,7 @@ export const App: Component = () => {
         onSelectSession={selectSession}
         onRefresh={refresh}
         onAbout={() => setAboutOpen(true)}
+        onSettings={() => setSettingsOpen(true)}
       />
       <main class="oh-main">
         <Topbar
@@ -741,6 +774,8 @@ export const App: Component = () => {
               range={range()}
               metrics={metrics()}
               messages={messageCount()}
+              activity={activity()}
+              comparison={comparisonLine()}
               error={error()}
               onRangeChange={setRange}
             />
@@ -821,6 +856,32 @@ export const App: Component = () => {
         onRestore={restoreStash}
         onRemove={removeStash}
         onClose={() => setStashOpen(false)}
+      />
+      <SettingsPanel
+        open={settingsOpen()}
+        theme={theme()}
+        displayName={displayName()}
+        serverInput={serverInput()}
+        models={models()?.data ?? []}
+        modelKey={modelKey()}
+        auto={auto()}
+        showTools={showTools()}
+        onTheme={updateTheme}
+        onDisplayName={updateDisplayName}
+        onServerInput={setServerInput}
+        onServerCommit={commitServer}
+        onModelChange={changeModel}
+        onToggleAuto={() => setAuto((value) => !value)}
+        onToggleTools={() => setShowTools((value) => !value)}
+        onOpenMcp={() => {
+          setSettingsOpen(false)
+          setMcpOpen(true)
+        }}
+        onOpenAbout={() => {
+          setSettingsOpen(false)
+          setAboutOpen(true)
+        }}
+        onClose={() => setSettingsOpen(false)}
       />
     </div>
   )

@@ -1,11 +1,14 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import { formatTokens, type UsageMetrics, type UsageRange } from "../metrics"
+import { formatTokens, type ActivityDay, type UsageMetrics, type UsageRange } from "../metrics"
+import { ActivityHeatmap } from "./ActivityHeatmap"
 
 type HomeCanvasProps = {
   displayName: string
   range: UsageRange
   metrics: UsageMetrics
   messages: number | undefined
+  activity: ActivityDay[]
+  comparison: string
   error: string | undefined
   onRangeChange: (range: UsageRange) => void
 }
@@ -106,6 +109,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
               )}
             </For>
           </div>
+          <ActivityHeatmap days={props.activity} comparison={props.comparison} />
         </Show>
       </div>
     </section>
