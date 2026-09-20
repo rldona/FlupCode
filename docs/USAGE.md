@@ -138,6 +138,22 @@ code sessions; each tab has its own list, home and input.
 - They are sent through the engine's legacy prompt (the one that accepts a system prompt), and
   stream on that folder's event stream (`/event?directory=…`).
 
+## Reasoning effort
+
+The effort menu next to the model lists the levels the model offers (Low, High, Max…). OpenCode's
+model catalog has no effort levels for most models, so FlupCode adds them with an engine plugin,
+`flupcode-reasoning-variants.js`, which reads each model's levels from the models.dev data the
+engine caches.
+
+- The desktop app and `flupcode remote` install it in OpenCode's global config folder
+  (`~/.config/opencode/plugins/`, or `$XDG_CONFIG_HOME` / `OPENCODE_CONFIG_DIR`) before starting
+  the engine, so it loads for every project. An engine that was already running picks it up when
+  restarted.
+- If you run `opencode serve` yourself and never started the desktop app or `flupcode remote`,
+  the menu only shows levels set in your OpenCode config.
+- Models without levels show no effort menu, and a stored level the model does not offer is not
+  sent (the engine would reject it).
+
 ## Split view
 
 Run and follow several sessions side by side (usually two). Right-click a session in the sidebar and

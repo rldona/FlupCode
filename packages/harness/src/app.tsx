@@ -880,7 +880,13 @@ export const App: Component = () => {
     if (currentReasoning && reasoning.includes(currentReasoning)) setLiveReasoning("")
   })
 
-  const selectedModel = () => modelRef()
+  // A stored effort level the model does not offer here (another model's, or one this project's engine
+  // lacks) is dropped: the engine rejects unknown levels, and the menu would show a level it cannot set.
+  const selectedModel = () => {
+    const ref = modelRef()
+    if (!ref?.variant || variants().some((variant) => variant.id === ref.variant)) return ref
+    return { providerID: ref.providerID, id: ref.id }
+  }
   const modelKey = () => {
     const ref = selectedModel()
     return ref ? `${ref.providerID}/${ref.id}` : undefined
@@ -891,7 +897,7 @@ export const App: Component = () => {
     return modelList().find((model) => model.providerID === ref.providerID && model.id === ref.id)
   }
   const variants = () => currentModel()?.variants ?? []
-  const variantKey = () => modelRef()?.variant
+  const variantKey = () => selectedModel()?.variant
 
   createEffect(() => {
     if (modelRef()) return
