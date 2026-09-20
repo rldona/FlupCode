@@ -104,7 +104,7 @@ Desktop, PWA and landing icons are generated, never hand-edited:
 swift script/branding.swift [source.png]
 ```
 
-(macOS only, AppKit.) Source of truth: `assets/flupcode-tentative-logo.png` on a `#FFEDD5`
+(macOS only, AppKit.) Source of truth: `assets/flupcode-tentative-logo.png` on a `#17191E`
 plate. The approved geometry (defined in `script/branding.swift` `targets`) is:
 
 | Target | Canvas | Plate | Artwork |
