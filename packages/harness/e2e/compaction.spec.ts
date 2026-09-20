@@ -99,7 +99,10 @@ test("a compaction is a marked boundary, not one more answer", async ({ page }) 
 // history it folded away, so the meter has no step to read the compacted session from.
 const compacted = [
   user("u1", "Haz A y B", now),
-  assistant("a1", "Hecha A.", now + 1, { input: 470_000, read: 4_000 }),
+  // The first step's whole prompt was that ten-character ask, so what it reads beyond it is the
+  // system prompt and tools — the cost every later prompt carries too.
+  assistant("a1", "Hecha A.", now + 1, { input: 11_053, read: 0 }),
+  assistant("a2", "Y B.", now + 2, { input: 470_000, read: 4_000 }),
   compaction("c1", "manual", "## Resumen\n\n- A quedó hecha.", now + 10),
 ]
 
@@ -110,8 +113,9 @@ test("the meter sizes the session the compaction left, not the history it folded
 
   await expect(contextTokens(page)).toContainText("~")
   await expect(contextTokens(page)).toHaveAttribute("title", /Estimated|Estimado/)
-  // 474.0k was the request that wrote the summary; it is not what the next prompt will send.
-  await expect(contextTokens(page)).not.toContainText("474")
+  // 11.1k is the wrap the first step paid plus the summary the engine kept; the 474.0k the summary
+  // itself reports is the request that wrote it, not what the next prompt will send.
+  await expect(contextTokens(page)).toContainText("11.1k")
 })
 
 test("a step after the compaction measures the session again", async ({ page }) => {
