@@ -122,3 +122,45 @@ test("a turn waiting on a spent quota says so, instead of thinking on forever", 
 
   await expect(page.locator(".fc-loader-text")).toHaveText(/Go usage limit exceeded/)
 })
+
+test("a turn that has spent no tokens does not say 0 tokens", async ({ page }) => {
+  const zero = [
+    {
+      info: {
+        id: "msg_zero",
+        sessionID: "ses_error",
+        role: "assistant",
+        agent: "build",
+        modelID: "m",
+        providerID: "p",
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+        cost: 0,
+        time: { created: now },
+      },
+      parts: [{ id: "p_zero", type: "text", text: "", time: { start: now } }],
+    },
+  ]
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_error"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/ses_error/message") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/session/ses_error/message") return route.fulfill({ json: zero })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+      return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  // The turn is still open, so the status line is there; what is not is a "0 tokens" chip.
+  await expect(page.locator(".fc-loader")).toBeVisible()
+  await expect(page.locator(".fc-loader-meta")).toHaveCount(0)
+})
