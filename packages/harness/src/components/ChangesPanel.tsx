@@ -1,6 +1,8 @@
 import { For, Show, createEffect, createMemo, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
+import { CheckpointList } from "./CheckpointList"
 import { FileDiff, type FileChange } from "./FileDiff"
+import type { Checkpoint, RestorePlan } from "../types"
 
 export type DiffMode = "git" | "branch"
 
@@ -21,6 +23,13 @@ type ChangesPanelProps = {
   onRefresh: () => void
   onCommit: (input: { message: string; paths: string[] }) => void
   onBranch: (name: string) => void
+  /** Checkpoints for this folder (H-15). Absent where the harness server cannot answer. */
+  checkpoints: Checkpoint[]
+  checkpointBusy: boolean
+  onCheckpointPlan: (id: string) => Promise<RestorePlan>
+  onCheckpointRestore: (id: string) => void
+  onCheckpointTake: (title: string) => void
+  onCheckpointRemove: (id: string) => void
   onClose: () => void
 }
 
@@ -142,6 +151,21 @@ export const ChangesPanel: Component<ChangesPanelProps> = (props) => {
         </div>
 
         <Show when={props.error}>{(error) => <div class="fc-routines-notice">{error()}</div>}</Show>
+
+        {/*
+          Checkpoints sit above the diff on purpose. The diff says what changed; this says how to
+          get back. Somebody who has just read a diff they did not want is already here.
+        */}
+        <Show when={props.canCommit && props.directory && props.mode === "git"}>
+          <CheckpointList
+            checkpoints={props.checkpoints}
+            busy={props.checkpointBusy}
+            onPlan={props.onCheckpointPlan}
+            onRestore={props.onCheckpointRestore}
+            onTake={props.onCheckpointTake}
+            onRemove={props.onCheckpointRemove}
+          />
+        </Show>
 
         <Show
           when={props.directory}

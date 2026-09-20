@@ -8061,3 +8061,82 @@ button.fc-status {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ── Checkpoints (H-15) ───────────────────────────────────────────────────── */
+
+.fc-checkpoints {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-1);
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+  padding: var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-3);
+  background: var(--fc-surface);
+}
+
+.fc-checkpoints-head {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: baseline;
+  padding-bottom: var(--fc-space-2);
+}
+
+.fc-checkpoints-hint {
+  flex: 1;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-checkpoints-empty {
+  margin: var(--fc-space-1) 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-checkpoint-row {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: center;
+  padding: var(--fc-space-1) 0;
+}
+
+.fc-checkpoint-title {
+  overflow: hidden;
+  font-size: var(--fc-text-sm);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-checkpoint-when {
+  flex: 1;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-checkpoint-sha {
+  color: var(--fc-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-checkpoint-plan {
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-2);
+  margin: var(--fc-space-1) 0 var(--fc-space-2);
+  background: var(--fc-bg);
+}
+
+.fc-checkpoint-group {
+  margin-bottom: var(--fc-space-2);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-checkpoint-group ul {
+  margin: var(--fc-space-1) 0 0;
+  padding-left: var(--fc-space-4);
+  color: var(--fc-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
