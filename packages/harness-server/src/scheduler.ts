@@ -1,6 +1,7 @@
-import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { Engine } from "./engine"
+import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
-import type { Routine, Run, RunSource } from "./types"
+import type { Run, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
 type Result<T> = { data?: T; error?: unknown }
@@ -32,6 +33,7 @@ export class RoutineBusyError extends Error {
 export class RoutineScheduler {
   readonly repository: SqliteRoutineRepository
   readonly engineURL: string
+  readonly engine: Engine
   readonly intervalMs: number
   readonly lockTtlMs: number
   private readonly owner = crypto.randomUUID()
@@ -42,6 +44,7 @@ export class RoutineScheduler {
   constructor(options: SchedulerOptions) {
     this.repository = options.repository
     this.engineURL = options.engineURL.replace(/\/$/, "")
+    this.engine = new Engine(this.engineURL)
     this.intervalMs = options.intervalMs ?? 30_000
     this.lockTtlMs = options.lockTtlMs ?? 24 * 60 * 60 * 1000
   }
@@ -64,6 +67,41 @@ export class RoutineScheduler {
     return run
   }
 
+  /**
+   * Start a run of tasks that no routine asked for.
+   *
+   * The same path a routine takes, minus the schedule: a run, its tasks, and the runner. It is what
+   * a workflow will use once H-21 can describe one, and what makes a multi-task run testable today.
+   */
+  async runTasks(input: { tasks: TaskInput[]; directory?: string }) {
+    if (input.tasks.length === 0) throw new Error("A run needs at least one task")
+    const run = this.repository.startRun({ type: "manual" }, Date.now())
+    this.repository.addTasks(run.id, input.tasks)
+    // More than one task means a thread of its own: the run's session is what a person reads, and
+    // the engine keeps each task's session under it. One task needs none — its own session is the
+    // thread — and creating one anyway would leave an empty session in everybody's list.
+    if (input.tasks.length > 1) {
+      const root = await this.engine
+        .createSession({ directory: input.directory, title: input.tasks[0]?.name ?? "Run" })
+        .catch(() => undefined)
+      if (root) this.repository.attachSession(run.id, root.id)
+    }
+    const runner = new TaskRunner(this.repository, this.engine)
+    void runner
+      .execute(run, { directory: input.directory, stopped: () => this.stopping.has(run.id) })
+      .then(
+        () => this.finishRun(run.id, this.stopping.has(run.id) ? "stopped" : "success"),
+        (cause: unknown) =>
+          this.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause)),
+      )
+    return run
+  }
+
+  private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
+    this.repository.finishRun(runID, status, error)
+    this.stopping.delete(runID)
+  }
+
   async stopRun(runID: string) {
     const run = this.repository.getRun(runID)
     if (!run || run.status !== "running") return run
@@ -71,7 +109,7 @@ export class RoutineScheduler {
     if (!run.sessionID) return run
     const routineID = run.source.type === "routine" ? run.source.routineID : undefined
     const directory = routineID ? this.repository.get(routineID)?.projectDirectory : undefined
-    await this.interrupt(run.sessionID, directory)
+    await this.engine.interrupt(run.sessionID, directory)
     return this.repository.getRun(runID)
   }
 
@@ -94,7 +132,18 @@ export class RoutineScheduler {
     const key = routineLockKey(routineID)
     if (!this.repository.acquire(key, this.owner, now, this.lockTtlMs)) return undefined
     const source: RunSource = { type: "routine", routineID }
-    return this.repository.startRun(source, now)
+    const routine = this.repository.get(routineID)
+    if (!routine) {
+      this.repository.release(key, this.owner)
+      return undefined
+    }
+    const run = this.repository.startRun(source, now)
+    // A routine's execution is a run of a single task. Nothing about it is special: it is the same
+    // shape a workflow of many will have, which is the point of H-11.
+    this.repository.addTasks(run.id, [
+      { name: routine.name, prompt: routine.prompt, agent: routine.agent, model: routine.model },
+    ])
+    return run
   }
 
   private async execute(run: Run) {
@@ -107,30 +156,14 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const session = await this.createSession(routine)
-      this.repository.attachSession(run.id, session.id)
-      if (this.stopping.has(run.id)) await this.interrupt(session.id, routine.projectDirectory)
-      const client = createOpencodeClient({ baseUrl: this.engineURL })
-      await unwrap(client.session.update({ sessionID: session.id, title: routine.name }))
-      // The legacy runtime, the same one every Code and Chat turn goes to since H-01. It is where
-      // subagents, MCP, retries and titles live, and where a question or a permission a routine
-      // raises can be answered from the app at all — the v2 registries answer empty for it. It is
-      // asynchronous, so the turn is followed rather than awaited.
-      await unwrap(
-        client.session.promptAsync({
-          sessionID: session.id,
-          ...(routine.projectDirectory ? { directory: routine.projectDirectory } : {}),
-          ...(routine.agent ? { agent: routine.agent } : {}),
-          ...(routine.model
-            ? {
-                model: { providerID: routine.model.providerID, modelID: routine.model.id },
-                ...(routine.model.variant ? { variant: routine.model.variant } : {}),
-              }
-            : {}),
-          parts: [{ type: "text", text: routine.prompt }],
-        }),
-      )
-      await this.waitForIdle(session.id, run.id, routine.projectDirectory)
+      const runner = new TaskRunner(this.repository, this.engine)
+      await runner.execute(run, {
+        directory: routine.projectDirectory,
+        stopped: () => this.stopping.has(run.id),
+      })
+      // A run of one task has no thread of its own, so the session the reader wants is the task's.
+      const [task] = this.repository.listTasks(run.id)
+      if (task?.sessionID && !run.sessionID) this.repository.attachSession(run.id, task.sessionID)
       this.finish(run, this.stopping.has(run.id) ? "stopped" : "success", this.stopping.has(run.id) ? "Routine stopped" : undefined)
     } catch (cause) {
       this.finish(
@@ -141,85 +174,6 @@ export class RoutineScheduler {
     } finally {
       clearInterval(heartbeat)
     }
-  }
-
-  private async createSession(routine: Routine) {
-    const result = await unwrap(
-      createOpencodeClient({ baseUrl: this.engineURL }).v2.session.create({
-        ...(routine.agent ? { agent: routine.agent } : {}),
-        ...(routine.model ? { model: routine.model } : {}),
-        ...(routine.projectDirectory ? { location: { directory: routine.projectDirectory } } : {}),
-      }),
-    )
-    return result.data
-  }
-
-  /**
-   * Wait for the turn to end.
-   *
-   * Not with `session.wait`: this engine answers 503 for it, and a run whose work had finished was
-   * being marked failed because of it — the prompt had run and the session held both messages.
-   * Asking which sessions are active is what the app itself does, and it is answered by the same
-   * runner this prompt went to.
-   *
-   * A turn that never leaves the active list is not left to hang: the wait gives up, and the run
-   * ends as failed saying so, rather than holding the routine's lock for ever.
-   */
-  private async waitForIdle(sessionID: string, runID: string, directory?: string, timeoutMs = 30 * 60_000) {
-    const client = createOpencodeClient({ baseUrl: this.engineURL })
-    const deadline = Date.now() + timeoutMs
-    // A turn is not busy before it starts, and "not busy yet" reads exactly like "already finished".
-    // So the session is given a moment to appear busy first: without it, a turn slower to start than
-    // the first check would be called a success before it had done anything. A turn that finishes
-    // inside this window — measured at 0.6s against a fast model — never appears, and the wait below
-    // ends on its first check.
-    const settleUntil = Date.now() + 3000
-    while (Date.now() < settleUntil) {
-      if (this.stopping.has(runID)) return
-      if (await this.isBusy(client, sessionID, directory)) break
-      await new Promise((resolve) => setTimeout(resolve, 250))
-    }
-    while (Date.now() < deadline) {
-      if (this.stopping.has(runID)) return
-      if (!(await this.isBusy(client, sessionID, directory))) return
-      await new Promise((resolve) => setTimeout(resolve, 1000))
-    }
-    throw new Error("The routine was still running after 30 minutes")
-  }
-
-  /**
-   * Whether the engine is still working on this session.
-   *
-   * A legacy turn never appears in `/api/session/active` — measured against a local engine — so the
-   * folder's own status map answers for it. The v2 list is asked only when there is no folder to
-   * ask, or for a run started before routines moved to the legacy runtime.
-   */
-  private async isBusy(client: ReturnType<typeof createOpencodeClient>, sessionID: string, directory?: string) {
-    if (directory) {
-      const status = (await unwrap(client.session.status({ directory })).catch(() => undefined)) as
-        | Record<string, { type?: string } | undefined>
-        | undefined
-      if (status) {
-        const state = status[sessionID]?.type
-        return state === "busy" || state === "retry"
-      }
-    }
-    const active = await unwrap(client.v2.session.active()).catch(() => undefined)
-    const running = active?.data as Record<string, unknown> | undefined
-    return running ? sessionID in running : false
-  }
-
-  /** Stop the turn where it runs: a legacy one is aborted per folder, not interrupted by id. */
-  private async interrupt(sessionID: string, directory?: string) {
-    const client = createOpencodeClient({ baseUrl: this.engineURL })
-    if (directory) {
-      const aborted = await unwrap(client.session.abort({ sessionID, directory })).then(
-        () => true,
-        () => false,
-      )
-      if (aborted) return
-    }
-    await unwrap(client.v2.session.interrupt({ sessionID })).catch(() => undefined)
   }
 
   private finish(run: Run, status: "success" | "failed" | "stopped", error?: string) {

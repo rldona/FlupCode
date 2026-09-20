@@ -1,5 +1,5 @@
 import { normalizeRoutineSchedule } from "./validation"
-import type { RoutineCreateOptions, RoutineInput, RunStatus } from "./types"
+import type { RoutineCreateOptions, RoutineInput, RunStatus, TaskInput } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
 import { RoutineBusyError, RoutineScheduler } from "./scheduler"
 import { eventStream, resumeFrom } from "./stream"
@@ -33,6 +33,18 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
             variant: "variant" in input.model && typeof input.model.variant === "string" ? input.model.variant : undefined,
           }
         : undefined,
+  }
+}
+
+const taskFrom = (value: unknown): TaskInput | undefined => {
+  if (!value || typeof value !== "object") return undefined
+  const input = value as Record<string, unknown>
+  if (typeof input.name !== "string" || !input.name.trim()) return undefined
+  if (typeof input.prompt !== "string" || !input.prompt.trim()) return undefined
+  return {
+    name: input.name.trim(),
+    prompt: input.prompt.trim(),
+    agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
   }
 }
 
@@ -108,9 +120,21 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
+    if (path[1] === "runs" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as { tasks?: unknown; directory?: unknown } | undefined
+      const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
+      if (tasks.length === 0) return error("A run needs at least one task with a name and a prompt", 400)
+      const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
+      return json({ data: await scheduler.runTasks({ tasks, directory }) }, 202)
+    }
+    if (path[1] === "runs" && request.method === "GET" && path[2] && path[3] === "tasks") {
+      return repository.getRun(path[2])
+        ? json({ data: repository.listTasks(path[2]) })
+        : error("Run not found", 404)
+    }
     if (path[1] === "runs" && request.method === "GET" && path[2]) {
       const run = repository.getRun(path[2])
-      return run ? json({ data: run }) : error("Run not found", 404)
+      return run ? json({ data: { ...run, tasks: repository.listTasks(run.id) } }) : error("Run not found", 404)
     }
     if (path[1] !== "routines") return error("Not found", 404)
 
