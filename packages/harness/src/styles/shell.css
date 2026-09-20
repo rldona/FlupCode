@@ -48,7 +48,7 @@ textarea {
   position: relative;
   display: flex;
   flex-direction: column;
-  width: 280px;
+  width: var(--fc-sidebar-width, 280px);
   flex-shrink: 0;
   background: var(--fc-sidebar);
   border-right: 1px solid var(--fc-border);
@@ -3413,5 +3413,141 @@ button.fc-row-main {
 
   .fc-session-toolbar {
     align-items: flex-start;
+  }
+}
+
+/* Tablet */
+@media (max-width: 1100px) {
+  .fc-rightaside {
+    display: none;
+  }
+
+  .fc-workspace {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: min(92vw, 440px) !important;
+    z-index: 45;
+    box-shadow: -16px 0 48px rgb(0 0 0 / 0.35);
+  }
+
+  .fc-workspace-resizer {
+    display: none;
+  }
+
+  .fc-app {
+    --fc-content-right: 0px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .fc-app {
+    --fc-content-left: 0px;
+  }
+
+  .fc-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(84vw, 320px);
+    z-index: 60;
+    box-shadow: 0 0 48px rgb(0 0 0 / 0.45);
+  }
+
+  .fc-sidebar-collapsed {
+    display: flex;
+    width: min(84vw, 320px);
+    padding: var(--fc-space-3);
+    transform: translateX(-100%);
+    box-shadow: none;
+    pointer-events: none;
+  }
+
+  .fc-sidebar-resizer {
+    display: none;
+  }
+
+  .fc-sidebar-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgb(0 0 0 / 0.45);
+  }
+
+  .fc-topbar {
+    gap: 6px;
+  }
+
+  .fc-topbar-left,
+  .fc-topbar-right {
+    gap: 6px;
+  }
+
+  .fc-nav-arrow {
+    width: 30px;
+    height: 30px;
+  }
+
+  .fc-session-heading {
+    gap: 6px;
+    margin-left: 2px;
+  }
+
+  .fc-session-heading .fc-session-tags {
+    display: none;
+  }
+
+  .fc-status {
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+
+  .fc-modal,
+  .fc-modal-wide,
+  .fc-modal-xl {
+    width: 100%;
+    max-height: 92vh;
+    overflow-y: auto;
+  }
+
+  .fc-dialog-actions {
+    flex-wrap: wrap;
+  }
+
+  .fc-actions {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .fc-model-picker {
+    grid-template-columns: 1fr;
+  }
+
+  .fc-composer-right {
+    flex-wrap: wrap;
+  }
+
+  .fc-model-button {
+    max-width: 48vw;
+  }
+
+  .fc-workspace {
+    width: 100vw !important;
+  }
+}
+
+@media (max-width: 520px) {
+  .fc-status {
+    display: none;
+  }
+
+  .fc-greeting {
+    font-size: var(--fc-text-lg);
   }
 }
