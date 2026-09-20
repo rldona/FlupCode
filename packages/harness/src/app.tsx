@@ -1921,6 +1921,7 @@ export const App: Component = () => {
           width={sidebarWidth()}
           displayName={displayName()}
           view={view()}
+          onViewChange={changeView}
           sessions={viewSessions()}
           sessionsLoading={sessions.loading || (ready() && enginePaths.loading)}
           selectedSession={selected()}
@@ -2000,6 +2001,7 @@ export const App: Component = () => {
             onToggleSidebar={toggleSidebar}
             view={view()}
             onViewChange={changeView}
+            sidebarCollapsed={collapsed()}
             contextPanel={
               selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
             }

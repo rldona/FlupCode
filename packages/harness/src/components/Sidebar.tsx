@@ -5,6 +5,7 @@ import type { AppView } from "../chat"
 import { cssPx } from "../text-size"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
+import { ViewTabs } from "./Topbar"
 import logo from "../assets/flupcode-logo.png"
 
 type ProjectGroup = {
@@ -20,6 +21,7 @@ type SidebarProps = {
   displayName: string
   /** Chat lists conversations flat; Code groups sessions by project. */
   view: AppView
+  onViewChange: (view: AppView) => void
   sessions: SessionInfo[] | undefined
   sessionsLoading: boolean
   selectedSession?: string
@@ -220,6 +222,13 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         />
 
         <div class="fc-sidebar-top">
+          <div class="fc-sidebar-brand">
+            <span class="fc-sidebar-brand-name">
+              <img src={logo} alt="" />
+              FlupCode
+            </span>
+            <ViewTabs view={props.view} onChange={props.onViewChange} />
+          </div>
           <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
             <span class="fc-new-icon">+</span>
             <span>{t("New")}</span>

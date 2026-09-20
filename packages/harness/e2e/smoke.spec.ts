@@ -172,6 +172,9 @@ test("the Chat tab shows its own home, input and top bar, and is remembered", as
   const files = page.getByRole("button", { name: "Files changed" })
   await expect(files).toBeVisible()
 
+  // The tabs sit next to the FlupCode name at the top of the sidebar, and move to the top bar while it is hidden.
+  await expect(page.locator(".fc-sidebar-brand").getByRole("tab", { name: "Chat" })).toBeVisible()
+  await expect(page.locator(".fc-topbar .fc-view-tabs")).toHaveCount(0)
   await page.getByRole("tab", { name: "Chat" }).click()
   await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
   await expect(page.locator(".fc-chat-greeting")).toContainText("Raúl")
@@ -185,6 +188,10 @@ test("the Chat tab shows its own home, input and top bar, and is remembered", as
   // A starter fills the input.
   await page.locator(".fc-chat-starter", { hasText: "Write" }).click()
   await expect(input).toHaveValue("Help me write ")
+
+  await page.getByRole("button", { name: "Toggle sidebar" }).click()
+  await expect(page.locator(".fc-topbar").getByRole("tab", { name: "Chat" })).toBeVisible()
+  await page.getByRole("button", { name: "Toggle sidebar" }).click()
 
   await page.reload()
   await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
