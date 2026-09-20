@@ -6,21 +6,21 @@ fighting merge conflicts.
 
 ## Remotes
 
-| Remote | URL | Role |
-| --- | --- | --- |
-| `origin` | `https://github.com/rldona/FlupCode.git` | Our fork. We push here. |
+| Remote     | URL                                         | Role                       |
+| ---------- | ------------------------------------------- | -------------------------- |
+| `origin`   | `https://github.com/rldona/FlupCode.git`    | Our fork. We push here.    |
 | `upstream` | `https://github.com/anomalyco/opencode.git` | Read-only source of truth. |
 
 ## Branches
 
-| Branch | Meaning |
-| --- | --- |
-| `dev` | Fast-forward mirror of `upstream/dev`. **Never commit here.** |
+| Branch  | Meaning                                                        |
+| ------- | -------------------------------------------------------------- |
+| `dev`   | Fast-forward mirror of `upstream/dev`. **Never commit here.**  |
 | `power` | Product branch. All FlupCode work. Default branch of the fork. |
 
 > Upstream's default branch is `dev` (not `main`), so our mirror is `dev` too. There is no `main`.
 
-Most of `power` is additive, and most syncs are clean. But we *do* edit upstream packages, so
+Most of `power` is additive, and most syncs are clean. But we _do_ edit upstream packages, so
 "take upstream on `packages/**`" is not a safe blanket rule. See
 [What we own inside upstream packages](#what-we-own-inside-upstream-packages) for the inventory
 that the [conflict policy](#conflict-policy) depends on, and keep it current: a sync resolved
@@ -85,17 +85,30 @@ git push --force-with-lease origin dev
 `power` allows merge commits and squash, and rebase-merge is disabled at the repository. Pick the
 method by the kind of change:
 
-| Pull request | Method | Why |
-| --- | --- | --- |
+| Pull request                  | Method           | Why                                                                                                                  |
+| ----------------------------- | ---------------- | -------------------------------------------------------------------------------------------------------------------- |
 | `dev → power` (upstream sync) | **Merge commit** | Keeps upstream's commit SHAs in `power`, so the next sync sees an accurate merge base instead of re-applying changes |
-| Feature / fix | **Squash** | One conventional commit per change; keeps the product history linear and readable |
+| Feature / fix                 | **Squash**       | One conventional commit per change; keeps the product history linear and readable                                    |
 
 Rebase-merge is intentionally off: replaying `dev` onto `power` rewrites upstream commit SHAs, and
 every following sync then re-proposes changes already applied.
 
 ## What we own inside upstream packages
 
-Refresh this inventory with:
+Every file under `packages/` that differs from the mirror is listed in
+[`docs/upstream-inventory.txt`](./upstream-inventory.txt), and CI fails a pull request that changes
+an upstream package without declaring it there (`.github/workflows/upstream-inventory.yml`).
+Refresh it with:
+
+```bash
+bun script/upstream-inventory.ts --update
+```
+
+The check only proves a file is _declared_. Which of the rules below applies to it is still
+something a human writes down here, in the matching section — a line added to the inventory
+without a word in this document tells the next resolver nothing.
+
+Review what actually changed with:
 
 ```bash
 git diff --name-status origin/dev origin/power -- packages \
@@ -146,38 +159,38 @@ These change how upstream code behaves, and a careless "take upstream" reintrodu
 one fixes. **Keep ours, re-applied on top of upstream's new version** — never as a blind
 keep-ours, because upstream may have changed the surrounding code.
 
-| File | What we changed and why |
-| --- | --- |
-| `packages/core/src/permission.ts` | The agent's permissions act as a capability floor, so a session-level `*: allow` (our permission modes) cannot turn the Plan agent's denial into an approval |
-| `packages/core/src/session/projector.ts` | Deleting a session also deletes its session-scoped memories and its memory-usage rows |
-| `packages/core/src/session/runner/llm.ts` | Memory capture and retrieval around the provider turn |
-| `packages/core/src/session/runner/model.ts` | Adds `resolveRef` and the GitHub Copilot provider path |
-| `packages/core/src/plugin/provider/github-copilot.ts`, `packages/opencode/src/auth/index.ts` | Our GitHub Copilot integration and credential storage |
-| `packages/core/src/plugin/agent.ts` | Plan agent system prompt that ends in `plan_exit` |
-| `packages/opencode/src/agent/agent.ts` | Hidden `cowork` agent |
-| `packages/opencode/src/cli/cmd/serve.ts` | A taken port reports the address instead of a bare `ServeError` |
-| `packages/llm/src/protocols/openai-chat.ts` | Drops reasoning-only assistant turns that OpenAI Chat rejects on replay |
-| `packages/llm/src/route/executor.ts`, `packages/llm/src/schema/errors.ts` | Retry budget and which transport errors are retryable |
-| `packages/opencode/src/server/routes/instance/httpapi/**` | `revertCommit` endpoint |
+| File                                                                                         | What we changed and why                                                                                                                                      |
+| -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/core/src/permission.ts`                                                            | The agent's permissions act as a capability floor, so a session-level `*: allow` (our permission modes) cannot turn the Plan agent's denial into an approval |
+| `packages/core/src/session/projector.ts`                                                     | Deleting a session also deletes its session-scoped memories and its memory-usage rows                                                                        |
+| `packages/core/src/session/runner/llm.ts`                                                    | Memory capture and retrieval around the provider turn                                                                                                        |
+| `packages/core/src/session/runner/model.ts`                                                  | Adds `resolveRef` and the GitHub Copilot provider path                                                                                                       |
+| `packages/core/src/plugin/provider/github-copilot.ts`, `packages/opencode/src/auth/index.ts` | Our GitHub Copilot integration and credential storage                                                                                                        |
+| `packages/core/src/plugin/agent.ts`                                                          | Plan agent system prompt that ends in `plan_exit`                                                                                                            |
+| `packages/opencode/src/agent/agent.ts`                                                       | Hidden `cowork` agent                                                                                                                                        |
+| `packages/opencode/src/cli/cmd/serve.ts`                                                     | A taken port reports the address instead of a bare `ServeError`                                                                                              |
+| `packages/llm/src/protocols/openai-chat.ts`                                                  | Drops reasoning-only assistant turns that OpenAI Chat rejects on replay                                                                                      |
+| `packages/llm/src/route/executor.ts`, `packages/llm/src/schema/errors.ts`                    | Retry budget and which transport errors are retryable                                                                                                        |
+| `packages/opencode/src/server/routes/instance/httpapi/**`                                    | `revertCommit` endpoint                                                                                                                                      |
 
 Their tests move with them: `packages/core/test/**`, `packages/llm/test/**`,
 `packages/opencode/test/**` follow the same rule as the file they cover.
 
 ## Conflict policy
 
-| File / area | On conflict |
-| --- | --- |
-| `packages/**` not listed below | **Take upstream.** |
-| Packages that are ours (`harness*`, `landing`, `flupcode-cli`, `relay`, `remote`) | **Keep ours.** |
-| Files we added inside upstream packages | **Keep ours.** |
-| Registry lines | **Take upstream, re-add our line.** |
-| Generated files | **Take upstream, then regenerate.** Never hand-merge. |
-| Behavioral edits to upstream code | **Keep ours, re-applied on upstream's new version.** Read both sides. |
-| `docs/**`, `README.md` | **Keep ours.** |
-| `README.*.md`, `STATS.md` | **Keep deleted** (`git rm <file>`). |
-| `bun.lock` | Resolve the hunk by hand, prefer upstream's added entries. Never `--theirs`: upstream's lockfile has none of our packages. Do not regenerate unless your `bun` matches `packageManager`. |
-| `package.json` (root) | Merge carefully; prefer upstream versions, re-add our root scripts. |
-| `.github/workflows/**` | Keep ours; adopt new upstream workflows. |
+| File / area                                                                       | On conflict                                                                                                                                                                              |
+| --------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/**` not listed below                                                    | **Take upstream.**                                                                                                                                                                       |
+| Packages that are ours (`harness*`, `landing`, `flupcode-cli`, `relay`, `remote`) | **Keep ours.**                                                                                                                                                                           |
+| Files we added inside upstream packages                                           | **Keep ours.**                                                                                                                                                                           |
+| Registry lines                                                                    | **Take upstream, re-add our line.**                                                                                                                                                      |
+| Generated files                                                                   | **Take upstream, then regenerate.** Never hand-merge.                                                                                                                                    |
+| Behavioral edits to upstream code                                                 | **Keep ours, re-applied on upstream's new version.** Read both sides.                                                                                                                    |
+| `docs/**`, `README.md`                                                            | **Keep ours.**                                                                                                                                                                           |
+| `README.*.md`, `STATS.md`                                                         | **Keep deleted** (`git rm <file>`).                                                                                                                                                      |
+| `bun.lock`                                                                        | Resolve the hunk by hand, prefer upstream's added entries. Never `--theirs`: upstream's lockfile has none of our packages. Do not regenerate unless your `bun` matches `packageManager`. |
+| `package.json` (root)                                                             | Merge carefully; prefer upstream versions, re-add our root scripts.                                                                                                                      |
+| `.github/workflows/**`                                                            | Keep ours; adopt new upstream workflows.                                                                                                                                                 |
 
 After resolving a sync, run `bun typecheck` from the affected package directories before merging.
 A dropped registry line typechecks fine in isolation and fails at runtime.
@@ -197,9 +210,10 @@ diff to those lines only:
 - Editing an upstream package when the change belongs in one of ours. Editing upstream code is
   allowed — the inventory above lists where we already do — but every edit is a conflict we pay
   for on every sync, so it needs a reason that a harness-side change cannot serve.
-- Editing an upstream package without adding it to
-  [What we own inside upstream packages](#what-we-own-inside-upstream-packages) in the same pull
-  request. An edit missing from that inventory gets silently reverted by the next sync.
+- Editing an upstream package without declaring it in `docs/upstream-inventory.txt` and describing
+  it in [What we own inside upstream packages](#what-we-own-inside-upstream-packages), in the same
+  pull request. CI enforces the first half; the second is on you. An edit missing from the
+  inventory gets silently reverted by the next sync.
 - Editing generated files by hand instead of regenerating them.
 - Committing directly to `dev`.
 - Force-pushing `power` (use `--force-with-lease` only after a rebase you own).
