@@ -140,13 +140,42 @@ const withMessage = (data: SessionMessageInfo[], message: SessionMessageInfo) =>
 }
 
 /**
+ * Parts the engine sent before the message they belong to. The engine announces the message first,
+ * but the event bus can deliver a part first, and a part dropped on the floor left the prompt blank
+ * until the next refetch rebuilt it — the reload that finally showed it. Bounded: a message that
+ * never arrives would otherwise hold its parts for the life of the tab.
+ */
+const ORPHANED_PARTS = new Map<string, LegacyPart[]>()
+const ORPHANED_PART_MESSAGES = 64
+
+function orphanPart(part: LegacyPart) {
+  const messageID = part.messageID
+  if (!messageID) return
+  const held = ORPHANED_PARTS.get(messageID)
+  if (held) {
+    held.push(part)
+    return
+  }
+  ORPHANED_PARTS.set(messageID, [part])
+  if (ORPHANED_PARTS.size <= ORPHANED_PART_MESSAGES) return
+  const oldest = ORPHANED_PARTS.keys().next().value
+  if (oldest !== undefined) ORPHANED_PARTS.delete(oldest)
+}
+
+function takeOrphanedParts(messageID: string) {
+  const held = ORPHANED_PARTS.get(messageID)
+  ORPHANED_PARTS.delete(messageID)
+  return held ?? []
+}
+
+/**
  * A message the engine created or changed. Its parts are not in the event, so the ones already in
- * the transcript are kept: the engine announces the message first and its parts afterwards.
+ * the transcript are kept, and any part that raced ahead of it is folded in now.
  */
 export function applyMessage(data: SessionMessageInfo[], info: LegacyInfo) {
   const existing = data.find((entry) => entry.id === info.id)
+  if (!existing) return withMessage(data, messageOf(info, takeOrphanedParts(info.id)))
   const next = messageOf(info, [])
-  if (!existing) return withMessage(data, next)
   if (info.role === "user") return withMessage(data, asMessage({ ...next, ...pickUserContent(existing) }))
   return withMessage(data, asMessage({ ...next, content: (existing as { content?: unknown[] }).content ?? [] }))
 }
@@ -159,6 +188,12 @@ function pickUserContent(existing: SessionMessageInfo) {
 /** A part the engine created or changed, placed in its message in the order the engine sent it. */
 export function applyPart(data: SessionMessageInfo[], part: LegacyPart) {
   if (!part.messageID) return data
+  // The message has to exist before its part can be placed in it. A part that arrives first is held
+  // instead of dropped: the message event folds it in when it lands.
+  if (!data.some((message) => message.id === part.messageID)) {
+    orphanPart(part)
+    return data
+  }
   const entry = contentOf(part)
   return data.map((message) => {
     if (message.id !== part.messageID) return message
@@ -213,6 +248,9 @@ export function applyDelta(data: SessionMessageInfo[], input: { messageID?: stri
 }
 
 export function removeMessage(data: SessionMessageInfo[], messageID: string) {
+  // A removed message takes any part that was waiting for it; otherwise the buffer would hold parts
+  // for a message that is never coming.
+  ORPHANED_PARTS.delete(messageID)
   return data.some((entry) => entry.id === messageID) ? data.filter((entry) => entry.id !== messageID) : data
 }
 
