@@ -2366,6 +2366,84 @@ button.fc-status {
   border-bottom: 1px solid color-mix(in srgb, var(--fc-border) 60%, transparent);
 }
 
+/* Per-tool bodies (H-06): todos, search results, a fetched link, a subagent. */
+.fc-tool-todos {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fc-tool-todo {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12px;
+}
+
+.fc-tool-todo-mark {
+  width: 1em;
+  color: var(--fc-text-muted);
+}
+
+.fc-tool-todo[data-status="in_progress"] .fc-tool-todo-mark {
+  color: var(--fc-accent);
+}
+
+.fc-tool-todo[data-status="completed"] .fc-tool-todo-text {
+  color: var(--fc-text-muted);
+  text-decoration: line-through;
+}
+
+.fc-tool-list {
+  margin: 0;
+  padding-left: var(--fc-space-4);
+  font-family: var(--fc-font-mono);
+  font-size: 12px;
+}
+
+.fc-tool-list-item {
+  overflow-wrap: anywhere;
+}
+
+.fc-tool-list-more {
+  margin: 4px 0 0;
+  color: var(--fc-text-muted);
+  font-size: 11px;
+}
+
+.fc-tool-read {
+  max-height: 420px;
+  overflow: auto;
+}
+
+.fc-tool-link {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: var(--fc-accent);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.fc-tool-open {
+  display: inline-block;
+  padding: 2px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  margin-bottom: 6px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fc-tool-open:hover {
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
+}
+
 .fc-diff-view {
   margin: 0;
   padding: 6px 0;

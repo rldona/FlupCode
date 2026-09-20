@@ -6,7 +6,7 @@ import { PAIRING_TTL, pairingUrl } from "./pairing"
 import { createHostIdentity, type HostIdentity } from "./relay"
 import { serveTunnel } from "./tunnel"
 import type { Wire } from "./wire"
-import { watchEngineEvents, type EngineNotification } from "./notifier"
+import { watchEngineEvents, watchHarnessEvents, type EngineNotification } from "./notifier"
 import {
   encodePushNotification,
   encryptPushPayload,
@@ -39,6 +39,8 @@ export type RemoteHostOptions = {
   engine: string
   /** `base64(user:pass)` when the engine requires Basic auth. */
   engineCredentials?: string
+  /** Harness server base URL, e.g. `http://127.0.0.1:4097`, so routine runs can be notified (H-23). */
+  harness?: string
   defaultRelay: string
   /** Web app that opens pairing links, e.g. `https://app.flupcode.com/`. */
   appUrl: string
@@ -61,6 +63,7 @@ export function createRemoteHost(options: RemoteHostOptions) {
   let pairingTimer: ReturnType<typeof setTimeout> | undefined
   let relayHost: ReturnType<typeof startRelayHost> | undefined
   let watcher: ReturnType<typeof watchEngineEvents> | undefined
+  let harnessWatcher: ReturnType<typeof watchHarnessEvents> | undefined
   const live = new Map<string, Set<SecureChannel>>()
 
   const relay = () => stored.relay ?? options.defaultRelay
@@ -217,6 +220,11 @@ export function createRemoteHost(options: RemoteHostOptions) {
       finishDelay: options.finishDelay,
       onNotification: broadcast,
     })
+    // Routine runs go through the engine's legacy runtime, whose events never reach `/api/event`,
+    // so the harness stream is the only place a routine finishing can be seen (H-23).
+    if (options.harness) {
+      harnessWatcher = watchHarnessEvents({ harness: options.harness, fetch: options.fetch, onNotification: broadcast })
+    }
   }
 
   const stop = () => {
@@ -225,6 +233,8 @@ export function createRemoteHost(options: RemoteHostOptions) {
     relayHost = undefined
     watcher?.stop()
     watcher = undefined
+    harnessWatcher?.stop()
+    harnessWatcher = undefined
     live.forEach((channels) => channels.forEach((channel) => channel.close()))
     connection = "offline"
     detail = undefined
