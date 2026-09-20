@@ -5089,16 +5089,18 @@ button.fc-row-main {
 .fc-chapters {
   position: absolute;
   z-index: 6;
-  /* The ticks button has 6px 4px of padding around the first tick. */
+  /* Same column as the top bar's first button (16px inset, 28px wide), ticks centred in it. */
   top: calc(16px - 6px);
-  left: calc(16px - 4px);
+  left: 16px;
 }
 
 .fc-chapters-ticks {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 4px;
-  padding: 6px 4px;
+  width: 28px;
+  padding: 6px 0;
   border: none;
   border-radius: 6px;
   background: transparent;
