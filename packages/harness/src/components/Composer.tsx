@@ -10,7 +10,7 @@ import { ContextMeter } from "./ContextMeter"
 import { RepoBar } from "./RepoBar"
 import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { ComposerMenu } from "./ComposerMenu"
-import { applyMention, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
+import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
 import { stepHistory } from "../prompt-history"
 import { dictationAvailable } from "../dictation"
 import { isCowork, isPlainChat, useDictation } from "../composer-core"
@@ -315,6 +315,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               key: command.name,
               label: `/${command.name}`,
               hint: command.description,
+              badge: commandBadge(command.source),
               disabled: command.disabled,
               soon: command.disabled,
             }))}

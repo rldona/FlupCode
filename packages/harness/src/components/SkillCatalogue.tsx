@@ -1,8 +1,9 @@
 import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import type { SkillFile } from "../types"
+import type { AgentFile, SkillFile } from "../types"
 import type { SkillInfo } from "../engine-types"
 import type { SkillSourceKind, SkillSources } from "../skill-sources"
+import { skillAccess } from "../skill-access"
 
 type SkillCatalogueProps = {
   open: boolean
@@ -21,6 +22,8 @@ type SkillCatalogueProps = {
   hasProject: boolean
   /** Extra places the engine reads skills from: folders and URLs (H-27). */
   sources: SkillSources
+  /** Agent files, so each skill can say who loads it (SK-1, like H-34 does for MCP). */
+  agents: AgentFile[]
   onAddSource: (kind: SkillSourceKind, value: string) => void
   onRemoveSource: (kind: SkillSourceKind, value: string) => void
   onRead: (path: string) => Promise<string>
@@ -126,6 +129,15 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
 
   const loaded = createMemo(() => props.files.filter((file) => file.loaded))
   const notLoaded = createMemo(() => ignored(props.files))
+  const access = createMemo(
+    () =>
+      new Map(
+        skillAccess(
+          props.files.filter((file) => file.loaded && file.name).map((file) => file.name!),
+          props.agents,
+        ).map((entry) => [entry.skill, entry.agents]),
+      ),
+  )
   const waiting = createMemo(() => (props.skillsLoading ? [] : notPickedUp(props.skills, props.files)))
   const orphans = createMemo(() => (props.skillsLoading ? [] : withoutFiles(props.skills, props.files)))
 
@@ -309,6 +321,11 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                       </span>
                       <span class="fc-usage-cost">{Math.max(1, Math.round(file.bytes / 102.4) / 10)} kB</span>
                     </button>
+                    <Show when={file.name && (access().get(file.name) ?? []).length > 0}>
+                      <p class="fc-mcp-access">
+                        {t("Agents that load it: {agents}", { agents: (access().get(file.name!) ?? []).join(", ") })}
+                      </p>
+                    </Show>
                     <Show when={openPath() === file.path}>
                       <pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>
                       <div class="fc-routines-header-actions">
