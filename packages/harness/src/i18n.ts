@@ -27,6 +27,7 @@ const ES: Record<string, string> = {
   "Copy path": "Copiar ruta",
   "Delete this project and its sessions?": "¿Eliminar este proyecto y sus sesiones?",
   "Project deleted": "Proyecto eliminado",
+  "{name} and its sessions were removed": "{name} y sus sesiones se eliminaron",
   "New session": "Nueva sesión",
   Refresh: "Actualizar",
   "Your name": "Tu nombre",
@@ -793,6 +794,7 @@ const ES: Record<string, string> = {
   "A checkpoint of how things are now is recorded first, so this can be undone.":
     "Antes se guarda un punto con el estado actual, así que esto se puede deshacer.",
   "Restored: {written} rewritten, {removed} deleted": "Restaurado: {written} reescritos, {removed} borrados",
+  "Checkpoint restored": "Punto de control restaurado",
   "Could not work out what would change": "No se pudo calcular qué cambiaría",
 
   // Why CI failed
