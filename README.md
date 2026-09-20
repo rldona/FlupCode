@@ -132,7 +132,7 @@ Download the desktop app and the `flupcode` CLI from the
 | macOS (Apple Silicon) | `FlupCode-mac-arm64.dmg` | `flupcode-darwin-arm64` |
 | macOS (Intel) | `FlupCode-mac-x64.dmg` | `flupcode-darwin-x64` |
 | Windows | `FlupCode-win-x64.exe` | `flupcode-windows-x64.exe` |
-| Linux | `FlupCode-linux-x64.AppImage` | `flupcode-linux-x64`, `flupcode-linux-arm64` |
+| Linux | `FlupCode-linux-x64.AppImage`, `FlupCode-linux-x64.deb`, `FlupCode-linux-x64.rpm` | `flupcode-linux-x64`, `flupcode-linux-arm64` |
 
 The builds are **not signed** yet, so macOS shows "FlupCode Not Opened" / "No se ha abierto
 FlupCode" and Windows shows SmartScreen. On macOS, click **Done**, then open **System Settings →

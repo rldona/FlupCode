@@ -171,6 +171,11 @@ jobs:
       - name: Typecheck desktop
         run: bun run --cwd packages/harness-desktop typecheck
 
+      # electron-builder's rpm target shells out to fpm, which needs the rpm binary on the runner.
+      - name: Install rpm tooling
+        if: matrix.os == 'ubuntu-latest'
+        run: sudo apt-get update && sudo apt-get install -y rpm
+
       - name: Package desktop
         run: bun run --cwd packages/harness-desktop dist
         env:
@@ -185,6 +190,7 @@ jobs:
           shopt -s nullglob
           files=(packages/harness-desktop/release/*.dmg packages/harness-desktop/release/*.zip \
                  packages/harness-desktop/release/*.exe packages/harness-desktop/release/*.AppImage \
+                 packages/harness-desktop/release/*.deb packages/harness-desktop/release/*.rpm \
                  packages/harness-desktop/release/latest*.yml)
           if [ ${#files[@]} -eq 0 ]; then
             echo "::error::nothing was packaged, so this release would ship no installer for ${{ matrix.os }}"
