@@ -1,4 +1,4 @@
-import { CONFINED, type Engine } from "./engine"
+import { sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task, TaskStatus } from "./types"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
@@ -486,14 +486,14 @@ export class TaskRunner {
           : { files: [], others: [] }
       const contextText = packs.others.length > 0 ? packs.others.join("\n") : undefined
       const contextFiles = packs.files.map((path) => ({ path }))
+      // What this session is allowed to do (H-47): confined to the project unless the run opened the
+      // boundary, and with no shell at all if the run refused it. Both are stated on the run.
+      const permission = sessionPermission(run)
       const session = await this.engine.createSession({
         directory,
         parentID: context.parentID,
         title: task.name,
-        // Confined to the project unless this run said otherwise (H-47). The harness has always
-        // passed `directory` to the engine; passing it only says where to start, not where to stop,
-        // and an unattended task could walk the disk from there.
-        ...(run.outside ? {} : { permission: CONFINED }),
+        ...(permission.length > 0 ? { permission } : {}),
       })
       this.repository.attachTaskSession(task.id, session.id)
       await this.engine.prompt({

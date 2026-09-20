@@ -890,6 +890,33 @@ describe("harness runs API", () => {
     await settled(repository, run.id)
     repository.close()
   })
+
+  // H-47: the shell is refused only when the run says so, and what it said is kept with the run —
+  // it is read again every time the run is driven, not only the once it started.
+  test("a run that refuses the shell keeps that with it", async () => {
+    const { handler, repository } = open()
+    const started = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "one", prompt: "go" }], shell: false }),
+      }),
+    )
+    const run = (await started.json()).data
+    expect(run.shell).toBe(false)
+    expect(repository.getRun(run.id)?.shell).toBe(false)
+    await settled(repository, run.id)
+
+    const defaulted = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "one", prompt: "go" }] }),
+      }),
+    )
+    const clean = (await defaulted.json()).data
+    expect(clean.shell).toBeUndefined()
+    await settled(repository, clean.id)
+    repository.close()
+  })
 })
 
 describe("harness worktree API", () => {

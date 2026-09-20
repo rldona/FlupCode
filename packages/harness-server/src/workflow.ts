@@ -60,6 +60,8 @@ export type Workflow = {
   toolLimitMs?: number
   /** `outside: true` — let this workflow's tasks reach outside the project. Stated, never default. */
   outside?: boolean
+  /** `shell: false` — refuse the shell for this workflow's tasks (H-47). Stated, never default. */
+  shell?: boolean
 }
 
 /**
@@ -98,6 +100,7 @@ export function parseWorkflow(text: string, fallbackName: string): Workflow | un
   return {
     ...(toolLimitMs ? { toolLimitMs } : {}),
     ...(value.outside === true ? { outside: true as const } : {}),
+    ...(value.shell === false ? { shell: false as const } : {}),
     name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : fallbackName,
     description: typeof value.description === "string" ? value.description.trim() : "",
     inputs: Array.isArray(value.inputs) ? value.inputs.filter((input): input is string => typeof input === "string") : [],

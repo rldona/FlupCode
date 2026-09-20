@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { CONFINED, Engine, ToolLimitReached, type Activity } from "./engine"
+import { CONFINED, Engine, NO_SHELL, ToolLimitReached, sessionPermission, type Activity } from "./engine"
 
 /**
  * The waiting itself (H-47).
@@ -114,5 +114,16 @@ describe("the confinement rules", () => {
     // One rule, and it is a denial. Anything broader would be the harness deciding what an agent
     // may do inside the folder it was pointed at, which is the agent's own configuration to make.
     expect(CONFINED).toEqual([{ permission: "external_directory", pattern: "*", action: "deny" }])
+  })
+
+  test("a run with no shell is denied the tool, on its own and alongside confinement (H-47)", () => {
+    expect(NO_SHELL).toEqual([{ permission: "bash", pattern: "*", action: "deny" }])
+    // The default: confined, with the engine's own shell.
+    expect(sessionPermission({})).toEqual(CONFINED)
+    // Opened up: no external boundary, and nothing declared about the shell.
+    expect(sessionPermission({ outside: true })).toEqual([])
+    expect(sessionPermission({ shell: false })).toEqual([...CONFINED, ...NO_SHELL])
+    // Both at once: the shell is still refused inside a project the run may otherwise leave.
+    expect(sessionPermission({ outside: true, shell: false })).toEqual(NO_SHELL)
   })
 })

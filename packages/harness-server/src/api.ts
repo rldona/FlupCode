@@ -272,6 +272,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
             directory?: unknown
             toolLimit?: unknown
             outside?: unknown
+            shell?: unknown
             packs?: unknown
             worktrees?: unknown
             policy?: unknown
@@ -295,6 +296,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
             directory,
             ...(toolLimitMs ? { toolLimitMs } : {}),
             ...(body?.outside === true ? { outside: true } : {}),
+            ...(body?.shell === false ? { shell: false } : {}),
             ...(packs.length > 0 ? { packs } : {}),
             ...(body?.worktrees === true ? { worktrees: true } : {}),
             ...(policy ? { policy } : {}),

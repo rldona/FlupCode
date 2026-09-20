@@ -521,12 +521,13 @@ const decodeRun = (row: RunRow): Run => ({
  */
 const decodeOptions = (
   value: string | null,
-): Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved"> => {
+): Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved"> => {
   if (!value) return {}
   try {
     const parsed = JSON.parse(value) as {
       toolLimitMs?: unknown
       outside?: unknown
+      shell?: unknown
       packs?: unknown
       worktrees?: unknown
       policy?: unknown
@@ -536,6 +537,7 @@ const decodeOptions = (
     return {
       ...(typeof parsed.toolLimitMs === "number" && parsed.toolLimitMs > 0 ? { toolLimitMs: parsed.toolLimitMs } : {}),
       ...(parsed.outside === true ? { outside: true } : {}),
+      ...(parsed.shell === false ? { shell: false } : {}),
       ...(Array.isArray(parsed.packs)
         ? { packs: parsed.packs.filter((entry): entry is string => typeof entry === "string") }
         : {}),
@@ -552,11 +554,12 @@ const decodeOptions = (
 }
 
 const encodeOptions = (
-  run: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved">,
+  run: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved">,
 ) => {
   const options = {
     ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
     ...(run.outside ? { outside: true } : {}),
+    ...(run.shell === false ? { shell: false } : {}),
     ...(run.packs && run.packs.length > 0 ? { packs: run.packs } : {}),
     ...(run.worktrees ? { worktrees: true } : {}),
     ...(run.policy ? { policy: run.policy } : {}),
@@ -742,7 +745,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     source: RunSource,
     now: number,
     directory?: string,
-    options: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy"> = {},
+    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy"> = {},
   ) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {

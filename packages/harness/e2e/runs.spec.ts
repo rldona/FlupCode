@@ -18,6 +18,8 @@ const run = {
   status: "running",
   startedAt: now,
   sessionID: "ses_root",
+  // A run that refused the shell: unusual, so the card says it (H-47).
+  shell: false,
 }
 
 const tasks = [
@@ -81,6 +83,9 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
   await expect(run1).toHaveCount(1)
   await expect(run1.locator(".fc-run-task")).toHaveCount(2)
   await expect(run1.locator(".fc-run-task-name").first()).toHaveText("plan it")
+
+  // What the run was allowed to do: no shell is unusual, so it is stated (H-47).
+  await expect(run1.locator(".fc-run-rules")).toContainText("No shell commands")
 
   // The event moved it: the task shows what it cost, which only the event carried.
   const second = run1.locator(".fc-run-task").nth(1)

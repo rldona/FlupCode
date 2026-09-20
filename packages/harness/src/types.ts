@@ -173,6 +173,8 @@ export type Run = {
   toolLimitMs?: number
   /** This run was allowed to reach outside its project. Stated on screen, because it is unusual. */
   outside?: boolean
+  /** This run refused the shell: the engine hides the bash tool and denies every command (H-47). */
+  shell?: boolean
   /** Context packs every task of this run is given (H-31), by name. */
   packs?: string[]
   /** Each writing task ran in its own worktree (H-29). */

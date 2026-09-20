@@ -318,12 +318,17 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                   {/*
                     What this run was allowed to do (H-47). Confinement is the default and says
                     nothing; reaching outside the project is unusual enough to be on the screen, and
-                    a ceiling is worth reading before wondering why a task stopped.
+                    a ceiling is worth reading before wondering why a task stopped. A run that
+                    refused the shell says so too: a task that could not run a command explains
+                    itself better here than in its answer.
                   */}
-                  <Show when={run.outside || run.toolLimitMs}>
+                  <Show when={run.outside || run.shell === false || run.toolLimitMs}>
                     <p class="fc-run-rules">
                       <Show when={run.outside}>
                         <span class="fc-run-rule fc-run-rule-open">{t("Reaches outside the project")}</span>
+                      </Show>
+                      <Show when={run.shell === false}>
+                        <span class="fc-run-rule">{t("No shell commands")}</span>
                       </Show>
                       <Show when={run.toolLimitMs}>
                         {(limit) => (
