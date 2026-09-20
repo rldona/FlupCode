@@ -909,6 +909,7 @@ button.fc-row-main {
 .fc-modal-backdrop {
   position: fixed;
   inset: 0;
+  left: var(--fc-content-left, 0px);
   z-index: 60;
   display: flex;
   align-items: center;
