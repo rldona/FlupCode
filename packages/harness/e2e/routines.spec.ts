@@ -102,6 +102,42 @@ test("a routine can be deleted from the detail view", async ({ page }) => {
   await expect(screen.getByRole("button", { name: "Nightly audit" })).toHaveCount(0)
 })
 
+// The detail is a dialog over the list now, not a second column beside it, and its actions live in
+// the same right-aligned footer the other dialogs use.
+test("the routine detail is a dialog with its actions in a right-aligned footer", async ({ page }) => {
+  const screen = await boot(page, [])
+  await screen.getByRole("button", { name: "Nightly audit" }).click()
+
+  const dialog = screen.locator('[role="dialog"].fc-routines-detail')
+  await expect(dialog).toBeVisible()
+
+  const actions = dialog.locator(".fc-dialog-actions")
+  await expect(actions.getByRole("button", { name: /^(Edit|Editar)$/ })).toBeVisible()
+  expect(await actions.evaluate((node) => getComputedStyle(node).justifyContent)).toBe("flex-end")
+})
+
+// Escape backs out of the dialog on top and stays on the screen. The detail and the edit form can
+// both be open; the first Escape closes the form, the second the detail, and the screen remains.
+test("Escape closes the topmost dialog without leaving the screen", async ({ page }) => {
+  const screen = await boot(page, [])
+  await screen.getByRole("button", { name: "Nightly audit" }).click()
+  const detail = screen.locator('[role="dialog"].fc-routines-detail')
+  await expect(detail).toBeVisible()
+
+  await detail.getByRole("button", { name: /^(Edit|Editar)$/ }).click()
+  const edit = screen.locator('div[role="dialog"].fc-form-modal')
+  await expect(edit).toBeVisible()
+
+  await page.keyboard.press("Escape")
+  await expect(edit).toHaveCount(0)
+  await expect(detail).toBeVisible()
+  await expect(screen).toBeVisible()
+
+  await page.keyboard.press("Escape")
+  await expect(detail).toHaveCount(0)
+  await expect(screen).toBeVisible()
+})
+
 // The Templates tab has nothing behind it and is not a defect: it says so, the way the sidebar does.
 test("the Templates tab says it is not here yet", async ({ page }) => {
   const screen = await boot(page, [])

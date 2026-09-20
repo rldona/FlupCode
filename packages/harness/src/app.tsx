@@ -541,7 +541,7 @@ export const App: Component = () => {
   const replayOpen = () => screen() === "replay"
   const compareOpen = () => screen() === "compare"
   /**
-   * The tool screens that live in the main column (HF-9): runs, workflows, artifacts,
+   * The tool screens that live in the main column (HF-9): runs, workflows, artifacts, changes,
    * routines, context, agents, skills and usage render where the conversation goes, with the
    * sidebar visible, instead of a fixed overlay. Anything else keeps its overlay.
    */
@@ -550,6 +550,7 @@ export const App: Component = () => {
     return (
       current === "runs" ||
       current === "workflows" ||
+      current === "changes" ||
       current === "artifacts" ||
       current === "routines" ||
       current === "context" ||
@@ -2286,8 +2287,10 @@ export const App: Component = () => {
     // stays inside it. Done once here, a dialog added later gets both without remembering to.
     createEffect(() => {
       const onKey = (event: KeyboardEvent) => {
+        // The stand-in a closing dialog leaves behind (modal-motion) is a copy with the same role:
+        // it must not answer for the dialog still underneath it.
         const dialogs = Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"]')).filter(
-          (dialog) => dialog.offsetParent !== null,
+          (dialog) => !dialog.closest(".fc-modal-leaving") && dialog.offsetParent !== null,
         )
         const top = dialogs.at(-1)
         if (!top) return
@@ -5294,6 +5297,32 @@ export const App: Component = () => {
               showScreen("changes")
             }}
           />
+          <ChangesPanel
+            open={changesOpen()}
+            directory={vcsDirectory()}
+            branch={vcsInfo()?.branch}
+            defaultBranch={vcsInfo()?.default_branch}
+            changes={changes() ?? []}
+            loading={changes.loading}
+            error={changesError()}
+            mode={diffMode()}
+            canCommit={routinesServerAvailable()}
+            committing={committing()}
+            onMode={setDiffMode}
+            onRefresh={() => void refetchChanges()}
+            onCommit={commitPicked}
+            onDiscard={discardChanges}
+            onGenerateMessage={generateCommitMessage}
+            onBranch={startBranch}
+            checkpoints={checkpoints() ?? []}
+            checkpointBusy={checkpointBusy()}
+            onCheckpointPlan={checkpointPlan}
+            onCheckpointRestore={restoreCheckpoint}
+            onCheckpointTake={takeCheckpoint}
+            onCheckpointRemove={removeCheckpoint}
+            findings={findings() ?? []}
+            onResolveFinding={resolveFinding}
+          />
           <WorkflowsPanel
             open={workflowsScreenOpen()}
             files={workflows() ?? []}
@@ -5935,33 +5964,6 @@ export const App: Component = () => {
         list={listFiles}
         search={searchFileEntries}
         read={readFileText}
-        onClose={() => leaveScreen()}
-      />
-      <ChangesPanel
-        open={changesOpen()}
-        directory={vcsDirectory()}
-        branch={vcsInfo()?.branch}
-        defaultBranch={vcsInfo()?.default_branch}
-        changes={changes() ?? []}
-        loading={changes.loading}
-        error={changesError()}
-        mode={diffMode()}
-        canCommit={routinesServerAvailable()}
-        committing={committing()}
-        onMode={setDiffMode}
-        onRefresh={() => void refetchChanges()}
-        onCommit={commitPicked}
-        onDiscard={discardChanges}
-        onGenerateMessage={generateCommitMessage}
-        onBranch={startBranch}
-        checkpoints={checkpoints() ?? []}
-        checkpointBusy={checkpointBusy()}
-        onCheckpointPlan={checkpointPlan}
-        onCheckpointRestore={restoreCheckpoint}
-        onCheckpointTake={takeCheckpoint}
-        onCheckpointRemove={removeCheckpoint}
-        findings={findings() ?? []}
-        onResolveFinding={resolveFinding}
         onClose={() => leaveScreen()}
       />
       <FolderDialog

@@ -417,6 +417,8 @@ test("an external task shows its command and what it printed", async ({ page }) 
 
   await task.getByRole("button", { name: /Details|Detalles/ }).click()
   const detail = page.locator(".fc-run-detail")
+  // The detail opens as a dialog now, not as a column beside the task list.
+  await expect(page.locator('[role="dialog"] .fc-run-detail')).toHaveCount(1)
   await expect(detail).toContainText("codex exec {{prompt}}")
   await expect(detail).toContainText("done: 2 files changed")
   // A check or a vendor CLI has no model to choose for a retry.
