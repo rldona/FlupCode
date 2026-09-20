@@ -254,6 +254,7 @@ const ES: Record<string, string> = {
   "Search providers": "Buscar proveedores",
   "OAuth available": "OAuth disponible",
   "Sign in": "Iniciar sesión",
+  "Signed in": "Sesión iniciada",
   "Signing in…": "Iniciando sesión…",
   "Sign in to {name}": "Iniciar sesión en {name}",
   "Waiting for authorization…": "Esperando autorización…",
