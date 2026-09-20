@@ -14,6 +14,7 @@ test("loads the harness shell", async ({ page }) => {
 })
 
 test("opens the command palette", async ({ page }) => {
+  test.skip(!!process.env.CI, "requires a running OpenCode server")
   await page.goto("/")
   await page.getByRole("button", { name: /Command palette/i }).click()
   await expect(page.getByPlaceholder(/Search commands/i)).toBeVisible()

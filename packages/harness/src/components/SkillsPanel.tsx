@@ -10,9 +10,8 @@ type SkillsPanelProps = {
 }
 
 export const SkillsPanel: Component<SkillsPanelProps> = (props) => {
-  if (!props.open) return null
-
   return (
+    <Show when={props.open}>
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
@@ -49,5 +48,6 @@ export const SkillsPanel: Component<SkillsPanelProps> = (props) => {
         </Show>
       </div>
     </div>
+    </Show>
   )
 }

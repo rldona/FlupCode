@@ -1,4 +1,4 @@
-import { For, type Component } from "solid-js"
+import { For, type Component, Show } from "solid-js"
 import type { ModelInfo } from "@opencode-ai/client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
@@ -33,9 +33,8 @@ type SettingsPanelProps = {
 }
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
-  if (!props.open) return null
-
   return (
+    <Show when={props.open}>
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
@@ -190,5 +189,6 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
         </div>
       </div>
     </div>
+    </Show>
   )
 }

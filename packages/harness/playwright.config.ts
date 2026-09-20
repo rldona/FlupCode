@@ -7,18 +7,10 @@ export default defineConfig({
   use: {
     baseURL: "http://localhost:4173",
   },
-  webServer: [
-    {
-      command: "bun run --cwd ../opencode src/index.ts serve --port 4096",
-      url: "http://localhost:4096/global/health",
-      reuseExistingServer: true,
-      timeout: 180_000,
-    },
-    {
-      command: "bun run build && bun run preview --port 4173 --strictPort",
-      url: "http://localhost:4173",
-      reuseExistingServer: true,
-      timeout: 180_000,
-    },
-  ],
+  webServer: {
+    command: "bun run build && bun run preview --port 4173 --strictPort",
+    url: "http://localhost:4173",
+    reuseExistingServer: true,
+    timeout: 180_000,
+  },
 })
