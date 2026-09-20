@@ -33,9 +33,9 @@ record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 64 | — |
+| done | 65 | — |
 | doing | 0 | — |
-| blocked | 2 | F3-16, F5-4 |
+| blocked | 1 | F5-4 |
 | todo | 0 | — |
 | **total** | **66** | |
 
@@ -46,7 +46,6 @@ F8 (remote control, ADR-0010) shipped in `flupcode-v1.0.9`, with the relay at
 
 Genuinely blocked on something outside the repo:
 
-- **F3-16 Console org switch** — no console API in the v2 client.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets.
 
 Corrected, and now really done:
@@ -116,7 +115,7 @@ Corrected, and now really done:
 | F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done (SE-1 pattern rules, SE-2 MCP OAuth, verified 2026-09-20) |
 | F3-14 | P2 | MCP add/configure UI | done (wired 2026-09-16) |
 | F3-15 | P2 | "Toggle steps" command | done |
-| F3-16 | P2 | Console org switch | blocked |
+| F3-16 | P2 | Console org switch | done (CO-1 selector in providers; no/single-Console verified live, multi-org wired — needs an account with 2 orgs to exercise) |
 | F3-17 | P2 | Keybind/leader parity where sensible | done (7 actions editable in Settings shortcuts, keybinds.test.ts green, verified 2026-09-20) |
 
 ## F4 — Harness extras

@@ -1,6 +1,8 @@
 import { For, type Component, Show, createEffect, createSignal, onCleanup } from "solid-js"
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import type {
+  ConsoleOrg,
+  ConsoleState,
   IntegrationAttempt,
   IntegrationAttemptStatus,
   IntegrationInfo,
@@ -116,6 +118,10 @@ type SettingsPanelProps = {
   onProviderOAuthCancel: (attemptID: string) => Promise<void>
   onProviderOAuthDone: () => void
   onLinkConfiguredProviders: () => void
+  /** The Console org behind providers, when the engine has one (CO-1). */
+  consoleActive?: ConsoleState
+  consoleOrgs?: ConsoleOrg[]
+  onSwitchConsole?: (org: ConsoleOrg) => void
   onOpenSkills: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
@@ -580,6 +586,9 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     onOAuthCancel={props.onProviderOAuthCancel}
                     onOAuthDone={props.onProviderOAuthDone}
                     onLinkConfigured={props.onLinkConfiguredProviders}
+                    consoleActive={props.consoleActive}
+                    consoleOrgs={props.consoleOrgs}
+                    onSwitchConsole={props.onSwitchConsole}
                   />
                 </section>
               </Show>
