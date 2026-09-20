@@ -148,6 +148,7 @@ test("a permission granted once and remembered forever can be taken back", async
     .getByRole("button", { name: /Customize|Personalizar/ })
     .first()
     .click()
+  await page.getByRole("tab", { name: /Permissions|Permisos/ }).click()
 
   const row = page.locator(".fc-saved-permissions li").filter({ hasText: "rm -rf *" })
   await expect(row).toBeVisible()

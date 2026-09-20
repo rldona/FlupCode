@@ -1,8 +1,12 @@
 import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
 import type { ModelInfo } from "../engine-types"
+import type { McpServer } from "../engine-types"
+import type { CommandFile, McpConfig } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
+import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
+import { McpEditor } from "./McpManager"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
@@ -34,6 +38,20 @@ type SettingsPanelProps = {
   /** Permissions the reader granted with "Allow always"; the engine applies them to every session. */
   savedPermissions: Array<{ id: string; action: string; resource: string }>
   onRevokePermission: (id: string) => void
+  /** The editable commands (H-25): the files behind the engine's slash commands. */
+  commandFiles: CommandFile[]
+  /** Agent names for a command's `agent` field. */
+  commandAgents: string[]
+  onSaveCommand: (draft: CommandDraft) => void
+  onDeleteCommand: (path: string) => void
+  /** The configured MCP servers and their config, so one can be edited here (H-25). */
+  mcpServers: McpServer[]
+  mcpConfigs: Record<string, McpConfig>
+  mcpBusy: boolean
+  onAddMcp: (name: string, config: McpConfig) => void
+  onRemoveMcp: (name: string) => void
+  onConnectMcp: (name: string) => void
+  onDisconnectMcp: (name: string) => void
   onTheme: (value: string) => void
   onColorTheme: (value: string) => void
   onLocale: (value: Locale) => void
@@ -47,7 +65,8 @@ type SettingsPanelProps = {
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
   onKeybind: (action: KeybindAction, binding: string) => void
-  onOpenMcp: () => void
+  onOpenAgents: () => void
+  onOpenSkills: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
   onOpenAbout: () => void
@@ -65,6 +84,34 @@ const KEYBIND_LABELS: Record<KeybindAction, string> = {
   split: "Split view",
 }
 
+export type SettingsSection =
+  | "appearance"
+  | "profile"
+  | "model"
+  | "conversation"
+  | "notifications"
+  | "shortcuts"
+  | "permissions"
+  | "commands"
+  | "mcp"
+  | "server"
+  | "advanced"
+
+/** The sections, in the order the rail shows them. */
+export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = [
+  { id: "appearance", label: "Appearance" },
+  { id: "profile", label: "Profile" },
+  { id: "model", label: "Model" },
+  { id: "conversation", label: "Conversation" },
+  { id: "notifications", label: "Notifications" },
+  { id: "shortcuts", label: "Shortcuts" },
+  { id: "permissions", label: "Permissions" },
+  { id: "commands", label: "Commands" },
+  { id: "mcp", label: "MCP servers" },
+  { id: "server", label: "Server" },
+  { id: "advanced", label: "Advanced" },
+]
+
 function groupModels(models: ModelInfo[]) {
   const map = new Map<string, ModelInfo[]>()
   for (const model of models) {
@@ -76,6 +123,7 @@ function groupModels(models: ModelInfo[]) {
 }
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
+  const [section, setSection] = createSignal<SettingsSection>("appearance")
   // Resetting asks for a second click within a few seconds.
   const [confirmReset, setConfirmReset] = createSignal(false)
   let confirmTimer: ReturnType<typeof setTimeout> | undefined
@@ -95,7 +143,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     <Show when={props.open}>
       <div class="fc-modal-backdrop" onClick={props.onClose}>
         <div
-          class="fc-modal fc-modal-wide"
+          class="fc-modal fc-modal-wide fc-modal-settings"
           role="dialog"
           aria-modal="true"
           aria-label={t("Customize")}
@@ -108,364 +156,443 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </button>
           </div>
 
-          <div class="fc-settings">
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Appearance")}</h3>
-              <label class="fc-settings-row">
-                <span>{t("Mode")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={props.theme}
-                  onChange={(event) => props.onTheme(event.currentTarget.value)}
-                >
-                  <option value="system">{t("System")}</option>
-                  <option value="light">{t("Light")}</option>
-                  <option value="dark">{t("Dark")}</option>
-                </select>
-              </label>
-              <label class="fc-settings-row">
-                <span>{t("Theme")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={props.colorTheme}
-                  onChange={(event) => props.onColorTheme(event.currentTarget.value)}
-                >
-                  <option value="flupcode">{t("FlupCode")}</option>
-                  <option value="classic">{t("Classic")}</option>
-                  <option value="sublime">{t("Sublime")}</option>
-                  <option value="sublime-dark">{t("Sublime Dark")}</option>
-                  <option value="github">{t("GitHub")}</option>
-                  <option value="copilot">{t("Copilot")}</option>
-                  <option value="vercel">{t("Vercel")}</option>
-                </select>
-              </label>
-              <label class="fc-settings-row">
-                <span>{t("Language")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={props.locale}
-                  onChange={(event) => props.onLocale(event.currentTarget.value as Locale)}
-                >
-                  <option value="en">{t("English")}</option>
-                  <option value="es">{t("Spanish")}</option>
-                </select>
-              </label>
-              <label class="fc-settings-row">
-                <span>{t("App text size")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={appTextSize()}
-                  onChange={(event) => setAppTextSize(event.currentTarget.value)}
-                >
-                  <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
-                </select>
-              </label>
-              <label class="fc-settings-row">
-                <span>{t("Chat text size")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={chatTextSize()}
-                  onChange={(event) => setChatTextSize(event.currentTarget.value)}
-                >
-                  <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
-                </select>
-              </label>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Profile")}</h3>
-              <label class="fc-settings-row">
-                <span>{t("Name")}</span>
-                <input
-                  class="fc-question-custom"
-                  value={props.displayName}
-                  placeholder={t("Your name")}
-                  onInput={(event) => props.onDisplayName(event.currentTarget.value)}
-                />
-              </label>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Model")}</h3>
-              <label class="fc-settings-row">
-                <span>{t("Default")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={props.modelKey ?? ""}
-                  disabled={props.running}
-                  onChange={(event) => {
-                    const next = event.currentTarget.value
-                    // A native select moves on its own: put it back before asking, or cancelling the
-                    // warning would leave it showing a model the session is not using. Confirming
-                    // moves it again through `modelKey`.
-                    event.currentTarget.value = props.modelKey ?? ""
-                    props.onModelChange(next)
-                  }}
-                >
-                  <option value="" disabled selected={!props.modelKey}>
-                    {t("Default model")}
-                  </option>
-                  <For each={groupModels(props.models)}>
-                    {(group) => (
-                      <optgroup label={group.providerID}>
-                        <For each={group.items}>
-                          {(model) => (
-                            <option
-                              value={`${model.providerID}/${model.id}`}
-                              selected={props.modelKey === `${model.providerID}/${model.id}`}
-                            >
-                              {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
-                            </option>
-                          )}
-                        </For>
-                      </optgroup>
-                    )}
-                  </For>
-                </select>
-              </label>
-              <Show when={props.running}>
-                <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
-              </Show>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Conversation")}</h3>
-              <div class="fc-settings-row">
-                <span>{t("Show tool steps")}</span>
-                <button
-                  class="fc-chip fc-chip-button"
-                  classList={{ "fc-chip-active": props.showTools }}
-                  type="button"
-                  onClick={props.onToggleTools}
-                >
-                  {props.showTools ? t("Yes") : t("No")}
-                </button>
-              </div>
-              <div class="fc-settings-row">
-                <span class="fc-settings-usage">
-                  <span>{t("Show thinking")}</span>
-                  <span class="fc-settings-hint">
-                    {t("What the model thought before answering, as a block you can open.")}
-                  </span>
-                </span>
-                <button
-                  class="fc-chip fc-chip-button"
-                  classList={{ "fc-chip-active": props.showReasoning }}
-                  type="button"
-                  onClick={props.onToggleReasoning}
-                >
-                  {props.showReasoning ? t("Yes") : t("No")}
-                </button>
-              </div>
-              <div class="fc-settings-row">
-                <span class="fc-settings-usage">
-                  <span>{t("Suggest replies")}</span>
-                  <span class="fc-settings-hint">
-                    {t("After each answer a model suggests your next message; Tab accepts it.")}
-                  </span>
-                </span>
-                <button
-                  class="fc-chip fc-chip-button"
-                  classList={{ "fc-chip-active": props.replySuggestions }}
-                  type="button"
-                  onClick={props.onToggleReplySuggestions}
-                >
-                  {props.replySuggestions ? t("Yes") : t("No")}
-                </button>
-              </div>
-              <Show when={props.replySuggestions}>
-                <label class="fc-settings-row">
-                  <span>{t("Suggestion model")}</span>
-                  <select
-                    class="fc-toolbar-select"
-                    value={props.suggestionModel}
-                    disabled={props.running}
-                    onChange={(event) => props.onSuggestionModel(event.currentTarget.value)}
-                  >
-                    <option value="" selected={!props.suggestionModel}>
-                      {t("Automatic (small model)")}
-                    </option>
-                    <For each={groupModels(props.models)}>
-                      {(group) => (
-                        <optgroup label={group.providerID}>
-                          <For each={group.items}>
-                            {(model) => (
-                              <option
-                                value={`${model.providerID}/${model.id}`}
-                                selected={props.suggestionModel === `${model.providerID}/${model.id}`}
-                              >
-                                {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
-                              </option>
-                            )}
-                          </For>
-                        </optgroup>
-                      )}
-                    </For>
-                  </select>
-                </label>
-                <Show when={props.running}>
-                  <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
-                </Show>
-              </Show>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Usage")}</h3>
-              <div class="fc-settings-row">
-                <span class="fc-settings-usage">
-                  <span>{t("Summary counters")}</span>
-                  <span class="fc-settings-hint">
-                    {usageResetAt()
-                      ? t("Counting sessions since {date}", { date: new Date(usageResetAt()).toLocaleString() })
-                      : t("Counting every session")}
-                  </span>
-                </span>
-                <span class="fc-settings-actions">
-                  <Show when={usageResetAt()}>
-                    <button class="fc-button" type="button" onClick={restoreUsage}>
-                      {t("Count all again")}
-                    </button>
-                  </Show>
+          <div class="fc-settings-layout">
+            <nav class="fc-settings-nav" role="tablist" aria-label={t("Settings sections")}>
+              <For each={SETTINGS_SECTIONS}>
+                {(item) => (
                   <button
-                    class="fc-button"
-                    classList={{ "fc-button-danger": confirmReset() }}
+                    class="fc-settings-nav-item"
+                    classList={{ "fc-settings-nav-active": section() === item.id }}
+                    role="tab"
                     type="button"
-                    onClick={reset}
+                    aria-selected={section() === item.id}
+                    onClick={() => setSection(item.id)}
                   >
-                    {confirmReset() ? t("Click again to reset") : t("Reset counters")}
+                    {t(item.label)}
                   </button>
-                </span>
-              </div>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Notifications")}</h3>
-              <div class="fc-settings-row">
-                <span>{t("Enable notifications")}</span>
-                <button
-                  class="fc-chip fc-chip-button"
-                  classList={{ "fc-chip-active": props.notifications }}
-                  type="button"
-                  onClick={props.onToggleNotifications}
-                >
-                  {props.notifications ? t("On") : t("Off")}
-                </button>
-              </div>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Remembered permissions")}</h3>
-              {/* "Allow always" wrote these and nothing ever showed them again, so a grant made once
-                  in one session kept applying everywhere with no way to take it back. */}
-              <Show
-                when={props.savedPermissions.length > 0}
-                fallback={<p class="fc-settings-hint">{t("Nothing is allowed always")}</p>}
-              >
-                <ul class="fc-saved-permissions">
-                  <For each={props.savedPermissions}>
-                    {(saved) => (
-                      <li class="fc-settings-row">
-                        <span>
-                          <code>{saved.action}</code> · <code>{saved.resource}</code>
-                        </span>
-                        <button class="fc-button" type="button" onClick={() => props.onRevokePermission(saved.id)}>
-                          {t("Revoke")}
-                        </button>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </Show>
-            </section>
-
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Shortcuts")}</h3>
-              <p class="fc-settings-note">
-                {t("Click a key and press the new one. A key belongs to one action: giving it away clears the other.")}
-              </p>
-              <For each={KEYBIND_ACTIONS}>
-                {(action) => (
-                  <label class="fc-settings-row">
-                    <span>{t(KEYBIND_LABELS[action])}</span>
-                    <span class="fc-keybind-row">
-                      <KeyCapture
-                        value={props.keybinds[action]}
-                        onChange={(binding) => props.onKeybind(action, binding)}
-                      />
-                      <Show when={props.keybinds[action]}>
-                        <button
-                          class="fc-icon-button"
-                          type="button"
-                          title={t("Clear")}
-                          aria-label={t("Clear")}
-                          onClick={() => props.onKeybind(action, "")}
-                        >
-                          ×
-                        </button>
-                      </Show>
-                    </span>
-                  </label>
                 )}
               </For>
-            </section>
+            </nav>
 
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Server")}</h3>
-              <div class="fc-settings-row">
-                <span>{t("Status")}</span>
-                <span class="fc-settings-status">{props.serverStatus}</span>
-              </div>
-              <div class="fc-settings-row">
-                <span>{t("Engine")}</span>
-                <span class="fc-settings-status">
-                  {props.engineVersion === "local" ? t("Source build") : (props.engineVersion ?? t("Unknown"))}
-                </span>
-              </div>
-              <Show when={props.engineVersionMismatch}>
-                <div class="fc-settings-hint">
-                  {t(
-                    "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.",
-                    { version: props.engineVersion ?? "", target: engineTargetVersion ?? "" },
-                  )}
-                </div>
+            <div class="fc-settings" role="tabpanel">
+              <Show when={section() === "appearance"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Appearance")}</h3>
+                  <label class="fc-settings-row">
+                    <span>{t("Mode")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={props.theme}
+                      onChange={(event) => props.onTheme(event.currentTarget.value)}
+                    >
+                      <option value="system">{t("System")}</option>
+                      <option value="light">{t("Light")}</option>
+                      <option value="dark">{t("Dark")}</option>
+                    </select>
+                  </label>
+                  <label class="fc-settings-row">
+                    <span>{t("Theme")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={props.colorTheme}
+                      onChange={(event) => props.onColorTheme(event.currentTarget.value)}
+                    >
+                      <option value="flupcode">{t("FlupCode")}</option>
+                      <option value="classic">{t("Classic")}</option>
+                      <option value="sublime">{t("Sublime")}</option>
+                      <option value="sublime-dark">{t("Sublime Dark")}</option>
+                      <option value="github">{t("GitHub")}</option>
+                      <option value="copilot">{t("Copilot")}</option>
+                      <option value="vercel">{t("Vercel")}</option>
+                    </select>
+                  </label>
+                  <label class="fc-settings-row">
+                    <span>{t("Language")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={props.locale}
+                      onChange={(event) => props.onLocale(event.currentTarget.value as Locale)}
+                    >
+                      <option value="en">{t("English")}</option>
+                      <option value="es">{t("Spanish")}</option>
+                    </select>
+                  </label>
+                  <label class="fc-settings-row">
+                    <span>{t("App text size")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={appTextSize()}
+                      onChange={(event) => setAppTextSize(event.currentTarget.value)}
+                    >
+                      <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
+                    </select>
+                  </label>
+                  <label class="fc-settings-row">
+                    <span>{t("Chat text size")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={chatTextSize()}
+                      onChange={(event) => setChatTextSize(event.currentTarget.value)}
+                    >
+                      <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
+                    </select>
+                  </label>
+                </section>
               </Show>
-              <Show when={props.engineProfile === "stock"}>
-                <div class="fc-settings-hint">
-                  {t(
-                    "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.",
-                  )}
-                </div>
-              </Show>
-              <div class="fc-settings-row">
-                <input
-                  class="fc-question-custom"
-                  value={props.serverInput}
-                  spellcheck={false}
-                  onInput={(event) => props.onServerInput(event.currentTarget.value)}
-                />
-                <button class="fc-button" type="button" onClick={props.onServerCommit}>
-                  {t("Save")}
-                </button>
-              </div>
-            </section>
 
-            <section class="fc-settings-section">
-              <h3 class="fc-settings-title">{t("Integrations")}</h3>
-              <div class="fc-settings-grid">
-                <button class="fc-button" type="button" onClick={props.onOpenMcp}>
-                  {t("MCP servers")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenRemote}>
-                  {t("Remote control")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenConfig}>
-                  {t("Config (advanced)")}
-                </button>
-                <button class="fc-button" type="button" onClick={props.onOpenAbout}>
-                  {t("About FlupCode")}
-                </button>
-              </div>
-            </section>
+              <Show when={section() === "profile"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Profile")}</h3>
+                  <label class="fc-settings-row">
+                    <span>{t("Name")}</span>
+                    <input
+                      class="fc-question-custom"
+                      value={props.displayName}
+                      placeholder={t("Your name")}
+                      onInput={(event) => props.onDisplayName(event.currentTarget.value)}
+                    />
+                  </label>
+                </section>
+              </Show>
+
+              <Show when={section() === "model"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Model")}</h3>
+                  <label class="fc-settings-row">
+                    <span>{t("Default")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={props.modelKey ?? ""}
+                      disabled={props.running}
+                      onChange={(event) => {
+                        const next = event.currentTarget.value
+                        // A native select moves on its own: put it back before asking, or cancelling
+                        // the warning would leave it showing a model the session is not using.
+                        event.currentTarget.value = props.modelKey ?? ""
+                        props.onModelChange(next)
+                      }}
+                    >
+                      <option value="" disabled selected={!props.modelKey}>
+                        {t("Default model")}
+                      </option>
+                      <For each={groupModels(props.models)}>
+                        {(group) => (
+                          <optgroup label={group.providerID}>
+                            <For each={group.items}>
+                              {(model) => (
+                                <option
+                                  value={`${model.providerID}/${model.id}`}
+                                  selected={props.modelKey === `${model.providerID}/${model.id}`}
+                                >
+                                  {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
+                                </option>
+                              )}
+                            </For>
+                          </optgroup>
+                        )}
+                      </For>
+                    </select>
+                  </label>
+                  <Show when={props.running}>
+                    <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
+                  </Show>
+                </section>
+              </Show>
+
+              <Show when={section() === "conversation"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Conversation")}</h3>
+                  <div class="fc-settings-row">
+                    <span>{t("Show tool steps")}</span>
+                    <button
+                      class="fc-chip fc-chip-button"
+                      classList={{ "fc-chip-active": props.showTools }}
+                      type="button"
+                      onClick={props.onToggleTools}
+                    >
+                      {props.showTools ? t("Yes") : t("No")}
+                    </button>
+                  </div>
+                  <div class="fc-settings-row">
+                    <span class="fc-settings-usage">
+                      <span>{t("Show thinking")}</span>
+                      <span class="fc-settings-hint">
+                        {t("What the model thought before answering, as a block you can open.")}
+                      </span>
+                    </span>
+                    <button
+                      class="fc-chip fc-chip-button"
+                      classList={{ "fc-chip-active": props.showReasoning }}
+                      type="button"
+                      onClick={props.onToggleReasoning}
+                    >
+                      {props.showReasoning ? t("Yes") : t("No")}
+                    </button>
+                  </div>
+                  <div class="fc-settings-row">
+                    <span class="fc-settings-usage">
+                      <span>{t("Suggest replies")}</span>
+                      <span class="fc-settings-hint">
+                        {t("After each answer a model suggests your next message; Tab accepts it.")}
+                      </span>
+                    </span>
+                    <button
+                      class="fc-chip fc-chip-button"
+                      classList={{ "fc-chip-active": props.replySuggestions }}
+                      type="button"
+                      onClick={props.onToggleReplySuggestions}
+                    >
+                      {props.replySuggestions ? t("Yes") : t("No")}
+                    </button>
+                  </div>
+                  <Show when={props.replySuggestions}>
+                    <label class="fc-settings-row">
+                      <span>{t("Suggestion model")}</span>
+                      <select
+                        class="fc-toolbar-select"
+                        value={props.suggestionModel}
+                        disabled={props.running}
+                        onChange={(event) => props.onSuggestionModel(event.currentTarget.value)}
+                      >
+                        <option value="" selected={!props.suggestionModel}>
+                          {t("Automatic (small model)")}
+                        </option>
+                        <For each={groupModels(props.models)}>
+                          {(group) => (
+                            <optgroup label={group.providerID}>
+                              <For each={group.items}>
+                                {(model) => (
+                                  <option
+                                    value={`${model.providerID}/${model.id}`}
+                                    selected={props.suggestionModel === `${model.providerID}/${model.id}`}
+                                  >
+                                    {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
+                                  </option>
+                                )}
+                              </For>
+                            </optgroup>
+                          )}
+                        </For>
+                      </select>
+                    </label>
+                    <Show when={props.running}>
+                      <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
+                    </Show>
+                  </Show>
+                </section>
+
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Usage")}</h3>
+                  <div class="fc-settings-row">
+                    <span class="fc-settings-usage">
+                      <span>{t("Summary counters")}</span>
+                      <span class="fc-settings-hint">
+                        {usageResetAt()
+                          ? t("Counting sessions since {date}", { date: new Date(usageResetAt()).toLocaleString() })
+                          : t("Counting every session")}
+                      </span>
+                    </span>
+                    <span class="fc-settings-actions">
+                      <Show when={usageResetAt()}>
+                        <button class="fc-button" type="button" onClick={restoreUsage}>
+                          {t("Count all again")}
+                        </button>
+                      </Show>
+                      <button
+                        class="fc-button"
+                        classList={{ "fc-button-danger": confirmReset() }}
+                        type="button"
+                        onClick={reset}
+                      >
+                        {confirmReset() ? t("Click again to reset") : t("Reset counters")}
+                      </button>
+                    </span>
+                  </div>
+                </section>
+              </Show>
+
+              <Show when={section() === "notifications"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Notifications")}</h3>
+                  <div class="fc-settings-row">
+                    <span>{t("Enable notifications")}</span>
+                    <button
+                      class="fc-chip fc-chip-button"
+                      classList={{ "fc-chip-active": props.notifications }}
+                      type="button"
+                      onClick={props.onToggleNotifications}
+                    >
+                      {props.notifications ? t("On") : t("Off")}
+                    </button>
+                  </div>
+                </section>
+              </Show>
+
+              <Show when={section() === "shortcuts"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Shortcuts")}</h3>
+                  <p class="fc-settings-note">
+                    {t("Click a key and press the new one. A key belongs to one action: giving it away clears the other.")}
+                  </p>
+                  <For each={KEYBIND_ACTIONS}>
+                    {(action) => (
+                      <label class="fc-settings-row">
+                        <span>{t(KEYBIND_LABELS[action])}</span>
+                        <span class="fc-keybind-row">
+                          <KeyCapture
+                            value={props.keybinds[action]}
+                            onChange={(binding) => props.onKeybind(action, binding)}
+                          />
+                          <Show when={props.keybinds[action]}>
+                            <button
+                              class="fc-icon-button"
+                              type="button"
+                              title={t("Clear")}
+                              aria-label={t("Clear")}
+                              onClick={() => props.onKeybind(action, "")}
+                            >
+                              ×
+                            </button>
+                          </Show>
+                        </span>
+                      </label>
+                    )}
+                  </For>
+                </section>
+              </Show>
+
+              <Show when={section() === "permissions"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Remembered permissions")}</h3>
+                  {/* "Allow always" wrote these and nothing ever showed them again, so a grant made once
+                      in one session kept applying everywhere with no way to take it back. */}
+                  <Show
+                    when={props.savedPermissions.length > 0}
+                    fallback={<p class="fc-settings-hint">{t("Nothing is allowed always")}</p>}
+                  >
+                    <ul class="fc-saved-permissions">
+                      <For each={props.savedPermissions}>
+                        {(saved) => (
+                          <li class="fc-settings-row">
+                            <span>
+                              <code>{saved.action}</code> · <code>{saved.resource}</code>
+                            </span>
+                            <button class="fc-button" type="button" onClick={() => props.onRevokePermission(saved.id)}>
+                              {t("Revoke")}
+                            </button>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </Show>
+                </section>
+              </Show>
+
+              <Show when={section() === "commands"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Commands")}</h3>
+                  <p class="fc-settings-note">
+                    {t("A command is a slash command. What is written here shows up in the palette.")}
+                  </p>
+                  <CommandsPanel
+                    files={props.commandFiles}
+                    agents={props.commandAgents}
+                    serverAvailable={true}
+                    onSave={props.onSaveCommand}
+                    onDelete={props.onDeleteCommand}
+                  />
+                </section>
+              </Show>
+
+              <Show when={section() === "mcp"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("MCP servers")}</h3>
+                  <McpEditor
+                    servers={props.mcpServers}
+                    configs={props.mcpConfigs}
+                    busy={props.mcpBusy}
+                    onAdd={props.onAddMcp}
+                    onRemove={props.onRemoveMcp}
+                    onConnect={props.onConnectMcp}
+                    onDisconnect={props.onDisconnectMcp}
+                  />
+                </section>
+              </Show>
+
+              <Show when={section() === "server"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Server")}</h3>
+                  <div class="fc-settings-row">
+                    <span>{t("Status")}</span>
+                    <span class="fc-settings-status">{props.serverStatus}</span>
+                  </div>
+                  <div class="fc-settings-row">
+                    <span>{t("Engine")}</span>
+                    <span class="fc-settings-status">
+                      {props.engineVersion === "local" ? t("Source build") : (props.engineVersion ?? t("Unknown"))}
+                    </span>
+                  </div>
+                  <Show when={props.engineVersionMismatch}>
+                    <div class="fc-settings-hint">
+                      {t(
+                        "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.",
+                        { version: props.engineVersion ?? "", target: engineTargetVersion ?? "" },
+                      )}
+                    </div>
+                  </Show>
+                  <Show when={props.engineProfile === "stock"}>
+                    <div class="fc-settings-hint">
+                      {t(
+                        "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.",
+                      )}
+                    </div>
+                  </Show>
+                  <div class="fc-settings-row">
+                    <input
+                      class="fc-question-custom"
+                      value={props.serverInput}
+                      spellcheck={false}
+                      onInput={(event) => props.onServerInput(event.currentTarget.value)}
+                    />
+                    <button class="fc-button" type="button" onClick={props.onServerCommit}>
+                      {t("Save")}
+                    </button>
+                  </div>
+                </section>
+              </Show>
+
+              <Show when={section() === "advanced"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Editors")}</h3>
+                  <p class="fc-settings-note">
+                    {t("Agents and skills are edited on their own screens, where the files they came from are shown.")}
+                  </p>
+                  <div class="fc-settings-grid">
+                    <button class="fc-button" type="button" onClick={props.onOpenAgents}>
+                      {t("Agents")}
+                    </button>
+                    <button class="fc-button" type="button" onClick={props.onOpenSkills}>
+                      {t("Skills")}
+                    </button>
+                  </div>
+                </section>
+
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Integrations")}</h3>
+                  <div class="fc-settings-grid">
+                    <button class="fc-button" type="button" onClick={props.onOpenRemote}>
+                      {t("Remote control")}
+                    </button>
+                    <button class="fc-button" type="button" onClick={props.onOpenConfig}>
+                      {t("Config (advanced)")}
+                    </button>
+                    <button class="fc-button" type="button" onClick={props.onOpenAbout}>
+                      {t("About FlupCode")}
+                    </button>
+                  </div>
+                </section>
+              </Show>
+            </div>
           </div>
         </div>
       </div>

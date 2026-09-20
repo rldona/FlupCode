@@ -560,3 +560,65 @@ describe("health", () => {
     repository.close()
   })
 })
+
+describe("harness commands API", () => {
+  test("writes, lists and removes a command file, and refuses a name that would escape", async () => {
+    const { handler, repository } = open()
+    const root = mkdtempSync(join(tmpdir(), "flupcode-cmd-api-"))
+    made.push(root)
+    const config = join(root, "config")
+    const project = join(root, "project")
+    mkdirSync(config, { recursive: true })
+    mkdirSync(project, { recursive: true })
+    const savedConfig = process.env.OPENCODE_CONFIG_DIR
+    process.env.OPENCODE_CONFIG_DIR = config
+
+    try {
+      const written = await handler(
+        new Request("http://x/harness/commands", {
+          method: "POST",
+          body: JSON.stringify({
+            name: "git/release",
+            scope: "project",
+            fields: { description: "Cut a release" },
+            template: "Release it.",
+            directory: project,
+            project,
+          }),
+        }),
+      )
+      expect(written.status).toBe(200)
+      const path = (await written.json()).data.path
+      expect(path).toBe(join(project, ".opencode", "command", "git", "release.md"))
+
+      const listed = await handler(
+        new Request(
+          `http://x/harness/commands?directory=${encodeURIComponent(project)}&project=${encodeURIComponent(project)}`,
+        ),
+      )
+      expect((await listed.json()).data).toEqual([
+        expect.objectContaining({ name: "git/release", template: "Release it." }),
+      ])
+
+      const refused = await handler(
+        new Request("http://x/harness/commands", {
+          method: "POST",
+          body: JSON.stringify({ name: "../escape", scope: "project", directory: project, project }),
+        }),
+      )
+      expect(refused.status).toBe(400)
+
+      const removed = await handler(
+        new Request(
+          `http://x/harness/commands?path=${encodeURIComponent(path)}&directory=${encodeURIComponent(project)}&project=${encodeURIComponent(project)}`,
+          { method: "DELETE" },
+        ),
+      )
+      expect((await removed.json()).data.removed).toBe(true)
+    } finally {
+      if (savedConfig === undefined) delete process.env.OPENCODE_CONFIG_DIR
+      else process.env.OPENCODE_CONFIG_DIR = savedConfig
+      repository.close()
+    }
+  })
+})

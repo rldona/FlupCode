@@ -142,6 +142,7 @@ test("settings reset the summary counters and can count everything again", async
   await page.locator(".fc-profile-button").click()
   await page.locator(".fc-menu").getByText("Settings", { exact: true }).click()
   const dialog = page.getByRole("dialog", { name: "Customize" })
+  await dialog.getByRole("tab", { name: "Conversation" }).click()
   await expect(dialog.getByText("Counting every session")).toBeVisible()
   const reset = dialog.getByRole("button", { name: "Reset counters" })
   await reset.click()

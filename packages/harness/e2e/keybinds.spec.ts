@@ -49,6 +49,8 @@ async function openSettings(page: Page) {
   await page.locator(".fc-palette-input").fill("settings")
   await page.locator(".fc-palette-item", { hasText: "Customize" }).first().click()
   await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
+  // Settings is a rail of sections now, so the shortcuts have to be asked for.
+  await page.getByRole("tab", { name: "Shortcuts" }).click()
 }
 
 test("the palette key can be changed, and the new one opens it", async ({ page }) => {
