@@ -76,12 +76,12 @@ test("a toast reaches the reader instead of being built and thrown away", async 
   await openSession(page)
   await expect(page.getByText("Answering")).toBeVisible()
 
+  // Sharing asks the engine for a link, which this mock does not answer, so the app reports the
+  // failure. What is being checked is that it reaches the reader: the toaster used to be unmounted,
+  // and every message this app raised went nowhere.
   await page.getByRole("button", { name: "Menu", exact: true }).first().click()
-  await page.getByText("Export MD").click()
-
-  // The toaster was never mounted, so every message this app raised — sent, exported, failed —
-  // went nowhere.
-  await expect(page.locator(".fc-toast")).toContainText(/Transcript exported|Transcripción exportada/i)
+  await page.getByText("Share", { exact: true }).click()
+  await expect(page.locator(".fc-toast-error")).toBeVisible()
 })
 
 test("a transcript that stopped following the engine says so and offers to try again", async ({ page }) => {

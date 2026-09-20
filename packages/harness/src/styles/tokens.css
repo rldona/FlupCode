@@ -56,8 +56,9 @@
    - Mode: the `.fc-dark` class on <html>, toggled by the app (light/dark/system).
    - Palette: the `data-fc-theme` attribute on <html>. No attribute is the FlupCode palette
      (the default, taken from the landing page); `data-fc-theme="classic"` is the original
-     neutral grey/blue palette; `data-fc-theme="sublime"` is the dark-grey editor palette, and
-     `data-fc-theme="sublime-dark"` its deeper, dark-only variant.
+     neutral grey/blue palette; `data-fc-theme="sublime"` is the dark-grey editor palette,
+     `data-fc-theme="sublime-dark"` its deeper, dark-only variant, and `data-fc-theme="github"`
+     the Primer-based light/dark pair.
 
    Order matters: palette blocks come after `.fc-dark` so a palette overrides the mode defaults.
    Every token set by a palette must also be set by its `.fc-dark` block, otherwise the light
@@ -287,6 +288,75 @@
   --fc-terminal-bg: #1c1f24;
   --fc-terminal-fg: #c0c5ce;
   --fc-bg-subtle: rgba(192, 197, 206, 0.08);
+}
+
+/* GitHub. The values are Primer's own functional tokens, read from
+   `@primer/primitives/dist/css/functional/themes/{light,dark}.css` rather than picked off a
+   screenshot: `bgColor-default`, `fgColor-muted`, `fgColor-accent`, `fgColor-done` and the rest.
+
+   `*-bg` tokens are mixed at 16% by the diff rows, so they take Primer's *emphasis* greens and reds
+   rather than its already-pale `diffBlob-*` ones — mixing a pale colour again leaves nothing. */
+[data-fc-theme="github"] {
+  --fc-bg: #ffffff;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #f6f8fa;
+  --fc-border: #d1d9e0;
+  --fc-text: #1f2328;
+  --fc-text-muted: #59636e;
+  --fc-accent: #0969da;
+  --fc-accent-soft: #ddf4ff;
+  --fc-on-accent: #ffffff;
+  --fc-danger: #d1242f;
+  --fc-success: #1a7f37;
+  --fc-success-soft: #1f883d;
+  --fc-warning: #9a6700;
+  --fc-favorite: #9a6700;
+  --fc-merged: #8250df;
+  --fc-diff-add: #1a7f37;
+  --fc-diff-del: #d1242f;
+  --fc-diff-add-bg: #1f883d;
+  --fc-diff-del-bg: #cf222e;
+  --fc-syn-comment: #59636e;
+  --fc-syn-string: #0a3069;
+  --fc-syn-number: #0550ae;
+  --fc-syn-keyword: #cf222e;
+  --fc-syn-const: #0550ae;
+  --fc-code-inline: #953800;
+  --fc-terminal-bg: #0d1117;
+  --fc-terminal-fg: #f0f6fc;
+  --fc-bg-subtle: rgba(129, 139, 152, 0.12);
+}
+
+/* The rail is `bgColor-inset`, darker than the canvas — which is what GitHub's own header does. */
+[data-fc-theme="github"].fc-dark {
+  --fc-bg: #0d1117;
+  --fc-bg-elevated: #151b23;
+  --fc-sidebar: #010409;
+  --fc-border: #3d444d;
+  --fc-text: #f0f6fc;
+  --fc-text-muted: #9198a1;
+  --fc-accent: #4493f8;
+  --fc-accent-soft: rgba(56, 139, 253, 0.15);
+  --fc-on-accent: #ffffff;
+  --fc-danger: #f85149;
+  --fc-success: #3fb950;
+  --fc-success-soft: #238636;
+  --fc-warning: #d29922;
+  --fc-favorite: #d29922;
+  --fc-merged: #ab7df8;
+  --fc-diff-add: #3fb950;
+  --fc-diff-del: #f85149;
+  --fc-diff-add-bg: #3fb950;
+  --fc-diff-del-bg: #f85149;
+  --fc-syn-comment: #9198a1;
+  --fc-syn-string: #a5d6ff;
+  --fc-syn-number: #79c0ff;
+  --fc-syn-keyword: #ff7b72;
+  --fc-syn-const: #79c0ff;
+  --fc-code-inline: #ffa657;
+  --fc-terminal-bg: #010409;
+  --fc-terminal-fg: #f0f6fc;
+  --fc-bg-subtle: rgba(101, 108, 118, 0.2);
 }
 
 /* Sublime dark: the deeper, dark-only cut of the Sublime palette. It has no light variant on
