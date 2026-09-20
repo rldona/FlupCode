@@ -89,7 +89,8 @@ bun run dev:desktop      # start the upstream desktop app (reference)
 ## Web app
 
 Use the hosted UI at [app.flupcode.com](https://app.flupcode.com) — it connects to an engine on
-your machine:
+your machine. First install the OpenCode CLI (see [opencode.ai/docs](https://opencode.ai/docs/) for
+your platform), then start it with CORS enabled for the hosted origin:
 
 ```bash
 opencode serve --port 4096 --cors https://app.flupcode.com
@@ -97,6 +98,16 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 
 `--cors` is required because the page and the engine are different origins; the app connects to
 `http://localhost:4096` by default (change it in **Settings → Server**).
+
+> The published OpenCode CLI tracks upstream and does **not** include FlupCode's core patches
+> (GitHub Copilot OAuth in the v2 catalog, session permission modes). To get those, run the engine
+> from this fork's source instead:
+>
+> ```bash
+> bun install
+> OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
+>   --port 4096 --cors https://app.flupcode.com
+> ```
 
 ## Documentation
 

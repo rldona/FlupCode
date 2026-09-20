@@ -36,7 +36,9 @@ Open http://localhost:4444. The server URL defaults to `http://localhost:4096`; 
 
 ### Hosted web app
 
-There is a deployed UI at https://app.flupcode.com that talks to an engine on your machine:
+There is a deployed UI at https://app.flupcode.com that talks to an engine on your machine. Install
+the OpenCode CLI first (instructions per platform at https://opencode.ai/docs/), then start it with
+CORS enabled for the hosted origin:
 
 ```bash
 opencode serve --port 4096 --cors https://app.flupcode.com
@@ -44,6 +46,15 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 
 The `--cors` origin is required because the page and the engine are different origins. The app
 connects to `http://localhost:4096` by default (change it in **Settings → Server**).
+
+> **Engine patches.** The published OpenCode CLI tracks upstream and does not include FlupCode's
+> core patches (GitHub Copilot OAuth in the v2 catalog, session permission modes). For those, run
+> the engine from this fork's source instead:
+>
+> ```bash
+> OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
+>   --port 4096 --cors https://app.flupcode.com
+> ```
 
 ### Desktop
 
