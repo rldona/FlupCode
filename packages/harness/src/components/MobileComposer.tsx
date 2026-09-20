@@ -28,6 +28,8 @@ type MobileComposerProps = {
   sessionOpen?: boolean
   /** The open conversation is answering; the switch waits, like the composer. */
   generating?: boolean
+  /** The engine is folding the session: deny a prompt until that turn ends. */
+  compacting?: boolean
   value: string
   sending: boolean
   attachments: Attachment[]
@@ -249,7 +251,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
     )
   })
   const currentEffort = () => (props.variantKey ? effortLabel(props.variantKey) : t("Default"))
-  const canSend = () => !props.sending && (props.value.trim().length > 0 || props.attachments.length > 0)
+  const canSend = () => !props.compacting && !props.sending && (props.value.trim().length > 0 || props.attachments.length > 0)
 
   const modelOption = (model: ModelInfo) => (
     <Option
