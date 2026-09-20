@@ -27,7 +27,7 @@ Examples: `fix(tui): simplify thinking toggle styling`, `docs: update contributi
 ## Branding
 
 - Never hand-edit raster brand assets. Regenerate them with `swift script/branding.swift` (macOS only).
-- Source of truth is `assets/flupcode-tentative-logo.png` on a `#FFEDD5` plate.
+- Source of truth is `assets/flupcode-tentative-logo.png` on a `#17191E` plate.
 - Brand geometry lives in `script/branding.swift` (`targets`): desktop `icon.png` full-bleed plate at artwork `fraction: 0.60`; mac `icon-mac.png` plate `scale: 0.805` (macOS 824/1024 grid) with artwork `fraction: 0.60`; web/PWA plate icons (`apple-touch-icon.png`, `icon-192.png`, `icon-512.png` in harness and landing) at `fraction: 0.60`; `icon-maskable-512.png` at `0.555` (maskable safe zone); `og.png` (1200x630) at `fraction: 0.68` on height basis; transparent `flupcode-logo.png` artwork fit at `0.90`. See "Icon geometry" in `docs/RELEASE.md` and keep these values so every build mounts the same icon.
 
 ## Style Guide
