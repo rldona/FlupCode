@@ -305,6 +305,23 @@ does not know about survives being saved.
 Agents the engine reports with no file behind them — the built-in ones, and any a plugin registers —
 are listed separately and cannot be edited here.
 
+## Skills
+
+**Skills** in the sidebar shows what the model can reach for — and, first, what it cannot. The engine
+drops a skill whose file is not called `SKILL.md`, and one with no `name` in its frontmatter, without
+saying anything about either. Both look identical from the outside: nothing happens. Both are named
+here, with the file and what the engine wants.
+
+A third case is told apart from those: a skill that is written correctly and that the engine simply
+has not read yet. It reads a folder's skills when it opens the folder, so one written afterwards
+appears only once that folder is opened again.
+
+New skills are written the way the engine reads them — a folder of their own, a `SKILL.md`, and a
+`name`.
+
+Installing one from a URL is not here yet: it means editing the project's `opencode.jsonc`, and a
+round trip through JSON eats the comments in it.
+
 ## What a run is allowed to do
 
 A task is **confined to its project**. FlupCode has always told the engine where to start; it now

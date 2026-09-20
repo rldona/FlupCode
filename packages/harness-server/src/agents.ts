@@ -24,6 +24,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve, sep } from "node:path"
 import { configDirectory, isInside, walkUp } from "./context"
+import { parseFrontmatter, serialiseFrontmatter } from "./frontmatter"
 
 export type AgentScope = "global" | "project"
 
@@ -78,76 +79,9 @@ export function agentRoots(directory?: string, projectDirectory?: string) {
   return roots
 }
 
-/**
- * Splits a file into its frontmatter and its body.
- *
- * Deliberately tolerant: a file with no frontmatter is all prompt, which is what a plain markdown
- * agent is. A frontmatter that does not parse is reported rather than thrown away — the form can
- * then refuse to overwrite a file it did not understand instead of flattening it.
- */
-export function parseAgentFile(text: string): { fields: Record<string, unknown>; prompt: string; problem?: string } {
-  const match = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/.exec(text)
-  if (!match) return { fields: {}, prompt: text.trim() }
-  const body = text.slice(match[0].length)
-  let parsed: unknown
-  try {
-    parsed = Bun.YAML.parse(match[1]!)
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message.split("\n")[0] : String(cause)
-    return { fields: {}, prompt: body.trim(), problem: `Its frontmatter could not be read: ${detail}` }
-  }
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { fields: {}, prompt: body.trim(), problem: "Its frontmatter is not a list of settings" }
-  }
-  return { fields: parsed as Record<string, unknown>, prompt: body.trim() }
-}
-
-const needsQuotes = (value: string) =>
-  value === "" ||
-  /^[-?:,[\]{}#&*!|>'"%@`]/.test(value) ||
-  /[:#]\s/.test(value) ||
-  /:\s*$/.test(value) ||
-  value !== value.trim() ||
-  ["true", "false", "null", "yes", "no", "on", "off", "~"].includes(value.toLowerCase()) ||
-  /^[\d.+-]+$/.test(value)
-
-const scalar = (value: unknown): string => {
-  if (typeof value === "boolean" || typeof value === "number") return String(value)
-  if (value === null) return "null"
-  const text = String(value)
-  return needsQuotes(text) ? JSON.stringify(text) : text
-}
-
-/**
- * Frontmatter a person can still read.
- *
- * `Bun.YAML.stringify` writes flow style — `{mode: primary,tools: {...}}` — which parses fine and
- * makes the file worse to open, and these files are meant to be opened. Block style is written by
- * hand for the shapes these fields actually have: scalars, and one level of map.
- */
-export function serialiseAgentFile(draft: { fields: Record<string, unknown>; prompt: string }) {
-  const lines: string[] = []
-  for (const [key, value] of Object.entries(draft.fields)) {
-    if (value === undefined) continue
-    if (value && typeof value === "object" && !Array.isArray(value)) {
-      const entries = Object.entries(value as Record<string, unknown>)
-      if (entries.length === 0) continue
-      lines.push(`${key}:`)
-      for (const [inner, own] of entries) lines.push(`  ${scalar(inner)}: ${scalar(own)}`)
-      continue
-    }
-    if (Array.isArray(value)) {
-      if (value.length === 0) continue
-      lines.push(`${key}:`)
-      for (const item of value) lines.push(`  - ${scalar(item)}`)
-      continue
-    }
-    lines.push(`${key}: ${scalar(value)}`)
-  }
-  const prompt = draft.prompt.trim()
-  if (lines.length === 0) return prompt ? `${prompt}\n` : ""
-  return `---\n${lines.join("\n")}\n---\n\n${prompt}\n`
-}
+/** Frontmatter, shared with the skill catalogue (H-27). Re-exported under the names H-13 used. */
+export const parseAgentFile = parseFrontmatter
+export const serialiseAgentFile = serialiseFrontmatter
 
 const describe = (path: string, root: string, scope: AgentScope, folder: string): AgentFile | undefined => {
   let text: string

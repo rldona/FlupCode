@@ -22,6 +22,7 @@ import type {
   Checkpoint,
   AgentFile,
   ContextReport,
+  SkillFile,
   Finding,
   GitCommit,
   PullRequest,
@@ -1001,6 +1002,30 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         if (input.directory) search.set("directory", input.directory)
         if (input.project) search.set("project", input.project)
         return harnessRequest<{ removed: boolean }>(baseUrl, `/harness/agents?${search}`, { method: "DELETE" })
+      },
+    },
+    /** Skills (H-27): what is on disk, and what the engine would not load, and why. */
+    skills: {
+      list: (input: { directory?: string; project?: string }) => {
+        const search = new URLSearchParams()
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return harnessRequest<SkillFile[]>(baseUrl, `/harness/skills${search.size ? `?${search}` : ""}`)
+      },
+      file: (input: { path: string; directory?: string }) => {
+        const search = new URLSearchParams({ path: input.path })
+        if (input.directory) search.set("directory", input.directory)
+        return harnessRequest<{ content: string }>(baseUrl, `/harness/skills/file?${search}`)
+      },
+      save: (input: { name: string; scope: "global" | "project"; description: string; body: string; directory?: string }) =>
+        harnessRequest<{ path: string }>(baseUrl, "/harness/skills", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      remove: (input: { path: string; directory?: string }) => {
+        const search = new URLSearchParams({ path: input.path })
+        if (input.directory) search.set("directory", input.directory)
+        return harnessRequest<{ removed: boolean }>(baseUrl, `/harness/skills?${search}`, { method: "DELETE" })
       },
     },
     /** Findings (H-32): a review's points, anchored to a file and a line. */

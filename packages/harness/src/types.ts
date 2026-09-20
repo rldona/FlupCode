@@ -261,6 +261,25 @@ export type AgentFile = {
   problem?: string
 }
 
+/**
+ * A skill file on disk (H-27).
+ *
+ * `loaded` is the whole point: the engine drops a skill without a `name`, and one in a file not
+ * called `SKILL.md`, without saying anything at all.
+ */
+export type SkillFile = {
+  name?: string
+  path: string
+  scope: "global" | "project" | "claude" | "agents"
+  root: string
+  description?: string
+  bytes: number
+  loaded: boolean
+  reason?: string
+  /** The file that already has this name. */
+  shadows?: string
+}
+
 /** An instruction file a turn in a folder would load (H-17). */
 export type InstructionFile = {
   path: string
