@@ -102,7 +102,9 @@ The app checks for updates on start and every 6 hours, downloads them and offers
 (or installs on quit). On macOS, while builds are unsigned, FlupCode replaces its own bundle after
 quitting (Squirrel.Mac rejects unsigned updates); it needs the app in a folder you can write to,
 such as Applications. Versions up to 1.0.13 cannot install updates on macOS: install 1.0.14 by hand
-once.
+once. While builds stay unsigned, remote-control keys are stored in `remote.json` with file
+permissions rather than the login keychain, so macOS does not ask for your password on every
+update.
 
 Builds are **not signed or notarized** yet (F5-4). The first time you open the app on macOS it shows
 "FlupCode Not Opened" ("No se ha abierto FlupCode"). Do not move it to the Bin; click **Done**, then
