@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { DEFAULT_ENGINE_PORT, enginePort, lanServeCommand, tunnelCommand } from "./remote-share"
+import { DEFAULT_ENGINE_PORT, enginePort, lanServeCommand, reachabilityLabel, tunnelCommand } from "./remote-share"
 
 describe("the engine port of a URL", () => {
   test("the port it names, or the default", () => {
@@ -19,5 +19,14 @@ describe("the copyable commands", () => {
 
   test("the tunnel command points at the local engine", () => {
     expect(tunnelCommand(4096)).toBe("cloudflared tunnel --url http://localhost:4096")
+  })
+})
+
+describe("the local URL status line", () => {
+  test("one label per probe outcome, checking while none", () => {
+    expect(reachabilityLabel("online")).toBe("Reachable")
+    expect(reachabilityLabel("blocked")).toBe("Blocked by the browser")
+    expect(reachabilityLabel("offline")).toBe("Offline")
+    expect(reachabilityLabel(undefined)).toBe("Checking…")
   })
 })
