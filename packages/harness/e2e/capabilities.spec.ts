@@ -58,5 +58,7 @@ test("a client does not ask an older server for routes it does not declare", asy
 test("a server that lists the capabilities is asked for them", async ({ page }) => {
   const asked = await open(page, ["session-prefs", "stash"])
   await expect.poll(() => asked).toContain("/harness/session-prefs")
-  expect(asked).toContain("/harness/stash")
+  // Both are fired by the same effect, but each is its own request: asserting the second one as
+  // soon as the first arrives is a race, and CI was where it lost.
+  await expect.poll(() => asked).toContain("/harness/stash")
 })
