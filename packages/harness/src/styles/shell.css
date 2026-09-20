@@ -2135,16 +2135,21 @@ button.fc-row-main {
   margin: 0 auto;
 }
 
+.fc-input-wrap {
+  position: relative;
+}
+
 .fc-mascot {
   position: absolute;
-  bottom: calc(100% - 6px);
-  right: max(12px, calc(50% - 424px));
+  bottom: calc(100% - 4px);
+  right: 14px;
   height: 96px;
   width: auto;
   padding: 0;
   border: none;
   background: transparent;
   cursor: pointer;
+  z-index: 2;
   transform-origin: 50% 100%;
   animation: fc-mascot-idle 3.2s ease-in-out infinite;
 }
