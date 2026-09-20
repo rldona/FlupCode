@@ -80,9 +80,11 @@ of the desktop UI.
 - Desktop browsers controlling a computer keep the full layout.
 - A failed request never freezes the UI (resources keep their last value).
 
-## F8-11 — `flupcode remote` terminal host · P1 · todo
+## F8-11 — `flupcode remote` terminal host · P1 · done
 
 Like `claude remote-control`: host remote control from a terminal, without the desktop app.
+`packages/flupcode-cli`, compiled to standalone binaries on each release. The host logic lives in
+`@flupcode/remote` (`createRemoteHost`) and is shared with the desktop app.
 
 **Acceptance**
 - Starts the host next to a running engine, prints the pairing QR in the terminal, remembers the

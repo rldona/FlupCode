@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@flupcode/cli",
+  "version": "1.0.9",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "FlupCode command line: host remote control from a terminal.",
+  "bin": {
+    "flupcode": "./src/index.ts"
+  },
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "build": "bun build src/index.ts --compile --outfile dist/flupcode",
+    "test": "bun test",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@flupcode/remote": "workspace:*",
+    "qrcode": "1.5.4"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/qrcode": "1.5.5",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:"
+  }
+}
