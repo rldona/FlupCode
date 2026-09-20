@@ -169,6 +169,7 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system and the Claude Code–style harness direction |
 | [docs/PARITY.md](docs/PARITY.md) | TUI ↔ Web feature parity matrix |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritised, ticket-based roadmap |
+| [docs/COMMUNITY-FEATURES.md](docs/COMMUNITY-FEATURES.md) | Community-requested OpenCode features prioritised for FlupCode |
 | [docs/RELEASE.md](docs/RELEASE.md) | Versioning and release process |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | Language, conventions, workflow |
 | [docs/adr/](docs/adr/) | Architecture Decision Records |
