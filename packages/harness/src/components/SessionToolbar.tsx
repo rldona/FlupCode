@@ -1,4 +1,4 @@
-import { For, type Component } from "solid-js"
+import { For, Show, type Component } from "solid-js"
 import type { AgentInfo, Project, SessionInfo } from "@opencode-ai/client"
 
 type SessionToolbarProps = {
@@ -6,6 +6,7 @@ type SessionToolbarProps = {
   agents: AgentInfo[]
   projects: Project[]
   busy: boolean
+  reverting: boolean
   onFork: () => void
   onCompact: () => void
   onRename: () => void
@@ -13,6 +14,9 @@ type SessionToolbarProps = {
   onMove: (directory: string) => void
   onDelete: () => void
   onAgentChange: (agent: string) => void
+  onUndo: () => void
+  onRedo: () => void
+  onCommitRevert: () => void
 }
 
 function projectLabel(project: Project) {
@@ -45,6 +49,17 @@ export const SessionToolbar: Component<SessionToolbarProps> = (props) => (
       <button class="oh-button" type="button" disabled={props.busy} onClick={props.onCompact}>
         Compactar
       </button>
+      <button class="oh-button" type="button" disabled={props.busy} onClick={props.onUndo}>
+        Undo
+      </button>
+      <button class="oh-button" type="button" disabled={props.busy} onClick={props.onRedo}>
+        Rehacer
+      </button>
+      <Show when={props.reverting}>
+        <button class="oh-button oh-button-primary" type="button" disabled={props.busy} onClick={props.onCommitRevert}>
+          Confirmar reversión
+        </button>
+      </Show>
       <button class="oh-button" type="button" disabled={props.busy} onClick={props.onRename}>
         Renombrar
       </button>

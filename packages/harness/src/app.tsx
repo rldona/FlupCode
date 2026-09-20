@@ -14,6 +14,8 @@ import { QuestionDock } from "./components/QuestionDock"
 import { CommandPalette } from "./components/CommandPalette"
 import { SessionView } from "./components/SessionView"
 import { SessionToolbar } from "./components/SessionToolbar"
+import { SubagentList } from "./components/SubagentList"
+import { TodoDock } from "./components/TodoDock"
 
 type Client = ReturnType<typeof createClient>
 
@@ -66,6 +68,37 @@ export const App: Component = () => {
     },
     (source) => createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" }),
   )
+  const [children] = createResource(
+    () => {
+      const sessionID = selected()
+      return sessionID ? { url: serverUrl(), sessionID } : undefined
+    },
+    (source) => createClient(source.url).session.list({ parentID: source.sessionID }),
+  )
+
+  const todos = () => {
+    const data = messages()?.data ?? []
+    const assistants = [...data].reverse().flatMap((message) =>
+      message.type === "assistant" ? [message] : [],
+    )
+    for (const message of assistants) {
+      const parts = [...message.content]
+        .reverse()
+        .flatMap((part) => (part.type === "tool" && part.name === "todowrite" ? [part] : []))
+      for (const part of parts) {
+        const raw = (part.state.input as { todos?: unknown }).todos
+        if (!Array.isArray(raw)) continue
+        return raw.flatMap((item) => {
+          if (!item || typeof item !== "object") return []
+          const content = (item as { content?: unknown }).content
+          const status = (item as { status?: unknown }).status
+          if (typeof content !== "string") return []
+          return [{ content, status: typeof status === "string" ? status : "pending" }]
+        })
+      }
+    }
+    return []
+  }
 
   const commandOptions = (): CommandOption[] => [
     ...BUILTIN_COMMANDS,
@@ -361,6 +394,41 @@ export const App: Component = () => {
     })
   }
 
+  const undo = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const lastUser = [...(messages()?.data ?? [])].reverse().find((message) => message.type === "user")
+    if (!lastUser) {
+      toast("Nada que deshacer", "info")
+      return
+    }
+    void run(async (current) => {
+      await current.session.revert.stage({ sessionID, messageID: lastUser.id, files: true })
+      void refetchMessages()
+      return undefined
+    }, "Cambios revertidos")
+  }
+
+  const redo = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.revert.clear({ sessionID })
+      void refetchMessages()
+      return undefined
+    }, "Cambios restaurados")
+  }
+
+  const commitRevert = () => {
+    const sessionID = selected()
+    if (!sessionID) return
+    void run(async (current) => {
+      await current.session.revert.commit({ sessionID })
+      void refetchMessages()
+      return undefined
+    }, "Reversión confirmada")
+  }
+
   const exportMarkdown = () => {
     const sessionID = selected()
     if (!sessionID) return
@@ -491,6 +559,7 @@ export const App: Component = () => {
               agents={agents()?.data ?? []}
               projects={projects() ?? []}
               busy={busy()}
+              reverting={!!session().revert}
               onFork={forkSession}
               onCompact={compactSession}
               onRename={renameSession}
@@ -498,9 +567,13 @@ export const App: Component = () => {
               onMove={moveSession}
               onDelete={deleteSession}
               onAgentChange={changeAgent}
+              onUndo={undo}
+              onRedo={redo}
+              onCommitRevert={commitRevert}
             />
           )}
         </Show>
+        <SubagentList sessions={children()?.data} onOpen={selectSession} />
         <Show
           when={selected()}
           fallback={
@@ -517,6 +590,7 @@ export const App: Component = () => {
           <SessionView messages={messages()?.data} loading={messages.loading} busy={busy()} />
         </Show>
         <div class="oh-docks">
+          <TodoDock todos={todos()} />
           <For each={permissions()?.data ?? []}>
             {(request) => (
               <PermissionDock
