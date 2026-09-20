@@ -1503,6 +1503,54 @@ button.fc-row-main {
   max-width: 90px;
 }
 
+.fc-onboarding {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+}
+
+.fc-onboarding-logo {
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fc-accent);
+}
+
+.fc-onboarding-title {
+  margin: 0;
+  font-size: 20px;
+}
+
+.fc-onboarding-text {
+  margin: 0;
+  color: var(--fc-text-muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.fc-onboarding-status {
+  font-size: var(--fc-text-sm);
+  color: var(--fc-success);
+}
+
+.fc-onboarding-status-off {
+  color: var(--fc-danger);
+}
+
+.fc-message-edit {
+  align-self: flex-start;
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  padding: 0;
+}
+
+.fc-message-edit:hover {
+  color: var(--fc-text);
+}
+
 @media (max-width: 720px) {
   .fc-sidebar {
     position: absolute;

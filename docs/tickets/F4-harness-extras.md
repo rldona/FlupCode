@@ -41,12 +41,12 @@ current streak, longest streak, peak hour, favorite model.
 - Create/list/edit/disable routines.
 - Runs execute through the engine and surface results.
 
-## F4-7 — Voice input · P2 · todo
+## F4-7 — Voice input · P2 · done
 
 **Acceptance**
 - Dictation into the composer with a clear on/off state and permission handling.
 
-## F4-8 — In-place message editing · P2 · todo
+## F4-8 — In-place message editing · P2 · done
 
 **Acceptance**
 - Edit a sent user message and re-run, with revert fallback.
