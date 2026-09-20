@@ -378,7 +378,13 @@ export const Composer: Component<ComposerProps> = (props) => {
               }
             }}
             onKeyDown={(event) => {
-              if (event.key === "Tab" && !event.shiftKey && props.suggestion && !props.value) {
+              if (
+                (event.key === "Tab" || event.key === "ArrowRight") &&
+                !event.shiftKey &&
+                !event.isComposing &&
+                props.suggestion &&
+                !props.value
+              ) {
                 event.preventDefault()
                 props.onInput(props.suggestion)
                 return
@@ -416,7 +422,7 @@ export const Composer: Component<ComposerProps> = (props) => {
           />
           <Show when={props.suggestion && !props.value}>
             <kbd class="fc-input-tab-hint" aria-hidden="true">
-              Tab
+              Tab · →
             </kbd>
           </Show>
           <Show

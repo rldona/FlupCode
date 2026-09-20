@@ -5442,7 +5442,7 @@ button.fc-row-main {
   line-height: 1;
 }
 
-/* Sessions in the sidebar: a small ring like Claude Code's, green and pulsing while working. */
+/* Sessions in the sidebar: a small ring like Claude Code's, blue and pulsing while working. */
 .fc-session-dot {
   flex-shrink: 0;
   width: 8px;
@@ -5457,13 +5457,13 @@ button.fc-row-main {
 }
 
 .fc-session-dot-running {
-  border-color: var(--fc-success-soft);
-  background: var(--fc-success-soft);
+  border-color: var(--fc-accent);
+  background: var(--fc-accent);
   animation: fc-remote-pulse 1.4s ease-in-out infinite;
 }
 
 .fc-session-row-active .fc-session-dot-running {
-  border-color: var(--fc-success-soft);
+  border-color: var(--fc-accent);
 }
 
 .fc-session-title {
