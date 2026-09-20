@@ -3249,6 +3249,16 @@ button.fc-status {
   padding: clamp(20px, 3vw, 40px) clamp(16px, 4vw, 56px);
 }
 
+/* An editor panel mounted inside Settings (CU-1): same treatment inside the modal. */
+.fc-modal .fc-routines-screen {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  overflow: visible;
+  padding: 0;
+  background: transparent;
+}
+
 .fc-routines-header,
 .fc-routines-toolbar,
 .fc-routines-layout,
