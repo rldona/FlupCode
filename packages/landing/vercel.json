@@ -4,6 +4,8 @@
   "installCommand": "echo 'static site: nothing to install'",
   "buildCommand": "echo 'static site: nothing to build'",
   "outputDirectory": ".",
+  "ignoreCommand": "git diff --quiet ${VERCEL_GIT_PREVIOUS_SHA:-HEAD^} HEAD -- .",
+  "git": { "deploymentEnabled": { "**": false, "power": true } },
   "headers": [
     {
       "source": "/(.*)",
