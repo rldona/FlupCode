@@ -326,3 +326,52 @@ describe("harness git API", () => {
     repository.close()
   })
 })
+
+describe("harness usage API", () => {
+  test("adds up the tasks the runs actually recorded, retries apart", async () => {
+    const { handler, repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1_000, "/work/app")
+    repository.addTasks(run.id, [
+      { name: "write", prompt: "p", agent: "build", model: { providerID: "anthropic", id: "opus" } },
+      { name: "write", prompt: "p", agent: "build", model: { providerID: "anthropic", id: "opus" }, attempt: 2 },
+      { name: "verify", prompt: "", kind: "verify" },
+    ])
+    const tasks = repository.listTasks(run.id)
+    repository.startTask(tasks[0]!.id, 1_000)
+    repository.finishTask(tasks[0]!.id, "success", { tokens: 100, cost: 0.5 })
+    repository.startTask(tasks[1]!.id, 2_000)
+    repository.finishTask(tasks[1]!.id, "success", { tokens: 80, cost: 0.4 })
+
+    const response = await handler(new Request("http://x/harness/usage"))
+    const report = (await response.json()).data
+
+    expect(report.totals).toMatchObject({ runs: 1, tasks: 3, tokens: 180 })
+    expect(report.totals.cost).toBeCloseTo(0.9, 5)
+    // The second attempt is a second bill, and it is the number nobody could see before.
+    expect(report.retries).toMatchObject({ tasks: 1, tokens: 80 })
+    expect(report.retries.cost).toBeCloseTo(0.4, 5)
+    // The verify task ran no model, so it is filed under none.
+    expect(report.byModel).toHaveLength(1)
+    expect(report.byModel[0].key).toBe("anthropic/opus")
+    expect(report.byProject[0]).toMatchObject({ key: "/work/app", runs: 1 })
+    repository.close()
+  })
+
+  test("a folder filter answers about that folder alone", async () => {
+    const { handler, repository } = open()
+    for (const directory of ["/work/a", "/work/b"]) {
+      const run = repository.startRun({ type: "manual" }, 1_000, directory)
+      repository.addTasks(run.id, [{ name: "t", prompt: "p", agent: "build" }])
+      const task = repository.listTasks(run.id)[0]!
+      repository.startTask(task.id, 1_000)
+      repository.finishTask(task.id, "success", { tokens: 10, cost: 0.1 })
+    }
+
+    const response = await handler(new Request(`http://x/harness/usage?directory=${encodeURIComponent("/work/a")}`))
+    const report = (await response.json()).data
+
+    expect(report.totals.tasks).toBe(1)
+    expect(report.byProject.map((entry: { key: string }) => entry.key)).toEqual(["/work/a"])
+    repository.close()
+  })
+})
