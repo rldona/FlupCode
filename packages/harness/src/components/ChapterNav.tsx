@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 
 export type Chapter = { id: string; title: string }
@@ -17,6 +17,7 @@ export const ChapterNav: Component<{
 }> = (props) => {
   const [open, setOpen] = createSignal(false)
   let closeTimer: ReturnType<typeof setTimeout> | undefined
+  let list: HTMLDivElement | undefined
 
   const activeIndex = () =>
     Math.max(
@@ -25,6 +26,17 @@ export const ChapterNav: Component<{
     )
   const ticks = () => Math.min(MAX_TICKS, props.chapters.length)
   const activeTick = () => Math.floor((activeIndex() * ticks()) / props.chapters.length)
+
+  // The list is taller than the window in a long conversation: it must open where the reader is,
+  // not at the first prompt. Centring the current chapter leaves the previous ones above and the
+  // next ones below, and the browser clamps it to the ends when there is nothing to scroll past.
+  createEffect(() => {
+    if (!open()) return
+    props.activeId
+    const item = list?.querySelector<HTMLElement>(".fc-chapters-item-active")
+    if (!item || !list) return
+    list.scrollTop = item.offsetTop - (list.clientHeight - item.offsetHeight) / 2
+  })
 
   const show = () => {
     clearTimeout(closeTimer)
@@ -48,7 +60,7 @@ export const ChapterNav: Component<{
         </For>
       </button>
       <Show when={open()}>
-        <div class="fc-chapters-list" role="menu" onMouseEnter={show} onMouseLeave={hide}>
+        <div class="fc-chapters-list" role="menu" ref={list} onMouseEnter={show} onMouseLeave={hide}>
           <For each={props.chapters}>
             {(chapter, index) => (
               <button
