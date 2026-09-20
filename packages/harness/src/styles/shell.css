@@ -393,6 +393,40 @@ button.fc-row-main {
   gap: var(--fc-space-2);
 }
 
+.fc-topbar-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-session-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+  margin-left: 6px;
+  overflow: hidden;
+}
+
+.fc-session-heading-title {
+  font-weight: 500;
+  font-size: var(--fc-text-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 40vw;
+}
+
+.fc-session-heading .fc-session-tags {
+  width: auto;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+.fc-session-heading .fc-tag-input {
+  min-width: 90px;
+}
+
 .fc-nav-arrow {
   border: 1px solid var(--fc-border);
   background: var(--fc-bg-elevated);
