@@ -301,7 +301,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             }}
           >
             <span class="fc-avatar">
-              {props.displayName.trim() ? props.displayName.trim().slice(0, 2).toUpperCase() : "FC"}
+              <img src="/flupcode-logo.png" alt="" />
             </span>
             <span class="fc-profile-name">{props.displayName.trim() || t("Local")}</span>
             <span class="fc-chevron">⌄</span>

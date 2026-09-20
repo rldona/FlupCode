@@ -355,8 +355,8 @@ button.fc-row-main {
   width: 28px;
   height: 28px;
   border-radius: var(--fc-radius-pill);
-  background: var(--fc-accent);
-  color: #fff;
+  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+  color: var(--fc-text);
   font-size: var(--fc-text-xs);
   font-weight: 600;
   flex-shrink: 0;
@@ -2548,6 +2548,24 @@ button.fc-row-main {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-3);
+}
+
+.fc-onboarding-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.fc-onboarding-brand img {
+  width: 36px;
+  height: 36px;
+  object-fit: contain;
+}
+
+.fc-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 
 .fc-onboarding-logo {
