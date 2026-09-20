@@ -17,20 +17,33 @@ test("the page ships no inline script, so the hosted CSP cannot block it", async
   expect(scripts.filter((script) => script.inlineChars > 0)).toEqual([])
 })
 
-test("the saved theme is on the page before the app mounts", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("flupcode.theme", JSON.stringify("dark"))
-    window.localStorage.setItem("flupcode.colorTheme", JSON.stringify("classic"))
-  })
-  await page.goto("/")
+// Each palette paints its own `--fc-bg` before the first frame, so the page never flashes white.
+const SAVED_PALETTES = [
+  { id: "classic", mode: "dark", background: "rgb(15, 15, 15)" },
+  { id: "sublime", mode: "dark", background: "rgb(33, 37, 43)" },
+  // Dark-only: it stays dark even when the mode is light.
+  { id: "sublime-dark", mode: "light", background: "rgb(23, 25, 30)" },
+  { id: "sublime-dark", mode: "dark", background: "rgb(23, 25, 30)" },
+]
 
-  // Read it off the document before anything waits for the app: the point of the file is that it has
-  // already run by now.
-  // The inline background this sets is the app's to own once it mounts; the class and the palette
-  // it puts on the document are what survive, and only the pre-paint script writes them this early.
-  const painted = await page.evaluate(() => ({
-    dark: document.documentElement.classList.contains("fc-dark"),
-    palette: document.documentElement.dataset.fcTheme,
-  }))
-  expect(painted).toEqual({ dark: true, palette: "classic" })
-})
+for (const saved of SAVED_PALETTES) {
+  test(`the saved ${saved.id} palette (${saved.mode}) is on the page before the app mounts`, async ({
+    page,
+  }) => {
+    await page.addInitScript((config) => {
+      window.localStorage.setItem("flupcode.theme", JSON.stringify(config.mode))
+      window.localStorage.setItem("flupcode.colorTheme", JSON.stringify(config.id))
+    }, saved)
+    await page.goto("/")
+
+    // Read it off the document before anything waits for the app: the point of the file is that it has
+    // already run by now. The class and the palette it puts on the document survive the mount; the
+    // colour is read back through the stylesheet, so the palette block has to resolve to it too.
+    const painted = await page.evaluate(() => ({
+      dark: document.documentElement.classList.contains("fc-dark"),
+      palette: document.documentElement.dataset.fcTheme,
+      background: getComputedStyle(document.documentElement).backgroundColor,
+    }))
+    expect(painted).toEqual({ dark: saved.mode === "dark", palette: saved.id, background: saved.background })
+  })
+}

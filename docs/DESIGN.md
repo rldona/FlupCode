@@ -121,11 +121,14 @@ Theming has two independent axes, both applied to `<html>`:
 - **Mode** (light/dark/system) is the `.fc-dark` class, stored under `flupcode.theme`.
 - **Palette** is the `data-fc-theme` attribute, stored under `flupcode.colorTheme`. The FlupCode
   palette (navy/violet, taken from `packages/landing/styles.css`) is the default and has no
-  attribute; `data-fc-theme="classic"` selects the original neutral grey/blue palette.
+  attribute; `data-fc-theme="classic"` selects the original neutral grey/blue palette,
+  `data-fc-theme="sublime"` the dark-grey Sublime-style palette and `data-fc-theme="sublime-dark"`
+  its deeper, dark-only variant.
 
-Each palette defines a light and a dark variant (`.fc-dark`), so the two axes multiply. Palette
-blocks in `tokens.css` come after `.fc-dark` and must be overridden by a
-`[data-fc-theme="…"].fc-dark` block for every token they set.
+Each palette normally defines a light and a dark variant (`.fc-dark`), so the two axes multiply.
+Palette blocks in `tokens.css` come after `.fc-dark` and must be overridden by a
+`[data-fc-theme="…"].fc-dark` block for every token they set. `sublime-dark` is dark-only: its one
+block overrides `.fc-dark` in both modes, so it needs no `[data-fc-theme="…"].fc-dark` counterpart.
 
 Settings exposes both axes: **Mode** and **Theme**. `index.html` applies the saved pair before the
 first paint to avoid a flash, so its background colours are duplicated there by design and must stay
