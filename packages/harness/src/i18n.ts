@@ -271,6 +271,14 @@ const ES: Record<string, string> = {
   "Fallback model": "Modelo de reserva",
   "Budget (tokens)": "Presupuesto (tokens)",
   "Budget (cost)": "Presupuesto (coste)",
+  // Artifacts and generated documents (H-14)
+  "What the runs left behind: reports, verdicts, plans, and the documents the agent kept.":
+    "Lo que dejaron las ejecuciones: informes, veredictos, planes y los documentos que guardó el agente.",
+  "This session has not written anything yet.": "Esta sesión todavía no ha escrito nada.",
+  "This artifact has nothing to show.": "Este artefacto no tiene nada que mostrar.",
+  "VS Code": "VS Code",
+  document: "documento",
+  screenshot: "captura",
   Replay: "Reproducir",
   "Replay this session": "Reproducir esta sesión",
   // Learned skills (H-43)

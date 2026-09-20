@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
 import {
+  ARTIFACT_WRITE_PLUGIN,
   REASONING_VARIANTS_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
   TOOL_USES_PLUGIN,
@@ -40,8 +41,8 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(3)
-    for (const plugin of [REASONING_VARIANTS_PLUGIN, SYSTEM_PROMPT_PLUGIN, TOOL_USES_PLUGIN]) {
+    expect(first.paths).toHaveLength(4)
+    for (const plugin of [REASONING_VARIANTS_PLUGIN, SYSTEM_PROMPT_PLUGIN, TOOL_USES_PLUGIN, ARTIFACT_WRITE_PLUGIN]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }
     expect(await Bun.file(path.join(config, "plugins", "reasoning-variants.ts")).exists()).toBe(false)
@@ -191,5 +192,21 @@ describe("installEnginePlugins", () => {
     const result = await installEnginePlugins(config)
     expect(result.changed).toBe(false)
     expect(result.error).toBeDefined()
+  })
+
+  test("the artifact tool writes a document where the Artifacts screen indexes it", async () => {
+    const config = await temp()
+    const project = await temp()
+    const plugin = await installed(config, ARTIFACT_WRITE_PLUGIN.file, "flupcodeArtifactWrite")
+    const hooks = await plugin()
+    const tool = hooks.tool["artifact.write"]
+
+    await tool.execute(
+      { title: "Report", filename: "../../escape.html", content: "<h1>hi</h1>" },
+      { directory: project },
+    )
+    // The name is reduced to a file in the project's folder, not a path that climbs out of it.
+    const written = await readFile(path.join(project, ".flupcode", "artifacts", "escape.html"), "utf8")
+    expect(written).toBe("<h1>hi</h1>")
   })
 })
