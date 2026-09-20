@@ -2280,7 +2280,10 @@ export const App: Component = () => {
       reconcileTranscript()
     }
     turnEnded = (sessionID) => {
-      if (sessionID !== selected() || !reconcileWhenIdle) return
+      // Reconcile on every turn end, not only when a refetch was asked for mid-turn: a run whose
+      // folder no stream is following is seen only by the poll, and this is the refetch that turns
+      // its finished answer into something the reader can see.
+      if (sessionID !== selected()) return
       reconcileWhenIdle = false
       reconcileTranscript()
     }
@@ -2462,7 +2465,10 @@ export const App: Component = () => {
       const directoryOf = (id: string | undefined) =>
         id ? list?.find((session) => session.id === id)?.location?.directory : undefined
       const open = [selected(), ...(splitActive() ? splitPanes() : [])].map(directoryOf)
-      const directories = [chatsDirectory(), targetDirectory(), ...open].filter(
+      // What is on screen first: the conversation being read is the one that needs its stream. The
+      // folders behind it (the code project, the chats) come after, so a chat in a project the app
+      // is not browsing still streams instead of being dropped by the budget below.
+      const directories = [...open, chatsDirectory(), targetDirectory()].filter(
         (value): value is string => typeof value === "string" && value.length > 0,
       )
       return [...new Set(directories)].slice(0, WATCHED_DIRECTORIES)
