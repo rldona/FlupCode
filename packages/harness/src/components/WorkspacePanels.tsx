@@ -7,16 +7,15 @@ import {
   createSignal,
   lazy,
   on,
-  untrack,
   type Component,
 } from "solid-js"
 import { createResource } from "../resource"
-import type { FileDiffInfo, SessionInfo } from "../engine-types"
+import type { SessionInfo } from "../engine-types"
 import { createClient } from "../client"
 import { browser } from "../browser"
 import { t } from "../i18n"
-import { parsePatch } from "../highlight"
 import { cssPx } from "../text-size"
+import { FileDiff } from "./FileDiff"
 import { Loader } from "./Loader"
 import { TopIcon, TopbarIcons } from "./Topbar"
 
@@ -31,6 +30,8 @@ type WorkspacePanelsProps = {
   revision?: unknown
   /** Project-relative paths in session order, most recently changed last. */
   changedFiles?: string[]
+  /** Opens the full-width diff viewer on the session's folder. */
+  onOpenChanges?: () => void
   onResize: (width: number) => void
   onClose: (kind: string) => void
 }
@@ -213,6 +214,7 @@ const DiffPanel: Component<{
   session: SessionInfo | undefined
   revision: unknown
   changedFiles?: string[]
+  onOpenChanges?: () => void
 }> = (props) => {
   const [diff] = createResource(
     () => {
@@ -221,7 +223,6 @@ const DiffPanel: Component<{
     },
     (source) => createClient(source.url).vcs.diff(source.directory),
   )
-  const [open, setOpen] = createSignal<string[]>([])
   const files = () => diff() ?? []
   // Git lists files by path, so order them session-first to keep the agent's last edit at the end.
   const ordered = createMemo(() => {
@@ -236,21 +237,13 @@ const DiffPanel: Component<{
   )
   let list: HTMLDivElement | undefined
 
-  // Expand the stack for the file the session changed most recently and reveal it.
+  // Reveal the file the session changed most recently; which one opens is `FileDiff`'s own business.
   createEffect(
     on(signature, () => {
-      const entries = untrack(ordered)
-      const last = entries[entries.length - 1]?.file
-      setOpen(last ? [last] : [])
       if (typeof requestAnimationFrame !== "function") return
       requestAnimationFrame(() => list?.lastElementChild?.scrollIntoView({ block: "nearest" }))
     }),
   )
-
-  const toggle = (entry: FileDiffInfo) => {
-    const file = entry.file ?? ""
-    setOpen((current) => (current.includes(file) ? current.filter((value) => value !== file) : [...current, file]))
-  }
 
   return (
     <Show
@@ -271,59 +264,26 @@ const DiffPanel: Component<{
             </div>
           }
         >
-          <div class="fc-file-list" ref={list}>
+          {/* This panel is 420 pixels wide and a patch is not. The way out is one click away. */}
+          <Show when={props.onOpenChanges}>
+            <button class="fc-files-wide" type="button" onClick={() => props.onOpenChanges?.()}>
+              {t("Open the diff viewer")}
+            </button>
+          </Show>
+          <div class="fc-changes-list fc-changes-list-panel" ref={list}>
             <For each={ordered()}>
-              {(entry) => {
-                const file = () => entry.file ?? ""
-                const expanded = () => open().includes(file())
-                return (
-                  <div class="fc-file" classList={{ "fc-file-open": expanded() }}>
-                    <button
-                      class="fc-file-header"
-                      type="button"
-                      aria-expanded={expanded()}
-                      onClick={() => toggle(entry)}
-                    >
-                      <svg class="fc-file-chevron" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                        <path
-                          d="m9 6 6 6-6 6"
-                          fill="none"
-                          stroke="currentColor"
-                          stroke-width="2"
-                          stroke-linecap="round"
-                          stroke-linejoin="round"
-                        />
-                      </svg>
-                      <span class="fc-file-name" title={file()}>
-                        {file()}
-                      </span>
-                      <span class="fc-file-stats">
-                        <span class="fc-file-add">+{entry.additions}</span>
-                        <span class="fc-file-del">-{entry.deletions}</span>
-                      </span>
-                    </button>
-                    <Show when={expanded()}>
-                      <Show when={entry.patch} fallback={<div class="fc-file-missing">{t("No diff available")}</div>}>
-                        {(patch) => (
-                          <div class="fc-file-patch">
-                            <For each={parsePatch(patch())}>
-                              {(row) => (
-                                <div class={`fc-file-row fc-file-row-${row.type}`}>
-                                  <span class="fc-file-no">{row.no ?? ""}</span>
-                                  <span class="fc-file-sign">
-                                    {row.type === "add" ? "+" : row.type === "del" ? "-" : " "}
-                                  </span>
-                                  <span class="fc-file-code">{row.text}</span>
-                                </div>
-                              )}
-                            </For>
-                          </div>
-                        )}
-                      </Show>
-                    </Show>
-                  </div>
-                )
-              }}
+              {(entry, index) => (
+                <FileDiff
+                  change={{
+                    file: entry.file ?? "",
+                    patch: entry.patch,
+                    additions: entry.additions,
+                    deletions: entry.deletions,
+                    status: entry.status,
+                  }}
+                  open={index() === ordered().length - 1}
+                />
+              )}
             </For>
           </div>
         </Show>
@@ -390,6 +350,7 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                   session={props.session}
                   revision={props.revision}
                   changedFiles={props.changedFiles}
+                  onOpenChanges={props.onOpenChanges}
                 />
               </Show>
               <Show when={kind === "terminal"}>

@@ -723,6 +723,26 @@ const ES: Record<string, string> = {
   Idle: "Inactiva",
   "Choose a project": "Elige un proyecto",
   "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
+  // Changes (H-06)
+  Changes: "Cambios",
+  "Working tree": "Copia de trabajo",
+  Branch: "Rama",
+  "Everything in the folder that is not committed yet.": "Todo lo que hay en la carpeta sin confirmar todavía.",
+  "Everything this branch has that {branch} does not.": "Todo lo que tiene esta rama y {branch} no.",
+  "Everything this branch has that the default branch does not.":
+    "Todo lo que tiene esta rama y la rama por defecto no.",
+  "Reading…": "Leyendo…",
+  "1 file": "1 archivo",
+  "{files} files": "{files} archivos",
+  "Pick a folder to see what has changed in it.": "Elige una carpeta para ver qué ha cambiado en ella.",
+  "Nothing has changed here.": "Aquí no ha cambiado nada.",
+  "See what changed": "Ver qué ha cambiado",
+  "Open the diff viewer": "Abrir el visor de cambios",
+  "No text diff for this file.": "Este archivo no tiene un diff de texto.",
+  "Show {n} lines": "Mostrar {n} líneas",
+  added: "añadido",
+  deleted: "eliminado",
+  modified: "modificado",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
