@@ -1164,6 +1164,20 @@ export const App: Component = () => {
     () => ((settingsOpen() || mcpOpen()) && ready() ? serverUrl() : undefined),
     async (url) => createClient(url).mcp.config(),
   )
+  // The engine's permission policy (H-25), edited in Settings. Runtime grants ("Allow always") are
+  // a different thing and are read from the engine on their own.
+  const [permissionPolicy, { refetch: refetchPermissionPolicy }] = createResource(
+    () => (settingsOpen() && ready() ? serverUrl() : undefined),
+    async (url) => ((await createClient(url).config()) as { permission?: unknown }).permission,
+  )
+  const savePermissionPolicy = (policy: Record<string, unknown>) =>
+    void createClient(serverUrl())
+      .updateConfig({ permission: policy })
+      .then(() => {
+        void refetchPermissionPolicy()
+        toast(t("Permissions saved"))
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   const toolsKey = () => ((contextOpen() || agentsOpen()) && ready() ? serverUrl() : undefined)
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
   /**
@@ -4723,6 +4737,9 @@ export const App: Component = () => {
         keybinds={keybinds()}
         savedPermissions={savedPermissions()?.data ?? []}
         onRevokePermission={revokePermission}
+        permissionPolicy={permissionPolicy()}
+        permissionServerAvailable={ready()}
+        onSavePermissionPolicy={savePermissionPolicy}
         commandFiles={commandFiles() ?? []}
         commandAgents={(agents()?.data ?? []).map((agent) => agent.id)}
         onSaveCommand={saveCommand}
