@@ -508,6 +508,57 @@ button.fc-row-main {
   max-width: 40vw;
 }
 
+/* The path back to a session's parent, inline before its title (H-18). */
+.fc-session-lineage {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  flex-shrink: 1;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-session-lineage-link {
+  max-width: 12rem;
+  overflow: hidden;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fc-session-lineage-link:hover {
+  color: var(--fc-text);
+  text-decoration: underline;
+}
+
+.fc-session-lineage-sep {
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+/* The sidebar's "there is another page" button (H-18). */
+.fc-load-more {
+  display: block;
+  width: calc(100% - 2 * var(--fc-space-3));
+  margin: var(--fc-space-2) var(--fc-space-3);
+  padding: 6px;
+  border: 1px dashed var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  cursor: pointer;
+}
+
+.fc-load-more:hover {
+  color: var(--fc-text);
+}
+
 /* Top bar icons: plain until hovered, when a soft shade appears behind them (no border). */
 .fc-nav-arrow {
   display: inline-flex;
