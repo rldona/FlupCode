@@ -1566,6 +1566,9 @@ export const App: Component = () => {
     const apply = () => {
       const dark = mode === "dark" || (mode === "system" && media.matches)
       document.documentElement.classList.toggle("fc-dark", dark)
+      // The index.html bootstrap already paints this before the app mounts; keep it in sync when the
+      // theme changes at runtime, since the inline background overrides the theme class.
+      document.documentElement.style.backgroundColor = dark ? "#0f0f0f" : "#ffffff"
       // The browser and installed app paint their status bar with this colour.
       document.querySelector('meta[name="theme-color"]')?.setAttribute("content", dark ? "#0f0f0f" : "#ffffff")
     }
