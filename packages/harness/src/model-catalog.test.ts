@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import type { ModelInfo } from "./engine-types"
-import { hasModel, isDeprecated, replacementModel } from "./model-catalog"
+import { groupedModels, hasModel, isDeprecated, modelKey, replacementModel } from "./model-catalog"
 
 const model = (id: string, extra: Partial<ModelInfo> = {}) =>
   ({ id, providerID: "opencode-go", name: id, status: "active", time: { released: 0 }, ...extra }) as ModelInfo
@@ -50,5 +50,27 @@ describe("model catalog", () => {
   test("marks deprecated models as such", () => {
     expect(isDeprecated(model("deepseek-v4-flash", { status: "deprecated" }))).toBe(true)
     expect(isDeprecated(model("deepseek-v4-flash"))).toBe(false)
+  })
+
+  test("names a model the way a policy does", () => {
+    expect(modelKey(model("deepseek-v4-flash"))).toBe("opencode-go/deepseek-v4-flash")
+  })
+
+  test("groups by provider, favourites first and deprecated below the rest", () => {
+    const groups = groupedModels(
+      [model("zeta"), model("alpha", { status: "deprecated" }), model("beta", { providerID: "anthropic" })],
+      "",
+      ["opencode-go/zeta"],
+    )
+    expect(groups.map((group) => group.providerID)).toEqual(["opencode-go", "anthropic"])
+    expect(groups[0]!.items.map((entry) => entry.id)).toEqual(["zeta", "alpha"])
+    expect(groups[1]!.items.map((entry) => entry.id)).toEqual(["beta"])
+  })
+
+  test("filters by name, id or provider", () => {
+    const models = [model("kimi-k3"), model("glm-5.3"), model("claude", { providerID: "anthropic" })]
+    const ids = (search: string) => groupedModels(models, search, []).flatMap((group) => group.items.map((entry) => entry.id))
+    expect(ids("glm")).toEqual(["glm-5.3"])
+    expect(ids("anthropic")).toEqual(["claude"])
   })
 })

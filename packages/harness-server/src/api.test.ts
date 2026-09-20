@@ -184,6 +184,66 @@ describe("harness runs API", () => {
     repository.close()
   })
 
+  // H-44: the same task once per model, each its own run, so H-33's comparison can put any two
+  // side by side. A repeated key is the same comparison twice, so only the distinct models run.
+  test("starts one run per distinct model with the model on its task", async () => {
+    const { repository, handler } = open()
+    const started = await handler(
+      new Request("http://localhost/harness/best-of-n", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Do the thing", models: ["a/one", "b/two", "a/one"], worktrees: true }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const runs = (await started.json()).data as Array<{ id: string; worktrees?: boolean }>
+    expect(runs).toHaveLength(2)
+
+    const tasks = runs.map((run) => repository.listTasks(run.id)[0]!)
+    expect(tasks.map((task) => task.model)).toEqual([
+      { providerID: "a", id: "one" },
+      { providerID: "b", id: "two" },
+    ])
+    // The same task, not two different ones: only the model differs, which is the whole point.
+    expect(tasks.map((task) => task.prompt)).toEqual(["Do the thing", "Do the thing"])
+    expect(tasks.map((task) => task.name)).toEqual(["a/one", "b/two"])
+    expect(runs.every((run) => run.worktrees === true)).toBe(true)
+
+    await Promise.all(runs.map((run) => settled(repository, run.id)))
+    repository.close()
+  })
+
+  // A batch that quietly dropped one of its variants would answer a different question than the one
+  // it was asked, so both refusals happen before anything starts.
+  test("refuses a batch that is not a comparison, and starts nothing", async () => {
+    const { repository, handler } = open()
+    const few = await handler(
+      new Request("http://localhost/harness/best-of-n", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Do it", models: ["a/one"] }),
+      }),
+    )
+    expect(few.status).toBe(400)
+
+    const wrong = await handler(
+      new Request("http://localhost/harness/best-of-n", {
+        method: "POST",
+        body: JSON.stringify({ prompt: "Do it", models: ["a/one", "nonsense"] }),
+      }),
+    )
+    expect(wrong.status).toBe(400)
+    expect((await wrong.json()).error).toContain("nonsense")
+
+    const empty = await handler(
+      new Request("http://localhost/harness/best-of-n", {
+        method: "POST",
+        body: JSON.stringify({ models: ["a/one", "b/two"] }),
+      }),
+    )
+    expect(empty.status).toBe(400)
+    expect(repository.listRuns()).toEqual([])
+    repository.close()
+  })
+
   // H-21: a workflow is a file that turns into a run of tasks. Everything after that is the path a
   // manual run already takes.
   test("starts a run from a workflow the project wrote down", async () => {
