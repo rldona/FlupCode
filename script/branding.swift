@@ -39,7 +39,7 @@ struct Target {
 
 let targets: [Target] = [
     Target(path: "packages/harness-desktop/build/icon.png", width: 1024, height: 1024, plate: true, fraction: 0.700, basis: .width),
-    Target(path: "packages/harness-desktop/build/icon-mac.png", width: 1024, height: 1024, plate: true, fraction: 0.700, basis: .width, frame: "packages/harness-desktop/build/icon.png"),
+    Target(path: "packages/harness-desktop/build/icon-mac.png", width: 1024, height: 1024, plate: true, fraction: 0.667, basis: .width, scale: 0.900, frame: "packages/harness-desktop/build/icon.png"),
     Target(path: "packages/harness/public/apple-touch-icon.png", width: 180, height: 180, plate: true, fraction: 0.722, basis: .width),
     Target(path: "packages/harness/public/icon-192.png", width: 192, height: 192, plate: true, fraction: 0.698, basis: .width),
     Target(path: "packages/harness/public/icon-512.png", width: 512, height: 512, plate: true, fraction: 0.700, basis: .width),
