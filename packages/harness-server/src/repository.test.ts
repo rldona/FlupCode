@@ -290,3 +290,42 @@ describe("what a reader keeps about a session (H-18)", () => {
     after.close()
   })
 })
+
+describe("context packs (H-26)", () => {
+  test("a pack belongs to a folder or to all of them, and the list shows both", () => {
+    const repository = open()
+    repository.savePack({ name: "review", refs: ["@src/a.ts", "@artifact:report"], directory: "/work/demo" })
+    repository.savePack({ name: "shared", refs: ["@AGENTS.md"] })
+
+    expect(repository.listPacks("/work/demo").map((pack) => pack.name)).toEqual(["review", "shared"])
+    // A pack without a folder is not one project's; another folder only sees the global one.
+    expect(repository.listPacks("/work/other").map((pack) => pack.name)).toEqual(["shared"])
+    repository.close()
+  })
+
+  test("refs are trimmed and de-duplicated", () => {
+    const repository = open()
+    const pack = repository.savePack({ name: "p", refs: [" @a ", "@a", "", "  ", "@b"] })
+    expect(pack.refs).toEqual(["@a", "@b"])
+    repository.close()
+  })
+
+  test("saving the same name in the same folder replaces the pack", () => {
+    const repository = open()
+    const first = repository.savePack({ name: "review", refs: ["@a"], directory: "/work/demo" })
+    const second = repository.savePack({ name: "review", refs: ["@b"], directory: "/work/demo" })
+
+    expect(repository.listPacks("/work/demo")).toHaveLength(1)
+    expect(repository.listPacks("/work/demo")[0]!.id).toBe(second.id)
+    expect(repository.removePack(first.id)).toBe(false)
+    repository.close()
+  })
+
+  test("removing one that is there", () => {
+    const repository = open()
+    const pack = repository.savePack({ name: "gone", refs: ["@a"] })
+    expect(repository.removePack(pack.id)).toBe(true)
+    expect(repository.listPacks()).toEqual([])
+    repository.close()
+  })
+})

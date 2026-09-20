@@ -4,13 +4,13 @@ import type { Attachment, CommandOption } from "../types"
 import type { Delivery } from "../pending-prompts"
 import { t } from "../i18n"
 import { ComposerMenu } from "./ComposerMenu"
-import { applyMention, filterCommands, mentionItems, mentionToken, slashQuery, type MentionItem } from "../composer-menus"
-import { toast } from "../toast"
+import { applyMention, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import { primaryAgents } from "../agents"
 import type { AppView, ChatClass } from "../chat"
-import { dictationAvailable, startDictation } from "../dictation"
+import { dictationAvailable } from "../dictation"
+import { isCowork, isPlainChat, useDictation } from "../composer-core"
 import { isDeprecated } from "../model-catalog"
 
 /**
@@ -40,6 +40,9 @@ type MobileComposerProps = {
   agents: AgentInfo[]
   /** Artifacts the `@` menu can reach, alongside files and agents (H-26). */
   artifacts?: Array<{ path: string; title?: string }>
+  /** Context packs, and a way to save the draft's refs as one (H-26). */
+  packs?: Array<{ name: string; refs: string[] }>
+  onSavePack?: (refs: string[]) => void
   agent: string
   permissionMode: string
   /** Commands for the `/` menu, the same list the desktop composer gets (H-26). */
@@ -155,13 +158,11 @@ const Row: Component<{ icon: string; label: string; value: string; disabled?: bo
 export const MobileComposer: Component<MobileComposerProps> = (props) => {
   const [sheet, setSheet] = createSignal<Sheet>()
   const [query, setQuery] = createSignal("")
-  const [listening, setListening] = createSignal(false)
-  let stopDictation: (() => void) | undefined
-  onCleanup(() => stopDictation?.())
+  const { listening, toggle: toggleVoice } = useDictation((text) => props.onInput(text))
   // Cowork is a chat in the Chat tab, but it earns the permission row Code has; only a plain chat
   // hides it. See ADR-0013.
-  const chat = () => props.mode === "chat" && props.chatClass === "chat"
-  const cowork = () => props.chatClass === "cowork"
+  const chat = () => isPlainChat(props.mode, props.chatClass)
+  const cowork = () => isCowork(props.chatClass)
   // With a conversation open, only the other class starts something new, so only it says "New".
   const chatLabel = () => (props.sessionOpen && cowork() ? t("New chat") : t("Chat"))
   const coworkLabel = () => (props.sessionOpen && !cowork() ? t("New cowork") : t("Cowork"))
@@ -178,6 +179,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
       files: fileResults(),
       agents: primaryAgents(props.agents),
       artifacts: props.artifacts ?? [],
+      packs: props.packs ?? [],
     })
   createEffect(() => {
     filteredCommands()
@@ -204,8 +206,12 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
   })
   const menusDismissed = () => dismissedAt() !== undefined && dismissedAt() === props.value
   const commandMenuOpen = () => !menusDismissed() && commandQuery() !== undefined && filteredCommands().length > 0
+  const menuCanSavePack = () => !!props.onSavePack && refsIn(props.value).length > 0
   const mentionMenuOpen = () =>
-    !menusDismissed() && commandQuery() === undefined && mentionQuery() !== undefined && mentionCandidates().length > 0
+    !menusDismissed() &&
+    commandQuery() === undefined &&
+    mentionQuery() !== undefined &&
+    (mentionCandidates().length > 0 || menuCanSavePack())
   const closeMenus = () => {
     if (commandMenuOpen()) props.onInput("")
     else setDismissedAt(props.value)
@@ -215,27 +221,6 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
     setFileResults([])
   }
 
-  const toggleVoice = () => {
-    if (listening()) {
-      stopDictation?.()
-      stopDictation = undefined
-      return
-    }
-    const base = props.value
-    const stop = startDictation({
-      lang: navigator.language,
-      onTranscript: (text) => props.onInput(`${base} ${text}`.trim()),
-      onError: (code) =>
-        toast(code ? `${t("Voice dictation failed")} (${code})` : t("Voice dictation failed"), "error"),
-      onEnd: () => {
-        stopDictation = undefined
-        setListening(false)
-      },
-    })
-    if (!stop) return
-    stopDictation = stop
-    setListening(true)
-  }
   let cameraInput: HTMLInputElement | undefined
   let photoInput: HTMLInputElement | undefined
   let fileInput: HTMLInputElement | undefined
@@ -330,6 +315,18 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               const item = mentionCandidates()[index]
               if (item) insertMention(item)
             }}
+            footer={
+              <Show when={props.onSavePack && refsIn(props.value).length > 0}>
+                <button
+                  class="fc-command-item fc-command-save"
+                  type="button"
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => props.onSavePack?.(refsIn(props.value))}
+                >
+                  <span class="fc-command-name">{t("Save these as a pack")}</span>
+                </button>
+              </Show>
+            }
           />
         </Show>
         <textarea
@@ -402,7 +399,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               classList={{ "fc-mobile-round-on": listening() }}
               type="button"
               aria-label={t("Voice dictation")}
-              onClick={toggleVoice}
+              onClick={() => toggleVoice(props.value)}
             >
               <Icon path="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3ZM5 11a7 7 0 0 0 14 0M12 18v3" />
             </button>

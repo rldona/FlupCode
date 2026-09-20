@@ -7,13 +7,15 @@
  */
 
 export type MentionItem = {
-  kind: "file" | "agent" | "artifact"
+  kind: "file" | "agent" | "artifact" | "pack"
   /** What goes after the `@`. */
   value: string
   /** What the row shows. */
   label: string
   /** The small line at the end: where it comes from. */
   hint?: string
+  /** What replaces the half-typed token; a pack expands to its references. Absent means `value`. */
+  insert?: string
 }
 
 export type MentionSources = {
@@ -21,6 +23,8 @@ export type MentionSources = {
   files: Array<{ path: string; type?: string }>
   agents: Array<{ id: string; description?: string }>
   artifacts: Array<{ path: string; title?: string }>
+  /** Context packs: picking one drops all of its references into the draft (H-26). */
+  packs?: Array<{ name: string; refs: string[] }>
 }
 
 /** The command query, or `undefined` when the draft is not a `/` command in progress. */
@@ -70,6 +74,15 @@ export function mentionItems(token: string, sources: MentionSources): MentionIte
         label: `@${artifact.path}`,
         hint: artifact.title ?? "artifact",
       })),
+    ...(sources.packs ?? [])
+      .filter((pack) => matches(pack.name))
+      .map((pack) => ({
+        kind: "pack" as const,
+        value: pack.name,
+        label: `@${pack.name}`,
+        hint: "pack",
+        insert: pack.refs.join(" "),
+      })),
   ]
   return items.slice(0, 8)
 }
@@ -81,5 +94,18 @@ export function applyMention(value: string, item: MentionItem): string {
   const before = value.slice(0, at)
   const after = value.slice(at + 1)
   const rest = after.includes(" ") ? after.slice(after.indexOf(" ")) : ""
-  return `${before}@${item.value} ${rest.trimStart()}`.trimEnd() + " "
+  return `${before}${item.insert ?? `@${item.value}`} ${rest.trimStart()}`.trimEnd() + " "
+}
+
+/**
+ * The references already in the draft, in order and without repeats.
+ *
+ * This is what "save as a pack" saves: the mentions somebody actually typed, not the whole prompt.
+ * Trailing punctuation is not part of a reference — a mention at the end of a sentence is common.
+ */
+export function refsIn(draft: string): string[] {
+  const found = (draft.match(/@[^\s@]+/g) ?? [])
+    .map((ref) => ref.replace(/[.,;:)\]]+$/, "").trim())
+    .filter((ref) => ref.length > 1)
+  return [...new Set(found)]
 }
