@@ -61,6 +61,7 @@ type SettingsPanelProps = {
   onRemoveMcp: (name: string) => void
   onConnectMcp: (name: string) => void
   onDisconnectMcp: (name: string) => void
+  onOAuthMcp: (name: string) => void
   onTheme: (value: string) => void
   onColorTheme: (value: string) => void
   onLocale: (value: Locale) => void
@@ -529,6 +530,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     onRemove={props.onRemoveMcp}
                     onConnect={props.onConnectMcp}
                     onDisconnect={props.onDisconnectMcp}
+                    onOAuth={props.onOAuthMcp}
                   />
                 </section>
               </Show>
