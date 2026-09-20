@@ -535,18 +535,28 @@ export const App: Component = () => {
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
+  const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
   const replayOpen = () => screen() === "replay"
   const compareOpen = () => screen() === "compare"
   /**
-   * The tool screens that live in the main column (HF-9): runs, workflows, artifacts and
-   * routines render where the conversation goes, with the sidebar visible, instead of a
-   * fixed overlay. Anything else keeps its overlay.
+   * The tool screens that live in the main column (HF-9): runs, workflows, artifacts,
+   * routines, context, agents, skills and usage render where the conversation goes, with the
+   * sidebar visible, instead of a fixed overlay. Anything else keeps its overlay.
    */
   const toolScreen = () => {
     const current = screen()
-    return current === "runs" || current === "workflows" || current === "artifacts" || current === "routines"
+    return (
+      current === "runs" ||
+      current === "workflows" ||
+      current === "artifacts" ||
+      current === "routines" ||
+      current === "context" ||
+      current === "agents" ||
+      current === "skills" ||
+      current === "usage"
+    )
   }
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
@@ -1431,7 +1441,7 @@ export const App: Component = () => {
    * rather than for the folder it is given — measured against the local engine. The rest of the app
    * still uses it, and that is its own ticket.
    */
-  const folderAgentsKey = () => (agentsSectionVisible() && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
+  const folderAgentsKey = () => ((agentsSectionVisible() || agentsOpen()) && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
   const [folderAgents] = createResource(folderAgentsKey, (key) => {
     const [url = "", directory = ""] = key.split("\n")
     return createClient(url).agent.listFor(directory || undefined)
@@ -1442,7 +1452,7 @@ export const App: Component = () => {
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
     // Also when Settings is open: who may reach a server is read from the agent files (H-34).
-    if (!settingsOpen() || !routinesServerAvailable()) return undefined
+    if ((!settingsOpen() && !agentsOpen()) || !routinesServerAvailable()) return undefined
     return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${agentsRefresh()}`
   }
   const [agentsRefresh, setAgentsRefresh] = createSignal(0)
@@ -1509,7 +1519,7 @@ export const App: Component = () => {
         toast(t("Permissions saved"))
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
-  const toolsKey = () => ((contextOpen() || agentsSectionVisible()) && ready() ? serverUrl() : undefined)
+  const toolsKey = () => ((contextOpen() || agentsOpen() || agentsSectionVisible()) && ready() ? serverUrl() : undefined)
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
   /**
    * What this session's window actually holds.
@@ -5101,7 +5111,7 @@ export const App: Component = () => {
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
-            onAgents={() => openSettings("agents")}
+            onAgents={() => showScreen("agents")}
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
             onArtifacts={() => showScreen("artifacts")}
@@ -5240,6 +5250,67 @@ export const App: Component = () => {
               selectSession(id)
             }}
             onClose={() => leaveScreen()}
+          />
+          <ContextPanel
+            open={contextOpen()}
+            directory={vcsDirectory()}
+            report={contextReport()}
+            loading={contextReport.loading}
+            serverAvailable={routinesServerAvailable()}
+            skills={skills()?.data ?? []}
+            agents={agents()?.data ?? []}
+            agent={agent()}
+            tools={engineTools() ?? []}
+            mcp={mcp()?.data ?? []}
+            tokens={contextTokens()}
+            compactions={compactions()}
+            prompts={capturedPrompts()}
+            promptsLoading={capturedPrompts.loading}
+            toolUses={toolUses()?.tools}
+            toolCalls={toolUses()?.calls}
+            onRead={readInstruction}
+          />
+          <AgentsPanel
+            open={agentsOpen()}
+            files={agentFiles() ?? []}
+            agents={folderAgents() ?? []}
+            tools={engineTools() ?? []}
+            mcp={mcp()?.data ?? []}
+            models={agentModels()}
+            loading={agentFiles.loading}
+            serverAvailable={routinesServerAvailable()}
+            hasProject={!!vcsDirectory()}
+            onSave={saveAgent}
+            onDelete={deleteAgent}
+          />
+          <SkillCatalogue
+            open={skillsScreenOpen()}
+            files={skillFiles() ?? []}
+            skills={skills()?.data ?? []}
+            loading={skillFiles.loading}
+            skillsLoading={skills.loading}
+            serverAvailable={routinesServerAvailable()}
+            hasProject={!!vcsDirectory()}
+            sources={skillSources()}
+            agents={agentFiles() ?? []}
+            onAddSource={addSkillSource}
+            onRemoveSource={removeSkillSource}
+            onRead={readSkillFile}
+            onSave={saveSkill}
+            onDelete={deleteSkillFile}
+          />
+          <UsagePanel
+            open={usageOpen()}
+            report={usage()}
+            loading={usage.loading}
+            error={usage.error ? (usage.error instanceof Error ? usage.error.message : String(usage.error)) : undefined}
+            days={usageDays()}
+            onDays={setUsageDays}
+            directory={vcsDirectory()}
+            onlyProject={usageOnlyProject()}
+            onOnlyProject={setUsageOnlyProject}
+            serverAvailable={routinesServerAvailable()}
+            onOpenRuns={() => showScreen("runs")}
           />
         </Show>
         <Show
@@ -5757,63 +5828,12 @@ export const App: Component = () => {
         }}
         onClose={() => setSettingsOpen(false)}
       />
-      <SkillCatalogue
-        open={skillsScreenOpen()}
-        files={skillFiles() ?? []}
-        skills={skills()?.data ?? []}
-        loading={skillFiles.loading}
-        skillsLoading={skills.loading}
-        serverAvailable={routinesServerAvailable()}
-        hasProject={!!vcsDirectory()}
-        sources={skillSources()}
-        agents={agentFiles() ?? []}
-        onAddSource={addSkillSource}
-        onRemoveSource={removeSkillSource}
-        onRead={readSkillFile}
-        onSave={saveSkill}
-        onDelete={deleteSkillFile}
-        onClose={() => leaveScreen()}
-      />
       <FilesPanel
         open={filesOpen()}
         directory={vcsDirectory()}
         list={listFiles}
         search={searchFileEntries}
         read={readFileText}
-        onClose={() => leaveScreen()}
-      />
-      <ContextPanel
-        open={contextOpen()}
-        directory={vcsDirectory()}
-        report={contextReport()}
-        loading={contextReport.loading}
-        serverAvailable={routinesServerAvailable()}
-        skills={skills()?.data ?? []}
-        agents={agents()?.data ?? []}
-        agent={agent()}
-        tools={engineTools() ?? []}
-        mcp={mcp()?.data ?? []}
-        tokens={contextTokens()}
-        compactions={compactions()}
-        prompts={capturedPrompts()}
-        promptsLoading={capturedPrompts.loading}
-        toolUses={toolUses()?.tools}
-        toolCalls={toolUses()?.calls}
-        onRead={readInstruction}
-        onClose={() => leaveScreen()}
-      />
-      <UsagePanel
-        open={usageOpen()}
-        report={usage()}
-        loading={usage.loading}
-        error={usage.error ? (usage.error instanceof Error ? usage.error.message : String(usage.error)) : undefined}
-        days={usageDays()}
-        onDays={setUsageDays}
-        directory={vcsDirectory()}
-        onlyProject={usageOnlyProject()}
-        onOnlyProject={setUsageOnlyProject}
-        serverAvailable={routinesServerAvailable()}
-        onOpenRuns={() => showScreen("runs")}
         onClose={() => leaveScreen()}
       />
       <ChangesPanel

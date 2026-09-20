@@ -29,7 +29,6 @@ type SkillCatalogueProps = {
   onRead: (path: string) => Promise<string>
   onSave: (draft: { name: string; scope: "global" | "project"; description: string; body: string }) => Promise<unknown>
   onDelete: (path: string) => Promise<unknown>
-  onClose: () => void
 }
 
 const WHERE: Record<SkillFile["scope"], string> = {
@@ -160,9 +159,6 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
           <div class="fc-routines-header-actions">
             <button class="fc-button fc-button-primary" type="button" onClick={startNew}>
               {t("New skill")}
-            </button>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
             </button>
           </div>
         </div>
