@@ -466,8 +466,11 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   }
 
   const scrollToEnd = () => {
-    setStick(true)
-    container?.scrollTo({ top: container.scrollHeight, behavior: motion() })
+    if (!container) return
+    // Following the end starts once the glide arrives (the scroll handler re-sticks near the end);
+    // sticking now would snap there instantly and cut the animation.
+    if (motion() === "auto") setStick(true)
+    container.scrollTo({ top: container.scrollHeight, behavior: motion() })
   }
 
   // Follows the end while content grows (streaming, tool output, refreshed history). The body only
