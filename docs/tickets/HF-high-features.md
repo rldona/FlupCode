@@ -10,7 +10,7 @@ Reglas de ejecución (acordadas):
 
 ## Orden
 
-HF-1 → HF-2 → HF-3 → HF-4 → HF-5 → HF-6 → HF-7 → HF-8
+HF-1 → HF-2 → HF-3 → HF-4 → HF-5 → HF-6 → HF-7 → HF-8 → HF-9
 
 ---
 
@@ -103,3 +103,19 @@ HF-1 → HF-2 → HF-3 → HF-4 → HF-5 → HF-6 → HF-7 → HF-8
 
 **Tests**
 - `schedule.test.ts` + `scheduler` (lock, lease, recovery, run-now, enable/disable) en verde; e2e routines en verde.
+
+---
+
+## HF-9 — Tool screens en la columna principal · P0
+
+**Falta:** Runs, Workflows, Artifacts y Routines se abren como overlay `fixed` que tapa la columna y obliga a volver atrás; el sidebar no marca la sección activa.
+
+**Acceptance**
+- Las 4 se pintan en la columna principal (donde va `SessionView`), con sidebar y topbar visibles.
+- El nav marca activa la sección abierta; elegir sesión sale de la pantalla; elegir sección no toca la sesión.
+- La URL se mantiene (`/runs`, etc.): deep links y recarga funcionan.
+- Composer oculto mientras hay pantalla de herramienta.
+- Los otros 8 screens quedan como están (variante por padre, no cambio global de la clase).
+
+**Tests**
+- `bun test` (unit, sin e2e) + `bun typecheck` en `packages/harness` en verde; e2e workflows donde aplique.

@@ -7,6 +7,7 @@ import { isCoworkSession, type AppView } from "../chat"
 import { cssPx } from "../text-size"
 import { UNAVAILABLE_FEATURES } from "../features"
 import type { Routine } from "../types"
+import type { Screen } from "../screen"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
 import logo from "../assets/flupcode-logo.png"
@@ -76,6 +77,8 @@ type SidebarProps = {
   /** The routines there are, for the section at the top. Empty means no section at all. */
   routines: Routine[]
   onSearch: () => void
+  /** The tool screen open in the main column, if any, so the nav marks it (HF-9). */
+  activeScreen?: Screen
   onRuns: () => void
   onUsage: () => void
   onContext: () => void
@@ -376,16 +379,27 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             <Show when={props.view === "code"}>
               {/* Live first: runs are what the harness is doing now, workflows launch them,
                   artifacts are what they leave, routines run on their own. */}
-              <button class="fc-nav-item" type="button" onClick={props.onRuns}>
+              <button
+                class="fc-nav-item"
+                classList={{ "fc-nav-item-active": props.activeScreen === "runs" }}
+                type="button"
+                onClick={props.onRuns}
+              >
                 <span class="fc-nav-icon">⛭</span>
                 {t("Runs")}
               </button>
-              <button class="fc-nav-item" type="button" onClick={props.onWorkflows}>
+              <button
+                class="fc-nav-item"
+                classList={{ "fc-nav-item-active": props.activeScreen === "workflows" }}
+                type="button"
+                onClick={props.onWorkflows}
+              >
                 <span class="fc-nav-icon">⛓</span>
                 {t("Workflows")}
               </button>
               <button
                 class="fc-nav-item"
+                classList={{ "fc-nav-item-active": props.activeScreen === "artifacts" }}
                 type="button"
                 disabled={UNAVAILABLE_FEATURES.has("artifacts")}
                 title={UNAVAILABLE_FEATURES.has("artifacts") ? t("Coming soon") : undefined}
@@ -399,6 +413,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               </button>
               <button
                 class="fc-nav-item"
+                classList={{ "fc-nav-item-active": props.activeScreen === "routines" }}
                 type="button"
                 disabled={UNAVAILABLE_FEATURES.has("routines")}
                 title={UNAVAILABLE_FEATURES.has("routines") ? t("Coming soon") : undefined}
