@@ -1541,7 +1541,7 @@ export const App: Component = () => {
           attachments={attachments()}
           commands={commandOptions()}
           projects={projects()}
-          targetDirectory={targetDirectory()}
+          targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
           agents={agents()?.data ?? []}
           agent={agent()}
           permissionMode={permissionModeId()}
