@@ -3,6 +3,7 @@ import { parseModelKey } from "./policy"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
 import { findWorkflow, tasksFor } from "./workflow"
+import { restore } from "./checkpoint"
 import type { Run, RunPolicy, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
@@ -43,6 +44,13 @@ export class RoutineBusyError extends Error {
   constructor() {
     super("Routine is already running")
     this.name = "RoutineBusyError"
+  }
+}
+
+export class CheckpointNotFoundError extends Error {
+  constructor(readonly checkpoint: string) {
+    super(`Checkpoint not found: ${checkpoint}`)
+    this.name = "CheckpointNotFoundError"
   }
 }
 
@@ -190,14 +198,30 @@ export class RoutineScheduler {
     packs?: string[]
     worktrees?: boolean
     policy?: RunPolicy
+    /** Stop the task list at this task id, inclusive (HF-1). */
+    until?: string
+    /** Restore this checkpoint before starting, so a run resumes from disk state (HF-1). */
+    fromCheckpoint?: string
   }) {
     const workflow = await findWorkflow(input.name, input.directory)
     if (!workflow) throw new UnknownWorkflowError(input.name)
     const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
+    const until = input.until?.trim() ? input.until.trim() : undefined
+    let directory = input.directory
+    if (input.fromCheckpoint?.trim()) {
+      const checkpoint = this.repository.getCheckpoint(input.fromCheckpoint.trim())
+      if (!checkpoint) throw new CheckpointNotFoundError(input.fromCheckpoint.trim())
+      directory = input.directory ?? checkpoint.directory
+      await restore({
+        directory,
+        sha: checkpoint.sha,
+        safetyTitle: `Before resuming ${workflow.name} from "${checkpoint.title}"`,
+      })
+    }
     return this.runTasks({
-      tasks: tasksFor(workflow, input.inputs ?? {}),
-      directory: input.directory,
+      tasks: tasksFor(workflow, input.inputs ?? {}, until),
+      directory,
       // A workflow is a file, so its ceiling, its bypass and its shell are written in the file too
       // (H-47).
       ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),

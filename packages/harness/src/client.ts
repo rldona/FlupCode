@@ -1124,7 +1124,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           baseUrl,
           directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
         ),
-      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown }) =>
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown; until?: string; fromCheckpoint?: string }) =>
         harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
           method: "POST",
           body: JSON.stringify(input),

@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { capped, kindsIn, search } from "./components/CommandPalette"
 import type { SessionInfo } from "./engine-types"
-import type { Artifact, CommandOption, ProjectItem, Routine, Run } from "./types"
+import type { Artifact, CommandOption, ProjectItem, Routine, Run, Workflow } from "./types"
 
 const session = (id: string, title: string, directory?: string, agent?: string) =>
   ({
@@ -22,6 +22,7 @@ const empty = {
   artifacts: [] as Artifact[],
   routines: [] as Routine[],
   runs: [] as Run[],
+  workflows: [] as Workflow[],
   files: [],
 }
 
@@ -74,6 +75,15 @@ describe("search", () => {
     // The engine's own fuzzy search decided these; filtering them again here would drop its matches.
     const found = search("zzz", { ...empty, files: [{ path: "src/a.ts" } as never] })
     expect(found.map((item) => item.value)).toEqual(["src/a.ts"])
+  })
+
+  test("HF-1: workflows are found by name and description", () => {
+    const workflows = [
+      { name: "feature", description: "Plan and build", inputs: ["goal"], tasks: [] },
+      { name: "review", description: "Review a diff", inputs: [], tasks: [] },
+    ] as unknown as Workflow[]
+    expect(search("feat", { ...empty, workflows }).map((item) => item.value)).toEqual(["feature"])
+    expect(search("diff", { ...empty, workflows }).map((item) => item.kind)).toEqual(["workflow"])
   })
 })
 
