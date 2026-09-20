@@ -220,6 +220,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     model: {
       list: (input?: LocationInput) => unwrap(client.v2.model.list(input)),
+      directory: () => unwrap(client.config.providers()),
       default: async () => ({ data: undefined as ModelV2Info | undefined }),
     },
     provider: {

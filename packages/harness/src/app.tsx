@@ -3,6 +3,7 @@ import type { PermissionV2Request, QuestionV2Request } from "./engine-types"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
+import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, SessionTags, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { Toaster, toast } from "./toast"
@@ -99,6 +100,28 @@ export const App: Component = () => {
     createClient(url).session.list(),
   )
   const [models] = createResource(serverUrl, async (url) => createClient(url).model.list())
+  const [modelDirectory, { refetch: refetchModelDirectory }] = createResource(serverUrl, async (url) =>
+    createClient(url).model.directory(),
+  )
+  const modelList = createMemo(() => {
+    const providers = modelDirectory()?.providers
+    if (providers && providers.length > 0) {
+      const result: ModelInfo[] = []
+      for (const provider of providers) {
+        for (const [modelID, model] of Object.entries(provider.models ?? {})) {
+          const entry = model as { id?: string; variants?: unknown[] }
+          result.push({
+            ...(model as object),
+            providerID: provider.id,
+            id: entry.id ?? modelID,
+            variants: entry.variants ?? [],
+          } as unknown as ModelInfo)
+        }
+      }
+      if (result.length > 0) return result
+    }
+    return models()?.data ?? []
+  })
   const [defaultModel] = createResource(serverUrl, async (url) => createClient(url).model.default())
   const [agents] = createResource(serverUrl, async (url) => createClient(url).agent.list())
   const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
@@ -294,14 +317,14 @@ export const App: Component = () => {
   const currentModel = () => {
     const ref = modelRef()
     if (!ref) return
-    return models()?.data?.find((model) => model.providerID === ref.providerID && model.id === ref.id)
+    return modelList().find((model) => model.providerID === ref.providerID && model.id === ref.id)
   }
   const variants = () => (auto() ? [] : (currentModel()?.variants ?? []))
   const variantKey = () => (auto() ? undefined : modelRef()?.variant)
 
   createEffect(() => {
     if (modelRef()) return
-    const fallback = defaultModel()?.data ?? models()?.data?.[0]
+    const fallback = defaultModel()?.data ?? modelList()[0]
     if (!fallback) return
     setModelRef({ providerID: fallback.providerID, id: fallback.id })
   })
@@ -841,6 +864,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.auth.set({ providerID, key })
       void refetchProviderDirectory()
+      void refetchModelDirectory()
       return undefined
     }, t("Provider saved"))
 
@@ -848,6 +872,7 @@ export const App: Component = () => {
     run(async (current) => {
       await current.auth.remove({ providerID })
       void refetchProviderDirectory()
+      void refetchModelDirectory()
       return undefined
     }, t("Provider removed"))
 
@@ -1202,7 +1227,7 @@ export const App: Component = () => {
         <Composer
           value={prompt()}
           sending={busy()}
-          models={models()?.data ?? []}
+          models={modelList()}
           modelKey={modelKey()}
           variants={variants()}
           variantKey={variantKey()}
@@ -1239,7 +1264,7 @@ export const App: Component = () => {
       />
       <Show when={selectedSession()}>
         {(session) => (
-          <RightAside session={session()} models={models()?.data ?? []} todos={todos()} />
+          <RightAside session={session()} models={modelList()} todos={todos()} />
         )}
       </Show>
       <Toaster />
@@ -1287,7 +1312,7 @@ export const App: Component = () => {
         locale={getLocale()}
         displayName={displayName()}
         serverInput={serverInput()}
-        models={models()?.data ?? []}
+        models={modelList()}
         modelKey={modelKey()}
         auto={auto()}
         showTools={showTools()}
