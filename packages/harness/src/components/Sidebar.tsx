@@ -46,8 +46,9 @@ type SidebarProps = {
   /** Which tabs have sessions working right now, for the dot on their icons. */
   viewActivity: { chat: boolean; code: boolean }
   /**
-   * The name and the view tabs. The desktop app has neither here: its window strip runs the width of
-   * the window and carries the tabs, and the name is the window's own.
+   * The view tabs, next to the app's name. The desktop app's own window strip already carries them,
+   * so showing them here too would put Chat / Code in two places at once; the name still belongs
+   * here in every case, same as in the browser.
    */
   showBrand: boolean
   sessions: SessionInfo[] | undefined
@@ -396,12 +397,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         />
 
         <div class="fc-sidebar-top">
-          <Show when={props.showBrand}>
-            <div class="fc-sidebar-brand">
-              <span class="fc-sidebar-brand-name">FlupCode</span>
+          <div class="fc-sidebar-brand">
+            <span class="fc-sidebar-brand-name">FlupCode</span>
+            <Show when={props.showBrand}>
               <ViewTabs view={props.view} onChange={props.onViewChange} activity={props.viewActivity} />
-            </div>
-          </Show>
+            </Show>
+          </div>
           <div class="fc-sidebar-new">
             <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
               <span class="fc-new-icon">+</span>
