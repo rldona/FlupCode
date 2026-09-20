@@ -731,7 +731,7 @@ export const App: Component = () => {
       Boolean(localNetworkEngine() && health()?.blocked) && (localNetwork() === "prompt" || localNetwork() === "denied"),
   )
   // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
-  // stock OpenCode CLI, whose extras (Copilot sign-in, permission modes, memory) are missing.
+  // stock OpenCode CLI, whose extras (permission modes, memory) are missing.
   const [engineProfile] = createResource(
     () => (ready() ? serverUrl() : undefined),
     (url) => probeEngineProfile(url),
@@ -4553,6 +4553,19 @@ export const App: Component = () => {
     setTimeout(refresh, 800)
   }
 
+  /**
+   * Legacy provider OAuth, for a stock OpenCode CLI whose v2 integration registry has no OAuth
+   * method (Copilot's device flow is registered only here). `authorize` returns the URL and
+   * instructions; `callback` blocks until the provider authorizes and stores the credential.
+   */
+  const legacyOAuthAuthorize = (providerID: string, method: number, inputs?: Record<string, string>) =>
+    client().provider.oauth.authorize({ providerID, method, inputs })
+
+  const legacyOAuthCallback = (providerID: string, method: number, code?: string) =>
+    client()
+      .provider.oauth.callback({ providerID, method, code })
+      .then(() => undefined)
+
   const editMessage = (messageID: string, text: string) => {
     const sessionID = selected()
     if (!sessionID) return
@@ -5936,6 +5949,8 @@ export const App: Component = () => {
         onProviderOAuthStatus={oAuthStatus}
         onProviderOAuthCancel={cancelOAuth}
         onProviderOAuthDone={finishOAuth}
+        onProviderOAuthLegacy={legacyOAuthAuthorize}
+        onProviderOAuthLegacyCallback={legacyOAuthCallback}
         onLinkConfiguredProviders={linkConfiguredKeys}
         consoleActive={consoleActive()}
         consoleOrgs={consoleOrgs() ?? []}

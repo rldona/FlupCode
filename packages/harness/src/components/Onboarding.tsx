@@ -79,7 +79,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
       <Show when={props.serverHealthy === true && props.engineProfile === "stock"}>
         <p class="fc-onboarding-text">
           {t(
-            "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.",
+            "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.",
           )}{" "}
           <a class="fc-link" href={GETTING_STARTED} target="_blank" rel="noreferrer">
             {t("How to run FlupCode's engine")}

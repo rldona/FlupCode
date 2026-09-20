@@ -110,4 +110,32 @@ describe("Auth", () => {
       })
     }),
   )
+
+  it.instance("bridges legacy GitHub Copilot OAuth credentials to the v2 store", () =>
+    Effect.gen(function* () {
+      const auth = yield* Auth.Service
+      const credentials = yield* Credential.Service
+      yield* auth.set("github-copilot", {
+        type: "oauth",
+        access: "gho_access",
+        refresh: "gho_refresh",
+        expires: 0,
+        enterpriseUrl: "https://example.ghe.com",
+      })
+
+      const saved = yield* credentials.list(Integration.ID.make("github-copilot"))
+      expect(saved).toHaveLength(1)
+      expect(saved[0].value).toEqual({
+        type: "oauth",
+        methodID: Integration.MethodID.make("device"),
+        access: "gho_access",
+        refresh: "gho_refresh",
+        expires: 0,
+        metadata: { enterpriseUrl: "https://example.ghe.com" },
+      })
+
+      yield* auth.remove("github-copilot")
+      expect(yield* credentials.list(Integration.ID.make("github-copilot"))).toEqual([])
+    }),
+  )
 })
