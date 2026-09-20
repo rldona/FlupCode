@@ -21,6 +21,8 @@ import type {
   StoredEvent,
   Checkpoint,
   Finding,
+  SessionPrefs,
+  StashedPrompt,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -142,6 +144,18 @@ CREATE TABLE IF NOT EXISTS findings (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS findings_directory ON findings(directory, created_at DESC);
+CREATE TABLE IF NOT EXISTS session_prefs (
+  session_id TEXT PRIMARY KEY,
+  pinned INTEGER,
+  tags_json TEXT,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS stashed_prompts (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS stashed_prompts_created_at ON stashed_prompts(created_at DESC);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -298,6 +312,39 @@ const decodeFinding = (row: FindingRow): Finding => ({
   ...(row.detail ? { detail: row.detail } : {}),
   ...(row.source ? { source: row.source as Finding["source"] } : {}),
   ...(row.resolved ? { resolved: true } : {}),
+})
+
+type SessionPrefsRow = {
+  session_id: string
+  pinned: number | null
+  tags_json: string | null
+  updated_at: number
+}
+
+const decodeSessionPrefs = (row: SessionPrefsRow): SessionPrefs => ({
+  sessionID: row.session_id,
+  pinned: !!row.pinned,
+  tags: readTags(row.tags_json),
+  updatedAt: row.updated_at,
+})
+
+/** Only string tags come back; a hand-edited file must not put a number in a chip. */
+function readTags(value: string | null): string[] {
+  if (!value) return []
+  try {
+    const parsed = JSON.parse(value)
+    return Array.isArray(parsed) ? parsed.filter((tag): tag is string => typeof tag === "string") : []
+  } catch {
+    return []
+  }
+}
+
+type StashedPromptRow = { id: string; text: string; created_at: number }
+
+const decodeStash = (row: StashedPromptRow): StashedPrompt => ({
+  id: row.id,
+  text: row.text,
+  createdAt: row.created_at,
 })
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
@@ -938,6 +985,80 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   removeArtifact(id: string) {
     return this.db.query("DELETE FROM artifacts WHERE id = ?1").run(id).changes > 0
+  }
+
+  // ---- what a reader keeps about a session (H-18) ---------------------------------------------
+
+  listSessionPrefs() {
+    const rows = this.db.query("SELECT * FROM session_prefs ORDER BY updated_at DESC").all() as SessionPrefsRow[]
+    return rows.map(decodeSessionPrefs)
+  }
+
+  getSessionPrefs(sessionID: string) {
+    const row = this.db.query("SELECT * FROM session_prefs WHERE session_id = ?1").get(sessionID) as
+      | SessionPrefsRow
+      | null
+    return row ? decodeSessionPrefs(row) : undefined
+  }
+
+  setSessionPinned(sessionID: string, pinned: boolean) {
+    return this.writePrefs(sessionID, { pinned })
+  }
+
+  setSessionTags(sessionID: string, tags: string[]) {
+    // Kept in the order given, without repeats: a tag a reader typed twice is one tag.
+    return this.writePrefs(sessionID, { tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))] })
+  }
+
+  /**
+   * One row per session, merged rather than replaced.
+   *
+   * Pinning a session must not drop its tags, and tagging one must not unpin it, so the change is
+   * applied to what is there. An empty result is removed outright: a row that says nothing is not
+   * worth keeping, and it would make the list say a reader had kept something they had not.
+   */
+  private writePrefs(sessionID: string, change: { pinned?: boolean; tags?: string[] }): SessionPrefs {
+    const current = this.getSessionPrefs(sessionID)
+    const next: SessionPrefs = {
+      sessionID,
+      pinned: change.pinned ?? current?.pinned ?? false,
+      tags: change.tags ?? current?.tags ?? [],
+      updatedAt: Date.now(),
+    }
+    if (!next.pinned && next.tags.length === 0) {
+      this.db.query("DELETE FROM session_prefs WHERE session_id = ?1").run(sessionID)
+    } else {
+      this.db
+        .query(
+          `INSERT INTO session_prefs (session_id, pinned, tags_json, updated_at)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(session_id) DO UPDATE SET pinned = ?2, tags_json = ?3, updated_at = ?4`,
+        )
+        .run(sessionID, next.pinned ? 1 : null, JSON.stringify(next.tags), next.updatedAt)
+    }
+    // Published either way: a reader that stopped pinning has to learn it lost its pin too.
+    this.append({ type: "session.changed", prefs: next })
+    return next
+  }
+
+  listStash() {
+    const rows = this.db.query("SELECT * FROM stashed_prompts ORDER BY created_at DESC").all() as StashedPromptRow[]
+    return rows.map(decodeStash)
+  }
+
+  addToStash(text: string, now = Date.now()) {
+    const prompt: StashedPrompt = { id: crypto.randomUUID(), text, createdAt: now }
+    this.db
+      .query("INSERT INTO stashed_prompts (id, text, created_at) VALUES (?1, ?2, ?3)")
+      .run(prompt.id, prompt.text, prompt.createdAt)
+    this.append({ type: "stash.added", prompt })
+    return prompt
+  }
+
+  removeFromStash(id: string) {
+    const removed = this.db.query("DELETE FROM stashed_prompts WHERE id = ?1").run(id).changes > 0
+    if (removed) this.append({ type: "stash.removed", promptID: id })
+    return removed
   }
 
   removeFinishedRuns() {

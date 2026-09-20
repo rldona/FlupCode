@@ -590,16 +590,16 @@ test("the failing checks do get a bubble of their own, under the bar", async ({ 
   await expect(page.locator(".fc-repo-bar .fc-pr-failures")).toHaveCount(0)
 })
 
-test("the bar can be closed, and comes back when there is something new to say", async ({ page }) => {
+test("the bar can be closed, and closing it leaves the session behind", async ({ page }) => {
   await openSession(page, [], { branch: withPullRequest({}) })
   await expect(page.locator(".fc-repo-bar")).toBeVisible()
 
-  await page.getByRole("button", { name: /Hide this|^Ocultar$/ }).click()
+  // With a session open the bar's exit is "Close session" (the old "Hide this" belonged to a picked
+  // folder with no session, and that bar was removed with it). Closing deselects, so the bar — which
+  // only ever stands for an open session or a picked folder — goes with it.
+  await page.getByRole("button", { name: /Close session|Cerrar sesión/ }).click()
   await expect(page.locator(".fc-repo-bar")).toHaveCount(0)
-
-  // Not a setting: it hides this branch in this state. A reload is a new page and a new bar.
-  await page.reload()
-  await expect(page.locator(".fc-repo-bar")).toBeVisible()
+  await expect(page.locator(".fc-canvas")).toBeVisible()
 })
 
 test("the repository is named when it is not the folder's name again", async ({ page }) => {

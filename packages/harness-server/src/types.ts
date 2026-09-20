@@ -213,6 +213,9 @@ export type ServerEvent =
   | { type: "checkpoint.removed"; checkpointID: string }
   | { type: "findings.added"; findings: Finding[] }
   | { type: "finding.changed"; finding: Finding }
+  | { type: "session.changed"; prefs: SessionPrefs }
+  | { type: "stash.added"; prompt: StashedPrompt }
+  | { type: "stash.removed"; promptID: string }
 
 /** A way back to how a folder looked (H-15). The commit lives in the reader's own repository. */
 export type Checkpoint = {
@@ -253,6 +256,27 @@ export type Finding = {
   source?: "review" | "check"
   /** Set aside by a reader: kept, but out of the way. */
   resolved?: boolean
+  createdAt: number
+}
+
+/**
+ * What a reader keeps about a session that is not the model's (H-18).
+ *
+ * Pins and tags are theirs, not the engine's, and they have to travel: the phone reads the same
+ * harness server. They live here rather than in the engine's session `metadata` because the session
+ * list this app reads does not carry that field back.
+ */
+export type SessionPrefs = {
+  sessionID: string
+  pinned: boolean
+  tags: string[]
+  updatedAt: number
+}
+
+/** A prompt set aside to send later (H-18). Kept on the server so it is there on any device. */
+export type StashedPrompt = {
+  id: string
+  text: string
   createdAt: number
 }
 
@@ -302,6 +326,15 @@ export type RunRepository = {
   removeExpiredArtifacts(now?: number): number
   /** A run left behind by a server that stopped mid-flight is not running any more. */
   recoverRunning(now: number): void
+  /** What a reader pinned or tagged (H-18). Only sessions with something kept are listed. */
+  listSessionPrefs(): SessionPrefs[]
+  getSessionPrefs(sessionID: string): SessionPrefs | undefined
+  setSessionPinned(sessionID: string, pinned: boolean): SessionPrefs
+  setSessionTags(sessionID: string, tags: string[]): SessionPrefs
+  /** Prompts set aside, newest first (H-18). */
+  listStash(): StashedPrompt[]
+  addToStash(text: string, now?: number): StashedPrompt
+  removeFromStash(id: string): boolean
 }
 
 /** Routines, and the lock that keeps one from running twice at once. */

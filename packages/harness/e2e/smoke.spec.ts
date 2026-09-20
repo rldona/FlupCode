@@ -195,11 +195,14 @@ test("the Chat tab shows its own home, input and top bar, and is remembered", as
   const files = page.getByRole("button", { name: "Files changed" })
   await expect(files).toBeVisible()
 
-  // The tabs sit next to the FlupCode name at the top of the sidebar, and move to the top bar while it is hidden.
+  // The tabs sit next to the FlupCode name at the top of the sidebar, and move to the top bar while
+  // it is hidden. Scoped to the view tablist: the chat composer has a "Chat" tab of its own, and a
+  // bare role lookup would match both once this view is open.
+  const viewTab = page.locator(".fc-view-tabs").getByRole("tab", { name: "Chat" })
   await expect(page.locator(".fc-sidebar-brand").getByRole("tab", { name: "Chat" })).toBeVisible()
   await expect(page.locator(".fc-topbar .fc-view-tabs")).toHaveCount(0)
-  await page.getByRole("tab", { name: "Chat" }).click()
-  await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
+  await viewTab.click()
+  await expect(viewTab).toHaveAttribute("aria-selected", "true")
   await expect(page.locator(".fc-chat-greeting")).toContainText("Raúl")
   // Chats have no workspace panels, folder, agent or permission controls.
   await expect(files).toHaveCount(0)
@@ -217,8 +220,11 @@ test("the Chat tab shows its own home, input and top bar, and is remembered", as
   await page.getByRole("button", { name: "Toggle sidebar" }).click()
 
   await page.reload()
-  await expect(page.getByRole("tab", { name: "Chat" })).toHaveAttribute("aria-selected", "true")
-  await page.getByRole("tab", { name: "Code" }).click()
+  await expect(page.locator(".fc-view-tabs").getByRole("tab", { name: "Chat" })).toHaveAttribute(
+    "aria-selected",
+    "true",
+  )
+  await page.locator(".fc-view-tabs").getByRole("tab", { name: "Code" }).click()
   await expect(page.getByRole("button", { name: "Files changed" })).toBeVisible()
   await expect(page.locator(".fc-chat-greeting")).toHaveCount(0)
 })

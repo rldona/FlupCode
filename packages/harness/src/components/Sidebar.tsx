@@ -41,10 +41,14 @@ type SidebarProps = {
   /** Sessions waiting on a permission nobody has answered; they look idle without this. */
   blockedSessions: string[]
   pinnedSessions: string[]
+  /** The tags a reader put on each session, by session id (H-18). */
+  sessionTags: Record<string, string[]>
   expandedProjects: Record<string, boolean>
   noFolderSessions: string[]
   onDisplayName: (value: string) => void
   onToggleSessionPin: (id: string) => void
+  /** Opens the dialog that edits a session's tags, so this only asks for it (H-18). */
+  onEditTags: (id: string) => void
   onToggleProject: (id: string) => void
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
@@ -92,9 +96,18 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     [...(props.sessions ?? [])].sort((a, b) => b.time.updated - a.time.updated),
   )
 
+  // Narrowing the list by tag is the one filter a reader can do here that the palette cannot (H-18).
+  const [tagFilter, setTagFilter] = createSignal<string>()
+  const tagOf = (id: string) => props.sessionTags[id] ?? []
+  const allTags = createMemo(() => [...new Set(Object.values(props.sessionTags).flat())].sort((a, b) => a.localeCompare(b)))
+  const visibleSessions = createMemo(() => {
+    const only = tagFilter()
+    return only ? sortedSessions().filter((session) => tagOf(session.id).includes(only)) : sortedSessions()
+  })
+
   const groups = createMemo(() => {
     const map = new Map<string, ProjectGroup>()
-    for (const session of sortedSessions()) {
+    for (const session of visibleSessions()) {
       const directory = props.noFolderSessions.includes(session.id) ? undefined : session.location?.directory
       const key = directory ?? "__none__"
       let group = map.get(key)
@@ -116,7 +129,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
     })
   })
 
-  const pinned = createMemo(() => sortedSessions().filter((session) => props.pinnedSessions.includes(session.id)))
+  const pinned = createMemo(() => visibleSessions().filter((session) => props.pinnedSessions.includes(session.id)))
 
   const isExpanded = (group: ProjectGroup) => {
     const state = props.expandedProjects[group.id]
@@ -144,6 +157,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           icon: pinned ? "★" : "☆",
           onSelect: () => props.onToggleSessionPin(session.id),
         },
+        { label: t("Edit tags…"), icon: "🏷", onSelect: () => props.onEditTags(session.id) },
         { label: t("Rename"), icon: "✎", onSelect: () => props.onRenameSession(session.id) },
         ...(props.view === "code"
           ? [
@@ -212,6 +226,25 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       >
         ⋮
       </button>
+      <Show when={tagOf(row.session.id).length > 0}>
+        <span class="fc-session-tags">
+          <For each={tagOf(row.session.id)}>
+            {(tag) => (
+              <button
+                class="fc-session-tag"
+                classList={{ "fc-session-tag-active": tagFilter() === tag }}
+                type="button"
+                onClick={(event) => {
+                  event.stopPropagation()
+                  setTagFilter(tagFilter() === tag ? undefined : tag)
+                }}
+              >
+                {tag}
+              </button>
+            )}
+          </For>
+        </span>
+      </Show>
     </div>
   )
 
@@ -357,6 +390,32 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             </section>
           </Show>
 
+          {/* Tags a reader has used, as a filter (H-18). Only shown once there are any. */}
+          <Show when={allTags().length > 0}>
+            <div class="fc-tag-filter">
+              <button
+                class="fc-session-tag"
+                classList={{ "fc-session-tag-active": !tagFilter() }}
+                type="button"
+                onClick={() => setTagFilter(undefined)}
+              >
+                {t("All")}
+              </button>
+              <For each={allTags()}>
+                {(tag) => (
+                  <button
+                    class="fc-session-tag"
+                    classList={{ "fc-session-tag-active": tagFilter() === tag }}
+                    type="button"
+                    onClick={() => setTagFilter(tagFilter() === tag ? undefined : tag)}
+                  >
+                    {tag}
+                  </button>
+                )}
+              </For>
+            </div>
+          </Show>
+
           <Show when={pinned().length > 0}>
             <section class="fc-sidebar-section">
               <div class="fc-section-header">
@@ -372,11 +431,11 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               <span class="fc-section-label">{t("Chats")}</span>
             </div>
             <Show
-              when={!props.sessionsLoading || sortedSessions().length > 0}
+              when={!props.sessionsLoading || visibleSessions().length > 0}
               fallback={<Loader class="fc-loader-inline" label={t("Loading chats")} />}
             >
               <Show
-                when={sortedSessions().length > 0}
+                when={visibleSessions().length > 0}
                 fallback={
                   <div class="fc-empty-state">
                     <span class="fc-empty-title">{t("No chats yet")}</span>
@@ -384,7 +443,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   </div>
                 }
               >
-                <For each={sortedSessions()}>{(session) => <SessionRow session={session} />}</For>
+                <For each={visibleSessions()}>{(session) => <SessionRow session={session} />}</For>
               </Show>
             </Show>
             </section>

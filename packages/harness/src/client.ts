@@ -33,6 +33,8 @@ import type {
   RoutineInput,
   RoutineRun,
   Run,
+  SessionPrefs,
+  StashedPrompt,
   Task,
   TaskActivity,
   TaskTools,
@@ -970,6 +972,23 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         }),
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    // What a reader keeps about a session (H-18). On the server, so it travels to the phone.
+    sessionPrefs: {
+      list: () => harnessRequest<SessionPrefs[]>(baseUrl, "/harness/session-prefs"),
+      update: (sessionID: string, input: { pinned?: boolean; tags?: string[] }) =>
+        harnessRequest<SessionPrefs>(baseUrl, `/harness/session-prefs/${encodeURIComponent(sessionID)}`, {
+          method: "PATCH",
+          body: JSON.stringify(input),
+        }),
+    },
+    // Prompts set aside, on the server so any device sees them (H-18).
+    stash: {
+      list: () => harnessRequest<StashedPrompt[]>(baseUrl, "/harness/stash"),
+      add: (text: string) =>
+        harnessRequest<StashedPrompt>(baseUrl, "/harness/stash", { method: "POST", body: JSON.stringify({ text }) }),
+      remove: (id: string) =>
+        harnessRequest<boolean>(baseUrl, `/harness/stash/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     workflows: {
       /** What this project can run. A project's own win over the ones shared across projects. */
