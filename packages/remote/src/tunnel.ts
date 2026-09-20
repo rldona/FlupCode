@@ -32,7 +32,13 @@ const DROPPED_REQUEST_HEADERS = new Set([
   "authorization",
   "accept-encoding",
 ])
-const DROPPED_RESPONSE_HEADERS = new Set(["connection", "content-length", "content-encoding", "transfer-encoding", "set-cookie"])
+const DROPPED_RESPONSE_HEADERS = new Set([
+  "connection",
+  "content-length",
+  "content-encoding",
+  "transfer-encoding",
+  "set-cookie",
+])
 
 type BinaryType = "blob" | "arraybuffer"
 
@@ -71,7 +77,10 @@ function readJson(payload: Uint8Array): Record<string, unknown> {
 
 function headerList(value: unknown) {
   return Array.isArray(value)
-    ? value.filter((entry): entry is [string, string] => Array.isArray(entry) && entry.length === 2 && entry.every((part) => typeof part === "string"))
+    ? value.filter(
+        (entry): entry is [string, string] =>
+          Array.isArray(entry) && entry.length === 2 && entry.every((part) => typeof part === "string"),
+      )
     : []
 }
 
@@ -151,7 +160,12 @@ class TunnelSocket implements EngineSocket {
 
   message(data: string | Uint8Array) {
     if (this.readyState !== 1) return
-    const payload = typeof data === "string" ? data : this.binaryType === "arraybuffer" ? data.slice().buffer : new Blob([data.slice()])
+    const payload =
+      typeof data === "string"
+        ? data
+        : this.binaryType === "arraybuffer"
+          ? data.slice().buffer
+          : new Blob([data.slice()])
     this.onmessage?.(new MessageEvent("message", { data: payload }))
   }
 
@@ -192,14 +206,21 @@ export function createTunnelClient(channel: SecureChannel) {
       if (frame.type === Type.wsBinary) return stream.socket.message(frame.payload.slice())
       if (frame.type === Type.wsClose) {
         const value = readJson(frame.payload)
-        return stream.socket.finish(typeof value.code === "number" ? value.code : 1006, typeof value.reason === "string" ? value.reason : "")
+        return stream.socket.finish(
+          typeof value.code === "number" ? value.code : 1006,
+          typeof value.reason === "string" ? value.reason : "",
+        )
       }
       return
     }
     if (frame.type === Type.resHead) {
       const head = readJson(frame.payload)
       const status = typeof head.status === "number" ? head.status : 502
-      const init = { status, statusText: typeof head.statusText === "string" ? head.statusText : "", headers: headerList(head.headers) }
+      const init = {
+        status,
+        statusText: typeof head.statusText === "string" ? head.statusText : "",
+        headers: headerList(head.headers),
+      }
       if (NULL_BODY_STATUS.has(status)) {
         streams.delete(frame.stream)
         return stream.resolve(new Response(null, init))
@@ -245,7 +266,11 @@ export function createTunnelClient(channel: SecureChannel) {
     const body = request.body ? new Uint8Array(await request.arrayBuffer()) : undefined
     const id = nextStream++
     const response = new Promise<Response>((resolve, reject) => streams.set(id, { kind: "http", resolve, reject }))
-    sendJson(channel, Type.reqHead, id, { method: request.method, path: url.pathname + url.search, headers: [...request.headers] })
+    sendJson(channel, Type.reqHead, id, {
+      method: request.method,
+      path: url.pathname + url.search,
+      headers: [...request.headers],
+    })
     if (body) sendChunks(channel, Type.reqBody, id, body)
     channel.send(encode(Type.reqEnd, id))
     const onAbort = () => {
@@ -253,7 +278,10 @@ export function createTunnelClient(channel: SecureChannel) {
       if (!stream) return
       streams.delete(id)
       channel.send(encode(Type.abort, id))
-      fail(stream, request.signal.reason instanceof Error ? request.signal.reason : new DOMException("Aborted", "AbortError"))
+      fail(
+        stream,
+        request.signal.reason instanceof Error ? request.signal.reason : new DOMException("Aborted", "AbortError"),
+      )
     }
     request.signal.addEventListener("abort", onAbort, { once: true })
     return response
@@ -325,13 +353,17 @@ export function serveTunnel(
     return url.origin === target.origin ? url : undefined
   }
 
-  const abortStream = (stream: number, message: string) =>
-    sendJson(channel, Type.abort, stream, { message })
+  const abortStream = (stream: number, message: string) => sendJson(channel, Type.abort, stream, { message })
 
-  const run = async (stream: number, entry: { head: Record<string, unknown>; chunks: Uint8Array[]; abort: AbortController }) => {
+  const run = async (
+    stream: number,
+    entry: { head: Record<string, unknown>; chunks: Uint8Array[]; abort: AbortController },
+  ) => {
     const url = resolve(entry.head.path)
     if (!url) return abortStream(stream, "Invalid path")
-    const headers = new Headers(headerList(entry.head.headers).filter(([name]) => !DROPPED_REQUEST_HEADERS.has(name.toLowerCase())))
+    const headers = new Headers(
+      headerList(entry.head.headers).filter(([name]) => !DROPPED_REQUEST_HEADERS.has(name.toLowerCase())),
+    )
     if (options.credentials) headers.set("authorization", `Basic ${options.credentials}`)
     const method = typeof entry.head.method === "string" ? entry.head.method.toUpperCase() : "GET"
     const response = await doFetch(url, {
