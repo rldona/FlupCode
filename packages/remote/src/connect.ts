@@ -7,6 +7,7 @@ import {
   splitChannel,
   withChannel,
   type HostIdentity,
+  type PushUrgency,
 } from "./relay"
 import { Wire } from "./wire"
 
@@ -87,6 +88,14 @@ export function startRelayHost(input: {
   let attempt = 0
   const channels = new Map<number, Wire>()
   const loaded = loadHostIdentity(input.identity)
+  let online: WebSocket | undefined
+  let nextPush = 1
+  const pushes = new Map<number, (status: number) => void>()
+
+  const settlePushes = () => {
+    pushes.forEach((resolve) => resolve(0))
+    pushes.clear()
+  }
 
   const closeChannels = () => {
     channels.forEach((wire) => wire.end())
@@ -118,7 +127,12 @@ export function startRelayHost(input: {
         return void identity.answer(message.nonce).then((answer) => current.send(encodeRelayMessage(answer)))
       if (message.t === "ready") {
         attempt = 0
+        online = current
         return input.onStatus?.("online")
+      }
+      if (message.t === "push-result") {
+        pushes.get(message.id)?.(message.status)
+        return void pushes.delete(message.id)
       }
       if (message.t === "open") {
         const wire = new Wire(
@@ -141,6 +155,8 @@ export function startRelayHost(input: {
     current.onclose = (event) => {
       if (socket !== current) return
       socket = undefined
+      online = undefined
+      settlePushes()
       void queue.then(closeChannels)
       if (stopped) return input.onStatus?.("offline")
       if (event.code === RelayClose.hostGone) {
@@ -158,10 +174,32 @@ export function startRelayHost(input: {
 
   return {
     hostId: loaded.then((identity) => identity.hostId),
+    /**
+     * Asks the relay to deliver an encrypted Web Push body. Resolves with the push service's HTTP
+     * status, or 0 when the relay is not reachable.
+     */
+    sendPush(request: { endpoint: string; body: string; ttl: number; urgency: PushUrgency }) {
+      const current = online
+      if (!current) return Promise.resolve(0)
+      const id = nextPush++
+      return new Promise<number>((resolve) => {
+        const timeout = setTimeout(() => {
+          pushes.delete(id)
+          resolve(0)
+        }, 20_000)
+        pushes.set(id, (status) => {
+          clearTimeout(timeout)
+          resolve(status)
+        })
+        current.send(encodeRelayMessage({ t: "push", id, ...request }))
+      })
+    },
     stop() {
       stopped = true
       clearTimeout(timer)
       closeChannels()
+      settlePushes()
+      online = undefined
       const current = socket
       socket = undefined
       current?.close(1000)
