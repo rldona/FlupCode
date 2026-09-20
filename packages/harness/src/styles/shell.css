@@ -4633,3 +4633,16 @@ button.fc-row-main {
 .fc-sheet-body > * {
   flex-shrink: 0;
 }
+
+.fc-mobile-pill {
+  gap: 6px;
+}
+
+.fc-mobile-pill-effort {
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-sheet-row:disabled {
+  opacity: 0.55;
+}
