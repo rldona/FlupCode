@@ -5,6 +5,7 @@ import type { SessionMessageAssistant } from "./engine-types"
 import { createClient, invalidateLegacyHistory, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
+import { usageResetAt } from "./usage-reset"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
@@ -841,9 +842,13 @@ export const App: Component = () => {
   onCleanup(() => window.removeEventListener("popstate", onPopState))
 
   const [range, setRange] = createSignal<UsageRange>("all")
-  const filteredSessions = createMemo(() => filterByRange(sessionList() ?? [], range()))
+  // Sessions the dashboard counts: those created since the last reset from Settings.
+  const countedSessions = createMemo(() =>
+    (sessionList() ?? []).filter((session) => session.time.created >= usageResetAt()),
+  )
+  const filteredSessions = createMemo(() => filterByRange(countedSessions(), range()))
   const metrics = createMemo(() => computeMetrics(filteredSessions()))
-  const activity = createMemo(() => activityByDay(sessionList() ?? [], 365))
+  const activity = createMemo(() => activityByDay(countedSessions(), 365))
   const comparisonLine = createMemo(() => comparison(metrics().tokens))
   const [messageCount] = createResource(
     () => {

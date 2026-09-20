@@ -24,6 +24,7 @@ export const STORAGE_KEYS = {
   appTextSize: "flupcode.appTextSize",
   chatTextSize: "flupcode.chatTextSize",
   clearedTodos: "flupcode.clearedTodos",
+  usageResetAt: "flupcode.usageResetAt",
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",
