@@ -268,8 +268,62 @@ export const flupcodeSystemPrompt = async () => ({
 `,
 }
 
+/**
+ * artifact-write: the tool that lets the agent keep a document where the Artifacts screen shows it.
+ *
+ * A document the agent wants kept goes into `.flupcode/artifacts` inside the project — the folder the
+ * harness indexes lazily (packages/harness-server/src/documents.ts). Without a tool the model has to
+ * know that folder by heart; with it, it says "keep this as report.html" and the file lands where it
+ * will be found. Plain JavaScript with no package imports, so it loads before any dependency is
+ * installed, exactly like the other ones.
+ */
+export const ARTIFACT_WRITE_PLUGIN = {
+  file: "flupcode-artifact-write.js",
+  source: `// Installed by FlupCode. Lets the agent keep a generated document where the Artifacts screen
+// indexes it: .flupcode/artifacts inside the project. Regenerated when FlupCode starts the engine;
+// edits here are overwritten.
+import { mkdir, writeFile } from "node:fs/promises"
+import path from "node:path"
+
+// The folder must be the one the harness indexes, so both sides name it the same way.
+function folderFor(directory) {
+  return path.join(directory, ".flupcode", "artifacts")
+}
+
+// The name is what the file becomes on disk, so it is reduced to a safe file name: a path a model
+// writes must not escape the folder.
+function fileName(value) {
+  const base = path.basename(String(value || "document.md")).replace(/[^A-Za-z0-9._-]/g, "-")
+  return base && base !== "." && base !== ".." ? base : "document.md"
+}
+
+export const flupcodeArtifactWrite = async () => ({
+  tool: {
+    "artifact.write": {
+      description:
+        "Keep a document you produced (a page, a report, an image note) so the reader finds it under Artifacts. Writes it to .flupcode/artifacts in the project and returns its path.",
+      args: {
+        title: { type: "string", description: "A short title the reader will see in the Artifacts list." },
+        filename: { type: "string", description: "The file name to write, including its extension, e.g. report.html." },
+        content: { type: "string", description: "The document itself, in full." },
+      },
+      async execute(args, context) {
+        const directory = context && context.directory
+        if (!directory) return "This session has no project folder to keep a document in."
+        const name = fileName(args && args.filename)
+        const folder = folderFor(directory)
+        await mkdir(folder, { recursive: true })
+        await writeFile(path.join(folder, name), String((args && args.content) || ""), "utf8")
+        return "Kept " + name + " in .flupcode/artifacts. It appears under Artifacts for this project."
+      },
+    },
+  },
+})
+`,
+}
+
 /** The engine plugins FlupCode owns. */
-const PLUGINS = [REASONING_VARIANTS_PLUGIN, TOOL_USES_PLUGIN, SYSTEM_PROMPT_PLUGIN]
+const PLUGINS = [REASONING_VARIANTS_PLUGIN, TOOL_USES_PLUGIN, SYSTEM_PROMPT_PLUGIN, ARTIFACT_WRITE_PLUGIN]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */
 export function engineConfigDir(env: NodeJS.ProcessEnv = process.env, home = os.homedir()) {
