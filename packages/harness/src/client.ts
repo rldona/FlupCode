@@ -1,4 +1,6 @@
-import { OpenCode } from "@opencode-ai/client"
+import type { ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
+import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import type { McpServer, SessionInfo } from "./engine-types"
 
 const DEFAULT_SERVER_URL = "http://localhost:4096"
 
@@ -8,8 +10,188 @@ export function resolveServerUrl() {
   return DEFAULT_SERVER_URL
 }
 
+async function* subscribeEvents(baseUrl: string, signal?: AbortSignal) {
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}/api/event`, {
+    headers: { Accept: "text/event-stream" },
+    signal,
+  })
+  if (!response.ok || !response.body) return
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ""
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true }).replaceAll("\r\n", "\n")
+    let index = buffer.indexOf("\n\n")
+    while (index !== -1) {
+      const chunk = buffer.slice(0, index)
+      buffer = buffer.slice(index + 2)
+      const data = chunk
+        .split("\n")
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice(5).trim())
+        .join("\n")
+      if (data) {
+        try {
+          yield JSON.parse(data) as { type?: string }
+        } catch {
+          // ignore malformed frames
+        }
+      }
+      index = buffer.indexOf("\n\n")
+    }
+  }
+}
+
+type LocationInput = { location?: { directory?: string; workspace?: string } }
+type Result<T> = { data?: T; error?: unknown }
+
+async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
+  const result = await call
+  if (result.error !== undefined && result.error !== null) {
+    const error = result.error as { message?: string }
+    throw new Error(error?.message ?? "Request failed")
+  }
+  return result.data as T
+}
+
 export function createClient(baseUrl = resolveServerUrl()) {
-  return OpenCode.make({ baseUrl })
+  const client = createOpencodeClient({ baseUrl })
+
+  return {
+    health: {
+      get: async () => {
+        const result = await unwrap<{ healthy?: boolean; version?: string }>(
+          client.v2.health.get() as Promise<Result<{ healthy?: boolean; version?: string }>>,
+        )
+        return { healthy: result?.healthy ?? true, version: result?.version }
+      },
+    },
+    event: {
+      subscribe: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal),
+    },
+    session: {
+      list: (input?: { order?: "asc" | "desc"; parentID?: string }) => unwrap(client.v2.session.list(input)),
+      create: async (input?: {
+        model?: { id: string; providerID: string; variant?: string }
+        location?: { directory: string }
+        agent?: string
+      }) => {
+        const body = { ...input }
+        if (!body.model && !body.location && !body.agent) body.agent = "build"
+        return (await unwrap(client.v2.session.create(body))).data
+      },
+      prompt: (input: {
+        sessionID: string
+        text: string
+        id?: string
+        files?: Array<{ uri: string; name?: string }>
+        delivery?: "steer" | "queue"
+      }) =>
+        unwrap(
+          client.v2.session.prompt({
+            sessionID: input.sessionID,
+            id: input.id,
+            delivery: input.delivery,
+            prompt: {
+              text: input.text,
+              ...(input.files && input.files.length > 0
+                ? { files: input.files.map((file) => ({ uri: file.uri, name: file.name })) }
+                : {}),
+            },
+          }),
+        ),
+      wait: (input: { sessionID: string }) => unwrap(client.v2.session.wait({ sessionID: input.sessionID })),
+      compact: (input: { sessionID: string }) => unwrap(client.v2.session.compact({ sessionID: input.sessionID })),
+      interrupt: (input: { sessionID: string }) => unwrap(client.v2.session.interrupt({ sessionID: input.sessionID })),
+      switchModel: (input: { sessionID: string; model: { id: string; providerID: string; variant?: string } }) =>
+        unwrap(client.v2.session.switchModel({ sessionID: input.sessionID, model: input.model })),
+      switchAgent: (input: { sessionID: string; agent: string }) =>
+        unwrap(client.v2.session.switchAgent({ sessionID: input.sessionID, agent: input.agent })),
+      revert: {
+        stage: (input: { sessionID: string; messageID: string; files?: boolean }) =>
+          unwrap(client.v2.session.revert.stage({ sessionID: input.sessionID, messageID: input.messageID, files: input.files })),
+        clear: (input: { sessionID: string }) => unwrap(client.v2.session.revert.clear({ sessionID: input.sessionID })),
+        commit: (input: { sessionID: string }) => unwrap(client.v2.session.revert.commit({ sessionID: input.sessionID })),
+      },
+      permission: {
+        list: (input: { sessionID: string }) => unwrap(client.v2.session.permission.list({ sessionID: input.sessionID })),
+        reply: (input: { sessionID: string; requestID: string; reply: "once" | "always" | "reject"; message?: string }) =>
+          unwrap(client.v2.session.permission.reply(input)),
+      },
+      question: {
+        list: (input: { sessionID: string }) => unwrap(client.v2.session.question.list({ sessionID: input.sessionID })),
+        reply: (input: { sessionID: string; requestID: string; answers: string[][] }) =>
+          unwrap(
+            client.v2.session.question.reply({
+              sessionID: input.sessionID,
+              requestID: input.requestID,
+              questionV2Reply: { answers: input.answers },
+            }),
+          ),
+        reject: (input: { sessionID: string; requestID: string }) =>
+          unwrap(client.v2.session.question.reject({ sessionID: input.sessionID, requestID: input.requestID })),
+      },
+      rename: (input: { sessionID: string; title: string }) =>
+        unwrap(client.session.update({ sessionID: input.sessionID, title: input.title })),
+      remove: (input: { sessionID: string }) => unwrap(client.session.delete({ sessionID: input.sessionID })),
+      fork: async (input: { sessionID: string; messageID?: string }) => {
+        const body = (await unwrap(client.session.fork({ sessionID: input.sessionID, messageID: input.messageID }))) as unknown as {
+          id?: string
+          data?: { id: string }
+        }
+        return (body?.id ? body : body?.data) as unknown as SessionV2Info
+      },
+      shell: (input: { sessionID: string; command: string }) =>
+        unwrap(client.session.shell({ sessionID: input.sessionID, command: input.command })),
+      command: (input: { sessionID: string; command: string; arguments?: string }) =>
+        unwrap(
+          client.session.command({
+            sessionID: input.sessionID,
+            command: input.command,
+            arguments: input.arguments,
+          }),
+        ),
+      skill: async (_input: { sessionID: string; skill: string }) => {
+        throw new Error("Skills are not supported by this server version")
+      },
+      move: async (_input: { sessionID: string; directory: string }) => {
+        throw new Error("Moving sessions is not supported by this server version")
+      },
+      children: async (input: { sessionID: string }) => ({
+        data: (await unwrap(client.session.children({ sessionID: input.sessionID }))) as unknown as SessionInfo[],
+      }),
+    },
+    message: {
+      list: (input: { sessionID: string; order?: "asc" | "desc" }) =>
+        unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order })),
+    },
+    model: {
+      list: (input?: LocationInput) => unwrap(client.v2.model.list(input)),
+      default: async () => ({ data: undefined as ModelV2Info | undefined }),
+    },
+    agent: {
+      list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
+    },
+    command: {
+      list: (input?: LocationInput) => unwrap(client.v2.command.list(input)),
+    },
+    skill: {
+      list: (input?: LocationInput) => unwrap(client.v2.skill.list(input)),
+    },
+    file: {
+      find: (input: { query: string; limit?: number }) =>
+        unwrap(client.v2.fs.find({ query: input.query, limit: input.limit !== undefined ? String(input.limit) : undefined })),
+    },
+    mcp: {
+      list: async () => ({ data: [] as McpServer[] }),
+      add: async (_input?: { server: string; config: unknown }) => {},
+      remove: async (_input?: { server: string }) => {},
+      connect: async (_input?: { server: string }) => {},
+      disconnect: async (_input?: { server: string }) => {},
+    },
+  }
 }
 
 export type HarnessClient = ReturnType<typeof createClient>

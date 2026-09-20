@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
-import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client"
+import type { PermissionV2Request, QuestionV2Request } from "./engine-types"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
 import { activityByDay, comparison, computeMetrics, filterByRange, type UsageRange } from "./metrics"
@@ -94,11 +94,19 @@ export const App: Component = () => {
   const [skills] = createResource(serverUrl, async (url) => createClient(url).skill.list())
   const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, async (url) => createClient(url).mcp.list())
   const [commands] = createResource(serverUrl, async (url) => createClient(url).command.list())
-  const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, async (url) =>
-    createClient(url).permission.request.list(),
+  const [permissions, { refetch: refetchPermissions }] = createResource(
+    () => {
+      const sessionID = selected()
+      return sessionID ? { url: serverUrl(), sessionID } : undefined
+    },
+    (source) => createClient(source.url).session.permission.list({ sessionID: source.sessionID }),
   )
-  const [questions, { refetch: refetchQuestions }] = createResource(serverUrl, async (url) =>
-    createClient(url).question.request.list(),
+  const [questions, { refetch: refetchQuestions }] = createResource(
+    () => {
+      const sessionID = selected()
+      return sessionID ? { url: serverUrl(), sessionID } : undefined
+    },
+    (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
   )
   const [messages, { refetch: refetchMessages }] = createResource(
     () => {
@@ -245,14 +253,18 @@ export const App: Component = () => {
     void (async () => {
       try {
         for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
-          if (event.type.startsWith("permission.")) {
-            if (event.type === "permission.v2.asked") notify(t("Permission needed"), "")
+          const type = event.type ?? ""
+          if (type.endsWith(".delta")) continue
+          if (type.startsWith("permission.")) {
+            if (type === "permission.v2.asked") notify(t("Permission needed"), "")
             void refetchPermissions()
-          } else if (event.type.startsWith("question.")) {
-            if (event.type === "question.v2.asked") notify(t("Question asked"), "")
+          } else if (type.startsWith("question.")) {
+            if (type === "question.v2.asked") notify(t("Question asked"), "")
             void refetchQuestions()
-          } else if (event.type.startsWith("message.")) void refetchMessages()
-          else if (event.type.startsWith("session.")) void refetchSessions()
+          } else if (type.startsWith("message.") || type.startsWith("session.")) {
+            void refetchMessages()
+            void refetchSessions()
+          }
         }
       } catch {
         return
@@ -260,7 +272,7 @@ export const App: Component = () => {
     })()
   })
 
-  const selectedModel = () => (auto() ? undefined : modelRef())
+  const selectedModel = () => modelRef()
   const modelKey = () => {
     const ref = selectedModel()
     return ref ? `${ref.providerID}/${ref.id}` : undefined
@@ -268,16 +280,16 @@ export const App: Component = () => {
   const currentModel = () => {
     const ref = modelRef()
     if (!ref) return
-    return models()?.data?.find((model) => model.providerID === ref.providerID && model.modelID === ref.id)
+    return models()?.data?.find((model) => model.providerID === ref.providerID && model.id === ref.id)
   }
   const variants = () => (auto() ? [] : (currentModel()?.variants ?? []))
   const variantKey = () => (auto() ? undefined : modelRef()?.variant)
 
   createEffect(() => {
     if (modelRef()) return
-    const fallback = defaultModel()?.data ?? models()?.data?.find((model) => model.enabled) ?? models()?.data?.[0]
+    const fallback = defaultModel()?.data ?? models()?.data?.[0]
     if (!fallback) return
-    setModelRef({ providerID: fallback.providerID, id: fallback.modelID })
+    setModelRef({ providerID: fallback.providerID, id: fallback.id })
   })
 
   const changeModel = (key: string) => {
@@ -361,7 +373,7 @@ export const App: Component = () => {
       if (message.type !== "assistant") continue
       for (const file of message.snapshot?.files ?? []) files.add(file)
       for (const part of message.content) {
-        if (part.type !== "tool" || part.state.status === "streaming") continue
+        if (part.type !== "tool" || part.state.status === "pending") continue
         const input = part.state.input as { filePath?: unknown; path?: unknown }
         const path =
           typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
@@ -633,21 +645,21 @@ export const App: Component = () => {
 
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply) =>
     run(async (current) => {
-      await current.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
+      await current.session.permission.reply({ sessionID: request.sessionID, requestID: request.id, reply })
       void refetchPermissions()
       return undefined
     })
 
   const replyQuestion = (request: QuestionV2Request, answers: string[][]) =>
     run(async (current) => {
-      await current.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
+      await current.session.question.reply({ sessionID: request.sessionID, requestID: request.id, answers })
       void refetchQuestions()
       return undefined
     })
 
   const rejectQuestion = (request: QuestionV2Request) =>
     run(async (current) => {
-      await current.question.reject({ sessionID: request.sessionID, requestID: request.id })
+      await current.session.question.reject({ sessionID: request.sessionID, requestID: request.id })
       void refetchQuestions()
       return undefined
     })

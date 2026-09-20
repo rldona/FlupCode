@@ -1,5 +1,5 @@
 import { For, Show, createSignal, type Component } from "solid-js"
-import type { McpServer } from "@opencode-ai/client"
+import type { McpServer } from "../engine-types"
 import type { McpConfig } from "../types"
 import { t } from "../i18n"
 
