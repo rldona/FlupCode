@@ -33,6 +33,7 @@ import { promptHistory, recordPrompt } from "./prompt-history"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
 import { pendingPrompts } from "./pending-prompts"
+import { routineDue } from "./routines"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
@@ -1763,11 +1764,13 @@ export const App: Component = () => {
   }
 
   createEffect(() => {
+    // Routines are a disabled feature: their entries say "Coming soon" and cannot open the panel.
+    // Scheduling them anyway runs whatever an older build left in storage, with no way to stop it.
+    if (UNAVAILABLE_FEATURES.has("routines")) return
     const timer = setInterval(() => {
       const now = Date.now()
       for (const routine of routines()) {
-        if (!routine.enabled) continue
-        if (routine.lastRunAt && now - routine.lastRunAt < routine.intervalMinutes * 60000) continue
+        if (!routineDue(routine, now)) continue
         markRoutineRun(routine.id)
         executeRoutine(routine)
       }
