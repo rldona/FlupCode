@@ -511,6 +511,16 @@ export const App: Component = () => {
   // Reply suggestions run in throwaway child sessions that are never shown.
   const sessionList = () => sessions()?.data?.filter((session) => !isSuggestionSession(session))
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
+  // A project the reader opened a session in stays open. The list used to expand only the selected
+  // session's project and collapse the previous one, so choosing a session lower down removed the
+  // rows above it and the sidebar's scroll jumped up. Expansion is now something the list only adds.
+  createEffect(() => {
+    const directory = selectedSession()?.location?.directory
+    if (!directory || expanded()[directory]) return
+    const next = { ...expanded(), [directory]: true }
+    setExpanded(next)
+    writeStorage(STORAGE_KEYS.expandedProjects, next)
+  })
   // Chat / Code tabs. Chats are sessions in the engine's state folder; see chat.ts.
   const [view, setView] = createSignal<AppView>(readStorage<AppView>(STORAGE_KEYS.view, "code"))
   const chatView = () => view() === "chat"
@@ -1267,7 +1277,12 @@ export const App: Component = () => {
       }
     })
 
-    const allTodos = () => {
+    /**
+     * The model's last written todo list, read from the transcript. This is only what the panel
+     * falls back to: the engine's own store (below) is the source that matters, because a long
+     * session can drop the tool part this reads and leave the panel on a list the model moved past.
+     */
+    const transcriptTodos = () => {
       const data = activeMessages() ?? []
       const assistants = [...data].reverse().flatMap((message) => (message.type === "assistant" ? [message] : []))
       for (const message of assistants) {
@@ -1288,6 +1303,29 @@ export const App: Component = () => {
       }
       return []
     }
+
+    // The engine keeps the todos the todowrite tool wrote, in a store of its own that is not pruned.
+    // Reread it whenever the transcript's list moves, and prefer it: it is what the model last wrote.
+    const [engineTodos] = createResource(
+      () => {
+        const sessionID = selected()
+        if (!ready() || !sessionID) return undefined
+        return [
+          serverUrl(),
+          sessionID,
+          selectedSession()?.location?.directory ?? "",
+          JSON.stringify(transcriptTodos()),
+        ].join("\n")
+      },
+      async (key) => {
+        const [url = "", sessionID = "", directory = ""] = key.split("\n")
+        return createClient(url)
+          .session.todos({ sessionID, directory: directory || undefined })
+          .then((result) => result.data ?? [])
+          .catch(() => undefined)
+      },
+    )
+    const allTodos = () => engineTodos() ?? transcriptTodos()
 
     // Completed tasks the reader removed from the context panel, per session. The engine keeps the
     // model's todo list, so removal only hides them here.

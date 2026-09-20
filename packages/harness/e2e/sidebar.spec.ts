@@ -40,12 +40,13 @@ const routines = [
   },
 ]
 
-async function open(page: Page, options: { routines?: unknown[]; sessions?: unknown[] } = {}) {
-  await page.addInitScript(() => {
+async function open(page: Page, options: { routines?: unknown[]; sessions?: unknown[]; selected?: string } = {}) {
+  await page.addInitScript((selected?: string) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
-  })
+    if (selected) window.localStorage.setItem("flupcode.selectedSession", JSON.stringify(selected))
+  }, options.selected)
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true } } })
@@ -141,6 +142,25 @@ test("the list scrolls under + New, and + New does not move", async ({ page }) =
   // The nav and the projects go under; the button that starts a session stays where it is.
   await expect.poll(() => page.locator(".fc-nav-item").first().boundingBox().then((box) => box!.y)).toBeLessThan(navBefore)
   expect((await page.locator(".fc-new").boundingBox())!.y).toBe(newBefore)
+})
+
+test("opening a session below does not collapse the project above it", async ({ page }) => {
+  const many = [
+    ...Array.from({ length: 6 }, (_, index) => sessionAt(`ses_a${index}`, `Alpha ${index}`, "/work/alpha")),
+    ...Array.from({ length: 6 }, (_, index) => sessionAt(`ses_b${index}`, `Beta ${index}`, "/work/beta")),
+  ]
+  // The selected session makes its project open, which used to be the only reason it was.
+  await open(page, { sessions: many, selected: "ses_a0" })
+
+  const alpha = page.locator(".fc-session-row").filter({ hasText: /^Alpha / })
+  await expect(alpha).toHaveCount(6)
+
+  await page.locator(".fc-project-group").filter({ hasText: "beta" }).locator(".fc-project-toggle").click()
+  await page.locator(".fc-session-row").filter({ hasText: "Beta 0" }).click()
+
+  // Opening something below must not remove the rows above it: that shrank the list and jumped the
+  // scroll to the top.
+  await expect(alpha).toHaveCount(6)
 })
 
 test("the tabs are the kinds that matched, and picking one narrows to it", async ({ page }) => {

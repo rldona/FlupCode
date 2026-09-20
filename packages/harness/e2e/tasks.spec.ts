@@ -19,6 +19,9 @@ const TODOS = [
   { content: "Revisando trazabilidad y consistencia", status: "pending" },
 ]
 
+/** The transcript's stale copy: the panel must show the engine's store, not this. */
+const STALE = TODOS.map((todo) => ({ ...todo, status: "pending" }))
+
 /** The model's own `todowrite` call is the only place the panel's tasks come from. */
 const message = {
   id: "msg_1",
@@ -26,7 +29,7 @@ const message = {
   role: "assistant",
   type: "assistant",
   time: { created: now, completed: now },
-  content: [{ type: "tool", name: "todowrite", id: "call_1", state: { status: "completed", input: { todos: TODOS } } }],
+  content: [{ type: "tool", name: "todowrite", id: "call_1", state: { status: "completed", input: { todos: STALE } } }],
   model: { providerID: "openai", modelID: "gpt" },
   cost: 0,
   tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
@@ -58,6 +61,8 @@ async function openSession(page: Page, options: { blockedChild?: boolean } = {})
       return route.fulfill({ json: { data: [message], cursor: {} } })
     if (url.pathname === "/session/ses_tasks/children" || url.pathname === "/api/session/ses_tasks/children")
       return route.fulfill({ json: [child] })
+    if (url.pathname === "/session/ses_tasks/todo" || url.pathname === "/api/session/ses_tasks/todo")
+      return route.fulfill({ json: TODOS })
     if (url.pathname === "/permission")
       return route.fulfill({ json: options.blockedChild ? [{ id: "perm_1", sessionID: "ses_child" }] : [] })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
@@ -73,6 +78,8 @@ async function openSession(page: Page, options: { blockedChild?: boolean } = {})
 test("the task list is a timeline, and each disc carries its state", async ({ page }) => {
   await openSession(page)
 
+  // The transcript's copy of the list says every task is pending; the engine's store says otherwise,
+  // and it is the one the panel must believe.
   const items = page.locator(".fc-aside-todo")
   await expect(items).toHaveCount(4)
   await expect(items.nth(0)).toHaveAttribute("data-status", "completed")
