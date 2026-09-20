@@ -3,6 +3,7 @@ import { t } from "../i18n"
 import type { ModelInfo } from "../engine-types"
 import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles } from "../types"
 import { RunTaskDetail } from "./RunTaskDetail"
+import { RunTimeline } from "./RunTimeline"
 
 type RunsPanelProps = {
   open: boolean
@@ -323,6 +324,8 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                       </Show>
                     </p>
                   </Show>
+                  {/* What ran at the same time as what (H-28), before the list that names it. */}
+                  <RunTimeline tasks={run.tasks ?? []} />
                   <ol class="fc-run-tasks">
                     <For each={run.tasks ?? []}>
                       {(task) => (

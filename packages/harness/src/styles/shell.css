@@ -8247,6 +8247,81 @@ button.fc-status {
   margin-inline-end: auto;
 }
 
+/*
+ * The run on a time axis (H-28): one row per set of tasks that overlapped. The axis follows the
+ * writing direction, so in RTL the same bars read right to left.
+ */
+.fc-run-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: var(--fc-space-2) 0 0;
+}
+
+.fc-run-lane {
+  position: relative;
+  height: 18px;
+  background: var(--fc-surface-sunken, var(--fc-border));
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-run-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  overflow: hidden;
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-accent-soft, rgba(127, 127, 127, 0.25));
+  color: var(--fc-text);
+  font-size: var(--fc-text-xs);
+  white-space: nowrap;
+}
+
+.fc-run-bar-name {
+  padding-inline: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fc-run-bar[data-status="running"] {
+  background: var(--fc-accent);
+  color: var(--fc-on-accent);
+}
+
+.fc-run-bar[data-status="success"] {
+  background: rgba(47, 158, 68, 0.35);
+}
+
+.fc-run-bar[data-status="failed"] {
+  background: var(--fc-danger);
+  color: #fff;
+}
+
+.fc-run-bar[data-status="stopped"] {
+  background: rgba(127, 127, 127, 0.3);
+}
+
+.fc-run-pending {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.fc-run-bar-pending {
+  padding: 1px 6px;
+  border: 1px dashed var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-run-bar-pending[data-status="skipped"] {
+  text-decoration: line-through;
+}
+
 /* ── The diff viewer (H-06) ───────────────────────────────────────────────── */
 
 .fc-changes-branch {

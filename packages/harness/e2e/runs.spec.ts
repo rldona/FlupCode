@@ -80,7 +80,7 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
   const run1 = page.locator(".fc-run-card")
   await expect(run1).toHaveCount(1)
   await expect(run1.locator(".fc-run-task")).toHaveCount(2)
-  await expect(run1.getByText("plan it")).toBeVisible()
+  await expect(run1.locator(".fc-run-task-name").first()).toHaveText("plan it")
 
   // The event moved it: the task shows what it cost, which only the event carried.
   const second = run1.locator(".fc-run-task").nth(1)
@@ -93,6 +93,56 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
 
   // And nothing was re-read to learn it.
   expect(listReads).toBeLessThanOrEqual(2)
+})
+
+// H-28: the run on a time axis. Two tasks that were in flight at once are two rows, so the
+// parallelism the graph allows is a picture rather than something read off two timestamps.
+test("the timeline draws overlapping tasks on separate lanes, and a skipped one apart", async ({ page }) => {
+  const parallelRun = { id: "run_p", source: { type: "manual" }, status: "success", startedAt: now, finishedAt: now + 6000 }
+  const parallelTasks = [
+    { id: "p1", runID: "run_p", position: 0, name: "left", prompt: "l", status: "success", startedAt: now, finishedAt: now + 4000, dependsOn: [] },
+    { id: "p2", runID: "run_p", position: 1, name: "right", prompt: "r", status: "success", startedAt: now + 1000, finishedAt: now + 5000, dependsOn: [] },
+    { id: "p3", runID: "run_p", position: 2, name: "ship", prompt: "s", status: "skipped", error: "Not run: right did not succeed", dependsOn: ["right"] },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.route("http://127.0.0.1:9097/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname === "/harness/routines") return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/harness/runs") return route.fulfill({ json: { data: [parallelRun] } })
+    if (url.pathname === "/harness/runs/run_p/tasks") return route.fulfill({ json: { data: parallelTasks } })
+    if (url.pathname === "/harness/events") return new Promise(() => {})
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  await page.getByRole("button", { name: /Runs|Ejecuciones/ }).click()
+
+  const timeline = page.locator(".fc-run-card .fc-run-timeline")
+  await expect(timeline).toHaveCount(1)
+  await expect(timeline.locator(".fc-run-lane")).toHaveCount(2)
+  await expect(timeline.locator(".fc-run-bar")).toHaveCount(2)
+  // A task the graph skipped has no place on a time axis, so it is named apart, struck through.
+  await expect(timeline.locator(".fc-run-bar-pending")).toHaveText("ship")
+  await expect(timeline.locator('.fc-run-bar-pending[data-status="skipped"]')).toHaveCount(1)
 })
 
 // A finished run can be forgotten from the list it clutters, and the question is asked inside the
