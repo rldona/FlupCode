@@ -195,15 +195,37 @@ export type ContextFigures = {
   limit: number
   cost: number
   tokens?: { input: number; output: number; reasoning: number }
+  /**
+   * The figure sizes the text the engine will send next instead of a finished step. It is set
+   * between a compaction and the first step after it, the only stretch where no step has measured
+   * the compacted session yet. The views say so rather than pass it off as measured.
+   */
+  estimated?: boolean
 }
 
 const hasTokens = (tokens: SessionMessageAssistant["tokens"]) =>
   !!tokens && tokens.input + tokens.output + tokens.reasoning + tokens.cache.read + tokens.cache.write > 0
 
 /**
+ * The engine's own compaction: the summary message, the v2 shape, or the bare prompt that asks for
+ * it when the summary is still to come. Its tokens size the request that wrote the summary — the
+ * history it was asked to fold away — so it is never the reading of the session it left behind.
+ */
+const isCompaction = (message: SessionMessageInfo) =>
+  message.type === "compaction" ||
+  !!(message as { compaction?: unknown }).compaction ||
+  (message.type === "assistant" && (message as { summary?: boolean }).summary === true)
+
+/**
  * The context window in use and the session's spend. The step that is still running carries no
  * tokens yet, so the latest step that reported them is used instead: the figure stays put while the
  * model thinks instead of dropping to zero, and grows as new steps finish.
+ *
+ * A compaction leaves the window small but sets no step to read it from: the summary that answers it
+ * is a message like any other, and taking its tokens would hold up the size of the history the
+ * reader just watched go away. Until a step reports the compacted session, the context is the text
+ * the engine kept — the summary and whatever followed it — sized here instead. It is approximate,
+ * and the step the next prompt runs replaces it with the engine's own number.
  */
 export function contextFigures(
   session: SessionInfo | undefined,
@@ -211,19 +233,69 @@ export function contextFigures(
   models: ModelInfo[],
   limit: number,
 ): ContextFigures {
-  const tokens = [...messages]
-    .reverse()
-    .map((message) => (message.type === "assistant" ? (message as SessionMessageAssistant).tokens : undefined))
-    .find(hasTokens)
-  const used = tokens
-    ? tokens.input + tokens.cache.read
-    : (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0)
-  return {
-    used,
-    limit,
-    cost: sessionCost(session, messages, models),
-    tokens: tokens ? { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning } : undefined,
+  const compaction = messages.findLastIndex(isCompaction)
+  // Only after the last compaction: a step before it measured a history that is no longer sent, and
+  // the summary itself is at the boundary, so the slice leaves both out.
+  const measured = messages
+    .slice(compaction + 1)
+    .findLast(
+      (message): message is SessionMessageAssistant => message.type === "assistant" && hasTokens(message.tokens),
+    )
+  const cost = sessionCost(session, messages, models)
+  if (measured) {
+    const tokens = measured.tokens!
+    return {
+      used: tokens.input + tokens.cache.read,
+      limit,
+      cost,
+      tokens: { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning },
+    }
   }
+  if (compaction >= 0)
+    return { used: sentTokens(messages.slice(compaction)), limit, cost, estimated: true }
+  return {
+    used: (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0),
+    limit,
+    cost,
+  }
+}
+
+/** What the text of these messages costs to send, at the four characters per token the composer
+ *  already assumes. The system prompt is not in a message, so this reads low until the next step
+ *  reports the engine's own measurement. */
+function sentTokens(messages: SessionMessageInfo[]) {
+  return Math.ceil(messages.reduce((chars, message) => chars + messageChars(message), 0) / 4)
+}
+
+/** The text a message carries that the engine would send back: a prompt, an answer, a tool call, or
+ *  the summary and kept tail of a v2 compaction, which carries them as strings of its own. */
+function messageChars(message: SessionMessageInfo) {
+  const prompt = (message as { text?: string }).text ?? ""
+  const compaction = message as { summary?: unknown; recent?: unknown }
+  const kept =
+    (typeof compaction.summary === "string" ? compaction.summary.length : 0) +
+    (typeof compaction.recent === "string" ? compaction.recent.length : 0)
+  const parts =
+    (message as { content?: Array<{ type?: string; text?: string; state?: ToolPartState }> }).content ?? []
+  return (
+    prompt.length +
+    kept +
+    parts.reduce((sum, part) => {
+      if (part.type === "text") return sum + (part.text?.length ?? 0)
+      if (part.type !== "tool" || !part.state) return sum
+      const input = part.state.input === undefined ? "" : JSON.stringify(part.state.input)
+      const output = part.state.output ?? part.state.content?.map((item) => item.text ?? "").join("") ?? ""
+      const error = typeof part.state.error === "string" ? part.state.error : (part.state.error?.message ?? "")
+      return sum + input.length + output.length + error.length
+    }, 0)
+  )
+}
+
+type ToolPartState = {
+  input?: unknown
+  output?: string
+  error?: string | { message?: string }
+  content?: Array<{ text?: string }>
 }
 
 export function formatTokens(value: number) {
