@@ -296,6 +296,57 @@ export function createClient(baseUrl = resolveServerUrl()) {
         return { ...(v2 ?? { cursor: {} }), data } as SessionMessagesResponse
       },
     },
+    suggest: {
+      /** The configured `small_model` ("provider/model"), when the user set one. */
+      smallModel: async () => {
+        const config = (await unwrap(client.config.get())) as { small_model?: string } | undefined
+        const value = config?.small_model
+        const slash = value?.indexOf("/") ?? -1
+        return value && slash > 0 ? { providerID: value.slice(0, slash), id: value.slice(slash + 1) } : undefined
+      },
+      /**
+       * Predicts the user's next message from the end of a conversation. The engine has no
+       * session-less completion, so this runs one prompt in a throwaway child session (hidden from
+       * the session list, no tools, no title call) and deletes it.
+       */
+      reply: async (input: {
+        parentID: string
+        directory?: string
+        model: { providerID: string; id: string }
+        prompt: string
+        system: string
+      }) => {
+        const created = (await unwrap(
+          client.session.create({
+            parentID: input.parentID,
+            directory: input.directory,
+            title: "Reply suggestion",
+            permission: [{ permission: "*", pattern: "*", action: "deny" }],
+          }),
+        )) as { id: string }
+        try {
+          const result = (await unwrap(
+            client.session.prompt({
+              sessionID: created.id,
+              directory: input.directory,
+              agent: "compaction",
+              model: { providerID: input.model.providerID, modelID: input.model.id },
+              system: input.system,
+              parts: [{ type: "text", text: input.prompt }],
+            }),
+          )) as { parts?: Array<{ type: string; text?: string }> } | undefined
+          return (result?.parts ?? [])
+            .filter((part) => part.type === "text")
+            .map((part) => part.text ?? "")
+            .join("")
+            .trim()
+        } finally {
+          await unwrap(client.session.delete({ sessionID: created.id, directory: input.directory })).catch(
+            () => undefined,
+          )
+        }
+      },
+    },
     model: {
       list: (input?: LocationInput) => unwrap(client.v2.model.list(input)),
       directory: () => unwrap(client.config.providers()),

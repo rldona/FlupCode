@@ -39,6 +39,8 @@ type ComposerProps = {
   agents: AgentInfo[]
   agent: string
   permissionMode: string
+  /** Suggested next message, shown greyed while the input is empty; Tab accepts it. */
+  suggestion?: string
   onInput: (value: string) => void
   onSend: () => void
   onOpenModelPicker: () => void
@@ -280,8 +282,9 @@ export const Composer: Component<ComposerProps> = (props) => {
           <textarea
             ref={input}
             class="fc-input"
+            classList={{ "fc-input-suggesting": !!props.suggestion && !props.value }}
             rows={1}
-            placeholder={t("Type / for commands")}
+            placeholder={props.suggestion ?? t("Type / for commands")}
             value={props.value}
             onInput={(event) => props.onInput(event.currentTarget.value)}
             onPaste={(event) => {
@@ -299,12 +302,22 @@ export const Composer: Component<ComposerProps> = (props) => {
               }
             }}
             onKeyDown={(event) => {
+              if (event.key === "Tab" && !event.shiftKey && props.suggestion && !props.value) {
+                event.preventDefault()
+                props.onInput(props.suggestion)
+                return
+              }
               if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
                 event.preventDefault()
                 props.onSend()
               }
             }}
           />
+          <Show when={props.suggestion && !props.value}>
+            <kbd class="fc-input-tab-hint" aria-hidden="true">
+              Tab
+            </kbd>
+          </Show>
           <Show
             when={showStop()}
             fallback={
