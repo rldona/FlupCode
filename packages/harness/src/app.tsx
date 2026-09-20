@@ -101,7 +101,7 @@ import { Composer } from "./components/Composer"
 import { PermissionDock, type PermissionReply } from "./components/PermissionDock"
 import { QuestionDock } from "./components/QuestionDock"
 import { CommandPalette } from "./components/CommandPalette"
-import { SessionView } from "./components/SessionView"
+import { SessionView, setCompositionTools } from "./components/SessionView"
 import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
 import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/WorkspacePanels"
@@ -1214,6 +1214,9 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     (url) => createClient(url).config(),
   )
+  // Which tools draw an image a delivery re-attaches is configuration, not knowledge: FlupCode reads
+  // `flupcode.composeTools` and never names a tool of any product itself.
+  createEffect(() => setCompositionTools(engineConfig()?.flupcode?.composeTools))
   const [lastModels, setLastModels] = createSignal<ModelInfo[]>([])
   createEffect(() => {
     const data = models()?.data
