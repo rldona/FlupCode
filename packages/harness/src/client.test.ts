@@ -89,3 +89,23 @@ test("a session the engine no longer has is told apart from an engine that is aw
   )
   expect(isSessionGone(away)).toBe(false)
 })
+
+test("saving a credential drops the engine's cached providers, so the new key is the one used", async () => {
+  const calls: string[] = []
+  setEngineTransport({
+    fetch: async (input) => {
+      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
+      calls.push(url.pathname)
+      return new Response(JSON.stringify(true), { status: 200, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  const client = createClient("http://engine")
+  await client.auth.set({ providerID: "opencode-go", key: "oc_sk_new" })
+  await client.auth.reload()
+
+  expect(calls).toEqual(["/auth/opencode-go", "/global/dispose"])
+})

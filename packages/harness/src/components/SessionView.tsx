@@ -25,6 +25,11 @@ type SessionViewProps = {
   busy: boolean
   /** Whether the engine is folding the session: the status line says so instead of "Thinking…". */
   compacting?: boolean
+  /**
+   * What the engine is waiting on when a provider call failed and is being retried. Without it the
+   * status line reads "Thinking…" through every attempt, so a spent quota looks like a hung turn.
+   */
+  retry?: { message: string; attempt: number }
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
@@ -800,6 +805,9 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   const activity = createMemo(() => {
     // A fold is a turn of its own: it never reads as the agent thinking about the task.
     if (props.compacting) return { tasks: 0, label: t("Compacting session…") }
+    const retrying = props.retry
+    if (retrying)
+      return { tasks: 0, label: `${errorDetail(retrying.message)} — ${t("retrying")} (${retrying.attempt}/5)` }
     const list = props.messages ?? []
     const start = Math.max(0, lastTurnStart())
     let runningTools = 0

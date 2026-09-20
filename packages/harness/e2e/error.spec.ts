@@ -85,3 +85,40 @@ test("Retry resends the failed turn's prompt with the same session", async ({ pa
   expect(prompts[0]).toMatchObject({ parts: [{ type: "text", text: "Sea el balance" }] })
   await expect(composer).toHaveValue("draft in progress")
 })
+
+test("a turn waiting on a spent quota says so, instead of thinking on forever", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_error"))
+  })
+  // The engine reports why it is waiting through the session status, once per attempt, while the
+  // transcript stays as it was: without it the run reads as "Thinking…" until the retries run out.
+  const retry = {
+    id: "evt_retry",
+    type: "session.status",
+    properties: {
+      sessionID: "ses_error",
+      status: { type: "retry", attempt: 2, message: "Go usage limit exceeded", next: Date.now() + 8000 },
+    },
+  }
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/ses_error/message")
+      return route.fulfill({ json: { data: [messages[0]], cursor: {} } })
+    if (url.pathname === "/api/event")
+      return route.fulfill({
+        headers: { "content-type": "text/event-stream" },
+        body: `data: ${JSON.stringify(retry)}\n\n`,
+      })
+    if (url.pathname === "/session/ses_error") return route.fulfill({ json: session })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+
+  await expect(page.locator(".fc-loader-text")).toHaveText(/Go usage limit exceeded/)
+})
