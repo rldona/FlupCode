@@ -1071,6 +1071,45 @@ button.fc-row-main {
   font-size: 13px;
 }
 
+.fc-dock-preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-dock-controls {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.fc-dock-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text-muted);
+}
+
+.fc-dock-control:hover:not(:disabled) {
+  background: var(--fc-bg);
+  color: var(--fc-text);
+}
+
+.fc-dock-control:disabled {
+  opacity: 0.5;
+}
+
 .fc-dock-list {
   margin: 0;
   padding-left: 18px;
