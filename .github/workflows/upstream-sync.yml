@@ -50,11 +50,12 @@ jobs:
             exit 0
           fi
 
-          pr_number=$(gh pr list --head dev --base power --state open --json number --jq '.[0].number // empty')
+          pr_number=$(gh pr list --repo "$GITHUB_REPOSITORY" --head dev --base power --state open --json number --jq '.[0].number // empty')
           if [ -n "$pr_number" ]; then
             echo "Sync PR #$pr_number already open; dev mirror updated."
           else
             gh pr create \
+              --repo "$GITHUB_REPOSITORY" \
               --head dev \
               --base power \
               --title "chore(upstream): sync dev into power" \
