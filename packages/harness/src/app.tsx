@@ -4892,10 +4892,10 @@ export const App: Component = () => {
               view={view()}
               onViewChange={changeView}
               viewActivity={viewActivity()}
-              codeChrome={codeChrome()}
+              codeChrome={codeChrome() && !toolScreen()}
               sidebarCollapsed={collapsed()}
               contextPanel={
-                selectedSession() && codeChrome() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
+                selectedSession() && codeChrome() && !toolScreen() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
               }
               onTogglePanel={togglePanel}
               openPanels={panels()}
@@ -4910,12 +4910,12 @@ export const App: Component = () => {
               }
               hostRemote={hostRemotePill()}
               sessionTitle={
-                <Show when={!splitActive() && selectedSession()}>
+                <Show when={!splitActive() && !toolScreen() && selectedSession()}>
                   {(session) => <SessionTitle session={session()} lineage={lineage()} onOpenLineage={selectSession} />}
                 </Show>
               }
               sessionActions={
-                <Show when={!splitActive() && selectedSession()}>
+                <Show when={!splitActive() && !toolScreen() && selectedSession()}>
                   {(session) => (
                     <SessionActions
                       session={session()}
