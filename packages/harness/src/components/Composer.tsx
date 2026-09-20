@@ -1,7 +1,8 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
+import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
+import { Mascot } from "./Mascot"
 
 type ComposerProps = {
   value: string
@@ -15,6 +16,8 @@ type ComposerProps = {
   commands: CommandOption[]
   projects: ProjectItem[]
   targetDirectory: string | undefined
+  agents: AgentInfo[]
+  agent: string
   onInput: (value: string) => void
   onSend: () => void
   onModelChange: (key: string) => void
@@ -27,6 +30,11 @@ type ComposerProps = {
   onPasteText: (text: string) => string
   onStash: () => void
   onTargetChange: (directory: string | undefined) => void
+  onAgentChange: (agent: string) => void
+}
+
+function primaryAgents(agents: AgentInfo[]) {
+  return agents.filter((agent) => agent.mode === "primary" && !agent.hidden)
 }
 
 function projectLabel(project: ProjectItem) {
@@ -164,6 +172,7 @@ export const Composer: Component<ComposerProps> = (props) => {
         handleFiles(event.dataTransfer?.files ?? null)
       }}
     >
+      <Mascot class="fc-mascot" />
       <div class="fc-composer-chips">
         <select
           class="fc-folder-select"
@@ -280,14 +289,41 @@ export const Composer: Component<ComposerProps> = (props) => {
         <button
           class="fc-send"
           type="button"
+          title={t("Send")}
+          aria-label={t("Send")}
           onClick={props.onSend}
           disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
         >
-          {t("Send")}
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+            <path
+              d="M12 19V5M12 5l-6 6M12 5l6 6"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2.2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
       </div>
 
       <div class="fc-composer-controls">
+        <Show when={primaryAgents(props.agents).length > 0}>
+          <div class="fc-segment">
+            <For each={primaryAgents(props.agents)}>
+              {(entry) => (
+                <button
+                  class="fc-segment-item"
+                  classList={{ "fc-segment-item-active": props.agent === entry.id }}
+                  type="button"
+                  onClick={() => props.onAgentChange(entry.id)}
+                >
+                  {entry.id}
+                </button>
+              )}
+            </For>
+          </div>
+        </Show>
         <button class="fc-chip fc-chip-button" type="button" onClick={props.onStash}>
           {t("Save")}
         </button>
