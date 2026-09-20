@@ -120,7 +120,7 @@ test("a turn waiting on a spent quota says so, instead of thinking on forever", 
   })
   await page.goto("/")
 
-  await expect(page.locator(".fc-loader-text")).toHaveText(/Go usage limit exceeded/)
+  await expect(page.locator(".fc-message-pending .fc-loader-text")).toHaveText(/Go usage limit exceeded/)
 })
 
 test("a turn that has spent no tokens does not say 0 tokens", async ({ page }) => {
