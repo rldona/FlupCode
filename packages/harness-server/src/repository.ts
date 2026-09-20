@@ -1005,13 +1005,13 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return row ? decodeSessionPrefs(row) : undefined
   }
 
-  setSessionPinned(sessionID: string, pinned: boolean) {
-    return this.writePrefs(sessionID, { pinned })
+  setSessionPinned(sessionID: string, pinned: boolean, at?: number) {
+    return this.writePrefs(sessionID, { pinned }, at)
   }
 
-  setSessionTags(sessionID: string, tags: string[]) {
+  setSessionTags(sessionID: string, tags: string[], at?: number) {
     // Kept in the order given, without repeats: a tag a reader typed twice is one tag.
-    return this.writePrefs(sessionID, { tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))] })
+    return this.writePrefs(sessionID, { tags: [...new Set(tags.map((tag) => tag.trim()).filter(Boolean))] }, at)
   }
 
   /**
@@ -1020,14 +1020,17 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * Pinning a session must not drop its tags, and tagging one must not unpin it, so the change is
    * applied to what is there. An empty result is removed outright: a row that says nothing is not
    * worth keeping, and it would make the list say a reader had kept something they had not.
+   *
+   * `at` exists for tests: two changes in the same millisecond used to leave "newest first"
+   * to the clock, which made the same two calls order differently between machines.
    */
-  private writePrefs(sessionID: string, change: { pinned?: boolean; tags?: string[] }): SessionPrefs {
+  private writePrefs(sessionID: string, change: { pinned?: boolean; tags?: string[] }, at = Date.now()): SessionPrefs {
     const current = this.getSessionPrefs(sessionID)
     const next: SessionPrefs = {
       sessionID,
       pinned: change.pinned ?? current?.pinned ?? false,
       tags: change.tags ?? current?.tags ?? [],
-      updatedAt: Date.now(),
+      updatedAt: at,
     }
     if (!next.pinned && next.tags.length === 0) {
       this.db.query("DELETE FROM session_prefs WHERE session_id = ?1").run(sessionID)
