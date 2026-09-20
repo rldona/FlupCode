@@ -91,6 +91,44 @@ build passes.
 3. Ensure CI passes (`typecheck`, harness build, tests).
 4. Follow the conflict policy in [docs/UPSTREAM.md](UPSTREAM.md).
 
+### Pushing
+
+Every push costs a CI run (`harness`: build, unit and e2e on Linux and Windows). Commit locally
+while iterating and push once the PR is ready, then batch follow-up tweaks into one push instead
+of one push per small change.
+
+### Merging
+
+Merges happen on GitHub, never from Vercel, and one PR at a time:
+
+1. **Rebase** the branch onto the current `origin/power` if it is behind, and push with
+   `--force-with-lease`.
+2. **Wait for CI** on that exact commit: the `harness` workflow must finish green. Never merge on red
+   or while it is still running.
+3. **Merge with rebase**, which keeps the history linear with no merge commits:
+
+   ```bash
+   gh pr merge <number> --rebase
+   ```
+
+4. **Several PRs:** merge them in order, infrastructure and CI changes first. After each merge,
+   rebase the next PR onto the new `power` and wait for its CI again. Stop at the first conflict or
+   red run.
+5. **Keep your checkout alone:** rebase other branches in a `git worktree` (`git worktree add ../fc-x
+   <branch>`), so the branch a local dev server is serving does not change under it.
+6. **Clean up:** after merging, fast-forward `power` locally, and delete the merged branches and any
+   worktrees.
+
+### Deploys
+
+- **Web:** Vercel deploys production from `power` only; other branches get no preview deployments.
+  Each Vercel project skips its build when a push did not touch it: `packages/landing` for the
+  landing, and `packages/harness` or the packages it builds from for the app (`ignoreCommand` in each
+  `vercel.json`).
+- **Checking the web deploy:** `app.flupcode.com` updates a few minutes after a merge. Confirm it by
+  fetching the served bundle and looking for something the change added, such as a new class name.
+- **Desktop:** the desktop app only updates with a release; see [docs/RELEASE.md](RELEASE.md).
+
 ## Reporting issues
 
 Tag issues with the phase/ticket they relate to. For upstream bugs that also affect OpenCode,
