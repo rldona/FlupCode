@@ -1253,9 +1253,11 @@ export const App: Component = () => {
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).provider.auth(),
   )
+  // The reload counter is part of the key so the list is asked for again when the engine reloads:
+  // a command (or a whole skill set) added on disk only shows up after the engine re-reads it.
   const [commands] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).command.list(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
+    async (key) => createClient(key.split("\n")[0]!).command.list(),
   )
   const [integrations, { refetch: refetchIntegrations }] = createResource(
     () => (ready() ? serverUrl() : undefined),
