@@ -148,6 +148,7 @@ import {
   type LocalNetworkState,
 } from "./local-network"
 import { normalizeRoutineSchedule } from "./routine-schedule"
+import { skillifyPrompt } from "./skillify"
 
 type Client = ReturnType<typeof createClient>
 
@@ -187,6 +188,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "replay", descriptionKey: "Replay this session", session: true },
   { name: "compare", descriptionKey: "Compare two runs" },
   { name: "best-of-n", descriptionKey: "Best of N: one task, several models" },
+  { name: "skillify", descriptionKey: "Save this session as a skill", session: true },
   { name: "next-tab", descriptionKey: "Next session tab" },
   { name: "prev-tab", descriptionKey: "Previous session tab" },
   { name: "close-tab", descriptionKey: "Close this session tab", session: true },
@@ -1957,6 +1959,10 @@ export const App: Component = () => {
       }
       if (name === "best-of-n") {
         setBestOfNOpen(true)
+        return
+      }
+      if (name === "skillify") {
+        skillifySession()
         return
       }
       if (name === "next-tab") {
@@ -4367,6 +4373,22 @@ export const App: Component = () => {
     submitPrompt(text, files, true)
   }
 
+  /**
+   * Ask the open session to write down what it learned as a skill (H-43).
+   *
+   * The turn is visible on purpose: the session that did the work is the one that knows it, so the
+   * agent writes `.opencode/skills/<name>/SKILL.md` with its own tools and the Skills screen reads
+   * it back like any other. A chat has no project to write into, so it is told to use Code.
+   */
+  const skillifySession = (keepDraft = true) => {
+    if (chatView()) {
+      toast(t("Skills come from code sessions"), "info")
+      return
+    }
+    if (!selected()) return
+    submitPrompt(skillifyPrompt(), [], keepDraft)
+  }
+
   const send = () => {
     const text = prompt().trim()
     const files = attachments()
@@ -4471,6 +4493,11 @@ export const App: Component = () => {
       if (name === "best-of-n") {
         setPrompt("")
         setBestOfNOpen(true)
+        return
+      }
+      if (name === "skillify") {
+        setPrompt("")
+        skillifySession(false)
         return
       }
       if (name === "next-tab") {
