@@ -14,7 +14,12 @@ test("loads the harness shell", async ({ page }) => {
 })
 
 test("completes onboarding", async ({ page }) => {
-  await page.addInitScript(() => window.localStorage.removeItem("flupcode.onboarded"))
+  await page.addInitScript(() => {
+    window.localStorage.removeItem("flupcode.onboarded")
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+  })
+  // "Get started" needs a healthy engine; CI has none, so answer the health check.
+  await page.route(/\/(api|global)\/health/, (route) => route.fulfill({ json: { healthy: true, version: "e2e" } }))
   await page.goto("/")
   await expect(page.getByText(/Welcome to FlupCode/i)).toBeVisible()
   await page.locator(".fc-onboarding").getByPlaceholder(/Your name/i).fill("Raúl")
