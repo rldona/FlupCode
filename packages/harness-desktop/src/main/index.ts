@@ -1,12 +1,19 @@
 import { BrowserWindow, app } from "electron"
 import { join } from "node:path"
+import { setApplicationMenu } from "./menu"
+import { ensureServer, stopServer } from "./server"
+import { loadBounds, saveBounds } from "./window-state"
 
 const DEV_URL = process.env.OPENHARNESS_DEV_URL ?? "http://localhost:4444"
 
 function createWindow() {
+  const bounds = loadBounds()
+
   const window = new BrowserWindow({
-    width: 1280,
-    height: 840,
+    width: bounds.width,
+    height: bounds.height,
+    x: bounds.x,
+    y: bounds.y,
     minWidth: 720,
     minHeight: 480,
     title: "OpenHarness",
@@ -17,6 +24,8 @@ function createWindow() {
     },
   })
 
+  window.on("close", () => saveBounds(window.getBounds()))
+
   const devUrl = process.env.OPENHARNESS_DEV_URL
   if (devUrl || !app.isPackaged) {
     void window.loadURL(devUrl ?? DEV_URL)
@@ -26,7 +35,9 @@ function createWindow() {
   void window.loadFile(join(app.getAppPath(), "out", "renderer", "index.html"))
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  setApplicationMenu({ onNewWindow: createWindow })
+  await ensureServer()
   createWindow()
 
   app.on("activate", () => {
@@ -37,3 +48,5 @@ app.whenReady().then(() => {
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit()
 })
+
+app.on("before-quit", () => stopServer())

@@ -90,8 +90,8 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F5-1 | P1 | `harness-desktop` Electron shell reusing `packages/desktop` patterns | doing |
-| F5-2 | P1 | Native menus, window state, multi-window | todo |
+| F5-1 | P1 | `harness-desktop` Electron shell reusing `packages/desktop` patterns | done |
+| F5-2 | P1 | Native menus, window state, multi-window | done |
 | F5-3 | P1 | Auto-update | todo |
 | F5-4 | P1 | Signing/notarization: macOS, Windows, Linux | todo |
 | F5-5 | P2 | First-launch onboarding | todo |
