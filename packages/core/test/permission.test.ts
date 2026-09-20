@@ -75,6 +75,18 @@ function setRules(rules: PermissionV2.Ruleset) {
   })
 }
 
+function setSessionPermission(permission: Array<{ permission: string; pattern: string; action: "allow" | "ask" | "deny" }>) {
+  return Effect.gen(function* () {
+    const { db } = yield* Database.Service
+    yield* db
+      .update(SessionTable)
+      .set({ permission: [...permission] })
+      .where(eq(SessionTable.id, SessionV2.ID.make("ses_test")))
+      .run()
+      .pipe(Effect.orDie)
+  })
+}
+
 function assertion(input: Partial<PermissionV2.AssertInput> = {}) {
   return {
     id: PermissionV2.ID.create("per_test"),
@@ -150,6 +162,28 @@ describe("PermissionV2", () => {
       const blocked = yield* service.assert(assertion()).pipe(Effect.flip)
       expect(blocked).toBeInstanceOf(PermissionV2.BlockedError)
       expect(yield* service.list()).toEqual([])
+    }),
+  )
+
+  it.effect("keeps an agent denial when a session-level allow tries to override it", () =>
+    Effect.gen(function* () {
+      yield* setup([{ action: "edit", resource: "*", effect: "deny" }])
+      yield* setSessionPermission([{ permission: "*", pattern: "*", action: "allow" }])
+      const service = yield* PermissionV2.Service
+
+      expect(yield* service.ask(assertion({ action: "edit", resources: ["src/index.ts"] }))).toMatchObject({
+        effect: "deny",
+      })
+    }),
+  )
+
+  it.effect("lets session-level rules loosen an agent ask", () =>
+    Effect.gen(function* () {
+      yield* setup()
+      yield* setSessionPermission([{ permission: "read", pattern: "*", action: "allow" }])
+      const service = yield* PermissionV2.Service
+
+      expect(yield* service.ask(assertion())).toMatchObject({ effect: "allow" })
     }),
   )
 
