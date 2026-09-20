@@ -242,6 +242,12 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
   const orphans = createMemo(() => withoutFiles(props.agents, props.files))
   const editing = createMemo(() => creating() || !!selected())
 
+  /** Closes the editor dialog: whichever of the two states opened it is cleared. */
+  const closeEditor = () => {
+    setCreating(false)
+    setOpenPath(undefined)
+  }
+
   createEffect(() => {
     if (!props.open) {
       setCreating(false)
@@ -283,33 +289,53 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
                 </p>
               }
             >
-              <For each={props.files}>
-                {(file) => (
-                  <div class="fc-agent-file">
-                    <button
-                      class="fc-usage-row fc-agent-row"
-                      type="button"
-                      onClick={() => openFile(file)}
-                      aria-expanded={openPath() === file.path}
-                    >
-                      <span class="fc-diff-status">{t(file.scope)}</span>
-                      <span class="fc-usage-key">{file.name}</span>
-                      <span class="fc-context-excerpt">{text(file.fields.description) || file.prompt.slice(0, 80)}</span>
-                      <span class="fc-usage-cost">{text(file.fields.mode) || "subagent"}</span>
-                    </button>
-                    <Show when={file.problem}>
-                      {(why) => <p class="fc-usage-note fc-agent-problem">{why()}</p>}
-                    </Show>
-                  </div>
-                )}
-              </For>
+              <div class="fc-routine-cards">
+                <For each={props.files}>
+                  {(file) => (
+                    <div class="fc-agent-file">
+                      <button
+                        class="fc-routine-card fc-agent-row"
+                        classList={{ "fc-routine-card-selected": openPath() === file.path }}
+                        type="button"
+                        onClick={() => openFile(file)}
+                        aria-expanded={openPath() === file.path}
+                      >
+                        <span class="fc-routine-card-icon" aria-hidden="true">
+                          ◍
+                        </span>
+                        <span class="fc-routine-card-content">
+                          <strong>{file.name}</strong>
+                          <small>{text(file.fields.description) || file.prompt.slice(0, 80)}</small>
+                        </span>
+                        <span class="fc-artifact-kind">{t(file.scope)}</span>
+                        <span class="fc-artifact-kind">{text(file.fields.mode) || "subagent"}</span>
+                      </button>
+                      <Show when={file.problem}>
+                        {(why) => <p class="fc-usage-note fc-agent-problem">{why()}</p>}
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
             </Show>
           </section>
 
           <Show when={editing()}>
-            <section class="fc-usage-block fc-agent-form">
-              <h2>{creating() ? t("New agent") : selected()?.name}</h2>
-              <Show when={selected()?.problem}>
+            <div class="fc-modal-backdrop" onClick={closeEditor}>
+              <div
+                class="fc-modal fc-form-modal fc-agent-form"
+                role="dialog"
+                aria-modal="true"
+                aria-label={creating() ? t("New agent") : selected()?.name}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div class="fc-modal-header">
+                  <span>{creating() ? t("New agent") : selected()?.name}</span>
+                  <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={closeEditor}>
+                    ×
+                  </button>
+                </div>
+                <Show when={selected()?.problem}>
                 {(why) => (
                   <div class="fc-routines-notice">
                     {t("Saving would overwrite what this file says: {why}", { why: why() })}
@@ -482,7 +508,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
               <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
 
-              <div class="fc-routines-header-actions">
+              <div class="fc-dialog-actions">
                 <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
                   {saving() ? t("Saving…") : t("Save")}
                 </button>
@@ -520,7 +546,8 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               <Show when={selected()}>
                 {(file) => <p class="fc-usage-note fc-agent-path">{file().path}</p>}
               </Show>
-            </section>
+              </div>
+            </div>
           </Show>
 
           {/*
@@ -536,14 +563,18 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               <p class="fc-usage-note">
                 {t("The engine reports these and there is no file behind them: they are built in or come from a plugin.")}
               </p>
-              <For each={orphans()}>
-                {(agent) => (
-                  <div class="fc-usage-row">
-                    <span class="fc-usage-key">{agent.id}</span>
-                    <span class="fc-context-excerpt">{agent.description}</span>
-                  </div>
-                )}
-              </For>
+              <div class="fc-routine-cards">
+                <For each={orphans()}>
+                  {(agent) => (
+                    <div class="fc-routine-card fc-routine-card-static">
+                      <span class="fc-routine-card-content">
+                        <strong>{agent.id}</strong>
+                        <small>{agent.description}</small>
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
             </section>
           </Show>
         </div>
