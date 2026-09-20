@@ -1,0 +1,64 @@
+name: upstream-sync
+
+on:
+  schedule:
+    # Daily at 06:00 UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: upstream-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: power
+
+      - name: Configure git
+        run: |
+          git config user.name "openharness-bot"
+          git config user.email "bot@users.noreply.github.com"
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream https://github.com/anomalyco/opencode.git
+          git fetch upstream dev
+          git fetch origin power
+
+      - name: Update dev mirror (fast-forward only)
+        run: |
+          git checkout -B dev upstream/dev
+          git push origin dev --force
+
+      - name: Open or update sync PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if git diff --quiet origin/power..dev; then
+            echo "No upstream changes to sync."
+            exit 0
+          fi
+
+          pr_number=$(gh pr list --head dev --base power --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr_number" ]; then
+            echo "Sync PR #$pr_number already open; dev mirror updated."
+          else
+            gh pr create \
+              --head dev \
+              --base power \
+              --title "chore(upstream): sync dev into power" \
+              --body "Automated sync from \`anomalyco/opencode@dev\`.
+
+          Review conflicts only in OpenHarness-owned files (see docs/UPSTREAM.md). Upstream packages must take upstream's version."
+          fi
