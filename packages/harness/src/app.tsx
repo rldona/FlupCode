@@ -2085,7 +2085,6 @@ export const App: Component = () => {
                 comparison={comparisonLine()}
                 error={error()}
                 onRangeChange={setRange}
-                onAction={(value) => setPrompt(value)}
               />
             )
           }
