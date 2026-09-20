@@ -14,6 +14,9 @@ current streak, longest streak, peak hour, favorite model.
 
 ## F4-2 — Multi-project workspaces + pinned items · P1 · doing
 
+Done: projects in the sidebar, quick create, filter and persistent pinning.
+Pending: git worktree workspaces (create/switch per project).
+
 **Acceptance**
 - Projects and workspaces are first-class in the sidebar.
 - Pinned items persist and are reorderable.

@@ -57,7 +57,8 @@ Context chips, attachments, voice, model/variant/effort, send.
 
 ## F2-7 — Sidebar footer profile · P1 · doing
 
-User + plan indicator bottom-left.
+Done: name (editable, persisted) and the About entry point.
+Pending: account/plan indicator.
 
 **Acceptance**
 - Shows account/plan; opens settings.
