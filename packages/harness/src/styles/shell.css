@@ -4024,30 +4024,74 @@ button.fc-status {
   background: var(--fc-accent);
 }
 
+/*
+  Tasks as a timeline. The rail through the states makes "where is this" the shape of the list,
+  rather than a glyph to decode: completed is a filled disc, in progress an open accent ring,
+  pending an open muted one.
+*/
 .fc-aside-todos {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
 }
 
 .fc-aside-todo {
+  position: relative;
   display: flex;
-  gap: 6px;
+  align-items: flex-start;
+  gap: 12px;
+  padding-bottom: 16px;
   font-size: 13px;
+  line-height: 20px;
 }
 
-.fc-aside-todo-done {
-  color: var(--fc-text-muted);
-  text-decoration: line-through;
+.fc-aside-todo:last-child {
+  padding-bottom: 0;
+}
+
+/* The rail runs from under this disc to the next one, and stops at the last. */
+.fc-aside-todo:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  top: 22px;
+  bottom: 0;
+  left: 9px;
+  width: 1px;
+  background: var(--fc-border);
 }
 
 .fc-aside-todo-mark {
-  width: 14px;
-  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 2px solid color-mix(in srgb, var(--fc-text-muted) 55%, transparent);
+  border-radius: var(--fc-radius-pill);
+  background: var(--fc-sidebar);
   color: var(--fc-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.fc-aside-todo[data-status="in_progress"] .fc-aside-todo-mark {
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
+}
+
+.fc-aside-todo-done .fc-aside-todo-mark {
+  border-color: var(--fc-diff-add);
+  background: var(--fc-diff-add);
+  color: var(--fc-bg);
+}
+
+.fc-aside-todo-text {
+  flex: 1;
+  min-width: 0;
 }
 
 .fc-profile-button {
@@ -6391,15 +6435,6 @@ button.fc-status {
   color: var(--fc-text);
 }
 
-.fc-aside-todo {
-  position: relative;
-}
-
-.fc-aside-todo-text {
-  flex: 1;
-  min-width: 0;
-}
-
 .fc-aside-todo-remove {
   flex-shrink: 0;
   width: 20px;
@@ -6423,14 +6458,6 @@ button.fc-status {
 .fc-aside-todo-remove:hover {
   background: color-mix(in srgb, var(--fc-border) 55%, transparent);
   color: var(--fc-text);
-}
-
-.fc-aside-todo-done {
-  text-decoration: none;
-}
-
-.fc-aside-todo-done .fc-aside-todo-text {
-  text-decoration: line-through;
 }
 
 /* Tool calls: a run of calls is one quiet line ("Ran 2 commands ›") that shimmers while working
