@@ -33,10 +33,10 @@ record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 61 | — |
+| done | 62 | — |
 | doing | 0 | — |
 | blocked | 2 | F3-16, F5-4 |
-| todo | 3 | F2-2, F3-17, F6-4 |
+| todo | 2 | F2-2, F3-17 |
 | **total** | **66** | |
 
 ### What remains
@@ -149,7 +149,7 @@ Corrected, and now really done:
 | F6-1 | P1 | PWA + responsive mobile layout | done |
 | F6-2 | P1 | QR pairing + auth flow for LAN access | done |
 | F6-3 | P2 | Push notifications | done |
-| F6-4 | P2 | In-app serve/tunnel management | todo (only FlupCode's own relay) |
+| F6-4 | P2 | In-app serve/tunnel management | done (TN-1 copyable LAN/tunnel commands, TN-2 URL reachability, verified 2026-09-20) |
 
 ## F7 — Release
 
