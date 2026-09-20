@@ -147,23 +147,52 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
             >
               <For each={props.report?.instructions ?? []}>
                 {(file) => (
-                  <div class="fc-context-file">
-                    <button class="fc-usage-row fc-context-row" type="button" onClick={() => read(file.path)}>
-                      <span class="fc-diff-status">{t(file.scope)}</span>
-                      <span class="fc-usage-key" title={file.path}>
-                        {name(file.path)}
-                      </span>
-                      <span class="fc-context-excerpt">{file.excerpt}</span>
-                      <span class="fc-usage-cost">{bytes(file.bytes)}</span>
-                    </button>
-                    <Show when={openFile() === file.path}>
-                      <Show when={problem()} fallback={<pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>}>
-                        {(message) => <p class="fc-usage-note">{message()}</p>}
-                      </Show>
-                    </Show>
-                  </div>
+                  <button class="fc-usage-row fc-context-row" type="button" onClick={() => read(file.path)}>
+                    <span class="fc-diff-status">{t(file.scope)}</span>
+                    <span class="fc-usage-key" title={file.path}>
+                      {name(file.path)}
+                    </span>
+                    <span class="fc-context-excerpt">{file.excerpt}</span>
+                    <span class="fc-usage-cost">{bytes(file.bytes)}</span>
+                  </button>
                 )}
               </For>
+              {/* Read in a dialog: an instruction file is prose, and an accordion inside a list was
+                  the worst place to read it. */}
+              <Show when={openFile()}>
+                {(path) => (
+                  <div class="fc-modal-backdrop" onClick={() => setOpenFile(undefined)}>
+                    <div
+                      class="fc-modal fc-form-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label={name(path())}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div class="fc-modal-header">
+                        <span class="fc-modal-heading" dir="auto">
+                          {name(path())}
+                        </span>
+                        <button
+                          class="fc-icon-button"
+                          type="button"
+                          aria-label={t("Close")}
+                          onClick={() => setOpenFile(undefined)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div class="fc-modal-body">
+                        <div class="fc-context-file">
+                          <Show when={problem()} fallback={<pre class="fc-pr-log">{content() ?? t("Reading…")}</pre>}>
+                            {(message) => <p class="fc-usage-note">{message()}</p>}
+                          </Show>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Show>
             </Show>
           </section>
 
@@ -312,24 +341,44 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
             >
               <For each={props.prompts}>
                 {(prompt) => (
-                  <div class="fc-context-file">
-                    <button
-                      class="fc-usage-row fc-context-row"
-                      type="button"
-                      onClick={() => setOpenPrompt((value) => (value === prompt.at ? undefined : prompt.at))}
-                    >
-                      <span class="fc-usage-key">{when(prompt.at)}</span>
-                      <span class="fc-context-excerpt">
-                        {[prompt.providerID, prompt.modelID].filter(Boolean).join("/")}
-                      </span>
-                      <span class="fc-usage-cost">{bytes(prompt.system.join("\n\n").length)}</span>
-                    </button>
-                    <Show when={openPrompt() === prompt.at}>
-                      <pre class="fc-pr-log">{prompt.system.join("\n\n")}</pre>
-                    </Show>
-                  </div>
+                  <button class="fc-usage-row fc-context-row" type="button" onClick={() => setOpenPrompt(prompt.at)}>
+                    <span class="fc-usage-key">{when(prompt.at)}</span>
+                    <span class="fc-context-excerpt">
+                      {[prompt.providerID, prompt.modelID].filter(Boolean).join("/")}
+                    </span>
+                    <span class="fc-usage-cost">{bytes(prompt.system.join("\n\n").length)}</span>
+                  </button>
                 )}
               </For>
+              {/* Read in a dialog, not folded under its row: the prompt is long and is the point. */}
+              <Show when={props.prompts?.find((prompt) => prompt.at === openPrompt())}>
+                {(prompt) => (
+                  <div class="fc-modal-backdrop" onClick={() => setOpenPrompt(undefined)}>
+                    <div
+                      class="fc-modal fc-form-modal"
+                      role="dialog"
+                      aria-modal="true"
+                      aria-label={t("The system prompt")}
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div class="fc-modal-header">
+                        <span class="fc-modal-heading">{when(prompt().at)}</span>
+                        <button
+                          class="fc-icon-button"
+                          type="button"
+                          aria-label={t("Close")}
+                          onClick={() => setOpenPrompt(undefined)}
+                        >
+                          ×
+                        </button>
+                      </div>
+                      <div class="fc-modal-body">
+                        <pre class="fc-pr-log">{prompt().system.join("\n\n")}</pre>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Show>
             </Show>
             <Show when={props.agents.length > 0}>
               <p class="fc-usage-note">{t("Agents, whose own prompt is part of what is above:")}</p>

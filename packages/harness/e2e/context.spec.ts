@@ -97,13 +97,15 @@ test("says what the instructions cost, because that is the part nobody sees", as
   await expect(page.locator(".fc-usage-block").first()).toContainText(/about 2\.3k|unos 2\.3k/)
 })
 
-test("a file opens where it is, and only when asked", async ({ page }) => {
+test("a file opens in a dialog, and only when asked", async ({ page }) => {
   const { reads } = await open(page)
   expect(reads()).toBe(0)
 
   await page.locator(".fc-context-row").nth(1).click()
 
   await expect.poll(() => reads()).toBe(1)
+  // Read in a dialog, not folded under its row: the accordion is gone.
+  await expect(page.locator(".fc-form-modal")).toBeVisible()
   await expect(page.locator(".fc-context-file pre")).toContainText("Use tabs, not spaces.")
 })
 
@@ -203,9 +205,10 @@ test("shows the system prompt the engine actually sent", async ({ page }) => {
   await expect(rows).toHaveCount(2)
   await expect(rows.nth(0)).toContainText("deepseek/flash")
 
-  // Listed, not poured out: the prompt is behind the row.
+  // Listed, not poured out: the prompt opens in a dialog, not under its row.
   await expect(block.locator(".fc-pr-log")).toHaveCount(0)
   await rows.nth(0).click()
+  await expect(block.locator(".fc-form-modal")).toBeVisible()
   await expect(block.locator(".fc-pr-log")).toContainText("Instructions from: /work/demo/AGENTS.md")
 })
 

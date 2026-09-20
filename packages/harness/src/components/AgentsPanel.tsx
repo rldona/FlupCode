@@ -335,6 +335,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
                     ×
                   </button>
                 </div>
+                <div class="fc-modal-body">
                 <Show when={selected()?.problem}>
                 {(why) => (
                   <div class="fc-routines-notice">
@@ -508,6 +509,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
               <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
 
+              </div>
               <div class="fc-dialog-actions">
                 <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
                   {saving() ? t("Saving…") : t("Save")}

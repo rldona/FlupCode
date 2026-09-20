@@ -127,6 +127,8 @@ test("nothing is read from disk until a skill is opened", async ({ page }) => {
 
   await loadedRow(page, "effect").click()
 
+  // The body opens in a dialog, not folded under the row.
+  await expect(page.locator(".fc-form-modal")).toBeVisible()
   await expect(page.locator(".fc-pr-log")).toContainText("Use Effect v4.")
 })
 
