@@ -244,6 +244,44 @@ describe("harness runs API", () => {
     repository.close()
   })
 
+  // H-38: another vendor's CLI as the executor. The command is kept with the task and run in the
+  // folder the run names; what it printed is the task's answer.
+  test("a run keeps an external task's command, and runs it", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-external-"))
+    made.push(directory)
+
+    const started = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({
+          tasks: [{ name: "codex", kind: "external", prompt: "hi", command: "printf %s {{prompt}}" }],
+          directory,
+        }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    expect(repository.listTasks(run.id)[0]).toMatchObject({ kind: "external", command: "printf %s {{prompt}}" })
+
+    await settled(repository, run.id)
+    expect(repository.listTasks(run.id)[0]).toMatchObject({ status: "success", output: "hi" })
+    repository.close()
+  })
+
+  test("an external task without a command is refused before anything starts", async () => {
+    const { repository, handler } = open()
+    const refused = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "codex", kind: "external" }] }),
+      }),
+    )
+    expect(refused.status).toBe(400)
+    expect(repository.listRuns()).toEqual([])
+    repository.close()
+  })
+
   // H-21: a workflow is a file that turns into a run of tasks. Everything after that is the path a
   // manual run already takes.
   test("starts a run from a workflow the project wrote down", async () => {

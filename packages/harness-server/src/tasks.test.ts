@@ -578,6 +578,84 @@ describe("a task confined to its project", () => {
   })
 })
 
+// H-38: another vendor's CLI as the executor of a task. The engine must not be touched at all: the
+// command runs, what it printed is the task's answer, and a later task is handed it like any other.
+describe("a task an external command runs", () => {
+  const neverEngine = new Proxy({} as never, {
+    get(_target, name) {
+      throw new Error(`the runner asked the engine for ${String(name)} during an external task`)
+    },
+  })
+
+  const scratchDirectory = () => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-external-"))
+    scratch.push(directory)
+    return directory
+  }
+
+  test("runs in the task's tree, keeps what it printed, and takes its point", async () => {
+    const repository = open()
+    const directory = scratchDirectory()
+    // A repository, so the point taken after the task has somewhere to live.
+    await Bun.spawn(["git", "init", "-q", "-b", "main"], { cwd: directory, stdout: "pipe", stderr: "pipe" }).exited
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "codex", prompt: "do it", kind: "external", command: "echo hello from the vendor" },
+    ])
+    await new TaskRunner(repository, neverEngine).execute(run, { directory })
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "success", output: "hello from the vendor\n" })
+    // The point after it exists, like after any task that may have written files.
+    expect(repository.listCheckpoints({ runID: run.id })).toHaveLength(1)
+    repository.close()
+  })
+
+  test("a command that fails fails the run, and what it printed is kept", async () => {
+    const repository = open()
+    const directory = scratchDirectory()
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "codex", prompt: "", kind: "external", command: "echo nope >&2; exit 4" },
+    ])
+    const runner = new TaskRunner(repository, neverEngine)
+    await expect(runner.execute(run, { directory })).rejects.toThrow("The external command exited 4")
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "failed", error: "The external command exited 4" })
+    expect(task!.output).toContain("nope")
+    repository.close()
+  })
+
+  test("the prompt reaches the command, quoted", async () => {
+    const repository = open()
+    const directory = scratchDirectory()
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [
+      { name: "codex", prompt: "don't stop", kind: "external", command: "printf %s {{prompt}}" },
+    ])
+    await new TaskRunner(repository, neverEngine).execute(run, { directory })
+    expect(repository.listTasks(run.id)[0]!.output).toBe("don't stop")
+    repository.close()
+  })
+
+  test("a run that is stopped kills the command and finishes as stopped", async () => {
+    const repository = open()
+    const directory = scratchDirectory()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    Object.assign(scheduler, { engine: neverEngine })
+
+    const run = await scheduler.runTasks({
+      tasks: [{ name: "codex", prompt: "", kind: "external", command: "sleep 30" }],
+      directory,
+    })
+    await scheduler.stopRun(run.id)
+    await settledAt(repository, run.id, "stopped")
+    expect(repository.listTasks(run.id)[0]!.status).toBe("stopped")
+    repository.close()
+  })
+})
+
 describe("a ceiling on one tool call", () => {
   test("the run's ceiling is what the wait is given, and a run without one is not watched", async () => {
     const repository = open()

@@ -32,10 +32,12 @@ const indented = (text: string, spaces = 6) =>
 
 export type WorkflowTask = {
   id: string
-  /** What a model is asked. A verify task has none: it runs the project's own commands (H-22). */
+  /** What a model is asked. A verify or external task has none for the model (H-38). */
   prompt?: string
-  kind?: "agent" | "verify"
+  kind?: "agent" | "verify" | "external"
   agent?: string
+  /** The command an `external` task runs (H-38), with `{{prompt}}` for its prompt. */
+  command?: string
   /** On a verify task: how many times the work before it may be attempted again (H-22). */
   retries?: number
   /** `human` holds the run here until somebody reads what it did and lets it through. */
@@ -113,9 +115,13 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
   const task = value as Record<string, unknown>
   const id = typeof task.id === "string" ? task.id.trim() : ""
   if (!id) return undefined
-  const kind = task.kind === "verify" ? "verify" : "agent"
+  const kind = task.kind === "verify" ? "verify" : task.kind === "external" ? "external" : "agent"
   const prompt = typeof task.prompt === "string" ? task.prompt : ""
+  const command = typeof task.command === "string" ? task.command.trim() : ""
+  // A model task without a prompt has nothing to ask; an external one without a command has nothing
+  // to run. Both are refused here rather than becoming a task that fails on the runner.
   if (kind === "agent" && !prompt.trim()) return undefined
+  if (kind === "external" && !command) return undefined
   const onFail = task.onFail && typeof task.onFail === "object" ? (task.onFail as Record<string, unknown>) : undefined
   const max = typeof onFail?.max === "number" ? onFail.max : undefined
   const dependsOn = Array.isArray(task.dependsOn)
@@ -125,6 +131,7 @@ const taskFrom = (value: unknown): WorkflowTask | undefined => {
     id,
     kind,
     ...(prompt.trim() ? { prompt } : {}),
+    ...(kind === "external" && command ? { command } : {}),
     ...(typeof task.agent === "string" && task.agent ? { agent: task.agent } : {}),
     ...(kind === "verify" && max !== undefined ? { retries: max } : {}),
     ...(task.gate === "human" ? { gate: "human" as const } : {}),
@@ -208,6 +215,8 @@ export function tasksFor(workflow: Workflow, inputs: Record<string, string>): Ta
     name: task.id,
     prompt: task.prompt ? fill(task.prompt, inputs) : "",
     kind: task.kind ?? "agent",
+    // An external command is filled like a prompt: `{{goal}}` is the same idea wherever it appears.
+    ...(task.command ? { command: fill(task.command, inputs) } : {}),
     ...(task.agent ? { agent: task.agent } : {}),
     ...(task.retries !== undefined ? { retries: task.retries } : {}),
     ...(task.gate ? { gate: task.gate } : {}),

@@ -409,3 +409,36 @@ describe("a ceiling written in the file (H-47)", () => {
     expect(workflow?.toolLimitMs).toBeUndefined()
   })
 })
+
+// H-38: another vendor's CLI as the executor. The file declares the command; the prompt and the
+// workflow's inputs reach it the same way they reach a prompt.
+describe("a task an external command runs (H-38)", () => {
+  test("carries its command, with the inputs filled in", () => {
+    const workflow = parseWorkflow(
+      [
+        "name: vendors",
+        "inputs: [goal]",
+        "tasks:",
+        "  - id: codex",
+        "    kind: external",
+        // A command is a YAML value: a `: ` inside it has to be quoted, the same as a prompt.
+        '    command: "codex exec {{goal}}: {{prompt}}"',
+        "    prompt: do the thing",
+      ].join("\n"),
+      "file",
+    )
+    expect(workflow?.tasks[0]).toMatchObject({ kind: "external", command: "codex exec {{goal}}: {{prompt}}" })
+    expect(tasksFor(workflow!, { goal: "search" })[0]).toMatchObject({
+      kind: "external",
+      command: "codex exec search: {{prompt}}",
+    })
+  })
+
+  test("a command that is not there is refused rather than run as nothing", () => {
+    const broken = parseWorkflow(
+      ["name: broken", "tasks:", "  - id: codex", "    kind: external"].join("\n"),
+      "file",
+    )
+    expect(broken).toBeUndefined()
+  })
+})

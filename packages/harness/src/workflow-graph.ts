@@ -9,7 +9,7 @@ import type { Workflow } from "./types"
  */
 export type WorkflowGraphNode = {
   id: string
-  kind: "agent" | "verify"
+  kind: "agent" | "verify" | "external"
   /** How many dependencies deep it is; tasks at the same depth have nothing to wait for each other. */
   depth: number
   /** Its place within the column, in file order. */
@@ -62,7 +62,7 @@ export function workflowGraph(tasks: GraphTask[]): WorkflowGraph {
     rows.set(column, row + 1)
     return {
       id: task.id,
-      kind: task.kind === "verify" ? ("verify" as const) : ("agent" as const),
+      kind: task.kind === "verify" ? ("verify" as const) : task.kind === "external" ? ("external" as const) : ("agent" as const),
       depth: column,
       row,
       dependsOn: graphDependencies(tasks, position),

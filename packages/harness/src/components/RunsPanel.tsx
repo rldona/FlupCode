@@ -97,7 +97,7 @@ const totals = (run: Run) => {
 const facts = (task: Task) => {
   const started = task.startedAt
   return [
-    task.kind === "verify" ? t("verify") : task.agent,
+    task.kind === "verify" ? t("verify") : task.kind === "external" ? t("external") : task.agent,
     // Only from the second: saying "attempt 1" on every task is noise on the runs that went fine.
     (task.attempt ?? 1) > 1 ? t("attempt {n}", { n: task.attempt! }) : undefined,
     started ? elapsed(started, task.finishedAt) : undefined,
