@@ -17,7 +17,6 @@ type UsagePanelProps = {
   onOnlyProject: (only: boolean) => void
   serverAvailable: boolean
   onOpenRuns: () => void
-  onClose: () => void
 }
 
 /**
@@ -102,11 +101,6 @@ export const UsagePanel: Component<UsagePanelProps> = (props) => {
             <div class="fc-routines-kicker">{t("Automation")}</div>
             <h1>{t("Cost")}</h1>
             <p>{t("Every run the harness has recorded — not ordinary chat turns, which it never sees.")}</p>
-          </div>
-          <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
           </div>
         </div>
 
