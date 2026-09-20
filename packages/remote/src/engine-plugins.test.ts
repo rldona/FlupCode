@@ -3,7 +3,13 @@ import { mkdtemp, readdir, readFile, rm, writeFile, mkdir } from "node:fs/promis
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { REASONING_VARIANTS_PLUGIN, SYSTEM_PROMPT_PLUGIN, engineConfigDir, installEnginePlugins } from "./engine-plugins"
+import {
+  REASONING_VARIANTS_PLUGIN,
+  SYSTEM_PROMPT_PLUGIN,
+  TOOL_USES_PLUGIN,
+  engineConfigDir,
+  installEnginePlugins,
+} from "./engine-plugins"
 
 const dirs: string[] = []
 const temp = async () => {
@@ -15,6 +21,7 @@ afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   delete process.env.OPENCODE_MODELS_PATH
   delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
+  delete process.env.FLUPCODE_TOOL_USES_DIR
 })
 
 describe("engineConfigDir", () => {
@@ -33,24 +40,27 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(2)
-    expect(await readFile(path.join(config, "plugins", REASONING_VARIANTS_PLUGIN.file), "utf8")).toBe(
-      REASONING_VARIANTS_PLUGIN.source,
-    )
-    expect(await readFile(path.join(config, "plugins", SYSTEM_PROMPT_PLUGIN.file), "utf8")).toBe(
-      SYSTEM_PROMPT_PLUGIN.source,
-    )
+    expect(first.paths).toHaveLength(3)
+    for (const plugin of [REASONING_VARIANTS_PLUGIN, SYSTEM_PROMPT_PLUGIN, TOOL_USES_PLUGIN]) {
+      expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
+    }
     expect(await Bun.file(path.join(config, "plugins", "reasoning-variants.ts")).exists()).toBe(false)
 
     expect((await installEnginePlugins(config)).changed).toBe(false)
   })
 
+  const installed = async (config: string, file: string, exported: string) => {
+    const { paths } = await installEnginePlugins(config)
+    const target = paths.find((entry) => entry.endsWith(file))
+    expect(target).toBeDefined()
+    return (await import(pathToFileURL(target!).href))[exported]
+  }
+
   test("the installed plugin records the system prompt of each request", async () => {
     const config = await temp()
     const prompts = await temp()
     process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = prompts
-    const { paths } = await installEnginePlugins(config)
-    const plugin = (await import(pathToFileURL(paths[1]!).href)).flupcodeSystemPrompt
+    const plugin = await installed(config, SYSTEM_PROMPT_PLUGIN.file, "flupcodeSystemPrompt")
     const hooks = await plugin()
 
     await hooks["experimental.chat.system.transform"](
@@ -72,8 +82,7 @@ describe("installEnginePlugins", () => {
     const config = await temp()
     const prompts = await temp()
     process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = prompts
-    const { paths } = await installEnginePlugins(config)
-    const plugin = (await import(pathToFileURL(paths[1]!).href)).flupcodeSystemPrompt
+    const plugin = await installed(config, SYSTEM_PROMPT_PLUGIN.file, "flupcodeSystemPrompt")
     const hook = (await plugin())["experimental.chat.system.transform"]
 
     for (let turn = 0; turn < 9; turn++) {
@@ -83,6 +92,29 @@ describe("installEnginePlugins", () => {
     expect(kept).toHaveLength(6)
     const newest = JSON.parse(await readFile(path.join(prompts, "ses_abc", kept.at(-1)!), "utf8"))
     expect(newest.system).toEqual(["turn 8"])
+  })
+
+  test("the installed plugin counts what each session ran, and nothing twice", async () => {
+    const config = await temp()
+    const uses = await temp()
+    process.env.FLUPCODE_TOOL_USES_DIR = uses
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hook = (await plugin())["tool.execute.before"]
+
+    // A step can run several tools at once, and an MCP tool is named after its server.
+    await Promise.all([
+      hook({ tool: "bash", sessionID: "ses_abc" }),
+      hook({ tool: "docs_search", sessionID: "ses_abc" }),
+      hook({ tool: "docs_search", sessionID: "ses_abc" }),
+    ])
+    const written = JSON.parse(await readFile(path.join(uses, "ses_abc.json"), "utf8"))
+    expect(written.tools.bash.count).toBe(1)
+    expect(written.tools.docs_search.count).toBe(2)
+    expect(written.tools.docs_search.last).toBeGreaterThan(0)
+
+    // The id names a file, so anything else is refused rather than written outside the folder.
+    await hook({ tool: "bash", sessionID: "../../escape" })
+    expect(await readdir(uses)).toEqual(["ses_abc.json"])
   })
 
   test("the installed plugin adds effort levels from the models.dev cache", async () => {
