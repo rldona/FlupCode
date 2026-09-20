@@ -104,10 +104,22 @@ Desktop, PWA and landing icons are generated, never hand-edited:
 swift script/branding.swift [source.png]
 ```
 
-(macOS only, AppKit.) Source of truth: `assets/flupcode-tentative-logo.png` on a `#F5F5F5`
-plate. The approved mac geometry (`packages/harness-desktop/build/icon-mac.png`) follows the
-macOS grid: plate at 824/1024 (`scale: 0.805`) with the artwork at `fraction: 0.65`
-(~535x679). `icon.png` (Windows/Linux) keeps the full-bleed plate with `fraction: 0.70`.
+(macOS only, AppKit.) Source of truth: `assets/flupcode-tentative-logo.png` on a `#FFEDD5`
+plate. The approved geometry (defined in `script/branding.swift` `targets`) is:
+
+| Target | Canvas | Plate | Artwork |
+| --- | --- | --- | --- |
+| `packages/harness-desktop/build/icon.png` (Windows/Linux) | 1024x1024 | full-bleed | `fraction: 0.60` by width (~614x779) |
+| `packages/harness-desktop/build/icon-mac.png` (macOS grid) | 1024x1024 | `scale: 0.805` (824/1024) | `fraction: 0.60` (~494x627) |
+| `packages/harness/public/apple-touch-icon.png` | 180x180 | full-bleed | `fraction: 0.60` (~108x137) |
+| `packages/harness/public/icon-192.png` | 192x192 | full-bleed | `fraction: 0.60` (~115x146) |
+| `packages/harness/public/icon-512.png` | 512x512 | full-bleed | `fraction: 0.60` (~307x389) |
+| `packages/harness/public/icon-maskable-512.png` | 512x512 | full-bleed | `fraction: 0.555` (~284x360, maskable safe zone) |
+| `packages/landing/assets/apple-touch-icon.png` | 180x180 | full-bleed | `fraction: 0.60` (~108x137) |
+| `packages/landing/assets/icon-192.png` | 192x192 | full-bleed | `fraction: 0.60` (~115x146) |
+| `packages/landing/assets/og.png` | 1200x630 | full-bleed | `fraction: 0.68` on height basis (~337x428) |
+| `packages/harness/src/assets/flupcode-logo.png`, `packages/landing/assets/flupcode-logo.png` | 256 / 320 | transparent (no plate) | artwork fit `0.90` |
+
 Transparent logos (`flupcode-logo.png`) fit the whole artwork inside the canvas. Keep these
 values when the logo changes so every build mounts the same icon.
 
