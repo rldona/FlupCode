@@ -81,8 +81,14 @@ export class RoutineScheduler {
     // the engine keeps each task's session under it. One task needs none — its own session is the
     // thread — and creating one anyway would leave an empty session in everybody's list.
     if (input.tasks.length > 1) {
+      // Named after the work, not after its first task: titling it `tasks[0].name` put two sessions
+      // with the same name in the list and no way to tell the run's thread from the task's.
+      const title = input.tasks.map((task) => task.name).join(" → ")
       const root = await this.engine
-        .createSession({ directory: input.directory, title: input.tasks[0]?.name ?? "Run" })
+        .createSession({
+          directory: input.directory,
+          title: title.length > 80 ? `${title.slice(0, 77)}…` : title,
+        })
         .catch(() => undefined)
       if (root) this.repository.attachSession(run.id, root.id)
     }

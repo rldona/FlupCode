@@ -83,8 +83,13 @@ test("a run and its tasks are shown, and a task moves when the server says so", 
   await expect(run1.getByText("plan it")).toBeVisible()
 
   // The event moved it: the task shows what it cost, which only the event carried.
-  await expect(run1.getByText(/2\.4k/)).toBeVisible({ timeout: 15_000 })
-  await expect(run1.getByText(/\$0\.12/)).toBeVisible()
+  const second = run1.locator(".fc-run-task").nth(1)
+  await expect(second.locator(".fc-run-meta")).toContainText("2.4k", { timeout: 15_000 })
+  await expect(second.locator(".fc-run-meta")).toContainText("$0.12")
+
+  // The run's header adds its tasks up: the report of what it did, where there is room for it.
+  await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2/2")
+  await expect(run1.locator(".fc-run-head .fc-run-meta")).toContainText("2.4k")
 
   // And nothing was re-read to learn it.
   expect(listReads).toBeLessThanOrEqual(2)
