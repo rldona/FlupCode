@@ -6240,3 +6240,28 @@ button.fc-status {
     opacity: 1;
   }
 }
+
+/* The phone and tablet layouts take their column from the prompt dock: the transcript drops the
+   desktop max width, the reserved scrollbar gutter and the conversation-navigator inset, so the
+   chat reads as wide as the dock instead of narrower and indented. */
+.fc-mobile-remote .fc-transcript,
+.fc-mobile-remote .fc-transcript-frame.fc-chat-narrow .fc-transcript {
+  padding-left: var(--fc-space-3);
+  padding-right: var(--fc-space-3);
+  scrollbar-gutter: auto;
+}
+
+.fc-mobile-remote .fc-transcript > *,
+.fc-mobile-remote .fc-transcript > .fc-transcript-body {
+  max-width: none;
+}
+
+.fc-mobile-remote .fc-docks,
+.fc-mobile-remote .fc-transcript-frame.fc-chat-narrow ~ .fc-docks {
+  padding-left: var(--fc-space-3);
+  padding-right: var(--fc-space-3);
+}
+
+.fc-mobile-remote .fc-docks > * {
+  max-width: none;
+}
