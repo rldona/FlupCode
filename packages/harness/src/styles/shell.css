@@ -7126,3 +7126,108 @@ button.fc-status {
   border-left: 2px solid var(--fc-border);
   color: var(--fc-text-muted);
 }
+
+/* The supervisor: a run and the tasks it is made of. Shares the routines screen's frame, because it
+   is the same kind of page and a second layout would only be a second thing to keep in step. */
+.fc-runs-list {
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+}
+
+.fc-runs-empty {
+  max-width: 1120px;
+  margin: var(--fc-space-5) auto 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-run-card {
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-3);
+  padding: var(--fc-space-3) var(--fc-space-4);
+  background: var(--fc-surface);
+}
+
+.fc-run-running {
+  border-color: var(--fc-accent);
+}
+
+.fc-run-head {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+.fc-run-title {
+  font-weight: 600;
+}
+
+.fc-run-meta {
+  color: var(--fc-text-muted);
+  font-size: 13px;
+}
+
+.fc-run-head .fc-run-meta {
+  margin-inline-end: auto;
+}
+
+.fc-run-mark[data-status="running"] {
+  color: var(--fc-accent);
+}
+
+.fc-run-mark[data-status="success"] {
+  color: #2f9e44;
+}
+
+.fc-run-mark[data-status="failed"] {
+  color: var(--fc-danger);
+}
+
+.fc-run-mark[data-status="queued"],
+.fc-run-mark[data-status="stopped"] {
+  color: var(--fc-text-muted);
+}
+
+.fc-run-open {
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-2);
+  padding: 2px 10px;
+  font-size: 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.fc-run-error {
+  margin: var(--fc-space-1) 0 0;
+  color: var(--fc-danger);
+  font-size: 13px;
+}
+
+.fc-run-tasks {
+  list-style: none;
+  margin: var(--fc-space-2) 0 0;
+  padding: 0 0 0 var(--fc-space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-inline-start: 1px solid var(--fc-border);
+}
+
+.fc-run-task {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  flex-wrap: wrap;
+  padding: 4px var(--fc-space-2);
+}
+
+.fc-run-task-name {
+  min-width: 10ch;
+}
+
+.fc-run-task .fc-run-meta {
+  margin-inline-end: auto;
+}

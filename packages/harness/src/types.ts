@@ -29,6 +29,41 @@ export type RoutineSchedule =
 /** What asked for a run: a routine on its schedule, or a person pressing the button. */
 export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
 
+export type RunStatus = "running" | "success" | "failed" | "stopped"
+
+/** One execution the harness server owns, as the app reads it. Mirrors `harness-server`'s own type. */
+export type Run = {
+  id: string
+  source: RunSource
+  sessionID?: string
+  status: RunStatus
+  startedAt: number
+  finishedAt?: number
+  error?: string
+  /** Present when the run was asked for by id; the list leaves them out. */
+  tasks?: Task[]
+}
+
+export type TaskStatus = "queued" | "running" | "success" | "failed" | "stopped"
+
+export type Task = {
+  id: string
+  runID: string
+  position: number
+  name: string
+  prompt: string
+  agent?: string
+  model?: { providerID: string; id: string; variant?: string }
+  sessionID?: string
+  status: TaskStatus
+  startedAt?: number
+  finishedAt?: number
+  error?: string
+  output?: string
+  tokens?: number
+  cost?: number
+}
+
 export type RoutineRun = {
   id: string
   source?: RunSource
