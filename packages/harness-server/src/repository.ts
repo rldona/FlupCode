@@ -89,6 +89,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   agent TEXT,
   model_json TEXT,
   session_id TEXT,
+  directory TEXT,
   status TEXT NOT NULL,
   started_at INTEGER,
   finished_at INTEGER,
@@ -230,6 +231,7 @@ type TaskRow = {
   agent: string | null
   model_json: string | null
   session_id: string | null
+  directory: string | null
   status: TaskStatus
   started_at: number | null
   finished_at: number | null
@@ -253,6 +255,7 @@ const decodeTask = (row: TaskRow): Task => ({
   agent: row.agent ?? undefined,
   model: decodeModel(row.model_json),
   sessionID: row.session_id ?? undefined,
+  directory: row.directory ?? undefined,
   status: row.status,
   startedAt: row.started_at ?? undefined,
   finishedAt: row.finished_at ?? undefined,
@@ -448,27 +451,29 @@ const decodeRun = (row: RunRow): Run => ({
  * A run is driven twice — once when it starts and again when somebody lets it through a gate — and a
  * limit that lived only in the first call would quietly stop applying at the second.
  */
-const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside" | "packs"> => {
+const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees"> => {
   if (!value) return {}
   try {
-    const parsed = JSON.parse(value) as { toolLimitMs?: unknown; outside?: unknown; packs?: unknown }
+    const parsed = JSON.parse(value) as { toolLimitMs?: unknown; outside?: unknown; packs?: unknown; worktrees?: unknown }
     return {
       ...(typeof parsed.toolLimitMs === "number" && parsed.toolLimitMs > 0 ? { toolLimitMs: parsed.toolLimitMs } : {}),
       ...(parsed.outside === true ? { outside: true } : {}),
       ...(Array.isArray(parsed.packs)
         ? { packs: parsed.packs.filter((entry): entry is string => typeof entry === "string") }
         : {}),
+      ...(parsed.worktrees === true ? { worktrees: true } : {}),
     }
   } catch {
     return {}
   }
 }
 
-const encodeOptions = (run: Pick<Run, "toolLimitMs" | "outside" | "packs">) => {
+const encodeOptions = (run: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees">) => {
   const options = {
     ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
     ...(run.outside ? { outside: true } : {}),
     ...(run.packs && run.packs.length > 0 ? { packs: run.packs } : {}),
+    ...(run.worktrees ? { worktrees: true } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
 }
@@ -498,6 +503,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("runs", "directory", "TEXT")
     this.addColumn("findings", "source", "TEXT")
     this.addColumn("runs", "options", "TEXT")
+    this.addColumn("tasks", "directory", "TEXT")
     this.addColumn("checkpoints", "summary", "TEXT")
     this.addColumn("artifacts", "pinned", "INTEGER")
     this.addColumn("artifacts", "expires_at", "INTEGER")
@@ -641,7 +647,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       )
   }
 
-  startRun(source: RunSource, now: number, directory?: string, options: Pick<Run, "toolLimitMs" | "outside" | "packs"> = {}) {
+  startRun(source: RunSource, now: number, directory?: string, options: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees"> = {}) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
       this.insertRun(run)
@@ -1219,6 +1225,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
 
   attachTaskSession(taskID: string, sessionID: string) {
     this.db.query("UPDATE tasks SET session_id = ?1 WHERE id = ?2").run(sessionID, taskID)
+    this.publishTask(taskID)
+  }
+
+  /** The tree a task runs in (H-29): the primary checkout, or the worktree it was given. */
+  attachTaskDirectory(taskID: string, directory: string) {
+    this.db.query("UPDATE tasks SET directory = ?1 WHERE id = ?2").run(directory, taskID)
     this.publishTask(taskID)
   }
 

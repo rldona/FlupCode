@@ -13,6 +13,10 @@ type RunsPanelProps = {
   onClear: () => void
   onStopAll: () => void
   onRemove: (id: string) => void
+  /** Merges the run's task worktrees back into its folder (H-29). */
+  onMergeWorktrees: (id: string) => void
+  /** Removes the run's task worktrees once they are not needed (H-29). */
+  onCleanupWorktrees: (id: string) => void
   onOpenSession: (id: string) => void
   /** What the running tasks are doing right now (H-12), by task id. */
   activity: Record<string, TaskActivity>
@@ -231,6 +235,26 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                         onClick={() => props.onApprove(run.id)}
                       >
                         {t("Approve")}
+                      </button>
+                    </Show>
+                    {/* A run of worktrees (H-29): its tasks wrote on their own branches, so there is
+                        something to merge back and something to clean up. */}
+                    <Show when={run.worktrees && !going(run)}>
+                      <button
+                        class="fc-run-open"
+                        type="button"
+                        disabled={!props.serverAvailable}
+                        onClick={() => props.onMergeWorktrees(run.id)}
+                      >
+                        {t("Merge worktrees")}
+                      </button>
+                      <button
+                        class="fc-run-open"
+                        type="button"
+                        disabled={!props.serverAvailable}
+                        onClick={() => props.onCleanupWorktrees(run.id)}
+                      >
+                        {t("Clean up")}
                       </button>
                     </Show>
                     <Show

@@ -163,7 +163,15 @@ import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./a
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
 import { FileError, readProjectFile } from "./files"
-import { GitError, branch as gitBranch, commit as gitCommit, currentBranch, discard as gitDiscard, patchForCommit } from "./git"
+import {
+  GitError,
+  branch as gitBranch,
+  commit as gitCommit,
+  currentBranch,
+  discard as gitDiscard,
+  mergeBranch,
+  patchForCommit,
+} from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
@@ -198,7 +206,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
       const body = (await readJSON(request)) as
-        | { tasks?: unknown; directory?: unknown; toolLimit?: unknown; outside?: unknown; packs?: unknown }
+        | {
+            tasks?: unknown
+            directory?: unknown
+            toolLimit?: unknown
+            outside?: unknown
+            packs?: unknown
+            worktrees?: unknown
+          }
         | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
       if (tasks.length === 0) {
@@ -218,6 +233,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
             ...(toolLimitMs ? { toolLimitMs } : {}),
             ...(body?.outside === true ? { outside: true } : {}),
             ...(packs.length > 0 ? { packs } : {}),
+            ...(body?.worktrees === true ? { worktrees: true } : {}),
           }),
         },
         202,
@@ -285,6 +301,52 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const run = repository.getRun(path[2])
       if (!run) return error("Run not found", 404)
       return json({ data: (await scheduler.stopRun(run.id)) ?? run })
+    }
+    // Merging a run's worktrees into the folder it started from (H-29), one task at a time. Each
+    // worktree is on its own branch, so this is a `--no-ff` merge per task, in run order.
+    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "worktrees" && path[4] === "merge") {
+      const run = repository.getRun(path[2])
+      if (!run?.directory) return error("That run has no folder to merge into", 404)
+      const tasks = repository
+        .listTasks(run.id)
+        .filter((task) => task.directory && task.directory !== run.directory)
+        .sort((left, right) => left.position - right.position)
+      const merged: Array<{ taskID: string; branch: string; sha: string }> = []
+      try {
+        for (const task of tasks) {
+          const branch = await currentBranch(task.directory!)
+          if (!branch) continue
+          const result = await mergeBranch({
+            directory: run.directory,
+            branch,
+            message: `Merge ${task.name} (worktree)`,
+          })
+          merged.push({ taskID: task.id, branch, sha: result.sha })
+        }
+        return json({ data: { merged } })
+      } catch (cause) {
+        if (cause instanceof GitError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    // Removing a run's worktrees once they have been merged, or thrown away. The engine owns the
+    // branch and the sandbox bookkeeping, so it does the removing.
+    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "worktrees" && path[4] === "cleanup") {
+      const run = repository.getRun(path[2])
+      const tasks = repository
+        .listTasks(path[2])
+        .filter((task) => task.directory && task.directory !== run?.directory)
+      const removed: string[] = []
+      for (const task of tasks) {
+        const ok = await scheduler.engine
+          .removeWorktree({ directory: task.directory!, ...(run?.directory ? { project: run.directory } : {}) })
+          .then(
+            () => true,
+            () => false,
+          )
+        if (ok) removed.push(task.directory!)
+      }
+      return json({ data: { removed } })
     }
     // Letting a run through the gate it stopped at (H-21). Refusing it is stopping it, which already
     // has an endpoint — there is no third answer to "carry on?".
@@ -825,7 +887,9 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       return json({ data: await listWorkflows(directory || undefined) })
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
-      const body = (await readJSON(request)) as { inputs?: unknown; directory?: unknown; packs?: unknown } | undefined
+      const body = (await readJSON(request)) as
+        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown }
+        | undefined
       const inputs: Record<string, string> = {}
       if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
         for (const [name, value] of Object.entries(body.inputs as Record<string, unknown>)) {
@@ -840,6 +904,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           inputs,
           directory,
           ...(packs.length > 0 ? { packs } : {}),
+          ...(body?.worktrees === true ? { worktrees: true } : {}),
         })
         return json({ data: run }, 202)
       } catch (cause) {
