@@ -32,6 +32,7 @@ export const STORAGE_KEYS = {
   remoteActive: "flupcode.remoteActive",
   remotePush: "flupcode.remotePush",
   stashedPrompts: "flupcode.stashedPrompts",
+  promptHistory: "flupcode.promptHistory",
   theme: "flupcode.theme",
   routines: "flupcode.routines",
   onboarded: "flupcode.onboarded",
