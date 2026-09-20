@@ -9,7 +9,7 @@
   "description": "FlupCode desktop — a Claude Code–style harness for OpenCode.",
   "author": {
     "name": "FlupCode",
-    "email": "hello@example.invalid"
+    "email": "noreply@flupcode.com"
   },
   "main": "./out/main/index.js",
   "scripts": {
