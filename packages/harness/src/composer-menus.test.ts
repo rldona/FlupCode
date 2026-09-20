@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { applyMention, filterCommands, mentionItems, mentionToken, refsIn, slashQuery } from "./composer-menus"
+import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery } from "./composer-menus"
 
 describe("the slash menu", () => {
   test("opens only on a command being typed, and not in a plain chat", () => {
@@ -16,6 +16,14 @@ describe("the slash menu", () => {
     expect(filterCommands(commands, "review").map((command) => command.name)).toEqual(["review"])
     expect(filterCommands(commands, "cmd")).toHaveLength(8)
     expect(filterCommands(commands, undefined)).toEqual([])
+  })
+
+  test("SK-2: only non-builtin sources get a badge", () => {
+    expect(commandBadge(undefined)).toBeUndefined()
+    expect(commandBadge("builtin")).toBeUndefined()
+    expect(commandBadge("command")).toBe("command")
+    expect(commandBadge("skill")).toBe("skill")
+    expect(commandBadge("workflow")).toBe("workflow")
   })
 })
 
