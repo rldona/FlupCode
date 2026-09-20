@@ -19,6 +19,7 @@ import { promptHistory, recordPrompt } from "./prompt-history"
 import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
 import { messageID } from "./ids"
 import { pendingPrompts } from "./pending-prompts"
+import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
@@ -1379,6 +1380,36 @@ export const App: Component = () => {
     setPanels(next)
     writeStorage(STORAGE_KEYS.workspacePanels, next)
   }
+
+  // A local preview linked from the transcript opens the browser panel it navigates.
+  createEffect(() => {
+    if (!browser.request()) return
+    const current = untrack(panels)
+    if (current.includes("browser")) return
+    const next = [...current, "browser"]
+    setPanels(next)
+    writeStorage(STORAGE_KEYS.workspacePanels, next)
+  })
+
+  // Local previews open in that panel instead of a new tab. Chats and phones keep the plain link,
+  // where the panel is unavailable and a real tab is the only sensible target.
+  createEffect(() => {
+    const handler = (event: MouseEvent) => {
+      if (event.defaultPrevented || event.button !== 0) return
+      if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+      if (chatView() || mobileRemote()) return
+      const target = event.target
+      if (!(target instanceof Element)) return
+      const anchor = target.closest("a")
+      if (!(anchor instanceof HTMLAnchorElement)) return
+      const href = anchor.href
+      if (!isLocalPreview(href)) return
+      event.preventDefault()
+      browser.open(href)
+    }
+    document.addEventListener("click", handler)
+    onCleanup(() => document.removeEventListener("click", handler))
+  })
 
   const updateWorkspaceWidth = (width: number) => {
     const next = Math.max(280, Math.min(900, Math.round(width)))
