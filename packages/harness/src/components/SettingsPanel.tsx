@@ -1,10 +1,20 @@
-import { For, type Component, Show, createSignal, onCleanup } from "solid-js"
-import type { ModelInfo } from "../engine-types"
-import type { McpResource, McpServer } from "../engine-types"
+import { For, type Component, Show, createEffect, createSignal, onCleanup } from "solid-js"
+import type { AgentInfo, ModelInfo } from "../engine-types"
+import type {
+  IntegrationAttempt,
+  IntegrationAttemptStatus,
+  IntegrationInfo,
+  McpResource,
+  McpServer,
+  ProviderAuthMethod,
+  ProviderDirectoryInfo,
+} from "../engine-types"
 import type { AgentFile, CommandFile, McpConfig } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
+import { AgentsPanel } from "./AgentsPanel"
+import { ProvidersEditor } from "./ProvidersPanel"
 import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
 import { McpEditor } from "./McpManager"
 import { PermissionsPanel } from "./PermissionsPanel"
@@ -76,7 +86,36 @@ type SettingsPanelProps = {
   onSuggestionModel: (key: string) => void
   onToggleNotifications: () => void
   onKeybind: (action: KeybindAction, binding: string) => void
-  onOpenAgents: () => void
+  /** The visible section, owned by app so keys and callers can read it (CU-1). */
+  section?: SettingsSection
+  onSectionChange: (section: SettingsSection) => void
+  /** What the agents section edits: files on disk plus what the engine reports (CU-1). */
+  agentsList: AgentInfo[]
+  agentTools: string[]
+  agentModelsList: string[]
+  agentsLoading: boolean
+  agentsHasProject: boolean
+  onSaveAgent: (draft: {
+    name: string
+    scope: "global" | "project"
+    fields: Record<string, unknown>
+    prompt: string
+  }) => Promise<unknown>
+  onDeleteAgent: (path: string) => Promise<unknown>
+  /** Providers for the providers section (CU-3): directory, methods and links. */
+  providersList: ProviderDirectoryInfo[]
+  providerAuth: Record<string, ProviderAuthMethod[]>
+  providerConnected: string[]
+  providerIntegrations: IntegrationInfo[]
+  providerUnlinked: string[]
+  providersBusy: boolean
+  onSaveProvider: (providerID: string, key: string) => void
+  onRemoveProvider: (providerID: string) => void
+  onProviderOAuth: (providerID: string, methodID?: string) => Promise<IntegrationAttempt>
+  onProviderOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
+  onProviderOAuthCancel: (attemptID: string) => Promise<void>
+  onProviderOAuthDone: () => void
+  onLinkConfiguredProviders: () => void
   onOpenSkills: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
@@ -99,11 +138,13 @@ export type SettingsSection =
   | "appearance"
   | "profile"
   | "model"
+  | "providers"
   | "conversation"
   | "notifications"
   | "shortcuts"
   | "permissions"
   | "commands"
+  | "agents"
   | "mcp"
   | "server"
   | "advanced"
@@ -113,11 +154,13 @@ export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = 
   { id: "appearance", label: "Appearance" },
   { id: "profile", label: "Profile" },
   { id: "model", label: "Model" },
+  { id: "providers", label: "Providers" },
   { id: "conversation", label: "Conversation" },
   { id: "notifications", label: "Notifications" },
   { id: "shortcuts", label: "Shortcuts" },
   { id: "permissions", label: "Permissions" },
   { id: "commands", label: "Commands" },
+  { id: "agents", label: "Agents" },
   { id: "mcp", label: "MCP servers" },
   { id: "server", label: "Server" },
   { id: "advanced", label: "Advanced" },
@@ -134,7 +177,10 @@ function groupModels(models: ModelInfo[]) {
 }
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
-  const [section, setSection] = createSignal<SettingsSection>("appearance")
+  // The section lives in app (CU-1): resource keys and the sidebar read it, so tab clicks
+  // must be visible outside this panel.
+  const section = () => props.section ?? "appearance"
+  const setSection = (next: SettingsSection) => props.onSectionChange(next)
   // Resetting asks for a second click within a few seconds.
   const [confirmReset, setConfirmReset] = createSignal(false)
   let confirmTimer: ReturnType<typeof setTimeout> | undefined
@@ -517,6 +563,45 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 </section>
               </Show>
 
+              <Show when={section() === "providers"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Providers")}</h3>
+                  <ProvidersEditor
+                    providers={props.providersList}
+                    auth={props.providerAuth}
+                    connected={props.providerConnected}
+                    integrations={props.providerIntegrations}
+                    unlinked={props.providerUnlinked}
+                    busy={props.providersBusy}
+                    onSave={props.onSaveProvider}
+                    onRemove={props.onRemoveProvider}
+                    onOAuth={props.onProviderOAuth}
+                    onOAuthStatus={props.onProviderOAuthStatus}
+                    onOAuthCancel={props.onProviderOAuthCancel}
+                    onOAuthDone={props.onProviderOAuthDone}
+                    onLinkConfigured={props.onLinkConfiguredProviders}
+                  />
+                </section>
+              </Show>
+
+              <Show when={section() === "agents"}>
+                <section class="fc-settings-section">
+                  <AgentsPanel
+                    open
+                    files={props.agentFiles ?? []}
+                    agents={props.agentsList}
+                    tools={props.agentTools}
+                    mcp={props.mcpServers}
+                    models={props.agentModelsList}
+                    loading={props.agentsLoading}
+                    serverAvailable={props.permissionServerAvailable}
+                    hasProject={props.agentsHasProject}
+                    onSave={props.onSaveAgent}
+                    onDelete={props.onDeleteAgent}
+                  />
+                </section>
+              </Show>
+
               <Show when={section() === "mcp"}>
                 <section class="fc-settings-section">
                   <h3 class="fc-settings-title">{t("MCP servers")}</h3>
@@ -581,10 +666,10 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 <section class="fc-settings-section">
                   <h3 class="fc-settings-title">{t("Editors")}</h3>
                   <p class="fc-settings-note">
-                    {t("Agents and skills are edited on their own screens, where the files they came from are shown.")}
+                    {t("Agents live under their own section now; skills keep their screen, where the files they came from are shown.")}
                   </p>
                   <div class="fc-settings-grid">
-                    <button class="fc-button" type="button" onClick={props.onOpenAgents}>
+                    <button class="fc-button" type="button" onClick={() => setSection("agents")}>
                       {t("Agents")}
                     </button>
                     <button class="fc-button" type="button" onClick={props.onOpenSkills}>
