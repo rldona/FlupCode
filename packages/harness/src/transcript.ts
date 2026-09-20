@@ -207,8 +207,31 @@ export function applyMessage(data: SessionMessageInfo[], info: LegacyInfo) {
   const existing = data.find((entry) => entry.id === info.id)
   if (!existing) return withMessage(data, messageOf(info, takeOrphanedParts(info.id)))
   const next = messageOf(info, [])
-  if (info.role === "user") return withMessage(data, asMessage({ ...next, ...pickUserContent(existing) }))
-  return withMessage(data, asMessage({ ...next, content: (existing as { content?: unknown[] }).content ?? [] }))
+  const merged =
+    info.role === "user"
+      ? asMessage({ ...next, ...pickUserContent(existing) })
+      : asMessage({ ...next, content: (existing as { content?: unknown[] }).content ?? [] })
+  // The engine re-announces a message it has not changed — the user prompt, again, mid-answer. A new
+  // object for an unchanged message disposes and remounts its row in the view, and remounting a tall
+  // prompt collapses it for a frame, which drops the reader to the top. Keep the one already here.
+  return withMessage(data, sameMessage(existing, merged) ? existing : merged)
+}
+
+/**
+ * Whether an event's message brings anything the one already in the transcript does not carry. Only
+ * the fields the event produces are compared: the history's own message carries more (its
+ * `sessionID`, for one), and keeping the existing object keeps those.
+ */
+function sameMessage(existing: SessionMessageInfo, next: SessionMessageInfo) {
+  const left = existing as Record<string, unknown>
+  const right = next as Record<string, unknown>
+  return Object.keys(right).every((key) => {
+    if (key !== "time") return Object.is(left[key], right[key])
+    // Every event rebuilds `time`; compare it by value.
+    const a = left.time as { created?: number; completed?: number } | undefined
+    const b = right.time as { created?: number; completed?: number } | undefined
+    return a?.created === b?.created && a?.completed === b?.completed
+  })
 }
 
 function pickUserContent(existing: SessionMessageInfo) {
