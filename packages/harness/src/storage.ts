@@ -23,6 +23,7 @@ export const STORAGE_KEYS = {
   contextPanelWidth: "flupcode.contextPanelWidth",
   appTextSize: "flupcode.appTextSize",
   chatTextSize: "flupcode.chatTextSize",
+  clearedTodos: "flupcode.clearedTodos",
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",

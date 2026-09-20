@@ -37,6 +37,8 @@ const ES: Record<string, string> = {
   "Chat text size": "Tamaño del texto del chat",
   "Jump to a prompt": "Ir a un prompt",
   "Scroll to the end": "Ir al final",
+  "Clear completed": "Borrar completadas",
+  "Remove task": "Borrar tarea",
   Attachments: "Adjuntos",
   Small: "Pequeño",
   Large: "Grande",

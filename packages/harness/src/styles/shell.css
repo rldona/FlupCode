@@ -5405,3 +5405,69 @@ button.fc-row-main {
   padding-left: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
   padding-right: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
 }
+
+/* Completed tasks can be removed from the context panel, all at once or one by one. */
+.fc-aside-title-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fc-aside-clear {
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: none;
+  font-weight: 500;
+}
+
+.fc-aside-clear:hover {
+  background: color-mix(in srgb, var(--fc-border) 55%, transparent);
+  color: var(--fc-text);
+}
+
+.fc-aside-todo {
+  position: relative;
+}
+
+.fc-aside-todo-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-aside-todo-remove {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-left: 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: 15px;
+  line-height: 1;
+  opacity: 0;
+  transition: opacity var(--fc-motion-fast);
+}
+
+.fc-aside-todo:hover .fc-aside-todo-remove,
+.fc-aside-todo-remove:focus-visible {
+  opacity: 1;
+}
+
+.fc-aside-todo-remove:hover {
+  background: color-mix(in srgb, var(--fc-border) 55%, transparent);
+  color: var(--fc-text);
+}
+
+.fc-aside-todo-done {
+  text-decoration: none;
+}
+
+.fc-aside-todo-done .fc-aside-todo-text {
+  text-decoration: line-through;
+}

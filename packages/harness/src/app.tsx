@@ -386,7 +386,7 @@ export const App: Component = () => {
     async (source) => createClient(source.url).session.children({ sessionID: source.sessionID }),
   )
 
-  const todos = () => {
+  const allTodos = () => {
     const data = activeMessages() ?? []
     const assistants = [...data].reverse().flatMap((message) => (message.type === "assistant" ? [message] : []))
     for (const message of assistants) {
@@ -406,6 +406,23 @@ export const App: Component = () => {
       }
     }
     return []
+  }
+
+  // Completed tasks the reader removed from the context panel, per session. The engine keeps the
+  // model's todo list, so removal only hides them here.
+  const [clearedTodos, setClearedTodos] = createSignal<Record<string, string[]>>(
+    readStorage(STORAGE_KEYS.clearedTodos, {}),
+  )
+  const todos = () => {
+    const cleared = clearedTodos()[selected() ?? ""] ?? []
+    return allTodos().filter((todo) => !(todo.status === "completed" && cleared.includes(todo.content)))
+  }
+  const clearTodos = (contents: string[]) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const next = { ...clearedTodos(), [sessionID]: [...new Set([...(clearedTodos()[sessionID] ?? []), ...contents])] }
+    setClearedTodos(next)
+    writeStorage(STORAGE_KEYS.clearedTodos, next)
   }
 
   const commandOptions = (): CommandOption[] => [
@@ -1965,6 +1982,7 @@ export const App: Component = () => {
               session={session()}
               models={modelList()}
               todos={todos()}
+              onClearTodos={clearTodos}
               width={contextWidth()}
               onResize={updateContextWidth}
               onHide={toggleContextPanel}
