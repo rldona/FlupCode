@@ -67,11 +67,6 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
             <h1>{t("Artifacts")}</h1>
             <p>{t("What the runs left behind: reports, verdicts and plans.")}</p>
           </div>
-          <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
-          </div>
         </div>
 
         <Show when={!props.serverAvailable}>
