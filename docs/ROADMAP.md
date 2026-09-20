@@ -33,10 +33,10 @@ record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 60 | — |
+| done | 61 | — |
 | doing | 0 | — |
 | blocked | 2 | F3-16, F5-4 |
-| todo | 4 | F2-2, F3-10, F3-17, F6-4 |
+| todo | 3 | F2-2, F3-17, F6-4 |
 | **total** | **66** | |
 
 ### What remains
@@ -110,7 +110,7 @@ Corrected, and now really done:
 | F3-7 | P1 | Move session between locations | done (wired 2026-09-16) |
 | F3-8 | P1 | Session tags/labels | done (TagsDialog + sidebar filter + server prefs, verified 2026-09-20) |
 | F3-9 | P1 | Prompt stash | done |
-| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | todo (a list, no manager) |
+| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | done (SK-1 per-agent visibility, SK-2 source badges, verified 2026-09-20) |
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
 | F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done (SE-1 pattern rules, SE-2 MCP OAuth, verified 2026-09-20) |

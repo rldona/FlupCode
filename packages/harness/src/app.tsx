@@ -2015,19 +2015,29 @@ export const App: Component = () => {
         description: t(command.descriptionKey),
         // An action that acts on the open session is not offered when there is none.
         disabled: UNAVAILABLE_FEATURES.has(command.name) || (command.session === true && !selected()),
+        source: "builtin" as const,
       })),
       // A chat has no project behind it, so the engine's commands, its skills and its workflows are
       // not offered there: what is typed after a built-in is a message, as it has always been.
       ...(chatView()
         ? []
         : [
-            ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
-            ...(skills()?.data ?? []).map((skill) => ({ name: skill.name, description: skill.description ?? "Skill" })),
+            ...(commands()?.data ?? []).map((command) => ({
+              name: command.name,
+              description: command.description,
+              source: "command" as const,
+            })),
+            ...(skills()?.data ?? []).map((skill) => ({
+              name: skill.name,
+              description: skill.description ?? "Skill",
+              source: "skill" as const,
+            })),
             // A workflow is a command: that is the audit's "launcher unificado", and the reason it
             // goes in the same list rather than a menu of its own.
             ...(workflows() ?? []).map((workflow) => ({
               name: workflow.name,
               description: workflow.description || t("Workflow"),
+              source: "workflow" as const,
             })),
           ]),
     ]
@@ -5692,6 +5702,7 @@ export const App: Component = () => {
         serverAvailable={routinesServerAvailable()}
         hasProject={!!vcsDirectory()}
         sources={skillSources()}
+        agents={agentFiles() ?? []}
         onAddSource={addSkillSource}
         onRemoveSource={removeSkillSource}
         onRead={readSkillFile}
