@@ -247,6 +247,30 @@ describe("SessionRunnerModel", () => {
     }),
   )
 
+  it.effect("maps catalog GitHub Copilot AI SDK models into Copilot routes", () =>
+    Effect.gen(function* () {
+      const resolved = yield* SessionRunnerModel.fromCatalogModel(
+        model({ type: "aisdk", package: "@ai-sdk/github-copilot", url: "https://api.githubcopilot.com" }),
+      )
+
+      expect(resolved).toMatchObject({ id: "api-test-model", provider: "github-copilot" })
+      expect(resolved.route).toMatchObject({
+        endpoint: { baseURL: "https://api.githubcopilot.com" },
+        defaults: { headers: { "x-test": "header" } },
+      })
+    }),
+  )
+
+  it.effect("falls back to the canonical Copilot host when the catalog has no URL", () =>
+    Effect.gen(function* () {
+      const resolved = yield* SessionRunnerModel.fromCatalogModel(
+        model({ type: "aisdk", package: "@ai-sdk/github-copilot" }),
+      )
+
+      expect(resolved.route).toMatchObject({ endpoint: { baseURL: "https://api.githubcopilot.com" } })
+    }),
+  )
+
   it.effect("uses resolved credentials for bearer auth", () =>
     Effect.gen(function* () {
       const resolved = yield* SessionRunnerModel.fromCatalogModel(
