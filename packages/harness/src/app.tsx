@@ -59,6 +59,7 @@ import {
   type LegacyPart,
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
+import { recoverablePrompt } from "./unsend"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
@@ -4145,6 +4146,33 @@ export const App: Component = () => {
     })
   }
 
+  /**
+   * Take a sent prompt back (UN-1): the text returns to the composer first so nothing that
+   * follows can lose it, then the turn stops and the prompt plus its partial turn are deleted
+   * newest-first. Anything already deleted or appended in the meantime leaves the text recovered
+   * with an honest note instead of rewritten history.
+   */
+  const unsendMessage = (messageID: string) => {
+    const sessionID = selected()
+    const plan = recoverablePrompt(activeMessages() ?? [], messageID)
+    if (!sessionID || !plan) return
+    setPrompt(plan.text)
+    void (async () => {
+      try {
+        const client = createClient(serverUrl())
+        await client.session.abort({ sessionID, directory: sessionDirectory(sessionID) })
+        const deadline = Date.now() + 10_000
+        while (generating() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 300))
+        for (const id of plan.deleteIDs) {
+          await client.session.removeMessage({ sessionID, messageID: id, directory: sessionDirectory(sessionID) })
+        }
+        void refetchMessages()
+      } catch {
+        toast(t("Kept in the composer; the turn could not be fully recalled"), "info")
+      }
+    })()
+  }
+
   const forkSession = (messageID?: string) => {
     const sessionID = selected()
     if (!sessionID) return
@@ -5334,6 +5362,7 @@ export const App: Component = () => {
                 chat={plainChatView()}
                 pending={pendingForSession()}
                 onEditUser={editMessage}
+                onRecoverUser={unsendMessage}
                 onForkUser={forkSession}
                 onRetry={retryTurn}
                 onOpenSession={selectSession}
