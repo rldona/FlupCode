@@ -47,8 +47,11 @@ packages/harness (web)
   ├── depends on @opencode-ai/client      (vendored, same tgz upstream/app uses)
   └── depends on @opencode-ai/sdk         (full HTTP API + SSE)
 
-packages/harness-desktop (later)
-  └── Electron main process that boots the local server and loads packages/harness
+packages/harness-desktop
+  └── Electron main process that boots the local server, hosts remote control and loads packages/harness
+
+packages/remote, packages/relay, packages/flupcode-cli
+  └── remote control: protocol and host, relay server, `flupcode remote` (ADR-0010)
 ```
 
 Why a new package instead of forking `packages/app`:
@@ -77,15 +80,18 @@ FlupCode must respect upstream's layering:
  Web mode
    └── browser ── packages/harness ── HTTP + SSE ──▶ opencode serve (LAN/localhost)
  Remote control (ADR-0010)
-   phone PWA ── tunnel transport ══ E2E encrypted ══▶ relay ══▶ desktop main (host)
+   phone PWA ── tunnel transport ══ E2E encrypted ══▶ relay ══▶ host: desktop main or `flupcode remote`
                                                                └── HTTP + SSE + WS ──▶ opencode server
 ```
 
-- `packages/remote` — protocol shared by the three sides: secure channel, tunnel, relay framing,
-  pairing links and the desktop↔renderer bridge types.
+- `packages/remote` — protocol shared by every side: secure channel, tunnel, relay framing,
+  pairing links, the desktop↔renderer bridge types and `createRemoteHost` (the host logic).
+- `packages/flupcode-cli` — the `flupcode` command; `flupcode remote` is a terminal host.
 - `packages/relay` — the Bun relay server (Docker/Fly.io); it routes opaque frames only.
 - The harness sends every engine call through `src/transport.ts`, which the remote client swaps for
-  the tunnel.
+  the tunnel. On touch devices controlling a computer it renders the phone layout
+  (`components/RemoteHome.tsx`).
+- Deployments: `app.flupcode.com` and `flupcode.com` on Vercel from `power`; the relay on Fly.io.
 
 ## 4. Package conventions
 

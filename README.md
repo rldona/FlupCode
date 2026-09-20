@@ -51,18 +51,29 @@ system and the harness features that OpenCode's default UI does not emphasise.
   [docs/PARITY.md](docs/PARITY.md).
 - **Harness features.** Usage dashboard, activity heatmap, multi-project workspaces, pinned
   items, artifacts and routines — see [docs/ROADMAP.md](docs/ROADMAP.md).
+- **Remote control.** Drive your computer's sessions from your phone on any network, like Claude
+  Code's remote control: pair with a QR code, follow and start sessions, answer permission requests.
+  Traffic is end-to-end encrypted through a relay that cannot read it. Host it from the desktop app
+  or from a terminal with `flupcode remote` — see [docs/USAGE.md](docs/USAGE.md#remote-control) and
+  [ADR-0010](docs/adr/0010-remote-control-relay.md).
 
 ## Status
 
-**v1.0.** The web harness (Claude Code–style shell, TUI parity, dashboard, artifacts, routines,
-i18n) and the Electron desktop app are built; the upstream sync and release pipelines are in place.
+**v1.0.10.** The web harness (Claude Code–style shell, TUI parity, dashboard, artifacts, routines,
+i18n), the Electron desktop app and remote control (relay at `relay.flupcode.com`, phone view,
+`flupcode remote`) are released; the upstream sync and release pipelines are in place. Desktop
+builds are not yet signed by Apple or Microsoft (see [Install](#install)).
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the live status.
 
 ## Repository layout
 
 ```
 packages/harness              # FlupCode web app (SolidJS + Vite) — our product code
-packages/harness-desktop      # Electron desktop wrapper (later phase)
+packages/harness-desktop      # Electron desktop app (also hosts remote control)
+packages/remote               # remote control protocol and host (shared by desktop, CLI, web)
+packages/relay                # remote control relay server (Bun, deployed on Fly.io)
+packages/flupcode-cli         # the `flupcode` command (`flupcode remote`)
+packages/landing              # flupcode.com static site
 packages/app                  # upstream OpenCode web app (pristine, reused for parts)
 packages/tui                  # upstream terminal UI (pristine)
 packages/ui                   # upstream shared UI primitives (reused)
@@ -70,6 +81,24 @@ packages/session-ui           # upstream session/message rendering (reused)
 packages/core | server | sdk  # upstream engine (pristine)
 docs/                         # project documentation (this fork)
 ```
+
+## Install
+
+Download the desktop app and the `flupcode` CLI from the
+[latest release](https://github.com/rldona/FlupCode/releases/latest):
+
+| Platform | Desktop app | CLI |
+| --- | --- | --- |
+| macOS (Apple Silicon) | `FlupCode-mac-arm64.dmg` | `flupcode-darwin-arm64` |
+| macOS (Intel) | `FlupCode-mac-x64.dmg` | `flupcode-darwin-x64` |
+| Windows | `FlupCode-win-x64.exe` | `flupcode-windows-x64.exe` |
+| Linux | `FlupCode-linux-x64.AppImage` | `flupcode-linux-x64`, `flupcode-linux-arm64` |
+
+The builds are **not signed** yet, so macOS shows "FlupCode Not Opened" / "No se ha abierto
+FlupCode" and Windows shows SmartScreen. On macOS, click **Done**, then open **System Settings →
+Privacy & Security** and click **Open Anyway** — or run
+`xattr -dr com.apple.quarantine /Applications/FlupCode.app`. Details in
+[docs/USAGE.md](docs/USAGE.md#installing-a-release).
 
 ## Development
 

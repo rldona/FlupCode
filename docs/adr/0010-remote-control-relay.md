@@ -1,6 +1,6 @@
 # ADR-0010: Remote control through an end-to-end encrypted relay
 
-- **Status:** Accepted
+- **Status:** Accepted (implemented in `flupcode-v1.0.9` and `flupcode-v1.0.10`)
 - **Date:** 2026-09-13
 - **Amends:** ADR-0007
 
@@ -39,9 +39,12 @@ Vercel does not host long-lived WebSockets, so the relay needs its own host.
   routes frames between one host socket and its client sockets. It never sees plaintext.
 - **`packages/remote` (`@flupcode/remote`)** — runtime-agnostic protocol code (WebCrypto,
   WebSocket, `fetch`): secure channel, tunnel multiplexer, pairing links. Used by the relay (routing
-  frames), the desktop main process (host) and the harness (client).
-- **Desktop** — owns the host identity, the relay connection, pairing and the list of paired
-  devices, and proxies tunnelled traffic to the local engine.
+  frames), the hosts and the harness (client). `createRemoteHost` holds the host logic: identity,
+  relay connection, pairing, paired devices and the engine tunnel, with storage injected by the
+  caller.
+- **Hosts** — the desktop main process (storage encrypted with Electron `safeStorage`, IPC bridge)
+  and `flupcode remote` in `packages/flupcode-cli` (a terminal host storing
+  `~/.config/flupcode/remote.json` with mode `0600`, no keychain). Each has its own identity.
 - **Harness** — all engine traffic goes through one swappable transport (`fetch` + WebSocket
   factory). In remote mode that transport is the tunnel.
 
@@ -87,7 +90,8 @@ ephemeral ECDH gives forward secrecy.
 - After a `pair` handshake the host enrols the device: it sends `{deviceId, deviceKey}` inside the
   sealed channel and consumes the pairing. Later connections use `device` mode.
 - The desktop stores its identity key and device keys under `userData`, encrypted with Electron
-  `safeStorage` when available. The phone stores its device record in `localStorage`.
+  `safeStorage` when available; the terminal host stores them in a `0600` file. The phone stores its
+  device record in `localStorage`.
 - Devices are listed with their last-seen time and can be revoked, which closes their channels.
 
 ### Tunnel (inside the secure channel)
@@ -112,4 +116,18 @@ Frames: `[type u8][stream u32][payload]`.
 - WebCrypto needs a secure context: the phone must load the harness over HTTPS (or `localhost`).
 - The harness must route every engine call through the transport; raw `fetch`/`WebSocket` to the
   engine is no longer allowed.
-- Push notifications while the phone is locked (Web Push) are a separate follow-up.
+- Push notifications while the phone is locked (Web Push) are a separate follow-up (F8-9).
+
+## Implementation notes
+
+- Relay: `wss://relay.flupcode.com`, one Fly.io machine in Paris (`packages/relay/fly.toml`),
+  deployed with `packages/relay/script/deploy.sh`.
+- Web app: `app.flupcode.com` on Vercel, deployed from `power` with `packages/harness/vercel.json`
+  (build settings, CSP and cache headers). The landing (`flupcode.com`) deploys from
+  `packages/landing`.
+- Browsers throw when a script closes a WebSocket with a protocol code such as `1008`, so clients
+  map close codes into the `4000–4999` range (`socketCloseCode`).
+- Phones get their own layout (F8-10): a sessions home ("Code") and a focused session screen, always
+  opening on the home; desktop browsers controlling a computer keep the full layout.
+- Resources in the harness never reject (`src/resource.ts`): over a tunnel a failed request is
+  routine, and an errored Solid resource would freeze the views that read it.
