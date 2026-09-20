@@ -1747,7 +1747,122 @@ button.fc-row-main {
 }
 
 .fc-chip-plan {
-  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.fc-project-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-project-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.fc-project-toggle {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 6px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.fc-project-toggle:hover {
+  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+}
+
+.fc-chevron {
+  width: 12px;
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+}
+
+.fc-project-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.fc-project-count {
+  flex-shrink: 0;
+  font-size: var(--fc-text-xs);
+  color: var(--fc-text-muted);
+}
+
+.fc-session-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 14px;
+  padding-left: 6px;
+  border-left: 1px solid var(--fc-border);
+}
+
+.fc-session-row-active {
+  background: var(--fc-accent-soft);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-session-main {
+  flex: 1;
+  min-width: 0;
+  padding: 5px 6px;
+  border: none;
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  text-align: left;
+}
+
+.fc-session-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--fc-text);
+}
+
+.fc-session-action {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  border-radius: 6px;
+  line-height: 1;
+  opacity: 0;
+}
+
+.fc-session-row:hover .fc-session-action,
+.fc-session-action-on {
+  opacity: 1;
+}
+
+.fc-session-action:hover {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  color: var(--fc-text);
+}
+
+.fc-session-action-on {
+  color: var(--fc-accent);
+}
+
+.fc-name-input {
+  flex: 1;
+  min-width: 0;
 }
 
 @media (max-width: 720px) {

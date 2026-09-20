@@ -28,4 +28,6 @@ export const STORAGE_KEYS = {
   sessionTags: "flupcode.sessionTags",
   notifications: "flupcode.notifications",
   paletteKey: "flupcode.paletteKey",
+  pinnedSessions: "flupcode.pinnedSessions",
+  expandedProjects: "flupcode.expandedProjects",
 } as const

@@ -54,7 +54,10 @@ export const App: Component = () => {
   const [busy, setBusy] = createSignal(false)
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
-  const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedProjects, []))
+  const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
+  const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
+    readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
+  )
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
@@ -412,7 +415,13 @@ export const App: Component = () => {
   const togglePin = (id: string) => {
     const next = pinned().includes(id) ? pinned().filter((value) => value !== id) : [...pinned(), id]
     setPinned(next)
-    writeStorage(STORAGE_KEYS.pinnedProjects, next)
+    writeStorage(STORAGE_KEYS.pinnedSessions, next)
+  }
+
+  const toggleProject = (id: string) => {
+    const next = { ...expanded(), [id]: !(expanded()[id] ?? false) }
+    setExpanded(next)
+    writeStorage(STORAGE_KEYS.expandedProjects, next)
   }
 
   const toggleSidebar = () => {
@@ -703,15 +712,15 @@ export const App: Component = () => {
     }, t("Session moved"))
   }
 
-  const deleteSession = () => {
-    const sessionID = selected()
+  const deleteSession = (id?: string) => {
+    const sessionID = id ?? selected()
     if (!sessionID) return
     if (!window.confirm(t("Delete this session?"))) return
     void (async () => {
       setBusy(true)
       try {
         await createClient(serverUrl()).session.remove({ sessionID })
-        setSelected(undefined)
+        if (selected() === sessionID) setSelected(undefined)
         toast(t("Session deleted"), "success")
         void refetchSessions()
       } catch (cause) {
@@ -969,16 +978,17 @@ export const App: Component = () => {
       <Sidebar
         collapsed={collapsed()}
         displayName={displayName()}
-        projects={projects()}
-        projectsLoading={sessions.loading}
-        pinned={pinned()}
         sessions={sessionList()}
         sessionsLoading={sessions.loading}
         selectedSession={selected()}
+        pinnedSessions={pinned()}
+        expandedProjects={expanded()}
         onDisplayName={updateDisplayName}
-        onTogglePin={togglePin}
+        onToggleSessionPin={togglePin}
+        onToggleProject={toggleProject}
         onNewSession={newSession}
         onSelectSession={selectSession}
+        onDeleteSession={deleteSession}
         onRefresh={refresh}
         onAbout={() => setAboutOpen(true)}
         onSettings={() => setSettingsOpen(true)}
