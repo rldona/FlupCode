@@ -23,11 +23,18 @@ export type RoutineSchedule =
 /** What asked for a run. */
 export type RunSource = { type: "routine"; routineID: string } | { type: "manual" }
 
-export type RunStatus = "running" | "success" | "failed" | "stopped"
+/**
+ * `awaiting` is a run that stopped on purpose at a human gate (H-21) and is waiting to be let
+ * through. It is not finished — it has no `finishedAt` — and it is not running either, which is why
+ * it cannot be either of the four that existed.
+ */
+export type RunStatus = "running" | "awaiting" | "success" | "failed" | "stopped"
 
 export type Run = {
   id: string
   source: RunSource
+  /** Where the work happens. Kept so a run stopped at a gate can be picked up where it left off. */
+  directory?: string
   sessionID?: string
   status: RunStatus
   startedAt: number
@@ -103,6 +110,8 @@ export type TaskInput = {
   attempt?: number
   /** The task this one attempts again. */
   retryOf?: string
+  /** `human` stops the run when this task is done, until somebody lets it through (H-21). */
+  gate?: "human"
 }
 
 export type Task = TaskInput & {
@@ -140,7 +149,11 @@ export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 
 /** Runs, whatever asked for them. */
 export type RunRepository = {
-  startRun(source: RunSource, now: number): Run
+  startRun(source: RunSource, now: number, directory?: string): Run
+  /** Hold a run at a gate: not running, not finished, waiting for a person. */
+  awaitRun(runID: string): void
+  /** Let it through, and say whether there was anything to let through. */
+  resumeRun(runID: string): boolean
   /** Give a run the work it is made of, in the order it will be done. */
   addTasks(runID: string, inputs: TaskInput[]): Task[]
   listTasks(runID: string): Task[]
