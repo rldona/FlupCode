@@ -5257,7 +5257,6 @@ export const App: Component = () => {
             initialLeft={compareArgs().left}
             initialRight={compareArgs().right}
             onLoad={compareSnapshot}
-            onClose={() => leaveScreen()}
           />
           <RoutinesPanel
             open={routinesOpen()}
