@@ -250,6 +250,25 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     </div>
                   </Show>
                   <Show when={run.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
+                  {/*
+                    What this run was allowed to do (H-47). Confinement is the default and says
+                    nothing; reaching outside the project is unusual enough to be on the screen, and
+                    a ceiling is worth reading before wondering why a task stopped.
+                  */}
+                  <Show when={run.outside || run.toolLimitMs}>
+                    <p class="fc-run-rules">
+                      <Show when={run.outside}>
+                        <span class="fc-run-rule fc-run-rule-open">{t("Reaches outside the project")}</span>
+                      </Show>
+                      <Show when={run.toolLimitMs}>
+                        {(limit) => (
+                          <span class="fc-run-rule">
+                            {t("{n} min limit for one tool call", { n: Math.round(limit() / 60_000) })}
+                          </span>
+                        )}
+                      </Show>
+                    </p>
+                  </Show>
                   <ol class="fc-run-tasks">
                     <For each={run.tasks ?? []}>
                       {(task) => (

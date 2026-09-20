@@ -507,3 +507,83 @@ describe("a human gate", () => {
     repository.close()
   })
 })
+
+// H-47's other half. The harness has always passed `directory` to the engine; that says where to
+// start, not where to stop. And a tool call with no ceiling holds a run to the thirty-minute cap.
+describe("a task confined to its project", () => {
+  const recordingSessions = (created: Array<Record<string, unknown>>) =>
+    ({
+      createSession: async (input: Record<string, unknown>) => {
+        created.push(input)
+        return { id: `ses_${created.length}` }
+      },
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    }) as never
+
+  test("the session is created denying anything outside the project", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-confine-"))
+    scratch.push(directory)
+    const created: Array<Record<string, unknown>> = []
+
+    const run = repository.startRun(manual, 1000, directory)
+    repository.addTasks(run.id, [{ name: "one", prompt: "do it" }])
+    await new TaskRunner(repository, recordingSessions(created)).execute(run, { directory })
+
+    expect(created[0]!.permission).toEqual([{ permission: "external_directory", pattern: "*", action: "deny" }])
+    repository.close()
+  })
+
+  test("a run that said it needs to reach outside is not confined", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-confine-"))
+    scratch.push(directory)
+    const created: Array<Record<string, unknown>> = []
+
+    // Stated, not defaulted: H-04's rule is that policies only restrict and a bypass is explicit.
+    const run = repository.startRun(manual, 1000, directory, { outside: true })
+    repository.addTasks(run.id, [{ name: "one", prompt: "do it" }])
+    await new TaskRunner(repository, recordingSessions(created)).execute(run, { directory })
+
+    expect(created[0]!.permission).toBeUndefined()
+    repository.close()
+  })
+
+  test("the choice survives a run being picked up again at a gate", () => {
+    // A run is driven twice, and an option that lived only in the request would stop applying at
+    // the second entry — which is exactly when nobody is watching.
+    const repository = open()
+    const run = repository.startRun(manual, 1000, "/work", { outside: true, toolLimitMs: 600_000 })
+    expect(repository.getRun(run.id)).toMatchObject({ outside: true, toolLimitMs: 600_000 })
+    repository.close()
+  })
+})
+
+describe("a ceiling on one tool call", () => {
+  test("the run's ceiling is what the wait is given, and a run without one is not watched", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-limit-"))
+    scratch.push(directory)
+    const waits: Array<Record<string, unknown>> = []
+    const engine = {
+      createSession: async () => ({ id: "ses_1" }),
+      prompt: async () => undefined,
+      waitForIdle: async (_id: string, options: Record<string, unknown>) => void waits.push(options),
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const limited = repository.startRun(manual, 1000, directory, { toolLimitMs: 600_000 })
+    repository.addTasks(limited.id, [{ name: "one", prompt: "do it" }])
+    await new TaskRunner(repository, engine).execute(limited, { directory })
+    expect(waits[0]!.toolLimitMs).toBe(600_000)
+
+    const plain = repository.startRun(manual, 2000, directory)
+    repository.addTasks(plain.id, [{ name: "one", prompt: "do it" }])
+    await new TaskRunner(repository, engine).execute(plain, { directory })
+    // No ceiling means no polling for one: it costs a request every few seconds.
+    expect(waits[1]!.toolLimitMs).toBeUndefined()
+    repository.close()
+  })
+})

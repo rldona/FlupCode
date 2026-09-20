@@ -88,9 +88,12 @@ export class RoutineScheduler {
    * The same path a routine takes, minus the schedule: a run, its tasks, and the runner. It is what
    * a workflow will use once H-21 can describe one, and what makes a multi-task run testable today.
    */
-  async runTasks(input: { tasks: TaskInput[]; directory?: string }) {
+  async runTasks(input: { tasks: TaskInput[]; directory?: string; toolLimitMs?: number; outside?: boolean }) {
     if (input.tasks.length === 0) throw new Error("A run needs at least one task")
-    const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory)
+    const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory, {
+      ...(input.toolLimitMs ? { toolLimitMs: input.toolLimitMs } : {}),
+      ...(input.outside ? { outside: true } : {}),
+    })
     this.repository.addTasks(run.id, input.tasks)
     // More than one task means a thread of its own: the run's session is what a person reads, and
     // the engine keeps each task's session under it. One task needs none — its own session is the
@@ -123,7 +126,13 @@ export class RoutineScheduler {
     if (!workflow) throw new UnknownWorkflowError(input.name)
     const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
-    return this.runTasks({ tasks: tasksFor(workflow, input.inputs ?? {}), directory: input.directory })
+    return this.runTasks({
+      tasks: tasksFor(workflow, input.inputs ?? {}),
+      directory: input.directory,
+      // A workflow is a file, so its ceiling and its bypass are written in the file too (H-47).
+      ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),
+      ...(workflow.outside ? { outside: true } : {}),
+    })
   }
 
   /**

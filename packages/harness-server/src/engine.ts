@@ -20,7 +20,43 @@ export const unwrap = async <T>(call: Promise<Result<T>>) => {
  * way, so a lesson learned about one is learned about both.
  */
 /** What a task is doing right now: one tool call, and since when. */
+/** How often a run with a declared ceiling is asked what it is doing. */
+const CHECK_EVERY_MS = 5_000
+
 export type Activity = { tool: string; detail?: string; since?: number }
+
+/** A session-level permission rule, in the shape the legacy runtime reads them. */
+export type PermissionRule = { permission: string; pattern: string; action: "allow" | "ask" | "deny" }
+
+/**
+ * A run confined to the project it runs in (H-47).
+ *
+ * `external_directory` is the engine's own name for "a path outside this project", asked for by
+ * `read`, `write`, `edit`, `glob`, `grep`, `apply_patch` and `lsp` before they touch one. Denying it
+ * turns the ask into a refusal the tool reports back to the model, with nobody prompted.
+ *
+ * **It does not cover the shell.** The shell tool does not call that check — verified by reading
+ * which tools import `assertExternalDirectory` — so a command can still read outside the project.
+ * This is said on screen rather than papered over: a confinement claimed and not delivered is worse
+ * than one that states its edge.
+ */
+export const CONFINED: PermissionRule[] = [{ permission: "external_directory", pattern: "*", action: "deny" }]
+
+/** What a task was stopped for: one tool call that ran past the run's declared ceiling (H-47). */
+export class ToolLimitReached extends Error {
+  constructor(
+    readonly tool: string,
+    readonly waitedMs: number,
+    readonly limitMs: number,
+  ) {
+    super(
+      `\`${tool}\` ran for ${Math.round(waitedMs / 60_000)} minutes, over this run's limit of ${Math.round(
+        limitMs / 60_000,
+      )} for a single tool call`,
+    )
+    this.name = "ToolLimitReached"
+  }
+}
 
 /**
  * A tool call, in either shape the engine reports one.
@@ -75,12 +111,26 @@ export class Engine {
    * app itself uses to put a session under another. The agent and the model are not given here
    * because the prompt carries them.
    */
-  async createSession(input: { directory?: string; parentID?: string; title?: string }) {
+  async createSession(input: {
+    directory?: string
+    parentID?: string
+    title?: string
+    /**
+     * Rules the session runs under (H-47).
+     *
+     * Passed to the legacy `session.create`, which is where they belong: the legacy runtime merges
+     * `agent.permission` with the session's own and evaluates them on every tool call, so a `deny`
+     * here stops the call without asking anybody. Verified in `opencode/src/session/tools.ts` and
+     * `permission/index.ts` before being relied on.
+     */
+    permission?: PermissionRule[]
+  }) {
     return (await unwrap(
       this.client.session.create({
         ...(input.parentID ? { parentID: input.parentID } : {}),
         ...(input.directory ? { directory: input.directory } : {}),
         ...(input.title ? { title: input.title } : {}),
+        ...(input.permission ? { permission: input.permission } : {}),
       }),
     )) as { id: string }
   }
@@ -146,21 +196,58 @@ export class Engine {
    * first check would be called a success before doing anything. One that finishes inside that
    * window never appears, and the wait ends on its first check.
    */
-  async waitForIdle(sessionID: string, options: { directory?: string; stopped?: () => boolean; timeoutMs?: number } = {}) {
+  async waitForIdle(
+    sessionID: string,
+    options: {
+      directory?: string
+      stopped?: () => boolean
+      timeoutMs?: number
+      toolLimitMs?: number
+      /** Only tests set these; production uses the constants above. */
+      pollMs?: number
+      checkEveryMs?: number
+      settleMs?: number
+    } = {},
+  ) {
     const stopped = options.stopped ?? (() => false)
     const deadline = Date.now() + (options.timeoutMs ?? 30 * 60_000)
-    const settleUntil = Date.now() + 3000
+    const pollMs = options.pollMs ?? 1000
+    const checkEveryMs = options.checkEveryMs ?? CHECK_EVERY_MS
+    const settleUntil = Date.now() + (options.settleMs ?? 3000)
     while (Date.now() < settleUntil) {
       if (stopped()) return
       if (await this.isBusy(sessionID, options.directory)) break
-      await new Promise((resolve) => setTimeout(resolve, 250))
+      await new Promise((resolve) => setTimeout(resolve, Math.min(250, pollMs)))
     }
+    // Only when a limit was declared: asking for the transcript every few seconds costs a request
+    // per poll, and a run with no ceiling has nothing to check it against.
+    let nextCheck = options.toolLimitMs ? Date.now() + checkEveryMs : Infinity
     while (Date.now() < deadline) {
       if (stopped()) return
       if (!(await this.isBusy(sessionID, options.directory))) return
-      await new Promise((resolve) => setTimeout(resolve, 1000))
+      if (Date.now() >= nextCheck) {
+        nextCheck = Date.now() + checkEveryMs
+        const overrun = await this.overrunning(sessionID, options.directory, options.toolLimitMs!)
+        if (overrun) {
+          // Stopped, not left to the thirty-minute cap. The turn is aborted first so the engine
+          // stops working before the task is written down as stopped.
+          await this.interrupt(sessionID, options.directory).catch(() => undefined)
+          throw overrun
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, pollMs))
     }
     throw new Error("The work was still running after 30 minutes")
+  }
+
+  /** The running tool call, if it has been running longer than this run allows. */
+  private async overrunning(sessionID: string, directory: string | undefined, limitMs: number) {
+    const doing = await this.activity(sessionID, directory).catch(() => undefined)
+    // No start time means the engine did not say when it began. Stopping a task on a guess is worse
+    // than letting the thirty-minute cap have it.
+    if (!doing?.since) return undefined
+    const waited = Date.now() - doing.since
+    return waited > limitMs ? new ToolLimitReached(doing.tool, waited, limitMs) : undefined
   }
 
   /** Stop the turn where it runs: a legacy one is aborted per folder, not interrupted by id. */

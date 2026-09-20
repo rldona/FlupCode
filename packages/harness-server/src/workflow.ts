@@ -47,6 +47,28 @@ export type Workflow = {
   /** The names a launcher asks for and the prompts interpolate, e.g. `goal`. */
   inputs: string[]
   tasks: WorkflowTask[]
+  /** `limits: { tool: 10m }` — how long one tool call may run before the task is stopped (H-47). */
+  toolLimitMs?: number
+  /** `outside: true` — let this workflow's tasks reach outside the project. Stated, never default. */
+  outside?: boolean
+}
+
+/**
+ * `10m`, `90s`, `2h`, or a number of minutes.
+ *
+ * Written by a person in a file, so it reads like a duration rather than like milliseconds. A value
+ * nobody can make sense of is dropped rather than guessed at: a limit that was meant to be ten
+ * minutes and is read as ten milliseconds would stop every task instantly.
+ */
+export function duration(value: unknown): number | undefined {
+  if (typeof value === "number") return value > 0 ? value * 60_000 : undefined
+  if (typeof value !== "string") return undefined
+  const match = /^(\d+(?:\.\d+)?)\s*(ms|s|m|h)?$/.exec(value.trim())
+  if (!match) return undefined
+  const amount = Number(match[1])
+  if (!(amount > 0)) return undefined
+  const unit = match[2] ?? "m"
+  return amount * { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 }[unit as "ms" | "s" | "m" | "h"]
 }
 
 /** What v1 runs. `dependsOn`, `parallel`, `foreach` and `when` are H-28; order is the dependency. */
@@ -61,7 +83,11 @@ export function parseWorkflow(text: string, fallbackName: string): Workflow | un
   const value = parsed as Record<string, unknown>
   const tasks = Array.isArray(value.tasks) ? value.tasks.map(taskFrom).filter((task) => !!task) : []
   if (tasks.length === 0) return undefined
+  const limits = value.limits && typeof value.limits === "object" ? (value.limits as Record<string, unknown>) : undefined
+  const toolLimitMs = duration(limits?.tool)
   return {
+    ...(toolLimitMs ? { toolLimitMs } : {}),
+    ...(value.outside === true ? { outside: true as const } : {}),
     name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : fallbackName,
     description: typeof value.description === "string" ? value.description.trim() : "",
     inputs: Array.isArray(value.inputs) ? value.inputs.filter((input): input is string => typeof input === "string") : [],
