@@ -27,3 +27,11 @@ export function lanServeCommand(port: number, origin: string): string {
 export function tunnelCommand(port: number): string {
   return `cloudflared tunnel --url http://localhost:${port}`
 }
+
+/** What the local URL line says about a probe result (TN-2). No result yet means checking. */
+export function reachabilityLabel(status: "online" | "blocked" | "offline" | undefined): string {
+  if (status === "online") return "Reachable"
+  if (status === "blocked") return "Blocked by the browser"
+  if (status === "offline") return "Offline"
+  return "Checking…"
+}
