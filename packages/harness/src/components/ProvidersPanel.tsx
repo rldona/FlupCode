@@ -1,5 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type {
+  ConsoleOrg,
+  ConsoleState,
   IntegrationAttempt,
   IntegrationAttemptStatus,
   IntegrationInfo,
@@ -24,6 +26,10 @@ type ProvidersEditorProps = {
   onOAuthCancel: (attemptID: string) => Promise<void>
   onOAuthDone: () => void
   onLinkConfigured: () => void
+  /** The Console org behind providers, when the engine has one (CO-1). */
+  consoleActive?: ConsoleState
+  consoleOrgs?: ConsoleOrg[]
+  onSwitchConsole?: (org: ConsoleOrg) => void
 }
 
 type ProvidersPanelProps = ProvidersEditorProps & {
@@ -126,6 +132,36 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
   return (
     <>
       <p class="fc-modal-line">{t("Add an API key for a provider. It is stored by the OpenCode server.")}</p>
+      {/* The Console org behind these providers (CO-1). One org is a label; several are a choice. */}
+      <Show when={props.consoleActive?.activeOrgName}>
+        {(name) => (
+          <p class="fc-modal-line">
+            {t("Console organization")}: <strong>{name()}</strong>
+          </p>
+        )}
+      </Show>
+      <Show when={(props.consoleOrgs ?? []).length > 1}>
+        <label class="fc-field">
+          <span>{t("Switch organization")}</span>
+          <select
+            class="fc-toolbar-select"
+            value={props.consoleActive?.activeOrgName ?? ""}
+            onChange={(event) => {
+              const org = (props.consoleOrgs ?? []).find((entry) => entry.orgName === event.currentTarget.value)
+              if (org) props.onSwitchConsole?.(org)
+            }}
+          >
+            <option value="">{t("Choose…")}</option>
+            <For each={props.consoleOrgs ?? []}>
+              {(org) => (
+                <option value={org.orgName}>
+                  {org.orgName} · {org.accountEmail}
+                </option>
+              )}
+            </For>
+          </select>
+        </label>
+      </Show>
             <Show when={props.unlinked.length > 0}>
               <div class="fc-provider-notice">
                 <span>
