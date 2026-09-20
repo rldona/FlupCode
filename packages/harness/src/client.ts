@@ -1056,7 +1056,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     artifacts: {
-      list: (filter: { directory?: string; runID?: string; kind?: ArtifactKind } = {}) => {
+      list: (filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string } = {}) => {
         const query = new URLSearchParams()
         for (const [name, value] of Object.entries(filter)) if (value) query.set(name, value)
         const search = query.toString()
@@ -1068,6 +1068,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "PATCH",
           body: JSON.stringify(input),
         }),
+      /** A download link for one artifact as Markdown or JSON (HF-7). */
+      exportUrl: (id: string, format: "md" | "json" = "md") =>
+        `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/export?format=${format}`,
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
