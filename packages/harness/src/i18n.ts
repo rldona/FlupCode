@@ -322,10 +322,16 @@ const ES: Record<string, string> = {
   "Files changed": "Ficheros cambiados",
   "Type a URL": "Escribe una URL",
   Go: "Ir",
-  "No page": "Sin página",
-  "Type a URL to preview": "Escribe una URL para previsualizar",
   "No session": "Sin sesión",
   "No changes": "Sin cambios",
+  "Browse with FlupCode": "Navega con FlupCode",
+  "Type a URL or ask FlupCode to open a site. Some sites don't allow embedding.":
+    "Escribe una URL o pídele a FlupCode que abra un sitio. Algunos sitios no permiten incrustarse.",
+  "Detect dev server": "Detectar servidor",
+  "Detecting…": "Detectando…",
+  "No dev server found": "No se encontró ningún servidor de desarrollo",
+  "Open in new tab": "Abrir en pestaña",
+  "No diff available": "Sin diff disponible",
   "Providers & API keys": "Proveedores y API keys",
   "Add an API key for a provider. It is stored by the OpenCode server.":
     "Añade una API key para un proveedor. La guarda el servidor de OpenCode.",

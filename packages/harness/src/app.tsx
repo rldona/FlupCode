@@ -1201,6 +1201,31 @@ export const App: Component = () => {
     return [...files]
   }
 
+  // Project-relative paths in the order the session touched them, most recent last. The files
+  // changed panel uses it to expand the stack the agent edited last.
+  const changedFiles = createMemo(() => {
+    const directory = selectedSession()?.location?.directory
+    const order: string[] = []
+    const push = (file: string) => {
+      const path = directory && file.startsWith(`${directory}/`) ? file.slice(directory.length + 1) : file
+      const index = order.indexOf(path)
+      if (index >= 0) order.splice(index, 1)
+      order.push(path)
+    }
+    for (const message of activeMessages() ?? []) {
+      if (message.type !== "assistant") continue
+      for (const file of message.snapshot?.files ?? []) push(file)
+      for (const part of message.content) {
+        if (part.type !== "tool" || part.state.status === "pending") continue
+        const input = part.state.input as { filePath?: unknown; path?: unknown }
+        const path =
+          typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
+        if (path && (part.name === "write" || part.name === "edit" || part.name === "patch")) push(path)
+      }
+    }
+    return order
+  })
+
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
@@ -2468,6 +2493,8 @@ export const App: Component = () => {
           panels={panels()}
           serverUrl={serverUrl()}
           session={selectedSession()}
+          revision={[messages(), vcsStatus()]}
+          changedFiles={changedFiles()}
           width={workspaceWidth()}
           onResize={updateWorkspaceWidth}
           onClose={closePanel}

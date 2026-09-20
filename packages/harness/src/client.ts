@@ -320,7 +320,6 @@ export function createClient(baseUrl = resolveServerUrl()) {
       children: async (input: { sessionID: string }) => ({
         data: (await unwrap(client.session.children({ sessionID: input.sessionID }))) as unknown as SessionInfo[],
       }),
-      diff: (input: { sessionID: string }) => unwrap(client.session.diff({ sessionID: input.sessionID })),
     },
     message: {
       list: async (input: { sessionID: string; order?: "asc" | "desc" }) => {
@@ -477,6 +476,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
     vcs: {
       get: (directory: string) => unwrap(client.vcs.get({ directory })),
       status: (directory: string) => unwrap(client.vcs.status({ directory })),
+      /** Working-tree changes against HEAD, with patches; the "files changed" view. */
+      diff: (directory: string) => unwrap(client.vcs.diff({ directory, mode: "git" })),
     },
     mcp: {
       list: async () => ({ data: [] as McpServer[] }),

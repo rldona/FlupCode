@@ -177,6 +177,51 @@ export function highlightDiff(code: string) {
     .join("\n")
 }
 
+export type PatchRow = { type: "meta" | "same" | "add" | "del"; no?: number; text: string }
+
+/**
+ * Splits a unified diff into renderable rows and tracks the line number each row maps to. Hunks
+ * advance the old number on deletions and the new number everywhere else, which is how editors
+ * label the two sides on a single column.
+ */
+export function parsePatch(patch: string): PatchRow[] {
+  const rows: PatchRow[] = []
+  let oldNo = 0
+  let newNo = 0
+  let inHunk = false
+  if (!patch) return rows
+  for (const line of patch.split("\n")) {
+    if (line.startsWith("@@")) {
+      const match = line.match(/^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/)
+      if (match) {
+        oldNo = Number(match[1])
+        newNo = Number(match[2])
+        inHunk = true
+      }
+      rows.push({ type: "meta", text: line })
+      continue
+    }
+    if (!inHunk || line.startsWith("+++") || line.startsWith("---") || line.startsWith("\\")) {
+      rows.push({ type: "meta", text: line })
+      continue
+    }
+    if (line.startsWith("+")) {
+      rows.push({ type: "add", no: newNo, text: line.slice(1) })
+      newNo++
+      continue
+    }
+    if (line.startsWith("-")) {
+      rows.push({ type: "del", no: oldNo, text: line.slice(1) })
+      oldNo++
+      continue
+    }
+    rows.push({ type: "same", no: newNo, text: line.startsWith(" ") ? line.slice(1) : line })
+    oldNo++
+    newNo++
+  }
+  return rows
+}
+
 export function highlight(code: string, lang = "") {
   const language = lang.toLowerCase()
   if (language === "diff" || language === "patch") return highlightDiff(code)
