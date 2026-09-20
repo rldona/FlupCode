@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { annotateLocalNetwork, askLocalNetwork, engineFetch } from "./transport"
+import { annotateLocalNetwork, anonymousFetch, askLocalNetwork, engineFetch, setEngineTransport } from "./transport"
 
 const original = globalThis.fetch
 type Sent = { input: RequestInfo | URL; init?: RequestInit }
@@ -69,5 +69,54 @@ describe("the local network annotation (H-45)", () => {
       throw new TypeError("Failed to fetch")
     }) as unknown as typeof fetch
     expect(await askLocalNetwork("http://127.0.0.1:4096/global/health", "loopback")).toBe(false)
+  })
+})
+
+describe("requests without the engine credentials", () => {
+  const originalWindow = (globalThis as { window?: unknown }).window
+  // The desktop app hands the page the engine password; the harness server never asked for it, and
+  // the header trips a CORS preflight it does not allow, which reads as "not reachable".
+  const withEngineAuth = () => {
+    ;(globalThis as { window?: unknown }).window = { flupcode: { engineAuth: "secret" } }
+  }
+  const authOf = (init: RequestInit | undefined) => new Headers(init?.headers).get("authorization")
+
+  afterEach(() => {
+    ;(globalThis as { window?: unknown }).window = originalWindow
+    setEngineTransport(undefined)
+  })
+
+  test("the engine call carries them, the harness one does not", async () => {
+    const sent = capture()
+    withEngineAuth()
+    await engineFetch("http://127.0.0.1:4096/global/health")
+    await anonymousFetch("http://127.0.0.1:4097/harness/usage?days=30")
+    expect(authOf(sent[0]!.init)).toBe("Basic secret")
+    expect(authOf(sent[1]!.init)).toBeNull()
+  })
+
+  test("keeps the local network annotation", async () => {
+    const sent = capture()
+    annotateLocalNetwork("loopback")
+    withEngineAuth()
+    await anonymousFetch("http://127.0.0.1:4097/harness/runs")
+    expect(space(sent[0]!.init)).toBe("loopback")
+    expect(authOf(sent[0]!.init)).toBeNull()
+  })
+
+  test("still goes through the remote tunnel when one is active", async () => {
+    const sent: Array<{ input: RequestInfo | URL; init?: RequestInit }> = []
+    setEngineTransport({
+      fetch: (async (input: RequestInfo | URL, init?: RequestInit) => {
+        sent.push({ input, init })
+        return new Response("{}", { status: 200 })
+      }) as typeof fetch,
+      socket: () => {
+        throw new Error("no socket in this test")
+      },
+    })
+    await anonymousFetch("http://127.0.0.1:4097/harness/runs")
+    expect(sent).toHaveLength(1)
+    expect(String(sent[0]!.input)).toContain("/harness/runs")
   })
 })
