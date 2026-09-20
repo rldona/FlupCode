@@ -1124,10 +1124,16 @@ button.fc-row-main {
   overflow-y: auto;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: var(--fc-space-3);
   width: 100%;
   max-width: none;
   padding: var(--fc-space-5) var(--fc-space-6);
+}
+
+.fc-transcript > * {
+  width: 100%;
+  max-width: 900px;
 }
 
 .fc-message {
