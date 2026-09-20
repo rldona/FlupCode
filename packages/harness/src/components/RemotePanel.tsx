@@ -4,8 +4,9 @@ import type { RemoteHostState } from "@flupcode/remote"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { desktopRemote, remote, type RemoteErrorCode } from "../remote"
-import { enginePort, lanServeCommand, tunnelCommand } from "../remote-share"
+import { enginePort, lanServeCommand, reachabilityLabel, tunnelCommand } from "../remote-share"
 import { RemoteNotifications } from "./RemoteNotifications"
+import { probeServer, type ServerStatus } from "../client"
 
 type RemotePanelProps = {
   open: boolean
@@ -333,6 +334,23 @@ const LocalNetwork: Component<{ open: boolean; initialUrl: string }> = (props) =
   const lan = createMemo(() => lanServeCommand(port(), window.location.origin))
   const tunnel = createMemo(() => tunnelCommand(port()))
 
+  // Whether the URL answers, probed on open and a beat after each edit (TN-2). One probe at a
+  // time: an edit while one is in flight drops it instead of stacking probes.
+  const [reach, setReach] = createSignal<ServerStatus | undefined>()
+  createEffect(() => {
+    if (!props.open) return
+    const value = url().trim()
+    if (!value) {
+      setReach(undefined)
+      return
+    }
+    setReach(undefined)
+    const handle = setTimeout(() => {
+      void probeServer(value).then(setReach, () => setReach("offline"))
+    }, 600)
+    onCleanup(() => clearTimeout(handle))
+  })
+
   const copy = (text: string, what: string) => {
     void navigator.clipboard?.writeText(text).then(
       () => {
@@ -368,6 +386,9 @@ const LocalNetwork: Component<{ open: boolean; initialUrl: string }> = (props) =
         <button class="fc-button" type="button" onClick={() => void navigator.clipboard?.writeText(url())}>
           {t("Copy URL")}
         </button>
+        <Show when={url().trim()}>
+          <span class="fc-run-meta">{reachabilityLabel(reach())}</span>
+        </Show>
       </div>
       <p class="fc-modal-license">{t("To expose on the network:")}</p>
       <div class="fc-modal-links">
