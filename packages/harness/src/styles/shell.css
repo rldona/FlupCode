@@ -2278,6 +2278,28 @@ button.fc-status {
   border-color: color-mix(in srgb, var(--fc-danger) 45%, var(--fc-border));
 }
 
+/*
+  A pruned tool result is still history — the reader can open it — but the model no longer receives
+  it, so the card says so and its output reads as something kept for the human, not for the context.
+*/
+.fc-tool-cleared-badge {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-tool-cleared .fc-tool-status-completed {
+  color: var(--fc-text-muted);
+}
+
+.fc-tool-cleared .fc-tool-output,
+.fc-tool-cleared .fc-tool-cmd {
+  opacity: 0.65;
+}
+
 .fc-tool-cmd {
   margin: 0;
   padding: 8px 12px;
@@ -6575,6 +6597,13 @@ button.fc-status {
   font-size: 11px;
   font-variant-numeric: tabular-nums;
   line-height: 1;
+}
+
+.fc-toolgroup-cleared {
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Sessions in the sidebar: a small ring like Claude Code's, blue and pulsing while working. */

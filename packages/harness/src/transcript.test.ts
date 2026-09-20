@@ -116,6 +116,24 @@ describe("applying one event at a time", () => {
     expect(assistant(data).content[0]).toMatchObject({ state: { status: "completed" } })
   })
 
+  test("a pruned tool result keeps the flag that says the engine dropped it", () => {
+    const data = fromLegacy([
+      {
+        info: info("a", "assistant"),
+        parts: [
+          {
+            id: "t1",
+            type: "tool",
+            tool: "bash",
+            state: { status: "completed", input: { command: "ls" }, output: "a.ts", time: { compacted: 7 } },
+          },
+        ],
+      },
+    ])
+    // The views read where v2 keeps it, so the legacy mark is mapped onto the part.
+    expect(assistant(data).content[0]).toMatchObject({ time: { pruned: 7 } })
+  })
+
   test("a user message keeps the text and the attachments its parts carried", () => {
     const data = fromLegacy([
       {

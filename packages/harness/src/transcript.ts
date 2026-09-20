@@ -36,7 +36,7 @@ export type LegacyPart = {
   auto?: boolean
   overflow?: boolean
   time?: { start?: number; end?: number }
-  state?: { status?: string; input?: unknown; output?: string; error?: string }
+  state?: { status?: string; input?: unknown; output?: string; error?: string; time?: { compacted?: number } }
 }
 
 export type LegacyEntry = { info: LegacyInfo; parts: LegacyPart[] }
@@ -55,6 +55,9 @@ export function contentOf(part: LegacyPart) {
     type: "tool",
     id: part.id,
     name: part.tool ?? "",
+    // A pruned result is one the engine dropped from the context it sends. The legacy store keeps
+    // that on the tool state; v2 keeps it on the part, which is where the views read it.
+    time: { created: part.time?.start ?? 0, pruned: part.state?.time?.compacted },
     state: {
       status: part.state?.status,
       input: part.state?.input,
