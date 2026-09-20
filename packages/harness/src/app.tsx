@@ -1,7 +1,8 @@
-import { For, Show, createEffect, createResource, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
 import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
+import { computeMetrics, filterByRange, type UsageRange } from "./metrics"
 import type { Attachment, CommandOption, McpConfig, StashedPrompt } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
@@ -245,6 +246,33 @@ export const App: Component = () => {
 
   const sessionList = () => sessions()?.data
   const selectedSession = () => sessionList()?.find((session) => session.id === selected())
+
+  const [range, setRange] = createSignal<UsageRange>("all")
+  const filteredSessions = createMemo(() => filterByRange(sessionList() ?? [], range()))
+  const metrics = createMemo(() => computeMetrics(filteredSessions()))
+  const [messageCount] = createResource(
+    () => {
+      const ids = filteredSessions()
+        .slice(0, 30)
+        .map((session) => session.id)
+      return ids.length ? { url: serverUrl(), ids } : undefined
+    },
+    async (source) => {
+      const client = createClient(source.url)
+      const counts = await Promise.all(
+        source.ids.map(async (id) => {
+          try {
+            const response = await client.message.list({ sessionID: id })
+            return response.data.length
+          } catch {
+            return 0
+          }
+        }),
+      )
+      return counts.reduce((sum, value) => sum + value, 0)
+    },
+  )
+
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
@@ -710,11 +738,11 @@ export const App: Component = () => {
           fallback={
             <HomeCanvas
               displayName={displayName()}
-              sessionCount={sessionList()?.length ?? 0}
-              serverVersion={health()?.version}
-              selectedSession={selected()}
-              busy={busy()}
+              range={range()}
+              metrics={metrics()}
+              messages={messageCount()}
               error={error()}
+              onRangeChange={setRange}
             />
           }
         >

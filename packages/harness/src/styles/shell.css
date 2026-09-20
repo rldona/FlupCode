@@ -1301,6 +1301,71 @@ button.oh-row-main {
   font-size: 13px;
 }
 
+.oh-tabs {
+  display: flex;
+  gap: 4px;
+}
+
+.oh-tab {
+  border: none;
+  background: transparent;
+  color: var(--oh-text-muted);
+  padding: 4px 8px;
+  border-radius: var(--oh-radius-sm);
+  font-weight: 500;
+}
+
+.oh-tab-active {
+  color: var(--oh-text);
+  background: color-mix(in srgb, var(--oh-border) 45%, transparent);
+}
+
+.oh-range {
+  display: flex;
+  gap: 4px;
+}
+
+.oh-range-button {
+  border: none;
+  background: transparent;
+  color: var(--oh-text-muted);
+  padding: 4px 8px;
+  border-radius: var(--oh-radius-sm);
+  font-size: var(--oh-text-sm);
+}
+
+.oh-range-button-active {
+  color: var(--oh-text);
+  background: color-mix(in srgb, var(--oh-border) 45%, transparent);
+}
+
+.oh-model-stats {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.oh-model-stat {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  border-radius: var(--oh-radius-md);
+  background: color-mix(in srgb, var(--oh-border) 35%, transparent);
+}
+
+.oh-model-stat-name {
+  font-weight: 500;
+}
+
+.oh-model-stat-count {
+  font-size: var(--oh-text-sm);
+  color: var(--oh-text-muted);
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;
