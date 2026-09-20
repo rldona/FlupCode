@@ -258,6 +258,8 @@ export class TaskRunner {
           const checkpoint = await take({
             directory: options.directory,
             title: task.name,
+            // What this step concluded (H-15), so the point reads as more than a sha.
+            summary: handoff,
             runID: run.id,
             taskID: task.id,
           })

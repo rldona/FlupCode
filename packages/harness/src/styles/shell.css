@@ -7458,12 +7458,157 @@ button.fc-status {
 
 /* The supervisor: a run and the tasks it is made of. Shares the routines screen's frame, because it
    is the same kind of page and a second layout would only be a second thing to keep in step. */
+/* The supervisor and, when a task is opened, its detail beside it (§6.4, H-12). */
+.fc-runs-layout {
+  display: flex;
+  gap: var(--fc-space-4);
+  align-items: flex-start;
+  justify-content: center;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 0 var(--fc-space-4);
+}
+
+.fc-runs-layout .fc-runs-list {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: var(--fc-space-5) 0 0;
+}
+
 .fc-runs-list {
   max-width: 1120px;
   margin: var(--fc-space-5) auto 0;
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-3);
+}
+
+.fc-run-open-active {
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
+}
+
+.fc-run-detail {
+  position: sticky;
+  top: var(--fc-space-4);
+  flex: 0 0 420px;
+  max-height: calc(100vh - 2 * var(--fc-space-4));
+  padding: var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  margin-top: var(--fc-space-5);
+  overflow: auto;
+  background: var(--fc-bg-elevated);
+}
+
+.fc-run-detail-head {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: center;
+}
+
+.fc-run-detail-title {
+  flex: 1;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-run-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+  align-items: center;
+  margin-top: var(--fc-space-2);
+}
+
+.fc-run-detail-model {
+  padding: 2px 6px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: inherit;
+  font-size: 12px;
+}
+
+.fc-run-detail-steer {
+  display: flex;
+  gap: var(--fc-space-2);
+  margin-top: var(--fc-space-2);
+}
+
+.fc-run-detail-steer input {
+  flex: 1;
+  min-width: 0;
+  padding: 4px var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: inherit;
+}
+
+.fc-run-detail-section {
+  margin-top: var(--fc-space-4);
+}
+
+.fc-run-detail-section h3 {
+  margin: 0 0 var(--fc-space-1);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fc-run-detail-note {
+  margin: 0 0 var(--fc-space-1);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-run-detail-pre {
+  max-height: 260px;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  margin: 0;
+  background: var(--fc-bg);
+  font-size: var(--fc-text-xs);
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
+.fc-run-detail-calls {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-run-detail-calls li {
+  display: flex;
+  gap: var(--fc-space-2);
+  justify-content: space-between;
+  padding: 2px 0;
+}
+
+.fc-run-detail-call-name {
+  overflow: hidden;
+  font-family: var(--fc-font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-run-detail-call-time {
+  color: var(--fc-text-muted);
+}
+
+.fc-run-detail-artifact {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: baseline;
+  padding: 2px 0;
+  font-size: var(--fc-text-sm);
 }
 
 .fc-runs-empty {
@@ -7564,6 +7709,22 @@ button.fc-status {
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;
+}
+
+.fc-artifact-pin {
+  font-size: 15px;
+  line-height: 1;
+}
+
+.fc-artifact-pinned {
+  color: var(--fc-accent, var(--fc-text));
+}
+
+.fc-artifact-retention {
+  display: flex;
+  gap: var(--fc-space-2);
+  align-items: center;
+  margin-top: var(--fc-space-2);
 }
 
 .fc-run-evidence {
@@ -8603,6 +8764,28 @@ button.fc-status {
   background: var(--fc-bg);
 }
 
+.fc-checkpoint-summary {
+  margin: 0 0 var(--fc-space-1);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-checkpoint-summary summary {
+  color: var(--fc-text-muted);
+  cursor: pointer;
+}
+
+.fc-checkpoint-summary pre {
+  max-height: 240px;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  margin: 4px 0 0;
+  background: var(--fc-bg);
+  font-size: var(--fc-text-xs);
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .fc-checkpoint-group {
   margin-bottom: var(--fc-space-2);
   font-size: var(--fc-text-xs);
@@ -8672,6 +8855,16 @@ button.fc-status {
   margin: 0 0 var(--fc-space-2);
   font-size: var(--fc-text-sm);
   font-weight: 600;
+}
+
+/* What the runs cost, on the home screen (H-16): its own block above the session card. */
+.fc-home-usage {
+  max-width: 1120px;
+  padding: var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  margin: 0 auto var(--fc-space-4);
+  background: var(--fc-bg-elevated);
 }
 
 .fc-usage-note {
@@ -8833,6 +9026,47 @@ button.fc-status {
   margin: 4px 0 0;
   color: var(--fc-text-muted);
   font-size: var(--fc-text-xs);
+}
+
+/* A run's checkpoint marker (H-15): the point taken after a task, with what it held. */
+.fc-run-checkpoint {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--fc-space-2);
+  align-items: center;
+  grid-column: 1 / -1;
+  margin-top: 4px;
+  font-size: var(--fc-text-xs);
+}
+
+.fc-run-checkpoint-mark {
+  color: var(--fc-text-muted);
+}
+
+.fc-run-checkpoint-title {
+  color: var(--fc-text-muted);
+}
+
+.fc-run-checkpoint-summary {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.fc-run-checkpoint-summary summary {
+  color: var(--fc-text-muted);
+  cursor: pointer;
+}
+
+.fc-run-checkpoint-summary pre {
+  max-height: 240px;
+  padding: var(--fc-space-2);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  margin: 4px 0 0;
+  background: var(--fc-bg);
+  font-size: var(--fc-text-xs);
+  overflow: auto;
+  white-space: pre-wrap;
 }
 
 /* ── A review's points, on the diff (H-32) ────────────────────────────────── */

@@ -29,6 +29,10 @@ export type Artifact = {
   bytes?: number
   truncated?: boolean
   hash?: string
+  /** Kept in front of the rest, and never swept (H-14). */
+  pinned?: boolean
+  /** When it may be forgotten. Absent means never. */
+  expiresAt?: number
 }
 
 /** A process written down, as the app reads it. Mirrors `harness-server`'s own type (H-21). */
@@ -66,6 +70,8 @@ export type RunStatus = "running" | "awaiting" | "success" | "failed" | "stopped
 export type Run = {
   id: string
   source: RunSource
+  /** Where the work happens. Sent by the server; used to open its checkpoints from the run view. */
+  directory?: string
   sessionID?: string
   status: RunStatus
   startedAt: number
@@ -193,6 +199,8 @@ export type Checkpoint = {
   directory: string
   sha: string
   title: string
+  /** What the step that produced this point concluded, kept as a readable marker. */
+  summary?: string
   runID?: string
   taskID?: string
   createdAt: number
@@ -223,6 +231,8 @@ export type TouchedFiles = {
   taskID?: string
   checkpointID: string
   title: string
+  /** What the step concluded (H-15), kept so the run view can show the point's summary. */
+  summary?: string
   files: Array<{ path: string; status: "added" | "modified" | "deleted" }>
 }
 
@@ -303,7 +313,19 @@ export type CapturedPrompt = {
   system: string[]
 }
 
-/** The tools a session ran, and how often, as FlupCode's engine plugin recorded them. */
+/** One completed tool call, with how long it took, as FlupCode's engine plugin recorded it (H-16). */
+export type ToolCall = { tool: string; start?: number; ms?: number }
+
+/** The tools a session ran, how often, and how long each call took, from FlupCode's engine plugin. */
 export type ToolUses = {
   tools: Record<string, { count: number; last: number }>
+  /** Completed calls, newest last. Empty in recordings made before calls were timed. */
+  calls: ToolCall[]
+}
+
+/** One task's tool calls, for the run's timeline (H-16). */
+export type TaskTools = {
+  taskID: string
+  name: string
+  calls: ToolCall[]
 }

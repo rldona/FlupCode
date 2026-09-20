@@ -68,4 +68,53 @@ describe("what a run leaves behind", () => {
     expect(repository.getArtifact(artifact.id)).toBeUndefined()
     repository.close()
   })
+
+  test("what was pinned stays in front, and is announced", () => {
+    const repository = open()
+    const older = repository.addArtifact({ kind: "report", title: "older", producer: "harness", content: "a" }, 1000)
+    repository.addArtifact({ kind: "report", title: "newer", producer: "harness", content: "b" }, 2000)
+
+    const seen: string[] = []
+    repository.subscribe((entry) => seen.push(entry.event.type))
+    const pinned = repository.setArtifactPinned(older.id, true)
+
+    expect(pinned?.pinned).toBe(true)
+    expect(seen).toEqual(["artifact.changed"])
+    // Pinned first, even though it is older — that is the whole point of pinning.
+    expect(repository.listArtifacts().map((entry) => entry.title)).toEqual(["older", "newer"])
+    repository.close()
+  })
+
+  test("only what was told to expire is swept, and a pinned one never is", () => {
+    const repository = open()
+    const expiring = repository.addArtifact(
+      { kind: "log", title: "expiring", producer: "harness", content: "a", expiresAt: 5000 },
+      1000,
+    )
+    const kept = repository.addArtifact(
+      { kind: "log", title: "pinned past its date", producer: "harness", content: "b", expiresAt: 5000 },
+      1000,
+    )
+    repository.addArtifact({ kind: "report", title: "no date", producer: "harness", content: "c" }, 1000)
+    repository.setArtifactPinned(kept.id, true)
+
+    expect(repository.removeExpiredArtifacts(4000)).toBe(0)
+    expect(repository.removeExpiredArtifacts(6000)).toBe(1)
+    expect(repository.getArtifact(expiring.id)).toBeUndefined()
+    expect(repository.getArtifact(kept.id)?.pinned).toBe(true)
+    expect(repository.listArtifacts()).toHaveLength(2)
+    repository.close()
+  })
+
+  test("retention can be cleared, and clearing it takes it out of the sweep", () => {
+    const repository = open()
+    const artifact = repository.addArtifact(
+      { kind: "log", title: "a", producer: "harness", content: "a", expiresAt: 5000 },
+      1000,
+    )
+    expect(repository.setArtifactRetention(artifact.id, undefined)?.expiresAt).toBeUndefined()
+    expect(repository.removeExpiredArtifacts(6000)).toBe(0)
+    expect(repository.getArtifact(artifact.id)).toBeDefined()
+    repository.close()
+  })
 })

@@ -1,6 +1,8 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import type { Run, Task, TaskActivity, TaskStatus, TouchedFiles } from "../types"
+import type { ModelInfo } from "../engine-types"
+import type { Artifact, Run, Task, TaskActivity, TaskStatus, TaskTools, TouchedFiles } from "../types"
+import { RunTaskDetail } from "./RunTaskDetail"
 
 type RunsPanelProps = {
   open: boolean
@@ -16,6 +18,18 @@ type RunsPanelProps = {
   activity: Record<string, TaskActivity>
   /** What each task changed on disk, by task id. Absent until a run has finished a task. */
   touched: Record<string, TouchedFiles>
+  /** The timed calls of each task, by task id (H-16). */
+  tools?: Record<string, TaskTools>
+  /** What the runs left behind, by run id (H-14). */
+  artifacts?: Record<string, Artifact[]>
+  /** What a retry can run on, if the reader wants a different model (H-12). */
+  models: ModelInfo[]
+  /** Opens the changes screen for a run's folder, where its checkpoints can be restored (H-15). */
+  onOpenChanges?: (directory?: string) => void
+  /** Does a task again, as a new task of the same run (H-12). */
+  onRetry: (taskID: string, model?: { providerID: string; id: string; variant?: string }) => void
+  /** Sends a message to a running task's own session, which steers it (H-12). */
+  onSteer: (taskID: string, text: string) => void
   onClose: () => void
 }
 
@@ -98,6 +112,16 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
   // Which run has been asked about, or ALL for the whole finished list. The question is drawn where
   // the button is: the list scrolls, and a confirmation at the foot of it is one nobody sees.
   const [confirming, setConfirming] = createSignal<string>()
+  // The task opened in the detail panel (§6.4). Its run is looked up, because a task carries only
+  // its run's id.
+  const [selectedTask, setSelectedTask] = createSignal<string>()
+  const detail = createMemo(() => {
+    const id = selectedTask()
+    if (!id) return undefined
+    const run = props.runs.find((entry) => (entry.tasks ?? []).some((task) => task.id === id))
+    const task = run?.tasks?.find((entry) => entry.id === id)
+    return run && task ? { run, task } : undefined
+  })
 
   return (
     <Show when={props.open}>
@@ -177,6 +201,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
           <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
         </Show>
 
+        <div class="fc-runs-layout">
         <Show when={props.runs.length > 0} fallback={<div class="fc-runs-empty">{t("Nothing has run yet.")}</div>}>
           <div class="fc-runs-list">
             <For each={props.runs}>
@@ -304,12 +329,52 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                               </button>
                             )}
                           </Show>
+                          <button
+                            class="fc-run-open"
+                            classList={{ "fc-run-open-active": selectedTask() === task.id }}
+                            type="button"
+                            onClick={() => setSelectedTask(selectedTask() === task.id ? undefined : task.id)}
+                          >
+                            {t("Details")}
+                          </button>
                           <Show when={task.error}>{(error) => <p class="fc-run-error">{error()}</p>}</Show>
                         {/*
                           The evidence (H-22). It lives on the task because H-14's artifact store
                           does not exist yet; folded away because a passing check is read as one
                           line and a failing one is read in full.
                         */}
+                        {/*
+                          The point taken after this task (H-15): the marker the audit asked for,
+                          with the step's own summary so it says what the point was for, and a way
+                          to the folder's checkpoints to restore it.
+                        */}
+                        <Show when={props.touched[task.id]}>
+                          {(changed) => (
+                            <div class="fc-run-checkpoint">
+                              <span class="fc-run-checkpoint-mark" aria-hidden="true">
+                                ◆
+                              </span>
+                              <span class="fc-run-checkpoint-title">{changed().title}</span>
+                              <Show when={changed().summary}>
+                                {(summary) => (
+                                  <details class="fc-run-checkpoint-summary">
+                                    <summary>{t("What this point holds")}</summary>
+                                    <pre>{summary()}</pre>
+                                  </details>
+                                )}
+                              </Show>
+                              <Show when={props.onOpenChanges}>
+                                <button
+                                  class="fc-run-open"
+                                  type="button"
+                                  onClick={() => props.onOpenChanges?.(run.directory)}
+                                >
+                                  {t("Checkpoints")}
+                                </button>
+                              </Show>
+                            </div>
+                          )}
+                        </Show>
                         {/*
                           What this task changed on disk (H-12), from the checkpoints around it —
                           which catches a file written by a shell command as well as one edited by a
@@ -356,6 +421,26 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
             </For>
           </div>
         </Show>
+          <Show when={detail()}>
+            {(picked) => (
+              <RunTaskDetail
+                run={picked().run}
+                task={picked().task}
+                activity={props.activity[picked().task.id]}
+                touched={props.touched[picked().task.id]}
+                tools={props.tools?.[picked().task.id]}
+                artifacts={props.artifacts?.[picked().run.id] ?? []}
+                models={props.models}
+                serverAvailable={props.serverAvailable}
+                onOpenSession={props.onOpenSession}
+                onRetry={props.onRetry}
+                onSteer={props.onSteer}
+                onOpenChanges={props.onOpenChanges ?? (() => undefined)}
+                onClose={() => setSelectedTask(undefined)}
+              />
+            )}
+          </Show>
+        </div>
       </section>
     </Show>
   )

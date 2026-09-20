@@ -165,9 +165,14 @@ export function systemPromptsDirectory() {
   return join(base, "flupcode", "system-prompts")
 }
 
+/** One completed call, with how long it took. The timeline is built from these (H-16). */
+export type ToolCall = { tool: string; start?: number; ms?: number }
+
 /** What one session's tools were used for. The engine names an MCP tool `<server>_<tool>`. */
 export type ToolUses = {
   tools: Record<string, { count: number; last: number }>
+  /** Completed calls, newest last. Absent in files written before calls were timed. */
+  calls: ToolCall[]
 }
 
 /** Where the other engine plugin records that, one file per session. */
@@ -188,22 +193,41 @@ export function toolUsesDirectory() {
  */
 export function usedTools(sessionID: string): ToolUses {
   // The id names a file under ours; anything else is not a session and is not looked up.
-  if (!/^[A-Za-z0-9_-]+$/.test(sessionID)) return { tools: {} }
+  if (!/^[A-Za-z0-9_-]+$/.test(sessionID)) return { tools: {}, calls: [] }
   try {
     const parsed = JSON.parse(readFileSync(join(toolUsesDirectory(), `${sessionID}.json`), "utf8")) as {
       tools?: unknown
+      calls?: unknown
     }
-    if (!parsed?.tools || typeof parsed.tools !== "object") return { tools: {} }
     const tools: ToolUses["tools"] = {}
-    for (const [name, value] of Object.entries(parsed.tools as Record<string, unknown>)) {
-      const entry = value as { count?: unknown; last?: unknown }
-      if (typeof entry?.count !== "number" || typeof entry.last !== "number") continue
-      tools[name] = { count: entry.count, last: entry.last }
+    if (parsed?.tools && typeof parsed.tools === "object") {
+      for (const [name, value] of Object.entries(parsed.tools as Record<string, unknown>)) {
+        const entry = value as { count?: unknown; last?: unknown }
+        if (typeof entry?.count !== "number" || typeof entry.last !== "number") continue
+        tools[name] = { count: entry.count, last: entry.last }
+      }
     }
-    return { tools }
+    return { tools, calls: readToolCalls(parsed?.calls) }
   } catch {
-    return { tools: {} }
+    return { tools: {}, calls: [] }
   }
+}
+
+/** Only the calls that can be read back whole; a malformed entry is dropped rather than guessed at. */
+function readToolCalls(value: unknown): ToolCall[] {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return []
+    const call = entry as { tool?: unknown; start?: unknown; ms?: unknown }
+    if (typeof call.tool !== "string" || !call.tool) return []
+    return [
+      {
+        tool: call.tool,
+        ...(typeof call.start === "number" ? { start: call.start } : {}),
+        ...(typeof call.ms === "number" ? { ms: call.ms } : {}),
+      },
+    ]
+  })
 }
 
 const record = (value: unknown): CapturedPrompt | undefined => {

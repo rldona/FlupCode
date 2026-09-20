@@ -10,6 +10,8 @@ type ArtifactsPanelProps = {
   serverAvailable: boolean
   onCopy: (path: string) => void
   onRemove: (id: string) => void
+  /** Keep one in front, or say when it may be forgotten (H-14). */
+  onUpdate: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) => void
   onOpenRun: (runID: string) => void
   onClose: () => void
 }
@@ -18,6 +20,10 @@ type ArtifactsPanelProps = {
 const KINDS: ArtifactKind[] = ["report", "verdict", "plan", "handoff", "diff", "log", "file"]
 
 const when = (at: number) => new Date(at).toLocaleString([], { dateStyle: "medium", timeStyle: "short" })
+
+/** The one retention a reader can ask for in a click. Never is the default, and is a clear. */
+const FORGET_DAYS = 30
+const DAY_MS = 86_400_000
 
 const size = (artifact: Artifact) => {
   const length = artifact.bytes ?? artifact.content?.length
@@ -103,10 +109,27 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                     <span class="fc-artifact-kind">{t(artifact.kind)}</span>
                     <span class="fc-run-title">{artifact.title}</span>
                     <span class="fc-run-meta">
-                      {[when(artifact.createdAt), size(artifact), artifact.truncated ? t("cut") : undefined]
+                      {[
+                        when(artifact.createdAt),
+                        size(artifact),
+                        artifact.truncated ? t("cut") : undefined,
+                        artifact.expiresAt ? t("forgets {when}", { when: when(artifact.expiresAt) }) : undefined,
+                      ]
                         .filter(Boolean)
                         .join(" · ")}
                     </span>
+                    <button
+                      class="fc-run-open fc-artifact-pin"
+                      classList={{ "fc-artifact-pinned": artifact.pinned }}
+                      type="button"
+                      aria-pressed={!!artifact.pinned}
+                      title={artifact.pinned ? t("Remove from pinned") : t("Keep in front")}
+                      aria-label={artifact.pinned ? t("Remove from pinned") : t("Keep in front")}
+                      disabled={!props.serverAvailable}
+                      onClick={() => props.onUpdate(artifact.id, { pinned: !artifact.pinned })}
+                    >
+                      {artifact.pinned ? "★" : "☆"}
+                    </button>
                     <Show when={artifact.runID}>
                       {(runID) => (
                         <button class="fc-run-open" type="button" onClick={() => props.onOpenRun(runID())}>
@@ -138,6 +161,41 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                     <Show when={artifact.truncated}>
                       <p class="fc-routine-muted">{t("Only the first part was kept.")}</p>
                     </Show>
+                    {/*
+                      Retention (H-14). Nothing expires by default: a date is stated by a reader, and
+                      the server only acts on one that was. Pinned is separate — pinned is never swept.
+                    */}
+                    <div class="fc-artifact-retention">
+                      <Show
+                        when={artifact.expiresAt}
+                        fallback={
+                          <button
+                            class="fc-button"
+                            type="button"
+                            disabled={!props.serverAvailable}
+                            onClick={() => props.onUpdate(artifact.id, { expiresAt: Date.now() + FORGET_DAYS * DAY_MS })}
+                          >
+                            {t("Forget in {n} days", { n: FORGET_DAYS })}
+                          </button>
+                        }
+                      >
+                        {(at) => (
+                          <>
+                            <span class="fc-routine-muted">
+                              {t("Forgotten on {when}", { when: when(at()) })}
+                            </span>
+                            <button
+                              class="fc-button"
+                              type="button"
+                              disabled={!props.serverAvailable}
+                              onClick={() => props.onUpdate(artifact.id, { expiresAt: null })}
+                            >
+                              {t("Keep indefinitely")}
+                            </button>
+                          </>
+                        )}
+                      </Show>
+                    </div>
                   </Show>
                 </article>
               )}

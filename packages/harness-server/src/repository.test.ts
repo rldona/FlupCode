@@ -64,6 +64,38 @@ describe("opening a database written by an older server", () => {
     expect(after.listFindings({}).find((entry) => entry.id === fresh!.id)?.source).toBe("check")
     after.close()
   })
+
+  test("a checkpoint table written before points held a summary keeps its rows and gains the column", () => {
+    const path = scratch()
+    const before = open(path)
+    const old = before.addCheckpoint({
+      id: "cp_old",
+      directory: "/work",
+      sha: "a".repeat(40),
+      title: "Before summaries",
+      runID: "r1",
+      taskID: "t1",
+      createdAt: 10,
+    })
+    before.db.exec("ALTER TABLE checkpoints DROP COLUMN summary")
+    before.close()
+
+    const after = open(path)
+    const read = after.getCheckpoint(old.id)
+    expect(read).toMatchObject({ id: old.id, title: "Before summaries" })
+    // A point taken before summaries existed simply has none, rather than an empty one.
+    expect(read?.summary).toBeUndefined()
+    const fresh = after.addCheckpoint({
+      id: "cp_new",
+      directory: "/work",
+      sha: "b".repeat(40),
+      title: "With a summary",
+      summary: "The task concluded X",
+      createdAt: 20,
+    })
+    expect(after.getCheckpoint(fresh.id)?.summary).toBe("The task concluded X")
+    after.close()
+  })
 })
 
 describe("SqliteRoutineRepository", () => {
@@ -117,6 +149,22 @@ describe("SqliteRoutineRepository", () => {
     const run = repository.startRun({ type: "routine", routineID: routine.id }, 1000)
     repository.recoverRunning(2000)
     expect(repository.getRun(run.id)).toMatchObject({ status: "failed", finishedAt: 2000 })
+    repository.close()
+  })
+
+  test("a finished run is reopened for a retry, and one still going is left alone", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    repository.finishRun(run.id, "failed", "the check failed", 2000)
+
+    expect(repository.reopenRun(run.id)).toBe(true)
+    const reopened = repository.getRun(run.id)!
+    expect(reopened.status).toBe("running")
+    // The old ending is cleared, or the run would read as finished while it is being done again.
+    expect(reopened.finishedAt).toBeUndefined()
+    expect(reopened.error).toBeUndefined()
+    // Already running: there is nothing to reopen.
+    expect(repository.reopenRun(run.id)).toBe(false)
     repository.close()
   })
 
