@@ -13,9 +13,7 @@ type RightAsideProps = {
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
   width: number
-  /** Pinned open by the reader; a peek instead floats over the content. */
-  pinned: boolean
-  /** Revealed by hovering its toggle: floats over the content until the pointer and focus leave. */
+  /** Revealed by hovering its toggle: reserves the slot until the pointer and focus leave. */
   peek: PanelPeek
   onResize: (width: number) => void
   /** Dragging the edge almost to the window's right side hides the panel. */
@@ -41,7 +39,6 @@ export const RightAside: Component<RightAsideProps> = (props) => {
   return (
     <aside
       class="fc-rightaside"
-      classList={{ "fc-rightaside-peek": !props.pinned && props.peek.peeking() }}
       style={{ width: `${props.width}px` }}
       ref={props.peek.panel}
       onMouseEnter={props.peek.show}

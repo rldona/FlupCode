@@ -23,7 +23,7 @@ type ProjectGroup = {
 type SidebarProps = {
   /** The reader collapsed it; the hover peek may still reveal it without pinning it. */
   collapsed: boolean
-  /** Revealed by hovering its toggle: floats over the content until the pointer and focus leave. */
+  /** Revealed by hovering its toggle: reserves the slot until the pointer and focus leave. */
   peek: PanelPeek
   width: number
   displayName: string
@@ -214,9 +214,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       <aside
         class="fc-sidebar"
         classList={{
-          // A peek takes the collapsed panel's place: it must not inherit its zero width.
+          // A peek reserves the slot, so the panel is only zero-width while nothing shows it.
           "fc-sidebar-collapsed": props.collapsed && !props.peek.peeking(),
-          "fc-sidebar-peek": props.collapsed && props.peek.peeking(),
         }}
         style={{ "--fc-sidebar-width": `${props.width}px` }}
         ref={props.peek.panel}
