@@ -3,6 +3,7 @@ import type { AgentInfo, FileSystemEntry, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { Mascot } from "./Mascot"
+import { ModeMenu } from "./ModeMenu"
 
 type ComposerProps = {
   value: string
@@ -17,6 +18,7 @@ type ComposerProps = {
   targetDirectory: string | undefined
   agents: AgentInfo[]
   agent: string
+  permissionMode: string
   mascotState: string
   onInput: (value: string) => void
   onSend: () => void
@@ -31,6 +33,7 @@ type ComposerProps = {
   onStash: () => void
   onTargetChange: (directory: string | undefined) => void
   onAgentChange: (agent: string) => void
+  onPermissionModeChange: (id: string) => void
 }
 
 function primaryAgents(agents: AgentInfo[]) {
@@ -328,6 +331,7 @@ export const Composer: Component<ComposerProps> = (props) => {
           >
             {t("Auto")}
           </button>
+          <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />
         </div>
 
         <div class="fc-composer-right">

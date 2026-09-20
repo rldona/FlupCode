@@ -141,7 +141,11 @@ const layer = Layer.effect(
       const session = yield* sessions.get(sessionID)
       if (!session) return yield* new SessionV2.NotFoundError({ sessionID })
       const agent = yield* agents.resolve(agentID ?? session.agent)
-      return agent?.permissions ?? missingAgentPermissions
+      // Session-level rules override the resolved agent's permissions.
+      const overrides = (session.permission ?? []).map(
+        (rule): Permission.Rule => ({ action: rule.permission, resource: rule.pattern, effect: rule.action }),
+      )
+      return merge(agent?.permissions ?? missingAgentPermissions, overrides)
     })
 
     function denied(input: AssertInput, rules: Permission.Ruleset) {
