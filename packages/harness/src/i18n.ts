@@ -230,6 +230,7 @@ const ES: Record<string, string> = {
   Edit: "Editar",
   "Message ready to edit": "Mensaje listo para editar",
   "Thinking": "Pensamiento",
+  Thought: "Pensamiento",
   Pending: "Pendiente",
   "In progress": "En ejecución",
   "No messages yet": "Aún no hay mensajes",

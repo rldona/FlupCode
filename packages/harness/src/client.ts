@@ -213,9 +213,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
     message: {
       list: async (input: { sessionID: string; order?: "asc" | "desc" }) => {
         const v2 = await unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order }))
-        if ((v2?.data?.length ?? 0) > 0) return v2
+        const meaningful = (v2?.data ?? []).filter((message) => message.type === "user" || message.type === "assistant")
+        if (meaningful.length >= 2) return v2
         const legacy = await unwrap(client.session.messages({ sessionID: input.sessionID }))
-        return { data: fromLegacy(legacy ?? []), cursor: {} } as SessionMessagesResponse
+        const converted = fromLegacy(legacy ?? [])
+        const legacyMeaningful = converted.filter(
+          (message) => message.type === "user" || message.type === "assistant",
+        )
+        if (legacyMeaningful.length > meaningful.length) return { data: converted, cursor: {} } as SessionMessagesResponse
+        return v2 ?? ({ data: [], cursor: {} } as SessionMessagesResponse)
       },
     },
     model: {

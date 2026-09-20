@@ -1290,6 +1290,68 @@ button.fc-row-main {
   padding: 1px 5px;
   border-radius: 5px;
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+  color: #e0a370;
+}
+
+.fc-code-block {
+  margin: 0 0 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  overflow: hidden;
+  background: color-mix(in srgb, #000 22%, transparent);
+}
+
+.fc-code-head {
+  padding: 4px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--fc-border) 60%, transparent);
+  background: color-mix(in srgb, var(--fc-border) 20%, transparent);
+}
+
+.fc-code-lang {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fc-text-muted);
+}
+
+.fc-code {
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  white-space: pre;
+  tab-size: 2;
+}
+
+.fc-markdown .fc-code-block pre {
+  margin: 0;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+.fc-tok-comment {
+  color: #7d8799;
+  font-style: italic;
+}
+
+.fc-tok-string {
+  color: #7ee2a8;
+}
+
+.fc-tok-number {
+  color: #d9a441;
+}
+
+.fc-tok-keyword {
+  color: #e06c9f;
+}
+
+.fc-tok-const {
+  color: #61b0ff;
 }
 
 .fc-markdown pre {
@@ -1466,6 +1528,95 @@ button.fc-row-main {
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+.fc-tool-body {
+  display: flex;
+  flex-direction: column;
+  border-top: 1px solid var(--fc-border);
+}
+
+.fc-tool-chevron {
+  color: var(--fc-text-muted);
+  font-size: 10px;
+  width: 10px;
+  flex-shrink: 0;
+}
+
+.fc-tool-title {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fc-text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.fc-tool-status {
+  margin-left: auto;
+  font-size: var(--fc-text-xs);
+  color: var(--fc-text-muted);
+  flex-shrink: 0;
+}
+
+.fc-tool-status-completed {
+  color: #4ec97a;
+}
+
+.fc-tool-status-error {
+  color: var(--fc-danger);
+}
+
+.fc-tool-status-running {
+  color: #d9a441;
+}
+
+.fc-tool-failed {
+  border-color: color-mix(in srgb, var(--fc-danger) 45%, var(--fc-border));
+}
+
+.fc-tool-cmd {
+  margin: 0;
+  padding: 8px 12px;
+  background: var(--fc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--fc-text);
+  white-space: pre-wrap;
+  word-break: break-word;
+  border-bottom: 1px solid color-mix(in srgb, var(--fc-border) 60%, transparent);
+}
+
+.fc-diff-view {
+  margin: 0;
+  padding: 6px 0;
+  background: var(--fc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow: auto;
+  max-height: 420px;
+}
+
+.fc-diff-line {
+  padding: 0 12px;
+  white-space: pre;
+}
+
+.fc-diff-add {
+  background: color-mix(in srgb, #2ecc71 16%, transparent);
+  color: #7ee2a8;
+}
+
+.fc-diff-del {
+  background: color-mix(in srgb, #e74c3c 16%, transparent);
+  color: #f19a90;
+}
+
+.fc-diff-same {
+  color: var(--fc-text-muted);
 }
 
 .fc-session-toolbar {
