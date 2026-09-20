@@ -28,6 +28,7 @@ import { SessionContextEpoch } from "../context-epoch"
 import { SessionCompaction } from "../compaction"
 import { SessionEvent } from "../event"
 import { SessionHistory } from "../history"
+import { SessionMessage } from "../message"
 import { SessionInput } from "../input"
 import { SessionSchema } from "../schema"
 import { SessionStore } from "../store"
@@ -37,6 +38,9 @@ import { createLLMEventPublisher } from "./publish-llm-event"
 import { toLLMMessages } from "./to-llm-message"
 import { MAX_STEPS_PROMPT } from "./max-steps"
 import { Snapshot } from "../../snapshot"
+import { MemoryV2 } from "../../memory"
+import { MemoryExtract, serializeRecent } from "../../memory/extract"
+import { renderMemoryBlock } from "../../memory/utils"
 import { makeLocationNode } from "../../effect/app-node"
 import { llmClient } from "../../effect/app-node-platform"
 
@@ -103,6 +107,8 @@ const layer = Layer.effect(
     const systemContext = yield* SystemContextRegistry.Service
     const skillGuidance = yield* SkillGuidance.Service
     const referenceGuidance = yield* ReferenceGuidance.Service
+    const memory = yield* MemoryV2.Service
+    const extractor = yield* MemoryExtract.Service
     const config = yield* Config.Service
     const snapshots = yield* Snapshot.Service
     const db = (yield* Database.Service).db
@@ -199,6 +205,24 @@ const layer = Layer.effect(
       const model = yield* models.resolve(session)
       const entries = yield* SessionHistory.entriesForRunner(db, session.id, system.baselineSeq)
       const context = entries.map((entry) => entry.message)
+      const lastUser = context.findLast((message): message is SessionMessage.User => message.type === "user")
+      if (promotion !== undefined && lastUser)
+        yield* memory
+          .captureExplicit({ text: lastUser.text, sessionID: session.id, createdBy: "user" })
+          .pipe(Effect.catch(() => Effect.void))
+      const memoryMatches = lastUser
+        ? yield* memory.retrieve({ sessionID: session.id, agent: agent.id, query: lastUser.text })
+        : []
+      if (memoryMatches.length > 0)
+        yield* memory
+          .recordUse({
+            sessionID: session.id,
+            agent: agent.id,
+            memoryIDs: memoryMatches.map((match) => match.memory.id),
+          })
+          .pipe(Effect.catch(() => Effect.void))
+      const memoryBlock =
+        memoryMatches.length > 0 ? renderMemoryBlock(memoryMatches.map((match) => match.memory)) : undefined
       const isLastStep = agent.info?.steps !== undefined && currentStep >= agent.info.steps
       const toolMaterialization = isLastStep ? undefined : yield* tools.materialize(agent.info?.permissions)
       const promptCacheKey = /^ses_[0-9a-f]{64}$/.test(session.id) ? session.id.slice(4) : session.id
@@ -212,7 +236,7 @@ const layer = Layer.effect(
           },
         },
         providerOptions: { openai: { promptCacheKey } },
-        system: [agent.info?.system, system.baseline]
+        system: [agent.info?.system, system.baseline, memoryBlock]
           .filter((part): part is string => part !== undefined && part.length > 0)
           .map(SystemPart.make),
         messages: [...toLLMMessages(context, model), ...(isLastStep ? [Message.assistant(MAX_STEPS_PROMPT)] : [])],
@@ -410,6 +434,19 @@ const layer = Layer.effect(
         shouldRun = yield* SessionInput.hasPending(db, input.sessionID, "queue")
         promotion = shouldRun ? "queue" : undefined
       }
+      // Implicit extraction is best-effort and must never delay or fail an idle session.
+      const session = yield* getSession(input.sessionID)
+      const transcript = serializeRecent(yield* getContext(input.sessionID))
+      yield* Effect.forkDetach(
+        extractor
+          .extract({
+            sessionID: input.sessionID,
+            agent: session.agent,
+            directory: session.location.directory,
+            transcript,
+          })
+          .pipe(Effect.catch(() => Effect.void)),
+      )
     })
 
     return Service.of({
@@ -435,5 +472,7 @@ export const node = makeLocationNode({
     Config.node,
     Snapshot.node,
     Database.node,
+    MemoryV2.node,
+    MemoryExtract.node,
   ],
 })

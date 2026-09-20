@@ -2790,6 +2790,62 @@ export type ProviderNotFoundError = {
   message: string
 }
 
+export type MemoryNotFoundError = {
+  _tag: "MemoryNotFoundError"
+  memoryID: string
+  message: string
+}
+
+export type MemoryCreatePayload = {
+  scope?: "global" | "project" | "agent" | "session"
+  kind?:
+    | "fact"
+    | "convention"
+    | "procedure"
+    | "preference"
+    | "constraint"
+    | "workflow"
+    | "decision"
+    | "issue"
+    | "solution"
+  title: string
+  content: string
+  tags?: Array<string>
+  status?: "candidate" | "active" | "stale" | "archived"
+  confidence?: number
+  importance?: number
+  source?:
+    | "explicit_user"
+    | "agent_tool"
+    | "agent_discovery"
+    | "repository_file"
+    | "conversation"
+    | "tool_result"
+    | "manual"
+    | "import"
+  sessionID?: string
+  agent?: string
+}
+
+export type MemoryUpdatePayload = {
+  title?: string
+  content?: string
+  kind?:
+    | "fact"
+    | "convention"
+    | "procedure"
+    | "preference"
+    | "constraint"
+    | "workflow"
+    | "decision"
+    | "issue"
+    | "solution"
+  tags?: Array<string>
+  status?: "candidate" | "active" | "stale" | "archived"
+  confidence?: number
+  importance?: number
+}
+
 export type OutputFormat1 =
   | {
       type: "text"
@@ -3930,6 +3986,7 @@ export type SessionV2Info = {
   location: LocationRef
   subpath?: string
   revert?: RevertState
+  permission?: PermissionRuleset
 }
 
 export type PromptInputFileAttachment = {
@@ -5014,6 +5071,66 @@ export type CommandV2Info = {
   agent?: string
   model?: ModelRef
   subtask?: boolean
+}
+
+export type MemorySourceRef = {
+  sessionID?: string
+  messageID?: string
+  toolCallID?: string
+  path?: string
+  url?: string
+}
+
+export type MemoryValidationAnchor = {
+  kind: "file" | "directory" | "command" | "url" | "script" | "config"
+  value: string
+  ok: boolean
+  checkedAt?: number
+}
+
+export type MemoryValidation = {
+  anchors: Array<MemoryValidationAnchor>
+}
+
+export type MemoryInfo = {
+  id: string
+  scope: "global" | "project" | "agent" | "session"
+  scopeID: string
+  kind:
+    | "fact"
+    | "convention"
+    | "procedure"
+    | "preference"
+    | "constraint"
+    | "workflow"
+    | "decision"
+    | "issue"
+    | "solution"
+  title: string
+  content: string
+  tags: Array<string>
+  source:
+    | "explicit_user"
+    | "agent_tool"
+    | "agent_discovery"
+    | "repository_file"
+    | "conversation"
+    | "tool_result"
+    | "manual"
+    | "import"
+  sourceRef?: MemorySourceRef
+  status: "candidate" | "active" | "stale" | "archived"
+  confidence: number
+  importance: number
+  createdBy: string
+  directory?: string
+  validatedAt?: number
+  validation?: MemoryValidation
+  supersededBy?: string
+  timeCreated: number
+  timeUpdated: number
+  timeLastUsed?: number
+  useCount: number
 }
 
 export type SkillV2Info = {
@@ -12930,6 +13047,260 @@ export type V2CommandListResponses = {
 }
 
 export type V2CommandListResponse = V2CommandListResponses[keyof V2CommandListResponses]
+
+export type V2MemoryListData = {
+  body?: never
+  path?: never
+  query?: {
+    location?: {
+      directory?: string
+      workspace?: string
+    }
+    text?: string
+    scope?: "global" | "project" | "agent" | "session"
+    status?: "candidate" | "active" | "stale" | "archived"
+    sessionID?: string
+    agent?: string
+    limit?: string
+  }
+  url: "/api/memory"
+}
+
+export type V2MemoryListErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2MemoryListError = V2MemoryListErrors[keyof V2MemoryListErrors]
+
+export type V2MemoryListResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: Array<MemoryInfo>
+  }
+}
+
+export type V2MemoryListResponse = V2MemoryListResponses[keyof V2MemoryListResponses]
+
+export type V2MemoryCreateData = {
+  body: MemoryCreatePayload
+  path?: never
+  query?: never
+  url: "/api/memory"
+}
+
+export type V2MemoryCreateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2MemoryCreateError = V2MemoryCreateErrors[keyof V2MemoryCreateErrors]
+
+export type V2MemoryCreateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: MemoryInfo
+  }
+}
+
+export type V2MemoryCreateResponse = V2MemoryCreateResponses[keyof V2MemoryCreateResponses]
+
+export type V2MemoryRemoveData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/memory/{id}"
+}
+
+export type V2MemoryRemoveErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2MemoryRemoveError = V2MemoryRemoveErrors[keyof V2MemoryRemoveErrors]
+
+export type V2MemoryRemoveResponses = {
+  /**
+   * <No Content>
+   */
+  204: void
+}
+
+export type V2MemoryRemoveResponse = V2MemoryRemoveResponses[keyof V2MemoryRemoveResponses]
+
+export type V2MemoryGetData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/memory/{id}"
+}
+
+export type V2MemoryGetErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * MemoryNotFoundError
+   */
+  404: MemoryNotFoundError
+}
+
+export type V2MemoryGetError = V2MemoryGetErrors[keyof V2MemoryGetErrors]
+
+export type V2MemoryGetResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: MemoryInfo
+  }
+}
+
+export type V2MemoryGetResponse = V2MemoryGetResponses[keyof V2MemoryGetResponses]
+
+export type V2MemoryUpdateData = {
+  body: MemoryUpdatePayload
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/memory/{id}"
+}
+
+export type V2MemoryUpdateErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * MemoryNotFoundError
+   */
+  404: MemoryNotFoundError
+}
+
+export type V2MemoryUpdateError = V2MemoryUpdateErrors[keyof V2MemoryUpdateErrors]
+
+export type V2MemoryUpdateResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: MemoryInfo
+  }
+}
+
+export type V2MemoryUpdateResponse = V2MemoryUpdateResponses[keyof V2MemoryUpdateResponses]
+
+export type V2MemoryVerifyData = {
+  body?: never
+  path: {
+    id: string
+  }
+  query?: never
+  url: "/api/memory/{id}/verify"
+}
+
+export type V2MemoryVerifyErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+  /**
+   * MemoryNotFoundError
+   */
+  404: MemoryNotFoundError
+}
+
+export type V2MemoryVerifyError = V2MemoryVerifyErrors[keyof V2MemoryVerifyErrors]
+
+export type V2MemoryVerifyResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: MemoryInfo
+  }
+}
+
+export type V2MemoryVerifyResponse = V2MemoryVerifyResponses[keyof V2MemoryVerifyResponses]
+
+export type V2MemoryUsedData = {
+  body?: never
+  path: {
+    sessionID: string
+  }
+  query?: never
+  url: "/api/memory/session/{sessionID}"
+}
+
+export type V2MemoryUsedErrors = {
+  /**
+   * InvalidRequestError
+   */
+  400: InvalidRequestError
+  /**
+   * UnauthorizedError
+   */
+  401: UnauthorizedError
+}
+
+export type V2MemoryUsedError = V2MemoryUsedErrors[keyof V2MemoryUsedErrors]
+
+export type V2MemoryUsedResponses = {
+  /**
+   * Success
+   */
+  200: {
+    location: LocationInfo
+    data: Array<MemoryInfo>
+  }
+}
+
+export type V2MemoryUsedResponse = V2MemoryUsedResponses[keyof V2MemoryUsedResponses]
 
 export type V2SkillListData = {
   body?: never
