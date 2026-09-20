@@ -179,6 +179,20 @@ relay; everything is end-to-end encrypted, so the relay cannot read your session
    The app always opens on the home. To use it as an app, install it from Chrome (⋮ → *Install
    app* / *Add to Home screen*) or Safari (Share → *Add to Home Screen*).
 
+### Notifications
+
+On the phone, tap **Turn on** under **Get notified** (home) or in **Remote control**. The phone is
+then notified — also with the app closed and the screen locked — when a session needs your
+permission, asks a question, finishes or stops with an error. Tap the notification to open that
+session. **Turn off** stops them for that computer's phone.
+
+- Notifications come from the computer while it is running with remote control on; a sleeping
+  computer sends nothing.
+- **iPhone/iPad**: add FlupCode to the Home Screen (Share → *Add to Home Screen*), open it from
+  there, then turn notifications on. Safari tabs cannot receive them.
+- Content is end-to-end encrypted: the relay and the push service cannot read it (ADR-0011).
+- The desktop's **Paired devices** list and `flupcode remote`'s `d` show which devices have them on.
+
 Paired phones reconnect on their own. Remove a phone from **Paired devices** on the computer to
 revoke it immediately. The computer must stay awake with FlupCode open (or `flupcode remote`
 running). A desktop browser that pairs keeps the full desktop layout.
@@ -259,6 +273,12 @@ server.
   *Desktop site*.
 - **"The pairing code expired or was already used"** — codes work once for 10 minutes; create a new
   one on the computer.
+- **No notifications arrive** — check they are on (home → **Notifications on**), that the phone
+  allows notifications for the browser or the installed app, and that the computer is awake with
+  remote control on. On iPhone they only work from the Home Screen app. A custom relay needs VAPID
+  keys (see `packages/relay/README.md`).
+- **"Notifications are blocked for this site"** — allow notifications for `app.flupcode.com` in the
+  browser's site settings (Chrome: ⋮ → Settings → Site settings → Notifications).
 - **The installed phone app still shows an old icon** — uninstall it and install it again; browsers
   keep the icon of an installed app.
 - **The phone disconnected after I started another FlupCode** — two hosts with the same identity

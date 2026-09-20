@@ -93,6 +93,47 @@ Like `claude remote-control`: host remote control from a terminal, without the d
   identity and paired devices, and lists and revokes devices.
 - Documented in USAGE.
 
+## F8-9 — Web Push while locked · P2 · done
+
+Design in ADR-0011: the host encrypts, the relay signs VAPID and delivers.
+
+**Acceptance**
+- Permission requests, questions, finished turns and failed steps notify a paired phone with the app
+  closed; tapping opens the session.
+- Payloads are end-to-end encrypted (RFC 8291); the relay signs VAPID (RFC 8292), only delivers to
+  browser push services and rate-limits hosts.
+- The phone turns notifications on or off; iOS explains the Home Screen requirement; expired
+  subscriptions are dropped.
+- Tests: encryption against an independent decryption, relay delivery and limits, host events to
+  pushes, service worker display and deep link.
+
+## F8-10 — Phone layout for remote sessions · P1 · done
+
+Like the Claude Code mobile view: a phone controlling a computer gets a home with devices and
+sessions (state, project · branch, last activity) and a focused session screen, instead of a mirror
+of the desktop UI.
+
+**Acceptance**
+- Home: paired computers with connection state, "Add device", sessions with busy / needs input /
+  idle state and an All / Active filter, and a "New session" action that picks a project.
+- Session screen: back, title and project header; transcript, permission and question docks and a
+  prompt-focused composer. The browser back button returns home.
+- Desktop browsers controlling a computer keep the full layout.
+- A failed request never freezes the UI (resources keep their last value).
+- The phone always opens on the home, never on the last session.
+- The installed web app (PWA) uses FlupCode icons (`any` and `maskable`) on the app's dark ground.
+
+## F8-11 — `flupcode remote` terminal host · P1 · done
+
+Like `claude remote-control`: host remote control from a terminal, without the desktop app.
+`packages/flupcode-cli`, compiled to standalone binaries on each release. The host logic lives in
+`@flupcode/remote` (`createRemoteHost`) and is shared with the desktop app.
+
+**Acceptance**
+- Starts the host next to a running engine, prints the pairing QR in the terminal, remembers the
+  identity and paired devices, and lists and revokes devices.
+- Documented in USAGE.
+
 ## F8-9 — Web Push while locked · P2 · todo
 
 **Acceptance**
