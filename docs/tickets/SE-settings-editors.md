@@ -32,18 +32,23 @@ de crear/editar una regla con patrón desde la UI (PARITY §5: rule editor ❌).
 **Tests**
 - `PermissionsPanel.test.ts`: parse/serializa reglas con patrones; round-trip con mapas desconocidos.
 
-## SE-2 — MCP: flujo OAuth en el manager · P1
+## SE-2 — MCP: flujo OAuth en el manager · P1 · done 2026-09-20
 
 **Falta:** `McpEditor` añade local/remoto, conecta/desconecta; el OAuth del engine
 (`GET /mcp/:name/auth` → start, `/callback`, `/authenticate`) no se usa desde la UI.
 
 **Acceptance**
 - Servidor con estado `needs auth` muestra "Connect with OAuth"; abre el flujo y refleja el estado al volver.
-- `client.mcp` expone `authStart/authCallback/authenticate/remove`.
+- `client.mcp` expone `authStart/authenticate/authRemove`.
 - Sin OAuth (server local) nada cambia.
 
+**Validado en vivo 2026-09-20:** `mcp.replicate.com/sse` → `needs_auth` → `auth/start`
+devuelve URL → aprobación en navegador → `connected` en el engine (proxy con token
+cacheado, reconexión sin navegador verificada). Servidores de prueba retirados;
+`opencode.json` intacto.
+
 **Tests**
-- `client` o panel-level donde aplique; e2e si hay harness disponible. Mínimo: tipos + caminos 200/404/409 del flujo contra el SDK generado.
+- `McpManager.test.ts` (`needsOAuth` por estado + crash con `status` ausente endurecido).
 
 ## SE-3 — Verificación y cierre de F3-13 · P1
 
