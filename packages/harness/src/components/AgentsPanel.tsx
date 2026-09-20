@@ -1,7 +1,9 @@
 import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { AgentFile } from "../types"
-import type { AgentInfo, McpServer } from "../engine-types"
+import type { AgentInfo, McpServer, ModelInfo } from "../engine-types"
+import { effortLabel } from "../effort"
+import { ModelPicker } from "./ModelPicker"
 
 type AgentsPanelProps = {
   open: boolean
@@ -11,7 +13,9 @@ type AgentsPanelProps = {
   agents: AgentInfo[]
   tools: string[]
   mcp: McpServer[]
-  models: string[]
+  models: ModelInfo[]
+  favorites: string[]
+  onToggleFavorite: (key: string) => void
   loading: boolean
   serverAvailable: boolean
   hasProject: boolean
@@ -33,6 +37,13 @@ const MODES = ["subagent", "primary", "all"] as const
 export const PERMISSIONS = ["edit", "bash", "read", "webfetch", "external_directory"] as const
 
 const ACTIONS = ["allow", "ask", "deny"] as const
+
+/** One click for the whole policy, rather than five selects. */
+const BULK_ACTIONS = [
+  { action: "allow", label: "Allow all" },
+  { action: "ask", label: "Ask all" },
+  { action: "deny", label: "Deny all" },
+] as const
 
 const text = (value: unknown) => (typeof value === "string" ? value : "")
 const num = (value: unknown) => (typeof value === "number" ? String(value) : "")
@@ -144,8 +155,30 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
   const [saving, setSaving] = createSignal(false)
   const [problem, setProblem] = createSignal<string>()
   const [confirming, setConfirming] = createSignal<string>()
+  const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
 
   const selected = createMemo(() => props.files.find((file) => file.path === openPath()))
+
+  /** The catalog entry behind the form's `provider/model`, when it still exists. */
+  const chosenModel = createMemo(() =>
+    props.models.find((model) => `${model.providerID}/${model.id}` === form().model),
+  )
+
+  /** The chosen model's name, or the raw `provider/model` when the catalog no longer serves it. */
+  const modelName = createMemo(() => {
+    const key = form().model
+    if (!key) return ""
+    return chosenModel()?.name ?? key
+  })
+
+  /**
+   * The effort levels the chosen model offers. A file may name one this model no longer lists, so it
+   * is kept selectable rather than dropped: an editor that hides what it would write is worse.
+   */
+  const variantOptions = createMemo(() => {
+    const ids = chosenModel()?.variants.map((variant) => variant.id) ?? []
+    return form().variant && !ids.includes(form().variant) ? [...ids, form().variant] : ids
+  })
 
   /** Puts a file into the form. A file is loaded once; typing in it must not be overwritten. */
   const load = (file: AgentFile | undefined) => {
@@ -243,6 +276,13 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
     setForm({ ...form(), permission })
   }
 
+  /** One action for every key the form shows, so a whole policy is not five selects. */
+  const setAllPermissions = (action: string) => {
+    const permission = { ...form().permission }
+    for (const key of PERMISSIONS) permission[key] = action
+    setForm({ ...form(), permission })
+  }
+
   const orphans = createMemo(() => withoutFiles(props.agents, props.files))
   const editing = createMemo(() => creating() || !!selected())
 
@@ -251,12 +291,14 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
     setCreating(false)
     setOpenPath(undefined)
     setConfirming(undefined)
+    setModelPickerOpen(false)
   }
 
   createEffect(() => {
     if (!props.open) {
       setCreating(false)
       setOpenPath(undefined)
+      setModelPickerOpen(false)
     }
   })
 
@@ -377,8 +419,9 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
 
               <label class="fc-field">
                 <span>{t("Description")}</span>
-                <input
-                  class="fc-question-custom"
+                <textarea
+                  class="fc-field-area fc-agent-description"
+                  rows={3}
                   value={form().description}
                   onInput={(event) => setForm({ ...form(), description: event.currentTarget.value })}
                   placeholder={t("When to use it")}
@@ -398,24 +441,28 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
                 </label>
                 <label class="fc-field">
                   <span>{t("Model")}</span>
-                  <input
-                    class="fc-question-custom"
-                    list="fc-agent-models"
-                    value={form().model}
-                    onInput={(event) => setForm({ ...form(), model: event.currentTarget.value })}
-                    placeholder={t("the default")}
-                  />
-                  <datalist id="fc-agent-models">
-                    <For each={props.models}>{(model) => <option value={model} />}</For>
-                  </datalist>
+                  <button
+                    class="fc-question-custom fc-agent-model-button"
+                    type="button"
+                    aria-haspopup="dialog"
+                    onClick={() => setModelPickerOpen(true)}
+                  >
+                    <span class="fc-agent-model-name">{modelName() || t("the default")}</span>
+                    <span class="fc-agent-model-chevron" aria-hidden="true">
+                      ▾
+                    </span>
+                  </button>
                 </label>
                 <label class="fc-field">
                   <span>{t("Variant")}</span>
-                  <input
+                  <select
                     class="fc-question-custom"
                     value={form().variant}
-                    onInput={(event) => setForm({ ...form(), variant: event.currentTarget.value })}
-                  />
+                    onChange={(event) => setForm({ ...form(), variant: event.currentTarget.value })}
+                  >
+                    <option value="">{t("unset")}</option>
+                    <For each={variantOptions()}>{(id) => <option value={id}>{effortLabel(id)}</option>}</For>
+                  </select>
                 </label>
               </div>
 
@@ -486,6 +533,15 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               </div>
 
               <h3>{t("Permissions")}</h3>
+              <div class="fc-permission-bulk">
+                <For each={BULK_ACTIONS}>
+                  {(bulk) => (
+                    <button class="fc-button" type="button" onClick={() => setAllPermissions(bulk.action)}>
+                      {t(bulk.label)}
+                    </button>
+                  )}
+                </For>
+              </div>
               <For each={PERMISSIONS}>
                 {(key) => (
                   <div class="fc-usage-row">
@@ -552,6 +608,32 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               <Show when={selected()}>
                 {(file) => <p class="fc-usage-note fc-agent-path">{file().path}</p>}
               </Show>
+              {/*
+                The same picker the dock opens: an agent file names its model as `provider/model`,
+                and typing that by hand is knowing an id the engine already lists. It sits inside the
+                dialog so its own backdrop click closes the picker and not the editor behind it.
+              */}
+              <ModelPicker
+                open={modelPickerOpen()}
+                models={props.models}
+                selectedKey={form().model || undefined}
+                favorites={props.favorites}
+                emptyLabel={t("Default model")}
+                onClear={() => {
+                  setForm({ ...form(), model: "" })
+                  setModelPickerOpen(false)
+                }}
+                onSelect={(providerID, id) => {
+                  // Another model may not offer the level this one had; the engine rejects an unknown
+                  // one, so it is dropped rather than written into the file.
+                  const model = props.models.find((entry) => entry.providerID === providerID && entry.id === id)
+                  const keepsVariant = !!form().variant && (model?.variants.some((v) => v.id === form().variant) ?? false)
+                  setForm({ ...form(), model: `${providerID}/${id}`, variant: keepsVariant ? form().variant : "" })
+                  setModelPickerOpen(false)
+                }}
+                onToggleFavorite={props.onToggleFavorite}
+                onClose={() => setModelPickerOpen(false)}
+              />
               </div>
             </div>
           </Show>

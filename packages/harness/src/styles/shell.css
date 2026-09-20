@@ -874,6 +874,31 @@ button.fc-status {
   overflow-y: auto;
 }
 
+/* Leaves the model unset. A row of its own, above the catalog, so "no model" reads as a choice. */
+.fc-model-clear {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: var(--fc-space-3);
+  padding: 8px 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: var(--fc-text);
+  text-align: left;
+}
+
+.fc-model-clear:hover,
+.fc-model-clear-on {
+  background: color-mix(in srgb, var(--fc-accent) 18%, transparent);
+}
+
+.fc-model-clear-check {
+  color: var(--fc-accent);
+}
+
 .fc-model-group-label {
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -8728,6 +8753,35 @@ button.fc-status {
   font-size: var(--fc-text-sm);
 }
 
+/* The model field opens the picker instead of being typed: it looks like the inputs beside it. */
+.fc-agent-model-button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fc-agent-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-agent-model-chevron {
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+/* The description is prose, not a template: it keeps the field's font and reads a few lines tall. */
+.fc-agent-description {
+  font-family: inherit;
+  font-size: 13px;
+  min-height: 72px;
+}
+
 .fc-field {
   display: flex;
   flex: 1;
@@ -8794,6 +8848,14 @@ button.fc-status {
 
 .fc-agent-permission {
   min-width: 140px;
+}
+
+/* The three shortcuts sit above the per-key rows and read as one set, not as form fields. */
+.fc-permission-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 4px;
 }
 
 .fc-agent-prompt {
