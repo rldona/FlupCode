@@ -5223,7 +5223,7 @@ export const App: Component = () => {
                       <span>
                         {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
                         {t("start it and connect from Settings")} ·{" "}
-                        <code>opencode serve --port 4096 --cors {window.location.origin}</code>
+                        <code>env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors {window.location.origin}</code>
                       </span>
                     }
                   >
