@@ -12,6 +12,8 @@ import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 import { ChapterNav, type Chapter } from "./ChapterNav"
 
+type MessageFile = { uri: string; mime?: string; name?: string }
+
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
   loading: boolean
@@ -25,11 +27,29 @@ type SessionViewProps = {
   /** Chats show no agent names (every chat runs the same one) and no Edit, which rewinds code sessions. */
   chat?: boolean
   /** Prompts sent before the engine projects their message; queued ones offer "Send now". */
-  pending?: Array<{ id: string; text: string; queued: boolean; sendNow?: () => void }>
+  pending?: Array<{ id: string; text: string; files?: MessageFile[]; queued: boolean; sendNow?: () => void }>
   onEditUser: (messageID: string, text: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
   onForkUser?: (messageID: string) => void
 }
+
+/** Images and file names attached to a prompt, shown above the prompt's text. */
+const MessageFiles: Component<{ files?: MessageFile[] }> = (props) => (
+  <Show when={(props.files?.length ?? 0) > 0}>
+    <div class="fc-message-files">
+      <For each={props.files ?? []}>
+        {(file) => (
+          <Show
+            when={file.mime?.startsWith("image/") || file.uri.startsWith("data:image/")}
+            fallback={<span class="fc-message-file">{file.name ?? file.uri}</span>}
+          >
+            <img class="fc-message-image" src={file.uri} alt={file.name ?? t("Attachments")} loading="lazy" />
+          </Show>
+        )}
+      </For>
+    </div>
+  </Show>
+)
 
 function toolOutput(tool: SessionMessageAssistantTool) {
   if (tool.state.status === "completed") {
@@ -785,6 +805,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                   >
                     <div class="fc-message fc-message-user" data-chapter={message.id}>
                       <div class="fc-message-role">{t("You")}</div>
+                      <MessageFiles files={(message as { files?: MessageFile[] }).files} />
                       <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
                       <div class="fc-message-actions">
                         <button
@@ -844,6 +865,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                 {(item) => (
                   <div class="fc-message fc-message-user fc-message-optimistic">
                     <div class="fc-message-role">{t("You")}</div>
+                    <MessageFiles files={item.files} />
                     <Markdown class="fc-message-text" text={item.text} />
                     <Show when={item.queued}>
                       <div class="fc-message-queue">
