@@ -56,7 +56,9 @@ async function handleAsset(request) {
   const url = new URL(request.url)
   // Vite asset filenames are content-hashed, so cached copies are safe to serve forever.
   if (url.pathname.startsWith("/assets/")) {
-    const cached = await caches.match(request)
+    // The precache fetched without an Origin header; module scripts ask with one, so a
+    // `Vary: Origin` response would never match.
+    const cached = await caches.match(request, { ignoreVary: true })
     if (cached) return cached
   }
   try {
@@ -64,7 +66,7 @@ async function handleAsset(request) {
     if (response.ok && response.type === "basic") cacheResponse(request, response.clone())
     return response
   } catch {
-    return (await caches.match(request)) ?? Response.error()
+    return (await caches.match(request, { ignoreVary: true })) ?? Response.error()
   }
 }
 
