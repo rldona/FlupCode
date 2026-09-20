@@ -30,6 +30,19 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
   let element: HTMLDivElement | undefined
   const [placed, setPlaced] = createSignal<{ left: number; top: number }>()
 
+  // The menu is a menu, not a pile of buttons: focus moves into it, and the arrows walk it (H-24).
+  const enabled = () => Array.from(element?.querySelectorAll<HTMLButtonElement>(".fc-menu-item:not(:disabled)") ?? [])
+  const focusAt = (index: number) => {
+    const list = enabled()
+    if (list.length === 0) return
+    list[((index % list.length) + list.length) % list.length]?.focus()
+  }
+  const step = (by: number) => {
+    const list = enabled()
+    const current = list.indexOf(document.activeElement as HTMLButtonElement)
+    focusAt(current === -1 ? (by > 0 ? 0 : list.length - 1) : current + by)
+  }
+
   // A menu opened at the pointer runs off the bottom when the pointer is near it, and a session row
   // low in the sidebar is exactly that. Prefer the caller's side, flip when it does not fit, and
   // keep the whole menu inside the window either way.
@@ -60,13 +73,33 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
 
   onMount(() => {
     place()
+    // Focus follows the arrows, and starts on the first item so the menu is usable from the
+    // keyboard the moment it opens.
+    queueMicrotask(() => element?.focus())
     const onDown = (event: MouseEvent) => {
       const target = event.target as HTMLElement | null
       if (target?.closest(".fc-menu")) return
       close()
     }
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") close()
+      if (event.key === "Escape") return close()
+      if (event.key === "ArrowDown") {
+        event.preventDefault()
+        return step(1)
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault()
+        return step(-1)
+      }
+      if (event.key === "Home") {
+        event.preventDefault()
+        return focusAt(0)
+      }
+      if (event.key === "End") {
+        event.preventDefault()
+        return focusAt(enabled().length - 1)
+      }
+      if (event.key === "Tab") close()
     }
     document.addEventListener("pointerdown", onDown, true)
     document.addEventListener("keydown", onKey)
@@ -80,6 +113,8 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
     <div
       ref={(node) => (element = node)}
       class="fc-menu"
+      role="menu"
+      tabIndex={-1}
       style={{
         left: `${cssPx(placed()?.left ?? props.x)}px`,
         top: `${cssPx(placed()?.top ?? props.y)}px`,
@@ -96,6 +131,7 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
             class="fc-menu-item"
             classList={{ "fc-menu-item-danger": item.danger }}
             type="button"
+            role="menuitem"
             disabled={item.disabled}
             onClick={() => {
               item.onSelect()
