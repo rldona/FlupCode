@@ -2,6 +2,7 @@ import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
+import { Loader } from "./Loader"
 
 type ProjectGroup = {
   id: string
@@ -40,12 +41,6 @@ type SidebarProps = {
   onRemote: () => void
   onMcp: () => void
 }
-
-const SkeletonRows: Component<{ count: number }> = (props) => (
-  <div class="fc-skeleton-list">
-    <For each={Array.from({ length: props.count })}>{() => <div class="fc-skeleton" />}</For>
-  </div>
-)
 
 export const Sidebar: Component<SidebarProps> = (props) => {
   const [filter, setFilter] = createSignal("")
@@ -237,7 +232,10 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             </button>
           </div>
 
-          <Show when={!props.sessionsLoading} fallback={<SkeletonRows count={4} />}>
+          <Show
+            when={!props.sessionsLoading || groups().length > 0}
+            fallback={<Loader class="fc-loader-inline" label={t("Loading sessions")} />}
+          >
             <Show
               when={groups().length > 0}
               fallback={

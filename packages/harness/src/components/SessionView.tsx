@@ -7,7 +7,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
-import { Spinner } from "./Spinner"
+import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 
 type SessionViewProps = {
@@ -95,6 +95,17 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   let container: HTMLElement | undefined
   const [stick, setStick] = createSignal(true)
 
+  const liveTokens = () => {
+    const list = props.messages ?? []
+    for (let index = list.length - 1; index >= 0; index--) {
+      const message = list[index]
+      if (!message || message.type !== "assistant") continue
+      const assistant = message as SessionMessageAssistant
+      return { tokens: assistant.tokens, cost: assistant.cost }
+    }
+    return undefined
+  }
+
   createEffect(() => {
     props.messages
     props.busy
@@ -117,12 +128,10 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       }}
     >
       <Show
-        when={!props.loading}
+        when={!props.loading || (props.messages?.length ?? 0) > 0}
         fallback={
-          <div class="fc-skeleton-list">
-            <div class="fc-skeleton" />
-            <div class="fc-skeleton" />
-            <div class="fc-skeleton" />
+          <div class="fc-loading-center">
+            <Loader />
           </div>
         }
       >
@@ -161,7 +170,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           </For>
           <Show when={props.busy}>
             <div class="fc-message fc-message-assistant fc-message-pending">
-              <Spinner /> {t("Generating")}
+              <Loader tokens={liveTokens()?.tokens} cost={liveTokens()?.cost} />
             </div>
           </Show>
         </Show>
