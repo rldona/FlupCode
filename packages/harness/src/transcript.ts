@@ -142,16 +142,35 @@ function pickUserContent(existing: SessionMessageInfo) {
 
 /** A part the engine created or changed, placed in its message in the order the engine sent it. */
 export function applyPart(data: SessionMessageInfo[], part: LegacyPart) {
+  if (!part.messageID) return data
   const entry = contentOf(part)
-  if (!entry || !part.messageID) return data
   return data.map((message) => {
-    if (message.id !== part.messageID || message.type !== "assistant") return message
+    if (message.id !== part.messageID) return message
+    // A user message keeps its text and files flat instead of as `content`. The engine announces the
+    // user message empty and sends the text part right after, so without this its prompt stayed
+    // blank for the whole turn and only a refetch rebuilt it from the parts — the reload that made
+    // the message appear. See `messageOf` for the same mapping over a whole history.
+    if (message.type === "user") return withUserPart(message, part)
+    if (!entry) return message
     const content = ((message as { content?: Array<{ id?: string }> }).content ?? []).slice()
     const index = content.findIndex((item) => item.id === part.id)
     if (index === -1) content.push(entry as { id?: string })
     else content[index] = entry as { id?: string }
     return asMessage({ ...message, content })
   })
+}
+
+/**
+ * One part of a user message. The composer sends a single text part per prompt, so the part's text
+ * is the message's text; a file part adds an attachment, deduplicated by url because the same part
+ * can be announced more than once.
+ */
+function withUserPart(message: SessionMessageInfo, part: LegacyPart) {
+  if (part.type === "text") return asMessage({ ...message, text: part.text ?? "" })
+  if (part.type !== "file" || !part.url) return message
+  const files = ((message as { files?: Array<{ uri: string; name?: string }> }).files ?? []).slice()
+  if (!files.some((file) => file.uri === part.url)) files.push({ uri: part.url, name: part.filename ?? part.url })
+  return asMessage({ ...message, files })
 }
 
 /**
