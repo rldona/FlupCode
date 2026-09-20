@@ -112,6 +112,10 @@ export type RoutineInput = {
   projectDirectory?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /** Run a workflow instead of a single prompt (HF-8). Inputs fill the file's placeholders. */
+  workflow?: { name: string; inputs?: Record<string, string> }
+  /** Model fallback and budget for the runs this routine starts (HF-8). */
+  policy?: RunPolicy
 }
 
 export type Routine = RoutineInput & {

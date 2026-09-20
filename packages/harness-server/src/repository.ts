@@ -12,6 +12,7 @@ import type {
   RoutineInput,
   RoutineRepository,
   Run,
+  RunPolicy,
   RunSource,
   Task,
   TaskCondition,
@@ -219,6 +220,8 @@ type RoutineRow = {
   project_directory: string | null
   agent: string | null
   model_json: string | null
+  workflow_json: string | null
+  policy_json: string | null
   enabled: number
   created_at: number
   last_run_at: number | null
@@ -495,11 +498,41 @@ const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine => ({
   projectDirectory: row.project_directory ?? undefined,
   agent: row.agent ?? undefined,
   model: decodeModel(row.model_json),
+  workflow: decodeRoutineWorkflow(row.workflow_json),
+  policy: decodeRoutinePolicy(row.policy_json),
   enabled: row.enabled === 1,
   createdAt: row.created_at,
   lastRunAt: row.last_run_at ?? undefined,
   runs,
 })
+
+/** A routine's workflow, or nothing when it runs a single prompt (HF-8). */
+function decodeRoutineWorkflow(value: string | null): Routine["workflow"] {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as { name?: unknown; inputs?: unknown }
+    if (typeof parsed.name !== "string" || !parsed.name.trim()) return undefined
+    const inputs: Record<string, string> = {}
+    if (parsed.inputs && typeof parsed.inputs === "object" && !Array.isArray(parsed.inputs)) {
+      for (const [name, entry] of Object.entries(parsed.inputs as Record<string, unknown>)) {
+        if (typeof entry === "string") inputs[name] = entry
+      }
+    }
+    return { name: parsed.name.trim(), ...(Object.keys(inputs).length > 0 ? { inputs } : {}) }
+  } catch {
+    return undefined
+  }
+}
+
+function decodeRoutinePolicy(value: string | null): Routine["policy"] {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as RunPolicy
+    return parsed && typeof parsed === "object" ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const decodeSource = (row: RunRow): RunSource =>
   row.source_type === "routine" && row.source_id ? { type: "routine", routineID: row.source_id } : { type: "manual" }
@@ -598,6 +631,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("runs", "directory", "TEXT")
     this.addColumn("findings", "source", "TEXT")
     this.addColumn("runs", "options", "TEXT")
+    this.addColumn("routines", "workflow_json", "TEXT")
+    this.addColumn("routines", "policy_json", "TEXT")
     this.addColumn("tasks", "directory", "TEXT")
     this.addColumn("tasks", "depends_on", "TEXT")
     this.addColumn("tasks", "when_json", "TEXT")
@@ -649,8 +684,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       this.db
         .query(
           `INSERT INTO routines
-            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, enabled, created_at, last_run_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, workflow_json, policy_json, enabled, created_at, last_run_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
         )
         .run(
           routine.id,
@@ -661,6 +696,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
           routine.projectDirectory ?? null,
           routine.agent ?? null,
           routine.model ? JSON.stringify(routine.model) : null,
+          routine.workflow ? JSON.stringify(routine.workflow) : null,
+          routine.policy ? JSON.stringify(routine.policy) : null,
           routine.enabled ? 1 : 0,
           routine.createdAt,
           routine.lastRunAt ?? null,
@@ -676,8 +713,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db
       .query(
         `UPDATE routines
-         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7
-         WHERE id = ?8`,
+         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7, workflow_json = ?8, policy_json = ?9
+         WHERE id = ?10`,
       )
       .run(
         input.name,
@@ -687,6 +724,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         input.projectDirectory ?? null,
         input.agent ?? null,
         input.model ? JSON.stringify(input.model) : null,
+        input.workflow ? JSON.stringify(input.workflow) : null,
+        input.policy ? JSON.stringify(input.policy) : null,
         id,
       )
     const routine = this.get(id)

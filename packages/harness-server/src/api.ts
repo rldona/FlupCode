@@ -44,7 +44,43 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
             variant: "variant" in input.model && typeof input.model.variant === "string" ? input.model.variant : undefined,
           }
         : undefined,
+    workflow: workflowFrom(input.workflow),
+    policy: policyFrom((input as Record<string, unknown>).policy),
   }
+}
+
+/** A routine's workflow, or nothing when it runs a single prompt (HF-8). */
+const workflowFrom = (value: unknown): RoutineInput["workflow"] => {
+  if (!value || typeof value !== "object") return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.name !== "string" || !record.name.trim()) return undefined
+  const inputs: Record<string, string> = {}
+  if (record.inputs && typeof record.inputs === "object" && !Array.isArray(record.inputs)) {
+    for (const [name, entry] of Object.entries(record.inputs as Record<string, unknown>)) {
+      if (typeof entry === "string") inputs[name] = entry
+    }
+  }
+  return { name: record.name.trim(), ...(Object.keys(inputs).length > 0 ? { inputs } : {}) }
+}
+
+/**
+ * A routine that names a workflow it cannot run (HF-8).
+ *
+ * Checked when the routine is written and when it is run on demand, so a typo fails at the
+ * form with its reason instead of as a failed run at 2am. A file deleted afterwards still
+ * fails loudly in history via `begin`.
+ */
+const routineWorkflowProblem = async (
+  input: RoutineInput,
+  overrides: Record<string, string> = {},
+): Promise<{ message: string; status: number } | undefined> => {
+  if (!input.workflow) return undefined
+  const workflow = await findWorkflow(input.workflow.name, input.projectDirectory)
+  if (!workflow) return { message: `No workflow called ${input.workflow.name}`, status: 404 }
+  const filled = { ...(workflow.inputDefaults ?? {}), ...(input.workflow.inputs ?? {}), ...overrides }
+  const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
+  if (missing.length > 0) return { message: `This workflow needs ${missing.join(", ")}`, status: 400 }
+  return undefined
 }
 
 /** A model and an optional variant, or nothing. Used by a manual retry to change model (H-12). */
@@ -224,7 +260,7 @@ const readJSON = async (request: Request) => {
 }
 
 import { CAPABILITIES } from "./capabilities"
-import { duration, listWorkflows, readWorkflow, removeWorkflow, saveWorkflow } from "./workflow"
+import { duration, findWorkflow, listWorkflows, readWorkflow, removeWorkflow, saveWorkflow } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
@@ -1147,6 +1183,8 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const body = await readJSON(request)
       const input = inputFrom(body)
       if (!input) return error("Invalid routine", 400)
+      const problem = await routineWorkflowProblem(input)
+      if (problem) return error(problem.message, problem.status)
       return json({ data: repository.create(input, createOptionsFrom(body)) }, 201)
     }
     if (!routineID) return error("Not found", 404)
@@ -1156,10 +1194,21 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
 
     if (action === "runs" && request.method === "GET") return json({ data: repository.listRuns({ type: "routine", routineID }) })
     if (action === "runs" && request.method === "POST" && !runID) {
+      const body = (await readJSON(request)) as { inputs?: unknown } | undefined
+      const overrides: Record<string, string> = {}
+      if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
+        for (const [name, value] of Object.entries(body.inputs as Record<string, unknown>)) {
+          if (typeof value === "string") overrides[name] = value
+        }
+      }
+      const problem = await routineWorkflowProblem(routine, overrides)
+      if (problem) return error(problem.message, problem.status)
       try {
-        return json({ data: await scheduler.runNow(routineID) }, 202)
+        return json({ data: await scheduler.runNow(routineID, overrides) }, 202)
       } catch (cause) {
         if (cause instanceof RoutineBusyError) return error(cause.message, 409)
+        if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)
+        if (cause instanceof MissingInputsError) return error(cause.message, 400)
         return error(cause instanceof Error ? cause.message : String(cause), 500)
       }
     }
@@ -1179,6 +1228,8 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (request.method === "PATCH") {
       const input = inputFrom(await readJSON(request))
       if (!input) return error("Invalid routine", 400)
+      const problem = await routineWorkflowProblem(input)
+      if (problem) return error(problem.message, problem.status)
       return json({ data: repository.update(routineID, input) })
     }
     if (request.method === "DELETE") {
