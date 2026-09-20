@@ -7,6 +7,7 @@ import { EventV2 } from "../event"
 import { makeGlobalNode } from "../effect/app-node"
 import { SessionEvent } from "./event"
 import { SessionV1 } from "../v1/session"
+import { MemoryTable, MemoryUseTable } from "../memory/sql"
 import { WorkspaceTable } from "../control-plane/workspace.sql"
 import { SessionMessage } from "./message"
 import { SessionMessageUpdater } from "./message-updater"
@@ -255,7 +256,21 @@ const layer = Layer.effectDiscard(
       }),
     )
     yield* events.project(SessionV1.Event.Deleted, (event) =>
-      db.delete(SessionTable).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie),
+      Effect.gen(function* () {
+        yield* db.delete(SessionTable).where(eq(SessionTable.id, event.data.sessionID)).run().pipe(Effect.orDie)
+        // Session-scoped memories belong to the session and go with it. Memories in other scopes
+        // that this session used stay; only its usage audit rows are dropped.
+        yield* db
+          .delete(MemoryTable)
+          .where(and(eq(MemoryTable.scope, "session"), eq(MemoryTable.scope_id, event.data.sessionID)))
+          .run()
+          .pipe(Effect.orDie)
+        yield* db
+          .delete(MemoryUseTable)
+          .where(eq(MemoryUseTable.session_id, event.data.sessionID))
+          .run()
+          .pipe(Effect.orDie)
+      }),
     )
     yield* events.project(SessionV1.Event.MessageUpdated, (event) =>
       Effect.gen(function* () {
