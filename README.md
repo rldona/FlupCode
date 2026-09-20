@@ -25,8 +25,8 @@
 
 FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode) that takes its
 terminal-grade feature set and packages it into a first-class **web and desktop experience**:
-a harness layout with a project sidebar, usage dashboard, artifacts, routines and a polished
-composer — modelled on the Anthropic Claude Code desktop app.
+a harness layout with a project sidebar, usage dashboard, runs, workflows, artifacts, routines and a
+polished composer — modelled on the Anthropic Claude Code desktop app.
 
 > **Requires the OpenCode engine.** FlupCode is a client and does not bundle it: install the
 > [OpenCode CLI](https://opencode.ai/docs/) and the app connects to it. Without an engine reachable,
@@ -55,6 +55,10 @@ system and the harness features that OpenCode's default UI does not emphasise.
   [docs/PARITY.md](docs/PARITY.md).
 - **Harness features.** Usage dashboard, activity heatmap, multi-project workspaces, pinned
   items, artifacts and routines — see [docs/ROADMAP.md](docs/ROADMAP.md).
+- **Runs that outlive the window.** A harness server of its own keeps runs, tasks, routines and
+  artifacts: workflows written down as editable files and launched with `/feature …`, checks the
+  harness runs itself with the evidence kept, bounded retries when one fails, and human gates that
+  hold a run until you let it through — see [docs/USAGE.md](docs/USAGE.md#runs).
 - **Remote control.** Drive your computer's sessions from your phone on any network, like Claude
   Code's remote control: pair with a QR code, follow and start sessions, answer permission requests.
   Traffic is end-to-end encrypted through a relay that cannot read it. Host it from the desktop app
@@ -63,10 +67,11 @@ system and the harness features that OpenCode's default UI does not emphasise.
 
 ## Status
 
-**v1.0.10.** The web harness (Claude Code–style shell, TUI parity, dashboard, artifacts, routines,
-i18n), the Electron desktop app and remote control (relay at `relay.flupcode.com`, phone view,
-`flupcode remote`) are released; the upstream sync and release pipelines are in place. Desktop
-builds are not yet signed by Apple or Microsoft (see [Install](#install)).
+**v1.10.0.** The web harness (Claude Code–style shell, TUI parity, dashboard, i18n), the Electron
+desktop app and remote control (relay at `relay.flupcode.com`, phone view, `flupcode remote`) are
+released, along with the harness server that owns runs: tasks, routines with history, verification
+with evidence, workflows with human gates, and artifacts. The upstream sync and release pipelines
+are in place. Desktop builds are not yet signed by Apple or Microsoft (see [Install](#install)).
 See [docs/ROADMAP.md](docs/ROADMAP.md) for the live status.
 
 ## Repository layout
