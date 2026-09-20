@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { packFiles, packRefs } from "./packs"
+import { packFiles, packRefs, expandArtifactRefs } from "./packs"
 import type { ContextPack } from "./types"
 
 let directory = ""
@@ -41,5 +41,31 @@ describe("what a ref points at", () => {
 
   test("a folder is not read as a file", () => {
     expect(packFiles(["@src"], directory)).toEqual({ files: [], others: ["@src"] })
+  })
+})
+
+describe("saying an artifact ref as its content (HF-6)", () => {
+  const lookup = (key: string) =>
+    key === "abc123"
+      ? { title: "verify — passed", kind: "verdict", content: "Verification: passed" }
+      : key === "verdict"
+        ? { title: "verify — passed", kind: "verdict", content: "Verification: passed" }
+        : key === "empty"
+          ? { title: "empty", kind: "log" }
+          : undefined
+
+  test("an id resolves, a kind resolves, the rest stays literal", () => {
+    expect(expandArtifactRefs(["@artifact:abc123"], lookup)).toEqual([
+      "--- verify — passed (verdict) ---\nVerification: passed\n---",
+    ])
+    expect(expandArtifactRefs(["@artifact:verdict"], lookup)).toEqual([
+      "--- verify — passed (verdict) ---\nVerification: passed\n---",
+    ])
+    expect(expandArtifactRefs(["@artifact:nope", "@src/a.ts", "@artifact:"], lookup)).toEqual([
+      "@artifact:nope",
+      "@src/a.ts",
+      "@artifact:",
+    ])
+    expect(expandArtifactRefs(["@artifact:empty"], lookup)).toEqual(["@artifact:empty"])
   })
 })

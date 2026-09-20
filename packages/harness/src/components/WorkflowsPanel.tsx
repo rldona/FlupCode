@@ -13,7 +13,6 @@ type WorkflowsPanelProps = {
   onSave: (name: string, input: { source: string; directory?: string; scope?: "project" | "global" }) => Promise<WorkflowFile>
   onDelete: (name: string) => Promise<unknown>
   onRun?: (workflow: Workflow) => void
-  onClose: () => void
 }
 
 const NEW_WORKFLOW = `name: new-workflow
@@ -195,9 +194,6 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
               }}
             >
               {t("New workflow")}
-            </button>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
             </button>
           </div>
         </div>

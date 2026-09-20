@@ -1012,6 +1012,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<Run[]>(baseUrl, "/harness/best-of-n", { method: "POST", body: JSON.stringify(input) }),
       /** A run with the tasks it is made of; the list leaves them out. */
       get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
+      /** Pick up a run that ended with work still queued (HF-5). */
+      resume: (id: string) =>
+        harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
       /** What its running tasks are doing right now. Polled while somebody watches, never stored. */
       activity: (id: string) =>
@@ -1026,6 +1029,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "POST",
           body: JSON.stringify(input),
         }),
+      /** Take a queued task off the run; running work is stopped with the run (HF-4). */
+      cancelTask: (taskID: string) =>
+        harnessRequest<Task>(baseUrl, `/harness/tasks/${encodeURIComponent(taskID)}/cancel`, { method: "POST" }),
       /** Merge the worktrees this run's tasks wrote in, back into its folder (H-29). */
       mergeWorktrees: (id: string) =>
         harnessRequest<{ merged: Array<{ taskID: string; branch: string; sha: string }> }>(
@@ -1050,7 +1056,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     artifacts: {
-      list: (filter: { directory?: string; runID?: string; kind?: ArtifactKind } = {}) => {
+      list: (filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string } = {}) => {
         const query = new URLSearchParams()
         for (const [name, value] of Object.entries(filter)) if (value) query.set(name, value)
         const search = query.toString()
@@ -1062,6 +1068,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           method: "PATCH",
           body: JSON.stringify(input),
         }),
+      /** A download link for one artifact as Markdown or JSON (HF-7). */
+      exportUrl: (id: string, format: "md" | "json" = "md") =>
+        `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/export?format=${format}`,
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
@@ -1124,7 +1133,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           baseUrl,
           directory ? `/harness/workflows?directory=${encodeURIComponent(directory)}` : "/harness/workflows",
         ),
-      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown }) =>
+      run: (name: string, input: { inputs?: Record<string, string>; directory?: string; packs?: string[]; worktrees?: boolean; policy?: unknown; until?: string; fromCheckpoint?: string }) =>
         harnessRequest<Run>(baseUrl, `/harness/workflows/${encodeURIComponent(name)}/runs`, {
           method: "POST",
           body: JSON.stringify(input),
@@ -1366,8 +1375,11 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         }),
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, { method: "DELETE" }),
-      run: (id: string) =>
-        harnessRequest<RoutineRun>(baseUrl, `/harness/routines/${encodeURIComponent(id)}/runs`, { method: "POST" }),
+      run: (id: string, inputs?: Record<string, string>) =>
+        harnessRequest<RoutineRun>(baseUrl, `/harness/routines/${encodeURIComponent(id)}/runs`, {
+          method: "POST",
+          ...(inputs ? { body: JSON.stringify({ inputs }) } : {}),
+        }),
       stop: (id: string, runID: string) =>
         harnessRequest<RoutineRun | undefined>(
           baseUrl,

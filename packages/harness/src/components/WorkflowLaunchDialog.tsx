@@ -7,6 +7,8 @@ export type WorkflowLaunch = {
   packs: string[]
   worktrees: boolean
   policy?: RunPolicy
+  /** Stop at this task, inclusive (HF-1). Absent means the whole workflow. */
+  until?: string
 }
 
 type WorkflowLaunchDialogProps = {
@@ -44,6 +46,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
   const [inputs, setInputs] = createSignal<Record<string, string>>({})
   const [packs, setPacks] = createSignal<string[]>([])
   const [worktrees, setWorktrees] = createSignal(false)
+  const [until, setUntil] = createSignal("")
   const [fallback, setFallback] = createSignal("")
   const [budgetTokens, setBudgetTokens] = createSignal("")
   const [budgetCost, setBudgetCost] = createSignal("")
@@ -54,11 +57,19 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
       ([open, workflow, args]) => {
         if (!open || !workflow) return
         const [first] = workflow.inputs
-        // Only the first input can come from the composer's one line; the rest start empty on purpose,
-        // because a launch with a half-filled workflow is the bug this dialog fixes.
-        setInputs(Object.fromEntries(workflow.inputs.map((name) => [name, name === first ? (args ?? "") : ""])))
+        // Only the first input can come from the composer's one line; the rest start from the
+        // file's defaults, because a launch with the rest empty is the bug this dialog fixes.
+        setInputs(
+          Object.fromEntries(
+            workflow.inputs.map((name) => [
+              name,
+              name === first ? (args ?? workflow.inputDefaults?.[name] ?? "") : (workflow.inputDefaults?.[name] ?? ""),
+            ]),
+          ),
+        )
         setPacks([])
-        setWorktrees(false)
+        setWorktrees(workflow.worktrees ?? false)
+        setUntil("")
         setFallback("")
         setBudgetTokens("")
         setBudgetCost("")
@@ -75,6 +86,7 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
       packs: packs(),
       worktrees: worktrees(),
       policy: policyFrom(fallback(), budgetTokens(), budgetCost()),
+      ...(until().trim() ? { until: until().trim() } : {}),
     })
   }
 
@@ -107,7 +119,8 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
                 <input
                   class="fc-question-custom"
                   value={inputs()[name] ?? ""}
-                  placeholder={name}
+                  placeholder={props.workflow?.inputHelp?.[name] ?? props.workflow?.inputDefaults?.[name] ?? name}
+                  title={props.workflow?.inputHelp?.[name]}
                   onInput={(event) => setInputs((current) => ({ ...current, [name]: event.currentTarget.value }))}
                 />
               </label>
@@ -138,6 +151,20 @@ export const WorkflowLaunchDialog: Component<WorkflowLaunchDialogProps> = (props
             <input type="checkbox" checked={worktrees()} onChange={(event) => setWorktrees(event.currentTarget.checked)} />
             <span>{t("A worktree per writing task")}</span>
           </label>
+
+          <Show when={(props.workflow?.tasks ?? []).length > 1}>
+            <label class="fc-field">
+              <span>{t("Run until task")}</span>
+              <select
+                class="fc-question-custom"
+                value={until()}
+                onChange={(event) => setUntil(event.currentTarget.value)}
+              >
+                <option value="">{t("Whole workflow")}</option>
+                <For each={props.workflow?.tasks ?? []}>{(task) => <option value={task.id}>{task.id}</option>}</For>
+              </select>
+            </label>
+          </Show>
 
           <label class="fc-field">
             <span>{t("Fallback model")}</span>

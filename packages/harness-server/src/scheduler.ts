@@ -3,6 +3,7 @@ import { parseModelKey } from "./policy"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
 import { findWorkflow, tasksFor } from "./workflow"
+import { restore } from "./checkpoint"
 import type { Run, RunPolicy, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
@@ -46,6 +47,13 @@ export class RoutineBusyError extends Error {
   }
 }
 
+export class CheckpointNotFoundError extends Error {
+  constructor(readonly checkpoint: string) {
+    super(`Checkpoint not found: ${checkpoint}`)
+    this.name = "CheckpointNotFoundError"
+  }
+}
+
 /** A best-of-n variant that is not `provider/model`; refused before any run of the batch starts. */
 export class InvalidModelError extends Error {
   constructor(readonly key: string) {
@@ -84,10 +92,10 @@ export class RoutineScheduler {
     this.timer = undefined
   }
 
-  async runNow(routineID: string) {
-    const run = this.begin(routineID, Date.now())
+  async runNow(routineID: string, inputs?: Record<string, string>) {
+    const run = await this.begin(routineID, Date.now(), inputs)
     if (!run) throw new RoutineBusyError()
-    void this.execute(run)
+    if (run.status === "running") void this.execute(run)
     return run
   }
 
@@ -190,21 +198,38 @@ export class RoutineScheduler {
     packs?: string[]
     worktrees?: boolean
     policy?: RunPolicy
+    /** Stop the task list at this task id, inclusive (HF-1). */
+    until?: string
+    /** Restore this checkpoint before starting, so a run resumes from disk state (HF-1). */
+    fromCheckpoint?: string
   }) {
     const workflow = await findWorkflow(input.name, input.directory)
     if (!workflow) throw new UnknownWorkflowError(input.name)
-    const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
+    const filled = { ...(workflow.inputDefaults ?? {}), ...(input.inputs ?? {}) }
+    const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
+    const until = input.until?.trim() ? input.until.trim() : undefined
+    let directory = input.directory
+    if (input.fromCheckpoint?.trim()) {
+      const checkpoint = this.repository.getCheckpoint(input.fromCheckpoint.trim())
+      if (!checkpoint) throw new CheckpointNotFoundError(input.fromCheckpoint.trim())
+      directory = input.directory ?? checkpoint.directory
+      await restore({
+        directory,
+        sha: checkpoint.sha,
+        safetyTitle: `Before resuming ${workflow.name} from "${checkpoint.title}"`,
+      })
+    }
     return this.runTasks({
-      tasks: tasksFor(workflow, input.inputs ?? {}),
-      directory: input.directory,
-      // A workflow is a file, so its ceiling, its bypass and its shell are written in the file too
-      // (H-47).
+      tasks: tasksFor(workflow, input.inputs ?? {}, until),
+      directory,
+      // A workflow is a file, so its ceiling, its bypass, its trees and its shell are written
+      // in the file too (H-47, H-29); the launcher can still ask for worktrees on top.
       ...(workflow.toolLimitMs ? { toolLimitMs: workflow.toolLimitMs } : {}),
       ...(workflow.outside ? { outside: true } : {}),
       ...(workflow.shell === false ? { shell: false } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
-      ...(input.worktrees ? { worktrees: true } : {}),
+      ...(input.worktrees || workflow.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
     })
   }
@@ -278,6 +303,41 @@ export class RoutineScheduler {
       void this.drive(run.id, run.directory)
     }
     return created
+  }
+
+  /**
+   * Take a queued task off the run (HF-4).
+   *
+   * Only queued work can be cancelled: a running task has an engine turn in flight, which is
+   * stopped by stopping the run instead. Dependents decide against the stopped row through the
+   * same `decide` path as any other failure, so nothing behind it runs blind and the skip says why.
+   */
+  cancelTask(taskID: string) {
+    const task = this.repository.getTask(taskID)
+    if (!task) return undefined
+    if (task.status !== "queued") throw new Error("Only a queued task can be cancelled; stop the run to halt one in flight")
+    this.repository.finishTask(task.id, "stopped", { error: "Cancelled" }, Date.now())
+    return this.repository.getTask(task.id)
+  }
+
+  /**
+   * Pick up a run that ended with work still queued (HF-5).
+   *
+   * A restart, a stop, or a failure can leave tasks behind that never ran. Anything already
+   * settled stays as it is — history is not rewritten — and the drive continues from the first
+   * task the graph allows. A requeued task may repeat side effects its lost attempt already made,
+   * which is why the requeue reason stays on the row.
+   */
+  resume(runID: string) {
+    const run = this.repository.getRun(runID)
+    if (!run) return undefined
+    if (run.status === "running" || run.status === "awaiting")
+      throw new Error("The run is still active; stop it before resuming")
+    const tasks = this.repository.listTasks(run.id)
+    if (!tasks.some((task) => task.status === "queued")) throw new Error("Nothing left to resume: every task settled")
+    this.repository.reopenRun(run.id)
+    void this.drive(run.id, run.directory)
+    return this.repository.getRun(run.id)
   }
 
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
@@ -359,15 +419,15 @@ export class RoutineScheduler {
       const now = Date.now()
       const routine = this.repository.list().find((entry) => isDue(entry, now))
       if (routine) {
-        const run = this.begin(routine.id, now)
-        if (run) void this.execute(run)
+        const run = await this.begin(routine.id, now)
+        if (run && run.status === "running") void this.execute(run)
       }
     } finally {
       this.ticking = false
     }
   }
 
-  private begin(routineID: string, now: number) {
+  private async begin(routineID: string, now: number, overrides?: Record<string, string>) {
     const key = routineLockKey(routineID)
     if (!this.repository.acquire(key, this.owner, now, this.lockTtlMs)) return undefined
     const source: RunSource = { type: "routine", routineID }
@@ -376,12 +436,45 @@ export class RoutineScheduler {
       this.repository.release(key, this.owner)
       return undefined
     }
-    const run = this.repository.startRun(source, now)
-    // A routine's execution is a run of a single task. Nothing about it is special: it is the same
-    // shape a workflow of many will have, which is the point of H-11.
-    this.repository.addTasks(run.id, [
-      { name: routine.name, prompt: routine.prompt, agent: routine.agent, model: routine.model },
-    ])
+    // A routine runs one prompt, or the tasks of a workflow file (HF-8). Either way the run
+    // carries the routine's policy, so budgets and fallbacks apply on schedule as on demand.
+    if (!routine.workflow) {
+      const run = this.repository.startRun(source, now, routine.projectDirectory, {
+        ...(routine.policy ? { policy: routine.policy } : {}),
+      })
+      this.repository.addTasks(run.id, [
+        { name: routine.name, prompt: routine.prompt, agent: routine.agent, model: routine.model },
+      ])
+      return run
+    }
+    const run = this.repository.startRun(source, now, routine.projectDirectory, {
+      ...(routine.policy ? { policy: routine.policy } : {}),
+    })
+    try {
+      const workflow = await findWorkflow(routine.workflow.name, routine.projectDirectory)
+      if (!workflow) throw new UnknownWorkflowError(routine.workflow.name)
+      const filled = { ...(workflow.inputDefaults ?? {}), ...(routine.workflow.inputs ?? {}), ...(overrides ?? {}) }
+      const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
+      if (missing.length > 0) throw new MissingInputsError(missing)
+      const tasks = tasksFor(workflow, filled)
+      this.repository.addTasks(run.id, tasks)
+      // More than one task earns the thread a reader follows, the same as a manual run.
+      if (tasks.length > 1) {
+        const title = tasks.map((task) => task.name).join(" → ")
+        const root = await this.engine
+          .createSession({
+            directory: routine.projectDirectory,
+            title: title.length > 80 ? `${title.slice(0, 77)}…` : title,
+          })
+          .catch(() => undefined)
+        if (root) this.repository.attachSession(run.id, root.id)
+      }
+    } catch (cause) {
+      // The file was valid when the routine was saved and is gone now. The failed run stays in
+      // history saying so, instead of the schedule silently skipping a beat.
+      this.repository.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause), now)
+      this.repository.release(key, this.owner)
+    }
     return run
   }
 
@@ -408,8 +501,10 @@ export class RoutineScheduler {
         return
       }
       // A run of one task has no thread of its own, so the session the reader wants is the task's.
+      // A run that already has one — a workflow's thread from `begin` — keeps it.
       const [task] = this.repository.listTasks(run.id)
-      if (task?.sessionID && !run.sessionID) this.repository.attachSession(run.id, task.sessionID)
+      const fresh = this.repository.getRun(run.id) ?? run
+      if (task?.sessionID && !fresh.sessionID) this.repository.attachSession(run.id, task.sessionID)
       this.finish(run, this.stopping.has(run.id) ? "stopped" : "success", this.stopping.has(run.id) ? "Routine stopped" : undefined)
     } catch (cause) {
       this.finish(

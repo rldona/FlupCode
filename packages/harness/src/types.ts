@@ -11,7 +11,7 @@ export type CommandOption = {
 }
 
 /** What a run left behind, as the app reads it. Mirrors `harness-server`'s own type (H-14). */
-export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff"
+export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff" | "screenshot"
 
 export type Artifact = {
   id: string
@@ -48,6 +48,10 @@ export type Workflow = {
   description: string
   /** The names it asks for. The launcher fills the first one with whatever was typed after it. */
   inputs: string[]
+  /** Defaults so the launcher starts filled in (HF-2). */
+  inputDefaults?: Record<string, string>
+  /** One-line help per input (HF-2). */
+  inputHelp?: Record<string, string>
   tasks: Array<{
     id: string
     kind?: TaskKind
@@ -64,6 +68,8 @@ export type Workflow = {
     /** One task per step of the named task's plan; `{{item}}` is the step (H-28). */
     foreach?: string
   }>
+  /** `worktrees: true` in the file — each writing task gets its own tree (HF-3). */
+  worktrees?: boolean
 }
 
 /**
@@ -259,6 +265,10 @@ export type RoutineInput = {
   projectDirectory?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /** Run a workflow instead of a single prompt (HF-8). */
+  workflow?: { name: string; inputs?: Record<string, string> }
+  /** Model fallback and budget for the runs it starts (HF-8). */
+  policy?: RunPolicy
 }
 
 export type Routine = {
@@ -270,6 +280,8 @@ export type Routine = {
   projectDirectory?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  workflow?: { name: string; inputs?: Record<string, string> }
+  policy?: RunPolicy
   enabled: boolean
   createdAt: number
   lastRunAt?: number

@@ -112,6 +112,10 @@ export type RoutineInput = {
   projectDirectory?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /** Run a workflow instead of a single prompt (HF-8). Inputs fill the file's placeholders. */
+  workflow?: { name: string; inputs?: Record<string, string> }
+  /** Model fallback and budget for the runs this routine starts (HF-8). */
+  policy?: RunPolicy
 }
 
 export type Routine = RoutineInput & {
@@ -250,7 +254,7 @@ export type Task = TaskInput & {
  * The project is a directory rather than an id: that is what the harness actually knows about where
  * work happens, and inventing an id for it would mean keeping a second name for the same thing.
  */
-export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff"
+  export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff" | "screenshot"
 
 export type ArtifactProducer = "agent" | "user" | "harness"
 
