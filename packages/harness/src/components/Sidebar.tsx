@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, on, type Component } from "solid-js"
 import { sessionTitle } from "../session-title"
 import type { SessionInfo } from "../engine-types"
 import { ViewTabs } from "./Topbar"
@@ -138,6 +138,31 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       return !only || tagOf(session.id).includes(only)
     })
   })
+
+  /**
+   * Keep the reader where they scrolled when the list is rebuilt.
+   *
+   * The groups are a `<For>` over objects the memo recreates, so a sessions refetch replaces every
+   * row. Chromium's default here (scroll anchoring) sometimes clamps the container back to the top
+   * when that happens — seen in the desktop app's Chromium, not in the one the tests run on, which is
+   * why no `e2e` guards it. Only the reader's own scroll (`isTrusted`) is remembered, so the reset's
+   * own scroll event cannot overwrite it, and the position is put back once the new rows are in.
+   */
+  let scrollEl: HTMLDivElement | undefined
+  let readerScrollTop = 0
+  createEffect(
+    on(
+      () => props.sessions,
+      () => {
+        const top = readerScrollTop
+        if (!scrollEl || top === 0) return
+        requestAnimationFrame(() => {
+          if (scrollEl && scrollEl.scrollTop !== top) scrollEl.scrollTop = top
+        })
+      },
+      { defer: true },
+    ),
+  )
 
   const isPinned = (session: SessionInfo) => props.pinnedSessions.includes(session.id)
   // A pinned session is listed under Pinned and nowhere else; leaving it in the chats list and the
@@ -398,7 +423,13 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           </div>
         </div>
 
-        <div class="fc-scroll fc-grow">
+        <div
+          class="fc-scroll fc-grow"
+          ref={scrollEl}
+          onScroll={(event) => {
+            if (event.isTrusted) readerScrollTop = event.currentTarget.scrollTop
+          }}
+        >
           {/* The nav scrolls with the lists under it; "+ New" is the one thing that stays put. */}
           <nav class="fc-nav">
             <Show when={props.view === "code"}>
