@@ -34,7 +34,7 @@ const message = {
 
 const child = { ...session, id: "ses_child", parentID: "ses_tasks", title: "Analizar common-lib" }
 
-async function openSession(page: Page) {
+async function openSession(page: Page, options: { blockedChild?: boolean } = {}) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -50,7 +50,7 @@ async function openSession(page: Page) {
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session, child], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/vcs") return route.fulfill({ json: { branch: "feature", default_branch: "main" } })
     if (url.pathname === "/vcs/status") return route.fulfill({ json: [] })
@@ -58,6 +58,8 @@ async function openSession(page: Page) {
       return route.fulfill({ json: { data: [message], cursor: {} } })
     if (url.pathname === "/session/ses_tasks/children" || url.pathname === "/api/session/ses_tasks/children")
       return route.fulfill({ json: [child] })
+    if (url.pathname === "/permission")
+      return route.fulfill({ json: options.blockedChild ? [{ id: "perm_1", sessionID: "ses_child" }] : [] })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
@@ -90,11 +92,17 @@ test("the task list is a timeline, and each disc carries its state", async ({ pa
 })
 
 test("this session's subagents sit under the tasks, in the panel", async ({ page }) => {
-  await openSession(page)
+  await openSession(page, { blockedChild: true })
 
   const aside = page.locator(".fc-rightaside")
   await expect(aside.locator(".fc-aside-title", { hasText: "Subagents" })).toBeVisible()
   // A list of siblings, not chips across the top of the transcript.
   await expect(aside.locator(".fc-subagent")).toHaveText(["Analizar common-lib"])
   await expect(page.locator(".fc-subagents")).toHaveCount(0)
+
+  // The child is a session in the engine's list, but it is not a project of its own in the sidebar.
+  await expect(page.locator(".fc-sidebar .fc-session-row")).toHaveCount(1)
+
+  // Its dot says it is working, without having to open it.
+  await expect(aside.locator(".fc-subagent .fc-session-dot-blocked")).toHaveCount(1)
 })

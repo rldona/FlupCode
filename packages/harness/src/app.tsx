@@ -527,7 +527,10 @@ export const App: Component = () => {
   const chatsDirectory = () => enginePaths()?.state
   const isChat = (session: { location?: { directory?: string } } | undefined) =>
     !!session && isChatSession(session, chatsDirectory())
-  const viewSessions = () => sessionList()?.filter((session) => isChat(session) === chatView())
+  // Sessions the engine forked for a subagent live in the context panel, under the parent they
+  // belong to; as rows in this column they read as projects of their own.
+  const viewSessions = () =>
+    sessionList()?.filter((session) => isChat(session) === chatView() && !session.parentID)
   const changeView = (next: AppView) => {
     leaveScreen()
     if (next === view()) return
@@ -3987,6 +3990,8 @@ export const App: Component = () => {
               onClearTodos={clearTodos}
               subagents={subagents()}
               onOpenSubagent={selectSession}
+              runningSubagents={Object.keys(runState()).filter((id) => runState()[id])}
+              blockedSubagents={blockedSessions()}
               width={contextWidth()}
               onResize={updateContextWidth}
               onHide={toggleContextPanel}
