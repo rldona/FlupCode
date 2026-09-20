@@ -1117,10 +1117,14 @@ export const SessionView: Component<SessionViewProps> = (props) => {
           // also needs that input: a jump to a chapter starts near the end too, and re-sticking
           // there would drag the reader back down as lazy rendering grows the body.
           const recent = performance.now() - readerInput < 1000
+          // The re-stick band cannot exceed a fraction of the actual range: a transcript that barely
+          // overflows (one tall block filling the viewport) has a range below 120px, so a fixed band
+          // would count every scroll position as "near the end" and re-stick after every scroll.
+          const nearEnd = Math.min(120, (container.scrollHeight - container.clientHeight) * 0.25)
           if (recent && distance > lastDistance) {
             clearSettleTimers()
             setStick(false)
-          } else if (recent && distance < 120) setStick(true)
+          } else if (recent && distance < nearEnd) setStick(true)
           else if (recent) setStick(false)
           lastDistance = distance
         }}
