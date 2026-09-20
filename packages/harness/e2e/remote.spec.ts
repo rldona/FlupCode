@@ -87,10 +87,13 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
     secret: toBase64Url(secret),
     name: "e2e-host",
   })
+  // An unreachable local server makes the first health check fail before pairing.
+  await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
   await page.goto(link)
 
   await expect(page.getByRole("button", { name: /Remote: e2e-host/ })).toBeVisible({ timeout: 15_000 })
   await expect(page).not.toHaveURL(/#remote=/)
+  await expect(page.locator(".fc-topbar .fc-status:not(.fc-status-remote)")).toHaveText("Connected")
   await expect.poll(() => engineHits.some((url) => url.includes("health"))).toBe(true)
   const hosts = await page.evaluate(() => JSON.parse(localStorage.getItem("flupcode.remoteHosts") ?? "[]"))
   expect(hosts).toMatchObject([{ name: "e2e-host", deviceId: "e2e-device" }])

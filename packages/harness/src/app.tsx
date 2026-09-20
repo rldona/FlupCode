@@ -118,7 +118,12 @@ export const App: Component = () => {
   )
 
   const client = () => createClient(serverUrl())
-  const [health, { refetch: refetchHealth }] = createResource(serverUrl, async (url) => createClient(url).health.get())
+  // Never reject: an errored resource throws on every read and freezes the effects that depend on it.
+  const [health, { refetch: refetchHealth }] = createResource(serverUrl, (url) =>
+    createClient(url)
+      .health.get()
+      .catch(() => ({ healthy: false, version: undefined })),
+  )
   const ready = () => health()?.healthy === true
 
   createEffect(() => {
@@ -1527,7 +1532,7 @@ export const App: Component = () => {
         <Topbar
           healthLoading={health.loading}
           healthHealthy={health()?.healthy === true}
-          healthError={!!health.error}
+          healthError={!health.loading && health()?.healthy === false}
           canGoBack={canGoBack()}
           canGoForward={canGoForward()}
           onBack={goBack}
