@@ -532,6 +532,15 @@ export const App: Component = () => {
   const workflowsScreenOpen = () => screen() === "workflows"
   const replayOpen = () => screen() === "replay"
   const compareOpen = () => screen() === "compare"
+  /**
+   * The tool screens that live in the main column (HF-9): runs, workflows, artifacts and
+   * routines render where the conversation goes, with the sidebar visible, instead of a
+   * fixed overlay. Anything else keeps its overlay.
+   */
+  const toolScreen = () => {
+    const current = screen()
+    return current === "runs" || current === "workflows" || current === "artifacts" || current === "routines"
+  }
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
   const leaveScreen = () => showScreen(undefined)
   createEffect(() => {
@@ -4996,6 +5005,7 @@ export const App: Component = () => {
             }}
             routines={routines()}
             onSearch={() => setPaletteOpen(true)}
+            activeScreen={screen()}
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
@@ -5062,9 +5072,95 @@ export const App: Component = () => {
             </Show>
           </div>
         </Show>
+        {/* Tool screens live in the main column (HF-9): the sidebar stays visible. */}
+        <Show when={toolScreen()}>
+          <RunsPanel
+            open={runsOpen()}
+            runs={runs()}
+            serverAvailable={routinesServerAvailable()}
+            onStop={stopRun}
+            onRemove={removeRun}
+            onClear={clearRuns}
+            onStopAll={stopAllRuns}
+            onApprove={approveRun}
+            onMergeWorktrees={mergeWorktrees}
+            onCleanupWorktrees={cleanupWorktrees}
+            activity={taskActivity() ?? {}}
+            touched={touched() ?? {}}
+            tools={taskTools() ?? {}}
+            artifacts={runArtifacts() ?? {}}
+            models={modelList()}
+            onRetry={retryTask}
+            onSteer={steerTask}
+            onCancelTask={cancelTask}
+            onResume={resumeRun}
+            onBestOfN={() => setBestOfNOpen(true)}
+            onOpenSession={(id) => {
+              leaveScreen()
+              selectSession(id)
+            }}
+            onOpenChanges={(directory) => {
+              setTargetDirectory(directory)
+              showScreen("changes")
+            }}
+            onClose={() => leaveScreen()}
+          />
+          <WorkflowsPanel
+            open={workflowsScreenOpen()}
+            files={workflows() ?? []}
+            loading={workflows.loading}
+            serverAvailable={routinesServerAvailable()}
+            directory={modelLocation()}
+            onRead={readWorkflowFile}
+            onSave={saveWorkflowFile}
+            onDelete={deleteWorkflowFile}
+            onRun={(workflow) => setLaunching({ workflow })}
+            onClose={() => leaveScreen()}
+          />
+          <ArtifactsPanel
+            open={artifactsOpen()}
+            artifacts={artifactList()}
+            sessionFiles={artifacts()}
+            serverAvailable={routinesServerAvailable()}
+            onCopy={copyPath}
+            onRemove={removeArtifact}
+            onUpdate={updateArtifact}
+            onOpenRun={() => showScreen("runs")}
+            onClose={() => leaveScreen()}
+          />
+          <RoutinesPanel
+            open={routinesOpen()}
+            focus={routineFocus()}
+            onFocused={() => setRoutineFocus(undefined)}
+            routines={routines()}
+            busy={routineBusy()}
+            busyRoutineID={routineBusyID()}
+            serverAvailable={routinesServerAvailable()}
+            serverLoading={routinesServerLoading()}
+            projects={routineProjects()}
+            models={modelList()}
+            agents={agents()?.data ?? []}
+            onAdd={addRoutine}
+            onUpdate={updateRoutine}
+            onToggle={toggleRoutine}
+            onRemove={removeRoutine}
+            onRun={runRoutine}
+            onStop={stopRoutine}
+            onOpenSession={(id) => {
+              leaveScreen()
+              selectSession(id)
+            }}
+            onClose={() => leaveScreen()}
+          />
+        </Show>
         <Show
-          when={!splitActive()}
+          when={!splitActive() && !toolScreen()}
           fallback={
+            // A tool screen replaces both branches: the split panes keep their state and return
+            // when the screen is left.
+            toolScreen() ? (
+              <></>
+            ) : (
             <div class="fc-split">
               {/* Keyed by id: the session list refreshes while sessions run, and a pane must keep its state. */}
               <For each={splitPanes()}>
@@ -5107,6 +5203,7 @@ export const App: Component = () => {
                 )}
               </For>
             </div>
+            )
           }
         >
           {/* The sessions open in this window (H-36). Hidden while split: the panes are the tabs then. */}
@@ -5582,37 +5679,6 @@ export const App: Component = () => {
         }}
         onClose={() => setSettingsOpen(false)}
       />
-      <RunsPanel
-        open={runsOpen()}
-        runs={runs()}
-        serverAvailable={routinesServerAvailable()}
-        onStop={stopRun}
-        onRemove={removeRun}
-        onClear={clearRuns}
-        onStopAll={stopAllRuns}
-        onApprove={approveRun}
-        onMergeWorktrees={mergeWorktrees}
-        onCleanupWorktrees={cleanupWorktrees}
-        activity={taskActivity() ?? {}}
-        touched={touched() ?? {}}
-        tools={taskTools() ?? {}}
-        artifacts={runArtifacts() ?? {}}
-        models={modelList()}
-        onRetry={retryTask}
-        onSteer={steerTask}
-        onCancelTask={cancelTask}
-        onResume={resumeRun}
-        onBestOfN={() => setBestOfNOpen(true)}
-        onOpenSession={(id) => {
-          leaveScreen()
-          selectSession(id)
-        }}
-        onOpenChanges={(directory) => {
-          setTargetDirectory(directory)
-          showScreen("changes")
-        }}
-        onClose={() => leaveScreen()}
-      />
       <SkillCatalogue
         open={skillsScreenOpen()}
         files={skillFiles() ?? []}
@@ -5712,30 +5778,6 @@ export const App: Component = () => {
         onResolveFinding={resolveFinding}
         onClose={() => leaveScreen()}
       />
-      <RoutinesPanel
-        open={routinesOpen()}
-        focus={routineFocus()}
-        onFocused={() => setRoutineFocus(undefined)}
-        routines={routines()}
-        busy={routineBusy()}
-        busyRoutineID={routineBusyID()}
-        serverAvailable={routinesServerAvailable()}
-        serverLoading={routinesServerLoading()}
-        projects={routineProjects()}
-        models={modelList()}
-        agents={agents()?.data ?? []}
-        onAdd={addRoutine}
-        onUpdate={updateRoutine}
-        onToggle={toggleRoutine}
-        onRemove={removeRoutine}
-        onRun={runRoutine}
-        onStop={stopRoutine}
-        onOpenSession={(id) => {
-          leaveScreen()
-          selectSession(id)
-        }}
-        onClose={() => leaveScreen()}
-      />
       <FolderDialog
         open={folderOpen()}
         initial={targetDirectory()}
@@ -5783,17 +5825,6 @@ export const App: Component = () => {
           setSettingsOpen(true)
         }}
       />
-      <ArtifactsPanel
-        open={artifactsOpen()}
-        artifacts={artifactList()}
-        sessionFiles={artifacts()}
-        serverAvailable={routinesServerAvailable()}
-        onCopy={copyPath}
-        onRemove={removeArtifact}
-        onUpdate={updateArtifact}
-        onOpenRun={() => showScreen("runs")}
-        onClose={() => leaveScreen()}
-      />
       <SkillsPanel
         open={skillsOpen()}
         skills={skills()?.data ?? []}
@@ -5802,18 +5833,6 @@ export const App: Component = () => {
           setSkillsOpen(false)
         }}
         onClose={() => setSkillsOpen(false)}
-      />
-      <WorkflowsPanel
-        open={workflowsScreenOpen()}
-        files={workflows() ?? []}
-        loading={workflows.loading}
-        serverAvailable={routinesServerAvailable()}
-        directory={modelLocation()}
-        onRead={readWorkflowFile}
-        onSave={saveWorkflowFile}
-        onDelete={deleteWorkflowFile}
-        onRun={(workflow) => setLaunching({ workflow })}
-        onClose={() => leaveScreen()}
       />
       <ReplayPanel
         open={replayOpen()}

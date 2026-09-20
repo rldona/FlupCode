@@ -3240,6 +3240,15 @@ button.fc-status {
   background: var(--fc-bg);
 }
 
+/* Tool screens embedded in the main column (HF-9): in flow, not over it. The sidebar stays. */
+.fc-main .fc-routines-screen {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  height: 100%;
+  padding: clamp(20px, 3vw, 40px) clamp(16px, 4vw, 56px);
+}
+
 .fc-routines-header,
 .fc-routines-toolbar,
 .fc-routines-layout,
