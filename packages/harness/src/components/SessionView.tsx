@@ -644,6 +644,18 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     growth.observe(element)
   }
 
+  // The conversation navigator's rail sits over the chat's left edge. Below this column width the
+  // transcript and the prompt dock narrow together so neither runs under the rail; this is measured
+  // from the frame, not the viewport, so an open context panel (or a resized sidebar) is accounted
+  // for. See fc-chat-narrow in shell.css.
+  const [chatNarrow, setChatNarrow] = createSignal(false)
+  const frameWidth = new ResizeObserver((entries) => {
+    const width = entries[0]?.contentRect.width ?? 0
+    setChatNarrow(width > 0 && width < 920)
+  })
+  onCleanup(() => frameWidth.disconnect())
+  const observeFrame = (element: HTMLDivElement) => frameWidth.observe(element)
+
   createEffect(() => {
     const first = props.messages?.[0]?.id
     props.busy
@@ -662,7 +674,11 @@ export const SessionView: Component<SessionViewProps> = (props) => {
   return (
     // The navigator and the back-to-end button float over the chat from this frame, outside the
     // scrolling area, so they stay still while it scrolls or bounces.
-    <div class="fc-transcript-frame">
+    <div
+      class="fc-transcript-frame"
+      classList={{ "fc-chat-narrow": chatNarrow() && chapters().length > 1 }}
+      ref={observeFrame}
+    >
       <section
         class="fc-transcript"
         ref={container}

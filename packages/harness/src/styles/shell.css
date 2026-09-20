@@ -5280,6 +5280,20 @@ button.fc-row-main {
   padding-right: calc(var(--fc-chat-inset) + var(--fc-scrollbar-size));
 }
 
+/* A narrow chat column (an open context panel, a wide sidebar, a small window) keeps the text and
+   the prompt dock clear of the conversation navigator's rail; the transcript frame toggles this
+   class from its measured width (see SessionView). */
+.fc-chat-narrow .fc-transcript {
+  padding-left: max(var(--fc-chat-inset), 52px);
+  padding-right: max(var(--fc-chat-inset), 52px);
+}
+
+.fc-chat-narrow ~ .fc-docks,
+.fc-chat-narrow ~ .fc-composer {
+  padding-left: calc(max(var(--fc-chat-inset), 52px) + var(--fc-scrollbar-size));
+  padding-right: calc(max(var(--fc-chat-inset), 52px) + var(--fc-scrollbar-size));
+}
+
 /* Permission and question cards keep the transcript's and the composer's column. */
 .fc-docks > * {
   width: 100%;
