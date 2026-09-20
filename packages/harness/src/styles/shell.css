@@ -1966,6 +1966,14 @@ button.fc-status {
   overflow-wrap: anywhere;
 }
 
+.fc-message-retry {
+  align-self: flex-start;
+  height: 28px;
+  margin-top: 6px;
+  padding: 0 12px;
+  font-size: var(--fc-text-sm);
+}
+
 @keyframes fc-thought-dot {
   0%,
   100% {
