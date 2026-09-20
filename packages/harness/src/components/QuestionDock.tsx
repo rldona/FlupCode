@@ -13,6 +13,7 @@ type QuestionDockProps = {
 export const QuestionDock: Component<QuestionDockProps> = (props) => {
   const [selected, setSelected] = createStore<string[][]>(props.request.questions.map(() => []))
   const [custom, setCustom] = createStore<string[]>(props.request.questions.map(() => ""))
+  const [other, setOther] = createStore<boolean[]>(props.request.questions.map(() => false))
 
   const toggle = (questionIndex: number, label: string, multiple?: boolean) => {
     const current = selected[questionIndex] ?? []
@@ -24,12 +25,21 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
       return
     }
     setSelected(questionIndex, [label])
+    setOther(questionIndex, false)
+  }
+
+  // "Other" is always the last option; picking it reveals the free-text input and, on a single
+  // choice, clears the listed options so only one answer is sent.
+  const toggleOther = (questionIndex: number, multiple?: boolean) => {
+    const next = !other[questionIndex]
+    setOther(questionIndex, next)
+    if (next && !multiple) setSelected(questionIndex, [])
   }
 
   const answers = () =>
     props.request.questions.map((_, index) => {
       const values = [...(selected[index] ?? [])]
-      const extra = custom[index]?.trim()
+      const extra = other[index] ? custom[index]?.trim() : ""
       if (extra) values.push(extra)
       return values
     })
@@ -60,8 +70,17 @@ export const QuestionDock: Component<QuestionDockProps> = (props) => {
                   </button>
                 )}
               </For>
+              <button
+                class="fc-option"
+                classList={{ "fc-option-selected": other[index()] }}
+                type="button"
+                onClick={() => toggleOther(index(), question.multiple)}
+              >
+                <span class="fc-option-label">{t("Other")}</span>
+                <span class="fc-option-desc">{t("Type your own answer")}</span>
+              </button>
             </div>
-            <Show when={question.custom}>
+            <Show when={other[index()]}>
               <input
                 class="fc-question-custom"
                 placeholder={t("Custom answer")}
