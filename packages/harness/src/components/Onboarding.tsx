@@ -4,11 +4,16 @@ import { t } from "../i18n"
 type OnboardingProps = {
   open: boolean
   serverHealthy: boolean | undefined
+  serverInput: string
+  onServerInput: (value: string) => void
+  onConnect: () => void
   onDone: (name: string) => void
 }
 
 export const Onboarding: Component<OnboardingProps> = (props) => {
   const [name, setName] = createSignal("")
+  const origin = () => (typeof window === "undefined" ? "http://localhost:4444" : window.location.origin)
+  const command = () => `opencode serve --port 4096 --cors ${origin()}`
 
   return (
     <Show when={props.open}>
@@ -29,6 +34,31 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
                   : t("Server offline")}
             </div>
 
+            <Show when={props.serverHealthy !== true}>
+              <p class="fc-onboarding-text">
+                {t("FlupCode needs the OpenCode engine. Start it, then connect:")}
+              </p>
+              <pre class="fc-onboarding-code">
+                <code>{command()}</code>
+              </pre>
+              <label class="fc-settings-row">
+                <span>{t("Server")}</span>
+                <input
+                  class="fc-question-custom"
+                  value={props.serverInput}
+                  spellcheck={false}
+                  placeholder="http://localhost:4096"
+                  onInput={(event) => props.onServerInput(event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") props.onConnect()
+                  }}
+                />
+              </label>
+              <button class="fc-button" type="button" onClick={props.onConnect}>
+                {t("Connect")}
+              </button>
+            </Show>
+
             <label class="fc-settings-row">
               <span>{t("What's your name?")}</span>
               <input
@@ -39,7 +69,12 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
               />
             </label>
 
-            <button class="fc-button fc-button-primary" type="button" onClick={() => props.onDone(name())}>
+            <button
+              class="fc-button fc-button-primary"
+              type="button"
+              disabled={props.serverHealthy !== true}
+              onClick={() => props.onDone(name())}
+            >
               {t("Get started")}
             </button>
           </div>

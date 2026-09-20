@@ -164,6 +164,10 @@ const ES: Record<string, string> = {
   "Checking the server…": "Comprobando el servidor…",
   "Server connected": "Servidor conectado",
   "Server offline": "Sin conexión al servidor",
+  "FlupCode needs the OpenCode engine. Start it, then connect:":
+    "FlupCode necesita el engine de OpenCode. Arráncalo y conéctate:",
+  "start it and connect from Settings": "arráncalo y conéctate desde Ajustes",
+  Retry: "Reintentar",
   "What's your name?": "¿Cómo te llamas?",
   "Get started": "Empezar",
 
