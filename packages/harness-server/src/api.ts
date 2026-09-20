@@ -1,4 +1,5 @@
 import { normalizeRoutineSchedule } from "./validation"
+import { ARTIFACT_KINDS } from "./types"
 import type {
   ArtifactInput,
   ArtifactKind,
@@ -10,6 +11,8 @@ import type {
   TaskInput,
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
+import { readFileSync } from "node:fs"
+import { resolve, sep } from "node:path"
 import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler, CheckpointNotFoundError } from "./scheduler"
 import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
@@ -181,7 +184,7 @@ const retriesFrom = (value: unknown) => {
   return Math.min(MAX_RETRIES, Math.floor(value))
 }
 
-const KINDS: ArtifactKind[] = ["plan", "report", "verdict", "diff", "log", "file", "handoff", "screenshot"]
+const KINDS: ArtifactKind[] = [...ARTIFACT_KINDS]
 
 const artifactFrom = (value: unknown): ArtifactInput | undefined => {
   if (!value || typeof value !== "object") return undefined
@@ -278,6 +281,7 @@ import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
 import { filesPerTask } from "./touched"
 import { registerPlans } from "./plans"
+import { registerDocuments } from "./documents"
 import { summarise } from "./usage"
 import { FINDINGS_INSTRUCTION } from "./findings"
 import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./context"
@@ -568,12 +572,15 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const query = new URL(request.url).searchParams
       const directory = query.get("directory") ?? undefined
       // Plans the agent wrote live on disk and the harness never produced; index them while
-      // somebody is looking at this folder's artifacts, which is when it is worth doing (H-14).
+      // somebody is looking at this folder's artifacts, which is when it is worth doing (H-14). The
+      // same lazy pass indexes the documents the agent produced, including the ones it declared with
+      // `artifact.write`, since those are written into the same folder.
       if (directory) {
         try {
           registerPlans(repository, directory)
+          registerDocuments(repository, directory)
         } catch {
-          // An unreadable plans folder is not a reason to fail the list.
+          // An unreadable folder is not a reason to fail the list.
         }
       }
       return json({
@@ -604,6 +611,31 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const when = new Date(artifact.createdAt).toISOString()
       const body = [`# ${artifact.title}`, "", `${artifact.kind} · kept ${when}`, "", artifact.content ?? ""].join("\n")
       return new Response(body, { headers: { "content-type": "text/markdown; charset=utf-8" } })
+    }
+    // One artifact's bytes as they are, for a viewer that draws rather than reads (H-14): an image,
+    // a PDF, a page. Confined to the folder the artifact names, exactly like `files/read`.
+    if (path[1] === "artifacts" && request.method === "GET" && path[2] && path[3] === "raw") {
+      const artifact = repository.getArtifact(path[2])
+      if (!artifact) return error("Artifact not found", 404)
+      if (artifact.path && artifact.directory) {
+        const root = resolve(artifact.directory)
+        const full = resolve(root, artifact.path)
+        if (!(full === root || full.startsWith(root + sep))) return error("That path is outside the folder", 400)
+        try {
+          return new Response(readFileSync(full), {
+            headers: { "content-type": artifact.mime, "content-disposition": "inline" },
+          })
+        } catch {
+          return error("No such file", 404)
+        }
+      }
+      if (artifact.content !== undefined) {
+        const type = /^(text\/|application\/(json|xml))/.test(artifact.mime)
+          ? `${artifact.mime}; charset=utf-8`
+          : artifact.mime
+        return new Response(artifact.content, { headers: { "content-type": type } })
+      }
+      return error("This artifact has nothing to show", 404)
     }
     // Keeping one in front, or saying when it may be forgotten (H-14). Both change the same row.
     if (path[1] === "artifacts" && request.method === "PATCH" && path[2] && !path[3]) {

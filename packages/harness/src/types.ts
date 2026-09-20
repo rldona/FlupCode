@@ -13,7 +13,17 @@ export type CommandOption = {
 }
 
 /** What a run left behind, as the app reads it. Mirrors `harness-server`'s own type (H-14). */
-export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff" | "screenshot"
+export type ArtifactKind =
+  | "plan"
+  | "report"
+  | "verdict"
+  | "diff"
+  | "log"
+  | "file"
+  | "handoff"
+  | "screenshot"
+  /** A document the agent produced and kept (H-14): a page, a report, an image, a PDF. */
+  | "document"
 
 export type Artifact = {
   id: string
