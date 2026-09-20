@@ -4,7 +4,7 @@ import type { Attachment, CommandOption } from "../types"
 import type { Delivery } from "../pending-prompts"
 import { t } from "../i18n"
 import { ComposerMenu } from "./ComposerMenu"
-import { applyMention, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
+import { applyMention, commandBadge, filterCommands, mentionItems, mentionToken, refsIn, slashQuery, type MentionItem } from "../composer-menus"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import { primaryAgents } from "../agents"
@@ -295,6 +295,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
               key: command.name,
               label: `/${command.name}`,
               hint: command.description,
+              badge: commandBadge(command.source),
               disabled: command.disabled,
               soon: command.disabled,
             }))}
