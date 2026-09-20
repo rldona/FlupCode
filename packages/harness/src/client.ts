@@ -2,6 +2,8 @@ import type { MemoryInfo, ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type {
   AgentInfo,
+  ConsoleOrg,
+  ConsoleState,
   McpServer,
   McpResource,
   PermissionV2Request,
@@ -696,8 +698,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
       reload: () => unwrap(client.global.dispose()),
     },
     integration: {
-      list: () => unwrap(client.v2.integration.list()),
-      connectKey: (input: { integrationID: string; key: string; label?: string }) =>
+      list: () => unwrap(client.v2.integration.list()),      connectKey: (input: { integrationID: string; key: string; label?: string }) =>
         unwrap(
           client.v2.integration.connect.key({
             integrationID: input.integrationID,
@@ -719,6 +720,24 @@ export function createClient(baseUrl = resolveServerUrl()) {
         cancel: (attemptID: string) => unwrap(client.v2.integration.attempt.cancel({ attemptID })),
       },
       disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
+    },
+    /**
+     * The Console org behind providers (CO-1): which org is active, which can become active,
+     * and the switch. Absent Console means these answer empty, and the UI stays as it was.
+     */
+    console: {
+      active: async () => {
+        const state = (await unwrap(client.experimental.console.get())) as unknown as ConsoleState | undefined
+        return state ?? { consoleManagedProviders: [], switchableOrgCount: 0 }
+      },
+      orgs: async () => {
+        const result = (await unwrap(client.experimental.console.listOrgs())) as unknown as
+          | { orgs?: ConsoleOrg[] }
+          | undefined
+        return result?.orgs ?? []
+      },
+      switchOrg: (input: { accountID: string; orgID: string }) =>
+        unwrap(client.experimental.console.switchOrg({ accountID: input.accountID, orgID: input.orgID })),
     },
     /**
      * Blocked work, from whichever runtime owns it. A request belongs to the runtime that raised it
