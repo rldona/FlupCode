@@ -1,4 +1,5 @@
 import { For, Show, onCleanup, onMount, type Component } from "solid-js"
+import { cssPx } from "../text-size"
 
 export type MenuItem = {
   label: string
@@ -9,6 +10,7 @@ export type MenuItem = {
 }
 
 type ContextMenuProps = {
+  /** Viewport pixels, as from pointer events or getBoundingClientRect(). */
   x: number
   y: number
   items: MenuItem[]
@@ -38,7 +40,7 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
   return (
     <div
       class="fc-menu"
-      style={{ left: `${props.x}px`, top: `${props.y}px` }}
+      style={{ left: `${cssPx(props.x)}px`, top: `${cssPx(props.y)}px` }}
       onMouseDown={(event) => event.stopPropagation()}
       onContextMenu={(event) => event.preventDefault()}
     >

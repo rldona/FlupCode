@@ -2,6 +2,7 @@ import { For, type Component, Show } from "solid-js"
 import type { ModelInfo } from "../engine-types"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
+import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
 
 type SettingsPanelProps = {
   open: boolean
@@ -77,6 +78,26 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               >
                 <option value="en">{t("English")}</option>
                 <option value="es">{t("Spanish")}</option>
+              </select>
+            </label>
+            <label class="fc-settings-row">
+              <span>{t("App text size")}</span>
+              <select
+                class="fc-toolbar-select"
+                value={appTextSize()}
+                onChange={(event) => setAppTextSize(event.currentTarget.value)}
+              >
+                <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
+              </select>
+            </label>
+            <label class="fc-settings-row">
+              <span>{t("Chat text size")}</span>
+              <select
+                class="fc-toolbar-select"
+                value={chatTextSize()}
+                onChange={(event) => setChatTextSize(event.currentTarget.value)}
+              >
+                <For each={TEXT_SIZES}>{(size) => <option value={size.id}>{t(size.label)}</option>}</For>
               </select>
             </label>
           </section>

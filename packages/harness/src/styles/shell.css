@@ -5038,3 +5038,8 @@ button.fc-row-main {
     scrollbar-color: color-mix(in srgb, var(--fc-text-muted) 45%, transparent) transparent;
   }
 }
+
+/* Chat text size (Settings): zooms the conversation on top of the app text size. */
+.fc-transcript-body {
+  zoom: var(--fc-chat-zoom, 1);
+}

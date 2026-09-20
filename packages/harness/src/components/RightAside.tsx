@@ -3,6 +3,7 @@ import type { ModelInfo, SessionInfo } from "../engine-types"
 import type { TodoItem } from "./TodoDock"
 import { formatTokens } from "../metrics"
 import { t } from "../i18n"
+import { cssPx } from "../text-size"
 
 type RightAsideProps = {
   session: SessionInfo | undefined
@@ -56,7 +57,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
           const startWidth = props.width
           target.setPointerCapture(event.pointerId)
           const move = (moveEvent: PointerEvent) => {
-            const width = right - moveEvent.clientX
+            const width = cssPx(right - moveEvent.clientX)
             if (width < CONTEXT_PANEL_WIDTH.min - 80) {
               stop()
               // Reopening restores the width from before this drag.

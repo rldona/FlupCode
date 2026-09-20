@@ -21,6 +21,8 @@ export const STORAGE_KEYS = {
   sidebarCollapsed: "flupcode.sidebarCollapsed",
   contextPanelHidden: "flupcode.contextPanelHidden",
   contextPanelWidth: "flupcode.contextPanelWidth",
+  appTextSize: "flupcode.appTextSize",
+  chatTextSize: "flupcode.chatTextSize",
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",
