@@ -434,14 +434,25 @@ button.fc-row-main {
   max-width: 40vw;
 }
 
+/* Top bar icons: plain until hovered, when a soft shade appears behind them (no border). */
 .fc-nav-arrow {
-  border: 1px solid var(--fc-border);
-  background: var(--fc-bg-elevated);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
   border-radius: var(--fc-radius-sm);
   width: 28px;
   height: 28px;
+  padding: 0;
   line-height: 1;
   color: var(--fc-text);
+  transition: background var(--fc-motion-fast);
+}
+
+.fc-nav-arrow:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.25);
 }
 
 .fc-nav-arrow:disabled {

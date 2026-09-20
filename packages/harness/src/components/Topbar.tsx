@@ -79,7 +79,16 @@ export const Topbar: Component<TopbarProps> = (props) => {
           aria-label={t("Terminal")}
           onClick={() => props.onTogglePanel("terminal")}
         >
-          ⌨
+          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+            <path
+              d="m5 7 5 5-5 5M12 18h7"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+          </svg>
         </button>
         <button
           class="fc-nav-arrow"
