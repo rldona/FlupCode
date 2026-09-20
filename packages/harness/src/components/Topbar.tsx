@@ -14,6 +14,8 @@ type TopbarProps = {
   onRefreshServer: () => void
   onServerInput: (value: string) => void
   onOpenPalette: () => void
+  workspace: string[]
+  onTogglePanel: (kind: string) => void
 }
 
 export const Topbar: Component<TopbarProps> = (props) => {
@@ -45,6 +47,26 @@ export const Topbar: Component<TopbarProps> = (props) => {
         <span class="fc-logo">FlupCode</span>
       </div>
       <div class="fc-topbar-right">
+        <button
+          class="fc-nav-arrow"
+          classList={{ "fc-icon-button-active": props.workspace.includes("diff") }}
+          type="button"
+          title={t("Files changed")}
+          aria-label={t("Files changed")}
+          onClick={() => props.onTogglePanel("diff")}
+        >
+          ▤
+        </button>
+        <button
+          class="fc-nav-arrow"
+          classList={{ "fc-icon-button-active": props.workspace.includes("browser") }}
+          type="button"
+          title={t("Browser")}
+          aria-label={t("Browser")}
+          onClick={() => props.onTogglePanel("browser")}
+        >
+          ◱
+        </button>
         <button
           class="fc-nav-arrow"
           type="button"
