@@ -511,7 +511,7 @@
     },
     "packages/harness": {
       "name": "@flupcode/harness",
-      "version": "1.0.0",
+      "version": "1.0.8",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
         "@opencode-ai/session-ui": "workspace:*",
@@ -538,7 +538,7 @@
     },
     "packages/harness-desktop": {
       "name": "@flupcode/desktop",
-      "version": "1.0.0",
+      "version": "1.0.8",
       "dependencies": {
         "electron-updater": "6.8.9",
       },
@@ -546,7 +546,7 @@
         "@types/node": "catalog:",
         "@typescript/native-preview": "catalog:",
         "electron": "42.3.3",
-        "electron-builder": "26.15.3",
+        "electron-builder": "^26.15.3",
         "electron-vite": "^5",
         "typescript": "catalog:",
       },
@@ -771,6 +771,16 @@
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
         "@typescript/native-preview": "catalog:",
+      },
+    },
+    "packages/remote": {
+      "name": "@flupcode/remote",
+      "version": "1.0.8",
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
       },
     },
     "packages/schema": {
@@ -1695,6 +1705,8 @@
     "@flupcode/desktop": ["@flupcode/desktop@workspace:packages/harness-desktop"],
 
     "@flupcode/harness": ["@flupcode/harness@workspace:packages/harness"],
+
+    "@flupcode/remote": ["@flupcode/remote@workspace:packages/remote"],
 
     "@fontsource/ibm-plex-mono": ["@fontsource/ibm-plex-mono@5.2.5", "", {}, "sha512-G09N3GfuT9qj3Ax2FDZvKqZttzM3v+cco2l8uXamhKyXLdmlaUDH5o88/C3vtTHj2oT7yRKsvxz9F+BXbWKMYA=="],
 
