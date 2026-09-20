@@ -21,11 +21,7 @@ type McpEditorProps = {
   onOAuth: (name: string) => void
 }
 
-type McpManagerProps = McpEditorProps & {
-  open: boolean
-  onClose: () => void
-  onBack?: () => void
-}
+
 
 const statusLabel = (server: McpServer) => {
   const value = (server.status as { status?: string } | undefined)?.status
@@ -346,43 +342,3 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     </>
   )
 }
-
-export const McpManager: Component<McpManagerProps> = (props) => (
-  <Show when={props.open}>
-    <div class="fc-modal-backdrop" onClick={props.onClose}>
-      <div
-        class="fc-modal fc-modal-wide"
-        role="dialog"
-        aria-modal="true"
-        aria-label={t("MCP servers")}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div class="fc-modal-header">
-          <span class="fc-modal-heading">
-            <Show when={props.onBack}>
-              <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
-                ←
-              </button>
-            </Show>
-            <span>{t("MCP servers")}</span>
-          </span>
-          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-            ×
-          </button>
-        </div>
-        <McpEditor
-          servers={props.servers}
-          configs={props.configs}
-          resources={props.resources}
-          agents={props.agents}
-          busy={props.busy}
-          onAdd={props.onAdd}
-          onRemove={props.onRemove}
-          onConnect={props.onConnect}
-          onDisconnect={props.onDisconnect}
-          onOAuth={props.onOAuth}
-        />
-      </div>
-    </div>
-  </Show>
-)

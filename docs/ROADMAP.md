@@ -33,10 +33,10 @@ record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 59 | — |
+| done | 60 | — |
 | doing | 0 | — |
 | blocked | 2 | F3-16, F5-4 |
-| todo | 5 | F2-2, F3-10, F3-17, F4-3, F6-4 |
+| todo | 4 | F2-2, F3-10, F3-17, F6-4 |
 | **total** | **66** | |
 
 ### What remains
@@ -125,7 +125,7 @@ Corrected, and now really done:
 | --- | --- | --- | --- |
 | F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | done |
 | F4-2 | P1 | Multi-project workspaces + pinned items | done |
-| F4-3 | P1 | Unified "Personalizar" settings surface | todo (14 separate modals) |
+| F4-3 | P1 | Unified "Personalizar" settings surface | done (CU-1–CU-3: agents/providers/MCP sections, modals retired) |
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
 | F4-5 | P2 | Artifacts | done in 1.10.0 (H-14): reports and verdicts kept by the harness server, with a panel |
 | F4-6 | P2 | Routines (scheduled tasks) | done in 1.8.0 (H-10): run by the harness server, with history |

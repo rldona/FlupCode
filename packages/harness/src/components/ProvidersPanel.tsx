@@ -9,8 +9,7 @@ import type {
 } from "../engine-types"
 import { t } from "../i18n"
 
-type ProvidersPanelProps = {
-  open: boolean
+type ProvidersEditorProps = {
   providers: ProviderDirectoryInfo[]
   auth: Record<string, ProviderAuthMethod[]>
   connected: string[]
@@ -25,10 +24,18 @@ type ProvidersPanelProps = {
   onOAuthCancel: (attemptID: string) => Promise<void>
   onOAuthDone: () => void
   onLinkConfigured: () => void
+}
+
+type ProvidersPanelProps = ProvidersEditorProps & {
+  open: boolean
   onClose: () => void
 }
 
-export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
+/**
+ * The providers list on its own, so Settings can mount it as a section (CU-3) instead of
+ * a second modal. The OAuth dialogs stay overlays: they interrupt, wherever the list lives.
+ */
+export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
   const [drafts, setDrafts] = createSignal<Record<string, string>>({})
   const [query, setQuery] = createSignal("")
   const [attempt, setAttempt] = createSignal<IntegrationAttempt | undefined>()
@@ -118,22 +125,7 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
 
   return (
     <>
-      <Show when={props.open}>
-        <div class="fc-modal-backdrop" onClick={props.onClose}>
-          <div
-            class="fc-modal fc-modal-xl"
-            role="dialog"
-            aria-modal="true"
-            aria-label={t("Providers & API keys")}
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div class="fc-modal-header">
-              <span>{t("Providers & API keys")}</span>
-              <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-                ×
-              </button>
-            </div>
-            <p class="fc-modal-line">{t("Add an API key for a provider. It is stored by the OpenCode server.")}</p>
+      <p class="fc-modal-line">{t("Add an API key for a provider. It is stored by the OpenCode server.")}</p>
             <Show when={props.unlinked.length > 0}>
               <div class="fc-provider-notice">
                 <span>
@@ -239,9 +231,6 @@ export const ProvidersPanel: Component<ProvidersPanelProps> = (props) => {
                 </For>
               </ul>
             </Show>
-          </div>
-        </div>
-      </Show>
       <Show when={attempt()}>
         {(current) => (
           <div class="fc-modal-backdrop" onClick={closeOAuth}>

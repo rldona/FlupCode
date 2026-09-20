@@ -103,7 +103,6 @@ import { SessionView } from "./components/SessionView"
 import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
 import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/WorkspacePanels"
-import { McpManager } from "./components/McpManager"
 import type { CommandDraft } from "./components/CommandsPanel"
 import { ModelPicker } from "./components/ModelPicker"
 import { ModelSwitchDialog } from "./components/ModelSwitchDialog"
@@ -113,9 +112,8 @@ import { RenameDialog } from "./components/RenameDialog"
 import { TagsDialog } from "./components/TagsDialog"
 import { ConfirmDialog } from "./components/ConfirmDialog"
 import { permissionMode } from "./permission-modes"
-import { ProvidersPanel } from "./components/ProvidersPanel"
 import { StashDialog } from "./components/StashDialog"
-import { SettingsPanel } from "./components/SettingsPanel"
+import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { RunsPanel } from "./components/RunsPanel"
 import { Onboarding } from "./components/Onboarding"
@@ -499,8 +497,16 @@ export const App: Component = () => {
     setSessionTabsEnabled(next)
     writeStorage(STORAGE_KEYS.sessionTabsEnabled, next)
   }
-  const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
+  /** The settings section to show when the panel opens (CU-1). */
+  const [settingsSection, setSettingsSection] = createSignal<SettingsSection | undefined>(undefined)
+  /** Settings, opened on a section: agents and the rest live on one surface (F4-3). */
+  const openSettings = (section?: SettingsSection) => {
+    setSettingsSection(section)
+    setSettingsOpen(true)
+  }
+  /** The agents section is showing: its files, tools and models load like a screen did. */
+  const agentsSectionVisible = () => settingsOpen() && settingsSection() === "agents"
   // Which full screen is open, and where in the URL it lives, so a reload comes back to it and the
   // browser's Back leaves it. One signal rather than a flag per screen: only one can be open, and
   // two flags could disagree.
@@ -527,7 +533,6 @@ export const App: Component = () => {
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
-  const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
   const replayOpen = () => screen() === "replay"
@@ -570,7 +575,8 @@ export const App: Component = () => {
       onOpen: () => setRemoteOpen(true),
     }
   }
-  const [providersOpen, setProvidersOpen] = createSignal(false)
+  /** The providers section is showing: its directory, methods and links load like a screen did. */
+  const providersSectionVisible = () => settingsOpen() && settingsSection() === "providers"
   const [folderOpen, setFolderOpen] = createSignal(false)
 
   const [skillsOpen, setSkillsOpen] = createSignal(false)
@@ -1172,7 +1178,7 @@ export const App: Component = () => {
     async (url) => createClient(url).integration.list(),
   )
   createEffect(() => {
-    if (!providersOpen()) return
+    if (!providersSectionVisible()) return
     void refetchProviderDirectory()
     void refetchIntegrations()
   })
@@ -1180,7 +1186,7 @@ export const App: Component = () => {
   // them used to happen on its own on every load, which sent every key through the page (and, while
   // remote-controlling, to the phone). Now the providers panel offers it and the reader asks for it.
   const [unlinkedProviders, { refetch: refetchUnlinkedProviders }] = createResource(
-    () => (ready() && providersOpen() ? serverUrl() : undefined),
+    () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
     async (url) => createClient(url).provider.unlinked(),
   )
   const linkConfiguredKeys = () =>
@@ -1395,7 +1401,7 @@ export const App: Component = () => {
    * rather than for the folder it is given — measured against the local engine. The rest of the app
    * still uses it, and that is its own ticket.
    */
-  const folderAgentsKey = () => (agentsOpen() && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
+  const folderAgentsKey = () => (agentsSectionVisible() && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
   const [folderAgents] = createResource(folderAgentsKey, (key) => {
     const [url = "", directory = ""] = key.split("\n")
     return createClient(url).agent.listFor(directory || undefined)
@@ -1405,8 +1411,8 @@ export const App: Component = () => {
   // Agents you can edit (H-13). The files come from the harness server, which can read the disk;
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
-    // Also when the MCP panel is open: who may reach a server is read from the agent files (H-34).
-    if ((!agentsOpen() && !settingsOpen() && !mcpOpen()) || !routinesServerAvailable()) return undefined
+    // Also when Settings is open: who may reach a server is read from the agent files (H-34).
+    if (!settingsOpen() || !routinesServerAvailable()) return undefined
     return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${agentsRefresh()}`
   }
   const [agentsRefresh, setAgentsRefresh] = createSignal(0)
@@ -1456,7 +1462,7 @@ export const App: Component = () => {
   }
   // The configured MCP servers (H-25): so the form can open one for editing, not just add a new one.
   const [mcpConfigs, { refetch: refetchMcpConfigs }] = createResource(
-    () => ((settingsOpen() || mcpOpen()) && ready() ? serverUrl() : undefined),
+    () => (settingsOpen() && ready() ? serverUrl() : undefined),
     async (url) => createClient(url).mcp.config(),
   )
   // The engine's permission policy (H-25), edited in Settings. Runtime grants ("Allow always") are
@@ -1473,7 +1479,7 @@ export const App: Component = () => {
         toast(t("Permissions saved"))
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
-  const toolsKey = () => ((contextOpen() || agentsOpen()) && ready() ? serverUrl() : undefined)
+  const toolsKey = () => ((contextOpen() || agentsSectionVisible()) && ready() ? serverUrl() : undefined)
   const [engineTools] = createResource(toolsKey, (url) => createClient(url).tools())
   /**
    * What this session's window actually holds.
@@ -2068,7 +2074,7 @@ export const App: Component = () => {
         return
       }
       if (name === "mcp") {
-        setMcpOpen(true)
+        openSettings("mcp")
         return
       }
       if (name === "stash") {
@@ -2153,7 +2159,7 @@ export const App: Component = () => {
         return
       }
       if (name === "providers") {
-        setProvidersOpen(true)
+        openSettings("providers")
         return
       }
       if (name === "toggle-sidebar") {
@@ -4702,7 +4708,7 @@ export const App: Component = () => {
       }
       if (name === "mcp") {
         setPrompt("")
-        setMcpOpen(true)
+        openSettings("mcp")
         return
       }
       if (name === "stash") {
@@ -5025,14 +5031,14 @@ export const App: Component = () => {
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
-            onAgents={() => showScreen("agents")}
+            onAgents={() => openSettings("agents")}
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
             onArtifacts={() => showScreen("artifacts")}
-            onProviders={() => setProvidersOpen(true)}
+            onProviders={() => openSettings("providers")}
             onConfig={() => setConfigOpen(true)}
             onRemote={() => setRemoteOpen(true)}
-            onMcp={() => setMcpOpen(true)}
+            onMcp={() => openSettings("mcp")}
           />
         </PanelBoundary>
       </Show>
@@ -5493,41 +5499,6 @@ export const App: Component = () => {
         searchFiles={searchFiles}
         searchSessions={searchSessions}
       />
-      <McpManager
-        open={mcpOpen()}
-        servers={mcp()?.data ?? []}
-        configs={mcpConfigs()?.data ?? {}}
-        resources={mcpResources() ?? []}
-        agents={agentFiles() ?? []}
-        busy={busy()}
-        onAdd={addMcp}
-        onRemove={removeMcp}
-        onConnect={connectMcp}
-        onDisconnect={disconnectMcp}
-        onOAuth={oauthMcp}
-        onClose={() => setMcpOpen(false)}
-        onBack={() => {
-          setMcpOpen(false)
-          setSettingsOpen(true)
-        }}
-      />
-      <ProvidersPanel
-        open={providersOpen()}
-        providers={providerDirectory()?.all ?? []}
-        auth={providerAuth() ?? {}}
-        connected={providerDirectory()?.connected ?? []}
-        integrations={integrations()?.data ?? []}
-        unlinked={unlinkedProviders() ?? []}
-        busy={busy()}
-        onSave={saveProvider}
-        onRemove={removeProvider}
-        onOAuth={startOAuth}
-        onOAuthStatus={oAuthStatus}
-        onOAuthCancel={cancelOAuth}
-        onOAuthDone={finishOAuth}
-        onLinkConfigured={linkConfiguredKeys}
-        onClose={() => setProvidersOpen(false)}
-      />
       <ModelPicker
         open={modelPickerOpen()}
         models={modelList()}
@@ -5672,10 +5643,28 @@ export const App: Component = () => {
         onToggleSessionTabs={toggleSessionTabs}
         onToggleNotifications={toggleNotifications}
         onKeybind={changeKeybind}
-        onOpenAgents={() => {
-          setSettingsOpen(false)
-          showScreen("agents")
-        }}
+        section={settingsSection() ?? "appearance"}
+        onSectionChange={setSettingsSection}
+        agentsList={folderAgents() ?? []}
+        agentTools={engineTools() ?? []}
+        agentModelsList={agentModels()}
+        agentsLoading={agentFiles.loading}
+        agentsHasProject={!!vcsDirectory()}
+        onSaveAgent={saveAgent}
+        onDeleteAgent={deleteAgent}
+        providersList={providerDirectory()?.all ?? []}
+        providerAuth={providerAuth() ?? {}}
+        providerConnected={providerDirectory()?.connected ?? []}
+        providerIntegrations={integrations()?.data ?? []}
+        providerUnlinked={unlinkedProviders() ?? []}
+        providersBusy={busy()}
+        onSaveProvider={saveProvider}
+        onRemoveProvider={removeProvider}
+        onProviderOAuth={startOAuth}
+        onProviderOAuthStatus={oAuthStatus}
+        onProviderOAuthCancel={cancelOAuth}
+        onProviderOAuthDone={finishOAuth}
+        onLinkConfiguredProviders={linkConfiguredKeys}
         onOpenSkills={() => {
           setSettingsOpen(false)
           showScreen("skills")
@@ -5716,20 +5705,6 @@ export const App: Component = () => {
         list={listFiles}
         search={searchFileEntries}
         read={readFileText}
-        onClose={() => leaveScreen()}
-      />
-      <AgentsPanel
-        open={agentsOpen()}
-        files={agentFiles() ?? []}
-        agents={folderAgents() ?? []}
-        tools={engineTools() ?? []}
-        mcp={mcp()?.data ?? []}
-        models={agentModels()}
-        loading={agentFiles.loading}
-        serverAvailable={routinesServerAvailable()}
-        hasProject={!!vcsDirectory()}
-        onSave={saveAgent}
-        onDelete={deleteAgent}
         onClose={() => leaveScreen()}
       />
       <ContextPanel
