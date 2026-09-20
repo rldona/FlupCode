@@ -1,10 +1,16 @@
-import type { Component } from "solid-js"
+import { For, type Component } from "solid-js"
+import type { ModelInfo } from "@opencode-ai/client"
 
 type ComposerProps = {
   value: string
   sending: boolean
+  models: ModelInfo[]
+  modelKey: string | undefined
+  auto: boolean
   onInput: (value: string) => void
   onSend: () => void
+  onModelChange: (key: string) => void
+  onToggleAuto: () => void
 }
 
 export const Composer: Component<ComposerProps> = (props) => (
@@ -35,6 +41,30 @@ export const Composer: Component<ComposerProps> = (props) => (
       >
         Enviar
       </button>
+    </div>
+    <div class="oh-composer-controls">
+      <button
+        class="oh-chip oh-chip-button"
+        classList={{ "oh-chip-active": props.auto }}
+        type="button"
+        onClick={props.onToggleAuto}
+      >
+        Auto
+      </button>
+      <select
+        class="oh-model-select"
+        value={props.auto ? "" : (props.modelKey ?? "")}
+        disabled={props.auto}
+        aria-label="Modelo"
+        onChange={(event) => props.onModelChange(event.currentTarget.value)}
+      >
+        <option value="" disabled>
+          Modelo por defecto
+        </option>
+        <For each={props.models}>
+          {(model) => <option value={`${model.providerID}/${model.modelID}`}>{model.name}</option>}
+        </For>
+      </select>
     </div>
   </footer>
 )
