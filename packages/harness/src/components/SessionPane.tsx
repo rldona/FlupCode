@@ -374,6 +374,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         onInput={setDraft}
         onSend={() => void send()}
         onCommandPick={() => undefined}
+        onCommandRun={() => undefined}
         onOpenModelPicker={props.onOpenModelPicker}
         onVariantChange={(value) => {
           const ref = modelRef()
