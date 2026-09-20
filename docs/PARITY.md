@@ -8,6 +8,7 @@ This file used to compare the TUI with `packages/app` — upstream's client, not
 a nearly complete matrix of features FlupCode does not have. `docs/AUDIT-2026-09.md` (14 September 2026) checked every row against `packages/harness` and found F3-7, F3-8, F3-10, F3-13, F3-17,
 F4-3, F4-5, F4-6 and F2-2 marked done while empty or broken. The matrix below is the corrected one:
 every status refers to **FlupCode's harness**, and each claim points at the code that backs it.
+Re-verified 2026-09-20 against `@flupcode/harness-server` 1.13.8 + HF-1–HF-9 (PR #252).
 
 Legend: **✅** works end to end · **🟡** partial or worse than upstream · **🔌** the engine exposes it
 and the harness does not use it · **❌** nobody has it · **➕** FlupCode has it and upstream does not
@@ -19,9 +20,10 @@ Paths are relative to `packages/`.
 | Feature                                                       | Upstream  | FlupCode | Evidence                                                                |
 | ------------------------------------------------------------- | --------- | -------- | ----------------------------------------------------------------------- |
 | Sidebar, top bar, right context panel                         | ✅        | ✅       | `harness/src/components/{Sidebar,Topbar,RightAside}.tsx`                |
+| Tool screens in the main column, sidebar kept, nav active       | ❌        | ➕       | `RunsPanel/WorkflowsPanel/ArtifactsPanel/RoutinesPanel.tsx` in `fc-main`, `toolScreen()` |
 | Side panels (browser, diff, terminal), split up to 4 sessions | 🟡 (tabs) | ➕       | `WorkspacePanels.tsx`, `split.ts`                                       |
 | URL routing, session tabs, lineage breadcrumb                 | ✅        | ❌       | navigation is signals; only `?session=` and `#remote=`                  |
-| Command palette                                               | ✅        | 🟡       | `CommandPalette.tsx`: commands, sessions and files; no split/rename/pin |
+| Command palette                                               | ✅        | 🟡       | `CommandPalette.tsx`: commands, sessions, files, workflows; no split/rename/pin |
 | Editable keybinds, leader key, which-key                      | ✅        | ❌       | only the palette key (`SettingsPanel.tsx`)                              |
 | Phone layout, remote pairing, push, PWA                       | ❌        | ➕       | `remote/*`, `relay/*`, `flupcode-cli/*`                                 |
 
@@ -35,7 +37,7 @@ Paths are relative to `packages/`.
 | Move between projects                            | ✅                         | ✅       | `/experimental/control-plane/move-session`                      |
 | Compact / summarize                              | ✅                         | 🟡       | compaction runs; no divider or summary in the timeline          |
 | Undo / redo with file restore                    | ✅                         | 🟡       | `revert.stage/commit/clear`; no marker in the timeline, no redo |
-| Archive, tags, server-side search, cursor paging | ✅                         | 🔌       | `GET /session?search=`, `PATCH /session {time.archived}` unused |
+| Archive, tags, server-side search, cursor paging | ✅                         | 🟡       | tags via `TagsDialog` + `/harness/session-prefs`; search/paging still unused |
 | Export transcript                                | ✅ (Markdown with options) | 🟡       | Markdown, no options (`exportMarkdown`)                         |
 | Engine-generated title                           | ✅                         | ✅       | the engine's title agent names the session on its first turn    |
 | Session list cap                                 | paged                      | 🟡       | 200, no paging (`client.ts`)                                    |
@@ -123,8 +125,8 @@ Paths are relative to `packages/`.
 | Per-session context usage             | ✅       | ✅       | `ContextMeter.tsx`                                                              |
 | Usage dashboard, activity heatmap     | ❌       | ➕       | `HomeCanvas.tsx` — but it downloads up to 30 transcripts to count               |
 | Reply suggestions, Chat tab           | ❌       | ➕       | `reply-suggestion.ts`, `chat.ts` — one hidden child session per turn            |
-| Artifacts, routines                   | ❌       | ✅       | routines run in the harness server; artifacts are what runs leave behind (1.10.0) |
-| Runs, verification, workflows         | ❌       | ✅       | runs with tasks, `verify` with evidence and bounded retry, workflows with gates (1.10.0) |
+| Artifacts, routines                   | ❌       | ✅       | routines run in the harness server with workflow+policy, history, resume; artifacts indexed with search/export/`@artifact` cites (HF-1–HF-9, 1.13.8) |
+| Runs, verification, workflows         | ❌       | ✅       | runs with tasks, cancel/resume/retry/steer, `verify` with evidence and bounded retry, workflows with gates/until/inputs (1.10.0 + HF) |
 
 ## Where the work is
 
@@ -142,6 +144,13 @@ satisfies both; `components/file.tsx`, `pierre/*`, and the `@opencode-ai/ui` com
 comments pull in do not — and the repo does not touch upstream (ADR-0001). Taking them needs either
 those two flags relaxed for the whole harness — 15k lines of its own code — or `session-ui` made to
 compile under them upstream. Neither is worth a viewer whose job the own one already does.
+
+Since 2026-09-16 the HF block (HF-1–HF-9, PR #252) closed the harness gaps: workflow palette
+launch with run-until-task and checkpoint resume, input defaults with specific validation errors,
+`worktrees` in the file, queued-task cancel, run resume with restart requeue, inline `@artifact:`
+cites resolved to content, artifact text search + `screenshot` kind + md/json export, routines on
+workflows with policy, and the four tool screens embedded in the main column with lifecycle nav
+order and session chrome hidden like New.
 
 `docs/ROADMAP.md` still describes the older plan. `docs/AUDIT-2026-09.md` §17 is the priced backlog
 and supersedes it wherever the two disagree.

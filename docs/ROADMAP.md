@@ -23,19 +23,20 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 
 ## Status summary
 
-_Last updated: 2026-09-16._
+_Last updated: 2026-09-20._
 
 `docs/AUDIT-2026-09.md` (14 September 2026) checked this table against `packages/harness` and found
 nine tickets marked `done` that were empty, broken or a UI over a stub. They are corrected below.
 **The audit's §17 backlog, not this table, is the current plan**; this phase table stays as the
-record of how the harness was built.
+record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–#214; the HF block
+(HF-1–HF-9, PR #252) brought Workflows, Runs, Artifacts and Routines to 100% on 2026-09-20.
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 55 | — |
+| done | 58 | — |
 | doing | 0 | — |
 | blocked | 2 | F3-16, F5-4 |
-| todo | 9 | F2-2, F3-8, F3-10, F3-13, F3-17, F4-3, F4-5, F4-6, F6-4 |
+| todo | 6 | F2-2, F3-10, F3-13, F3-17, F4-3, F6-4 |
 | **total** | **66** | |
 
 ### What remains
@@ -55,6 +56,11 @@ Corrected, and now really done:
 - **Share/unshare (part of F3-5)** was marked impossible for the same reason. `/session/:id/share`
   exists; the harness now uses it.
 - **F3-7 Move session** is wired to `/experimental/control-plane/move-session`.
+- **F3-8 Session tags/labels** was marked `todo (never built)`; `TagsDialog.tsx` + sidebar tag
+  filter + server-side `session-prefs` exist — verified 2026-09-20.
+- **F4-5 Artifacts / F4-6 Routines** run on the harness server (`@flupcode/harness-server` 1.13.8)
+  with panels, history and the HF block (search/export/`@artifact` cites; workflow+policy routines)
+  — verified live 2026-09-20.
 
 ---
 
@@ -102,7 +108,7 @@ Corrected, and now really done:
 | F3-5 | P0 | Session list/switch, share/unshare, export | done |
 | F3-6 | P0 | Agents, subagents, todos | done |
 | F3-7 | P1 | Move session between locations | done (wired 2026-09-16) |
-| F3-8 | P1 | Session tags/labels | todo (never built) |
+| F3-8 | P1 | Session tags/labels | done (TagsDialog + sidebar filter + server prefs, verified 2026-09-20) |
 | F3-9 | P1 | Prompt stash | done |
 | F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | todo (a list, no manager) |
 | F3-11 | P1 | Paste summarization | done |
@@ -184,14 +190,32 @@ Corrected, and now really done:
 
 ## Blockers
 
-- **F3-14 MCP manager** — the vendored client (`1.17.13`) calls `/api/mcp`, removed in the current
-  server (`1.18.30`); configure MCP through the engine config for now.
+Current truth (the entries below from the older plan are kept struck for history):
+
 - **F3-16 Console org switch** — no console API in the v2 client.
-- **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; only export is available.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo.
+- ~~F3-14 MCP manager — vendored client calls removed `/api/mcp`~~ — false: the engine serves `/mcp`; the harness uses it.
+- ~~Share/unshare without endpoint~~ — false: `session.share/unshare` exist; the harness uses them.
 
 ### Engine API layer
 
 Resolved in ADR-0009: the harness uses `@opencode-ai/sdk/v2/client` (ADR-0009) and reaches the
-event stream over SSE. Projects are derived from session locations. MCP remains blocked because the
-current engine does not expose an MCP group.
+event stream over SSE. Projects are derived from session locations.
+
+## HF — High features (2026-09-20, PR #252)
+
+`docs/tickets/HF-high-features.md`. Workflows, Runs, Artifacts and Routines to 100%:
+
+| ID | Ticket | Status |
+| --- | --- | --- |
+| HF-1 | Workflows: palette launch, run-until-task, checkpoint resume | done |
+| HF-2 | Workflows: input defaults, specific validation errors | done |
+| HF-3 | Workflows: `worktrees` in file, verify→recovery `when` | done |
+| HF-4 | Runs: cancel a queued task from the supervisor | done |
+| HF-5 | Runs: resume interrupted runs, restart requeues in-flight work | done |
+| HF-6 | Artifacts: cite inline by id, resolve `@artifact:` refs to content | done |
+| HF-7 | Artifacts: text search, `screenshot` kind, md/json export | done |
+| HF-8 | Routines: run workflows with policy and inputs | done |
+| HF-9 | Tool screens embedded in the main column, lifecycle nav order, clean topbar | done |
+
+Out of scope on purpose: routine-finish push to mobile (crosses into `remote`; separate ticket).
