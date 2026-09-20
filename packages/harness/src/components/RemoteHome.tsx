@@ -59,8 +59,23 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
   const hostState = (hostId: string) => {
     if (remote.activeHost()?.hostId !== hostId) return "idle"
     if (remote.status() === "connected") return "online"
-    if (remote.status() === "error") return "error"
+    // A known failure (the computer is offline, the device was revoked) reads as an error instead
+    // of an endless "Connecting"; the panel has the full message.
+    if (remote.status() === "error" || remote.errorCode()) return "error"
     return "connecting"
+  }
+
+  const hostLabel = (hostId: string) => {
+    const state = hostState(hostId)
+    if (state === "online") return t("Connected")
+    if (state === "idle") return t("Tap to connect")
+    if (state === "error") return remote.errorCode() === "offline" ? t("Computer offline") : t("Error")
+    return t("Connecting")
+  }
+
+  const pickHost = (hostId: string) => {
+    if (remote.activeHost()?.hostId !== hostId) return remote.connect(hostId)
+    if (hostState(hostId) !== "online") remote.retry()
   }
 
   const newSession = (directory: string | undefined) => {
@@ -83,22 +98,12 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
               class="fc-remote-card fc-remote-device"
               classList={{ "fc-remote-card-active": remote.activeHost()?.hostId === host.hostId }}
               type="button"
-              onClick={() => {
-                if (remote.activeHost()?.hostId !== host.hostId) remote.connect(host.hostId)
-              }}
+              onClick={() => pickHost(host.hostId)}
             >
               <span class={`fc-remote-dot fc-remote-dot-${hostState(host.hostId)}`} aria-hidden="true" />
               <span class="fc-remote-card-main">
                 <span class="fc-remote-card-title">{host.name}</span>
-                <span class="fc-remote-card-meta">
-                  {hostState(host.hostId) === "online"
-                    ? t("Connected")
-                    : hostState(host.hostId) === "idle"
-                      ? t("Tap to connect")
-                      : hostState(host.hostId) === "error"
-                        ? t("Error")
-                        : t("Connecting")}
-                </span>
+                <span class="fc-remote-card-meta">{hostLabel(host.hostId)}</span>
               </span>
             </button>
           )}
