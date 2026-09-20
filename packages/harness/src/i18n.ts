@@ -255,6 +255,9 @@ const ES: Record<string, string> = {
   "Processes written down as files: the plan, the build, the check, and what waits for what.":
     "Procesos escritos como ficheros: el plan, el build, la comprobación y qué espera a qué.",
   "New workflow": "Nuevo flujo",
+  "A workflow is a file: write the tasks it runs, in order.":
+    "Un flujo es un archivo: escribe las tareas que ejecuta, en orden.",
+  "Creating…": "Creando…",
   Here: "Aquí",
   "None in this project yet.": "Todavía no hay ninguno en este proyecto.",
   "Where it is written": "Dónde se escribe",

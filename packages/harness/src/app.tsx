@@ -93,7 +93,7 @@ import {
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
 import { Toaster, clearToast, toast } from "./toast"
-import { SIDEBAR_WIDTH_DEFAULT, Sidebar } from "./components/Sidebar"
+import { SIDEBAR_WIDTH_DEFAULT, Sidebar, sessionGroupKey } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
@@ -811,10 +811,13 @@ export const App: Component = () => {
   // A project the reader opened a session in stays open. The list used to expand only the selected
   // session's project and collapse the previous one, so choosing a session lower down removed the
   // rows above it and the sidebar's scroll jumped up. Expansion is now something the list only adds.
+  // The group key comes from the sidebar so the no-folder bucket is kept open too.
   createEffect(() => {
-    const directory = selectedSession()?.location?.directory
-    if (!directory || expanded()[directory]) return
-    const next = { ...expanded(), [directory]: true }
+    const session = selectedSession()
+    if (!session) return
+    const key = sessionGroupKey(session, noFolderSessions())
+    if (expanded()[key]) return
+    const next = { ...expanded(), [key]: true }
     setExpanded(next)
     writeStorage(STORAGE_KEYS.expandedProjects, next)
   })
@@ -937,24 +940,33 @@ export const App: Component = () => {
    * ones, so the list is different depending on where the session is working.
    */
   const [workflows, { refetch: refetchWorkflows }] = createResource(
-    () => `${harnessServerUrl()}\n${modelLocation() ?? ""}`,
+    () => (harnessServerUrl() ? `${harnessServerUrl()}\n${modelLocation() ?? ""}` : undefined),
     async (key) => {
       const [url = "", directory = ""] = key.split("\n")
-      return createHarnessClient(url)
-        .workflows.list(directory || undefined)
-        .catch(() => [] as Workflow[])
+      // The failure is kept, not swallowed: the screen says whether the list is the server's or the
+      // last one it managed to read.
+      return createHarnessClient(url).workflows.list(directory || undefined)
     },
   )
+  // What the workflows screen may act on: files it can write, and the status the notice reads.
+  const workflowsAvailable = () => !!harnessServerUrl() && !workflows.failure()
   const workflowNamed = (name: string) => (workflows() ?? []).find((workflow) => workflow.name === name)
 
   /** What the runs left behind (H-14), for the project this session is working in. */
   const [artifactList, setArtifactList] = createSignal<Artifact[]>([])
+  // The last artifacts read that failed, so the panel says whether the list is the server's or the
+  // last one it managed to read, instead of borrowing the routines connection's state.
+  const [artifactsFailure, setArtifactsFailure] = createSignal<Error>()
+  const artifactsAvailable = () => !!harnessServerUrl() && !artifactsFailure()
   const refreshArtifacts = async () => {
     const directory = modelLocation()
-    const list = await createHarnessClient(harnessServerUrl())
-      .artifacts.list(directory ? { directory } : {})
-      .catch(() => undefined)
-    if (list) setArtifactList(list)
+    try {
+      const list = await createHarnessClient(harnessServerUrl()).artifacts.list(directory ? { directory } : {})
+      setArtifactList(list)
+      setArtifactsFailure(undefined)
+    } catch (cause) {
+      setArtifactsFailure(cause instanceof Error ? cause : new Error(String(cause)))
+    }
   }
   createEffect(() => {
     harnessServerUrl()
@@ -3734,7 +3746,9 @@ export const App: Component = () => {
             if (controller.signal.aborted) return
           }
           if (controller.signal.aborted) return
-          setRoutinesServerAvailable(false)
+          // The stream ending is not the server being unreachable: the next `refreshRoutines` above
+          // asks over a plain request and is what decides that. Marking it here made every harness
+          // screen say "not reachable" whenever the event stream dropped, while requests still worked.
             await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
           }
       })()
@@ -5213,7 +5227,7 @@ export const App: Component = () => {
             open={workflowsScreenOpen()}
             files={workflows() ?? []}
             loading={workflows.loading}
-            serverAvailable={routinesServerAvailable()}
+            serverAvailable={workflowsAvailable()}
             directory={modelLocation()}
             onRead={readWorkflowFile}
             onSave={saveWorkflowFile}
@@ -5224,7 +5238,7 @@ export const App: Component = () => {
             open={artifactsOpen()}
             artifacts={artifactList()}
             sessionFiles={artifacts()}
-            serverAvailable={routinesServerAvailable()}
+            serverAvailable={artifactsAvailable()}
             onCopy={copyPath}
             onRemove={removeArtifact}
             onUpdate={updateArtifact}
