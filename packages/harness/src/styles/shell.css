@@ -3966,3 +3966,40 @@ button.fc-row-main {
     min-width: 0;
   }
 }
+
+.fc-onboarding-remote {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  padding: var(--fc-space-3);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+}
+
+.fc-onboarding-remote-title {
+  font-weight: 600;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-onboarding-local {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+  font-size: 13px;
+}
+
+.fc-onboarding-local summary {
+  cursor: pointer;
+  color: var(--fc-text-muted);
+}
+
+.fc-onboarding-local[open] > :not(summary) {
+  margin-top: var(--fc-space-3);
+}
+
+.fc-remote-error {
+  margin: 0;
+  color: var(--fc-danger);
+  font-size: 13px;
+  line-height: 1.5;
+}

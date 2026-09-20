@@ -62,6 +62,8 @@ const [activeHostId, setActiveHostId] = createSignal<string | undefined>(
 )
 const [status, setStatus] = createSignal<RemoteStatus>("idle")
 const [errorCode, setErrorCode] = createSignal<RemoteErrorCode | undefined>()
+/** A pairing started from a link: in progress, or failed with the reason. */
+const [pairing, setPairing] = createSignal<{ name: string; error?: RemoteErrorCode }>()
 
 const TUNNEL_WAIT = 20_000
 
@@ -181,20 +183,18 @@ async function connectHost(hostId: string, current = ++generation) {
 }
 
 async function pair(link: PairingLink) {
-  const current = ++generation
-  clearTimeout(retryTimer)
-  setStatus("connecting")
-  setErrorCode(undefined)
-  const next = await open({ relay: link.relay, hostId: link.host, mode: "pair", id: link.id, psk: link.secret }).catch(
-    (error: unknown) => {
-      if (current !== generation) return undefined
-      const code = classify(error)
-      setErrorCode(code === "revoked" ? "expired" : code)
-      setStatus("error")
-      return undefined
-    },
+  setPairing({ name: link.name })
+  // Pairing runs beside any current connection, which is only replaced once enrolment succeeds.
+  const opened = await open({ relay: link.relay, hostId: link.host, mode: "pair", id: link.id, psk: link.secret }).then(
+    (next) => ({ next }),
+    (error: unknown) => ({ error }),
   )
-  if (!next) return false
+  if ("error" in opened) {
+    const code = classify(opened.error)
+    setPairing({ name: link.name, error: code === "revoked" ? "expired" : code })
+    return false
+  }
+  const next = opened.next
   const enrolled = await new Promise<RemoteHost | undefined>((resolve) => {
     const timer = setTimeout(() => resolve(undefined), 15_000)
     next.onControl((message) => {
@@ -212,17 +212,17 @@ async function pair(link: PairingLink) {
     })
     next.onClose(() => resolve(undefined))
   })
-  if (!enrolled || current !== generation) {
+  if (!enrolled) {
     next.close()
-    if (current === generation) {
-      setErrorCode("failed")
-      setStatus("error")
-    }
+    setPairing({ name: link.name, error: "failed" })
     return false
   }
+  const current = ++generation
+  clearTimeout(retryTimer)
   saveHosts([...hosts().filter((entry) => entry.hostId !== enrolled.hostId), enrolled])
   saveActive(enrolled.hostId)
   attach(next, enrolled, current)
+  setPairing(undefined)
   return true
 }
 
@@ -230,6 +230,7 @@ export const remote = {
   hosts,
   status,
   errorCode,
+  pairing,
   activeHost: () => hosts().find((host) => host.hostId === activeHostId()),
 
   connect(hostId: string) {
@@ -260,6 +261,11 @@ export const remote = {
   },
 
   pair,
+
+  /** Clears a failed pairing once its error has been shown. */
+  dismissPairing() {
+    if (pairing()?.error) setPairing(undefined)
+  },
 
   /** Pairs from a `#remote=` link in the current URL, removing it from the address bar. */
   consumePairingLink() {

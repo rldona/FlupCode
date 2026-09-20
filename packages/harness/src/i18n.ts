@@ -365,6 +365,12 @@ const ES: Record<string, string> = {
     "El código de emparejamiento caducó o ya se usó. Crea uno nuevo en el ordenador.",
   "Could not connect to the computer.": "No se pudo conectar con el ordenador.",
   "Remote: {name}": "Remoto: {name}",
+  "Pairing with {name}…": "Emparejando con {name}…",
+  "Control a computer": "Controlar un ordenador",
+  "Or control another computer": "O controla otro ordenador",
+  "Already use FlupCode on a computer? Open Remote control → Pair a device there and scan the code with this device.":
+    "¿Ya usas FlupCode en un ordenador? Abre allí Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
+  "Use a server on this device": "Usar un servidor en este dispositivo",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

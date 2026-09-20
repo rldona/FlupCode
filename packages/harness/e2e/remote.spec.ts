@@ -103,3 +103,52 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
   await expect(page.getByRole("button", { name: /Remote: e2e-host/ })).toHaveCount(0)
   host.stop()
 })
+
+test("an expired pairing link explains the error instead of showing the welcome screen", async ({ page, baseURL }) => {
+  const statuses: string[] = []
+  const host = startRelayHost({
+    relay: relayUrl,
+    identity: await createHostIdentity(),
+    onStatus: (status) => statuses.push(status),
+    // The host knows no pairing, as when the code expired or was already used.
+    onChannel: (wire) => void acceptChannel(wire, () => undefined).catch(() => undefined),
+  })
+  await expect.poll(() => statuses.at(-1)).toBe("online")
+
+  await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
+  await page.goto(
+    pairingUrl(`${baseURL}/`, {
+      v: 1,
+      relay: relayUrl,
+      host: await host.hostId,
+      id: toBase64Url(random(16)),
+      secret: toBase64Url(random(32)),
+      name: "e2e-host",
+    }),
+  )
+
+  const panel = page.getByRole("dialog", { name: "Remote control" })
+  await expect(panel.getByText(/pairing code expired or was already used/)).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole("dialog", { name: /Welcome to FlupCode/ })).toHaveCount(0)
+
+  await panel.getByRole("button", { name: "Close" }).first().click()
+  await expect(page.getByRole("dialog", { name: /Welcome to FlupCode/ })).toBeVisible()
+  host.stop()
+})
+
+test.describe("on a phone", () => {
+  test.use({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true })
+
+  test("the welcome screen offers to control a computer first", async ({ page }) => {
+    await page.addInitScript(() => localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9")))
+    await page.goto("/")
+    const welcome = page.getByRole("dialog", { name: /Welcome to FlupCode/ })
+    await expect(welcome.getByRole("button", { name: "Control a computer" })).toBeVisible()
+    await expect(welcome.getByRole("button", { name: "Get started" })).toBeHidden()
+
+    await welcome.getByPlaceholder("Your name").fill("Raúl")
+    await welcome.getByRole("button", { name: "Control a computer" }).click()
+    await expect(welcome).toHaveCount(0)
+    await expect(page.getByRole("dialog", { name: "Remote control" })).toBeVisible()
+  })
+})
