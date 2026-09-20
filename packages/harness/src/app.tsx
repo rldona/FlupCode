@@ -125,6 +125,7 @@ function readColorTheme() {
   if (saved === "sublime") return "sublime"
   if (saved === "sublime-dark") return "sublime-dark"
   if (saved === "github") return "github"
+  if (saved === "copilot") return "copilot"
   return "flupcode"
 }
 
