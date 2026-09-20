@@ -3,6 +3,7 @@ import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type {
   AgentInfo,
   McpServer,
+  McpResource,
   PermissionV2Request,
   QuestionV2Request,
   SessionInfo,
@@ -944,6 +945,16 @@ export function createClient(baseUrl = resolveServerUrl()) {
       },
       connect: (input: { server: string }) => unwrap(client.mcp.connect({ name: input.server })),
       disconnect: (input: { server: string }) => unwrap(client.mcp.disconnect({ name: input.server })),
+      /**
+       * What the connected servers expose (H-34).
+       *
+       * The engine never lists an MCP server's **tools** — they bypass its registry, so only the
+       * calls it makes are known, which is what the context panel reads. Resources it does report.
+       */
+      resources: async () => {
+        const resources = (await unwrap(client.experimental.resource.list())) as unknown as Record<string, McpResource>
+        return Object.values(resources ?? {})
+      },
     },
   }
 }

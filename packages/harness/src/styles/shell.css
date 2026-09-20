@@ -2650,10 +2650,57 @@ button.fc-status {
 
 .fc-mcp-row {
   display: flex;
-  align-items: center;
-  gap: var(--fc-space-2);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   padding: 6px 0;
   border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-mcp-line {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+.fc-mcp-error {
+  margin: 0;
+  color: var(--fc-danger);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-mcp-resources ul {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-mcp-resource {
+  display: flex;
+  align-items: baseline;
+  gap: var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}
+
+.fc-mcp-resource-name {
+  color: var(--fc-text);
+}
+
+.fc-mcp-resource-uri {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-mcp-access,
+.fc-mcp-access-none {
+  margin: 0;
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
 }
 
 .fc-mcp-name {
