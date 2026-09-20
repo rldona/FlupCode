@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
-import type { FileSystemEntry, ModelInfo, ModelVariant } from "@opencode-ai/client"
+import type { FileSystemEntry, ModelInfo, ModelVariant, Project } from "@opencode-ai/client"
 import type { Attachment, CommandOption } from "../types"
 import { t } from "../i18n"
 
@@ -13,6 +13,8 @@ type ComposerProps = {
   auto: boolean
   attachments: Attachment[]
   commands: CommandOption[]
+  projects: Project[]
+  targetDirectory: string | undefined
   onInput: (value: string) => void
   onSend: () => void
   onModelChange: (key: string) => void
@@ -24,6 +26,13 @@ type ComposerProps = {
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
   onPasteText: (text: string) => string
   onStash: () => void
+  onTargetChange: (directory: string | undefined) => void
+}
+
+function projectLabel(project: Project) {
+  if (project.name) return project.name
+  const segments = project.worktree.split("/").filter(Boolean)
+  return segments.at(-1) ?? project.worktree
 }
 
 type SpeechRecognitionResult = {
@@ -158,8 +167,17 @@ export const Composer: Component<ComposerProps> = (props) => {
       }}
     >
       <div class="fc-composer-chips">
-        <span class="fc-chip">{t("Local")}</span>
-        <span class="fc-chip">{t("No folder")}</span>
+        <select
+          class="fc-folder-select"
+          aria-label={t("Folder")}
+          value={props.targetDirectory ?? ""}
+          onChange={(event) => props.onTargetChange(event.currentTarget.value || undefined)}
+        >
+          <option value="">{t("No folder")}</option>
+          <For each={props.projects}>
+            {(project) => <option value={project.worktree}>{projectLabel(project)}</option>}
+          </For>
+        </select>
         <Show when={props.value.startsWith("!")}>
           <span class="fc-chip fc-chip-active">{t("Shell")}</span>
         </Show>

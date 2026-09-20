@@ -1,6 +1,7 @@
 import { For, type Component } from "solid-js"
 import type { ModelInfo } from "@opencode-ai/client"
 import { t, type Locale } from "../i18n"
+import { KeyCapture } from "./KeyCapture"
 
 type SettingsPanelProps = {
   open: boolean
@@ -12,6 +13,8 @@ type SettingsPanelProps = {
   modelKey: string | undefined
   auto: boolean
   showTools: boolean
+  notifications: boolean
+  paletteKey: string
   onTheme: (value: string) => void
   onLocale: (value: Locale) => void
   onDisplayName: (value: string) => void
@@ -20,8 +23,11 @@ type SettingsPanelProps = {
   onModelChange: (key: string) => void
   onToggleAuto: () => void
   onToggleTools: () => void
+  onToggleNotifications: () => void
+  onPaletteKey: (value: string) => void
   onOpenMcp: () => void
   onOpenRemote: () => void
+  onOpenConfig: () => void
   onOpenAbout: () => void
   onClose: () => void
 }
@@ -127,6 +133,29 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </section>
 
           <section class="fc-settings-section">
+            <h3 class="fc-settings-title">{t("Notifications")}</h3>
+            <div class="fc-settings-row">
+              <span>{t("Enable notifications")}</span>
+              <button
+                class="fc-chip fc-chip-button"
+                classList={{ "fc-chip-active": props.notifications }}
+                type="button"
+                onClick={props.onToggleNotifications}
+              >
+                {props.notifications ? t("On") : t("Off")}
+              </button>
+            </div>
+          </section>
+
+          <section class="fc-settings-section">
+            <h3 class="fc-settings-title">{t("Shortcuts")}</h3>
+            <label class="fc-settings-row">
+              <span>{t("Command palette")}</span>
+              <KeyCapture value={props.paletteKey} onChange={props.onPaletteKey} />
+            </label>
+          </section>
+
+          <section class="fc-settings-section">
             <h3 class="fc-settings-title">{t("Server")}</h3>
             <div class="fc-settings-row">
               <input
@@ -149,6 +178,9 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenRemote}>
                 {t("Remote access (QR)")}
+              </button>
+              <button class="fc-button" type="button" onClick={props.onOpenConfig}>
+                {t("Config (advanced)")}
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenAbout}>
                 {t("About FlupCode")}

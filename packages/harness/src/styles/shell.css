@@ -1611,6 +1611,145 @@ button.fc-row-main {
   font-size: 13px;
 }
 
+.fc-skill-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.fc-skill-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-skill-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-skill-name {
+  font-weight: 500;
+}
+
+.fc-skill-desc {
+  font-size: var(--fc-text-xs);
+  color: var(--fc-text-muted);
+}
+
+.fc-config-editor {
+  width: 100%;
+  min-height: 320px;
+  max-height: 55vh;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg);
+  color: var(--fc-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.fc-session-tags {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.fc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--fc-radius-pill);
+  background: var(--fc-accent-soft);
+  color: var(--fc-text);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-tag-remove {
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  line-height: 1;
+  padding: 0 2px;
+}
+
+.fc-tag-input {
+  height: 24px;
+  min-width: 120px;
+  padding: 0 8px;
+  border: 1px dashed var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: transparent;
+  color: var(--fc-text);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-keycap {
+  height: 28px;
+  min-width: 90px;
+  padding: 0 10px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-keycap-capturing {
+  border-color: var(--fc-accent);
+  color: var(--fc-accent);
+}
+
+.fc-folder-select {
+  height: 24px;
+  max-width: 200px;
+  padding: 0 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-tunnel {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  flex-wrap: wrap;
+}
+
+.fc-tunnel code {
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 6px 8px;
+  border-radius: var(--fc-radius-sm);
+  background: color-mix(in srgb, var(--fc-border) 35%, transparent);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.fc-chip-plan {
+  margin-left: auto;
+}
+
 @media (max-width: 720px) {
   .fc-sidebar {
     position: absolute;

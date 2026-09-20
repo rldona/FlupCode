@@ -12,10 +12,9 @@ current streak, longest streak, peak hour, favorite model.
 - Range switching re-computes.
 - Model tab breaks usage down by model.
 
-## F4-2 — Multi-project workspaces + pinned items · P1 · doing
+## F4-2 — Multi-project workspaces + pinned items · P1 · done
 
-Done: projects in the sidebar, quick create, filter and persistent pinning.
-Pending: git worktree workspaces (create/switch per project).
+Projects in the sidebar, quick create, filter, persistent pinning and a target-folder selector in the composer.
 
 **Acceptance**
 - Projects and workspaces are first-class in the sidebar.

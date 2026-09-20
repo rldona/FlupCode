@@ -55,10 +55,9 @@ Context chips, attachments, voice, model/variant/effort, send.
 - Model and variant selectors wired to session commands.
 - Voice input present (functional in F4-7).
 
-## F2-7 — Sidebar footer profile · P1 · doing
+## F2-7 — Sidebar footer profile · P1 · done
 
-Done: name (editable, persisted) and the About entry point.
-Pending: account/plan indicator.
+Name (editable, persisted), a `Local` plan badge and the About entry point.
 
 **Acceptance**
 - Shows account/plan; opens settings.

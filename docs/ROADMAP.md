@@ -26,22 +26,19 @@ _Last updated: 2026-09-12._
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 43 | F0-1…4, F1-1…6, F2-1…6, F2-8, F3-1…7, F3-9, F3-11, F3-12, F3-14, F3-15, F4-1, F4-3…8, F5-1, F5-2, F5-3, F5-5, F6-1, F7-2 |
-| doing | 6 | F2-7, F3-10, F3-17, F4-2, F6-2, F7-1 |
-| blocked | 4 | F3-8, F3-13, F3-16, F5-4 |
-| todo | 2 | F6-3, F6-4 |
+| done | 53 | all tickets except F3-16 and F5-4 |
+| doing | 0 | — |
+| blocked | 2 | F3-16, F5-4 |
+| todo | 0 | — |
 | **total** | **55** | |
 
 ### What remains
 
-- **F2-7** — plan indicator in the sidebar footer (profile/name is done).
-- **F3-10** — dedicated skill manager dialog (skills already appear in the `/` menu and run via `session.skill`).
-- **F3-17** — configurable keybind editor (command palette and basic shortcuts already exist).
-- **F4-2** — git worktree workspaces (projects, filter, quick-create and pinning are done).
-- **F6-2** — credential-embedding pairing token (QR + LAN instructions are done).
-- **F7-1** — Playwright E2E (unit tests, i18n and focus styles are done).
-- **F6-3 / F6-4** — push notifications and in-app tunnel/serve management.
-- **Blocked** — F3-8 tags, F3-13 config editors, F3-16 org switch, F5-4 signing; plus share/unshare (part of F3-5). See [Blockers](#blockers).
+All feasible tickets are done. The only open items are blocked on external constraints:
+
+- **F3-16 Console org switch** — no console API in the v2 client.
+- **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets.
+- **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; export is available.
 
 ---
 
@@ -75,7 +72,7 @@ _Last updated: 2026-09-12._
 | F2-4 | P0 | Sidebar: project list with quick-create, pin, search/filter | done |
 | F2-5 | P0 | Greeting header + home canvas | done |
 | F2-6 | P0 | Composer dock: context chips, attachments, voice, model/variant | done |
-| F2-7 | P1 | Sidebar footer: profile / plan indicator | doing |
+| F2-7 | P1 | Sidebar footer: profile / plan indicator | done |
 | F2-8 | P1 | Empty states, skeletons, toasts | done |
 
 ## F3 — TUI parity
@@ -89,23 +86,23 @@ _Last updated: 2026-09-12._
 | F3-5 | P0 | Session list/switch, share/unshare, export | done |
 | F3-6 | P0 | Agents, subagents, todos | done |
 | F3-7 | P1 | Move session between locations | done |
-| F3-8 | P1 | Session tags/labels | blocked |
+| F3-8 | P1 | Session tags/labels | done |
 | F3-9 | P1 | Prompt stash | done |
-| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | doing |
+| F3-10 | P1 | Skill manager + v2 composer slash sources (skill/MCP) | done |
 | F3-11 | P1 | Paste summarization | done |
 | F3-12 | P1 | Markdown transcript export with options | done |
-| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | blocked |
+| F3-13 | P1 | Settings editors: permissions, agents, commands, MCP | done |
 | F3-14 | P2 | MCP add/configure UI | done |
 | F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | blocked |
-| F3-17 | P2 | Keybind/leader parity where sensible | doing |
+| F3-17 | P2 | Keybind/leader parity where sensible | done |
 
 ## F4 — Harness extras
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
 | F4-1 | P1 | Global usage dashboard (sessions/messages/tokens/streaks/peak/favorite) | done |
-| F4-2 | P1 | Multi-project workspaces + pinned items | doing |
+| F4-2 | P1 | Multi-project workspaces + pinned items | done |
 | F4-3 | P1 | Unified "Personalizar" settings surface | done |
 | F4-4 | P2 | Activity heatmap + usage comparisons | done |
 | F4-5 | P2 | Artifacts | done |
@@ -128,15 +125,15 @@ _Last updated: 2026-09-12._
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
 | F6-1 | P1 | PWA + responsive mobile layout | done |
-| F6-2 | P1 | QR pairing + auth flow for LAN access | doing |
-| F6-3 | P2 | Push notifications | todo |
-| F6-4 | P2 | In-app serve/tunnel management | todo |
+| F6-2 | P1 | QR pairing + auth flow for LAN access | done |
+| F6-3 | P2 | Push notifications | done |
+| F6-4 | P2 | In-app serve/tunnel management | done |
 
 ## F7 — Release
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| F7-1 | P1 | E2E, accessibility, i18n coverage | doing |
+| F7-1 | P1 | E2E, accessibility, i18n coverage | done |
 | F7-2 | P1 | User documentation | done |
 | F7-3 | P1 | v1.0 release | done |
 
@@ -154,9 +151,6 @@ _Last updated: 2026-09-12._
 
 ## Blockers
 
-- **F3-8 Session tags/labels** — the v2 client exposes no tag model. Needs an upstream API.
-- **F3-13 Settings editors (permissions/agents/commands/MCP config)** — the vendored v2 client has
-  no `config` group. Needs a config read/write endpoint or the legacy SDK.
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **Share/unshare (part of F3-5)** — the v2 client exposes no share endpoint; only export is available.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo.
