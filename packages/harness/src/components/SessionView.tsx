@@ -8,6 +8,7 @@ import type {
 } from "../engine-types"
 import { t } from "../i18n"
 import { Spinner } from "./Spinner"
+import { Markdown } from "./Markdown"
 
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
@@ -73,7 +74,7 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
             fallback={
               <Show
                 when={part.type === "reasoning"}
-                fallback={<div class="fc-message-text">{(part as SessionMessageAssistantText).text}</div>}
+                fallback={<Markdown class="fc-message-text" text={(part as SessionMessageAssistantText).text} />}
               >
                 <ReasoningBlock part={part as SessionMessageAssistantReasoning} />
               </Show>
@@ -145,8 +146,8 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                 }
               >
                 <div class="fc-message fc-message-user">
-                  <div class="fc-message-role">{t("You")}</div>
-                  <div class="fc-message-text">{(message as { text?: string }).text}</div>
+                <div class="fc-message-role">{t("You")}</div>
+                <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
                   <button
                     class="fc-message-edit"
                     type="button"
