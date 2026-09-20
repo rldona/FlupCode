@@ -23,10 +23,9 @@ See ADR-0010.
 - Host side proxies to a configured engine URL with injected credentials and path validation.
 - Tests cover SSE streaming, abort and WebSocket echo.
 
-## F8-4 — Relay server (`@flupcode/relay`) · P0 · doing
+## F8-4 — Relay server (`@flupcode/relay`) · P0 · done
 
-Server, tests, Dockerfile and Fly.io config are in place. Remaining: build the image and deploy it at
-`relay.flupcode.com` (needs a hosting account and a DNS record).
+Deployed on Fly.io (Paris) at `wss://relay.flupcode.com`.
 
 **Acceptance**
 - `/health`, `/host` with signed challenge, `/client` routing with channel prefixes.
