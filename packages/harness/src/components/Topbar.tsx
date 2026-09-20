@@ -25,8 +25,6 @@ type TopbarProps = {
   remote?: { name: string; connected: boolean; onOpen: () => void }
   /** Set when this app is the computer hosting remote control. */
   hostRemote?: { name: string; connected: boolean; onOpen: () => void }
-  /** Makes the engine status pill open the Remote control panel. */
-  onConnection?: () => void
 }
 
 /** Top bar icons share one size and stroke so every button reads the same. */
@@ -182,38 +180,19 @@ export const Topbar: Component<TopbarProps> = (props) => {
             </button>
           )}
         </Show>
-        {/* The host's remote pill replaces the engine pill: "Connected" there is the local engine,
-            not the remote control connection the reader is watching. */}
-        <Show when={!props.hostRemote}>
-          <Show
-            when={props.onConnection}
-            fallback={
-              <span
-                class="fc-status"
-                classList={{
-                  "fc-status-on": props.healthHealthy === true,
-                  "fc-status-off": props.healthError,
-                }}
-              >
-                {status()}
-              </span>
-            }
+        {/* The remote pill replaces the engine pill: "Connected" there is the local engine, not the
+            remote control connection the reader is watching. Without one, the engine status stays a
+            flat label: it never opens remote control, which lives in Settings. */}
+        <Show when={!props.remote && !props.hostRemote}>
+          <span
+            class="fc-status"
+            classList={{
+              "fc-status-on": props.healthHealthy === true,
+              "fc-status-off": props.healthError,
+            }}
           >
-            {(open) => (
-              <button
-                class="fc-status"
-                classList={{
-                  "fc-status-on": props.healthHealthy === true,
-                  "fc-status-off": props.healthError,
-                }}
-                type="button"
-                title={t("Remote control")}
-                onClick={open()}
-              >
-                {status()}
-              </button>
-            )}
-          </Show>
+            {status()}
+          </span>
         </Show>
         <Show when={props.contextPanel}>
           {(panel) => (
