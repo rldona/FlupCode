@@ -547,6 +547,8 @@ button.fc-row-main {
   border-radius: var(--fc-radius-pill);
   font-size: var(--fc-text-sm);
   color: var(--fc-text-muted);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .fc-chip-button {
@@ -1445,6 +1447,10 @@ button.fc-row-main {
 
 .fc-modal-wide {
   width: min(600px, 100%);
+}
+
+.fc-modal-xl {
+  width: min(940px, 96vw);
 }
 
 .fc-mcp-list {
@@ -2373,21 +2379,34 @@ button.fc-row-main {
 .fc-provider-info {
   display: flex;
   flex-direction: column;
-  width: 160px;
+  width: 170px;
   flex-shrink: 0;
+  min-width: 0;
 }
 
 .fc-provider-name {
   font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fc-provider-id {
   font-size: var(--fc-text-xs);
   color: var(--fc-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .fc-provider-row .fc-question-custom {
   flex: 1;
+  min-width: 160px;
+}
+
+.fc-provider-row .fc-button {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .fc-workspace {
