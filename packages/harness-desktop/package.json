@@ -48,7 +48,6 @@
     "linux": {
       "target": [{ "target": "AppImage", "arch": ["x64"] }],
       "category": "Development",
-      "desktopName": "FlupCode",
       "artifactName": "FlupCode-linux-x64.${ext}"
     }
   },
