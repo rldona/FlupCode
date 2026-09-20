@@ -1,11 +1,20 @@
 import { For, type Component, Show, createEffect, createSignal, onCleanup } from "solid-js"
 import type { AgentInfo, ModelInfo } from "../engine-types"
-import type { McpResource, McpServer } from "../engine-types"
+import type {
+  IntegrationAttempt,
+  IntegrationAttemptStatus,
+  IntegrationInfo,
+  McpResource,
+  McpServer,
+  ProviderAuthMethod,
+  ProviderDirectoryInfo,
+} from "../engine-types"
 import type { AgentFile, CommandFile, McpConfig } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { KeyCapture } from "./KeyCapture"
 import { AgentsPanel } from "./AgentsPanel"
+import { ProvidersEditor } from "./ProvidersPanel"
 import { CommandsPanel, type CommandDraft } from "./CommandsPanel"
 import { McpEditor } from "./McpManager"
 import { PermissionsPanel } from "./PermissionsPanel"
@@ -92,6 +101,20 @@ type SettingsPanelProps = {
     prompt: string
   }) => Promise<unknown>
   onDeleteAgent: (path: string) => Promise<unknown>
+  /** Providers for the providers section (CU-3): directory, methods and links. */
+  providersList: ProviderDirectoryInfo[]
+  providerAuth: Record<string, ProviderAuthMethod[]>
+  providerConnected: string[]
+  providerIntegrations: IntegrationInfo[]
+  providerUnlinked: string[]
+  providersBusy: boolean
+  onSaveProvider: (providerID: string, key: string) => void
+  onRemoveProvider: (providerID: string) => void
+  onProviderOAuth: (providerID: string, methodID?: string) => Promise<IntegrationAttempt>
+  onProviderOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
+  onProviderOAuthCancel: (attemptID: string) => Promise<void>
+  onProviderOAuthDone: () => void
+  onLinkConfiguredProviders: () => void
   onOpenSkills: () => void
   onOpenRemote: () => void
   onOpenConfig: () => void
@@ -114,6 +137,7 @@ export type SettingsSection =
   | "appearance"
   | "profile"
   | "model"
+  | "providers"
   | "conversation"
   | "notifications"
   | "shortcuts"
@@ -129,6 +153,7 @@ export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = 
   { id: "appearance", label: "Appearance" },
   { id: "profile", label: "Profile" },
   { id: "model", label: "Model" },
+  { id: "providers", label: "Providers" },
   { id: "conversation", label: "Conversation" },
   { id: "notifications", label: "Notifications" },
   { id: "shortcuts", label: "Shortcuts" },
@@ -534,6 +559,27 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     serverAvailable={true}
                     onSave={props.onSaveCommand}
                     onDelete={props.onDeleteCommand}
+                  />
+                </section>
+              </Show>
+
+              <Show when={section() === "providers"}>
+                <section class="fc-settings-section">
+                  <h3 class="fc-settings-title">{t("Providers")}</h3>
+                  <ProvidersEditor
+                    providers={props.providersList}
+                    auth={props.providerAuth}
+                    connected={props.providerConnected}
+                    integrations={props.providerIntegrations}
+                    unlinked={props.providerUnlinked}
+                    busy={props.providersBusy}
+                    onSave={props.onSaveProvider}
+                    onRemove={props.onRemoveProvider}
+                    onOAuth={props.onProviderOAuth}
+                    onOAuthStatus={props.onProviderOAuthStatus}
+                    onOAuthCancel={props.onProviderOAuthCancel}
+                    onOAuthDone={props.onProviderOAuthDone}
+                    onLinkConfigured={props.onLinkConfiguredProviders}
                   />
                 </section>
               </Show>
