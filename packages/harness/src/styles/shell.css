@@ -3731,18 +3731,13 @@ button.fc-status {
   opacity: 0;
 }
 
-.fc-session-row:hover .fc-session-action,
-.fc-session-action-on {
+.fc-session-row:hover .fc-session-action {
   opacity: 1;
 }
 
 .fc-session-action:hover {
   background: color-mix(in srgb, var(--fc-border) 60%, transparent);
   color: var(--fc-text);
-}
-
-.fc-session-action-on {
-  color: var(--fc-accent);
 }
 
 .fc-name-input {

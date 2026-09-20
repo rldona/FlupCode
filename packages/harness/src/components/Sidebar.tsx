@@ -199,22 +199,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       </button>
       <button
         class="fc-session-action"
-        classList={{ "fc-session-action-on": props.pinnedSessions.includes(row.session.id) }}
         type="button"
-        title={t("Pin")}
-        aria-label={t("Pin")}
-        onClick={() => props.onToggleSessionPin(row.session.id)}
+        title={t("Session options")}
+        aria-label={t("Session options")}
+        onClick={(event) => openSessionMenu(event, row.session)}
       >
-        {props.pinnedSessions.includes(row.session.id) ? "★" : "☆"}
-      </button>
-      <button
-        class="fc-session-action"
-        type="button"
-        title={t("Delete")}
-        aria-label={t("Delete")}
-        onClick={() => props.onDeleteSession(row.session.id)}
-      >
-        ×
+        ⋮
       </button>
     </div>
   )
