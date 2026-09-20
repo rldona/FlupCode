@@ -133,6 +133,46 @@ export type Task = TaskInput & {
 }
 
 /**
+ * What a run left behind (H-14).
+ *
+ * An index and a light store, not a CMS (§12.1). Most of what the harness produces is small text —
+ * a verification report, a run's totals — so it is kept inline and capped; anything bigger is a
+ * path to a file that already exists somewhere.
+ *
+ * The project is a directory rather than an id: that is what the harness actually knows about where
+ * work happens, and inventing an id for it would mean keeping a second name for the same thing.
+ */
+export type ArtifactKind = "plan" | "report" | "verdict" | "diff" | "log" | "file" | "handoff"
+
+export type ArtifactProducer = "agent" | "user" | "harness"
+
+export type ArtifactInput = {
+  kind: ArtifactKind
+  title: string
+  producer: ArtifactProducer
+  /** The text itself, for anything small enough to keep. Capped; see `ARTIFACT_LIMIT`. */
+  content?: string
+  /** A file that already exists, for anything that is not. */
+  path?: string
+  mime?: string
+  directory?: string
+  runID?: string
+  taskID?: string
+  sessionID?: string
+}
+
+export type Artifact = ArtifactInput & {
+  id: string
+  mime: string
+  createdAt: number
+  /** What the content was before it was cut, in characters. Absent when nothing was cut. */
+  bytes?: number
+  truncated?: boolean
+  /** Of the content, so the same report written twice is recognisable as the same thing. */
+  hash?: string
+}
+
+/**
  * What the server publishes as it changes. Persisted with a sequence number so a client that was
  * away can ask for what it missed instead of polling — which is what the browser does today, every
  * five seconds, because there was no stream to subscribe to.
@@ -144,6 +184,7 @@ export type ServerEvent =
   | { type: "task.changed"; task: Task }
   | { type: "routine.changed"; routine: Routine }
   | { type: "routine.removed"; routineID: string }
+  | { type: "artifact.created"; artifact: Artifact }
 
 export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
 
@@ -176,6 +217,11 @@ export type RunRepository = {
   removeRun(runID: string): boolean
   /** Forget every run that has finished, and say which ones went. Running ones are left alone. */
   removeFinishedRuns(): string[]
+  /** Keep what a run left behind (H-14). */
+  addArtifact(input: ArtifactInput, now?: number): Artifact
+  listArtifacts(filter?: { directory?: string; runID?: string; kind?: ArtifactKind }, limit?: number): Artifact[]
+  getArtifact(id: string): Artifact | undefined
+  removeArtifact(id: string): boolean
   /** A run left behind by a server that stopped mid-flight is not running any more. */
   recoverRunning(now: number): void
 }

@@ -5,6 +5,9 @@ import { dirname, join } from "node:path"
 import type {
   Routine,
   RoutineCreateOptions,
+  Artifact,
+  ArtifactInput,
+  ArtifactKind,
   RoutineInput,
   RoutineRepository,
   Run,
@@ -16,6 +19,9 @@ import type {
   ServerEvent,
   StoredEvent,
 } from "./types"
+
+/** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
+export const ARTIFACT_LIMIT = 1_000_000
 
 /**
  * Runs are their own table, keyed by what asked for them rather than owned by a routine, and there
@@ -73,6 +79,25 @@ CREATE TABLE IF NOT EXISTS tasks (
   cost REAL
 );
 CREATE INDEX IF NOT EXISTS tasks_run_position ON tasks(run_id, position);
+CREATE TABLE IF NOT EXISTS artifacts (
+  id TEXT PRIMARY KEY,
+  directory TEXT,
+  run_id TEXT,
+  task_id TEXT,
+  session_id TEXT,
+  kind TEXT NOT NULL,
+  title TEXT NOT NULL,
+  mime TEXT NOT NULL,
+  content TEXT,
+  path TEXT,
+  bytes INTEGER,
+  truncated INTEGER,
+  hash TEXT,
+  producer TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS artifacts_created_at ON artifacts(created_at DESC);
+CREATE INDEX IF NOT EXISTS artifacts_run ON artifacts(run_id, created_at DESC);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -167,6 +192,42 @@ const decodeTask = (row: TaskRow): Task => ({
   output: row.output ?? undefined,
   tokens: row.tokens ?? undefined,
   cost: row.cost ?? undefined,
+})
+
+type ArtifactRow = {
+  id: string
+  directory: string | null
+  run_id: string | null
+  task_id: string | null
+  session_id: string | null
+  kind: string
+  title: string
+  mime: string
+  content: string | null
+  path: string | null
+  bytes: number | null
+  truncated: number | null
+  hash: string | null
+  producer: string
+  created_at: number
+}
+
+const decodeArtifact = (row: ArtifactRow): Artifact => ({
+  id: row.id,
+  kind: row.kind as Artifact["kind"],
+  title: row.title,
+  mime: row.mime,
+  producer: row.producer as Artifact["producer"],
+  createdAt: row.created_at,
+  ...(row.content !== null ? { content: row.content } : {}),
+  ...(row.path !== null ? { path: row.path } : {}),
+  ...(row.directory !== null ? { directory: row.directory } : {}),
+  ...(row.run_id !== null ? { runID: row.run_id } : {}),
+  ...(row.task_id !== null ? { taskID: row.task_id } : {}),
+  ...(row.session_id !== null ? { sessionID: row.session_id } : {}),
+  ...(row.bytes !== null ? { bytes: row.bytes } : {}),
+  ...(row.truncated ? { truncated: true } : {}),
+  ...(row.hash !== null ? { hash: row.hash } : {}),
 })
 
 type EventRow = { seq: number; created_at: number; payload_json: string }
@@ -444,6 +505,85 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const run = this.getRun(runID)
     if (run) this.append({ type: "run.changed", run })
     return true
+  }
+
+  // ---- artifacts ------------------------------------------------------------------------------
+
+  addArtifact(input: ArtifactInput, now = Date.now()) {
+    const full = input.content ?? ""
+    const truncated = full.length > ARTIFACT_LIMIT
+    // Cut rather than refused: a report that is too long is still worth most of its first page, and
+    // saying how much was cut is more use than storing nothing.
+    const content = input.content === undefined ? undefined : truncated ? full.slice(0, ARTIFACT_LIMIT) : full
+    const artifact: Artifact = {
+      id: crypto.randomUUID(),
+      ...input,
+      mime: input.mime ?? "text/markdown",
+      createdAt: now,
+      ...(content !== undefined ? { content } : {}),
+      ...(truncated ? { bytes: full.length, truncated: true } : {}),
+      ...(content !== undefined ? { hash: Bun.hash(content).toString(16) } : {}),
+    }
+    this.db
+      .query(
+        `INSERT INTO artifacts
+           (id, directory, run_id, task_id, session_id, kind, title, mime, content, path, bytes, truncated, hash,
+            producer, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
+      )
+      .run(
+        artifact.id,
+        artifact.directory ?? null,
+        artifact.runID ?? null,
+        artifact.taskID ?? null,
+        artifact.sessionID ?? null,
+        artifact.kind,
+        artifact.title,
+        artifact.mime,
+        artifact.content ?? null,
+        artifact.path ?? null,
+        artifact.bytes ?? null,
+        artifact.truncated ? 1 : null,
+        artifact.hash ?? null,
+        artifact.producer,
+        artifact.createdAt,
+      )
+    this.append({ type: "artifact.created", artifact })
+    return artifact
+  }
+
+  listArtifacts(filter: { directory?: string; runID?: string; kind?: ArtifactKind } = {}, limit = 100) {
+    const where: string[] = []
+    const values: unknown[] = []
+    if (filter.directory) {
+      values.push(filter.directory)
+      where.push(`directory = ?${values.length}`)
+    }
+    if (filter.runID) {
+      values.push(filter.runID)
+      where.push(`run_id = ?${values.length}`)
+    }
+    if (filter.kind) {
+      values.push(filter.kind)
+      where.push(`kind = ?${values.length}`)
+    }
+    values.push(limit)
+    const rows = this.db
+      .query(
+        `SELECT * FROM artifacts ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY created_at DESC LIMIT ?${values.length}`,
+      )
+      .all(...(values as never[])) as ArtifactRow[]
+    return rows.map(decodeArtifact)
+  }
+
+  getArtifact(id: string) {
+    const row = this.db.query("SELECT * FROM artifacts WHERE id = ?1").get(id) as ArtifactRow | null
+    return row ? decodeArtifact(row) : undefined
+  }
+
+  removeArtifact(id: string) {
+    return this.db.query("DELETE FROM artifacts WHERE id = ?1").run(id).changes > 0
   }
 
   removeFinishedRuns() {
