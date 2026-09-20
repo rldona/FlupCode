@@ -22,6 +22,11 @@ type TopbarProps = {
   sidebarCollapsed: boolean
   /** The tabs live here when the sidebar has no room for them, and always in the desktop strip. */
   showTabs: boolean
+  /**
+   * The engine status pill. Only the desktop app shows it: in the browser it was a label the reader
+   * could do nothing with, and the engine it names is the one serving this page either way.
+   */
+  showEngineStatus: boolean
   /** The session's right-hand context panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
   onOpenPalette: () => void
@@ -204,7 +209,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
             {t("{count} waiting", { count: props.blockedElsewhere.length })}
           </button>
         </Show>
-        <Show when={!props.remote && !props.hostRemote}>
+        <Show when={!props.remote && !props.hostRemote && props.showEngineStatus}>
           <span
             class="fc-status"
             classList={{

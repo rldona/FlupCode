@@ -3676,6 +3676,8 @@ button.fc-status {
 .fc-project-group {
   display: flex;
   flex-direction: column;
+  /* Sessions used to stack edge to edge, so a project with several read as one block of rows. */
+  gap: var(--fc-space-1);
 }
 
 .fc-project-row {
