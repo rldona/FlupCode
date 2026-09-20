@@ -105,24 +105,47 @@ export const App: Component = () => {
   const [runState, setRunState] = createSignal<Record<string, boolean>>({})
   const [activityTick, setActivityTick] = createSignal(0)
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const setRunning = (sessionID: string, running: boolean) => {
+    clearTimeout(idleTimers.get(sessionID))
+    idleTimers.delete(sessionID)
+    setRunState((state) => (state[sessionID] === running ? state : { ...state, [sessionID]: running }))
+  }
+  // A new message starts a new run: until its first event arrives, the transcript decides.
+  const forgetRun = (sessionID: string) => {
+    clearTimeout(idleTimers.get(sessionID))
+    idleTimers.delete(sessionID)
+    setRunState(({ [sessionID]: _, ...rest }) => rest)
+  }
+  // A v2 run is many steps, and the next one only starts once the model streams again, so a step's end
+  // says nothing about the run; nor does anything arrive when a run is stopped between steps. While a
+  // run goes on, ask the engine whether it still lists the session as active.
+  const watchRun = (sessionID: string, delay: number) => {
+    clearTimeout(idleTimers.get(sessionID))
+    idleTimers.set(
+      sessionID,
+      setTimeout(async () => {
+        const active = await createClient(serverUrl())
+          .session.active()
+          .catch(() => undefined)
+        if (!idleTimers.has(sessionID)) return
+        if (!active?.has(sessionID)) return setRunning(sessionID, false)
+        setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
+        watchRun(sessionID, 2000)
+      }, delay),
+    )
+  }
   const trackActivity = (type: string, data: { sessionID?: string; status?: { type?: string } } | undefined) => {
     const sessionID = data?.sessionID
     if (!sessionID) return
+    if (type === "session.next.prompted" || type === "session.next.step.started") {
+      setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
+      return watchRun(sessionID, 2000)
+    }
+    if (type === "session.next.step.ended" || type === "session.next.step.failed") return watchRun(sessionID, 700)
+    // Legacy runs (chats) report their own status, which already spans every step.
     const status = data?.status?.type
-    const running = type === "session.next.step.started" || status === "busy" || status === "retry"
-    const stopped =
-      type === "session.next.step.ended" ||
-      type === "session.next.step.failed" ||
-      type === "session.idle" ||
-      status === "idle"
-    if (!running && !stopped) return
-    clearTimeout(idleTimers.get(sessionID))
-    if (running) return setRunState((state) => ({ ...state, [sessionID]: true }))
-    // Steps end between tool calls; only settle to idle when no new step follows shortly.
-    idleTimers.set(
-      sessionID,
-      setTimeout(() => setRunState((state) => ({ ...state, [sessionID]: false })), 2500),
-    )
+    if (status === "busy" || status === "retry") setRunning(sessionID, true)
+    if (type === "session.idle" || status === "idle") setRunning(sessionID, false)
   }
   const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
@@ -386,6 +409,9 @@ export const App: Component = () => {
   const messagesLoading = () => messages.loading || (selected() !== undefined && messages()?.sessionID !== selected())
   const generating = () => {
     if (busy()) return true
+    // The run state spans every step of a turn; the transcript alone looks finished between steps.
+    const running = runState()[selected() ?? ""]
+    if (running !== undefined) return running
     const list = activeMessages() ?? []
     const last = list[list.length - 1]
     if (!last) return false
@@ -697,6 +723,19 @@ export const App: Component = () => {
     void (async () => {
       for (let attempt = 0; !controller.signal.aborted; attempt++) {
         try {
+          // Runs that started or ended while disconnected send no step events to catch up on.
+          void createClient(url)
+            .session.active()
+            .then((active) => {
+              Object.entries(runState())
+                .filter(([id, running]) => running && !active.has(id))
+                .forEach(([id]) => setRunning(id, false))
+              active.forEach((id) => {
+                setRunning(id, true)
+                watchRun(id, 2000)
+              })
+            })
+            .catch(() => undefined)
           for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
             attempt = 0
             const type = event.type ?? ""
@@ -1866,6 +1905,7 @@ export const App: Component = () => {
         await current.session.rename({ sessionID, title: titleFromText(text) })
         await current.session.setPermission({ sessionID, permission: CHAT_PERMISSION, directory })
       }
+      forgetRun(sessionID)
       await current.session.chat({
         sessionID,
         directory,
@@ -2016,6 +2056,7 @@ export const App: Component = () => {
         permission: permissionMode(permissionModeId()).rules,
         directory: location ?? selectedSession()?.location?.directory,
       })
+      forgetRun(sessionID)
       await current.session.prompt({
         sessionID,
         text: expandPastes(text),
