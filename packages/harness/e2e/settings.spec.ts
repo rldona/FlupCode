@@ -148,20 +148,21 @@ test("an MCP server can be given an environment and headers, not just a command"
     })
 })
 
-test("the permission policy is edited, and pattern rules are kept", async ({ page }) => {
+test("a pattern rule is edited in place, and survives the save", async ({ page }) => {
   const calls = await openApp(page)
   const dialog = await openSettings(page)
 
   await dialog.getByRole("tab", { name: "Permissions" }).click()
-  // A pattern rule is shown, not editable here — and it must survive the save.
-  await expect(dialog.locator(".fc-permission-pattern")).toContainText("rm -rf")
+  // The rule the engine had is editable: tool, pattern and action.
+  await expect(dialog.getByLabel("Pattern").first()).toHaveValue("rm -rf *")
+  await dialog.getByLabel("Action").first().selectOption("ask")
 
   await dialog.locator(".fc-settings-row", { hasText: "edit" }).getByRole("combobox").selectOption("deny")
   await dialog.getByRole("button", { name: "Save" }).click()
 
   await expect
     .poll(() => calls.patches.find((call) => call.path === "/config")?.body)
-    .toMatchObject({ permission: { edit: "deny", bash: { "rm -rf *": "deny" } } })
+    .toMatchObject({ permission: { edit: "deny", bash: { "rm -rf *": "ask" } } })
 })
 
 // H-34: a server that failed says why, what it exposes is shown, and so is who may use it.
