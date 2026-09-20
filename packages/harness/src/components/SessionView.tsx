@@ -198,13 +198,14 @@ const ToolOutput: Component<{ text: string; maxLines?: number }> = (props) => {
   )
 }
 
-const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
+const ToolCall: Component<{ part: SessionMessageAssistantTool; live: boolean }> = (props) => {
   const [open, setOpen] = createSignal(
-    props.part.state.status === "error" ||
-      props.part.name === "write" ||
-      props.part.name === "edit" ||
-      props.part.name === "multiedit" ||
-      props.part.name === "bash",
+    props.live &&
+      (props.part.state.status === "error" ||
+        props.part.name === "write" ||
+        props.part.name === "edit" ||
+        props.part.name === "multiedit" ||
+        props.part.name === "bash"),
   )
   const input = createMemo(() => toolInput(props.part))
   const output = () => toolOutput(props.part)
@@ -309,7 +310,12 @@ const TurnFooter: Component<{
   )
 }
 
-const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools: boolean; showRole: boolean }> = (
+const AssistantMessage: Component<{
+  message: SessionMessageAssistant
+  showTools: boolean
+  showRole: boolean
+  live: boolean
+}> = (
   props,
 ) => (
   <div class="fc-message fc-message-assistant">
@@ -330,7 +336,7 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
               </Show>
             }
           >
-            <ToolCall part={part as SessionMessageAssistantTool} />
+            <ToolCall part={part as SessionMessageAssistantTool} live={props.live} />
           </Show>
         </Show>
       )}
@@ -365,6 +371,14 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     if (!next) return !props.busy
     return true
   }
+
+  const lastTurnStart = createMemo(() => {
+    const list = props.messages ?? []
+    let index = list.length - 1
+    while (index >= 0 && list[index]?.type !== "assistant") index--
+    while (index > 0 && list[index - 1]?.type === "assistant") index--
+    return index
+  })
 
   createEffect(() => {
     props.messages
@@ -414,6 +428,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                       message={message as SessionMessageAssistant}
                       showTools={props.showTools}
                       showRole={index() === 0 || props.messages?.[index() - 1]?.type !== "assistant"}
+                      live={index() >= lastTurnStart()}
                     />
                     <Show when={isTurnEnd(index())}>
                       <TurnFooter
