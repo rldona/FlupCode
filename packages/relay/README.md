@@ -40,13 +40,15 @@ Put it behind a TLS-terminating proxy that supports WebSockets (Caddy, nginx, Tr
 ### Fly.io
 
 ```bash
-fly launch --no-deploy --copy-config --config packages/relay/fly.toml
-fly deploy --config packages/relay/fly.toml --dockerfile packages/relay/Dockerfile
-fly certs add relay.flupcode.com --config packages/relay/fly.toml
+fly apps create flupcode-relay
+packages/relay/script/deploy.sh
+fly certs add relay.flupcode.com --app flupcode-relay
 ```
 
-Then add the DNS records Fly prints (a `CNAME` for `relay` to `flupcode-relay.fly.dev`) at the
-domain registrar.
+`deploy.sh` uploads a minimal build context (the relay and the protocol package) and builds the
+image on Fly's remote builder, so Docker is not needed locally. Then add the DNS record Fly prints
+(a `CNAME` for `relay` to `flupcode-relay.fly.dev`) at the domain registrar. Madrid is not a Fly
+region; `fly.toml` uses Paris (`cdg`).
 
 ## Endpoints
 
