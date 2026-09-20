@@ -16,6 +16,8 @@ export type Screen =
   | "skills"
   | "files"
   | "workflows"
+  | "replay"
+  | "compare"
 
 const SCREENS: readonly Screen[] = [
   "routines",
@@ -28,6 +30,8 @@ const SCREENS: readonly Screen[] = [
   "skills",
   "files",
   "workflows",
+  "replay",
+  "compare",
 ]
 
 /** The screen the path names, if it names one. Anything else is the home screen. */
