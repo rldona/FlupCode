@@ -9,6 +9,7 @@ type SettingsPanelProps = {
   locale: Locale
   displayName: string
   serverInput: string
+  serverStatus: string
   models: ModelInfo[]
   modelKey: string | undefined
   showTools: boolean
@@ -158,6 +159,10 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 
           <section class="fc-settings-section">
             <h3 class="fc-settings-title">{t("Server")}</h3>
+            <div class="fc-settings-row">
+              <span>{t("Status")}</span>
+              <span class="fc-settings-status">{props.serverStatus}</span>
+            </div>
             <div class="fc-settings-row">
               <input
                 class="fc-question-custom"
