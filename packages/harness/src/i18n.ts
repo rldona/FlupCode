@@ -372,6 +372,17 @@ const ES: Record<string, string> = {
     "¿Ya usas FlupCode en un ordenador? Abre allí Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
   "Use a server on this device": "Usar un servidor en este dispositivo",
   Code: "Código",
+  "Get notified": "Recibe avisos",
+  "When a session needs your permission, has a question or finishes.":
+    "Cuando una sesión necesite tu permiso, tenga una pregunta o termine.",
+  "Turn on": "Activar",
+  "Turn off": "Desactivar",
+  "Notifications on": "Notificaciones activadas",
+  "Notifications are blocked for this site. Allow them in the browser's site settings.":
+    "Las notificaciones están bloqueadas para este sitio. Permítelas en los ajustes del sitio del navegador.",
+  "To get notifications on iPhone, add FlupCode to the Home Screen (Share → Add to Home Screen) and open it from there.":
+    "Para recibir notificaciones en iPhone, añade FlupCode a la pantalla de inicio (Compartir → Añadir a pantalla de inicio) y ábrelo desde ahí.",
+  "This relay does not deliver notifications": "Este relay no envía notificaciones",
   Devices: "Dispositivos",
   "Add device": "Añadir dispositivo",
   "Tap to connect": "Toca para conectar",

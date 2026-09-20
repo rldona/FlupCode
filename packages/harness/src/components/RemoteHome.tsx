@@ -1,6 +1,7 @@
 import { For, Index, Show, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
 import { remote } from "../remote"
+import { RemoteNotifications } from "./RemoteNotifications"
 import type { ProjectItem } from "../types"
 
 /** Phone home screen while controlling a computer: devices, sessions and a new-session action. */
@@ -97,6 +98,7 @@ export const RemoteHome: Component<RemoteHomeProps> = (props) => {
         <button class="fc-remote-pill" type="button" onClick={props.onAddDevice}>
           <span aria-hidden="true">+</span> {t("Add device")}
         </button>
+        <RemoteNotifications />
       </section>
 
       <section class="fc-remote-home-section">

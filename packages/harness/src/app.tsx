@@ -969,10 +969,31 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.onboarded, true)
     })
   }
+  /** Opens the session a notification points at, switching computer when needed (ADR-0011). */
+  const openFromNotification = (sessionID: string, hostId: string | undefined) => {
+    if (hostId && hostId !== remote.activeHost()?.hostId && remote.hosts().some((host) => host.hostId === hostId))
+      remote.connect(hostId)
+    if (!mobileRemote()) return selectSession(sessionID)
+    if (selected() !== sessionID) openMobileSession(sessionID)
+  }
+  const onServiceWorkerMessage = (event: MessageEvent) => {
+    const data = event.data as { type?: string; sessionID?: unknown; host?: unknown } | undefined
+    if (data?.type !== "flupcode:open-session" || typeof data.sessionID !== "string") return
+    openFromNotification(data.sessionID, typeof data.host === "string" ? data.host : undefined)
+  }
+
   remote.resume()
   pairFromLink()
   window.addEventListener("hashchange", pairFromLink)
   onCleanup(() => window.removeEventListener("hashchange", pairFromLink))
+  const launch = new URLSearchParams(window.location.search)
+  const launchSession = launch.get("session")
+  if (launchSession) {
+    window.history.replaceState(window.history.state, "", window.location.pathname + window.location.hash)
+    openFromNotification(launchSession, launch.get("host") ?? undefined)
+  }
+  navigator.serviceWorker?.addEventListener("message", onServiceWorkerMessage)
+  onCleanup(() => navigator.serviceWorker?.removeEventListener("message", onServiceWorkerMessage))
 
   const completeOnboarding = (name: string) => {
     if (name.trim()) updateDisplayName(name.trim())
