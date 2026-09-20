@@ -11,7 +11,7 @@ Goal: a maintainable fork that can absorb upstream changes without pain.
 - `dev` tracks `upstream/dev`; `power` created from it.
 - Branch model documented in UPSTREAM.md.
 
-## F1-2 — `upstream-sync` GitHub Action · P0 · todo
+## F1-2 — `upstream-sync` GitHub Action · P0 · done
 
 Scheduled workflow that fast-forwards `dev` and opens a `dev → power` PR.
 
@@ -21,7 +21,7 @@ Scheduled workflow that fast-forwards `dev` and opens a `dev → power` PR.
 - Opens or updates a PR with a generated summary.
 - PR runs typecheck + harness build.
 
-## F1-3 — Rebrand · P0 · todo
+## F1-3 — Rebrand · P0 · doing
 
 Product identity across harness surfaces, with non-affiliation notice.
 
@@ -46,7 +46,7 @@ CI to build/release the harness (and later desktop).
 - CI builds `packages/harness` on PR and on tag.
 - Artifacts published; versioning scheme documented.
 
-## F1-6 — Set `power` as default branch · P1 · todo
+## F1-6 — Set `power` as default branch · P1 · done
 
 `gh repo edit rldona/OpenHarness --default-branch power`.
 

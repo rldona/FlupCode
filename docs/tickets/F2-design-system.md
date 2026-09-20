@@ -2,7 +2,7 @@
 
 Goal: the Claude Code–style harness shell in the web app. See `docs/DESIGN.md`.
 
-## F2-1 — Design tokens + theme layer · P0 · todo
+## F2-1 — Design tokens + theme layer · P0 · done
 
 `--oh-*` tokens mapped onto `@opencode-ai/ui` theme engine.
 
@@ -11,7 +11,7 @@ Goal: the Claude Code–style harness shell in the web app. See `docs/DESIGN.md`
 - Light/dark/system switching works; a community theme still applies.
 - `prefers-reduced-motion` honoured.
 
-## F2-2 — Window chrome · P0 · todo
+## F2-2 — Window chrome · P0 · done
 
 Traffic lights (desktop), back/forward history, sidebar toggle, search, layout toggle.
 
@@ -20,7 +20,7 @@ Traffic lights (desktop), back/forward history, sidebar toggle, search, layout t
 - Back/forward works across session navigation.
 - Sidebar toggle persists per user.
 
-## F2-3 — Sidebar navigation sections · P0 · todo
+## F2-3 — Sidebar navigation sections · P0 · done
 
 Nuevo, Artefactos, Rutinas, Personalizar, Rutinas list, Fijado.
 
@@ -28,7 +28,7 @@ Nuevo, Artefactos, Rutinas, Personalizar, Rutinas list, Fijado.
 - Sections render with icons and active states.
 - Artefactos/Rutinas/Personalizar route to their screens (can be stubs in F2).
 
-## F2-4 — Sidebar projects · P0 · todo
+## F2-4 — Sidebar projects · P0 · done
 
 Project list with quick create, pinning, search and filter.
 
@@ -37,7 +37,7 @@ Project list with quick create, pinning, search and filter.
 - Pin/unpin and filter work and persist.
 - Uses existing layout context from `packages/app` where possible.
 
-## F2-5 — Greeting header + home canvas · P0 · todo
+## F2-5 — Greeting header + home canvas · P0 · done
 
 "¿Qué sigue, <name>?" and the home canvas.
 
@@ -45,7 +45,7 @@ Project list with quick create, pinning, search and filter.
 - Greeting uses the configured display name.
 - Home canvas hosts the dashboard card (F4-1) and composer.
 
-## F2-6 — Composer dock · P0 · todo
+## F2-6 — Composer dock · P0 · doing
 
 Context chips, attachments, voice, model/variant/effort, send.
 
@@ -55,7 +55,7 @@ Context chips, attachments, voice, model/variant/effort, send.
 - Model and variant selectors wired to session commands.
 - Voice input present (functional in F4-7).
 
-## F2-7 — Sidebar footer profile · P1 · todo
+## F2-7 — Sidebar footer profile · P1 · doing
 
 User + plan indicator bottom-left.
 
