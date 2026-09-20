@@ -8,13 +8,13 @@
 //
 // The light "plate" shapes (rounded app icons, apple-touch, maskable, og) are
 // reused from the current committed files so their geometry stays identical;
-// the script only recolours the plate to #17191E and drops the new logo on top.
+// the script only recolours the plate to #FFEDD5 and drops the new logo on top.
 // Requires macOS (AppKit). No external tooling.
 
 import AppKit
 
 let DEVICE_RGB = CGColorSpaceCreateDeviceRGB()
-let PLATE = CGColor(colorSpace: DEVICE_RGB, components: [23.0 / 255, 25.0 / 255, 30.0 / 255, 1])!
+let PLATE = CGColor(colorSpace: DEVICE_RGB, components: [255.0 / 255, 237.0 / 255, 213.0 / 255, 1])!
 
 enum Basis {
     case width
