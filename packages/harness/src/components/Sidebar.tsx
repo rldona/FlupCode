@@ -43,6 +43,8 @@ type SidebarProps = {
   runningSessions: string[]
   /** Sessions waiting on a permission nobody has answered; they look idle without this. */
   blockedSessions: string[]
+  /** Sessions with a question to answer: a yellow hand instead of the dot (QH-1). */
+  questionSessions: string[]
   pinnedSessions: string[]
   /** The tags a reader put on each session, by session id (H-18). */
   sessionTags: Record<string, string[]>
@@ -268,15 +270,25 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       {...longPress((point) => openSessionMenu(point, row.session))}
     >
       <button class="fc-session-main" type="button" onClick={() => props.onSelectSession(row.session.id)}>
-        <span
-          class="fc-session-dot"
-          classList={{
-            "fc-session-dot-running": props.runningSessions.includes(row.session.id),
-            "fc-session-dot-blocked": props.blockedSessions.includes(row.session.id),
-          }}
-          title={props.blockedSessions.includes(row.session.id) ? t("Waiting for permission") : undefined}
-          aria-hidden="true"
-        />
+        {/* A question beats every dot: it is the one stuck state the reader can clear (QH-1). */}
+        <Show
+          when={props.questionSessions.includes(row.session.id)}
+          fallback={
+            <span
+              class="fc-session-dot"
+              classList={{
+                "fc-session-dot-running": props.runningSessions.includes(row.session.id),
+                "fc-session-dot-blocked": props.blockedSessions.includes(row.session.id),
+              }}
+              title={props.blockedSessions.includes(row.session.id) ? t("Waiting for permission") : undefined}
+              aria-hidden="true"
+            />
+          }
+        >
+          <span class="fc-session-hand" role="img" aria-label={t("Waiting for answer")} title={t("Waiting for answer")}>
+            👋
+          </span>
+        </Show>
         <span class="fc-session-title">{sessionTitle(row.session) || t("New session")}</span>
         <Show when={isCoworkSession(row.session)}>
           <span class="fc-cowork-badge">{t("Cowork")}</span>
