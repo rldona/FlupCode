@@ -38,7 +38,7 @@ tasks:
     dependsOn: [build]
 `
 
-async function open(page: Page, onSave: (body: unknown) => void, onDelete: () => void) {
+async function open(page: Page, onSave: (body: unknown, name: string) => void, onDelete: () => void) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -65,10 +65,28 @@ async function open(page: Page, onSave: (body: unknown) => void, onDelete: () =>
       return route.fulfill({
         json: { data: { name: "feature", scope: "project", path: "/work/demo/.flupcode/workflows/feature.yaml", source, workflow } },
       })
-    if (url.pathname === "/harness/workflows/feature" && method === "PUT") {
-      onSave(route.request().postDataJSON())
+    // Any other named workflow reads back as the file it was saved as.
+    if (url.pathname.startsWith("/harness/workflows/") && method === "GET") {
+      const name = decodeURIComponent(url.pathname.split("/").pop()!)
       return route.fulfill({
-        json: { data: { name: "feature", scope: "project", path: "/work/demo/.flupcode/workflows/feature.yaml", source, workflow } },
+        json: {
+          data: {
+            name,
+            scope: "project",
+            path: `/work/demo/.flupcode/workflows/${name}.yaml`,
+            source: `name: ${name}\ntasks:\n  - id: a\n    prompt: a\n`,
+            workflow: { name, description: "", inputs: [], tasks: [{ id: "a" }] },
+          },
+        },
+      })
+    }
+    // Any workflow can be written back, so the create dialog is exercised too.
+    if (url.pathname.startsWith("/harness/workflows/") && method === "PUT") {
+      const name = decodeURIComponent(url.pathname.split("/").pop()!)
+      const body = route.request().postDataJSON() as { source: string; scope?: "project" | "global" }
+      onSave(body, name)
+      return route.fulfill({
+        json: { data: { name, scope: body.scope ?? "project", path: `/work/demo/.flupcode/workflows/${name}.yaml`, source: body.source, workflow } },
       })
     }
     if (url.pathname === "/harness/workflows/feature" && method === "DELETE") {
@@ -116,6 +134,26 @@ test("deleting asks first and then removes the file", async ({ page }) => {
   await expect(page.locator(".fc-confirm-inline")).toContainText("feature")
   await page.locator(".fc-confirm-inline").getByRole("button", { name: /^Delete$|^Borrar$/ }).click()
   await expect.poll(() => removed).toBe(1)
+})
+
+// H-28: creating a workflow is a moment of its own, not a row in the list, so it is a dialog. The
+// name field renames the file the dialog writes, without discarding the rest of the template.
+test("a new workflow is created from a dialog, and its name reaches the file", async ({ page }) => {
+  let saved: { name?: string; body?: { source?: string; scope?: string } } = {}
+  await open(page, (body, name) => (saved = { name, body: body as never }), () => undefined)
+
+  await page.getByRole("button", { name: "New workflow" }).click()
+  const dialog = page.locator(".fc-workflow-modal")
+  await expect(dialog).toBeVisible()
+
+  await dialog.getByLabel("Name").fill("ship-it")
+  await expect(dialog.getByLabel(/Workflow source|Fuente del flujo/)).toHaveValue(/name: ship-it/)
+  await dialog.getByRole("button", { name: /^Create$|^Crear$/ }).click()
+
+  await expect.poll(() => saved.name).toBe("ship-it")
+  expect(saved.body?.source).toContain("name: ship-it")
+  // The create dialog gives way to the file it wrote, open in the detail dialog.
+  await expect(page.getByRole("dialog", { name: "ship-it" })).toBeVisible()
 })
 
 // H-28: a workflow with more than one input had nowhere to put the rest, and a run's packs,
