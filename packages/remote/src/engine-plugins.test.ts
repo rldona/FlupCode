@@ -78,20 +78,26 @@ describe("installEnginePlugins", () => {
     expect(await readdir(prompts)).toEqual(["ses_abc"])
   })
 
-  test("keeps a session's newest recordings and no more", async () => {
+  test("keeps a session's newest recordings, in the order they were made", async () => {
     const config = await temp()
     const prompts = await temp()
     process.env.FLUPCODE_SYSTEM_PROMPTS_DIR = prompts
     const plugin = await installed(config, SYSTEM_PROMPT_PLUGIN.file, "flupcodeSystemPrompt")
     const hook = (await plugin())["experimental.chat.system.transform"]
 
+    // Nine requests with nothing between them: on a fast machine they share a millisecond, so the
+    // name cannot be the time alone and the prune has to keep the last six, not any six.
     for (let turn = 0; turn < 9; turn++) {
       await hook({ sessionID: "ses_abc", model: {} }, { system: [`turn ${turn}`] })
     }
     const kept = (await readdir(path.join(prompts, "ses_abc"))).sort()
     expect(kept).toHaveLength(6)
-    const newest = JSON.parse(await readFile(path.join(prompts, "ses_abc", kept.at(-1)!), "utf8"))
-    expect(newest.system).toEqual(["turn 8"])
+    const turns = await Promise.all(
+      kept.map(async (file) =>
+        JSON.parse(await readFile(path.join(prompts, "ses_abc", file), "utf8")).system[0],
+      ),
+    )
+    expect(turns).toEqual(["turn 3", "turn 4", "turn 5", "turn 6", "turn 7", "turn 8"])
   })
 
   test("the installed plugin counts what each session ran, and nothing twice", async () => {

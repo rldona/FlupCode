@@ -178,6 +178,16 @@ function directory() {
 // A session keeps its newest few: a turn, its title, a compaction and a continuation are all requests.
 const KEEP = 6
 
+// The file name is what orders these, and two requests can land in the same millisecond — a turn and
+// the compaction that answers it do. A clock that never goes back keeps them in the order they were
+// written, which is what decides which recording is the newest and which one is pruned.
+let last = 0
+function stamp() {
+  const now = Date.now()
+  last = now > last ? now : last + 1
+  return last
+}
+
 async function prune(folder) {
   const files = (await readdir(folder)).filter((file) => file.endsWith(".json")).sort()
   const old = files.slice(0, Math.max(0, files.length - KEEP))
@@ -189,7 +199,7 @@ async function record(sessionID, system, model) {
   if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
   const folder = path.join(directory(), sessionID)
   await mkdir(folder, { recursive: true })
-  const at = Date.now()
+  const at = stamp()
   const name = at + "-" + Math.random().toString(36).slice(2, 8) + ".json"
   await writeFile(
     path.join(folder, name),
