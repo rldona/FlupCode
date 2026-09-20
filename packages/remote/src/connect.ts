@@ -22,6 +22,15 @@ function endpoint(relay: string, path: string, params: Record<string, string>) {
   return url.toString()
 }
 
+/**
+ * Browsers only let scripts close a WebSocket with 1000 or 3000–4999, and throw otherwise. Protocol
+ * codes such as 1008 are sent as 4000 + code so the reason still reaches the other side.
+ */
+export function socketCloseCode(code = 1000) {
+  if (code === 1000 || (code >= 3000 && code <= 4999)) return code
+  return code >= 1000 && code < 2000 ? 4000 + (code - 1000) : 1000
+}
+
 export class RelayConnectError extends Error {
   constructor(
     message: string,
@@ -43,7 +52,7 @@ export function connectRelayClient(input: { relay: string; hostId: string; creat
         if (wire || decodeRelayMessage(event.data)?.t !== "ready") return
         wire = new Wire(
           (data) => socket.send(data),
-          (code, reason) => socket.close(code ?? 1000, reason),
+          (code, reason) => socket.close(socketCloseCode(code), reason),
         )
         return resolve(wire)
       }
