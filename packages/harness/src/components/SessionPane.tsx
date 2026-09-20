@@ -12,6 +12,8 @@ import type {
 import type { Attachment, ProjectItem } from "../types"
 import { createClient, invalidateLegacyHistory } from "../client"
 import { CHAT_SYSTEM } from "../chat"
+import { messageID } from "../ids"
+import { pendingPrompts } from "../pending-prompts"
 import { contextFigures } from "../metrics"
 import { permissionMode } from "../permission-modes"
 import { recordPrompt } from "../prompt-history"
@@ -165,6 +167,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
   const usage = () =>
     contextFigures(props.session, list() ?? [], props.models, currentModel()?.limit?.context ?? 0)
+  const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.expandPastes, props.serverUrl)
+  createEffect(() => pendingPrompts.reconcile(new Set((list() ?? []).map((message) => message.id))))
   const liveUsage = () => {
     const assistant = lastAssistant()
     const messages = list() ?? []
@@ -192,6 +196,8 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     const files = attachments()
     if ((!text && files.length === 0) || busy()) return
     recordPrompt(text)
+    const queued = generating()
+    const id = messageID()
     setBusy(true)
     try {
       const current = client()
@@ -212,11 +218,19 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           permission: permissionMode(props.permissionModeId).rules,
           directory: props.session.location?.directory,
         })
-        await current.session.prompt({
-          sessionID: sessionID(),
-          text: body,
-          ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
-        })
+        pendingPrompts.add({ id, sessionID: sessionID(), text, files, queued })
+        try {
+          await current.session.prompt({
+            sessionID: sessionID(),
+            id,
+            text: body,
+            ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
+            delivery: "steer",
+          })
+        } catch (cause) {
+          pendingPrompts.remove(id)
+          throw cause
+        }
       }
       batch(() => {
         setDraft("")
@@ -312,6 +326,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         liveReasoning={liveReasoning()}
         showTools={props.showTools}
         chat={props.chat}
+        pending={pending()}
         onEditUser={editUser}
       />
 
