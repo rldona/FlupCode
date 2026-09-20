@@ -18,6 +18,7 @@ type ComposerProps = {
   targetDirectory: string | undefined
   agents: AgentInfo[]
   agent: string
+  mascotState: string
   onInput: (value: string) => void
   onSend: () => void
   onModelChange: (key: string) => void
@@ -182,7 +183,7 @@ export const Composer: Component<ComposerProps> = (props) => {
         handleFiles(event.dataTransfer?.files ?? null)
       }}
     >
-      <Mascot class="fc-mascot" />
+      <Mascot class="fc-mascot" state={props.mascotState} />
       <div class="fc-composer-chips">
         <select
           class="fc-folder-select"
