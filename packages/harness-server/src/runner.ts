@@ -1,7 +1,7 @@
 import type { Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task } from "./types"
-import { evidenceText, runVerify } from "./verify"
+import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
 
@@ -106,6 +106,35 @@ export class TaskRunner {
   }
 
   /**
+   * Files what the checks said, as findings.
+   *
+   * Only what can be anchored: `locate` leaves a file outside the run's folder absolute, and a
+   * finding on a file the diff cannot show would be a comment with nowhere to go. It stays in the
+   * evidence, which is read as text.
+   *
+   * Severity is high for all of them, and that is not a guess: the gate failed the run over these.
+   */
+  private recordFailures(report: VerifyReport, runID: string, taskID: string, directory?: string) {
+    if (!directory) return
+    const findings = report.steps.flatMap((step) =>
+      (step.failures ?? [])
+        .filter((failure) => !failure.file.startsWith("/"))
+        .map((failure) => ({
+          file: failure.file,
+          ...(failure.line !== undefined ? { line: failure.line } : {}),
+          severity: "high" as const,
+          title: failure.message,
+          source: "check" as const,
+          detail: [step.name, failure.rule].filter(Boolean).join(" · ") || undefined,
+          directory,
+          runID,
+          taskID,
+        })),
+    )
+    if (findings.length > 0) this.repository.addFindings(findings)
+  }
+
+  /**
    * Runs what is queued, and says why it stopped.
    *
    * `paused` is a run that reached a human gate and is waiting to be let through — not an ending,
@@ -150,12 +179,18 @@ export class TaskRunner {
           runID: run.id,
           taskID: task.id,
         })
+        // Every failure the checks named, anchored on its line (H-22, and the structured output
+        // H-21 asks of this gate). They are findings like a review's, which means they are drawn on
+        // the diff by the machinery H-32 already built: a broken test lands on the line that broke.
+        this.recordFailures(report, run.id, task.id, options.directory)
         // The evidence is the handoff: whatever runs next is told exactly what failed.
         handoff = evidence
         if (!report.ok && !stopped()) {
           // A failed check is not the end of the run if it was given a budget to try again. The
           // retry carries the evidence in its own prompt, so the handoff is cleared, not repeated.
-          if (this.scheduleRetry(run.id, task, evidence)) {
+          // It is handed the parsed failures rather than the log: the same information, without the
+          // stack traces, paid for on every attempt.
+          if (this.scheduleRetry(run.id, task, focusedEvidence(report))) {
             handoff = undefined
             continue
           }
@@ -192,6 +227,7 @@ export class TaskRunner {
             this.repository.addFindings(
               found.findings.map((finding) => ({
                 ...finding,
+                source: "review" as const,
                 directory: options.directory,
                 runID: run.id,
                 taskID: task.id,

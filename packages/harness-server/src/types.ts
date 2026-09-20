@@ -212,6 +212,14 @@ export type Finding = {
   severity: "high" | "medium" | "low"
   title: string
   detail?: string
+  /**
+   * Who said it: a model reviewing the work, or a check that actually failed.
+   *
+   * They are not the same claim and must not read as one. `review` is an opinion and can be wrong;
+   * `check` is a command that exited non-zero, which is a fact. Older findings have neither, and
+   * are shown as what they were then: reviews.
+   */
+  source?: "review" | "check"
   /** Set aside by a reader: kept, but out of the way. */
   resolved?: boolean
   createdAt: number

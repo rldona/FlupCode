@@ -611,6 +611,34 @@ test("a finding sits on the line it is about", async ({ page }) => {
   expect(rows[index - 1]).toContain("11")
 })
 
+test("a failed check does not read like a model's opinion", async ({ page }) => {
+  // H-22. Both are drawn on the diff, and they are not the same claim: a review can be wrong, a
+  // command that exited non-zero cannot. The reader has to be able to tell at a glance.
+  await openSession(page, [], {
+    findings: [
+      finding(),
+      finding({
+        id: "f2",
+        line: 12,
+        source: "check",
+        title: "Type 'number' is not assignable to type 'string'.",
+        detail: "typecheck · TS2322",
+      }),
+    ],
+  })
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+  const file = page.locator(".fc-diff-file").filter({ hasText: "server.ts" })
+  await file.locator(".fc-diff-file-head").click()
+
+  const fromCheck = file.locator('.fc-diff-finding[data-source="check"]')
+  await expect(fromCheck).toHaveCount(1)
+  await expect(fromCheck.locator(".fc-diff-finding-severity")).toHaveText("check")
+  await expect(fromCheck).toContainText("TS2322")
+  // The review's point keeps its severity, so the two are told apart by what they say.
+  const fromReview = file.locator('.fc-diff-finding[data-source="review"]')
+  await expect(fromReview.locator(".fc-diff-finding-severity")).toHaveText(/high|alto/)
+})
+
 test("a finding about the file rather than a line still appears", async ({ page }) => {
   // Dropping it because it has no line would make the review claim to be complete when it is not.
   await openSession(page, [], { findings: [finding({ line: undefined, title: "This file does too much" })] })

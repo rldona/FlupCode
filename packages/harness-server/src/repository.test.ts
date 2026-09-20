@@ -45,6 +45,25 @@ describe("opening a database written by an older server", () => {
     expect(after.listTasks(run.id).map((task) => task.kind)).toEqual(["agent", "verify"])
     after.close()
   })
+
+  test("a findings table written before findings had a source keeps its rows and gains the column", () => {
+    const path = scratch()
+    const before = open(path)
+    const [old] = before.addFindings([{ file: "src/a.ts", line: 2, severity: "high", title: "Was here first" }])
+    before.db.exec("ALTER TABLE findings DROP COLUMN source")
+    before.close()
+
+    const after = open(path)
+    const [read] = after.listFindings({})
+    expect(read!.id).toBe(old!.id)
+    // A finding filed before the distinction existed is not claimed to be a check's.
+    expect(read!.source).toBeUndefined()
+    const [fresh] = after.addFindings([
+      { file: "src/a.ts", line: 9, severity: "high", title: "From a check", source: "check" },
+    ])
+    expect(after.listFindings({}).find((entry) => entry.id === fresh!.id)?.source).toBe("check")
+    after.close()
+  })
 })
 
 describe("SqliteRoutineRepository", () => {

@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import { join } from "node:path"
+import { failureLine, parseFailures, type Failure } from "./failures"
 
 /**
  * Verification with evidence (H-22).
@@ -18,6 +19,10 @@ export type VerifyStepResult = VerifyStep & {
   /** The tail of what it printed. A failing suite is read from the bottom. */
   output: string
   timedOut?: boolean
+  /** What the output said, read into files and lines (H-22). Empty when nothing was recognised. */
+  failures?: Failure[]
+  /** How many were found before the list was capped, so a big number is never quietly shrunk. */
+  failureCount?: number
 }
 
 export type VerifyReport = { ok: boolean; steps: VerifyStepResult[]; problem?: string }
@@ -151,12 +156,17 @@ export async function runStep(step: VerifyStep, directory: string): Promise<Veri
   ])
   clearTimeout(timer)
   const timedOut = Date.now() - startedAt >= STEP_TIMEOUT_MS
+  const output = tail([stdout, stderr].filter(Boolean).join("\n").trim())
+  // Read while the whole output is still here. Only the tail is kept, and a long run's first
+  // failure is the one that matters most — it is the one the rest were caused by.
+  const parsed = exitCode === 0 ? { failures: [], total: 0 } : parseFailures(output, directory)
   return {
     ...step,
     exitCode,
     durationMs: Date.now() - startedAt,
-    output: tail([stdout, stderr].filter(Boolean).join("\n").trim()),
+    output,
     ...(timedOut ? { timedOut: true } : {}),
+    ...(parsed.failures.length > 0 ? { failures: parsed.failures, failureCount: parsed.total } : {}),
   }
 }
 
@@ -206,8 +216,50 @@ export function evidenceText(report: VerifyReport): string {
     const mark = step.exitCode === 0 ? "ok" : step.timedOut ? "timed out" : `exit ${step.exitCode}`
     lines.push(`- ${step.name} (${step.command}) — ${mark}, ${seconds(step.durationMs)}`)
   }
+  // What the output said, before what it printed. The reader is looking for this, and had to find
+  // it inside the log until now.
+  for (const step of report.steps.filter((entry) => entry.failures?.length)) {
+    lines.push("", `### ${step.name}: ${countOf(step)}`)
+    for (const failure of step.failures!) lines.push(`- ${failureLine(failure)}`)
+  }
   for (const step of report.steps.filter((entry) => entry.exitCode !== 0)) {
     lines.push("", `### ${step.name}`, "```", step.output || "(no output)", "```")
   }
   return lines.join("\n")
+}
+
+/** "3 failures", or "3 of 120" when the list was capped. */
+const countOf = (step: VerifyStepResult) => {
+  const shown = step.failures?.length ?? 0
+  const total = step.failureCount ?? shown
+  return total > shown ? `${shown} of ${total} failures` : `${shown} ${shown === 1 ? "failure" : "failures"}`
+}
+
+/** Every failure the checks reported, in the order the steps ran. */
+export const allFailures = (report: VerifyReport) => report.steps.flatMap((step) => step.failures ?? [])
+
+/**
+ * What a retry is told.
+ *
+ * The parsed failures, not the log. A retry used to be handed the whole evidence — up to eight
+ * kilobytes per step of stack traces and progress output — as the top of its prompt, which costs
+ * tokens on every attempt and buries the four lines that matter. When nothing could be parsed the
+ * full text is still handed over: a smaller prompt is not worth losing the only evidence there is.
+ */
+export function focusedEvidence(report: VerifyReport): string {
+  const failures = allFailures(report)
+  if (failures.length === 0) return evidenceText(report)
+  const lines = ["Verification failed:", ""]
+  for (const step of report.steps.filter((entry) => entry.failures?.length)) {
+    lines.push(`${step.name} — ${countOf(step)}`)
+    for (const failure of step.failures!) lines.push(`- ${failureLine(failure)}`)
+    lines.push("")
+  }
+  // A step that failed without a single recognisable line still has to say so, or the retry is
+  // told about the two steps that parsed and never hears about the one that did not.
+  const silent = report.steps.filter((step) => step.exitCode !== 0 && !step.failures?.length)
+  for (const step of silent) {
+    lines.push(`### ${step.name} (exit ${step.exitCode})`, "```", step.output || "(no output)", "```", "")
+  }
+  return lines.join("\n").trim()
 }
