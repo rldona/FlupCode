@@ -1,3 +1,27 @@
+diff --git a/node_modules/effect/.bun-tag-773025e2aeacdf68 b/.bun-tag-773025e2aeacdf68
+new file mode 100644
+index 0000000000000000000000000000000000000000..e69de29bb2d1d6434b8b29ae775ad8c2e48c5391
+diff --git a/dist/unstable/http/HttpMiddleware.js b/dist/unstable/http/HttpMiddleware.js
+index a1a30763103799568385092a4ab6a73964adbc05..6ea4e91d07f8d55b7d509b13bdff0d4d56f6936a 100644
+--- a/dist/unstable/http/HttpMiddleware.js
++++ b/dist/unstable/http/HttpMiddleware.js
+@@ -255,12 +255,16 @@ export const cors = options => {
+   const headersFromRequestOptions = request => {
+     const origin = request.headers["origin"];
+     const accessControlRequestHeaders = request.headers["access-control-request-headers"];
++    const allowPrivateNetwork = request.headers["access-control-request-private-network"] === "true" ? {
++      "access-control-allow-private-network": "true"
++    } : undefined;
+     return Headers.fromRecordUnsafe({
+       ...allowOrigin(origin),
+       ...allowCredentials,
+       ...exposeHeaders,
+       ...allowMethods,
+       ...allowHeaders(accessControlRequestHeaders),
++      ...allowPrivateNetwork,
+       ...maxAge
+     });
+   };
 diff --git a/dist/unstable/httpapi/HttpApiSchema.js b/dist/unstable/httpapi/HttpApiSchema.js
 index ecb6603d1ee4e89e92174b3a1100e8c9c720b3f3..08b832b6b3e9e4d10df156eca36b16f571f67f6e 100644
 --- a/dist/unstable/httpapi/HttpApiSchema.js
@@ -26,6 +50,29 @@ index ecb6603d1ee4e89e92174b3a1100e8c9c720b3f3..08b832b6b3e9e4d10df156eca36b16f5
  /**
   * Creates a streaming `Uint8Array` success response schema.
   *
+diff --git a/src/unstable/http/HttpMiddleware.ts b/src/unstable/http/HttpMiddleware.ts
+index 0d723ccf45491ebca4d2e662bd8479e6f0d2727c..0a37bd646f28030611b3f7f69bccdf4c5d52ba65 100644
+--- a/src/unstable/http/HttpMiddleware.ts
++++ b/src/unstable/http/HttpMiddleware.ts
+@@ -364,12 +364,18 @@ export const cors = (options?: {
+   const headersFromRequestOptions = (request: HttpServerRequest) => {
+     const origin = request.headers["origin"]
+     const accessControlRequestHeaders = request.headers["access-control-request-headers"]
++    // FlupCode: opt in to Chromium's Local Network Access so a hosted page (https origin) can reach
++    // a loopback engine. Browsers only send the request header for public-to-loopback calls.
++    const allowPrivateNetwork = request.headers["access-control-request-private-network"] === "true"
++      ? { "access-control-allow-private-network": "true" }
++      : undefined
+     return Headers.fromRecordUnsafe({
+       ...allowOrigin(origin),
+       ...allowCredentials,
+       ...exposeHeaders,
+       ...allowMethods,
+       ...allowHeaders(accessControlRequestHeaders),
++      ...allowPrivateNetwork,
+       ...maxAge
+     })
+   }
 diff --git a/src/unstable/httpapi/HttpApiSchema.ts b/src/unstable/httpapi/HttpApiSchema.ts
 index f2920365cf0328146523ce2e2dba04d6a8809a4a..5482d635cdf01a72063ff683d244fab891910211 100644
 --- a/src/unstable/httpapi/HttpApiSchema.ts
