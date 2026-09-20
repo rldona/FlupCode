@@ -179,19 +179,25 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                 <span class="fc-context-aside">{notLoaded().length}</span>
               </h2>
               <p class="fc-usage-note">{t("The engine skips these without saying anything. Here is what it wants.")}</p>
-              <For each={notLoaded()}>
-                {(file) => (
-                  <div class="fc-usage-row fc-skill-row">
-                    <span class="fc-usage-key" title={file.path}>
-                      {file.path.replace(/^.*\/(?=[^/]+\/[^/]+$)/, "")}
-                    </span>
-                    <span class="fc-context-excerpt">{file.reason}</span>
-                    <Show when={file.shadows}>
-                      {(other) => <span class="fc-context-excerpt" title={other()}>{t("already taken")}</span>}
-                    </Show>
-                  </div>
-                )}
-              </For>
+              <div class="fc-routine-cards">
+                <For each={notLoaded()}>
+                  {(file) => (
+                    <div class="fc-routine-card fc-routine-card-static fc-skill-row">
+                      <span class="fc-routine-card-content">
+                        <strong title={file.path}>{file.path.replace(/^.*\/(?=[^/]+\/[^/]+$)/, "")}</strong>
+                        <small>{file.reason}</small>
+                      </span>
+                      <Show when={file.shadows}>
+                        {(other) => (
+                          <span class="fc-artifact-kind" title={other()}>
+                            {t("already taken")}
+                          </span>
+                        )}
+                      </Show>
+                    </div>
+                  )}
+                </For>
+              </div>
             </section>
           </Show>
 
@@ -204,14 +210,18 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               <p class="fc-usage-note">
                 {t("Nothing is wrong with these. The engine reads a folder's skills when it opens the folder.")}
               </p>
-              <For each={waiting()}>
-                {(file) => (
-                  <div class="fc-usage-row fc-skill-row">
-                    <span class="fc-usage-key">{file.name}</span>
-                    <span class="fc-context-excerpt">{file.description}</span>
-                  </div>
-                )}
-              </For>
+              <div class="fc-routine-cards">
+                <For each={waiting()}>
+                  {(file) => (
+                    <div class="fc-routine-card fc-routine-card-static fc-skill-row">
+                      <span class="fc-routine-card-content">
+                        <strong>{file.name}</strong>
+                        <small>{file.description}</small>
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
             </section>
           </Show>
 
@@ -306,16 +316,20 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               when={loaded().length > 0}
               fallback={<p class="fc-usage-note">{props.loading ? t("Reading…") : t("None on disk.")}</p>}
             >
-              <For each={loaded()}>
+              <div class="fc-routine-cards">
+                <For each={loaded()}>
                 {(file) => (
                   <div class="fc-skill-file">
-                    <button class="fc-usage-row fc-skill-row" type="button" onClick={() => read(file)}>
-                      <span class="fc-diff-status">{WHERE[file.scope]}</span>
-                      <span class="fc-usage-key">{file.name}</span>
-                      <span class="fc-context-excerpt">
-                        {file.description ?? t("No description, so the model has nothing to choose it by")}
+                    <button class="fc-routine-card fc-skill-row" type="button" onClick={() => read(file)}>
+                      <span class="fc-routine-card-icon" aria-hidden="true">
+                        ✦
                       </span>
-                      <span class="fc-usage-cost">{Math.max(1, Math.round(file.bytes / 102.4) / 10)} kB</span>
+                      <span class="fc-routine-card-content">
+                        <strong>{file.name}</strong>
+                        <small>{file.description ?? t("No description, so the model has nothing to choose it by")}</small>
+                      </span>
+                      <span class="fc-artifact-kind">{WHERE[file.scope]}</span>
+                      <span class="fc-artifact-kind">{Math.max(1, Math.round(file.bytes / 102.4) / 10)} kB</span>
                     </button>
                     <Show when={file.name && (access().get(file.name) ?? []).length > 0}>
                       <p class="fc-mcp-access">
@@ -356,15 +370,28 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                   </div>
                 )}
               </For>
+              </div>
             </Show>
           </section>
 
           <Show when={creating()}>
-            <section class="fc-usage-block fc-agent-form">
-              <h2>{t("New skill")}</h2>
-              <p class="fc-usage-note">
-                {t("Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.")}
-              </p>
+            <div class="fc-modal-backdrop" onClick={() => setCreating(false)}>
+              <div
+                class="fc-modal fc-form-modal fc-agent-form"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("New skill")}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div class="fc-modal-header">
+                  <span>{t("New skill")}</span>
+                  <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setCreating(false)}>
+                    ×
+                  </button>
+                </div>
+                <p class="fc-modal-note">
+                  {t("Written as the engine reads it: a folder of its own, a SKILL.md, and a name in its frontmatter.")}
+                </p>
               <label class="fc-field">
                 <span>{t("Name")}</span>
                 <input
@@ -407,15 +434,16 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               </label>
               <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
               <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
-              <div class="fc-routines-header-actions">
-                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
-                  {saving() ? t("Saving…") : t("Save")}
-                </button>
+              <div class="fc-dialog-actions">
                 <button class="fc-button" type="button" onClick={() => setCreating(false)}>
                   {t("Cancel")}
                 </button>
+                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={save}>
+                  {saving() ? t("Saving…") : t("Save")}
+                </button>
               </div>
-            </section>
+              </div>
+            </div>
           </Show>
 
           <Show when={orphans().length > 0}>
@@ -425,14 +453,18 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                 <span class="fc-context-aside">{orphans().length}</span>
               </h2>
               <p class="fc-usage-note">{t("The engine has these and no file on this machine explains them.")}</p>
-              <For each={orphans()}>
-                {(skill) => (
-                  <div class="fc-usage-row">
-                    <span class="fc-usage-key">{skill.name}</span>
-                    <span class="fc-context-excerpt">{skill.description}</span>
-                  </div>
-                )}
-              </For>
+              <div class="fc-routine-cards">
+                <For each={orphans()}>
+                  {(skill) => (
+                    <div class="fc-routine-card fc-routine-card-static">
+                      <span class="fc-routine-card-content">
+                        <strong>{skill.name}</strong>
+                        <small>{skill.description}</small>
+                      </span>
+                    </div>
+                  )}
+                </For>
+              </div>
             </section>
           </Show>
         </div>
