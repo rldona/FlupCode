@@ -11,6 +11,8 @@ import { HomeCanvas } from "./components/HomeCanvas"
 import { Composer } from "./components/Composer"
 import { PermissionDock, type PermissionReply } from "./components/PermissionDock"
 import { QuestionDock } from "./components/QuestionDock"
+import { CommandPalette } from "./components/CommandPalette"
+import { SessionView } from "./components/SessionView"
 
 type Client = ReturnType<typeof createClient>
 
@@ -36,6 +38,7 @@ export const App: Component = () => {
   const [modelRef, setModelRef] = createSignal<{ providerID: string; id: string; variant?: string }>()
   const [attachments, setAttachments] = createSignal<Attachment[]>([])
   const [aboutOpen, setAboutOpen] = createSignal(false)
+  const [paletteOpen, setPaletteOpen] = createSignal(false)
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -54,11 +57,47 @@ export const App: Component = () => {
   const [questions, { refetch: refetchQuestions }] = createResource(serverUrl, (url) =>
     createClient(url).question.request.list(),
   )
+  const [messages, { refetch: refetchMessages }] = createResource(
+    () => {
+      const sessionID = selected()
+      return sessionID ? { url: serverUrl(), sessionID } : undefined
+    },
+    (source) => createClient(source.url).message.list({ sessionID: source.sessionID, order: "asc" }),
+  )
 
   const commandOptions = (): CommandOption[] => [
     ...BUILTIN_COMMANDS,
     ...(commands()?.data ?? []).map((command) => ({ name: command.name, description: command.description })),
   ]
+
+  const searchFiles = async (query: string) => {
+    const response = await createClient(serverUrl()).file.find({ query, limit: 8 })
+    return response.data
+  }
+
+  const runCommand = (name: string) => {
+    if (name === "new" || name === "clear") {
+      newSession()
+      return
+    }
+    if (name === "about") {
+      setAboutOpen(true)
+      return
+    }
+    setPrompt(`/${name} `)
+  }
+
+  createEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (!(event.metaKey || event.ctrlKey)) return
+      const key = event.key.toLowerCase()
+      if (key !== "k" && key !== "p") return
+      event.preventDefault()
+      setPaletteOpen(true)
+    }
+    document.addEventListener("keydown", handler)
+    onCleanup(() => document.removeEventListener("keydown", handler))
+  })
 
   createEffect(() => {
     const url = serverUrl()
@@ -69,6 +108,7 @@ export const App: Component = () => {
         for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
           if (event.type.startsWith("permission.")) void refetchPermissions()
           else if (event.type.startsWith("question.")) void refetchQuestions()
+          else if (event.type.startsWith("message.")) void refetchMessages()
           else if (event.type.startsWith("session.")) void refetchSessions()
         }
       } catch {
@@ -348,14 +388,21 @@ export const App: Component = () => {
           onRefreshServer={commitServer}
           onServerInput={setServerInput}
         />
-        <HomeCanvas
-          displayName={displayName()}
-          sessionCount={sessionList()?.length ?? 0}
-          serverVersion={health()?.version}
-          selectedSession={selected()}
-          busy={busy()}
-          error={error()}
-        />
+        <Show
+          when={selected()}
+          fallback={
+            <HomeCanvas
+              displayName={displayName()}
+              sessionCount={sessionList()?.length ?? 0}
+              serverVersion={health()?.version}
+              selectedSession={selected()}
+              busy={busy()}
+              error={error()}
+            />
+          }
+        >
+          <SessionView messages={messages()?.data} loading={messages.loading} busy={busy()} />
+        </Show>
         <div class="oh-docks">
           <For each={permissions()?.data ?? []}>
             {(request) => (
@@ -395,9 +442,20 @@ export const App: Component = () => {
           onToggleAuto={() => setAuto((value) => !value)}
           onAttach={addAttachments}
           onRemoveAttachment={removeAttachment}
+          searchFiles={searchFiles}
         />
       </main>
       <Toaster />
+      <CommandPalette
+        open={paletteOpen()}
+        commands={commandOptions()}
+        sessions={sessionList() ?? []}
+        onClose={() => setPaletteOpen(false)}
+        onCommand={runCommand}
+        onSession={selectSession}
+        onFile={(path) => setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
+        searchFiles={searchFiles}
+      />
       <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
     </div>
   )
