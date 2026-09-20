@@ -140,8 +140,9 @@ Theming has two independent axes, both applied to `<html>`:
   attribute; `data-fc-theme="classic"` selects the original neutral grey/blue palette,
   `data-fc-theme="sublime"` the dark-grey Sublime-style palette, `data-fc-theme="sublime-dark"`
   its deeper, dark-only variant, `data-fc-theme="github"` the Primer-based light/dark pair,
-  `data-fc-theme="copilot"` the neutral graphite pair, and `data-fc-theme="vercel"` the Vercel
-  dashboard's black dark theme, which is dark-only too.
+  `data-fc-theme="copilot"` the neutral graphite pair, `data-fc-theme="code"` the neutral VS Code
+  editor pair, and `data-fc-theme="vercel"` the Vercel dashboard's black dark theme, which is
+  dark-only too.
 
 Each palette normally defines a light and a dark variant (`.fc-dark`), so the two axes multiply.
 Palette blocks in `tokens.css` come after `.fc-dark` and must be overridden by a
