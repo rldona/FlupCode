@@ -345,22 +345,21 @@ export const Composer: Component<ComposerProps> = (props) => {
           >
             <span class="fc-model-button-label">{props.modelLabel}</span>
           </button>
-          <Show when={props.variants.length > 0}>
-            <select
-              class="fc-model-select"
-              ref={(element: HTMLSelectElement) => {
-                createEffect(() => {
-                  props.variants
-                  element.value = props.variantKey ?? ""
-                })
-              }}
-              aria-label={t("Variant")}
-              onChange={(event) => props.onVariantChange(event.currentTarget.value)}
-            >
-              <option value="">{t("Default")}</option>
-              <For each={props.variants}>{(variant) => <option value={variant.id}>{variant.id}</option>}</For>
-            </select>
-          </Show>
+          <select
+            class="fc-model-select"
+            ref={(element: HTMLSelectElement) => {
+              createEffect(() => {
+                props.variants
+                element.value = props.variantKey ?? ""
+              })
+            }}
+            disabled={props.variants.length === 0}
+            aria-label={t("Variant")}
+            onChange={(event) => props.onVariantChange(event.currentTarget.value)}
+          >
+            <option value="">{t("Default")}</option>
+            <For each={props.variants}>{(variant) => <option value={variant.id}>{variant.id}</option>}</For>
+          </select>
           <button
             class="fc-send"
             type="button"
