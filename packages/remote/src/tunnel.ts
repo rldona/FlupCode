@@ -20,7 +20,7 @@ const Type = {
 } as const
 
 const CHUNK = 64 * 1024
-const NULL_BODY_STATUS = new Set([101, 204, 205, 304])
+const NULL_BODY_STATUS = new Set([204, 205, 304])
 const DROPPED_REQUEST_HEADERS = new Set([
   "host",
   "connection",
@@ -33,6 +33,8 @@ const DROPPED_REQUEST_HEADERS = new Set([
   "accept-encoding",
 ])
 const DROPPED_RESPONSE_HEADERS = new Set(["connection", "content-length", "content-encoding", "transfer-encoding", "set-cookie"])
+
+type BinaryType = "blob" | "arraybuffer"
 
 export type ControlMessage = Record<string, unknown> & { type: string }
 
@@ -235,7 +237,7 @@ export function createTunnelClient(channel: SecureChannel) {
     streams.clear()
   })
 
-  const fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+  const fetch = async (input: Request | string | URL, init?: RequestInit) => {
     const request = new Request(input, init)
     if (channel.closed) throw new TypeError("Remote connection closed")
     if (request.signal.aborted) throw request.signal.reason
