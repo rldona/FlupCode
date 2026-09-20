@@ -69,7 +69,9 @@ export function search(
 ): PaletteItem[] {
   const value = query.trim().toLowerCase()
   const items: PaletteItem[] = []
-  for (const session of sources.sessions) {
+  // Every list is guarded: a resource that answers without a value must not take the app down when
+  // the palette is built, which is what `for...of undefined` did.
+  for (const session of sources.sessions ?? []) {
     const title = sessionTitle(session) || t("Session without title")
     const directory = session.location?.directory ?? ""
     if (value && !contains(`${title} ${directory}`, value)) continue
@@ -82,15 +84,15 @@ export function search(
       value: session.id,
     })
   }
-  for (const project of sources.projects) {
+  for (const project of sources.projects ?? []) {
     if (value && !contains(`${project.name} ${project.directory}`, value)) continue
     items.push({ kind: "project", id: `project:${project.directory}`, label: project.name, detail: project.directory, value: project.directory })
   }
-  for (const artifact of sources.artifacts) {
+  for (const artifact of sources.artifacts ?? []) {
     if (value && !contains(`${artifact.title} ${artifact.kind}`, value)) continue
     items.push({ kind: "artifact", id: `artifact:${artifact.id}`, label: artifact.title, detail: artifact.kind, value: artifact.id })
   }
-  for (const routine of sources.routines) {
+  for (const routine of sources.routines ?? []) {
     if (value && !contains(`${routine.name} ${routine.description ?? ""}`, value)) continue
     items.push({
       kind: "routine",
@@ -100,12 +102,12 @@ export function search(
       value: routine.id,
     })
   }
-  for (const run of sources.runs) {
+  for (const run of sources.runs ?? []) {
     const label = run.source.type === "routine" ? t("Routine") : t("Manual run")
     if (value && !contains(`${label} ${run.status}`, value)) continue
     items.push({ kind: "run", id: `run:${run.id}`, label, detail: run.status, value: run.id })
   }
-  for (const workflow of sources.workflows) {
+  for (const workflow of sources.workflows ?? []) {
     if (value && !contains(`${workflow.name} ${workflow.description ?? ""}`, value)) continue
     items.push({
       kind: "workflow",
@@ -115,7 +117,7 @@ export function search(
       value: workflow.name,
     })
   }
-  for (const command of sources.commands) {
+  for (const command of sources.commands ?? []) {
     if (value && !contains(command.name, value)) continue
     items.push({
       kind: "command",
@@ -126,7 +128,7 @@ export function search(
       value: command.name,
     })
   }
-  for (const file of sources.files) {
+  for (const file of sources.files ?? []) {
     items.push({ kind: "file", id: `file:${file.path}`, label: file.path, value: file.path })
   }
   return items
