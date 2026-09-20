@@ -1230,6 +1230,49 @@ button.oh-row-main {
   color: var(--oh-text-muted);
 }
 
+.oh-modal-wide {
+  width: min(600px, 100%);
+}
+
+.oh-mcp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oh-mcp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--oh-space-2);
+  padding: 6px 0;
+  border-bottom: 1px solid var(--oh-border);
+}
+
+.oh-mcp-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.oh-mcp-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: var(--oh-space-2);
+}
+
+.oh-mcp-form .oh-question-custom {
+  flex: 1;
+  min-width: 120px;
+}
+
 @media (max-width: 720px) {
   .oh-sidebar {
     position: absolute;

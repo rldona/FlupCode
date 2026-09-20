@@ -2,7 +2,7 @@ import { For, Show, createEffect, createResource, createSignal, onCleanup, type 
 import type { PermissionV2Request, QuestionV2Request } from "@opencode-ai/client"
 import { createClient, resolveServerUrl } from "./client"
 import { STORAGE_KEYS, readStorage, writeStorage } from "./storage"
-import type { Attachment, CommandOption } from "./types"
+import type { Attachment, CommandOption, McpConfig } from "./types"
 import { Toaster, toast } from "./toast"
 import { Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
@@ -16,6 +16,7 @@ import { SessionView } from "./components/SessionView"
 import { SessionToolbar } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
 import { TodoDock } from "./components/TodoDock"
+import { McpManager } from "./components/McpManager"
 
 type Client = ReturnType<typeof createClient>
 
@@ -23,6 +24,7 @@ const BUILTIN_COMMANDS: CommandOption[] = [
   { name: "new", description: "Nueva sesión" },
   { name: "compact", description: "Compactar la sesión actual" },
   { name: "steps", description: "Mostrar u ocultar los pasos de herramientas" },
+  { name: "mcp", description: "Servidores MCP" },
   { name: "about", description: "Acerca de OpenHarness" },
 ]
 
@@ -44,6 +46,7 @@ export const App: Component = () => {
   const [aboutOpen, setAboutOpen] = createSignal(false)
   const [paletteOpen, setPaletteOpen] = createSignal(false)
   const [showTools, setShowTools] = createSignal(true)
+  const [mcpOpen, setMcpOpen] = createSignal(false)
 
   const client = () => createClient(serverUrl())
   const [health] = createResource(serverUrl, (url) => createClient(url).health.get())
@@ -57,6 +60,7 @@ export const App: Component = () => {
   const [defaultModel] = createResource(serverUrl, (url) => createClient(url).model.default())
   const [agents] = createResource(serverUrl, (url) => createClient(url).agent.list())
   const [skills] = createResource(serverUrl, (url) => createClient(url).skill.list())
+  const [mcp, { refetch: refetchMcp }] = createResource(serverUrl, (url) => createClient(url).mcp.list())
   const [commands] = createResource(serverUrl, (url) => createClient(url).command.list())
   const [permissions, { refetch: refetchPermissions }] = createResource(serverUrl, (url) =>
     createClient(url).permission.request.list(),
@@ -136,6 +140,10 @@ export const App: Component = () => {
     }
     if (name === "about") {
       setAboutOpen(true)
+      return
+    }
+    if (name === "mcp") {
+      setMcpOpen(true)
       return
     }
     setPrompt(`/${name} `)
@@ -413,6 +421,34 @@ export const App: Component = () => {
     })
   }
 
+  const addMcp = (server: string, config: McpConfig) =>
+    run(async (current) => {
+      await current.mcp.add({ server, config })
+      void refetchMcp()
+      return undefined
+    }, "Servidor MCP añadido")
+
+  const removeMcp = (server: string) =>
+    run(async (current) => {
+      await current.mcp.remove({ server })
+      void refetchMcp()
+      return undefined
+    }, "Servidor MCP eliminado")
+
+  const connectMcp = (server: string) =>
+    run(async (current) => {
+      await current.mcp.connect({ server })
+      void refetchMcp()
+      return undefined
+    }, "Servidor MCP conectado")
+
+  const disconnectMcp = (server: string) =>
+    run(async (current) => {
+      await current.mcp.disconnect({ server })
+      void refetchMcp()
+      return undefined
+    }, "Servidor MCP desconectado")
+
   const undo = () => {
     const sessionID = selected()
     if (!sessionID) return
@@ -506,6 +542,11 @@ export const App: Component = () => {
       if (name === "steps") {
         setPrompt("")
         setShowTools((value) => !value)
+        return
+      }
+      if (name === "mcp") {
+        setPrompt("")
+        setMcpOpen(true)
         return
       }
       const skill = skills()?.data?.find((item) => item.name === name)
@@ -677,6 +718,16 @@ export const App: Component = () => {
         onSession={selectSession}
         onFile={(path) => setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
         searchFiles={searchFiles}
+      />
+      <McpManager
+        open={mcpOpen()}
+        servers={mcp()?.data ?? []}
+        busy={busy()}
+        onAdd={addMcp}
+        onRemove={removeMcp}
+        onConnect={connectMcp}
+        onDisconnect={disconnectMcp}
+        onClose={() => setMcpOpen(false)}
       />
       <About open={aboutOpen()} onClose={() => setAboutOpen(false)} />
     </div>
