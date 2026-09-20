@@ -1457,4 +1457,35 @@ button.oh-row-main {
   .oh-sidebar-collapsed {
     display: none;
   }
+
+  .oh-topbar {
+    flex-wrap: wrap;
+    height: auto;
+    padding: var(--oh-space-2) var(--oh-space-3);
+  }
+
+  .oh-server-input {
+    width: 150px;
+  }
+
+  .oh-canvas {
+    padding: var(--oh-space-5) var(--oh-space-3) var(--oh-space-4);
+  }
+
+  .oh-transcript {
+    padding: var(--oh-space-4) var(--oh-space-3);
+  }
+
+  .oh-composer-row {
+    flex-wrap: wrap;
+  }
+
+  .oh-input {
+    flex-basis: 100%;
+    order: -1;
+  }
+
+  .oh-session-toolbar {
+    align-items: flex-start;
+  }
 }
