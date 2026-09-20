@@ -1,6 +1,6 @@
 # Usage
 
-How to run and use OpenHarness.
+How to run and use FlupCode.
 
 ## Requirements
 
@@ -42,7 +42,7 @@ bun run dev:harness-desktop  # Electron window
 ```
 
 The desktop main process starts a local server automatically if none is reachable. Set
-`OPENHARNESS_NO_SERVER=1` to disable that, or `OPENHARNESS_DEV_URL` to point at another renderer.
+`FLUPCODE_NO_SERVER=1` to disable that, or `FLUPCODE_DEV_URL` to point at another renderer.
 
 ## Layout
 

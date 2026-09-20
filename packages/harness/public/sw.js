@@ -1,4 +1,4 @@
-const CACHE = "openharness-v1"
+const CACHE = "flupcode-v1"
 
 self.addEventListener("install", () => {
   self.skipWaiting()

@@ -1,6 +1,6 @@
-# @openharness/desktop
+# @flupcode/desktop
 
-Electron wrapper for OpenHarness. It loads the `packages/harness` web renderer and, in a later
+Electron wrapper for FlupCode. It loads the `packages/harness` web renderer and, in a later
 ticket, will manage the local OpenCode server sidecar, native menus, auto-update and packaging.
 
 ## Scripts
@@ -13,7 +13,7 @@ bun run dev:harness
 bun run dev:harness-desktop
 ```
 
-Set `OPENHARNESS_DEV_URL` to point at a different renderer URL. In packaged builds the window loads
+Set `FLUPCODE_DEV_URL` to point at a different renderer URL. In packaged builds the window loads
 the bundled `out/renderer/index.html`.
 
 ## Status

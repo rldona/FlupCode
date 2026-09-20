@@ -4,7 +4,7 @@ Feature parity between the OpenCode terminal UI (`packages/tui`) and the web/des
 (`packages/app`, `packages/session-ui`). This matrix is the output of ticket `F0-1` and the source
 of truth for `F3`.
 
-Legend: **✅ parity** · **🟡 partial** · **❌ missing** · **➕ OpenHarness extra** (not in TUI)
+Legend: **✅ parity** · **🟡 partial** · **❌ missing** · **➕ FlupCode extra** (not in TUI)
 
 ## 1. Shell, routing & navigation
 
@@ -183,7 +183,7 @@ Legend: **✅ parity** · **🟡 partial** · **❌ missing** · **➕ OpenHarne
 9. "Toggle steps" command (orphan i18n).
 10. Console org switch (low priority).
 
-**OpenHarness extras (F2/F4, not in TUI):**
+**FlupCode extras (F2/F4, not in TUI):**
 1. Harness shell layout + sidebar nav (Artefactos, Rutinas, Personalizar).
 2. Composer context chips (Local / no-folder), voice input.
 3. Global usage dashboard + activity heatmap + comparisons.

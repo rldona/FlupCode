@@ -23,16 +23,16 @@ export const Topbar: Component<TopbarProps> = (props) => {
   }
 
   return (
-    <header class="oh-topbar">
-      <div class="oh-topbar-left">
-        <button class="oh-nav-arrow" type="button" title="Alternar barra lateral" onClick={props.onToggleSidebar}>
+    <header class="fc-topbar">
+      <div class="fc-topbar-left">
+        <button class="fc-nav-arrow" type="button" title="Alternar barra lateral" onClick={props.onToggleSidebar}>
           ▤
         </button>
-        <button class="oh-nav-arrow" type="button" title="Atrás" disabled={!props.canGoBack} onClick={props.onBack}>
+        <button class="fc-nav-arrow" type="button" title="Atrás" disabled={!props.canGoBack} onClick={props.onBack}>
           ←
         </button>
         <button
-          class="oh-nav-arrow"
+          class="fc-nav-arrow"
           type="button"
           title="Adelante"
           disabled={!props.canGoForward}
@@ -40,11 +40,11 @@ export const Topbar: Component<TopbarProps> = (props) => {
         >
           →
         </button>
-        <span class="oh-logo">OpenHarness</span>
+        <span class="fc-logo">FlupCode</span>
       </div>
-      <div class="oh-topbar-right">
+      <div class="fc-topbar-right">
         <input
-          class="oh-server-input"
+          class="fc-server-input"
           value={props.serverInput}
           spellcheck={false}
           aria-label="Server URL"
@@ -54,10 +54,10 @@ export const Topbar: Component<TopbarProps> = (props) => {
           }}
         />
         <span
-          class="oh-status"
+          class="fc-status"
           classList={{
-            "oh-status-on": props.healthHealthy === true,
-            "oh-status-off": props.healthError,
+            "fc-status-on": props.healthHealthy === true,
+            "fc-status-off": props.healthError,
           }}
         >
           {status()}

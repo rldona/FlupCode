@@ -8,12 +8,12 @@ type SubagentListProps = {
 
 export const SubagentList: Component<SubagentListProps> = (props) => (
   <Show when={props.sessions && props.sessions.length > 0}>
-    <div class="oh-subagents">
-      <span class="oh-section-label">Subagentes</span>
-      <div class="oh-subagents-list">
+    <div class="fc-subagents">
+      <span class="fc-section-label">Subagentes</span>
+      <div class="fc-subagents-list">
         <For each={props.sessions}>
           {(session) => (
-            <button class="oh-subagent" type="button" onClick={() => props.onOpen(session.id)}>
+            <button class="fc-subagent" type="button" onClick={() => props.onOpen(session.id)}>
               {session.title || session.id.slice(0, 8)}
             </button>
           )}

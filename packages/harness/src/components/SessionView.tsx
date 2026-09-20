@@ -32,12 +32,12 @@ function toolOutput(tool: SessionMessageAssistantTool) {
 const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (props) => {
   const [open, setOpen] = createSignal(false)
   return (
-    <div class="oh-reasoning">
-      <button class="oh-reasoning-toggle" type="button" onClick={() => setOpen((value) => !value)}>
+    <div class="fc-reasoning">
+      <button class="fc-reasoning-toggle" type="button" onClick={() => setOpen((value) => !value)}>
         {open() ? "▾" : "▸"} Pensamiento
       </button>
       <Show when={open()}>
-        <div class="oh-reasoning-text">{props.part.text}</div>
+        <div class="fc-reasoning-text">{props.part.text}</div>
       </Show>
     </div>
   )
@@ -47,21 +47,21 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
   const [open, setOpen] = createSignal(false)
   const output = () => toolOutput(props.part)
   return (
-    <div class="oh-tool">
-      <button class="oh-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
-        <span class="oh-tool-name">{props.part.name}</span>
-        <span class="oh-tool-status">{props.part.state.status}</span>
+    <div class="fc-tool">
+      <button class="fc-tool-header" type="button" onClick={() => setOpen((value) => !value)}>
+        <span class="fc-tool-name">{props.part.name}</span>
+        <span class="fc-tool-status">{props.part.state.status}</span>
       </button>
       <Show when={open() && output()}>
-        <pre class="oh-tool-output">{output()}</pre>
+        <pre class="fc-tool-output">{output()}</pre>
       </Show>
     </div>
   )
 }
 
 const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools: boolean }> = (props) => (
-  <div class="oh-message oh-message-assistant">
-    <div class="oh-message-role">{props.message.agent}</div>
+  <div class="fc-message fc-message-assistant">
+    <div class="fc-message-role">{props.message.agent}</div>
     <For each={props.message.content}>
       {(part) => (
         <Show when={props.showTools || part.type !== "tool"}>
@@ -70,7 +70,7 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
             fallback={
               <Show
                 when={part.type === "reasoning"}
-                fallback={<div class="oh-message-text">{(part as SessionMessageAssistantText).text}</div>}
+                fallback={<div class="fc-message-text">{(part as SessionMessageAssistantText).text}</div>}
               >
                 <ReasoningBlock part={part as SessionMessageAssistantReasoning} />
               </Show>
@@ -82,29 +82,29 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
       )}
     </For>
     <Show when={props.message.error}>
-      <div class="oh-message-error">Error al generar la respuesta</div>
+      <div class="fc-message-error">Error al generar la respuesta</div>
     </Show>
   </div>
 )
 
 export const SessionView: Component<SessionViewProps> = (props) => (
-  <section class="oh-transcript">
+  <section class="fc-transcript">
     <Show
       when={!props.loading}
       fallback={
-        <div class="oh-skeleton-list">
-          <div class="oh-skeleton" />
-          <div class="oh-skeleton" />
-          <div class="oh-skeleton" />
+        <div class="fc-skeleton-list">
+          <div class="fc-skeleton" />
+          <div class="fc-skeleton" />
+          <div class="fc-skeleton" />
         </div>
       }
     >
       <Show
         when={props.messages && props.messages.length > 0}
         fallback={
-          <div class="oh-empty-state">
-            <span class="oh-empty-title">Aún no hay mensajes</span>
-            <span class="oh-empty-hint">Escribe abajo para empezar</span>
+          <div class="fc-empty-state">
+            <span class="fc-empty-title">Aún no hay mensajes</span>
+            <span class="fc-empty-hint">Escribe abajo para empezar</span>
           </div>
         }
       >
@@ -118,15 +118,15 @@ export const SessionView: Component<SessionViewProps> = (props) => (
                 </Show>
               }
             >
-              <div class="oh-message oh-message-user">
-                <div class="oh-message-role">Tú</div>
-                <div class="oh-message-text">{(message as { text?: string }).text}</div>
+              <div class="fc-message fc-message-user">
+                <div class="fc-message-role">Tú</div>
+                <div class="fc-message-text">{(message as { text?: string }).text}</div>
               </div>
             </Show>
           )}
         </For>
         <Show when={props.busy}>
-          <div class="oh-message oh-message-assistant oh-message-pending">Generando…</div>
+          <div class="fc-message fc-message-assistant fc-message-pending">Generando…</div>
         </Show>
       </Show>
     </Show>

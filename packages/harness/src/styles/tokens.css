@@ -1,62 +1,62 @@
-/* OpenHarness design tokens. See docs/DESIGN.md. */
+/* FlupCode design tokens. See docs/DESIGN.md. */
 
 :root {
-  --oh-bg: #ffffff;
-  --oh-bg-elevated: #ffffff;
-  --oh-sidebar: #f7f7f7;
-  --oh-border: #ececec;
-  --oh-text: #1a1a1a;
-  --oh-text-muted: #8a8a8a;
-  --oh-accent: #c96442;
-  --oh-accent-soft: #f4e4dd;
-  --oh-danger: #b42318;
-  --oh-success: #027a48;
-  --oh-success-soft: #12b76a;
+  --fc-bg: #ffffff;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #f7f7f7;
+  --fc-border: #ececec;
+  --fc-text: #1a1a1a;
+  --fc-text-muted: #8a8a8a;
+  --fc-accent: #c96442;
+  --fc-accent-soft: #f4e4dd;
+  --fc-danger: #b42318;
+  --fc-success: #027a48;
+  --fc-success-soft: #12b76a;
 
-  --oh-radius-sm: 8px;
-  --oh-radius-md: 12px;
-  --oh-radius-lg: 16px;
-  --oh-radius-pill: 9999px;
+  --fc-radius-sm: 8px;
+  --fc-radius-md: 12px;
+  --fc-radius-lg: 16px;
+  --fc-radius-pill: 9999px;
 
-  --oh-space-1: 4px;
-  --oh-space-2: 8px;
-  --oh-space-3: 12px;
-  --oh-space-4: 16px;
-  --oh-space-5: 24px;
-  --oh-space-6: 32px;
+  --fc-space-1: 4px;
+  --fc-space-2: 8px;
+  --fc-space-3: 12px;
+  --fc-space-4: 16px;
+  --fc-space-5: 24px;
+  --fc-space-6: 32px;
 
-  --oh-control-sm: 28px;
-  --oh-control-md: 36px;
-  --oh-control-lg: 44px;
+  --fc-control-sm: 28px;
+  --fc-control-md: 36px;
+  --fc-control-lg: 44px;
 
-  --oh-font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --oh-text-xs: 11px;
-  --oh-text-sm: 12px;
-  --oh-text-md: 14px;
-  --oh-text-lg: 16px;
-  --oh-text-xl: 26px;
+  --fc-font-ui: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --fc-text-xs: 11px;
+  --fc-text-sm: 12px;
+  --fc-text-md: 14px;
+  --fc-text-lg: 16px;
+  --fc-text-xl: 26px;
 
-  --oh-motion-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
-  --oh-motion-panel: 180ms cubic-bezier(0.2, 0, 0, 1);
+  --fc-motion-fast: 120ms cubic-bezier(0.2, 0, 0, 1);
+  --fc-motion-panel: 180ms cubic-bezier(0.2, 0, 0, 1);
 }
 
-.oh-dark {
-  --oh-bg: #0f0f0f;
-  --oh-bg-elevated: #171717;
-  --oh-sidebar: #141414;
-  --oh-border: #262626;
-  --oh-text: #f2f2f2;
-  --oh-text-muted: #9a9a9a;
-  --oh-accent: #d97757;
-  --oh-accent-soft: #2a1c17;
-  --oh-danger: #f97066;
-  --oh-success: #75e0a7;
-  --oh-success-soft: #12b76a;
+.fc-dark {
+  --fc-bg: #0f0f0f;
+  --fc-bg-elevated: #171717;
+  --fc-sidebar: #141414;
+  --fc-border: #262626;
+  --fc-text: #f2f2f2;
+  --fc-text-muted: #9a9a9a;
+  --fc-accent: #d97757;
+  --fc-accent-soft: #2a1c17;
+  --fc-danger: #f97066;
+  --fc-success: #75e0a7;
+  --fc-success-soft: #12b76a;
 }
 
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --oh-motion-fast: 0ms linear;
-    --oh-motion-panel: 0ms linear;
+    --fc-motion-fast: 0ms linear;
+    --fc-motion-panel: 0ms linear;
   }
 }

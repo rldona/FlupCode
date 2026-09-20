@@ -5,7 +5,7 @@ import { App } from "./app"
 import "./index.css"
 
 const root = document.getElementById("root")
-if (!(root instanceof HTMLElement)) throw new Error("OpenHarness root element not found")
+if (!(root instanceof HTMLElement)) throw new Error("FlupCode root element not found")
 
 render(() => <App />, root)
 
