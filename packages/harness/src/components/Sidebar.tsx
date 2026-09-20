@@ -47,7 +47,7 @@ type SidebarProps = {
 
 export const Sidebar: Component<SidebarProps> = (props) => {
   const [filter, setFilter] = createSignal("")
-  const [menu, setMenu] = createSignal<{ x: number; y: number; items: MenuItem[] }>()
+  const [menu, setMenu] = createSignal<{ x: number; y: number; placement?: "below" | "above"; width?: number; items: MenuItem[] }>()
 
   const sortedSessions = createMemo(() => {
     const query = filter().trim().toLowerCase()
@@ -291,7 +291,9 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               const rect = event.currentTarget.getBoundingClientRect()
               setMenu({
                 x: rect.left,
-                y: Math.max(8, rect.top - 360),
+                y: rect.top - 6,
+                placement: "above",
+                width: rect.width,
                 items: [
                   { label: t("Settings"), icon: "⚙", shortcut: "⌘,", onSelect: props.onSettings },
                   { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
@@ -315,7 +317,16 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         </div>
 
         <Show when={menu()}>
-          {(m) => <ContextMenu x={m().x} y={m().y} items={m().items} onClose={() => setMenu(undefined)} />}
+          {(m) => (
+            <ContextMenu
+              x={m().x}
+              y={m().y}
+              placement={m().placement}
+              width={m().width}
+              items={m().items}
+              onClose={() => setMenu(undefined)}
+            />
+          )}
         </Show>
       </aside>
     </Show>
