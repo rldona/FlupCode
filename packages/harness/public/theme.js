@@ -21,6 +21,7 @@
         "sublime-dark": "sublime-dark",
         github: "github",
         copilot: "copilot",
+        vercel: "vercel",
       }[saved] ?? "flupcode"
     document.documentElement.classList.toggle("fc-dark", dark)
     if (palette !== "flupcode") document.documentElement.dataset.fcTheme = palette
@@ -32,6 +33,7 @@
       "sublime-dark": { light: "#17191e", dark: "#17191e" },
       github: { light: "#ffffff", dark: "#0d1117" },
       copilot: { light: "#ffffff", dark: "#111114" },
+      vercel: { light: "#000000", dark: "#000000" },
     }
     document.documentElement.style.backgroundColor = backgrounds[palette][dark ? "dark" : "light"]
   } catch {}
