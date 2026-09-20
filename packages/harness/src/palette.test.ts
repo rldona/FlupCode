@@ -77,6 +77,14 @@ describe("search", () => {
     expect(found.map((item) => item.value)).toEqual(["src/a.ts"])
   })
 
+  test("a source list that answers nothing does not take the palette down", () => {
+    // A resource can resolve to `undefined` when a server answers without a value; the palette is
+    // built on every render, so iterating that used to crash the whole app at startup.
+    const broken = { ...empty, artifacts: undefined as unknown as Artifact[] }
+    expect(() => search("", broken)).not.toThrow()
+    expect(search("", broken)).toEqual([])
+  })
+
   test("HF-1: workflows are found by name and description", () => {
     const workflows = [
       { name: "feature", description: "Plan and build", inputs: ["goal"], tasks: [] },
