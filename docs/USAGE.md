@@ -300,6 +300,38 @@ with the evidence in its prompt. A retry is a **new task**, so the first attempt
 the run shows `build#1`, `verify#1`, `build#2`, `verify#2`. The budget is spent as it is used and
 caps at 5, so a run cannot loop.
 
+## Changes, and committing
+
+**Changes** (`/changes`) is the diff viewer. Get there from the `+N −M` counts on the bar above the
+composer, or from **Open the diff viewer** in the Files changed panel — that panel is 420 pixels
+wide and a line of code usually is not.
+
+Two views, and they answer different questions:
+
+- **Working tree** — everything in the folder that is not committed yet. What a run just did.
+- **Branch** — everything this branch has that the default branch does not. Once a run commits, the
+  working tree is clean and this is the one that still answers.
+
+Each file opens to its hunks, with both the old and the new line numbers, three lines of context
+either side, and the code highlighted. Anything over 300 lines stays folded until you ask for it.
+
+### Committing
+
+Under the tabs there is a message box and a tick beside every file. Everything is ticked to begin
+with; untick what should not go in this commit. Then write a message and press **Commit** — or
+**⌘/Ctrl + Return** in the message box.
+
+The commit is made by the harness server, running `git` directly. It is not a prompt: before this,
+that button wrote *"Commit the current changes with a clear message."* into the composer and sent
+it, so every commit cost a model turn to run two commands. If the harness server is not running,
+the commit box is not there — nothing else can run git for you.
+
+**New branch** starts a branch here and moves onto it, bringing the uncommitted work along. Useful
+the moment you realise what a run just did does not belong on the branch you are on.
+
+Nothing here throws work away: there is no discard and no reset. Committing and branching are both
+things you can walk back from with git; losing an uncommitted change is not.
+
 ## Artifacts
 
 **Artifacts** (`/artifacts`) is what the runs left behind, kept and readable: the verdict of every
