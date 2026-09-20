@@ -35,6 +35,7 @@ export const STORAGE_KEYS = {
   view: "flupcode.view",
   chatMode: "flupcode.chatMode",
   splitPanes: "flupcode.splitPanes",
+  sessionTabs: "flupcode.sessionTabs",
   theme: "flupcode.theme",
   colorTheme: "flupcode.colorTheme",
   routines: "flupcode.routines",

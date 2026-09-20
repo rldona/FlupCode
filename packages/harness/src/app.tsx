@@ -133,8 +133,10 @@ import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
 import { SessionPane } from "./components/SessionPane"
+import { SessionTabs } from "./components/SessionTabs"
 import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
+import { closeTab, cycleTab, keepTabs, openTab, tabAfterClose } from "./tabs"
 import { publishSessionEvent } from "./session-events"
 import { engineFetch } from "./transport"
 import { normalizeRoutineSchedule } from "./routine-schedule"
@@ -176,6 +178,9 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "workflows", descriptionKey: "Workflows" },
   { name: "replay", descriptionKey: "Replay this session", session: true },
   { name: "compare", descriptionKey: "Compare two runs" },
+  { name: "next-tab", descriptionKey: "Next session tab" },
+  { name: "prev-tab", descriptionKey: "Previous session tab" },
+  { name: "close-tab", descriptionKey: "Close this session tab", session: true },
   { name: "memory", descriptionKey: "Memory" },
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
@@ -1877,6 +1882,19 @@ export const App: Component = () => {
         showScreen("compare")
         return
       }
+      if (name === "next-tab") {
+        cycleSessionTab(1)
+        return
+      }
+      if (name === "prev-tab") {
+        cycleSessionTab(-1)
+        return
+      }
+      if (name === "close-tab") {
+        const id = selected()
+        if (id) closeSessionTab(id)
+        return
+      }
       if (name === "memory") {
         setMemoryOpen(true)
         return
@@ -2785,6 +2803,39 @@ export const App: Component = () => {
       setSplitPanes(next.panes)
       if (next.focus !== untrack(selected)) setSelected(next.focus)
     })
+
+    // Session tabs (H-36): which sessions are open in this window. The selected session is the active
+    // tab, so this only keeps the strip and what happens when one is closed or cycled.
+    const [sessionTabs, setSessionTabs] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.sessionTabs, []))
+    createEffect(() => writeStorage(STORAGE_KEYS.sessionTabs, sessionTabs()))
+    createEffect(() => {
+      const id = selected()
+      if (!id) return
+      setSessionTabs((tabs) => (tabs.includes(id) ? tabs : openTab(tabs, id)))
+    })
+    // A tab whose session was deleted has nothing to show, so it goes without a click.
+    createEffect(() => {
+      const list = sessionList()
+      if (!list || sessions.loading) return
+      setSessionTabs((tabs) => {
+        const next = keepTabs(tabs, (id) => list.some((session) => session.id === id))
+        return next.length === tabs.length ? tabs : next
+      })
+    })
+    const sessionTabList = () =>
+      sessionTabs().map((id) => ({ id, title: sessionList()?.find((session) => session.id === id)?.title }))
+    const closeSessionTab = (id: string) => {
+      const next = tabAfterClose(sessionTabs(), id)
+      setSessionTabs((tabs) => closeTab(tabs, id))
+      if (id !== selected()) return
+      if (next) selectSession(next)
+      else setSelected(undefined)
+    }
+    const cycleSessionTab = (delta: number) => {
+      const next = cycleTab(sessionTabs(), selected(), delta)
+      if (next) selectSession(next)
+    }
+
     const changeTargetDirectory = (directory: string | undefined) => {
       setTargetDirectory(directory)
       if (!directory) {
@@ -4311,6 +4362,22 @@ export const App: Component = () => {
         showScreen("compare")
         return
       }
+      if (name === "next-tab") {
+        setPrompt("")
+        cycleSessionTab(1)
+        return
+      }
+      if (name === "prev-tab") {
+        setPrompt("")
+        cycleSessionTab(-1)
+        return
+      }
+      if (name === "close-tab") {
+        setPrompt("")
+        const id = selected()
+        if (id) closeSessionTab(id)
+        return
+      }
       if (name === "memory") {
         setPrompt("")
         setMemoryOpen(true)
@@ -4617,6 +4684,15 @@ export const App: Component = () => {
             </div>
           }
         >
+          {/* The sessions open in this window (H-36). Hidden while split: the panes are the tabs then. */}
+          <Show when={!mobileRemote() && selected() && sessionTabs().length > 1}>
+            <SessionTabs
+              tabs={sessionTabList()}
+              active={selected()}
+              onSelect={selectSession}
+              onClose={closeSessionTab}
+            />
+          </Show>
           <Show
             when={selected()}
             fallback={

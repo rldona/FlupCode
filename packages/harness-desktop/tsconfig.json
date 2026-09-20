@@ -12,5 +12,5 @@
     "types": ["node"]
   },
   "include": ["src", "electron.vite.config.ts"],
-  "exclude": ["out", "dist"]
+  "exclude": ["out", "dist", "**/*.test.ts"]
 }
