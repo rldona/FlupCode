@@ -290,6 +290,7 @@ const ES: Record<string, string> = {
   "Tool returned": "Herramienta devolvió",
   "Tool failed": "Herramienta falló",
   "Agent switched": "Agente cambiado",
+  Agents: "Agentes",
   "Model switched": "Modelo cambiado",
   "Context updated": "Contexto actualizado",
   "Shell started": "Shell iniciado",
