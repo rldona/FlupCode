@@ -13,7 +13,6 @@ type TopbarProps = {
   /** The session's right-hand context panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
   onOpenPalette: () => void
-  workspace: string[]
   onTogglePanel: (kind: string) => void
   sessionTitle?: JSX.Element
   sessionActions?: JSX.Element
@@ -78,7 +77,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
         {props.sessionActions}
         <button
           class="fc-nav-arrow"
-          classList={{ "fc-icon-button-active": props.workspace.includes("diff") }}
           type="button"
           title={t("Files changed")}
           aria-label={t("Files changed")}
@@ -88,7 +86,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
         </button>
         <button
           class="fc-nav-arrow"
-          classList={{ "fc-icon-button-active": props.workspace.includes("browser") }}
           type="button"
           title={t("Browser")}
           aria-label={t("Browser")}
@@ -98,7 +95,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
         </button>
         <button
           class="fc-nav-arrow"
-          classList={{ "fc-icon-button-active": props.workspace.includes("terminal") }}
           type="button"
           title={t("Terminal")}
           aria-label={t("Terminal")}
