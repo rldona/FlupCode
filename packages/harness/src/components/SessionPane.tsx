@@ -12,6 +12,7 @@ import type {
 import type { Attachment, ProjectItem } from "../types"
 import { createClient, invalidateLegacyHistory } from "../client"
 import { CHAT_SYSTEM } from "../chat"
+import { sessionCost } from "../metrics"
 import { permissionMode } from "../permission-modes"
 import { recordPrompt } from "../prompt-history"
 import { subscribeSessionEvents } from "../session-events"
@@ -167,7 +168,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     return {
       used: tokens ? tokens.input + (tokens.cache?.read ?? 0) : props.session.tokens.input,
       limit: currentModel()?.limit?.context ?? 0,
-      cost: props.session.cost,
+      cost: sessionCost(props.session, list() ?? [], props.models),
       tokens: tokens ? { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning } : undefined,
     }
   }
