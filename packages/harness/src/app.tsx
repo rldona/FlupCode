@@ -3631,8 +3631,8 @@ export const App: Component = () => {
               contextPanel={
                 selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
               }
-              onOpenPalette={() => setPaletteOpen(true)}
               onTogglePanel={togglePanel}
+              openPanels={panels()}
               remote={
                 remote.activeHost()
                   ? {

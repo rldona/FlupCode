@@ -29,8 +29,9 @@ type TopbarProps = {
   showEngineStatus: boolean
   /** The session's right-hand context panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
-  onOpenPalette: () => void
   onTogglePanel: (kind: string) => void
+  /** The workspace panels open right now, so their buttons can show it. */
+  openPanels: string[]
   sessionTitle?: JSX.Element
   sessionActions?: JSX.Element
   /** Set when this device is controlling a remote computer. */
@@ -134,27 +135,33 @@ export const Topbar: Component<TopbarProps> = (props) => {
         <Show when={props.view === "code"}>
           <button
             class="fc-nav-arrow"
+            classList={{ "fc-nav-arrow-active": props.openPanels.includes("diff") }}
             type="button"
             title={t("Files changed")}
             aria-label={t("Files changed")}
+            aria-pressed={props.openPanels.includes("diff")}
             onClick={() => props.onTogglePanel("diff")}
           >
             <TopIcon d={TopbarIcons.files} />
           </button>
           <button
             class="fc-nav-arrow"
+            classList={{ "fc-nav-arrow-active": props.openPanels.includes("browser") }}
             type="button"
             title={t("Browser")}
             aria-label={t("Browser")}
+            aria-pressed={props.openPanels.includes("browser")}
             onClick={() => props.onTogglePanel("browser")}
           >
             <TopIcon d={TopbarIcons.browser} />
           </button>
           <button
             class="fc-nav-arrow"
+            classList={{ "fc-nav-arrow-active": props.openPanels.includes("terminal") }}
             type="button"
             title={t("Terminal")}
             aria-label={t("Terminal")}
+            aria-pressed={props.openPanels.includes("terminal")}
             onClick={() => props.onTogglePanel("terminal")}
           >
             <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
@@ -169,18 +176,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
             </svg>
           </button>
         </Show>
-        <button
-          class="fc-nav-arrow"
-          type="button"
-          title={t("Command palette")}
-          aria-label={t("Command palette")}
-          onClick={props.onOpenPalette}
-        >
-          <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-            <circle cx="11" cy="11" r="6" fill="none" stroke="currentColor" stroke-width="2" />
-            <path d="m20 20-4.5-4.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" />
-          </svg>
-        </button>
         <Show when={props.remote ?? props.hostRemote}>
           {(pill) => (
             <button
