@@ -1,5 +1,6 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import type { Routine } from "../types"
+import { t } from "../i18n"
 
 type RoutinesPanelProps = {
   open: boolean
@@ -13,7 +14,7 @@ type RoutinesPanelProps = {
 }
 
 const lastRunLabel = (routine: Routine) => {
-  if (!routine.lastRunAt) return "nunca"
+  if (!routine.lastRunAt) return t("Never")
   return new Date(routine.lastRunAt).toLocaleString()
 }
 
@@ -36,11 +37,11 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   }
 
   return (
-    <div class="oh-modal-backdrop" onClick={props.onClose}>
-      <div class="oh-modal oh-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
-        <div class="oh-modal-header">
-          <span>Rutinas</span>
-          <button class="oh-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
+    <div class="fc-modal-backdrop" onClick={props.onClose}>
+      <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
+        <div class="fc-modal-header">
+          <span>{t("Routines")}</span>
+          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
             ×
           </button>
         </div>
@@ -48,39 +49,38 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
         <Show
           when={props.routines.length > 0}
           fallback={
-            <div class="oh-empty-state">
-              <span class="oh-empty-title">Sin rutinas</span>
-              <span class="oh-empty-hint">Crea una tarea programada abajo</span>
+            <div class="fc-empty-state">
+              <span class="fc-empty-title">{t("No routines")}</span>
+              <span class="fc-empty-hint">{t("Create one below")}</span>
             </div>
           }
         >
-          <ul class="oh-routine-list">
+          <ul class="fc-routine-list">
             <For each={props.routines}>
               {(routine) => (
-                <li class="oh-routine-row">
-                  <div class="oh-routine-info">
-                    <span class="oh-routine-name">{routine.name}</span>
-                    <span class="oh-routine-meta">
-                      cada {routine.intervalMinutes} min · última: {lastRunLabel(routine)}
+                <li class="fc-routine-row">
+                  <div class="fc-routine-info">
+                    <span class="fc-routine-name">{routine.name}</span>
+                    <span class="fc-routine-meta">
+                      {t("every {minutes} min · last: {last}", {
+                        minutes: routine.intervalMinutes,
+                        last: lastRunLabel(routine),
+                      })}
                     </span>
                   </div>
                   <button
-                    class="oh-chip oh-chip-button"
-                    classList={{ "oh-chip-active": routine.enabled }}
+                    class="fc-chip fc-chip-button"
+                    classList={{ "fc-chip-active": routine.enabled }}
                     type="button"
                     onClick={() => props.onToggle(routine.id)}
                   >
-                    {routine.enabled ? "Activa" : "Pausada"}
+                    {routine.enabled ? t("Active") : t("Paused")}
                   </button>
-                  <button class="oh-button" type="button" disabled={props.busy} onClick={() => props.onRun(routine.id)}>
-                    Ejecutar
+                  <button class="fc-button" type="button" disabled={props.busy} onClick={() => props.onRun(routine.id)}>
+                    {t("Run")}
                   </button>
-                  <button
-                    class="oh-button oh-button-danger"
-                    type="button"
-                    onClick={() => props.onRemove(routine.id)}
-                  >
-                    Quitar
+                  <button class="fc-button fc-button-danger" type="button" onClick={() => props.onRemove(routine.id)}>
+                    {t("Remove")}
                   </button>
                 </li>
               )}
@@ -88,28 +88,28 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
           </ul>
         </Show>
 
-        <div class="oh-routine-form">
+        <div class="fc-routine-form">
           <input
-            class="oh-question-custom"
-            placeholder="Nombre"
+            class="fc-question-custom"
+            placeholder={t("Name")}
             value={name()}
             onInput={(event) => setName(event.currentTarget.value)}
           />
           <input
-            class="oh-question-custom oh-routine-prompt"
-            placeholder="Prompt a ejecutar"
+            class="fc-question-custom fc-routine-prompt"
+            placeholder={t("prompt to run")}
             value={prompt()}
             onInput={(event) => setPrompt(event.currentTarget.value)}
           />
           <input
-            class="oh-question-custom oh-routine-interval"
+            class="fc-question-custom fc-routine-interval"
             type="number"
             min="1"
             value={interval()}
             onInput={(event) => setInterval(event.currentTarget.value)}
           />
-          <button class="oh-button oh-button-primary" type="button" onClick={submit}>
-            Añadir
+          <button class="fc-button fc-button-primary" type="button" onClick={submit}>
+            {t("Add")}
           </button>
         </div>
       </div>

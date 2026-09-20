@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { Project, SessionInfo } from "@opencode-ai/client"
+import { t } from "../i18n"
 
 type SidebarProps = {
   collapsed: boolean
@@ -45,25 +46,25 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       <div class="fc-sidebar-top">
         <button class="fc-new" type="button" onClick={() => props.onNewSession()}>
           <span class="fc-new-icon">+</span>
-          <span>Nuevo</span>
+          <span>{t("New")}</span>
         </button>
         <nav class="fc-nav">
           <button class="fc-nav-item" type="button">
-            Artefactos
+            {t("Artifacts")}
           </button>
           <button class="fc-nav-item" type="button" onClick={props.onRoutines}>
-            Rutinas
+            {t("Routines")}
           </button>
           <button class="fc-nav-item" type="button" onClick={props.onSettings}>
-            Personalizar
+            {t("Customize")}
           </button>
         </nav>
       </div>
 
       <div class="fc-sidebar-section fc-grow">
         <div class="fc-section-header">
-          <span class="fc-section-label">Proyectos</span>
-          <button class="fc-icon-button" type="button" title="Actualizar" onClick={() => props.onRefresh()}>
+          <span class="fc-section-label">{t("Projects")}</span>
+          <button class="fc-icon-button" type="button" title={t("Refresh")} onClick={() => props.onRefresh()}>
             ↻
           </button>
         </div>
@@ -73,8 +74,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               when={orderedProjects().length}
               fallback={
                 <div class="fc-empty-state">
-                  <span class="fc-empty-title">Sin proyectos abiertos</span>
-                  <span class="fc-empty-hint">Abre una carpeta para empezar</span>
+                  <span class="fc-empty-title">{t("No open projects")}</span>
+                  <span class="fc-empty-hint">{t("Open a folder to get started")}</span>
                 </div>
               }
             >
@@ -87,7 +88,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                           class="fc-row-action"
                           classList={{ "fc-row-action-on": props.pinned.includes(project.id) }}
                           type="button"
-                          title="Fijar"
+                          title={t("Pin")}
                           onClick={() => props.onTogglePin(project.id)}
                         >
                           {props.pinned.includes(project.id) ? "★" : "☆"}
@@ -103,7 +104,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                         <button
                           class="fc-row-action"
                           type="button"
-                          title="Nueva sesión"
+                          title={t("New session")}
                           onClick={() => props.onNewSession(project.worktree)}
                         >
                           +
@@ -120,7 +121,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
 
       <div class="fc-sidebar-section fc-sessions-section">
         <div class="fc-section-header">
-          <span class="fc-section-label">Sesiones</span>
+          <span class="fc-section-label">{t("Sessions")}</span>
         </div>
         <div class="fc-scroll">
           <Show when={!props.sessionsLoading} fallback={<SkeletonRows count={2} />}>
@@ -128,8 +129,8 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               when={props.sessions?.length}
               fallback={
                 <div class="fc-empty-state">
-                  <span class="fc-empty-title">No hay sesiones</span>
-                  <span class="fc-empty-hint">Crea una con Nuevo</span>
+                  <span class="fc-empty-title">{t("No sessions")}</span>
+                  <span class="fc-empty-hint">{t("Create one with New")}</span>
                 </div>
               }
             >
@@ -144,7 +145,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                         onClick={() => props.onSelectSession(session.id)}
                       >
                         <span class="fc-row-main">
-                          <span class="fc-row-title">{session.title || "Sesión sin título"}</span>
+                          <span class="fc-row-title">{session.title || session.id.slice(0, 8)}</span>
                           <span class="fc-row-meta">{session.id.slice(0, 8)}</span>
                         </span>
                       </button>
@@ -158,15 +159,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
       </div>
 
       <div class="fc-sidebar-footer">
-        <span class="fc-avatar">OH</span>
+        <span class="fc-avatar">FC</span>
         <input
           class="fc-name-input"
           value={props.displayName}
-          placeholder="Tu nombre"
-          aria-label="Display name"
+          placeholder={t("Your name")}
+          aria-label={t("Your name")}
           onInput={(event) => props.onDisplayName(event.currentTarget.value)}
         />
-        <button class="fc-icon-button" type="button" title="Acerca de" aria-label="Acerca de" onClick={props.onAbout}>
+        <button class="fc-icon-button" type="button" title={t("About")} aria-label={t("About")} onClick={props.onAbout}>
           i
         </button>
       </div>

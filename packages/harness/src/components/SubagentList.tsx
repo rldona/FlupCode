@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { SessionInfo } from "@opencode-ai/client"
+import { t } from "../i18n"
 
 type SubagentListProps = {
   sessions: SessionInfo[] | undefined
@@ -9,7 +10,7 @@ type SubagentListProps = {
 export const SubagentList: Component<SubagentListProps> = (props) => (
   <Show when={props.sessions && props.sessions.length > 0}>
     <div class="fc-subagents">
-      <span class="fc-section-label">Subagentes</span>
+      <span class="fc-section-label">{t("Subagents")}</span>
       <div class="fc-subagents-list">
         <For each={props.sessions}>
           {(session) => (

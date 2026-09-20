@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, onCleanup, type Component } from "solid-js"
 import type { FileSystemEntry, ModelInfo, ModelVariant } from "@opencode-ai/client"
 import type { Attachment, CommandOption } from "../types"
+import { t } from "../i18n"
 
 type ComposerProps = {
   value: string
@@ -61,6 +62,14 @@ export const Composer: Component<ComposerProps> = (props) => {
   let recognition: SpeechRecognitionLike | undefined
   const [listening, setListening] = createSignal(false)
   const [dragging, setDragging] = createSignal(false)
+  const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
+
+  onCleanup(() => recognition?.stop())
+
+  const handleFiles = (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    props.onAttach(Array.from(files))
+  }
 
   const commandQuery = () => {
     const value = props.value
@@ -75,8 +84,6 @@ export const Composer: Component<ComposerProps> = (props) => {
     if (query === undefined) return []
     return props.commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
   }
-
-  const [fileResults, setFileResults] = createSignal<FileSystemEntry[]>([])
 
   const mentionToken = () => {
     const value = props.value
@@ -109,13 +116,6 @@ export const Composer: Component<ComposerProps> = (props) => {
     if (at === -1) return
     props.onInput(`${value.slice(0, at)}@${path} `)
     setFileResults([])
-  }
-
-  onCleanup(() => recognition?.stop())
-
-  const handleFiles = (files: FileList | null) => {
-    if (!files || files.length === 0) return
-    props.onAttach(Array.from(files))
   }
 
   const toggleVoice = () => {
@@ -158,10 +158,10 @@ export const Composer: Component<ComposerProps> = (props) => {
       }}
     >
       <div class="fc-composer-chips">
-        <span class="fc-chip">Local</span>
-        <span class="fc-chip">Sin carpeta</span>
+        <span class="fc-chip">{t("Local")}</span>
+        <span class="fc-chip">{t("No folder")}</span>
         <Show when={props.value.startsWith("!")}>
-          <span class="fc-chip fc-chip-active">Shell</span>
+          <span class="fc-chip fc-chip-active">{t("Shell")}</span>
         </Show>
       </div>
 
@@ -202,7 +202,7 @@ export const Composer: Component<ComposerProps> = (props) => {
                 <button
                   class="fc-attachment-remove"
                   type="button"
-                  aria-label={`Quitar ${attachment.name}`}
+                  aria-label={`${t("Remove")} ${attachment.name}`}
                   onClick={() => props.onRemoveAttachment(attachment.uri)}
                 >
                   ×
@@ -217,8 +217,8 @@ export const Composer: Component<ComposerProps> = (props) => {
         <button
           class="fc-attach"
           type="button"
-          title="Adjuntar"
-          aria-label="Adjuntar"
+          title={t("Attach")}
+          aria-label={t("Attach")}
           onClick={() => fileInput?.click()}
         >
           +
@@ -226,7 +226,7 @@ export const Composer: Component<ComposerProps> = (props) => {
         <textarea
           class="fc-input"
           rows={1}
-          placeholder="Describe una tarea o haz una pregunta"
+          placeholder={t("Describe a task or ask a question")}
           value={props.value}
           onInput={(event) => props.onInput(event.currentTarget.value)}
           onPaste={(event) => {
@@ -254,12 +254,12 @@ export const Composer: Component<ComposerProps> = (props) => {
           class="fc-chip fc-chip-button"
           classList={{ "fc-chip-active": listening() }}
           type="button"
-          title="Dictado por voz"
-          aria-label="Dictado por voz"
+          title={t("Voice dictation")}
+          aria-label={t("Voice dictation")}
           disabled={!speechRecognition()}
           onClick={toggleVoice}
         >
-          Voz
+          {t("Voice")}
         </button>
         <button
           class="fc-send"
@@ -267,13 +267,13 @@ export const Composer: Component<ComposerProps> = (props) => {
           onClick={props.onSend}
           disabled={props.sending || (props.value.trim().length === 0 && props.attachments.length === 0)}
         >
-          Enviar
+          {t("Send")}
         </button>
       </div>
 
       <div class="fc-composer-controls">
         <button class="fc-chip fc-chip-button" type="button" onClick={props.onStash}>
-          Guardar
+          {t("Save")}
         </button>
         <button
           class="fc-chip fc-chip-button"
@@ -281,17 +281,17 @@ export const Composer: Component<ComposerProps> = (props) => {
           type="button"
           onClick={props.onToggleAuto}
         >
-          Auto
+          {t("Auto")}
         </button>
         <select
           class="fc-model-select"
           value={props.auto ? "" : (props.modelKey ?? "")}
           disabled={props.auto}
-          aria-label="Modelo"
+          aria-label={t("Model")}
           onChange={(event) => props.onModelChange(event.currentTarget.value)}
         >
           <option value="" disabled>
-            Modelo por defecto
+            {t("Default model")}
           </option>
           <For each={props.models}>
             {(model) => <option value={`${model.providerID}/${model.modelID}`}>{model.name}</option>}
@@ -302,10 +302,10 @@ export const Composer: Component<ComposerProps> = (props) => {
             class="fc-model-select"
             value={props.variantKey ?? ""}
             disabled={props.auto}
-            aria-label="Variante"
+            aria-label={t("Variant")}
             onChange={(event) => props.onVariantChange(event.currentTarget.value)}
           >
-            <option value="">Default</option>
+            <option value="">{t("Default")}</option>
             <For each={props.variants}>{(variant) => <option value={variant.id}>{variant.id}</option>}</For>
           </select>
         </Show>

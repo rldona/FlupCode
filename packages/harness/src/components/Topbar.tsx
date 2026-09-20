@@ -1,4 +1,5 @@
 import type { Component } from "solid-js"
+import { t } from "../i18n"
 
 type TopbarProps = {
   serverInput: string
@@ -16,25 +17,25 @@ type TopbarProps = {
 
 export const Topbar: Component<TopbarProps> = (props) => {
   const status = () => {
-    if (props.healthLoading) return "Conectando"
-    if (props.healthHealthy) return "Conectado"
-    if (props.healthError) return "Sin conexión"
-    return "Sin conexión"
+    if (props.healthLoading) return t("Connecting")
+    if (props.healthHealthy) return t("Connected")
+    if (props.healthError) return t("Offline")
+    return t("Offline")
   }
 
   return (
     <header class="fc-topbar">
       <div class="fc-topbar-left">
-        <button class="fc-nav-arrow" type="button" title="Alternar barra lateral" onClick={props.onToggleSidebar}>
+        <button class="fc-nav-arrow" type="button" title={t("Toggle sidebar")} onClick={props.onToggleSidebar}>
           ▤
         </button>
-        <button class="fc-nav-arrow" type="button" title="Atrás" disabled={!props.canGoBack} onClick={props.onBack}>
+        <button class="fc-nav-arrow" type="button" title={t("Back")} disabled={!props.canGoBack} onClick={props.onBack}>
           ←
         </button>
         <button
           class="fc-nav-arrow"
           type="button"
-          title="Adelante"
+          title={t("Forward")}
           disabled={!props.canGoForward}
           onClick={props.onForward}
         >

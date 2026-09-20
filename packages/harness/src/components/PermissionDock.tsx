@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { PermissionV2Request } from "@opencode-ai/client"
+import { t } from "../i18n"
 
 export type PermissionReply = "once" | "always" | "reject"
 
@@ -12,7 +13,7 @@ type PermissionDockProps = {
 export const PermissionDock: Component<PermissionDockProps> = (props) => (
   <div class="fc-dock fc-dock-permission">
     <div class="fc-dock-header">
-      <span class="fc-dock-title">Permiso requerido</span>
+      <span class="fc-dock-title">{t("Permission required")}</span>
       <span class="fc-chip">{props.request.action}</span>
     </div>
     <Show when={props.request.resources.length > 0}>
@@ -22,10 +23,10 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => (
     </Show>
     <div class="fc-dock-actions">
       <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={() => props.onReply("once")}>
-        Permitir una vez
+        {t("Allow once")}
       </button>
       <button class="fc-button" type="button" disabled={props.busy} onClick={() => props.onReply("always")}>
-        Permitir siempre
+        {t("Allow always")}
       </button>
       <button
         class="fc-button fc-button-danger"
@@ -33,7 +34,7 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => (
         disabled={props.busy}
         onClick={() => props.onReply("reject")}
       >
-        Rechazar
+        {t("Reject")}
       </button>
     </div>
   </div>

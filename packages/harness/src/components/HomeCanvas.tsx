@@ -1,5 +1,6 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { formatTokens, type ActivityDay, type UsageMetrics, type UsageRange } from "../metrics"
+import { t } from "../i18n"
 import { ActivityHeatmap } from "./ActivityHeatmap"
 
 type HomeCanvasProps = {
@@ -8,36 +9,45 @@ type HomeCanvasProps = {
   metrics: UsageMetrics
   messages: number | undefined
   activity: ActivityDay[]
-  comparison: string
+  comparison: { ratio: number; name: string } | undefined
   error: string | undefined
   onRangeChange: (range: UsageRange) => void
 }
 
 const RANGES: Array<{ id: UsageRange; label: string }> = [
-  { id: "all", label: "Todo" },
+  { id: "all", label: "All" },
   { id: "30d", label: "30d" },
   { id: "7d", label: "7d" },
 ]
 
 export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   const [tab, setTab] = createSignal<"summary" | "models">("summary")
-  const greeting = () => (props.displayName.trim() ? `¿Qué sigue, ${props.displayName.trim()}?` : "¿Qué sigue?")
+  const greeting = () =>
+    props.displayName.trim()
+      ? t("What's next, {name}?", { name: props.displayName.trim() })
+      : t("What's next?")
+
+  const comparisonText = () => {
+    const value = props.comparison
+    if (!value) return ""
+    return t("You used ~{ratio}× more tokens than {name}.", { ratio: value.ratio, name: value.name })
+  }
 
   const stats = () => [
-    { label: "Sesiones", value: String(props.metrics.sessions) },
-    { label: "Mensajes", value: props.messages === undefined ? "…" : String(props.messages) },
-    { label: "Tokens totales", value: formatTokens(props.metrics.tokens) },
-    { label: "Días activos", value: String(props.metrics.activeDays) },
-    { label: "Racha actual", value: `${props.metrics.currentStreak}d` },
-    { label: "Racha más larga", value: `${props.metrics.longestStreak}d` },
-    { label: "Hora pico", value: props.metrics.peakHour },
-    { label: "Modelo favorito", value: props.metrics.favoriteModel },
+    { label: t("Sessions"), value: String(props.metrics.sessions) },
+    { label: t("Messages"), value: props.messages === undefined ? "…" : String(props.messages) },
+    { label: t("Total tokens"), value: formatTokens(props.metrics.tokens) },
+    { label: t("Active days"), value: String(props.metrics.activeDays) },
+    { label: t("Current streak"), value: `${props.metrics.currentStreak}d` },
+    { label: t("Longest streak"), value: `${props.metrics.longestStreak}d` },
+    { label: t("Peak hour"), value: props.metrics.peakHour },
+    { label: t("Favorite model"), value: props.metrics.favoriteModel },
   ]
 
   return (
     <section class="fc-canvas">
       <h1 class="fc-greeting">{greeting()}</h1>
-      <p class="fc-subtitle">Resumen de tu actividad en FlupCode.</p>
+      <p class="fc-subtitle">{t("Your FlupCode activity at a glance.")}</p>
 
       <Show when={props.error}>
         <div class="fc-error">{props.error}</div>
@@ -52,7 +62,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
               type="button"
               onClick={() => setTab("summary")}
             >
-              Resumen
+              {t("Summary")}
             </button>
             <button
               class="fc-tab"
@@ -60,7 +70,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
               type="button"
               onClick={() => setTab("models")}
             >
-              Modelos
+              {t("Models")}
             </button>
           </div>
           <div class="fc-range">
@@ -72,7 +82,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
                   type="button"
                   onClick={() => props.onRangeChange(item.id)}
                 >
-                  {item.label}
+                  {t(item.label)}
                 </button>
               )}
             </For>
@@ -84,14 +94,20 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           fallback={
             <Show
               when={props.metrics.models.length > 0}
-              fallback={<div class="fc-empty-state"><span class="fc-empty-title">Sin datos de modelos</span></div>}
+              fallback={
+                <div class="fc-empty-state">
+                  <span class="fc-empty-title">{t("No model data")}</span>
+                </div>
+              }
             >
               <ul class="fc-model-stats">
                 <For each={props.metrics.models}>
                   {(model) => (
                     <li class="fc-model-stat">
                       <span class="fc-model-stat-name">{model.name}</span>
-                      <span class="fc-model-stat-count">{model.count} sesiones</span>
+                      <span class="fc-model-stat-count">
+                        {t("{count} sessions", { count: model.count })}
+                      </span>
                     </li>
                   )}
                 </For>
@@ -109,7 +125,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
               )}
             </For>
           </div>
-          <ActivityHeatmap days={props.activity} comparison={props.comparison} />
+          <ActivityHeatmap days={props.activity} comparison={comparisonText()} />
         </Show>
       </div>
     </section>

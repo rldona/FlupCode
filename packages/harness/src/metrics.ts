@@ -123,18 +123,17 @@ export function activityByDay(sessions: SessionInfo[], days: number): ActivityDa
 
 const COMPARISONS = [
   { name: "Dune", tokens: 226_000 },
-  { name: "El Quijote", tokens: 380_000 },
-  { name: "Cien años de soledad", tokens: 160_000 },
+  { name: "Don Quixote", tokens: 380_000 },
+  { name: "One Hundred Years of Solitude", tokens: 160_000 },
   { name: "1984", tokens: 90_000 },
-  { name: "El Señor de los Anillos", tokens: 576_000 },
+  { name: "The Lord of the Rings", tokens: 576_000 },
 ]
 
-export function comparison(tokens: number) {
-  if (tokens <= 0) return ""
+export function comparison(tokens: number): { ratio: number; name: string } | undefined {
+  if (tokens <= 0) return
   const reference = COMPARISONS[tokens % COMPARISONS.length]
-  if (!reference) return ""
-  const ratio = Math.max(1, Math.round(tokens / reference.tokens))
-  return `Usaste ~${ratio}× más tokens que ${reference.name}.`
+  if (!reference) return
+  return { ratio: Math.max(1, Math.round(tokens / reference.tokens)), name: reference.name }
 }
 
 export { dayKey }

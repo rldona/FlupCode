@@ -1,9 +1,11 @@
 import { For, type Component } from "solid-js"
 import type { ModelInfo } from "@opencode-ai/client"
+import { t, type Locale } from "../i18n"
 
 type SettingsPanelProps = {
   open: boolean
   theme: string
+  locale: Locale
   displayName: string
   serverInput: string
   models: ModelInfo[]
@@ -11,6 +13,7 @@ type SettingsPanelProps = {
   auto: boolean
   showTools: boolean
   onTheme: (value: string) => void
+  onLocale: (value: Locale) => void
   onDisplayName: (value: string) => void
   onServerInput: (value: string) => void
   onServerCommit: () => void
@@ -30,57 +33,68 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
-          <span>Personalizar</span>
-          <button class="fc-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
+          <span>{t("Customize")}</span>
+          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
             ×
           </button>
         </div>
 
         <div class="fc-settings">
           <section class="fc-settings-section">
-            <h3 class="fc-settings-title">Apariencia</h3>
+            <h3 class="fc-settings-title">{t("Appearance")}</h3>
             <label class="fc-settings-row">
-              <span>Tema</span>
+              <span>{t("Theme")}</span>
               <select
                 class="fc-toolbar-select"
                 value={props.theme}
                 onChange={(event) => props.onTheme(event.currentTarget.value)}
               >
-                <option value="system">Sistema</option>
-                <option value="light">Claro</option>
-                <option value="dark">Oscuro</option>
+                <option value="system">{t("System")}</option>
+                <option value="light">{t("Light")}</option>
+                <option value="dark">{t("Dark")}</option>
+              </select>
+            </label>
+            <label class="fc-settings-row">
+              <span>{t("Language")}</span>
+              <select
+                class="fc-toolbar-select"
+                value={props.locale}
+                onChange={(event) => props.onLocale(event.currentTarget.value as Locale)}
+              >
+                <option value="en">{t("English")}</option>
+                <option value="es">{t("Spanish")}</option>
               </select>
             </label>
           </section>
 
           <section class="fc-settings-section">
-            <h3 class="fc-settings-title">Perfil</h3>
+            <h3 class="fc-settings-title">{t("Profile")}</h3>
             <label class="fc-settings-row">
-              <span>Nombre</span>
+              <span>{t("Name")}</span>
               <input
                 class="fc-question-custom"
                 value={props.displayName}
-                placeholder="Tu nombre"
+                placeholder={t("Your name")}
                 onInput={(event) => props.onDisplayName(event.currentTarget.value)}
               />
             </label>
           </section>
 
           <section class="fc-settings-section">
-            <h3 class="fc-settings-title">Modelo</h3>
+            <h3 class="fc-settings-title">{t("Model")}</h3>
             <div class="fc-settings-row">
-              <span>Auto</span>
+              <span>{t("Auto")}</span>
               <button
                 class="fc-chip fc-chip-button"
                 classList={{ "fc-chip-active": props.auto }}
                 type="button"
                 onClick={props.onToggleAuto}
               >
-                {props.auto ? "Activado" : "Desactivado"}
+                {props.auto ? t("On") : t("Off")}
               </button>
             </div>
             <label class="fc-settings-row">
-              <span>Por defecto</span>
+              <span>{t("Default")}</span>
               <select
                 class="fc-toolbar-select"
                 value={props.modelKey ?? ""}
@@ -88,7 +102,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 onChange={(event) => props.onModelChange(event.currentTarget.value)}
               >
                 <option value="" disabled>
-                  Modelo por defecto
+                  {t("Default model")}
                 </option>
                 <For each={props.models}>
                   {(model) => <option value={`${model.providerID}/${model.modelID}`}>{model.name}</option>}
@@ -98,22 +112,22 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           </section>
 
           <section class="fc-settings-section">
-            <h3 class="fc-settings-title">Conversación</h3>
+            <h3 class="fc-settings-title">{t("Conversation")}</h3>
             <div class="fc-settings-row">
-              <span>Mostrar pasos de herramientas</span>
+              <span>{t("Show tool steps")}</span>
               <button
                 class="fc-chip fc-chip-button"
                 classList={{ "fc-chip-active": props.showTools }}
                 type="button"
                 onClick={props.onToggleTools}
               >
-                {props.showTools ? "Sí" : "No"}
+                {props.showTools ? t("Yes") : t("No")}
               </button>
             </div>
           </section>
 
           <section class="fc-settings-section">
-            <h3 class="fc-settings-title">Servidor</h3>
+            <h3 class="fc-settings-title">{t("Server")}</h3>
             <div class="fc-settings-row">
               <input
                 class="fc-question-custom"
@@ -122,22 +136,22 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                 onInput={(event) => props.onServerInput(event.currentTarget.value)}
               />
               <button class="fc-button" type="button" onClick={props.onServerCommit}>
-                Guardar
+                {t("Save")}
               </button>
             </div>
           </section>
 
           <section class="fc-settings-section">
-            <h3 class="fc-settings-title">Integraciones</h3>
+            <h3 class="fc-settings-title">{t("Integrations")}</h3>
             <div class="fc-settings-row">
               <button class="fc-button" type="button" onClick={props.onOpenMcp}>
-                Servidores MCP
+                {t("MCP servers")}
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenRemote}>
-                Acceso remoto (QR)
+                {t("Remote access (QR)")}
               </button>
               <button class="fc-button" type="button" onClick={props.onOpenAbout}>
-                Acerca de FlupCode
+                {t("About FlupCode")}
               </button>
             </div>
           </section>

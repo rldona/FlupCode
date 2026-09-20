@@ -1,5 +1,6 @@
 import { For, Show, type Component } from "solid-js"
 import type { StashedPrompt } from "../types"
+import { t } from "../i18n"
 
 type StashDialogProps = {
   open: boolean
@@ -14,8 +15,8 @@ export const StashDialog: Component<StashDialogProps> = (props) => (
     <div class="fc-modal-backdrop" onClick={props.onClose}>
       <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
         <div class="fc-modal-header">
-          <span>Prompts guardados</span>
-          <button class="fc-icon-button" type="button" aria-label="Cerrar" onClick={props.onClose}>
+          <span>{t("Saved prompts")}</span>
+          <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
             ×
           </button>
         </div>
@@ -23,8 +24,8 @@ export const StashDialog: Component<StashDialogProps> = (props) => (
           when={props.items.length > 0}
           fallback={
             <div class="fc-empty-state">
-              <span class="fc-empty-title">Sin prompts guardados</span>
-              <span class="fc-empty-hint">Usa /stash para guardar el prompt actual</span>
+              <span class="fc-empty-title">{t("No saved prompts")}</span>
+              <span class="fc-empty-hint">{t("Use /stash to save the current prompt")}</span>
             </div>
           }
         >
@@ -34,10 +35,10 @@ export const StashDialog: Component<StashDialogProps> = (props) => (
                 <li class="fc-stash-row">
                   <span class="fc-stash-text">{item.text}</span>
                   <button class="fc-button" type="button" onClick={() => props.onRestore(item.id)}>
-                    Restaurar
+                    {t("Restore")}
                   </button>
                   <button class="fc-button fc-button-danger" type="button" onClick={() => props.onRemove(item.id)}>
-                    Quitar
+                    {t("Remove")}
                   </button>
                 </li>
               )}
