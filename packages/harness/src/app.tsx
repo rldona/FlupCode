@@ -5103,7 +5103,6 @@ export const App: Component = () => {
               setTargetDirectory(directory)
               showScreen("changes")
             }}
-            onClose={() => leaveScreen()}
           />
           <WorkflowsPanel
             open={workflowsScreenOpen()}
@@ -5115,7 +5114,6 @@ export const App: Component = () => {
             onSave={saveWorkflowFile}
             onDelete={deleteWorkflowFile}
             onRun={(workflow) => setLaunching({ workflow })}
-            onClose={() => leaveScreen()}
           />
           <ArtifactsPanel
             open={artifactsOpen()}
@@ -5126,7 +5124,6 @@ export const App: Component = () => {
             onRemove={removeArtifact}
             onUpdate={updateArtifact}
             onOpenRun={() => showScreen("runs")}
-            onClose={() => leaveScreen()}
           />
           <RoutinesPanel
             open={routinesOpen()}

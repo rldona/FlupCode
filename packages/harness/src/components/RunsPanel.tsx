@@ -41,7 +41,6 @@ type RunsPanelProps = {
   onResume: (id: string) => void
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
-  onClose: () => void
 }
 
 /**
