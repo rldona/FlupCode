@@ -61,6 +61,8 @@ export const App: Component = () => {
   const [prompt, setPrompt] = createSignal("")
   const [busy, setBusy] = createSignal(false)
   const [streamedChars, setStreamedChars] = createSignal(0)
+  const [liveText, setLiveText] = createSignal("")
+  const [liveReasoning, setLiveReasoning] = createSignal("")
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
@@ -358,12 +360,19 @@ export const App: Component = () => {
           const type = event.type ?? ""
           const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
           if (type === "session.next.step.started") {
-            if (payload?.sessionID === selected()) setStreamedChars(0)
+            if (payload?.sessionID === selected()) {
+              setStreamedChars(0)
+              setLiveText("")
+              setLiveReasoning("")
+            }
             scheduleRefetch(true, false)
           } else if (type.endsWith(".delta")) {
             const delta = payload?.delta
-            if (payload?.sessionID === selected() && typeof delta === "string")
+            if (payload?.sessionID === selected() && typeof delta === "string") {
               setStreamedChars((value) => value + delta.length)
+              if (type.includes("reasoning")) setLiveReasoning((value) => value + delta)
+              else if (type.includes("text")) setLiveText((value) => value + delta)
+            }
             continue
           }
           if (type.startsWith("permission.")) {
@@ -372,8 +381,8 @@ export const App: Component = () => {
           } else if (type.startsWith("question.")) {
             if (type === "question.v2.asked") notify(t("Question asked"), "")
             void refetchQuestions()
-          } else if (type.startsWith("message.")) {
-            scheduleRefetch(true, false)
+          } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
+            scheduleRefetch(true, type === "session.next.step.ended")
           } else if (type.startsWith("session.")) {
             scheduleRefetch(false, true)
           }
@@ -382,6 +391,33 @@ export const App: Component = () => {
         return
       }
     })()
+  })
+
+  createEffect(() => {
+    selected()
+    setLiveText("")
+    setLiveReasoning("")
+    setStreamedChars(0)
+  })
+
+  createEffect(() => {
+    const list = activeMessages()
+    if (!list || list.length === 0) return
+    const last = [...list].reverse().find((message) => message.type === "assistant")
+    if (!last) return
+    const content = (last as SessionMessageAssistant).content ?? []
+    const text = content
+      .filter((part) => part.type === "text")
+      .map((part) => (part as { text: string }).text)
+      .join("")
+    const reasoning = content
+      .filter((part) => part.type === "reasoning")
+      .map((part) => (part as { text: string }).text)
+      .join("")
+    const currentText = liveText()
+    if (currentText && text.includes(currentText)) setLiveText("")
+    const currentReasoning = liveReasoning()
+    if (currentReasoning && reasoning.includes(currentReasoning)) setLiveReasoning("")
   })
 
   const selectedModel = () => modelRef()
@@ -1351,6 +1387,8 @@ export const App: Component = () => {
             usage={liveUsage()}
             startedAt={generationStartedAt()}
             modelName={modelName}
+            liveText={liveText()}
+            liveReasoning={liveReasoning()}
             showTools={showTools()}
             onEditUser={editMessage}
           />

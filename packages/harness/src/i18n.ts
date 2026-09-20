@@ -168,6 +168,7 @@ const ES: Record<string, string> = {
     "FlupCode necesita el engine de OpenCode. Arráncalo y conéctate:",
   "start it and connect from Settings": "arráncalo y conéctate desde Ajustes",
   Retry: "Reintentar",
+  "Load earlier messages": "Cargar mensajes anteriores",
   "What's your name?": "¿Cómo te llamas?",
   "Get started": "Empezar",
 
