@@ -5,10 +5,6 @@
 <h1 align="center">FlupCode</h1>
 
 <p align="center">
-  <strong>A Claude Code–style web & desktop harness for OpenCode.</strong>
-</p>
-
-<p align="center">
   <a href="https://github.com/rldona/FlupCode/actions/workflows/harness.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/rldona/FlupCode/harness.yml?branch=power&label=build" /></a>
   <a href="https://github.com/rldona/FlupCode/releases"><img alt="release" src="https://img.shields.io/github/v/release/rldona/FlupCode?label=release" /></a>
   <a href="https://github.com/rldona/FlupCode/blob/power/LICENSE"><img alt="license" src="https://img.shields.io/github/license/rldona/FlupCode?label=license" /></a>
@@ -24,7 +20,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/flupcode-cover.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
+  <img src="docs/assets/flupcode-cover-new.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
 </p>
 
 🌐 **Website:** [flupcode.com](https://flupcode.com) · 🖥️ **Web app:** [app.flupcode.com](https://app.flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode) · ⬇️ **[Download](https://github.com/rldona/FlupCode/releases/latest)**
