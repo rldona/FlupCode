@@ -37,7 +37,6 @@ type ContextPanelProps = {
   /** The completed calls, timed, so an MCP server's latency can be shown (H-16). */
   toolCalls?: ToolCall[]
   onRead: (path: string) => Promise<string>
-  onClose: () => void
 }
 
 const bytes = (value: number) => (value < 1024 ? `${value} B` : `${Math.round(value / 102.4) / 10} kB`)
@@ -112,11 +111,6 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
             <div class="fc-routines-kicker">{t("Automation")}</div>
             <h1>{t("Context")}</h1>
             <p>{t("What a turn in this folder is given before your prompt.")}</p>
-          </div>
-          <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
           </div>
         </div>
 

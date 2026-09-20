@@ -13,7 +13,7 @@ import type {
   SessionMessagesResponse,
 } from "./engine-types"
 import type { McpConfig } from "./types"
-import { engineFetch } from "./transport"
+import { anonymousFetch, engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
@@ -125,6 +125,8 @@ export async function* subscribeEvents(
   signal?: AbortSignal,
   path = "/api/event",
   idleTimeout = STREAM_IDLE_TIMEOUT,
+  /** The harness stream: not the engine, so without its credentials (see `anonymousFetch`). */
+  anonymous = false,
 ) {
   // Own controller so an idle stream can be dropped without touching the caller's signal, which it
   // uses to tell a stream it ended from one it should reopen.
@@ -132,7 +134,8 @@ export async function* subscribeEvents(
   const abort = () => controller.abort()
   signal?.addEventListener("abort", abort, { once: true })
   if (signal?.aborted) controller.abort()
-  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+  const fetch = anonymous ? anonymousFetch : engineFetch
+  const response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     headers: { Accept: "text/event-stream" },
     signal: controller.signal,
   })
@@ -1013,7 +1016,7 @@ export function resolveHarnessServerUrl() {
 }
 
 async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
-  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     ...init,
     headers: { "content-type": "application/json", ...init?.headers },
   })
@@ -1032,7 +1035,8 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      * No cursor is sent on purpose: every connection re-reads the lists first, so the server's
      * backlog would only describe runs and routines that have since been deleted.
      */
-    events: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal, "/harness/events"),
+    events: (options?: { signal?: AbortSignal }) =>
+      subscribeEvents(baseUrl, options?.signal, "/harness/events", undefined, true),
     runs: {
       list: () => harnessRequest<Run[]>(baseUrl, "/harness/runs"),
       /**
