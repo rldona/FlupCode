@@ -12,6 +12,7 @@ type McpManagerProps = {
   onConnect: (name: string) => void
   onDisconnect: (name: string) => void
   onClose: () => void
+  onBack?: () => void
 }
 
 const statusLabel = (server: McpServer) => {
@@ -39,7 +40,14 @@ export const McpManager: Component<McpManagerProps> = (props) => {
       <div class="fc-modal-backdrop" onClick={props.onClose}>
         <div class="fc-modal fc-modal-wide" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
           <div class="fc-modal-header">
-            <span>{t("MCP servers")}</span>
+            <span class="fc-modal-heading">
+              <Show when={props.onBack}>
+                <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+                  ←
+                </button>
+              </Show>
+              <span>{t("MCP servers")}</span>
+            </span>
             <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
               ×
             </button>

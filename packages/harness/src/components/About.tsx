@@ -5,6 +5,7 @@ import { t } from "../i18n"
 type AboutProps = {
   open: boolean
   onClose: () => void
+  onBack?: () => void
 }
 
 export const About: Component<AboutProps> = (props) => {
@@ -22,7 +23,14 @@ export const About: Component<AboutProps> = (props) => {
       <div class="fc-modal-backdrop" onClick={props.onClose}>
         <div class="fc-modal" role="dialog" aria-modal="true" onClick={(event) => event.stopPropagation()}>
           <div class="fc-modal-header">
-            <span>{t("About FlupCode")}</span>
+            <span class="fc-modal-heading">
+              <Show when={props.onBack}>
+                <button class="fc-icon-button fc-back" type="button" aria-label={t("Back")} onClick={props.onBack}>
+                  ←
+                </button>
+              </Show>
+              <span>{t("About FlupCode")}</span>
+            </span>
             <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
               ×
             </button>
