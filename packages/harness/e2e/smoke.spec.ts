@@ -244,3 +244,19 @@ test("split view opens a second session from the sidebar menu and closes back to
   await expect(panes).toHaveCount(0)
   await expect(page.locator(".fc-session-row-active")).toContainText("First session")
 })
+
+test("double-clicking a sidebar edge restores its original width", async ({ page }) => {
+  await page.goto("/")
+  const sidebar = page.locator(".fc-sidebar")
+  const handle = page.locator(".fc-sidebar-resizer")
+  const box = (await handle.boundingBox())!
+  await page.mouse.move(box.x + box.width / 2, box.y + 200)
+  await page.mouse.down()
+  await page.mouse.move(box.x + 140, box.y + 200, { steps: 5 })
+  await page.mouse.up()
+  expect(Math.round((await sidebar.boundingBox())!.width)).toBeGreaterThan(380)
+
+  await handle.dblclick()
+  await expect.poll(async () => Math.round((await sidebar.boundingBox())!.width)).toBe(280)
+  expect(await page.evaluate(() => localStorage.getItem("flupcode.sidebarWidth"))).toBe("280")
+})

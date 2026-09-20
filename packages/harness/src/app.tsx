@@ -20,7 +20,7 @@ import type { ModelInfo } from "./engine-types"
 import type { Attachment, CommandOption, McpConfig, ProjectItem, Routine, StashedPrompt } from "./types"
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { toast } from "./toast"
-import { Sidebar } from "./components/Sidebar"
+import { SIDEBAR_WIDTH_DEFAULT, Sidebar } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
@@ -32,7 +32,7 @@ import { SessionView } from "./components/SessionView"
 import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { SubagentList } from "./components/SubagentList"
 import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
-import { WorkspacePanels } from "./components/WorkspacePanels"
+import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/WorkspacePanels"
 import { McpManager } from "./components/McpManager"
 import { ModelPicker } from "./components/ModelPicker"
 import { FolderDialog } from "./components/FolderDialog"
@@ -128,11 +128,11 @@ export const App: Component = () => {
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
   )
-  const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, 280))
+  const [sidebarWidth, setSidebarWidth] = createSignal(readStorage(STORAGE_KEYS.sidebarWidth, SIDEBAR_WIDTH_DEFAULT))
   const [agent, setAgent] = createSignal(readStorage(STORAGE_KEYS.agent, "build"))
   const [permissionModeId, setPermissionModeId] = createSignal(readStorage(STORAGE_KEYS.permissionMode, "auto"))
   const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
-  const [workspaceWidth, setWorkspaceWidth] = createSignal(readStorage(STORAGE_KEYS.workspaceWidth, 420))
+  const [workspaceWidth, setWorkspaceWidth] = createSignal(readStorage(STORAGE_KEYS.workspaceWidth, WORKSPACE_WIDTH_DEFAULT))
   const [displayName, setDisplayName] = createSignal(readStorage(STORAGE_KEYS.displayName, ""))
   const [history, setHistory] = createSignal<string[]>([])
   const [historyIndex, setHistoryIndex] = createSignal(-1)
