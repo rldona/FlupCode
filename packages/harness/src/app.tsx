@@ -103,7 +103,6 @@ import { SessionView } from "./components/SessionView"
 import { SessionActions, SessionTitle } from "./components/SessionToolbar"
 import { CONTEXT_PANEL_WIDTH, RightAside } from "./components/RightAside"
 import { WORKSPACE_WIDTH_DEFAULT, WorkspacePanels } from "./components/WorkspacePanels"
-import { McpManager } from "./components/McpManager"
 import type { CommandDraft } from "./components/CommandsPanel"
 import { ModelPicker } from "./components/ModelPicker"
 import { ModelSwitchDialog } from "./components/ModelSwitchDialog"
@@ -499,7 +498,6 @@ export const App: Component = () => {
     setSessionTabsEnabled(next)
     writeStorage(STORAGE_KEYS.sessionTabsEnabled, next)
   }
-  const [mcpOpen, setMcpOpen] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   /** The settings section to show when the panel opens (CU-1). */
   const [settingsSection, setSettingsSection] = createSignal<SettingsSection | undefined>(undefined)
@@ -1413,8 +1411,8 @@ export const App: Component = () => {
   // Agents you can edit (H-13). The files come from the harness server, which can read the disk;
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
-    // Also when the MCP panel is open: who may reach a server is read from the agent files (H-34).
-    if ((!settingsOpen() && !mcpOpen()) || !routinesServerAvailable()) return undefined
+    // Also when Settings is open: who may reach a server is read from the agent files (H-34).
+    if (!settingsOpen() || !routinesServerAvailable()) return undefined
     return `${harnessServerUrl()}\n${vcsDirectory() ?? ""}\n${agentsRefresh()}`
   }
   const [agentsRefresh, setAgentsRefresh] = createSignal(0)
@@ -1464,7 +1462,7 @@ export const App: Component = () => {
   }
   // The configured MCP servers (H-25): so the form can open one for editing, not just add a new one.
   const [mcpConfigs, { refetch: refetchMcpConfigs }] = createResource(
-    () => ((settingsOpen() || mcpOpen()) && ready() ? serverUrl() : undefined),
+    () => (settingsOpen() && ready() ? serverUrl() : undefined),
     async (url) => createClient(url).mcp.config(),
   )
   // The engine's permission policy (H-25), edited in Settings. Runtime grants ("Allow always") are
@@ -2076,7 +2074,7 @@ export const App: Component = () => {
         return
       }
       if (name === "mcp") {
-        setMcpOpen(true)
+        openSettings("mcp")
         return
       }
       if (name === "stash") {
@@ -4710,7 +4708,7 @@ export const App: Component = () => {
       }
       if (name === "mcp") {
         setPrompt("")
-        setMcpOpen(true)
+        openSettings("mcp")
         return
       }
       if (name === "stash") {
@@ -5040,7 +5038,7 @@ export const App: Component = () => {
             onProviders={() => setProvidersOpen(true)}
             onConfig={() => setConfigOpen(true)}
             onRemote={() => setRemoteOpen(true)}
-            onMcp={() => setMcpOpen(true)}
+            onMcp={() => openSettings("mcp")}
           />
         </PanelBoundary>
       </Show>
@@ -5500,24 +5498,6 @@ export const App: Component = () => {
         onFile={(path) => setPrompt((value) => (value ? `${value} @${path} ` : `@${path} `))}
         searchFiles={searchFiles}
         searchSessions={searchSessions}
-      />
-      <McpManager
-        open={mcpOpen()}
-        servers={mcp()?.data ?? []}
-        configs={mcpConfigs()?.data ?? {}}
-        resources={mcpResources() ?? []}
-        agents={agentFiles() ?? []}
-        busy={busy()}
-        onAdd={addMcp}
-        onRemove={removeMcp}
-        onConnect={connectMcp}
-        onDisconnect={disconnectMcp}
-        onOAuth={oauthMcp}
-        onClose={() => setMcpOpen(false)}
-        onBack={() => {
-          setMcpOpen(false)
-          setSettingsOpen(true)
-        }}
       />
       <ProvidersPanel
         open={providersOpen()}
