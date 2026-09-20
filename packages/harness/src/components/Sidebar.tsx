@@ -19,6 +19,7 @@ type SidebarProps = {
   onAbout: () => void
   onSettings: () => void
   onRoutines: () => void
+  onArtifacts: () => void
 }
 
 function projectLabel(project: Project) {
@@ -49,7 +50,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           <span>{t("New")}</span>
         </button>
         <nav class="fc-nav">
-          <button class="fc-nav-item" type="button">
+          <button class="fc-nav-item" type="button" onClick={props.onArtifacts}>
             {t("Artifacts")}
           </button>
           <button class="fc-nav-item" type="button" onClick={props.onRoutines}>

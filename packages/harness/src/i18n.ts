@@ -97,6 +97,10 @@ const ES: Record<string, string> = {
   Remote: "Remoto",
   "No MCP servers": "Sin servidores MCP",
   "command and arguments": "comando y argumentos",
+  "No artifacts yet": "Aún no hay artefactos",
+  "Files changed by the session appear here": "Los archivos modificados por la sesión aparecen aquí",
+  Copy: "Copiar",
+  "Path copied": "Ruta copiada",
 
   // Onboarding
   "Welcome to FlupCode": "Bienvenido a FlupCode",

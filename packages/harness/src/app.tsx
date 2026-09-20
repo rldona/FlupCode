@@ -24,6 +24,7 @@ import { SettingsPanel } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
+import { ArtifactsPanel } from "./components/ArtifactsPanel"
 
 type Client = ReturnType<typeof createClient>
 
@@ -37,6 +38,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string }> = [
   { name: "settings", descriptionKey: "Customize FlupCode" },
   { name: "routines", descriptionKey: "Scheduled tasks" },
   { name: "remote", descriptionKey: "Remote access / mobile" },
+  { name: "artifacts", descriptionKey: "Artifacts" },
   { name: "about", descriptionKey: "About FlupCode" },
 ]
 
@@ -62,6 +64,7 @@ export const App: Component = () => {
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   const [routinesOpen, setRoutinesOpen] = createSignal(false)
   const [remoteOpen, setRemoteOpen] = createSignal(false)
+  const [artifactsOpen, setArtifactsOpen] = createSignal(false)
   const [routines, setRoutines] = createSignal<Routine[]>(readStorage<Routine[]>(STORAGE_KEYS.routines, []))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
@@ -188,6 +191,10 @@ export const App: Component = () => {
       setRemoteOpen(true)
       return
     }
+    if (name === "artifacts") {
+      setArtifactsOpen(true)
+      return
+    }
     setPrompt(`/${name} `)
   }
 
@@ -301,6 +308,22 @@ export const App: Component = () => {
     },
   )
 
+  const artifacts = () => {
+    const files = new Set<string>()
+    for (const message of messages()?.data ?? []) {
+      if (message.type !== "assistant") continue
+      for (const file of message.snapshot?.files ?? []) files.add(file)
+      for (const part of message.content) {
+        if (part.type !== "tool" || part.state.status === "streaming") continue
+        const input = part.state.input as { filePath?: unknown; path?: unknown }
+        const path =
+          typeof input.filePath === "string" ? input.filePath : typeof input.path === "string" ? input.path : undefined
+        if (path && (part.name === "write" || part.name === "edit" || part.name === "patch")) files.add(path)
+      }
+    }
+    return [...files]
+  }
+
   const canGoBack = () => historyIndex() > 0
   const canGoForward = () => historyIndex() >= 0 && historyIndex() < history().length - 1
 
@@ -377,6 +400,11 @@ export const App: Component = () => {
   const refresh = () => {
     void refetchProjects()
     void refetchSessions()
+  }
+
+  const copyPath = (path: string) => {
+    void navigator.clipboard?.writeText(path)
+    toast(t("Path copied"), "success")
   }
 
   const addAttachments = (files: File[]) => {
@@ -776,6 +804,11 @@ export const App: Component = () => {
         setRemoteOpen(true)
         return
       }
+      if (name === "artifacts") {
+        setPrompt("")
+        setArtifactsOpen(true)
+        return
+      }
       const skill = skills()?.data?.find((item) => item.name === name)
       if (skill) {
         void run(async (current) => {
@@ -841,6 +874,7 @@ export const App: Component = () => {
         onAbout={() => setAboutOpen(true)}
         onSettings={() => setSettingsOpen(true)}
         onRoutines={() => setRoutinesOpen(true)}
+        onArtifacts={() => setArtifactsOpen(true)}
       />
       <main class="fc-main">
         <Topbar
@@ -1019,6 +1053,12 @@ export const App: Component = () => {
       />
       <Onboarding open={!onboarded()} serverHealthy={health()?.healthy} onDone={completeOnboarding} />
       <RemotePanel open={remoteOpen()} initialUrl={serverUrl()} onClose={() => setRemoteOpen(false)} />
+      <ArtifactsPanel
+        open={artifactsOpen()}
+        artifacts={artifacts()}
+        onCopy={copyPath}
+        onClose={() => setArtifactsOpen(false)}
+      />
     </div>
   )
 }
