@@ -205,7 +205,8 @@ export class RoutineScheduler {
   }) {
     const workflow = await findWorkflow(input.name, input.directory)
     if (!workflow) throw new UnknownWorkflowError(input.name)
-    const missing = workflow.inputs.filter((name) => !input.inputs?.[name]?.trim())
+    const filled = { ...(workflow.inputDefaults ?? {}), ...(input.inputs ?? {}) }
+    const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
     if (missing.length > 0) throw new MissingInputsError(missing)
     const until = input.until?.trim() ? input.until.trim() : undefined
     let directory = input.directory
