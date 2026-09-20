@@ -884,6 +884,63 @@ describe("artifact search and export (HF-7)", () => {  test("lists by words, kee
   })
 })
 
+describe("generated documents (H-14)", () => {
+  test("indexes a project's .flupcode/artifacts when its artifacts are listed", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-docs-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "artifacts"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "artifacts", "report.md"), "# Findings\n\nAll clear.")
+
+    const listed = await handler(
+      new Request(`http://x/harness/artifacts?directory=${encodeURIComponent(directory)}`),
+    )
+    const data = (await listed.json()).data as Array<{ kind: string; title: string; mime: string }>
+    expect(data).toHaveLength(1)
+    expect(data[0]).toMatchObject({ kind: "document", title: "Findings", mime: "text/markdown" })
+    repository.close()
+  })
+
+  test("serves an artifact's bytes for a viewer, and refuses a path outside the folder", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-raw-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "artifacts"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "artifacts", "index.html"), "<h1>hi</h1>")
+
+    const document = repository.addArtifact({
+      kind: "document",
+      title: "Page",
+      producer: "agent",
+      mime: "text/html",
+      path: join(".flupcode", "artifacts", "index.html"),
+      directory,
+    })
+    const raw = await handler(new Request(`http://x/harness/artifacts/${document.id}/raw`))
+    expect(raw.status).toBe(200)
+    expect(raw.headers.get("content-type")).toBe("text/html")
+    expect(await raw.text()).toContain("<h1>hi</h1>")
+
+    // A path that escapes the folder is refused before anything is read.
+    const outside = repository.addArtifact({
+      kind: "document",
+      title: "Escape",
+      producer: "agent",
+      path: "../secret.txt",
+      directory,
+    })
+    const refused = await handler(new Request(`http://x/harness/artifacts/${outside.id}/raw`))
+    expect(refused.status).toBe(400)
+
+    // Text with no file is served from what was kept.
+    const text = repository.addArtifact({ kind: "document", title: "Note", producer: "user", content: "# note" })
+    const fromContent = await handler(new Request(`http://x/harness/artifacts/${text.id}/raw`))
+    expect(fromContent.headers.get("content-type")).toContain("text/markdown")
+    expect(await fromContent.text()).toBe("# note")
+    repository.close()
+  })
+})
+
 describe("routines that run a workflow with a policy (HF-8)", () => {
   const writeWorkflow = (directory: string) => {
     mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })

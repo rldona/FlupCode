@@ -130,7 +130,7 @@ import { ComparePanel } from "./components/ComparePanel"
 import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
-import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
+import { canOpenLocalFiles, desktopRemote, openInEditor, openLocalPath, remote, remoteBaseUrl, touchDevice } from "./remote"
 import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
 import { ChatHero, ChatStarters } from "./components/ChatHome"
 import { SessionPane } from "./components/SessionPane"
@@ -5239,10 +5239,14 @@ export const App: Component = () => {
             artifacts={artifactList()}
             sessionFiles={artifacts()}
             serverAvailable={artifactsAvailable()}
+            canOpenFiles={canOpenLocalFiles()}
+            rawUrl={(id) => createHarnessClient(harnessServerUrl()).artifacts.rawUrl(id)}
             onCopy={copyPath}
             onRemove={removeArtifact}
             onUpdate={updateArtifact}
             onOpenRun={() => showScreen("runs")}
+            onOpenPath={(path) => void openLocalPath(path)}
+            onOpenInEditor={(path) => void openInEditor(path)}
           />
           <RoutinesPanel
             open={routinesOpen()}
