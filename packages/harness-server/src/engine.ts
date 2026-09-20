@@ -19,6 +19,47 @@ export const unwrap = async <T>(call: Promise<Result<T>>) => {
  * scheduler having its own was the last of them. A task and a routine now reach the engine the same
  * way, so a lesson learned about one is learned about both.
  */
+/** What a task is doing right now: one tool call, and since when. */
+export type Activity = { tool: string; detail?: string; since?: number }
+
+/**
+ * A tool call, in either shape the engine reports one.
+ *
+ * The legacy `/session/:id/message` — the one every run's turn goes through — names the tool in
+ * `tool` and times it in `state.time.start`. The v2 types in the SDK say `name` and `time.ran`.
+ * Coding against the types alone reads `undefined` for both against a real engine, which is what
+ * happened here.
+ */
+type RunningToolPart = {
+  tool?: string
+  name?: string
+  state?: { status?: string; input?: Record<string, unknown>; time?: { start?: number; end?: number } }
+  time?: { created?: number; ran?: number; completed?: number }
+}
+
+export const toolNameOf = (part: RunningToolPart) => part.tool ?? part.name
+export const toolStartOf = (part: RunningToolPart) => part.state?.time?.start ?? part.time?.ran ?? part.time?.created
+
+export const isRunningTool = (part: unknown): part is RunningToolPart => {
+  const tool = part as RunningToolPart | undefined
+  if (!tool || tool.state?.status !== "running") return false
+  if (tool.state?.time?.end !== undefined || tool.time?.completed !== undefined) return false
+  return typeof toolNameOf(tool) === "string"
+}
+
+/** The argument worth showing beside a tool's name — the one that says what it is working on. */
+const ARGUMENTS = ["command", "pattern", "filePath", "file", "path", "query", "url", "description"]
+
+export function detailOf(input: Record<string, unknown> | undefined) {
+  if (!input) return undefined
+  for (const key of ARGUMENTS) {
+    const value = input[key]
+    // A whole file's contents can arrive in here. This is a label, not the argument itself.
+    if (typeof value === "string" && value.trim()) return value.trim().slice(0, 160)
+  }
+  return undefined
+}
+
 export class Engine {
   private readonly client: ReturnType<typeof createOpencodeClient>
 
@@ -140,6 +181,31 @@ export class Engine {
    * Read from the legacy message table, because that is where a legacy turn writes: `/api/session/:id/message`
    * stays empty for one. Tokens and cost come from the assistant message the engine wrote them on.
    */
+  /**
+   * What a running task is doing right now (H-12).
+   *
+   * The harness knows a task has been going for eighteen minutes; only the engine knows it has been
+   * eighteen minutes inside one `glob`. That was H-47's finding and it is the difference between a
+   * run that looks stuck and one you can do something about — the reader can stop it, but not while
+   * a call that never returns looks exactly like work.
+   *
+   * Never stored: it changes by the second, and writing it to the event log would drown everything
+   * else in there. It is asked for while somebody is looking.
+   */
+  async activity(sessionID: string, directory?: string): Promise<Activity | undefined> {
+    const messages = (await unwrap(
+      this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
+    ).catch(() => undefined)) as Array<{ info?: { role?: string }; parts?: unknown[] }> | undefined
+    const assistant = [...(messages ?? [])].reverse().find((message) => message.info?.role === "assistant")
+    if (!assistant) return undefined
+    // The last one that has started and not finished. Tools run one at a time in a turn, but taking
+    // the last is right either way: it is the one the turn is currently inside.
+    const running = [...(assistant.parts ?? [])].reverse().find((part) => isRunningTool(part))
+    if (!running) return undefined
+    const tool = running as RunningToolPart
+    return { tool: toolNameOf(tool)!, detail: detailOf(tool.state?.input), since: toolStartOf(tool) }
+  }
+
   async lastAnswer(sessionID: string, directory?: string) {
     const messages = (await unwrap(
       this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,

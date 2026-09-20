@@ -56,6 +56,8 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
 | `POST /harness/git/pr` | push the branch if needed, then open a pull request |
 | `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |
+| `GET /harness/runs/:id/activity` | which tool each running task is inside, and since when |
+| `GET /harness/runs/:id/files` | what each task changed on disk, from the checkpoints around it |
 | `GET /harness/usage` | what the runs cost, filtered by `directory` and `days` |
 | `GET`/`POST /harness/checkpoints` | the ones for `?directory=`, or take one now |
 | `GET /harness/checkpoints/:id/plan` | which files restoring would write, and which it would delete |

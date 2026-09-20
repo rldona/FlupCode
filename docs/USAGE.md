@@ -238,6 +238,21 @@ finished** in the header. A run that is still going cannot be deleted: stop it f
 
 Runs come from a routine on its schedule, or from a workflow you launched.
 
+### What a run is doing, and what it changed
+
+A **running** task shows the tool it is inside, what that tool is working on, and how long it has
+been there — `glob · project.yaml · 18m 20s`. Past three minutes on a single call the marker turns
+amber. It is not a limit and nothing is stopped for you: a test suite legitimately takes minutes, and
+killing a build on a guessed threshold is worse than the problem. It is there so that a call which
+will never return stops looking like work, and you can decide to stop it.
+
+A **finished** task lists the files it changed. Those come from the checkpoints taken around it, not
+from the agent's tool calls — so a file written by a shell command is in the list too. A task that
+changed nothing says so.
+
+Both need the harness server. The file list also needs the folder to be a git repository, since
+that is where the checkpoints live.
+
 ## Verification
 
 FlupCode can check the work instead of taking the model's word for it. A task of kind `verify` runs
