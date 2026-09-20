@@ -628,29 +628,12 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 items: [
                   { label: t("Settings"), icon: "⚙", shortcut: "⌘,", onSelect: props.onSettings },
                   { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
-                  { label: t("Language"), icon: "文", onSelect: props.onSettings },
-                  {
-                    label: t("Artifacts"),
-                    icon: "▤",
-                    disabled: UNAVAILABLE_FEATURES.has("artifacts"),
-                    onSelect: props.onArtifacts,
-                  },
-                  {
-                    label: t("Routines"),
-                    icon: "↻",
-                    disabled: UNAVAILABLE_FEATURES.has("routines"),
-                    onSelect: () => props.onRoutines(),
-                  },
-                  // The inspector screens live here rather than in the nav: they are consulted,
-                  // not worked in, and the nav keeps the work.
-                  { label: t("Cost"), icon: "▦", onSelect: props.onUsage },
                   { label: t("Context"), icon: "◫", onSelect: props.onContext },
                   { label: t("Agents"), icon: "◍", onSelect: props.onAgents },
                   { label: t("Skills"), icon: "✦", onSelect: props.onSkills },
-                  { label: t("MCP servers"), icon: "◫", onSelect: props.onMcp },
-                  { label: t("Config (advanced)"), icon: "{}", onSelect: props.onConfig },
+                  { label: t("Cost"), icon: "▦", onSelect: props.onUsage },
                   { label: t("Remote control"), icon: "◉", onSelect: props.onRemote },
-                  { label: t("About"), icon: "i", onSelect: props.onAbout },
+                  { label: t("About FlupCode"), icon: "i", onSelect: props.onAbout },
                 ],
               })
             }}
