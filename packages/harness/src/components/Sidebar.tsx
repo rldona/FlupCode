@@ -3,6 +3,7 @@ import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import type { AppView } from "../chat"
 import { cssPx } from "../text-size"
+import { UNAVAILABLE_FEATURES } from "../features"
 import { ContextMenu, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
 import { ViewTabs } from "./Topbar"
@@ -247,13 +248,31 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           </button>
           <nav class="fc-nav">
             <Show when={props.view === "code"}>
-              <button class="fc-nav-item" type="button" onClick={props.onArtifacts}>
+              <button
+                class="fc-nav-item"
+                type="button"
+                disabled={UNAVAILABLE_FEATURES.has("artifacts")}
+                title={UNAVAILABLE_FEATURES.has("artifacts") ? t("Coming soon") : undefined}
+                onClick={props.onArtifacts}
+              >
                 <span class="fc-nav-icon">▤</span>
                 {t("Artifacts")}
+                <Show when={UNAVAILABLE_FEATURES.has("artifacts")}>
+                  <span class="fc-nav-soon">{t("Soon")}</span>
+                </Show>
               </button>
-              <button class="fc-nav-item" type="button" onClick={props.onRoutines}>
+              <button
+                class="fc-nav-item"
+                type="button"
+                disabled={UNAVAILABLE_FEATURES.has("routines")}
+                title={UNAVAILABLE_FEATURES.has("routines") ? t("Coming soon") : undefined}
+                onClick={props.onRoutines}
+              >
                 <span class="fc-nav-icon">↻</span>
                 {t("Routines")}
+                <Show when={UNAVAILABLE_FEATURES.has("routines")}>
+                  <span class="fc-nav-soon">{t("Soon")}</span>
+                </Show>
               </button>
             </Show>
             <button class="fc-nav-item" type="button" onClick={props.onSettings}>
@@ -371,8 +390,18 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   { label: t("Settings"), icon: "⚙", shortcut: "⌘,", onSelect: props.onSettings },
                   { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
                   { label: t("Language"), icon: "文", onSelect: props.onSettings },
-                  { label: t("Artifacts"), icon: "▤", onSelect: props.onArtifacts },
-                  { label: t("Routines"), icon: "↻", onSelect: props.onRoutines },
+                  {
+                    label: t("Artifacts"),
+                    icon: "▤",
+                    disabled: UNAVAILABLE_FEATURES.has("artifacts"),
+                    onSelect: props.onArtifacts,
+                  },
+                  {
+                    label: t("Routines"),
+                    icon: "↻",
+                    disabled: UNAVAILABLE_FEATURES.has("routines"),
+                    onSelect: props.onRoutines,
+                  },
                   { label: t("MCP servers"), icon: "◫", onSelect: props.onMcp },
                   { label: t("Config (advanced)"), icon: "{}", onSelect: props.onConfig },
                   { label: t("Remote control"), icon: "◉", onSelect: props.onRemote },

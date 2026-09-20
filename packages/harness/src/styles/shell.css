@@ -114,7 +114,7 @@ select:focus-visible,
   font-size: 13px;
 }
 
-.fc-menu-item:hover {
+.fc-menu-item:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
 }
 
@@ -212,8 +212,20 @@ select:focus-visible,
   transition: background var(--fc-motion-fast);
 }
 
-.fc-nav-item:hover {
+.fc-nav-item:hover:not(:disabled) {
   background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+}
+
+.fc-nav-soon {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .fc-nav-item-active {
@@ -1295,9 +1307,21 @@ button.fc-status {
   text-align: left;
 }
 
-.fc-command-item:hover,
+.fc-command-item:hover:not(:disabled),
 .fc-command-item-active {
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
+}
+
+.fc-command-soon {
+  margin-left: auto;
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .fc-command-name {
@@ -2613,6 +2637,10 @@ button.fc-status {
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+}
+
+.fc-rename-input {
+  width: 100%;
 }
 
 .fc-settings-grid {
@@ -5519,7 +5547,8 @@ button.fc-status {
 
 .fc-chapters-list {
   position: absolute;
-  top: 0;
+  /* The nav is pulled up 6px for the ticks' hit area; push the menu back down to match the 16px left inset. */
+  top: 6px;
   left: 0;
   min-width: 240px;
   max-width: min(420px, 60vw);
@@ -5862,11 +5891,6 @@ button.fc-status {
 
 .fc-toolgroup-open .fc-toolgroup-chevron {
   transform: rotate(90deg);
-}
-
-.fc-toolgroup-failed {
-  color: var(--fc-danger);
-  font-size: 12px;
 }
 
 .fc-toolgroup-running .fc-toolgroup-label {
@@ -6530,13 +6554,15 @@ button.fc-status {
 }
 
 /* The phone and tablet layouts take their column from the prompt dock: the transcript drops the
-   desktop max width, the reserved scrollbar gutter and the conversation-navigator inset, so the
-   chat reads as wide as the dock instead of narrower and indented. */
+   desktop max width and the conversation-navigator inset, so the chat reads as wide as the dock
+   instead of narrower and indented. The scrollbar gutter stays reserved on both edges, though,
+   because a classic scrollbar would otherwise push the centred chat text half a scrollbar to the
+   left. The dock keeps its own even inset. */
 .fc-mobile-remote .fc-transcript,
 .fc-mobile-remote .fc-transcript-frame.fc-chat-narrow .fc-transcript {
   padding-left: var(--fc-space-3);
   padding-right: var(--fc-space-3);
-  scrollbar-gutter: auto;
+  scrollbar-gutter: stable both-edges;
 }
 
 .fc-mobile-remote .fc-transcript > *,

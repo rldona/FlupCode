@@ -6,6 +6,8 @@ export type Attachment = {
 export type CommandOption = {
   name: string
   description?: string
+  /** Shown but not runnable yet. */
+  disabled?: boolean
 }
 
 export type McpConfig = { type: "local"; command: string[] } | { type: "remote"; url: string }

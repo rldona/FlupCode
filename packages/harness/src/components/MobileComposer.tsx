@@ -2,10 +2,11 @@ import { For, Show, createMemo, createSignal, onCleanup, type Component, type JS
 import type { AgentInfo, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment } from "../types"
 import { t } from "../i18n"
+import { toast } from "../toast"
 import { effortLabel } from "../effort"
 import { PERMISSION_MODES, permissionMode } from "../permission-modes"
 import type { AppView } from "../chat"
-import { speechRecognition, type SpeechRecognitionLike } from "./Composer"
+import { dictationAvailable, startDictation } from "../dictation"
 
 /**
  * The prompt dock on a phone controlling a computer, modelled on the Claude Code mobile app: a
@@ -131,27 +132,28 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
   const [sheet, setSheet] = createSignal<Sheet>()
   const [query, setQuery] = createSignal("")
   const [listening, setListening] = createSignal(false)
-  let recognition: SpeechRecognitionLike | undefined
-  onCleanup(() => recognition?.stop())
+  let stopDictation: (() => void) | undefined
+  onCleanup(() => stopDictation?.())
 
   const toggleVoice = () => {
-    if (listening()) return recognition?.stop()
-    const Recognition = speechRecognition()
-    if (!Recognition) return
-    recognition = new Recognition()
-    recognition.lang = navigator.language || "en-US"
-    recognition.continuous = true
-    recognition.interimResults = false
-    recognition.onresult = (event) => {
-      const transcript = Array.from(event.results)
-        .filter((result) => result.isFinal)
-        .map((result) => result[0].transcript)
-        .join(" ")
-      if (transcript.trim()) props.onInput(`${props.value} ${transcript}`.trim())
+    if (listening()) {
+      stopDictation?.()
+      stopDictation = undefined
+      return
     }
-    recognition.onend = () => setListening(false)
-    recognition.onerror = () => setListening(false)
-    recognition.start()
+    const base = props.value
+    const stop = startDictation({
+      lang: navigator.language,
+      onTranscript: (text) => props.onInput(`${base} ${text}`.trim()),
+      onError: (code) =>
+        toast(code ? `${t("Voice dictation failed")} (${code})` : t("Voice dictation failed"), "error"),
+      onEnd: () => {
+        stopDictation = undefined
+        setListening(false)
+      },
+    })
+    if (!stop) return
+    stopDictation = stop
     setListening(true)
   }
   let cameraInput: HTMLInputElement | undefined
@@ -243,7 +245,7 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
             </Show>
           </button>
           <span class="fc-mobile-spacer" />
-          <Show when={speechRecognition()}>
+          <Show when={dictationAvailable()}>
             <button
               class="fc-mobile-round"
               classList={{ "fc-mobile-round-on": listening() }}
