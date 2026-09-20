@@ -55,6 +55,7 @@ packages/remote, packages/relay, packages/flupcode-cli
 ```
 
 Why a new package instead of forking `packages/app`:
+
 - Upstream `dev` can be merged with near-zero conflicts.
 - We can restyle and restructure aggressively without touching shared code.
 - We still reuse the hard parts (message rendering, composer, diff viewer, theme engine).
@@ -116,3 +117,4 @@ FlupCode must respect upstream's layering:
 - ADR-0009 — Engine API layer uses the SDK v2 client
 - ADR-0010 — Remote control through an end-to-end encrypted relay
 - ADR-0011 — Push notifications for remote control
+- ADR-0012 — Memory as a first-class knowledge primitive (see `docs/MEMORY.md`)
