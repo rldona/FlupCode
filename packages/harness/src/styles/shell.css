@@ -1784,6 +1784,66 @@ button.fc-row-main {
   color: var(--fc-text-muted);
 }
 
+.fc-diff2 {
+  background: var(--fc-bg);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+  overflow: auto;
+  max-height: 460px;
+}
+
+.fc-diff2-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+
+.fc-diff2-cell {
+  display: flex;
+  gap: 6px;
+  padding: 0 8px;
+  white-space: pre;
+  overflow: hidden;
+}
+
+.fc-diff2-cell + .fc-diff2-cell {
+  border-left: 1px solid color-mix(in srgb, var(--fc-border) 60%, transparent);
+}
+
+.fc-diff2-no {
+  width: 34px;
+  flex-shrink: 0;
+  text-align: right;
+  color: var(--fc-text-muted);
+  user-select: none;
+}
+
+.fc-diff2-sign {
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-diff2-code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.fc-diff2-del {
+  background: color-mix(in srgb, #e74c3c 16%, transparent);
+  color: #f19a90;
+}
+
+.fc-diff2-add {
+  background: color-mix(in srgb, #2ecc71 16%, transparent);
+  color: #7ee2a8;
+}
+
+.fc-diff2-empty {
+  background: color-mix(in srgb, var(--fc-border) 12%, transparent);
+}
+
 .fc-session-toolbar {
   display: flex;
   align-items: center;

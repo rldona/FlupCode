@@ -7,7 +7,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import { t } from "../i18n"
-import { diffLines, highlight } from "../highlight"
+import { diffLines, escapeHtml, highlight, highlightDiff, sideBySideDiff } from "../highlight"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 
@@ -112,13 +112,43 @@ const ReasoningBlock: Component<{ part: SessionMessageAssistantReasoning }> = (p
   )
 }
 
-const DiffView: Component<{ oldText: string; newText: string }> = (props) => (
-  <pre class="fc-diff-view">
-    <For each={diffLines(props.oldText, props.newText)}>
-      {(line) => <div class={`fc-diff-line fc-diff-${line.type}`}>{line.text === "" ? " " : line.text}</div>}
-    </For>
-  </pre>
-)
+const DiffView: Component<{ oldText: string; newText: string; lang: string }> = (props) => {
+  const rows = createMemo(() => sideBySideDiff(props.oldText, props.newText))
+  const huge = () => rows().length > 400 || props.oldText.length + props.newText.length > 120_000
+  const unified = () =>
+    diffLines(props.oldText, props.newText)
+      .map((line) => `${line.type === "add" ? "+" : line.type === "del" ? "-" : " "}${line.text}`)
+      .join("\n")
+  const cell = (value: { no?: number; text: string; kind: "same" | "del" | "add" } | undefined, kind?: string) => (
+    <div class={`fc-diff2-cell fc-diff2-${kind ?? "empty"}`}>
+      <span class="fc-diff2-no">{value?.no ?? ""}</span>
+      <span class="fc-diff2-sign">{kind === "del" ? "-" : kind === "add" ? "+" : " "}</span>
+      <span
+        class="fc-diff2-code"
+        innerHTML={value ? (props.lang ? highlight(value.text, props.lang) : escapeHtml(value.text)) : ""}
+      />
+    </div>
+  )
+  return (
+    <Show
+      when={!huge()}
+      fallback={
+        <pre class="fc-diff-view" innerHTML={highlightDiff(unified())} />
+      }
+    >
+      <div class="fc-diff2">
+        <For each={rows()}>
+          {(row) => (
+            <div class="fc-diff2-row">
+              {cell(row.left, row.left?.kind)}
+              {cell(row.right, row.right?.kind)}
+            </div>
+          )}
+        </For>
+      </div>
+    </Show>
+  )
+}
 
 const ToolOutput: Component<{ text: string; maxLines?: number }> = (props) => {
   const [expanded, setExpanded] = createSignal(false)
@@ -169,7 +199,7 @@ const ToolCall: Component<{ part: SessionMessageAssistantTool }> = (props) => {
       <Show when={open()}>
         <div class="fc-tool-body">
           <Show when={hasDiff()}>
-            <DiffView oldText={oldText() ?? ""} newText={newText() ?? ""} />
+            <DiffView oldText={oldText() ?? ""} newText={newText() ?? ""} lang={languageFor(path())} />
           </Show>
           <Show when={props.part.name === "write" && writeContent() !== undefined}>
             <pre class="fc-code" innerHTML={highlight(writeContent() ?? "", languageFor(path()))} />

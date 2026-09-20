@@ -120,6 +120,49 @@ function commentPattern(lang: string) {
   return "//[^\\n]*|/\\*[\\s\\S]*?\\*/"
 }
 
+export type SideBySideRow = {
+  left?: { no?: number; text: string; kind: "same" | "del" }
+  right?: { no?: number; text: string; kind: "same" | "add" }
+}
+
+export function sideBySideDiff(oldText: string, newText: string): SideBySideRow[] {
+  const lines = diffLines(oldText, newText)
+  const rows: SideBySideRow[] = []
+  let oldNo = 1
+  let newNo = 1
+  let index = 0
+  while (index < lines.length) {
+    const line = lines[index]!
+    if (line.type === "same") {
+      rows.push({
+        left: { no: oldNo, text: line.text, kind: "same" },
+        right: { no: newNo, text: line.text, kind: "same" },
+      })
+      oldNo++
+      newNo++
+      index++
+      continue
+    }
+    const dels: string[] = []
+    const adds: string[] = []
+    while (index < lines.length && lines[index]!.type !== "same") {
+      if (lines[index]!.type === "del") dels.push(lines[index]!.text)
+      else adds.push(lines[index]!.text)
+      index++
+    }
+    const count = Math.max(dels.length, adds.length)
+    for (let offset = 0; offset < count; offset++) {
+      rows.push({
+        left: offset < dels.length ? { no: oldNo + offset, text: dels[offset]!, kind: "del" } : undefined,
+        right: offset < adds.length ? { no: newNo + offset, text: adds[offset]!, kind: "add" } : undefined,
+      })
+    }
+    oldNo += dels.length
+    newNo += adds.length
+  }
+  return rows
+}
+
 export function highlightDiff(code: string) {
   return code
     .split("\n")
