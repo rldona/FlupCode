@@ -1060,6 +1060,18 @@ const ES: Record<string, string> = {
   // Model and budget policy (H-30)
   "Paused at its budget": "En pausa al llegar a su presupuesto",
   "Carry on": "Continuar",
+
+  // Exporting a conversation (H-35)
+  "Export conversation": "Exportar la conversación",
+  "This conversation": "Esta conversación",
+  "Include the thinking": "Incluir el razonamiento",
+  "What the model thought, as a collapsed block.": "Lo que pensó el modelo, como bloque plegado.",
+  "Include tool calls": "Incluir las llamadas a herramientas",
+  "Each call by name. Off leaves only the conversation.": "Cada llamada por su nombre. Apagado deja solo la conversación.",
+  "Include tool output": "Incluir la salida de las herramientas",
+  "What the tools printed. The noisy half.": "Lo que imprimieron las herramientas. La mitad ruidosa.",
+  "Download JSON": "Descargar JSON",
+  "Download Markdown": "Descargar Markdown",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

@@ -341,9 +341,15 @@ export type ContextPack = {
   createdAt: number
 }
 
-export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }
+/** A conversation kept on this server so it can be read at a link (H-35). */
+export type SharedConversation = {
+  id: string
+  title: string
+  markdown: string
+  createdAt: number
+}
 
-/** Runs, whatever asked for them. */
+export type StoredEvent = { seq: number; createdAt: number; event: ServerEvent }/** Runs, whatever asked for them. */
 export type RunRepository = {
   startRun(
     source: RunSource,
@@ -411,6 +417,9 @@ export type RunRepository = {
   listPacks(directory?: string): ContextPack[]
   savePack(input: { name: string; refs: string[]; directory?: string }): ContextPack
   removePack(id: string): boolean
+  /** A conversation kept so a link can read it (H-35). */
+  saveShare(input: { title: string; markdown: string }): SharedConversation
+  getShare(id: string): SharedConversation | undefined
 }
 
 /** Routines, and the lock that keeps one from running twice at once. */

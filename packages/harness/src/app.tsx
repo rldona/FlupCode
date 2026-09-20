@@ -9,6 +9,8 @@ import { UsagePanel } from "./components/UsagePanel"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
 import { FilesPanel } from "./components/FilesPanel"
+import { ExportDialog } from "./components/ExportDialog"
+import { downloadFile, sessionJson, sessionMarkdown, type ExportMessage, type ExportOptions } from "./export"
 import { addSource, removeSource, normalizeSources, EMPTY_SOURCES, type SkillSourceKind, type SkillSources } from "./skill-sources"
 import { ContextPanel, type ContextTokens } from "./components/ContextPanel"
 import type { TaskActivity, TaskTools, TouchedFiles } from "./types"
@@ -3900,31 +3902,38 @@ export const App: Component = () => {
     })
   }
 
-  const exportMarkdown = () => {
+  // Exporting (H-35): markdown with options, or the raw JSON. The dialog holds the choices; this
+  // builds the file.
+  const [exportOpen, setExportOpen] = createSignal(false)
+  const runExport = (format: "markdown" | "json", options: ExportOptions) => {
     const sessionID = selected()
     if (!sessionID) return
-    const lines: string[] = [`# ${sessionTitle(selectedSession()) || sessionID}`, ""]
-    for (const message of activeMessages() ?? []) {
-      if (message.type === "user") {
-        lines.push("## User", "", (message as { text?: string }).text ?? "", "")
-        continue
-      }
-      if (message.type !== "assistant") continue
-      for (const part of message.content) {
-        if (part.type === "text") lines.push(part.text, "")
-        else if (part.type === "reasoning")
-          lines.push("<details><summary>Reasoning</summary>", "", part.text, "", "</details>", "")
-        else if (part.type === "tool") lines.push(`> Tool: ${part.name}`, "")
-      }
+    const title = sessionTitle(selectedSession()) || sessionID
+    const messages = (activeMessages() ?? []) as ExportMessage[]
+    if (format === "markdown") {
+      downloadFile(`${sessionID}.md`, sessionMarkdown(title, messages, options), "text/markdown")
+    } else {
+      downloadFile(`${sessionID}.json`, sessionJson(title, messages), "application/json")
     }
-    const blob = new Blob([lines.join("\n")], { type: "text/markdown" })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement("a")
-    anchor.href = url
-    anchor.download = `${sessionID}.md`
-    anchor.click()
-    URL.revokeObjectURL(url)
+    setExportOpen(false)
     toast(t("Transcript exported"), "success")
+  }
+  // The harness's own share (H-35): it keeps the conversation and serves it at a link, so sharing
+  // does not depend on the engine's remote host.
+  const runShare = (options: ExportOptions) => {
+    const sessionID = selected()
+    if (!sessionID) return
+    const title = sessionTitle(selectedSession()) || sessionID
+    const markdown = sessionMarkdown(title, (activeMessages() ?? []) as ExportMessage[], options)
+    void createHarnessClient(harnessServerUrl())
+      .shares.create({ title, markdown })
+      .then(async (share) => {
+        const url = `${harnessServerUrl().replace(/\/$/, "")}${share.url}`
+        await navigator.clipboard?.writeText(url).catch(() => undefined)
+        toast(t("Share link copied"), "success")
+        setExportOpen(false)
+      })
+      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
   // Chats have no commands or shell: everything typed is the message.
@@ -4310,7 +4319,7 @@ export const App: Component = () => {
                       onFork={forkSession}
                       onCompact={compactSession}
                       onRename={renameSession}
-                      onExport={exportMarkdown}
+                      onExport={() => setExportOpen(true)}
                       onShare={shareSession}
                       onUnshare={unshareSession}
                       onMove={moveSession}
@@ -4774,6 +4783,14 @@ export const App: Component = () => {
         onRestore={restoreStash}
         onRemove={removeStash}
         onClose={() => setStashOpen(false)}
+      />
+      <ExportDialog
+        open={exportOpen()}
+        title={sessionTitle(selectedSession()) || t("This conversation")}
+        canShare={supports("shares")}
+        onExport={runExport}
+        onShare={runShare}
+        onClose={() => setExportOpen(false)}
       />
       <RenameDialog
         open={!!renameTarget()}

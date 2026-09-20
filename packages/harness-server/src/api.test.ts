@@ -804,3 +804,30 @@ describe("harness run policy API", () => {
     repository.close()
   })
 })
+
+describe("harness shares API", () => {
+  test("keeps a conversation and serves it at its link", async () => {
+    const { handler, repository } = open()
+
+    const created = await handler(
+      new Request("http://x/harness/shares", {
+        method: "POST",
+        body: JSON.stringify({ title: "Fix login", markdown: "# Fix login\n" }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const share = (await created.json()).data
+    expect(share.url).toBe(`/harness/shares/${share.id}`)
+
+    const read = await handler(new Request(`http://x${share.url}`))
+    expect(read.headers.get("content-type")).toContain("text/markdown")
+    expect(await read.text()).toBe("# Fix login\n")
+
+    expect(
+      (await handler(new Request("http://x/harness/shares", { method: "POST", body: JSON.stringify({ title: "x" }) })))
+        .status,
+    ).toBe(400)
+    expect((await handler(new Request("http://x/harness/shares/nope"))).status).toBe(404)
+    repository.close()
+  })
+})
