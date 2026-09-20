@@ -2,6 +2,7 @@ import { Menu, shell, type MenuItemConstructorOptions } from "electron"
 
 type MenuHandlers = {
   onNewWindow: () => void
+  onCheckUpdates: () => void
 }
 
 export function setApplicationMenu(handlers: MenuHandlers) {
@@ -35,6 +36,8 @@ export function setApplicationMenu(handlers: MenuHandlers) {
     {
       role: "help",
       submenu: [
+        { label: "Check for Updates…", click: () => handlers.onCheckUpdates() },
+        { type: "separator" },
         {
           label: "FlupCode on GitHub",
           click: () => void shell.openExternal("https://github.com/rldona/FlupCode"),

@@ -14,12 +14,16 @@ Goal: a packaged, signed, auto-updating desktop app reusing the harness renderer
 - Native menus bound to harness commands.
 - Window state restored; multiple windows supported.
 
-## F5-3 — Auto-update · P1 · todo
+## F5-3 — Auto-update · P1 · done
+
+Scaffold done (electron-updater). Shipping updates requires electron-builder publish config and signed builds (F5-4).
 
 **Acceptance**
 - Update check, download and install with a user-facing prompt.
 
-## F5-4 — Signing / notarization · P1 · todo
+## F5-4 — Signing / notarization · P1 · blocked
+
+Blocker: requires developer certificates and CI secrets.
 
 macOS, Windows, Linux.
 
