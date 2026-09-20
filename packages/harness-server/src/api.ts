@@ -146,6 +146,7 @@ const readJSON = async (request: Request) => {
 }
 
 import { duration, listWorkflows } from "./workflow"
+import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { GitError, branch as gitBranch, commit as gitCommit, currentBranch } from "./git"
 import { branchState, checkLog, createPullRequest } from "./pr"
 import { drop, planRestore, restore, take } from "./checkpoint"
@@ -325,6 +326,47 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const report = instructionsFor(directory, params.get("project") ?? undefined)
       const content = readInstruction(report, wanted)
       return content === undefined ? error("Not one of this folder's instruction files", 404) : json({ data: { content } })
+    }
+
+    // Agents you can edit (H-13). The engine reports what agents exist; these are the files behind
+    // the ones that have one, which is what an editor can actually change.
+    if (path[1] === "agents" && request.method === "GET" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      return json({
+        data: listAgentFiles(params.get("directory") ?? undefined, params.get("project") ?? undefined),
+      })
+    }
+    if (path[1] === "agents" && request.method === "POST" && !path[2]) {
+      const body = (await readJSON(request)) as
+        | { name?: unknown; scope?: unknown; fields?: unknown; prompt?: unknown; directory?: unknown; project?: unknown }
+        | undefined
+      const name = typeof body?.name === "string" ? body.name.trim() : ""
+      const scope = body?.scope === "global" ? "global" : "project"
+      const fields = body?.fields && typeof body.fields === "object" && !Array.isArray(body.fields)
+        ? (body.fields as Record<string, unknown>)
+        : {}
+      const prompt = typeof body?.prompt === "string" ? body.prompt : ""
+      const directory = typeof body?.directory === "string" ? body.directory : undefined
+      const project = typeof body?.project === "string" ? body.project : undefined
+      try {
+        const written = writeAgentFile({ name, scope, fields, prompt }, directory, project)
+        return json({ data: { path: written } })
+      } catch (cause) {
+        if (cause instanceof AgentError) return error(cause.message, cause.status)
+        throw cause
+      }
+    }
+    if (path[1] === "agents" && request.method === "DELETE" && !path[2]) {
+      const params = new URL(request.url).searchParams
+      const wanted = params.get("path") ?? ""
+      if (!wanted) return error("A path is required", 400)
+      try {
+        deleteAgentFile(wanted, params.get("directory") ?? undefined, params.get("project") ?? undefined)
+        return json({ data: { removed: true } })
+      } catch (cause) {
+        if (cause instanceof AgentError) return error(cause.message, cause.status)
+        throw cause
+      }
     }
 
     // Findings (H-32): a review's points, anchored to a file and a line so the diff can carry them.

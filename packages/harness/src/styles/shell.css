@@ -7310,6 +7310,93 @@ button.fc-status {
   word-break: break-word;
 }
 
+/* Agents you can edit (H-13) */
+.fc-agent-file {
+  display: flex;
+  flex-direction: column;
+}
+
+.fc-agent-row {
+  width: 100%;
+  text-align: left;
+}
+
+.fc-agent-problem {
+  color: var(--fc-warning, #c98a00);
+}
+
+.fc-agent-form h3 {
+  margin: 18px 0 4px;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-field-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: flex-end;
+}
+
+.fc-check {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 10px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
+/*
+  Three states, and they have to be told apart at a glance: unset is not the same as off. Off is the
+  one that changes what the agent can do, so off is the one that is coloured.
+*/
+.fc-agent-tool {
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+
+.fc-agent-tool[data-state="on"] {
+  border-color: var(--fc-diff-add, #2ea043);
+  color: var(--fc-diff-add, #2ea043);
+}
+
+.fc-agent-tool[data-state="off"] {
+  border-color: var(--fc-diff-del, #d1242f);
+  color: var(--fc-diff-del, #d1242f);
+  text-decoration: line-through;
+}
+
+.fc-agent-permission {
+  min-width: 140px;
+}
+
+.fc-agent-prompt {
+  width: 100%;
+  min-height: 220px;
+  font-family: var(--fc-font-mono, ui-monospace), monospace;
+}
+
+.fc-agent-saved {
+  color: var(--fc-diff-add, #2ea043);
+}
+
+.fc-agent-path {
+  margin-top: 10px;
+  font-family: var(--fc-font-mono, ui-monospace), monospace;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
 .fc-run-rules {
   display: flex;
   flex-wrap: wrap;
