@@ -1,5 +1,7 @@
 import { For, Show, batch, createEffect, createSignal, onCleanup, type Component } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 import { createResource } from "../resource"
+import { createReconciledList } from "../reconciled"
 import type {
   AgentInfo,
   FileSystemEntry,
@@ -8,6 +10,7 @@ import type {
   QuestionV2Request,
   SessionInfo,
   SessionMessageAssistant,
+  SessionMessageInfo,
 } from "../engine-types"
 import type { Attachment, ProjectItem } from "../types"
 import { createClient, invalidateLegacyHistory } from "../client"
@@ -86,9 +89,21 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     () => ({ url: props.serverUrl, sessionID: sessionID() }),
     (source) => createClient(source.url).session.question.list({ sessionID: source.sessionID }),
   )
-  const list = () => {
+
+  // The engine resends the whole transcript on every event; reconcile it by id so the rows (and the
+  // open tools and half-typed answers inside them) survive the refetch instead of being rebuilt.
+  const [messageData, setMessageData] = createStore<{ sessionID?: string; data: SessionMessageInfo[] }>({ data: [] })
+  const permissionData = createReconciledList<PermissionV2Request>(() => permissions()?.data)
+  const questionData = createReconciledList<QuestionV2Request>(() => questions()?.data)
+
+  createEffect(() => {
     const value = messages()
-    return value && value.sessionID === sessionID() ? value.data : undefined
+    setMessageData(reconcile({ sessionID: value?.sessionID, data: value?.data ?? [] }, { key: "id" }))
+  })
+
+  const list = () => {
+    if (messageData.sessionID !== sessionID()) return undefined
+    return messageData.data
   }
 
   let refetchTimer: ReturnType<typeof setTimeout> | undefined
@@ -331,12 +346,12 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
       />
 
       <div class="fc-docks">
-        <For each={permissions()?.data ?? []}>
+        <For each={permissionData}>
           {(request) => (
             <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
           )}
         </For>
-        <For each={questions()?.data ?? []}>
+        <For each={questionData}>
           {(request) => (
             <QuestionDock
               request={request}
