@@ -4,17 +4,17 @@
 //
 //   swift script/branding.swift [source.png]
 //
-// Default source: assets/flupcode-new-logo-v3.png
+// Default source: assets/flupcode-tentative-logo.png
 //
-// The dark "plate" shapes (rounded app icons, apple-touch, maskable, og) are
+// The light "plate" shapes (rounded app icons, apple-touch, maskable, og) are
 // reused from the current committed files so their geometry stays identical;
-// the script only recolours the plate to #0C1117 and drops the new logo on top.
+// the script only recolours the plate to #F5F5F5 and drops the new logo on top.
 // Requires macOS (AppKit). No external tooling.
 
 import AppKit
 
 let DEVICE_RGB = CGColorSpaceCreateDeviceRGB()
-let PLATE = CGColor(colorSpace: DEVICE_RGB, components: [12.0 / 255, 17.0 / 255, 23.0 / 255, 1])!
+let PLATE = CGColor(colorSpace: DEVICE_RGB, components: [245.0 / 255, 245.0 / 255, 245.0 / 255, 1])!
 
 enum Basis {
     case width
@@ -135,7 +135,7 @@ func generate(source: CGImage, bounds: CGRect, target: Target) throws {
     print("  \(target.path)  \(w)x\(h)  logo \(Int(drawWidth))x\(Int(drawHeight))")
 }
 
-let sourcePath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "assets/flupcode-new-logo-v3.png"
+let sourcePath = CommandLine.arguments.count > 1 ? CommandLine.arguments[1] : "assets/flupcode-tentative-logo.png"
 guard let source = loadCGImage(sourcePath) else {
     FileHandle.standardError.write("Cannot read source: \(sourcePath)\n".data(using: .utf8)!)
     exit(1)
