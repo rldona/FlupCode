@@ -10,7 +10,8 @@ import type {
   TaskInput,
 } from "./types"
 import type { SqliteRoutineRepository } from "./repository"
-import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler } from "./scheduler"
+import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBusyError, RoutineScheduler, CheckpointNotFoundError } from "./scheduler"
+import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
 
@@ -43,7 +44,43 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
             variant: "variant" in input.model && typeof input.model.variant === "string" ? input.model.variant : undefined,
           }
         : undefined,
+    workflow: workflowFrom(input.workflow),
+    policy: policyFrom((input as Record<string, unknown>).policy),
   }
+}
+
+/** A routine's workflow, or nothing when it runs a single prompt (HF-8). */
+const workflowFrom = (value: unknown): RoutineInput["workflow"] => {
+  if (!value || typeof value !== "object") return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.name !== "string" || !record.name.trim()) return undefined
+  const inputs: Record<string, string> = {}
+  if (record.inputs && typeof record.inputs === "object" && !Array.isArray(record.inputs)) {
+    for (const [name, entry] of Object.entries(record.inputs as Record<string, unknown>)) {
+      if (typeof entry === "string") inputs[name] = entry
+    }
+  }
+  return { name: record.name.trim(), ...(Object.keys(inputs).length > 0 ? { inputs } : {}) }
+}
+
+/**
+ * A routine that names a workflow it cannot run (HF-8).
+ *
+ * Checked when the routine is written and when it is run on demand, so a typo fails at the
+ * form with its reason instead of as a failed run at 2am. A file deleted afterwards still
+ * fails loudly in history via `begin`.
+ */
+const routineWorkflowProblem = async (
+  input: RoutineInput,
+  overrides: Record<string, string> = {},
+): Promise<{ message: string; status: number } | undefined> => {
+  if (!input.workflow) return undefined
+  const workflow = await findWorkflow(input.workflow.name, input.projectDirectory)
+  if (!workflow) return { message: `No workflow called ${input.workflow.name}`, status: 404 }
+  const filled = { ...(workflow.inputDefaults ?? {}), ...(input.workflow.inputs ?? {}), ...overrides }
+  const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
+  if (missing.length > 0) return { message: `This workflow needs ${missing.join(", ")}`, status: 400 }
+  return undefined
 }
 
 /** A model and an optional variant, or nothing. Used by a manual retry to change model (H-12). */
@@ -144,7 +181,7 @@ const retriesFrom = (value: unknown) => {
   return Math.min(MAX_RETRIES, Math.floor(value))
 }
 
-const KINDS: ArtifactKind[] = ["plan", "report", "verdict", "diff", "log", "file", "handoff"]
+const KINDS: ArtifactKind[] = ["plan", "report", "verdict", "diff", "log", "file", "handoff", "screenshot"]
 
 const artifactFrom = (value: unknown): ArtifactInput | undefined => {
   if (!value || typeof value !== "object") return undefined
@@ -223,7 +260,7 @@ const readJSON = async (request: Request) => {
 }
 
 import { CAPABILITIES } from "./capabilities"
-import { duration, listWorkflows, readWorkflow, removeWorkflow, saveWorkflow } from "./workflow"
+import { duration, findWorkflow, listWorkflows, readWorkflow, removeWorkflow, saveWorkflow } from "./workflow"
 import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./agents"
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
@@ -481,6 +518,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const resumed = scheduler.approve(run.id)
       return resumed ? json({ data: resumed }) : error("This run is not waiting at a gate", 409)
     }
+    // Picking up a run that ended with work still queued (HF-5).
+    if (path[1] === "runs" && request.method === "POST" && path[2] && path[3] === "resume") {
+      const run = repository.getRun(path[2])
+      if (!run) return error("Run not found", 404)
+      try {
+        const resumed = scheduler.resume(run.id)
+        return resumed ? json({ data: resumed }, 202) : error("Run not found", 404)
+      } catch (cause) {
+        return error(cause instanceof Error ? cause.message : String(cause), 409)
+      }
+    }
     // Doing a task again (H-12), as a new task of the same run, optionally on another model.
     if (path[1] === "tasks" && request.method === "POST" && path[2] && path[3] === "retry") {
       if (!repository.getTask(path[2])) return error("Task not found", 404)
@@ -488,6 +536,16 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       try {
         const created = scheduler.retryTask(path[2], { model: modelFrom(body?.model) })
         return created ? json({ data: created }, 202) : error("Task not found", 404)
+      } catch (cause) {
+        return error(cause instanceof Error ? cause.message : String(cause), 409)
+      }
+    }
+    // Taking a queued task off the run (HF-4). Running work is stopped with the run, not alone.
+    if (path[1] === "tasks" && request.method === "POST" && path[2] && path[3] === "cancel") {
+      if (!repository.getTask(path[2])) return error("Task not found", 404)
+      try {
+        const cancelled = scheduler.cancelTask(path[2])
+        return cancelled ? json({ data: cancelled }) : error("Task not found", 404)
       } catch (cause) {
         return error(cause instanceof Error ? cause.message : String(cause), 409)
       }
@@ -523,6 +581,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           directory,
           runID: query.get("runID") ?? undefined,
           kind: (query.get("kind") as ArtifactKind | null) ?? undefined,
+          q: query.get("q") ?? undefined,
         }),
       })
     }
@@ -534,6 +593,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (path[1] === "artifacts" && request.method === "GET" && path[2] && !path[3]) {
       const artifact = repository.getArtifact(path[2])
       return artifact ? json({ data: artifact }) : error("Artifact not found", 404)
+    }
+    // One artifact as Markdown or JSON, for downloading or linking (HF-7).
+    if (path[1] === "artifacts" && request.method === "GET" && path[2] && path[3] === "export") {
+      const artifact = repository.getArtifact(path[2])
+      if (!artifact) return error("Artifact not found", 404)
+      const format = new URL(request.url).searchParams.get("format") ?? "md"
+      if (format !== "md" && format !== "json") return error("format is md or json", 400)
+      if (format === "json") return json({ data: artifact })
+      const when = new Date(artifact.createdAt).toISOString()
+      const body = [`# ${artifact.title}`, "", `${artifact.kind} · kept ${when}`, "", artifact.content ?? ""].join("\n")
+      return new Response(body, { headers: { "content-type": "text/markdown; charset=utf-8" } })
     }
     // Keeping one in front, or saying when it may be forgotten (H-14). Both change the same row.
     if (path[1] === "artifacts" && request.method === "PATCH" && path[2] && !path[3]) {
@@ -1069,7 +1139,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     }
     if (path[1] === "workflows" && request.method === "POST" && path[2] && path[3] === "runs") {
       const body = (await readJSON(request)) as
-        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown }
+        | { inputs?: unknown; directory?: unknown; packs?: unknown; worktrees?: unknown; policy?: unknown; until?: unknown; fromCheckpoint?: unknown }
         | undefined
       const inputs: Record<string, string> = {}
       if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
@@ -1088,11 +1158,17 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
           ...(packs.length > 0 ? { packs } : {}),
           ...(body?.worktrees === true ? { worktrees: true } : {}),
           ...(policy ? { policy } : {}),
+          ...(typeof body?.until === "string" && body.until.trim() ? { until: body.until.trim() } : {}),
+          ...(typeof body?.fromCheckpoint === "string" && body.fromCheckpoint.trim()
+            ? { fromCheckpoint: body.fromCheckpoint.trim() }
+            : {}),
         })
         return json({ data: run }, 202)
       } catch (cause) {
         if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)
         if (cause instanceof MissingInputsError) return error(cause.message, 400)
+        if (cause instanceof UnknownTaskError) return error(cause.message, 400)
+        if (cause instanceof CheckpointNotFoundError) return error(cause.message, 404)
         return error(cause instanceof Error ? cause.message : String(cause), 500)
       }
     }
@@ -1107,6 +1183,8 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       const body = await readJSON(request)
       const input = inputFrom(body)
       if (!input) return error("Invalid routine", 400)
+      const problem = await routineWorkflowProblem(input)
+      if (problem) return error(problem.message, problem.status)
       return json({ data: repository.create(input, createOptionsFrom(body)) }, 201)
     }
     if (!routineID) return error("Not found", 404)
@@ -1116,10 +1194,21 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
 
     if (action === "runs" && request.method === "GET") return json({ data: repository.listRuns({ type: "routine", routineID }) })
     if (action === "runs" && request.method === "POST" && !runID) {
+      const body = (await readJSON(request)) as { inputs?: unknown } | undefined
+      const overrides: Record<string, string> = {}
+      if (body?.inputs && typeof body.inputs === "object" && !Array.isArray(body.inputs)) {
+        for (const [name, value] of Object.entries(body.inputs as Record<string, unknown>)) {
+          if (typeof value === "string") overrides[name] = value
+        }
+      }
+      const problem = await routineWorkflowProblem(routine, overrides)
+      if (problem) return error(problem.message, problem.status)
       try {
-        return json({ data: await scheduler.runNow(routineID) }, 202)
+        return json({ data: await scheduler.runNow(routineID, overrides) }, 202)
       } catch (cause) {
         if (cause instanceof RoutineBusyError) return error(cause.message, 409)
+        if (cause instanceof UnknownWorkflowError) return error(cause.message, 404)
+        if (cause instanceof MissingInputsError) return error(cause.message, 400)
         return error(cause instanceof Error ? cause.message : String(cause), 500)
       }
     }
@@ -1139,6 +1228,8 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (request.method === "PATCH") {
       const input = inputFrom(await readJSON(request))
       if (!input) return error("Invalid routine", 400)
+      const problem = await routineWorkflowProblem(input)
+      if (problem) return error(problem.message, problem.status)
       return json({ data: repository.update(routineID, input) })
     }
     if (request.method === "DELETE") {

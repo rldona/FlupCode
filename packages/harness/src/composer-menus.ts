@@ -22,7 +22,8 @@ export type MentionSources = {
   /** Files found by the engine for the current token. */
   files: Array<{ path: string; type?: string }>
   agents: Array<{ id: string; description?: string }>
-  artifacts: Array<{ path: string; title?: string }>
+  /** Path artifacts cite by path; inline ones (verdict, report, handoff) cite by id (HF-6). */
+  artifacts: Array<{ id?: string; path?: string; title?: string; kind?: string }>
   /** Context packs: picking one drops all of its references into the draft (H-26). */
   packs?: Array<{ name: string; refs: string[] }>
 }
@@ -67,13 +68,25 @@ export function mentionItems(token: string, sources: MentionSources): MentionIte
       .filter((agent) => matches(agent.id))
       .map((agent) => ({ kind: "agent" as const, value: agent.id, label: `@${agent.id}`, hint: "agent" })),
     ...sources.artifacts
-      .filter((artifact) => matches(artifact.path))
-      .map((artifact) => ({
-        kind: "artifact" as const,
-        value: artifact.path,
-        label: `@${artifact.path}`,
-        hint: artifact.title ?? "artifact",
-      })),
+      .filter((artifact) => matches(artifact.path ?? artifact.title ?? ""))
+      .map((artifact) =>
+        artifact.path
+          ? {
+              kind: "artifact" as const,
+              value: artifact.path,
+              label: `@${artifact.path}`,
+              hint: artifact.title ?? "artifact",
+            }
+          : artifact.id
+            ? {
+                kind: "artifact" as const,
+                value: `artifact:${artifact.id}`,
+                label: `@${artifact.title ?? artifact.id.slice(0, 8)}`,
+                hint: artifact.kind ?? "artifact",
+              }
+            : undefined,
+      )
+      .filter((item): item is Extract<MentionItem, { kind: "artifact" }> => !!item),
     ...(sources.packs ?? [])
       .filter((pack) => matches(pack.name))
       .map((pack) => ({

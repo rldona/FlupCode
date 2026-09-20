@@ -420,6 +420,106 @@ tasks:
     repository.close()
   })
 
+  test("HF-1: runs until the named task, and refuses unknown tasks and checkpoints", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-hf1-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "feature.yaml"),
+      "name: feature\ninputs: [goal]\ntasks:\n  - id: plan\n    prompt: \"Plan {{goal}}\"\n  - id: build\n    prompt: build\n",
+    )
+
+    const partial = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory, until: "plan" }),
+      }),
+    )
+    expect(partial.status).toBe(202)
+    const run = (await partial.json()).data
+    expect(repository.listTasks(run.id).map((task) => task.name)).toEqual(["plan"])
+    await settled(repository, run.id)
+
+    const unknownTask = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory, until: "nope" }),
+      }),
+    )
+    expect(unknownTask.status).toBe(400)
+
+    const unknownCheckpoint = await handler(
+      new Request("http://localhost/harness/workflows/feature/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: { goal: "search" }, directory, fromCheckpoint: "ckpt_nope" }),
+      }),
+    )
+    expect(unknownCheckpoint.status).toBe(404)
+    repository.close()
+  })
+
+  test("HF-2: a default answers the input it names", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-hf2-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "review.yaml"),
+      'name: review\ninputs:\n  - name: scope\n    default: all changes\ntasks:\n  - id: review\n    prompt: "Review {{scope}}"\n',
+    )
+
+    const started = await handler(
+      new Request("http://localhost/harness/workflows/review/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: {}, directory }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    expect(repository.listTasks(run.id)[0]!.prompt).toBe("Review all changes")
+    await settled(repository, run.id)
+    repository.close()
+  })
+
+  test("HF-3: a file's worktrees reach the run without being asked", async () => {
+    const { repository, handler } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-workflow-hf3-"))
+    made.push(directory)
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "treed.yaml"),
+      "name: treed\nworktrees: true\ntasks:\n  - id: a\n    prompt: a\n",
+    )
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "plain.yaml"),
+      "name: plain\ntasks:\n  - id: a\n    prompt: a\n",
+    )
+
+    const treed = await handler(
+      new Request("http://localhost/harness/workflows/treed/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: {}, directory }),
+      }),
+    )
+    expect(treed.status).toBe(202)
+    const treedRun = (await treed.json()).data
+    expect(treedRun.worktrees).toBe(true)
+    await settled(repository, treedRun.id)
+
+    const plain = await handler(
+      new Request("http://localhost/harness/workflows/plain/runs", {
+        method: "POST",
+        body: JSON.stringify({ inputs: {}, directory }),
+      }),
+    )
+    expect(plain.status).toBe(202)
+    const plainRun = (await plain.json()).data
+    expect(plainRun.worktrees).toBeFalsy()
+    await settled(repository, plainRun.id)
+    repository.close()
+  })
+
   // Stopping answers for any run, not just a routine's: the supervisor has the run id and nothing else.
   test("stops a run by its own id", async () => {
     const { repository, handler } = open()
@@ -723,6 +823,239 @@ describe("doing a task again (H-12)", () => {
     const response = await handler(new Request(`http://x/harness/tasks/${task!.id}/retry`, { method: "POST" }))
     expect(response.status).toBe(409)
     expect((await response.json()).error).toMatch(/approve or stop/i)
+    repository.close()
+  })
+})
+
+describe("taking a queued task off the run (HF-4)", () => {  test("a queued task is stopped with a reason, and work in flight is refused", async () => {
+    const { handler, repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [waiting, busy] = repository.addTasks(run.id, [
+      { name: "later", prompt: "later" },
+      { name: "now", prompt: "now" },
+    ])
+    repository.startTask(busy!.id, 1500)
+
+    const cancelled = await handler(new Request(`http://x/harness/tasks/${waiting!.id}/cancel`, { method: "POST" }))
+    expect(cancelled.status).toBe(200)
+    expect((await cancelled.json()).data).toMatchObject({ id: waiting!.id, status: "stopped" })
+    expect(repository.getTask(waiting!.id)?.error).toBe("Cancelled")
+
+    const running = await handler(new Request(`http://x/harness/tasks/${busy!.id}/cancel`, { method: "POST" }))
+    expect(running.status).toBe(409)
+
+    const missing = await handler(new Request("http://x/harness/tasks/nope/cancel", { method: "POST" }))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("artifact search and export (HF-7)", () => {  test("lists by words, keeps screenshots, and exports as md or json", async () => {
+    const { handler, repository } = open()
+    const shot = repository.addArtifact({ kind: "screenshot", title: "login", producer: "user", content: "pixels" })
+    repository.addArtifact({ kind: "report", title: "weekly", producer: "harness", content: "nothing" })
+
+    const found = await handler(new Request("http://x/harness/artifacts?q=pixels"))
+    expect((await found.json()).data.map((entry: { title: string }) => entry.title)).toEqual(["login"])
+
+    const kept = await handler(
+      new Request("http://x/harness/artifacts", {
+        method: "POST",
+        body: JSON.stringify({ kind: "screenshot", title: "shot", content: "more pixels" }),
+      }),
+    )
+    expect(kept.status).toBe(201)
+
+    const md = await handler(new Request(`http://x/harness/artifacts/${shot.id}/export?format=md`))
+    expect(md.headers.get("content-type")).toContain("text/markdown")
+    const text = await md.text()
+    expect(text).toContain("# login")
+    expect(text).toContain("pixels")
+
+    const asJson = await handler(new Request(`http://x/harness/artifacts/${shot.id}/export?format=json`))
+    expect((await asJson.json()).data).toMatchObject({ id: shot.id, title: "login" })
+
+    const badFormat = await handler(new Request(`http://x/harness/artifacts/${shot.id}/export?format=pdf`))
+    expect(badFormat.status).toBe(400)
+
+    const missing = await handler(new Request("http://x/harness/artifacts/nope/export"))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("routines that run a workflow with a policy (HF-8)", () => {
+  const writeWorkflow = (directory: string) => {
+    mkdirSync(join(directory, ".flupcode", "workflows"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "workflows", "nightly.yaml"),
+      'name: nightly\ninputs: [scope]\ntasks:\n  - id: check\n    kind: verify\n',
+    )
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 0\n")
+  }
+
+  test("creates with workflow and policy, and runs its tasks on demand", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-routine-hf8-"))
+    made.push(directory)
+    writeWorkflow(directory)
+
+    const created = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({
+          name: "Nightly",
+          description: "",
+          prompt: "Check it",
+          schedule: { type: "manual" },
+          projectDirectory: directory,
+          workflow: { name: "nightly", inputs: { scope: "all" } },
+          policy: { fallback: "a/backup" },
+        }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+    expect(routine).toMatchObject({
+      workflow: { name: "nightly", inputs: { scope: "all" } },
+      policy: { fallback: "a/backup" },
+    })
+
+    const started = await handler(new Request(`http://x/harness/routines/${routine.id}/runs`, { method: "POST" }))
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    await settled(repository, run.id)
+
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.status}`)).toEqual(["check:success"])
+    expect(repository.getRun(run.id)).toMatchObject({ status: "success", policy: { fallback: "a/backup" } })
+    repository.close()
+  })
+
+  test("refuses an unknown workflow and missing inputs, on save and on run", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-routine-hf8b-"))
+    made.push(directory)
+    writeWorkflow(directory)
+    const base = {
+      name: "Nightly",
+      description: "",
+      prompt: "Check it",
+      schedule: { type: "manual" },
+      projectDirectory: directory,
+    }
+
+    const ghost = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ ...base, workflow: { name: "nope" } }),
+      }),
+    )
+    expect(ghost.status).toBe(404)
+
+    // Required inputs are checked at save time, not at 2am.
+    const empty = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ ...base, workflow: { name: "nightly" } }),
+      }),
+    )
+    expect(empty.status).toBe(400)
+
+    const created = await handler(
+      new Request("http://x/harness/routines", {
+        method: "POST",
+        body: JSON.stringify({ ...base, workflow: { name: "nightly", inputs: { scope: "all" } } }),
+      }),
+    )
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+
+    const missing = await handler(new Request(`http://x/harness/routines/${routine.id}/runs`, { method: "POST" }))
+    expect(missing.status).toBe(202)
+    await settled(repository, (await missing.json()).data.id)
+
+    const override = await handler(
+      new Request(`http://x/harness/routines/${routine.id}/runs`, {
+        method: "POST",
+        body: JSON.stringify({ inputs: { scope: "all" } }),
+      }),
+    )
+    expect(override.status).toBe(202)
+    await settled(repository, (await override.json()).data.id)
+
+    const renamed = await handler(
+      new Request(`http://x/harness/routines/${routine.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ ...base, workflow: { name: "nope" } }),
+      }),
+    )
+    expect(renamed.status).toBe(404)
+    repository.close()
+  })
+})
+
+describe("resuming a run that ended with work queued (HF-5)", () => {  const passingProject = (directory: string) => {
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(join(directory, ".flupcode", "project.yaml"), "verify:\n  test: exit 0\n")
+  }
+
+  test("remaining queued work runs, and settled work is not rewritten", async () => {
+    const { handler, repository } = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-resume-"))
+    made.push(directory)
+    passingProject(directory)
+    const run = repository.startRun({ type: "manual" }, 1000, directory)
+    const [first, second] = repository.addTasks(run.id, [
+      { name: "first", prompt: "", kind: "verify" },
+      { name: "second", prompt: "", kind: "verify" },
+    ])
+    repository.finishTask(first!.id, "success", { output: "ok" }, 1500)
+    repository.finishRun(run.id, "failed", "killed", 1600)
+
+    const resumed = await handler(new Request(`http://x/harness/runs/${run.id}/resume`, { method: "POST" }))
+    expect(resumed.status).toBe(202)
+    await settled(repository, run.id)
+
+    expect(repository.listTasks(run.id).map((task) => `${task.name}:${task.status}`)).toEqual([
+      "first:success",
+      "second:success",
+    ])
+    expect(repository.getRun(run.id)?.status).toBe("success")
+    repository.close()
+  })
+
+  test("an active run, a settled run, and a missing run are refused", async () => {
+    const { handler, repository } = open()
+    const active = repository.startRun({ type: "manual" }, 1000)
+    repository.addTasks(active.id, [{ name: "work", prompt: "x" }])
+
+    const busy = await handler(new Request(`http://x/harness/runs/${active.id}/resume`, { method: "POST" }))
+    expect(busy.status).toBe(409)
+
+    const done = repository.startRun({ type: "manual" }, 1000)
+    const [task] = repository.addTasks(done.id, [{ name: "work", prompt: "x" }])
+    repository.finishTask(task!.id, "success", {}, 1500)
+    repository.finishRun(done.id, "success", undefined, 1600)
+    const settledRun = await handler(new Request(`http://x/harness/runs/${done.id}/resume`, { method: "POST" }))
+    expect(settledRun.status).toBe(409)
+
+    const missing = await handler(new Request("http://x/harness/runs/nope/resume", { method: "POST" }))
+    expect(missing.status).toBe(404)
+    repository.close()
+  })
+
+  test("a restart requeues work that was in flight", async () => {
+    const { repository } = open()
+    const run = repository.startRun({ type: "manual" }, 1000)
+    const [flying] = repository.addTasks(run.id, [{ name: "flying", prompt: "x" }])
+    repository.startTask(flying!.id, 1500)
+
+    repository.recoverRunning(2000)
+
+    expect(repository.getRun(run.id)?.status).toBe("failed")
+    expect(repository.getTask(flying!.id)).toMatchObject({ status: "queued" })
+    expect(repository.getTask(flying!.id)?.error).toMatch(/restarted/i)
     repository.close()
   })
 })

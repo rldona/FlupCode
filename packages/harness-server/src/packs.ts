@@ -27,8 +27,7 @@ export function packRefs(packs: ContextPack[], names: string[] | undefined): str
  * A file ref is `@src/a.ts`; the leading `@` is the composer's syntax, not part of the path. A ref
  * with a scheme (`@artifact:report`), an absolute path, or a `..` is never opened — it is text.
  */
-export function packFiles(refs: string[], directory: string): { files: string[]; others: string[] } {
-  const root = resolve(directory)
+export function packFiles(refs: string[], directory: string): { files: string[]; others: string[] } {  const root = resolve(directory)
   const files: string[] = []
   const others: string[] = []
   for (const ref of refs) {
@@ -53,4 +52,24 @@ export function packFiles(refs: string[], directory: string): { files: string[];
     others.push(ref)
   }
   return { files, others }
+}
+
+/** What an artifact ref can resolve to: enough to quote it in a prompt (HF-6). */
+export type ArtifactQuote = { title: string; kind: string; content?: string }
+
+/**
+ * Artifact refs said as their content (HF-6).
+ *
+ * `@artifact:<id>` names one artifact; `@artifact:<kind>` names the newest of that kind the lookup
+ * returns. Anything the lookup cannot answer stays literal, so a typo is visible rather than silent.
+ */
+export function expandArtifactRefs(refs: string[], lookup: (key: string) => ArtifactQuote | undefined): string[] {
+  return refs.map((ref) => {
+    if (!ref.startsWith("@artifact:")) return ref
+    const key = ref.slice("@artifact:".length).trim()
+    if (!key) return ref
+    const found = lookup(key)
+    if (!found?.content?.trim()) return ref
+    return [`--- ${found.title} (${found.kind}) ---`, found.content.trim(), `---`].join("\n")
+  })
 }
