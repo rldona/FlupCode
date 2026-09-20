@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createSignal, type Component } from "solid-js"
 import type {
   SessionMessageAssistant,
   SessionMessageAssistantReasoning,
@@ -90,57 +90,81 @@ const AssistantMessage: Component<{ message: SessionMessageAssistant; showTools:
   </div>
 )
 
-export const SessionView: Component<SessionViewProps> = (props) => (
-  <section class="fc-transcript">
-    <Show
-      when={!props.loading}
-      fallback={
-        <div class="fc-skeleton-list">
-          <div class="fc-skeleton" />
-          <div class="fc-skeleton" />
-          <div class="fc-skeleton" />
-        </div>
-      }
+export const SessionView: Component<SessionViewProps> = (props) => {
+  let container: HTMLElement | undefined
+  const [stick, setStick] = createSignal(true)
+
+  createEffect(() => {
+    props.messages
+    props.busy
+    if (stick() && container) queueMicrotask(() => (container!.scrollTop = container!.scrollHeight))
+  })
+
+  createEffect(() => {
+    props.messages
+    setStick(true)
+    if (container) queueMicrotask(() => (container!.scrollTop = container!.scrollHeight))
+  })
+
+  return (
+    <section
+      class="fc-transcript"
+      ref={container}
+      onScroll={() => {
+        if (!container) return
+        setStick(container.scrollHeight - container.scrollTop - container.clientHeight < 120)
+      }}
     >
       <Show
-        when={props.messages && props.messages.length > 0}
+        when={!props.loading}
         fallback={
-          <div class="fc-empty-state">
-            <span class="fc-empty-title">{t("No messages yet")}</span>
-            <span class="fc-empty-hint">{t("Write below to start")}</span>
+          <div class="fc-skeleton-list">
+            <div class="fc-skeleton" />
+            <div class="fc-skeleton" />
+            <div class="fc-skeleton" />
           </div>
         }
       >
-        <For each={props.messages}>
-          {(message) => (
-            <Show
-              when={message.type === "user"}
-              fallback={
-                <Show when={message.type === "assistant"}>
-                  <AssistantMessage message={message as SessionMessageAssistant} showTools={props.showTools} />
-                </Show>
-              }
-            >
-              <div class="fc-message fc-message-user">
-                <div class="fc-message-role">{t("You")}</div>
-                <div class="fc-message-text">{(message as { text?: string }).text}</div>
-                <button
-                  class="fc-message-edit"
-                  type="button"
-                  onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
-                >
-                  {t("Edit")}
-                </button>
-              </div>
-            </Show>
-          )}
-        </For>
-        <Show when={props.busy}>
-          <div class="fc-message fc-message-assistant fc-message-pending">
-            <Spinner /> {t("Generating")}
-          </div>
+        <Show
+          when={props.messages && props.messages.length > 0}
+          fallback={
+            <div class="fc-empty-state">
+              <span class="fc-empty-title">{t("No messages yet")}</span>
+              <span class="fc-empty-hint">{t("Write below to start")}</span>
+            </div>
+          }
+        >
+          <For each={props.messages}>
+            {(message) => (
+              <Show
+                when={message.type === "user"}
+                fallback={
+                  <Show when={message.type === "assistant"}>
+                    <AssistantMessage message={message as SessionMessageAssistant} showTools={props.showTools} />
+                  </Show>
+                }
+              >
+                <div class="fc-message fc-message-user">
+                  <div class="fc-message-role">{t("You")}</div>
+                  <div class="fc-message-text">{(message as { text?: string }).text}</div>
+                  <button
+                    class="fc-message-edit"
+                    type="button"
+                    onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
+                  >
+                    {t("Edit")}
+                  </button>
+                </div>
+              </Show>
+            )}
+          </For>
+          <Show when={props.busy}>
+            <div class="fc-message fc-message-assistant fc-message-pending">
+              <Spinner /> {t("Generating")}
+            </div>
+          </Show>
         </Show>
       </Show>
-    </Show>
-  </section>
-)
+    </section>
+  )
+}
