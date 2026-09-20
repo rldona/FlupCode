@@ -10,6 +10,9 @@ import { loadBounds, saveBounds } from "./window-state"
 
 const DEV_URL = process.env.FLUPCODE_DEV_URL ?? "http://localhost:4444"
 
+/** Where the page draws the window's top strip itself, controls and all. */
+const OWNS_TITLE_BAR = process.platform === "darwin" || process.platform === "win32"
+
 /**
  * The packaged renderer is served from `oc://renderer` rather than `file://`, which is what lets the
  * window keep the same-origin policy on: a `file://` document has the opaque origin the engine's CORS
@@ -56,6 +59,17 @@ function createWindow() {
     minHeight: 480,
     title: "FlupCode",
     backgroundColor: "#0f0f0f",
+    // No title bar of its own: the app draws the top strip itself, 52px tall, and the window
+    // controls float over it. macOS keeps its traffic lights, centred in that strip; Windows draws
+    // its own buttons in an overlay whose colours have to be told apart from the page's.
+    //
+    // Not on Linux. There, hiding the title bar hides the window controls with it and leaves no
+    // overlay to replace them: the window could not be closed except through the window manager.
+    ...(OWNS_TITLE_BAR ? { titleBarStyle: "hidden" as const } : {}),
+    ...(process.platform === "darwin" ? { trafficLightPosition: { x: 16, y: 20 } } : {}),
+    ...(process.platform === "win32"
+      ? { titleBarOverlay: { color: "#00000000", symbolColor: "#ffffff", height: 52 } }
+      : {}),
     webPreferences: {
       preload: join(app.getAppPath(), "out", "preload", "index.cjs"),
       contextIsolation: true,
@@ -71,6 +85,15 @@ function createWindow() {
   })
 
   window.on("close", () => saveBounds(window.getBounds()))
+
+  // Windows paints its own window buttons, so it has to be told the colours the page is using.
+  // Nothing else can: the palette and the light/dark choice live in the renderer's storage.
+  ipcMain.handle("flupcode:title-bar", (event, overlay: { color?: string; symbolColor?: string }) => {
+    if (process.platform !== "win32") return
+    const target = BrowserWindow.fromWebContents(event.sender)
+    if (!target || typeof overlay?.color !== "string" || typeof overlay?.symbolColor !== "string") return
+    target.setTitleBarOverlay({ color: overlay.color, symbolColor: overlay.symbolColor, height: 52 })
+  })
 
   const devUrl = process.env.FLUPCODE_DEV_URL
   if (devUrl || !app.isPackaged) {

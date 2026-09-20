@@ -36,6 +36,13 @@ const engineAuth = process.argv
 
 contextBridge.exposeInMainWorld("flupcode", {
   chooseFolder: () => ipcRenderer.invoke("flupcode:choose-folder") as Promise<string | undefined>,
+  // The window has no title bar, so the page has to leave room for the controls — and they are on
+  // opposite sides on macOS and Windows. On Linux the window keeps its own frame, and the page
+  // leaves the strip alone.
+  platform: process.platform,
+  ownsTitleBar: process.platform === "darwin" || process.platform === "win32",
+  setTitleBar: (overlay: { color: string; symbolColor: string }) =>
+    ipcRenderer.invoke("flupcode:title-bar", overlay) as Promise<void>,
   remote,
   ...(speech ? { speech } : {}),
   ...(engineAuth ? { engineAuth } : {}),
