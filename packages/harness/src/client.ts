@@ -953,6 +953,13 @@ export function createClient(baseUrl = resolveServerUrl()) {
       connect: (input: { server: string }) => unwrap(client.mcp.connect({ name: input.server })),
       disconnect: (input: { server: string }) => unwrap(client.mcp.disconnect({ name: input.server })),
       /**
+       * OAuth for a server that needs it (SE-2): start returns the URL to open, authenticate
+       * waits for the engine's callback, remove forgets the credentials.
+       */
+      authStart: (input: { server: string }) => unwrap(client.mcp.auth.start({ name: input.server })),
+      authenticate: (input: { server: string }) => unwrap(client.mcp.auth.authenticate({ name: input.server })),
+      authRemove: (input: { server: string }) => unwrap(client.mcp.auth.remove({ name: input.server })),
+      /**
        * What the connected servers expose (H-34).
        *
        * The engine never lists an MCP server's **tools** — they bypass its registry, so only the

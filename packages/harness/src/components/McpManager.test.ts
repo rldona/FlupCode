@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { pairsFrom, pairsToText } from "./McpManager"
+import { needsOAuth, pairsFrom, pairsToText } from "./McpManager"
 
 describe("reading KEY=value lines", () => {
   test("one per line, trimmed, blanks and lines without a separator skipped", () => {
@@ -28,5 +28,16 @@ describe("writing them back", () => {
     const map = { A: "1", B: "two three" }
     expect(pairsFrom(pairsToText(map))).toEqual(map)
     expect(pairsToText(undefined)).toBe("")
+  })
+})
+
+describe("which servers need OAuth", () => {
+  const server = (status: unknown) => ({ name: "x", status }) as never
+  test("only needs_auth does; the rest keep plain connect", () => {
+    expect(needsOAuth(server({ status: "needs_auth" }))).toBe(true)
+    expect(needsOAuth(server({ status: "connected" }))).toBe(false)
+    expect(needsOAuth(server({ status: "failed", error: "nope" }))).toBe(false)
+    expect(needsOAuth(server({ status: "disabled" }))).toBe(false)
+    expect(needsOAuth(server(undefined))).toBe(false)
   })
 })
