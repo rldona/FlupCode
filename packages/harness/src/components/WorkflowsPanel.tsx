@@ -32,6 +32,9 @@ tasks:
     onFail: { max: 2 }
 `
 
+/** The template with the name the modal field asks for, so the field and the file agree. */
+const template = (name: string) => NEW_WORKFLOW.replace(/^name:.*$/m, () => `name: ${name}`)
+
 const NODE_WIDTH = 132
 const NODE_HEIGHT = 34
 const COLUMN_GAP = 44
@@ -60,7 +63,8 @@ const WorkflowGraphView: Component<{ tasks: Workflow["tasks"] }> = (props) => {
 
   return (
     <div class="fc-workflow-graph" aria-label={t("Workflow graph")}>
-      <svg viewBox={`0 0 ${width()} ${height()}`} role="img">
+      {/* Never larger than it is drawn: a single node must not stretch to fill the panel. */}
+      <svg viewBox={`0 0 ${width()} ${height()}`} role="img" style={{ "max-width": `${width()}px` }}>
         <For each={graph().edges}>
           {(edge) => {
             const from = byID(edge.from)
@@ -120,7 +124,8 @@ const WorkflowGraphView: Component<{ tasks: Workflow["tasks"] }> = (props) => {
  *
  * The source is the thing edited, not a form: a workflow is a file, and an editor that only lets you
  * change what it already understands is an editor that cannot introduce `dependsOn`. What it writes
- * is validated by reading it back, so a mistake is refused rather than saved.
+ * is validated by reading it back, so a mistake is refused rather than saved. A new one is written in
+ * a dialog, because creating a file is a moment of its own and not a row in the list.
  */
 export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
   const [openName, setOpenName] = createSignal<string>()
@@ -132,6 +137,15 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
   const [reading, setReading] = createSignal(false)
   const [saving, setSaving] = createSignal(false)
   const [confirming, setConfirming] = createSignal(false)
+
+  // The new-workflow dialog: its own name, source and place, kept apart from the open editor so
+  // cancelling cannot touch what is already on screen.
+  const [creating, setCreating] = createSignal(false)
+  const [newName, setNewName] = createSignal("new-workflow")
+  const [newSource, setNewSource] = createSignal(NEW_WORKFLOW)
+  const [newScope, setNewScope] = createSignal<"project" | "global">("project")
+  const [newProblem, setNewProblem] = createSignal<string>()
+  const [newSaving, setNewSaving] = createSignal(false)
 
   const open = (name: string) => {
     if (!name.trim()) return
@@ -152,6 +166,41 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
       .finally(() => setReading(false))
   }
 
+  const openCreate = () => {
+    setCreating(true)
+    setNewName("new-workflow")
+    setNewSource(template("new-workflow"))
+    setNewScope(props.directory ? "project" : "global")
+    setNewProblem(undefined)
+  }
+
+  // Renaming the field renames the file it will write, without discarding the rest of an edit.
+  const rename = (name: string) => {
+    setNewName(name)
+    setNewSource((current) => current.replace(/^name:.*$/m, () => `name: ${name}`))
+  }
+
+  const create = async () => {
+    const name = newName().trim()
+    if (!name) return
+    setNewSaving(true)
+    setNewProblem(undefined)
+    try {
+      const written = await props.onSave(name, { source: newSource(), directory: props.directory, scope: newScope() })
+      setCreating(false)
+      setOpenName(written.name)
+      setFile(written)
+      setSource(written.source)
+      setScope(written.scope)
+      setProblem(undefined)
+      setSaved(t("Saved. It is what this project will run next time."))
+    } catch (cause) {
+      setNewProblem(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setNewSaving(false)
+    }
+  }
+
   const save = async () => {
     const name = openName()
     if (!name) return
@@ -170,6 +219,17 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
     }
   }
 
+  // A component, not a fragment: JSX nodes are real DOM, and the same ones cannot sit in two
+  // selects at once.
+  const PlaceOptions: Component = () => (
+    <>
+      <option value="project" disabled={!props.directory}>
+        {t("This project (.flupcode/workflows)")}
+      </option>
+      <option value="global">{t("Everywhere (~/.local/share/flupcode/workflows)")}</option>
+    </>
+  )
+
   return (
     <Show when={props.open}>
       <section class="fc-routines-screen" aria-label={t("Workflows")}>
@@ -180,137 +240,217 @@ export const WorkflowsPanel: Component<WorkflowsPanelProps> = (props) => {
             <p>{t("Processes written down as files: the plan, the build, the check, and what waits for what.")}</p>
           </div>
           <div class="fc-routines-header-actions">
-            <button
-              class="fc-button fc-button-primary"
-              type="button"
-              onClick={() => {
-                setOpenName("new-workflow")
-                setFile(undefined)
-                setSource(NEW_WORKFLOW)
-                setScope(props.directory ? "project" : "global")
-                setProblem(undefined)
-                setSaved(undefined)
-                setConfirming(false)
-              }}
-            >
+            <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>
               {t("New workflow")}
             </button>
           </div>
         </div>
 
+        {/* Only when the workflow list itself could not be read, so it names a real failure. */}
         <Show when={!props.serverAvailable}>
-          <div class="fc-routines-notice">{t("The harness server is not reachable, so this is the last it said.")}</div>
+          <div class="fc-routines-notice">
+            <span class="fc-routines-notice-icon">⚠</span>
+            <span>{t("The harness server is not reachable, so this is the last it said.")}</span>
+          </div>
         </Show>
 
-        <section class="fc-usage-block fc-workflow-list">
-          <h2>
-            {t("Here")}
-            <span class="fc-context-aside">{props.files.length}</span>
-          </h2>
+        <section class="fc-workflow-list" aria-label={t("Workflows")}>
+          <div class="fc-workflow-list-head">
+            <h2>{t("Here")}</h2>
+            <span class="fc-workflow-count">{props.files.length}</span>
+          </div>
           <Show
             when={props.files.length > 0}
-            fallback={<p class="fc-usage-note">{props.loading ? t("Reading…") : t("None in this project yet.")}</p>}
+            fallback={
+              <p class="fc-workflow-empty">
+                {props.loading ? t("Reading…") : t("None in this project yet.")}
+              </p>
+            }
           >
-            <For each={props.files}>
-              {(workflow) => (
-                <button
-                  class="fc-usage-row fc-workflow-row"
-                  classList={{ "fc-workflow-row-active": openName() === workflow.name }}
-                  type="button"
-                  onClick={() => open(workflow.name)}
-                >
-                  <span class="fc-usage-key">{workflow.name}</span>
-                  <span class="fc-context-excerpt">{workflow.description}</span>
-                </button>
-              )}
-            </For>
+            <div class="fc-routine-cards">
+              <For each={props.files}>
+                {(workflow) => (
+                  <button
+                    class="fc-routine-card fc-workflow-row"
+                    classList={{ "fc-routine-card-selected": openName() === workflow.name }}
+                    type="button"
+                    onClick={() => open(workflow.name)}
+                  >
+                    <span class="fc-routine-card-icon" aria-hidden="true">
+                      ⛓
+                    </span>
+                    <span class="fc-routine-card-content">
+                      <strong>{workflow.name}</strong>
+                      <small>{workflow.description}</small>
+                    </span>
+                  </button>
+                )}
+              </For>
+            </div>
           </Show>
         </section>
 
         <Show when={openName()}>
-          <section class="fc-usage-block fc-workflow-editor">
-            <h2>
-              {openName()}
-              <Show when={file()}>
-                {(read) => <span class="fc-context-aside">{read().scope === "project" ? t("project") : t("global")}</span>}
-              </Show>
-            </h2>
-            <Show when={reading()}>
-              <p class="fc-usage-note">{t("Reading…")}</p>
-            </Show>
-
-            {/*
-              The graph is of what the file says, which is the last thing that parsed. While an edit is
-              half-typed it stays where it was rather than drawing a shape that would not run.
-            */}
-            <Show when={file()?.workflow.tasks?.length}>
-              <WorkflowGraphView tasks={file()!.workflow.tasks} />
-            </Show>
-
-            <label class="fc-field">
-              <span>{t("Where it is written")}</span>
-              <select
-                class="fc-question-custom"
-                value={scope()}
-                onChange={(event) => setScope(event.currentTarget.value as "project" | "global")}
-              >
-                <option value="project" disabled={!props.directory}>
-                  {t("This project (.flupcode/workflows)")}
-                </option>
-                <option value="global">{t("Everywhere (~/.local/share/flupcode/workflows)")}</option>
-              </select>
-            </label>
-
-            <textarea
-              class="fc-question-custom fc-workflow-source"
-              aria-label={t("Workflow source")}
-              spellcheck={false}
-              value={source()}
-              onInput={(event) => setSource(event.currentTarget.value)}
-            />
-
-            <div class="fc-routines-header-actions">
-              <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={() => void save()}>
-                {saving() ? t("Saving…") : t("Save")}
-              </button>
-              <Show
-                when={confirming()}
-                fallback={
-                  <button class="fc-button" type="button" disabled={!file()} onClick={() => setConfirming(true)}>
-                    {t("Delete")}
-                  </button>
-                }
-              >
-                <span class="fc-confirm-inline">
-                  <span>{t("Delete {name}?", { name: openName() ?? "" })}</span>
-                  <button class="fc-button" type="button" onClick={() => setConfirming(false)}>
-                    {t("Cancel")}
-                  </button>
-                  <button
-                    class="fc-button fc-button-danger"
-                    type="button"
-                    onClick={async () => {
-                      const name = openName()
-                      if (!name) return
-                      await props.onDelete(name).catch(() => undefined)
-                      setConfirming(false)
-                      setOpenName(undefined)
-                      setFile(undefined)
-                    }}
-                  >
-                    {t("Delete")}
-                  </button>
+          <div class="fc-modal-backdrop" onClick={() => setOpenName(undefined)}>
+            <div
+              class="fc-modal fc-workflow-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={openName()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div class="fc-modal-header">
+                <span class="fc-workflow-modal-title">
+                  {openName()}
+                  <Show when={file()}>
+                    {(read) => (
+                      <span class="fc-context-aside">{read().scope === "project" ? t("project") : t("global")}</span>
+                    )}
+                  </Show>
                 </span>
-              </Show>
-              <Show when={props.onRun && file()}>
-                <button class="fc-button" type="button" onClick={() => props.onRun?.(file()!.workflow)}>
-                  {t("Run")}
+                <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setOpenName(undefined)}>
+                  ×
                 </button>
+              </div>
+              <Show when={reading()}>
+                <p class="fc-usage-note">{t("Reading…")}</p>
               </Show>
+
+              {/*
+                The graph is of what the file says, which is the last thing that parsed. While an edit
+                is half-typed it stays where it was rather than drawing a shape that would not run.
+              */}
+              <Show when={file()?.workflow.tasks?.length}>
+                <WorkflowGraphView tasks={file()!.workflow.tasks} />
+              </Show>
+
+              <label class="fc-field">
+                <span>{t("Where it is written")}</span>
+                <select
+                  class="fc-question-custom"
+                  value={scope()}
+                  onChange={(event) => setScope(event.currentTarget.value as "project" | "global")}
+                >
+                  <PlaceOptions />
+                </select>
+              </label>
+
+              <textarea
+                class="fc-question-custom fc-workflow-source"
+                aria-label={t("Workflow source")}
+                spellcheck={false}
+                value={source()}
+                onInput={(event) => setSource(event.currentTarget.value)}
+              />
+
+              <div class="fc-workflow-editor-actions">
+                <Show
+                  when={confirming()}
+                  fallback={
+                    <button class="fc-button" type="button" disabled={!file()} onClick={() => setConfirming(true)}>
+                      {t("Delete")}
+                    </button>
+                  }
+                >
+                  <span class="fc-confirm-inline">
+                    <span>{t("Delete {name}?", { name: openName() ?? "" })}</span>
+                    <button class="fc-button" type="button" onClick={() => setConfirming(false)}>
+                      {t("Cancel")}
+                    </button>
+                    <button
+                      class="fc-button fc-button-danger"
+                      type="button"
+                      onClick={async () => {
+                        const name = openName()
+                        if (!name) return
+                        await props.onDelete(name).catch(() => undefined)
+                        setConfirming(false)
+                        setOpenName(undefined)
+                        setFile(undefined)
+                      }}
+                    >
+                      {t("Delete")}
+                    </button>
+                  </span>
+                </Show>
+                <Show when={props.onRun && file()}>
+                  <button class="fc-button" type="button" onClick={() => props.onRun?.(file()!.workflow)}>
+                    {t("Run")}
+                  </button>
+                </Show>
+                <button class="fc-button fc-button-primary" type="button" disabled={saving()} onClick={() => void save()}>
+                  {saving() ? t("Saving…") : t("Save")}
+                </button>
+              </div>
+              <Show when={problem()}>{(text) => <p class="fc-run-error">{text()}</p>}</Show>
+              <Show when={saved()}>{(text) => <p class="fc-agent-saved">{text()}</p>}</Show>
             </div>
-            <Show when={problem()}>{(text) => <p class="fc-run-error">{text()}</p>}</Show>
-            <Show when={saved()}>{(text) => <p class="fc-agent-saved">{text()}</p>}</Show>
-          </section>
+          </div>
+        </Show>
+
+        <Show when={creating()}>
+          <div class="fc-modal-backdrop" onClick={() => setCreating(false)}>
+            <div
+              class="fc-modal fc-workflow-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={t("New workflow")}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div class="fc-modal-header">
+                <span>{t("New workflow")}</span>
+                <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setCreating(false)}>
+                  ×
+                </button>
+              </div>
+              <p class="fc-modal-note">{t("A workflow is a file: write the tasks it runs, in order.")}</p>
+
+              <label class="fc-field">
+                <span>{t("Name")}</span>
+                <input
+                  class="fc-question-custom"
+                  value={newName()}
+                  aria-label={t("Name")}
+                  onInput={(event) => rename(event.currentTarget.value)}
+                />
+              </label>
+
+              <label class="fc-field">
+                <span>{t("Where it is written")}</span>
+                <select
+                  class="fc-question-custom"
+                  value={newScope()}
+                  onChange={(event) => setNewScope(event.currentTarget.value as "project" | "global")}
+                >
+                  <PlaceOptions />
+                </select>
+              </label>
+
+              <textarea
+                class="fc-question-custom fc-workflow-source"
+                aria-label={t("Workflow source")}
+                spellcheck={false}
+                value={newSource()}
+                onInput={(event) => setNewSource(event.currentTarget.value)}
+              />
+
+              <Show when={newProblem()}>{(text) => <p class="fc-modal-error">{text()}</p>}</Show>
+
+              <div class="fc-dialog-actions">
+                <button class="fc-button" type="button" onClick={() => setCreating(false)}>
+                  {t("Cancel")}
+                </button>
+                <button
+                  class="fc-button fc-button-primary"
+                  type="button"
+                  disabled={!newName().trim() || newSaving()}
+                  onClick={() => void create()}
+                >
+                  {newSaving() ? t("Creating…") : t("Create")}
+                </button>
+              </div>
+            </div>
+          </div>
         </Show>
       </section>
     </Show>
