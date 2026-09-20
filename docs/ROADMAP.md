@@ -33,10 +33,10 @@ record of how the harness was built. H-tickets H-06–H-47 landed as PRs #177–
 
 | Status | Count | Tickets |
 | --- | --- | --- |
-| done | 62 | — |
+| done | 64 | — |
 | doing | 0 | — |
 | blocked | 2 | F3-16, F5-4 |
-| todo | 2 | F2-2, F3-17 |
+| todo | 0 | — |
 | **total** | **66** | |
 
 ### What remains
@@ -89,7 +89,7 @@ Corrected, and now really done:
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
 | F2-1 | P0 | Design tokens + theme layer mapped to `@opencode-ai/ui` | done |
-| F2-2 | P0 | Window chrome: traffic lights, back/forward, sidebar toggle | todo (no custom titlebar) |
+| F2-2 | P0 | Window chrome: traffic lights, back/forward, sidebar toggle | done (desktop owns title bar + traffic lights; Topbar back/forward/sidebar, verified 2026-09-20) |
 | F2-3 | P0 | Sidebar: nav sections (Nuevo/Artefactos/Rutinas/Personalizar) | done |
 | F2-4 | P0 | Sidebar: project list with quick-create, pin, search/filter | done |
 | F2-5 | P0 | Greeting header + home canvas | done |
@@ -117,7 +117,7 @@ Corrected, and now really done:
 | F3-14 | P2 | MCP add/configure UI | done (wired 2026-09-16) |
 | F3-15 | P2 | "Toggle steps" command | done |
 | F3-16 | P2 | Console org switch | blocked |
-| F3-17 | P2 | Keybind/leader parity where sensible | todo (only the palette key) |
+| F3-17 | P2 | Keybind/leader parity where sensible | done (7 actions editable in Settings shortcuts, keybinds.test.ts green, verified 2026-09-20) |
 
 ## F4 — Harness extras
 
