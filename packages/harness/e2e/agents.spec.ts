@@ -101,6 +101,8 @@ test("opens one into a form with what the file says", async ({ page }) => {
   })
   await page.locator(".fc-agent-row").click()
 
+  // The editor is a dialog whose body scrolls under a fixed header and above fixed actions.
+  await expect(page.locator(".fc-form-modal .fc-modal-body")).toBeVisible()
   await expect(page.locator(".fc-agent-prompt")).toHaveValue("Review the diff and say what is wrong.")
   await expect(page.locator(".fc-agent-form")).toContainText("/work/demo/.opencode/agent/reviewer.md")
   // The tools the file set are drawn as it set them, and the one it said nothing about is unset.

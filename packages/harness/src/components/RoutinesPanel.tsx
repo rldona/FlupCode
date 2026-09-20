@@ -258,6 +258,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                   ×
                 </button>
               </div>
+              <div class="fc-modal-body">
               <p class="fc-modal-note">{t("Configure the instructions, project and schedule.")}</p>
               <div class="fc-routine-editor-grid">
               <label>{t("Name")}<input class="fc-question-custom" value={form().name} placeholder={t("Routine name")} onInput={(event) => updateForm({ name: event.currentTarget.value })} /></label>
@@ -272,6 +273,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
               <Show when={["daily", "weekdays", "weekly"].includes(form().schedule.type)}><label>{t("Time")}<input class="fc-question-custom" type="time" value={formTimeValue()} onInput={(event) => updateScheduleFields({ time: event.currentTarget.value })} /></label></Show>
               <Show when={form().schedule.type === "weekly"}><label>{t("Day")}<select class="fc-question-custom" value={formDayValue()} onChange={(event) => updateScheduleFields({ day: Number(event.currentTarget.value) })}><For each={days}>{(day) => <option value={day[0]}>{t(day[1])}</option>}</For></select></label></Show>
               <Show when={form().schedule.type === "interval"}><label>{t("Minutes")}<input class="fc-question-custom" type="number" min="1" value={formIntervalValue()} onInput={(event) => updateScheduleFields({ intervalMinutes: Number(event.currentTarget.value) })} /></label></Show>
+              </div>
               </div>
               <div class="fc-dialog-actions">
                 <button class="fc-button" type="button" onClick={() => setEditing(false)}>{t("Cancel")}</button>

@@ -59,6 +59,10 @@ async function open(page: Page) {
 test("two runs are compared by tokens, cost, duration and verdict", async ({ page }) => {
   await open(page)
 
+  // It is a tool screen like the rest: in the main column, with the sidebar still there.
+  await expect(page.locator(".fc-sidebar")).toBeVisible()
+  await expect(page.locator(".fc-main .fc-routines-screen")).toBeVisible()
+
   const pickers = page.locator(".fc-compare-pickers select")
   await pickers.nth(0).selectOption("run_a")
   await pickers.nth(1).selectOption("run_b")
