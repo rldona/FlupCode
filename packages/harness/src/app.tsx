@@ -555,7 +555,8 @@ export const App: Component = () => {
       current === "context" ||
       current === "agents" ||
       current === "skills" ||
-      current === "usage"
+      current === "usage" ||
+      current === "compare"
     )
   }
   /** Leave whatever screen is open. Doing anything with a session means leaving it. */
@@ -5248,6 +5249,14 @@ export const App: Component = () => {
             onOpenPath={(path) => void openLocalPath(path)}
             onOpenInEditor={(path) => void openInEditor(path)}
           />
+          <ComparePanel
+            open={compareOpen()}
+            runs={runs()}
+            initialLeft={compareArgs().left}
+            initialRight={compareArgs().right}
+            onLoad={compareSnapshot}
+            onClose={() => leaveScreen()}
+          />
           <RoutinesPanel
             open={routinesOpen()}
             focus={routineFocus()}
@@ -5945,14 +5954,6 @@ export const App: Component = () => {
         sessionID={selected()}
         title={selectedSession()?.title}
         onPage={replayPage}
-        onClose={() => leaveScreen()}
-      />
-      <ComparePanel
-        open={compareOpen()}
-        runs={runs()}
-        initialLeft={compareArgs().left}
-        initialRight={compareArgs().right}
-        onLoad={compareSnapshot}
         onClose={() => leaveScreen()}
       />
       <MemoryPanel
