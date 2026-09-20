@@ -89,6 +89,32 @@ hour and favorite model, with Todo / 30d / 7d ranges, a Models tab and a one-yea
 Open **Personalize → Servers MCP** or run `/mcp` to list, connect, disconnect, add and remove MCP
 servers.
 
+## See your existing OpenCode (TUI) sessions
+
+FlupCode is a client: it shows the sessions of the server it connects to. The TUI and FlupCode
+share sessions when they use the same server **and** the same database.
+
+OpenCode picks its database by installation channel:
+
+- The installed `opencode` (release) uses `~/.local/share/opencode/opencode.db`.
+- A local development server uses `~/.local/share/opencode/opencode-local.db`.
+
+So a dev server started with the plain command will **not** show your TUI sessions. To make FlupCode
+read the same database as your installed OpenCode, start the engine with the channel DB disabled
+(or point `OPENCODE_DB` at the file):
+
+```bash
+OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve --port 4096
+```
+
+Then reload FlupCode: the sidebar will list every project and session.
+
+Alternatively, keep FlupCode's server and attach the TUI to it, so both share that server:
+
+```bash
+opencode attach http://localhost:4096
+```
+
 ## Remote / mobile
 
 Serve the engine on your LAN and open the harness from a phone:

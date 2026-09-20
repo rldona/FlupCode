@@ -72,7 +72,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
       subscribe: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal),
     },
     session: {
-      list: (input?: { order?: "asc" | "desc"; parentID?: string }) => unwrap(client.v2.session.list(input)),
+      list: (input?: { order?: "asc" | "desc"; limit?: number }) =>
+        unwrap(client.v2.session.list({ ...input, limit: input?.limit ?? 200 })),
       create: async (input?: {
         model?: { id: string; providerID: string; variant?: string }
         location?: { directory: string }
