@@ -1,5 +1,13 @@
 import type { ModelV2Info, SessionV2Info } from "@opencode-ai/sdk/v2/client"
-import type { AssistantMessage, Message, Part, ReasoningPart, TextPart, ToolPart, ToolState } from "@opencode-ai/sdk/v2/client"
+import type {
+  AssistantMessage,
+  Message,
+  Part,
+  ReasoningPart,
+  TextPart,
+  ToolPart,
+  ToolState,
+} from "@opencode-ai/sdk/v2/client"
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import type { McpServer, SessionInfo, SessionMessageInfo, SessionMessagesResponse } from "./engine-types"
 import { engineFetch } from "./transport"
@@ -95,11 +103,39 @@ function fromLegacy(entries: Array<{ info: Message; parts: Part[] }>): SessionMe
     return {
       id: info.id,
       type: "assistant",
+      time: info.time,
       agent: info.agent,
       content,
       error: info.error,
     } as unknown as SessionMessageInfo
   })
+}
+
+const created = (message: SessionMessageInfo) => (message as { time?: { created?: number } }).time?.created ?? 0
+
+/**
+ * A session can hold history in both message stores: the legacy one (written by the TUI and older
+ * clients) and v2 (written by FlupCode prompts). They never share messages, so show both in order.
+ */
+export function mergeTranscripts(v2: SessionMessageInfo[], legacy: SessionMessageInfo[]) {
+  if (legacy.length === 0) return v2
+  if (v2.length === 0) return legacy
+  return [...legacy, ...v2]
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => created(a.message) - created(b.message) || a.index - b.index)
+    .map((entry) => entry.message)
+}
+
+/**
+ * Legacy history per session. It only changes when a legacy client writes to it (which emits
+ * `message.*` events), while the app refetches messages on every event, so it is cached until then.
+ */
+const legacyHistory = new Map<string, Promise<SessionMessageInfo[]>>()
+
+/** Drops cached legacy history for a session, or for every session when none is given. */
+export function invalidateLegacyHistory(sessionID?: string) {
+  if (!sessionID) return legacyHistory.clear()
+  ;[...legacyHistory.keys()].filter((key) => key.endsWith(`::${sessionID}`)).forEach((key) => legacyHistory.delete(key))
 }
 
 export function createClient(baseUrl = resolveServerUrl()) {
@@ -173,14 +209,26 @@ export function createClient(baseUrl = resolveServerUrl()) {
       },
       revert: {
         stage: (input: { sessionID: string; messageID: string; files?: boolean }) =>
-          unwrap(client.v2.session.revert.stage({ sessionID: input.sessionID, messageID: input.messageID, files: input.files })),
+          unwrap(
+            client.v2.session.revert.stage({
+              sessionID: input.sessionID,
+              messageID: input.messageID,
+              files: input.files,
+            }),
+          ),
         clear: (input: { sessionID: string }) => unwrap(client.v2.session.revert.clear({ sessionID: input.sessionID })),
-        commit: (input: { sessionID: string }) => unwrap(client.v2.session.revert.commit({ sessionID: input.sessionID })),
+        commit: (input: { sessionID: string }) =>
+          unwrap(client.v2.session.revert.commit({ sessionID: input.sessionID })),
       },
       permission: {
-        list: (input: { sessionID: string }) => unwrap(client.v2.session.permission.list({ sessionID: input.sessionID })),
-        reply: (input: { sessionID: string; requestID: string; reply: "once" | "always" | "reject"; message?: string }) =>
-          unwrap(client.v2.session.permission.reply(input)),
+        list: (input: { sessionID: string }) =>
+          unwrap(client.v2.session.permission.list({ sessionID: input.sessionID })),
+        reply: (input: {
+          sessionID: string
+          requestID: string
+          reply: "once" | "always" | "reject"
+          message?: string
+        }) => unwrap(client.v2.session.permission.reply(input)),
       },
       question: {
         list: (input: { sessionID: string }) => unwrap(client.v2.session.question.list({ sessionID: input.sessionID })),
@@ -199,7 +247,9 @@ export function createClient(baseUrl = resolveServerUrl()) {
         unwrap(client.session.update({ sessionID: input.sessionID, title: input.title })),
       remove: (input: { sessionID: string }) => unwrap(client.session.delete({ sessionID: input.sessionID })),
       fork: async (input: { sessionID: string; messageID?: string }) => {
-        const body = (await unwrap(client.session.fork({ sessionID: input.sessionID, messageID: input.messageID }))) as unknown as {
+        const body = (await unwrap(
+          client.session.fork({ sessionID: input.sessionID, messageID: input.messageID }),
+        )) as unknown as {
           id?: string
           data?: { id: string }
         }
@@ -228,16 +278,22 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     message: {
       list: async (input: { sessionID: string; order?: "asc" | "desc" }) => {
-        const v2 = await unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order }))
-        const meaningful = (v2?.data ?? []).filter((message) => message.type === "user" || message.type === "assistant")
-        if (meaningful.length >= 2) return v2
-        const legacy = await unwrap(client.session.messages({ sessionID: input.sessionID }))
-        const converted = fromLegacy(legacy ?? [])
-        const legacyMeaningful = converted.filter(
-          (message) => message.type === "user" || message.type === "assistant",
-        )
-        if (legacyMeaningful.length > meaningful.length) return { data: converted, cursor: {} } as SessionMessagesResponse
-        return v2 ?? ({ data: [], cursor: {} } as SessionMessagesResponse)
+        const key = `${baseUrl}::${input.sessionID}`
+        const cached =
+          legacyHistory.get(key) ??
+          unwrap(client.session.messages({ sessionID: input.sessionID })).then((entries) => fromLegacy(entries ?? []))
+        legacyHistory.set(key, cached)
+        const [v2, legacy] = await Promise.all([
+          unwrap(client.v2.session.messages({ sessionID: input.sessionID, order: input.order })),
+          cached.catch(() => {
+            // Retry on the next refetch instead of caching the failure.
+            if (legacyHistory.get(key) === cached) legacyHistory.delete(key)
+            return [] as SessionMessageInfo[]
+          }),
+        ])
+        const merged = mergeTranscripts(v2?.data ?? [], legacy)
+        const data = input.order === "desc" ? [...merged].reverse() : merged
+        return { ...(v2 ?? { cursor: {} }), data } as SessionMessagesResponse
       },
     },
     model: {
@@ -291,7 +347,9 @@ export function createClient(baseUrl = resolveServerUrl()) {
     },
     file: {
       find: (input: { query: string; limit?: number }) =>
-        unwrap(client.v2.fs.find({ query: input.query, limit: input.limit !== undefined ? String(input.limit) : undefined })),
+        unwrap(
+          client.v2.fs.find({ query: input.query, limit: input.limit !== undefined ? String(input.limit) : undefined }),
+        ),
     },
     vcs: {
       get: (directory: string) => unwrap(client.vcs.get({ directory })),
