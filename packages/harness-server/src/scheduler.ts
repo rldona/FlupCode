@@ -92,10 +92,10 @@ export class RoutineScheduler {
     this.timer = undefined
   }
 
-  async runNow(routineID: string) {
-    const run = this.begin(routineID, Date.now())
+  async runNow(routineID: string, inputs?: Record<string, string>) {
+    const run = await this.begin(routineID, Date.now(), inputs)
     if (!run) throw new RoutineBusyError()
-    void this.execute(run)
+    if (run.status === "running") void this.execute(run)
     return run
   }
 
@@ -419,15 +419,15 @@ export class RoutineScheduler {
       const now = Date.now()
       const routine = this.repository.list().find((entry) => isDue(entry, now))
       if (routine) {
-        const run = this.begin(routine.id, now)
-        if (run) void this.execute(run)
+        const run = await this.begin(routine.id, now)
+        if (run && run.status === "running") void this.execute(run)
       }
     } finally {
       this.ticking = false
     }
   }
 
-  private begin(routineID: string, now: number) {
+  private async begin(routineID: string, now: number, overrides?: Record<string, string>) {
     const key = routineLockKey(routineID)
     if (!this.repository.acquire(key, this.owner, now, this.lockTtlMs)) return undefined
     const source: RunSource = { type: "routine", routineID }
@@ -436,12 +436,45 @@ export class RoutineScheduler {
       this.repository.release(key, this.owner)
       return undefined
     }
-    const run = this.repository.startRun(source, now)
-    // A routine's execution is a run of a single task. Nothing about it is special: it is the same
-    // shape a workflow of many will have, which is the point of H-11.
-    this.repository.addTasks(run.id, [
-      { name: routine.name, prompt: routine.prompt, agent: routine.agent, model: routine.model },
-    ])
+    // A routine runs one prompt, or the tasks of a workflow file (HF-8). Either way the run
+    // carries the routine's policy, so budgets and fallbacks apply on schedule as on demand.
+    if (!routine.workflow) {
+      const run = this.repository.startRun(source, now, routine.projectDirectory, {
+        ...(routine.policy ? { policy: routine.policy } : {}),
+      })
+      this.repository.addTasks(run.id, [
+        { name: routine.name, prompt: routine.prompt, agent: routine.agent, model: routine.model },
+      ])
+      return run
+    }
+    const run = this.repository.startRun(source, now, routine.projectDirectory, {
+      ...(routine.policy ? { policy: routine.policy } : {}),
+    })
+    try {
+      const workflow = await findWorkflow(routine.workflow.name, routine.projectDirectory)
+      if (!workflow) throw new UnknownWorkflowError(routine.workflow.name)
+      const filled = { ...(workflow.inputDefaults ?? {}), ...(routine.workflow.inputs ?? {}), ...(overrides ?? {}) }
+      const missing = workflow.inputs.filter((name) => !filled[name]?.trim())
+      if (missing.length > 0) throw new MissingInputsError(missing)
+      const tasks = tasksFor(workflow, filled)
+      this.repository.addTasks(run.id, tasks)
+      // More than one task earns the thread a reader follows, the same as a manual run.
+      if (tasks.length > 1) {
+        const title = tasks.map((task) => task.name).join(" → ")
+        const root = await this.engine
+          .createSession({
+            directory: routine.projectDirectory,
+            title: title.length > 80 ? `${title.slice(0, 77)}…` : title,
+          })
+          .catch(() => undefined)
+        if (root) this.repository.attachSession(run.id, root.id)
+      }
+    } catch (cause) {
+      // The file was valid when the routine was saved and is gone now. The failed run stays in
+      // history saying so, instead of the schedule silently skipping a beat.
+      this.repository.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause), now)
+      this.repository.release(key, this.owner)
+    }
     return run
   }
 
@@ -468,8 +501,10 @@ export class RoutineScheduler {
         return
       }
       // A run of one task has no thread of its own, so the session the reader wants is the task's.
+      // A run that already has one — a workflow's thread from `begin` — keeps it.
       const [task] = this.repository.listTasks(run.id)
-      if (task?.sessionID && !run.sessionID) this.repository.attachSession(run.id, task.sessionID)
+      const fresh = this.repository.getRun(run.id) ?? run
+      if (task?.sessionID && !fresh.sessionID) this.repository.attachSession(run.id, task.sessionID)
       this.finish(run, this.stopping.has(run.id) ? "stopped" : "success", this.stopping.has(run.id) ? "Routine stopped" : undefined)
     } catch (cause) {
       this.finish(

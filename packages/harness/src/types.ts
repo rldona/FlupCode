@@ -265,6 +265,10 @@ export type RoutineInput = {
   projectDirectory?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  /** Run a workflow instead of a single prompt (HF-8). */
+  workflow?: { name: string; inputs?: Record<string, string> }
+  /** Model fallback and budget for the runs it starts (HF-8). */
+  policy?: RunPolicy
 }
 
 export type Routine = {
@@ -276,6 +280,8 @@ export type Routine = {
   projectDirectory?: string
   agent?: string
   model?: { providerID: string; id: string; variant?: string }
+  workflow?: { name: string; inputs?: Record<string, string> }
+  policy?: RunPolicy
   enabled: boolean
   createdAt: number
   lastRunAt?: number
