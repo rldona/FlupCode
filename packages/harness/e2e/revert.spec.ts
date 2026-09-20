@@ -81,14 +81,15 @@ async function openSession(page: Page): Promise<Harness> {
   return { calls }
 }
 
-test("editing a prompt rewinds through the legacy runtime that wrote the message", async ({ page }) => {
-  const harness = await openSession(page)
+test("prompt actions are copy, recover and fork — no edit", async ({ page }) => {
+  await openSession(page)
 
-  await page.getByRole("button", { name: /^Edit$|^Editar$/ }).click()
-
-  // The message lives in the legacy store, so a v2 revert would answer "Message not found" instead.
-  await expect.poll(() => harness.calls.some((call) => call.path === "/session/ses_r/revert")).toBe(true)
-  expect(harness.calls.some((call) => call.path.startsWith("/api/session/ses_r/revert"))).toBe(false)
+  // The turn is over but ran no tools, so Recover is there too; Edit is gone by design.
+  const actions = page.locator(".fc-message-user .fc-message-action")
+  await expect(actions).toHaveCount(3)
+  await expect(actions.nth(0)).toHaveAccessibleName(/^Copy$|^Copiar$/)
+  await expect(actions.nth(1)).toHaveAccessibleName(/^Recover prompt$/)
+  await expect(actions.nth(2)).toHaveAccessibleName(/^Fork from here$|^Bifurcar desde aquí$/)
 })
 
 test("confirming a revert commits it on the legacy runtime", async ({ page }) => {

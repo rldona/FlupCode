@@ -48,8 +48,6 @@ type SessionViewProps = {
     sendNow?: () => void
     cancel?: () => void
   }>
-  onEditUser: (messageID: string, text: string) => void
-  /** Takes a just-sent prompt back while its turn did nothing irreversible (UN-1). */
   onRecoverUser?: (messageID: string) => void
   /** Forks a new session from a prompt; omitted in the split panes and for chats. */
   onForkUser?: (messageID: string) => void
@@ -1252,26 +1250,6 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                               </svg>
                             </button>
                           </Show>
-                          {/* Rewinding needs an idle session: the engine refuses mid-turn (UN). */}
-                          <button
-                            class="fc-message-action"
-                            type="button"
-                            title={props.busy ? t("Stop the turn first") : t("Edit")}
-                            aria-label={t("Edit")}
-                            disabled={props.busy}
-                            onClick={() => props.onEditUser(message.id, (message as { text?: string }).text ?? "")}
-                          >
-                            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true">
-                              <path
-                                d="M4 10a8 8 0 1 1 2.3 5.7M4 20v-5h5"
-                                fill="none"
-                                stroke="currentColor"
-                                stroke-width="2"
-                                stroke-linecap="round"
-                                stroke-linejoin="round"
-                              />
-                            </svg>
-                          </button>
                           <Show when={props.onForkUser}>
                             <button
                               class="fc-message-action"

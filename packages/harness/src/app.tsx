@@ -4463,17 +4463,6 @@ export const App: Component = () => {
     setTimeout(refresh, 800)
   }
 
-  const editMessage = (messageID: string, text: string) => {
-    const sessionID = selected()
-    if (!sessionID) return
-    setPrompt(text)
-    void run(async (current) => {
-      await current.session.revert.stage({ sessionID, messageID, directory: sessionDirectory(sessionID) })
-      void refetchMessages()
-      return undefined
-    })
-  }
-
   const undo = () => {
     const sessionID = selected()
     if (!sessionID) return
@@ -5361,7 +5350,6 @@ export const App: Component = () => {
                 showReasoning={showReasoning()}
                 chat={plainChatView()}
                 pending={pendingForSession()}
-                onEditUser={editMessage}
                 onRecoverUser={unsendMessage}
                 onForkUser={forkSession}
                 onRetry={retryTurn}
