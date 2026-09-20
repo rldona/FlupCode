@@ -4,7 +4,8 @@ How FlupCode is versioned and released.
 
 ## Versioning
 
-- Semantic versioning: `MAJOR.MINOR.PATCH`, tagged as `vX.Y.Z`.
+- Semantic versioning: `MAJOR.MINOR.PATCH`, tagged as `flupcode-vX.Y.Z`.
+  The `flupcode-` prefix avoids colliding with upstream OpenCode tags.
 - The tag is the source of truth. Keep `packages/harness/package.json` and
   `packages/harness-desktop/package.json` versions in sync with the tag.
 - The harness **About** dialog shows `packages/harness`'s version.
@@ -28,8 +29,8 @@ How FlupCode is versioned and released.
 2. Push `power`, then tag and push:
 
    ```bash
-   git tag vX.Y.Z
-   git push origin vX.Y.Z
+   git tag flupcode-vX.Y.Z
+   git push origin flupcode-vX.Y.Z
    ```
 
 3. `.github/workflows/release.yml` runs on the tag: install, typecheck, test, build the harness,
@@ -38,7 +39,7 @@ How FlupCode is versioned and released.
 4. Verify with:
 
    ```bash
-   gh release view vX.Y.Z
+   gh release view flupcode-vX.Y.Z
    ```
 
 ## Manual fallback
@@ -49,7 +50,7 @@ bun run --cwd packages/harness typecheck
 bun run --cwd packages/harness test
 bun run --cwd packages/harness build
 (cd packages/harness/dist && zip -r ../../../flupcode-web.zip .)
-gh release create vX.Y.Z flupcode-web.zip --title "FlupCode vX.Y.Z" --generate-notes
+gh release create flupcode-vX.Y.Z flupcode-web.zip --title "FlupCode vX.Y.Z" --generate-notes
 ```
 
 ## Desktop

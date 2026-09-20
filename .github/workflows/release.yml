@@ -2,7 +2,7 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    tags: ["flupcode-v*"]
   workflow_dispatch:
 
 permissions:
