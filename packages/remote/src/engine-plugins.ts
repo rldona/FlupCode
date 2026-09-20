@@ -299,7 +299,9 @@ function fileName(value) {
 
 export const flupcodeArtifactWrite = async () => ({
   tool: {
-    "artifact.write": {
+    // Providers with an OpenAI-shaped API reject a function name that is not
+    // \`^[a-zA-Z0-9_-]+$\`, so the name cannot carry a dot.
+    artifact_write: {
       description:
         "Keep a document you produced (a page, a report, an image note) so the reader finds it under Artifacts. Writes it to .flupcode/artifacts in the project and returns its path.",
       args: {

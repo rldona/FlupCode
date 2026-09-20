@@ -73,7 +73,7 @@ system and the harness features that OpenCode's default UI does not emphasise.
 desktop app and remote control (relay at `relay.flupcode.com`, phone view, `flupcode remote`) are
 released, along with the harness server that owns runs: tasks, routines with history, verification
 with evidence, workflows with human gates, and artifacts — now including the **documents the agent
-generates** (kept in `.flupcode/artifacts` with the `artifact.write` tool, listed under Artifacts and
+generates** (kept in `.flupcode/artifacts` with the `artifact_write` tool, listed under Artifacts and
 read by type: markdown, HTML, image, PDF). Editors for routines, agents and skills open in dialogs,
 and Compare runs inside the chat layout. The upstream sync and release pipelines are in place.
 Desktop builds are not yet signed by Apple or Microsoft (see [Install](#install)). See
