@@ -5692,6 +5692,7 @@ export const App: Component = () => {
         serverAvailable={routinesServerAvailable()}
         hasProject={!!vcsDirectory()}
         sources={skillSources()}
+        agents={agentFiles() ?? []}
         onAddSource={addSkillSource}
         onRemoveSource={removeSkillSource}
         onRead={readSkillFile}
