@@ -2,9 +2,11 @@
   <a href="https://flupcode.com"><img src="assets/flupcode-tentative-logo.png" alt="FlupCode" width="180" /></a>
 </p>
 
-# FlupCode
+<h1 align="center">FlupCode</h1>
 
-**A Claude Code–style web & desktop harness for OpenCode.**
+<p align="center">
+  <strong>A Claude Code–style web & desktop harness for OpenCode.</strong>
+</p>
 
 <p align="center">
   <a href="https://github.com/rldona/FlupCode/actions/workflows/harness.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/rldona/FlupCode/harness.yml?branch=power&label=build" /></a>
