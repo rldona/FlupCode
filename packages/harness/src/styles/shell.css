@@ -1854,17 +1854,13 @@ button.fc-row-main {
 .fc-turn-footer {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   color: var(--fc-text-muted);
   font-size: 12px;
 }
 
 .fc-turn-icon {
   color: var(--fc-accent);
-}
-
-.fc-turn-sep {
-  color: var(--fc-text-muted);
 }
 
 .fc-tool-body {
