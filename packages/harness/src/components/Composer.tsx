@@ -1,6 +1,6 @@
 import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
-import type { Attachment, BranchState, CommandOption, ProjectItem } from "../types"
+import type { Attachment, BranchState, CheckLog, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
 import { toast } from "../toast"
 import { ModeMenu } from "./ModeMenu"
@@ -52,6 +52,7 @@ type ComposerProps = {
     suggestedTitle: string
     onOpenPullRequest: (title: string) => void
     onOpen: (url: string) => void
+    onCheckLog: (job: string) => Promise<CheckLog>
   }
   attachments: Attachment[]
   commands: CommandOption[]

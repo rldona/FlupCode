@@ -381,6 +381,14 @@ checks that all skipped leave it grey, because they vouched for nothing.
 
 It refreshes every 20 seconds while checks are running and every two minutes once they have settled.
 
+When something has failed, the count is a button. Open it and each failing check is named with the
+workflow it came from, and **Why** fetches what that job printed — the tail of it, with the runner's
+job, step and timestamp columns taken off, since a test run prints a thousand passes before the one
+that failed. The log is only fetched when you ask: it is a request per job, and the chip polls.
+
+A check that is not a GitHub Actions job — an external CI reporting a status — has no log to read
+here, so it offers **On GitHub** and nothing else.
+
 This needs [`gh`](https://cli.github.com) installed and logged in, and it is GitHub only. Without it
 there is no chip at all — not a chip that cannot tell you anything. The repository comes from the
 branch's own remote, so a fork with an `upstream` remote still reads your fork and not upstream.

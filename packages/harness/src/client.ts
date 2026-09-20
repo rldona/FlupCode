@@ -17,6 +17,7 @@ import type {
   Artifact,
   ArtifactKind,
   BranchState,
+  CheckLog,
   GitCommit,
   PullRequest,
   Routine,
@@ -904,6 +905,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** Where the branch stands on GitHub. One `gh` call behind it, so poll it, do not spam it. */
       state: (directory: string) =>
         harnessRequest<BranchState>(baseUrl, `/harness/git/pr?directory=${encodeURIComponent(directory)}`),
+      /**
+       * What one failing check printed. Asked for rather than polled: it is a network call per job.
+       */
+      checkLog: (directory: string, job: string) =>
+        harnessRequest<CheckLog>(
+          baseUrl,
+          `/harness/git/pr/log?directory=${encodeURIComponent(directory)}&job=${encodeURIComponent(job)}`,
+        ),
       /** Pushes the branch if it has never been pushed, then opens the pull request. */
       openPullRequest: (input: { directory: string; title: string; body?: string; base?: string }) =>
         harnessRequest<PullRequest>(baseUrl, "/harness/git/pr", { method: "POST", body: JSON.stringify(input) }),

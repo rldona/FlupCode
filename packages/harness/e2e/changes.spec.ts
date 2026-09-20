@@ -80,13 +80,14 @@ type Seen = {
   commits: Array<{ message: string; paths: string[] }>
   branches: string[]
   pullRequests: string[]
+  logs: string[]
 }
 
 /** What `GET /harness/git/pr` answers, which is the whole of what the chip can know. */
 type BranchFixture = Record<string, unknown>
 
 async function openSession(page: Page, panels: string[] = [], options: { long?: boolean; branch?: BranchFixture } = {}) {
-  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [] }
+  const seen: Seen = { modes: [], contexts: [], commits: [], branches: [], pullRequests: [], logs: [] }
   await page.addInitScript((panels) => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -107,6 +108,20 @@ async function openSession(page: Page, panels: string[] = [], options: { long?: 
       const body = route.request().postDataJSON() as { message: string; paths: string[] }
       seen.commits.push({ message: body.message, paths: body.paths })
       return route.fulfill({ json: { data: { sha: "abc1234", subject: body.message, branch: "feature" } } })
+    }
+    if (url.pathname === "/harness/git/pr/log") {
+      const job = url.searchParams.get("job") ?? ""
+      seen.logs.push(job)
+      return route.fulfill({
+        json: {
+          data: {
+            job,
+            step: "Test remote control",
+            text: " 37 pass\n 0 fail\n 1 error\nerror: script \"test\" exited with code 1",
+            truncated: true,
+          },
+        },
+      })
     }
     if (url.pathname === "/harness/git/pr" && route.request().method() === "GET") {
       return route.fulfill({
@@ -342,9 +357,23 @@ const withPullRequest = (over: Record<string, unknown>) => ({
     additions: 835,
     deletions: 25,
     checks: { total: 5, passed: 5, failed: 0, running: 0 },
+    failures: [],
     ...over,
   },
 })
+
+const failing = {
+  checks: { total: 5, passed: 3, failed: 2, running: 0 },
+  failures: [
+    {
+      name: "build",
+      workflow: "harness",
+      url: "https://github.com/rldona/FlupCode/actions/runs/1/job/9001",
+      job: "9001",
+    },
+    { name: "ci/external", url: "https://ci.example.com/7" },
+  ],
+}
 
 test("a branch with no pull request offers to open one, and says when it must push first", async ({ page }) => {
   const seen = await openSession(page, [], {
@@ -409,4 +438,43 @@ test("without gh there is no chip at all, rather than a chip that cannot say", a
   await openSession(page)
   await expect(page.locator(".fc-repo-bar")).toBeVisible()
   await expect(page.locator(".fc-pr-chip")).toHaveCount(0)
+})
+
+test("a failed check can be asked why, without leaving for a browser", async ({ page }) => {
+  const seen = await openSession(page, [], { branch: withPullRequest(failing) })
+
+  // "2 failed" used to be the end of the road: the answer was a tab away.
+  await page.locator(".fc-pr-checks-open").click()
+
+  const failures = page.locator(".fc-pr-failure")
+  await expect(failures).toHaveCount(2)
+  await expect(failures.first()).toContainText("build")
+  await expect(failures.first()).toContainText("harness")
+
+  // The log is fetched only when asked for: it is a network call per job, and the chip polls.
+  expect(seen.logs).toEqual([])
+  await failures.first().getByRole("button", { name: /Why|Por qué/ }).click()
+
+  expect(seen.logs).toEqual(["9001"])
+  await expect(page.locator(".fc-pr-log")).toContainText('error: script "test" exited with code 1')
+  // The step that failed, which is what the log is of.
+  await expect(failures.first()).toContainText("Test remote control")
+  await expect(failures.first()).toContainText(/Only the end|Sólo se muestra el final/)
+})
+
+test("a check with no Actions job offers the page instead of a log it cannot read", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest(failing) })
+  await page.locator(".fc-pr-checks-open").click()
+
+  const external = page.locator(".fc-pr-failure").filter({ hasText: "ci/external" })
+  await expect(external.getByRole("button", { name: /On GitHub|En GitHub/ })).toBeVisible()
+  await expect(external.getByRole("button", { name: /^(Why|Por qué)$/ })).toHaveCount(0)
+})
+
+test("checks that all passed have nothing to expand", async ({ page }) => {
+  await openSession(page, [], { branch: withPullRequest({}) })
+
+  await expect(page.locator(".fc-pr-checks")).toBeVisible()
+  // Not a button: there is nothing behind it.
+  await expect(page.locator(".fc-pr-checks-open")).toHaveCount(0)
 })

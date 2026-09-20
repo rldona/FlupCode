@@ -48,6 +48,7 @@ Everything lives under `/harness`. A response is `{ "data": … }` or `{ "error"
 | `GET /harness/git/branch` | which branch `?directory=` is on |
 | `GET /harness/git/pr` | where `?directory=`'s branch stands: pushed or not, its pull request and every check |
 | `POST /harness/git/pr` | push the branch if needed, then open a pull request |
+| `GET /harness/git/pr/log` | what the failing Actions `?job=` printed, tail-limited and stripped of the runner's columns |
 | `GET /harness/artifacts` | filtered by `directory`, `runID`, `kind` |
 | `POST /harness/artifacts` | keep one by hand |
 | `GET /harness/artifacts/:id`, `DELETE /harness/artifacts/:id` | read or forget one |
