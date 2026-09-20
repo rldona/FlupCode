@@ -1,11 +1,11 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@flupcode/desktop",
-  "version": "1.0.0",
+  "version": "1.0.3",
   "private": true,
   "type": "module",
   "license": "MIT",
-  "description": "FlupCode desktop — a Claude Code–style harness for OpenCode.",
+  "description": "FlupCode desktop \u2014 a Claude Code\u2013style harness for OpenCode.",
   "author": "FlupCode",
   "main": "./out/main/index.js",
   "scripts": {
@@ -18,11 +18,14 @@
   "build": {
     "appId": "com.flupcode.desktop",
     "productName": "FlupCode",
-    "copyright": "Copyright © 2026 FlupCode",
+    "copyright": "Copyright \u00a9 2026 FlupCode",
     "directories": {
       "output": "release"
     },
-    "files": ["out/**", "package.json"],
+    "files": [
+      "out/**",
+      "package.json"
+    ],
     "executableName": "flupcode",
     "npmRebuild": false,
     "publish": [
@@ -34,19 +37,45 @@
     ],
     "mac": {
       "target": [
-        { "target": "dmg", "arch": ["x64", "arm64"] },
-        { "target": "zip", "arch": ["x64", "arm64"] }
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
       ],
       "category": "public.app-category.developer-tools",
       "identity": null,
       "artifactName": "FlupCode-mac-${arch}.${ext}"
     },
     "win": {
-      "target": [{ "target": "nsis", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "artifactName": "FlupCode-win-${arch}.${ext}"
     },
     "linux": {
-      "target": [{ "target": "AppImage", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "category": "Development",
       "artifactName": "FlupCode-linux-x64.${ext}"
     }
