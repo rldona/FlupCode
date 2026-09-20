@@ -12,7 +12,7 @@ import type {
   SessionMessageInfo,
   SessionMessagesResponse,
 } from "./engine-types"
-import type { McpConfig } from "./types"
+import type { McpConfig, McpScope } from "./types"
 import { anonymousFetch, engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
@@ -199,6 +199,19 @@ async function patchConfig(baseUrl: string, patch: Record<string, unknown>) {
   if (!response.ok) throw new Error(`Could not save the configuration (HTTP ${response.status})`)
 }
 
+/**
+ * `PATCH /global/config` merges into the engine's global configuration file, the one that applies to
+ * every directory rather than the instance's own. Same open-ended shape, same transport.
+ */
+async function patchGlobalConfig(baseUrl: string, patch: Record<string, unknown>) {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/global/config`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(patch),
+  })
+  if (!response.ok) throw new Error(`Could not save the global configuration (HTTP ${response.status})`)
+}
+
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
 
@@ -244,6 +257,15 @@ export function invalidateLegacyHistory(sessionID?: string) {
 
 export function createClient(baseUrl = resolveServerUrl()) {
   const client = createOpencodeClient({ baseUrl, fetch: ((request: Request) => engineFetch(request)) as typeof fetch })
+
+  /** The `mcp` map as it is on disk in the file a scope names, so a write merges instead of replacing. */
+  const readMcp = async (scope: McpScope) =>
+    (await unwrap(scope === "global" ? client.global.config.get() : client.config.get())) as {
+      mcp?: Record<string, unknown>
+    }
+  /** Writes one scope's config file, global or the instance's own. */
+  const writeConfig = (scope: McpScope, patch: Record<string, unknown>) =>
+    scope === "global" ? patchGlobalConfig(baseUrl, patch) : patchConfig(baseUrl, patch)
 
   return {
     health: {
@@ -291,10 +313,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
     config: async () =>
       (await unwrap(client.config.get())) as {
         compaction?: { auto?: boolean; reserved?: number }
-        flupcode?: { composeTools?: string[] }
+        flupcode?: {
+          composeTools?: string[]
+          delivery?: Record<string, { composeTools?: string[] }>
+        }
       },
     /** Writes back one key of the engine's config and leaves the rest as it is (H-25). */
     updateConfig: (patch: Record<string, unknown>) => patchConfig(baseUrl, patch),
+    /** Writes back one key of the engine's global config, shared by every directory (H-25). */
+    updateGlobalConfig: (patch: Record<string, unknown>) => patchGlobalConfig(baseUrl, patch),
     session: {
       /**
        * The engine's list, searched and paged server-side (H-18).
@@ -1009,15 +1036,22 @@ export function createClient(baseUrl = resolveServerUrl()) {
         const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
         return { data: (config?.mcp ?? {}) as Record<string, McpConfig> }
       },
-      add: async (input: { server: string; config: McpConfig }) => {
-        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
-        await patchConfig(baseUrl, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } })
+      add: async (input: { server: string; config: McpConfig; scope?: McpScope }) => {
+        const scope = input.scope ?? "global"
+        const config = await readMcp(scope)
+        await writeConfig(scope, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } })
         await unwrap(client.mcp.add({ name: input.server, config: input.config }))
       },
       remove: async (input: { server: string }) => {
-        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
-        const { [input.server]: _removed, ...rest } = config?.mcp ?? {}
-        await patchConfig(baseUrl, { mcp: rest })
+        // A server's scope is not readable from the list, so removal clears it wherever it is: both
+        // config files are written with the map minus that server, rather than guessing one.
+        const [project, global] = await Promise.all([readMcp("project"), readMcp("global")])
+        const { [input.server]: _removedProject, ...projectRest } = project?.mcp ?? {}
+        const { [input.server]: _removedGlobal, ...globalRest } = global?.mcp ?? {}
+        await Promise.all([
+          writeConfig("project", { mcp: projectRest }),
+          writeConfig("global", { mcp: globalRest }),
+        ])
         // The running instance keeps its copy until it restarts, so stop it talking to it now.
         await unwrap(client.mcp.disconnect({ name: input.server })).catch(() => undefined)
       },

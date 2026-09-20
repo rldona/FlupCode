@@ -76,6 +76,69 @@ must not hard-code which tools those are either. You declare them:
 FlupCode reads the list and never names a tool of any product. With no such setting, nothing is
 special and the behaviour is the default.
 
+## Delivery: one tool per product, declared
+
+A piece is often two things that must travel together: the text and an image some tool composed. The
+delivery step re-attaches that image so a person copies both at once, and it does not publish
+anything. Instead of writing a delivery tool for every product, declare the profiles and FlupCode's
+engine plugin registers one tool per profile — the same plugin mechanism the repository already uses,
+so nothing here names a product:
+
+```jsonc
+{
+  "flupcode": {
+    "composeTools": ["<server>_compose_map", "<server>_compose_card"],
+    "delivery": {
+      "<profile>": {
+        "tool": "deliver-<profile>",
+        "description": "What the model is told this tool is for.",
+        "composeTools": ["<server>_compose_map"],
+        "imageRequired": true,
+        "imageMissing": "Returned when no composed image is in the conversation.",
+        "labels": { "title": "…", "text": "…", "alt": "…", "image": "…", "missingAlt": "…" },
+        "guards": ["lib/<profile>-guards.ts"]
+      }
+    }
+  }
+}
+```
+
+- `tool` is the id the model calls; `composeTools` says which composed image to re-attach; `labels`
+  is the copy around it; `guards` is optional (see below).
+- Profiles are read from the merged **global** config — `config.json`, then `opencode.json`, then
+  `opencode.jsonc`, later files winning, jsonc highest — so they are machine-wide and a profile
+  written by the advanced editor's Global scope is still seen. Changing them takes a restart of the
+  engine.
+
+A guard is product-owned code, kept out of FlupCode. It is a module under the config directory that
+exports `guards`, an array of `{ id, assess }`; `assess(input)` receives `{ text, template, alt,
+location, messages }` and returns `{ allow, code?, reason? }`. The first `allow: false` stops the
+delivery with its reason. Guards fail closed: a listed module that cannot be loaded, or one whose
+`assess` throws, refuses the delivery instead of being skipped. Without `guards`, the profile
+delivers unconditionally.
+
+## Onboarding a product
+
+1. An agent (`agent/<product>.md`, or the Agents panel).
+2. A command (`command/<product>.md`, or the Commands panel).
+3. An MCP server, if the product needs one of its own — reuse the one that already serves every
+   product when it does. Add servers in the MCP manager, whose scope is **Global** by default.
+4. A `flupcode.delivery` profile in the global config (the advanced config editor, **Global** scope,
+   or the file).
+5. A `lib/<product>-guards.ts` module only if the product must refuse a piece.
+6. Nothing else — no code belongs in this repository for it.
+
+## Global or project, and versioning
+
+The app's agent and command editors write either to the config directory (Global) or to the project's
+`.opencode` (Project). MCP servers and `flupcode.*` settings default to **Global**, because they are
+about the machine, not one project.
+
+Files created from the app are live configuration. If you want them versioned, keep them in your own
+configuration repository and install them (symbolic links for agent/command/tool/lib, a merge for the
+settings); otherwise they live only on the machine. Editing an already-linked file through the app
+writes through the link into your repository; creating a new one does not.
+
 ## What stays out of the repository
 
 Agents, commands, tools, MCP servers and settings that name a product, a private service, a

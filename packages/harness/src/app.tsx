@@ -68,6 +68,7 @@ import type {
   Attachment,
   CommandOption,
   McpConfig,
+  McpScope,
   ProjectItem,
   Routine,
   RoutineInput,
@@ -1215,8 +1216,15 @@ export const App: Component = () => {
     (url) => createClient(url).config(),
   )
   // Which tools draw an image a delivery re-attaches is configuration, not knowledge: FlupCode reads
-  // `flupcode.composeTools` and never names a tool of any product itself.
-  createEffect(() => setCompositionTools(engineConfig()?.flupcode?.composeTools))
+  // `flupcode.composeTools`, plus each delivery profile's own `composeTools`, and never names a tool
+  // of any product itself.
+  createEffect(() => {
+    const flupcode = engineConfig()?.flupcode
+    setCompositionTools([
+      ...(flupcode?.composeTools ?? []),
+      ...Object.values(flupcode?.delivery ?? {}).flatMap((profile) => profile.composeTools ?? []),
+    ])
+  })
   const [lastModels, setLastModels] = createSignal<ModelInfo[]>([])
   createEffect(() => {
     const data = models()?.data
@@ -4512,9 +4520,9 @@ export const App: Component = () => {
     )
   }
 
-  const addMcp = (server: string, config: McpConfig) =>
+  const addMcp = (server: string, config: McpConfig, scope: McpScope) =>
     run(async (current) => {
-      await current.mcp.add({ server, config })
+      await current.mcp.add({ server, config, scope })
       void refetchMcp()
       void refetchMcpConfigs()
       void refetchMcpResources()

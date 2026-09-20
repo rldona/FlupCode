@@ -42,6 +42,12 @@ async function openApp(page: Page, options: { mcp?: Record<string, unknown> } = 
       record()
       return route.fulfill({ json: {} })
     }
+    if (url.pathname === "/global/config" && request.method() === "GET")
+      return route.fulfill({ json: { mcp: { docs: { type: "remote", url: "https://docs.example" } } } })
+    if (url.pathname === "/global/config" && request.method() === "PATCH") {
+      record()
+      return route.fulfill({ json: {} })
+    }
     if (url.pathname === "/mcp" && request.method() === "POST") {
       record()
       return route.fulfill({ json: { status: {} } })
@@ -94,7 +100,7 @@ test("adding an MCP server reaches the engine and its configuration", async ({ p
 
   await page.getByRole("button", { name: "Add server" }).click()
   await page.getByPlaceholder("Name").fill("linear")
-  await page.locator(".fc-mcp-form select").selectOption("remote")
+  await page.getByLabel(/Type/).selectOption("remote")
   await page.getByPlaceholder("https://…").fill("https://mcp.linear.app")
   await page.locator(".fc-mcp-form .fc-button-primary").click()
 
@@ -102,7 +108,7 @@ test("adding an MCP server reaches the engine and its configuration", async ({ p
   // server is gone the next time the engine starts.
   await expect.poll(() => calls.posts.some((call) => call.path === "/mcp")).toBe(true)
   await expect
-    .poll(() => calls.patches.find((call) => call.path === "/config")?.body)
+    .poll(() => calls.patches.find((call) => call.path === "/global/config")?.body)
     .toMatchObject({
       mcp: { linear: { type: "remote", url: "https://mcp.linear.app" } },
     })
