@@ -10,6 +10,7 @@ import { t } from "../i18n"
 import { diffLines, escapeHtml, highlight, highlightDiff, sideBySideDiff } from "../highlight"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
+import { ChapterNav, type Chapter } from "./ChapterNav"
 
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
@@ -401,6 +402,61 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     if (container) container.scrollTop = container.scrollHeight
   }
 
+  // One chapter per prompt, for the navigator at the top of the chat.
+  const chapters = createMemo((): Chapter[] =>
+    (props.messages ?? []).flatMap((message) => {
+      if (message.type !== "user") return []
+      // Prompts from other clients can carry injected <system-reminder> blocks: title by what was typed.
+      const text = ((message as { text?: string }).text ?? "")
+        .replace(/<system-reminder>[\s\S]*?(<\/system-reminder>|$)/g, "")
+        .trim()
+      const line = text.split("\n").find((entry) => entry.trim()) ?? ""
+      return [{ id: message.id, title: line.trim().slice(0, 120) || t("Attachments") }]
+    }),
+  )
+  const [activeChapter, setActiveChapter] = createSignal<string>()
+  let chapterFrame = 0
+  const trackChapter = () => {
+    cancelAnimationFrame(chapterFrame)
+    chapterFrame = requestAnimationFrame(() => {
+      if (!container || !body) return
+      const top = container.getBoundingClientRect().top + 120
+      let current: string | undefined
+      for (const element of body.querySelectorAll<HTMLElement>("[data-chapter]")) {
+        if (element.getBoundingClientRect().top > top) break
+        current = element.dataset.chapter
+      }
+      setActiveChapter(current ?? chapters()[0]?.id)
+    })
+  }
+  onCleanup(() => cancelAnimationFrame(chapterFrame))
+  createEffect(() => {
+    chapters()
+    trackChapter()
+  })
+
+  const jumpToChapter = (id: string) => {
+    const index = (props.messages ?? []).findIndex((message) => message.id === id)
+    if (index < 0) return
+    setStick(false)
+    // Render older messages first when the prompt is above the loaded window.
+    if (index < offset()) setVisibleCount(total() - index + 20)
+    setActiveChapter(id)
+    // Messages above render lazily (content-visibility), so their real heights shift the target
+    // after the first jump: keep aligning it for a few frames until it stays put.
+    let frames = 0
+    const align = () => {
+      const target = body?.querySelector<HTMLElement>(`[data-chapter="${CSS.escape(id)}"]`)
+      if (target && container) {
+        const before = target.getBoundingClientRect().top
+        target.scrollIntoView({ block: "start" })
+        if (Math.abs(target.getBoundingClientRect().top - before) < 1 && frames > 2) return
+      }
+      if (++frames < 30) requestAnimationFrame(align)
+    }
+    requestAnimationFrame(align)
+  }
+
   // Follows the end while content grows (streaming, tool output, refreshed history). The body only
   // exists once the transcript has loaded and is recreated on reload, so it is observed from its ref.
   const growth = new ResizeObserver(() => {
@@ -434,6 +490,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       ref={container}
       onScroll={() => {
         if (!container) return
+        trackChapter()
         const distance = container.scrollHeight - container.scrollTop - container.clientHeight
         const movedUp = container.scrollTop < lastScrollTop
         lastScrollTop = container.scrollTop
@@ -446,6 +503,11 @@ export const SessionView: Component<SessionViewProps> = (props) => {
       onPointerDown={markReaderInput}
       onKeyDown={markReaderInput}
     >
+      <Show when={chapters().length > 1}>
+        <div class="fc-chapters-anchor">
+          <ChapterNav chapters={chapters()} activeId={activeChapter()} onJump={jumpToChapter} />
+        </div>
+      </Show>
       <Show
         when={!props.loading || (props.messages?.length ?? 0) > 0}
         fallback={
@@ -499,7 +561,7 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                   </Show>
                 }
               >
-                <div class="fc-message fc-message-user">
+                <div class="fc-message fc-message-user" data-chapter={message.id}>
                 <div class="fc-message-role">{t("You")}</div>
                 <Markdown class="fc-message-text" text={(message as { text?: string }).text ?? ""} />
                   <button

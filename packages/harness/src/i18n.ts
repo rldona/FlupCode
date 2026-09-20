@@ -35,6 +35,8 @@ const ES: Record<string, string> = {
   "Resize context panel": "Cambiar el ancho del panel de contexto",
   "App text size": "Tamaño del texto de la app",
   "Chat text size": "Tamaño del texto del chat",
+  "Jump to a prompt": "Ir a un prompt",
+  Attachments: "Adjuntos",
   Small: "Pequeño",
   Large: "Grande",
   "Extra large": "Muy grande",
