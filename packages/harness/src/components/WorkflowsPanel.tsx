@@ -13,7 +13,6 @@ type WorkflowsPanelProps = {
   onSave: (name: string, input: { source: string; directory?: string; scope?: "project" | "global" }) => Promise<WorkflowFile>
   onDelete: (name: string) => Promise<unknown>
   onRun?: (workflow: Workflow) => void
-  onClose: () => void
 }
 
 const NEW_WORKFLOW = `name: new-workflow
