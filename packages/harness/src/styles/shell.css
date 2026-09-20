@@ -1446,6 +1446,63 @@ button.fc-row-main {
   max-width: 60%;
 }
 
+.fc-routine-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 40vh;
+  overflow-y: auto;
+}
+
+.fc-routine-row {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-routine-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-routine-name {
+  font-weight: 500;
+}
+
+.fc-routine-meta {
+  font-size: var(--fc-text-xs);
+  color: var(--fc-text-muted);
+}
+
+.fc-routine-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  padding-top: var(--fc-space-2);
+}
+
+.fc-routine-form .fc-question-custom {
+  flex: 1;
+  min-width: 120px;
+}
+
+.fc-routine-prompt {
+  flex-basis: 100%;
+}
+
+.fc-routine-interval {
+  max-width: 90px;
+}
+
 @media (max-width: 720px) {
   .fc-sidebar {
     position: absolute;

@@ -15,3 +15,13 @@ export type StashedPrompt = {
   text: string
   createdAt: number
 }
+
+export type Routine = {
+  id: string
+  name: string
+  prompt: string
+  intervalMinutes: number
+  enabled: boolean
+  createdAt: number
+  lastRunAt?: number
+}
