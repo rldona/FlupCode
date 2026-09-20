@@ -106,6 +106,17 @@ export function engineFetch(input: Request | string | URL, init?: RequestInit) {
   return current.fetch(input, init)
 }
 
+/**
+ * Without the engine's credentials, for services that are not the engine. The harness server
+ * never asked for them, and the `authorization` header trips a CORS preflight it does not allow:
+ * in the desktop app every harness screen then reads as "not reachable" while curl answers fine.
+ * Routing is unchanged, so remote control still goes through the tunnel.
+ */
+export function anonymousFetch(input: Request | string | URL, init?: RequestInit) {
+  if (current !== local) return current.fetch(input, init)
+  return globalThis.fetch(input, localNetwork(input, init))
+}
+
 export function engineSocket(url: string) {
   return current.socket(url)
 }
