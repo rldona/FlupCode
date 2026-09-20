@@ -47,8 +47,30 @@ declare global {
       ownsTitleBar?: boolean
       /** Windows draws its own window buttons, so it is told what colours the page is using. */
       setTitleBar?: (overlay: { color: string; symbolColor: string }) => Promise<void>
+      /** Open a local path in the system's app, or in `app` when one is named (H-14). Desktop only. */
+      openPath?: (path: string, app?: string) => Promise<void>
     }
   }
+}
+
+/** Whether this window can open a local file: only the desktop app can, a browser cannot. */
+export function canOpenLocalFiles() {
+  return typeof window !== "undefined" && typeof window.flupcode?.openPath === "function"
+}
+
+/** Open a path in the system's default application. Nothing happens where there is no bridge. */
+export function openLocalPath(path: string) {
+  return window.flupcode?.openPath?.(path)
+}
+
+/** The name the OS knows VS Code by: its bundle name on macOS, its `code` command elsewhere. */
+export function editorApp() {
+  return window.flupcode?.platform === "darwin" ? "Visual Studio Code" : "code"
+}
+
+/** Open a path in the code editor, which is where a generated file is most useful. */
+export function openInEditor(path: string) {
+  return window.flupcode?.openPath?.(path, editorApp())
 }
 
 /** Touch-first devices (phones, tablets) get the mobile remote layout. */

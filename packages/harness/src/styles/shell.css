@@ -8236,6 +8236,194 @@ button.fc-status {
   margin-top: var(--fc-space-2);
 }
 
+/* ── The artifacts screen, with tabs and a full-panel viewer (H-14) ───────── */
+
+/* The count beside a tab label, like the one the workflows list uses. */
+.fc-workflow-count {
+  margin-inline-start: 6px;
+  padding: 1px 7px;
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  background: var(--fc-bg-subtle);
+  font-size: var(--fc-text-xs);
+}
+
+.fc-artifact-kinds {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-width: 1120px;
+  margin: var(--fc-space-4) auto 0;
+}
+
+.fc-artifact-card {
+  align-items: center;
+  gap: var(--fc-space-3);
+  padding: 10px 12px;
+}
+
+.fc-artifact-card-main {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--fc-space-3);
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.fc-artifact-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.fc-artifact-card-title strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-artifact-card-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.fc-artifact-files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 1120px;
+  margin: var(--fc-space-4) auto 0;
+}
+
+.fc-artifact-file {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-3);
+  padding: 10px 12px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-artifact-file-name {
+  flex: 0 0 auto;
+  font-family: var(--fc-font-mono, ui-monospace, monospace);
+  font-size: 13px;
+}
+
+.fc-artifact-file-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-artifact-file-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+/* The detail fills the panel; the arrow comes back to the list. */
+.fc-artifact-viewer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+  height: 100%;
+  min-height: 0;
+}
+
+.fc-artifact-viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+}
+
+.fc-artifact-viewer-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-artifact-viewer-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
+.fc-artifact-viewer-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.fc-artifact-markdown {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--fc-space-4);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-lg);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-artifact-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 420px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-lg);
+  background: var(--fc-bg-elevated);
+}
+
+.fc-artifact-image {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: var(--fc-space-4);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-lg);
+  background: var(--fc-bg-elevated);
+  cursor: zoom-in;
+}
+
+.fc-artifact-image img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.fc-artifact-viewer-body .fc-artifact-body {
+  flex: 1;
+  max-height: none;
+  margin: 0;
+}
+
+.fc-artifact-note {
+  margin: 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+}
+
 .fc-run-evidence {
   width: 100%;
   margin-top: var(--fc-space-1);

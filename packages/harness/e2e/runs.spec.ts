@@ -600,24 +600,35 @@ test("artifacts are listed by kind, read in place, and the session's files keep 
   })
   await page.goto("/artifacts")
 
-  const cards = page.locator(".fc-run-card")
+  const cards = page.locator(".fc-artifact-card")
   await expect(cards).toHaveCount(2)
   // It is not a list of file paths any more.
   await expect(cards.first()).toContainText("verify — failed")
 
-  // Read in place: the evidence is the point, not a link to it.
-  await expect(page.locator(".fc-artifact-body")).toHaveCount(0)
-  await cards.first().getByRole("button", { name: /Read|Leer/ }).click()
-  await expect(page.locator(".fc-artifact-body")).toContainText("- test (bun test) — exit 1")
+  // Read in place: the artifact fills the panel, and the arrow comes back to the list.
+  await cards.first().locator(".fc-artifact-card-main").click()
+  await expect(page.locator(".fc-artifact-viewer-title")).toContainText("verify — failed")
+  await expect(page.locator(".fc-artifact-markdown")).toContainText("exit 1")
+  await page.locator(".fc-artifact-viewer-bar").getByRole("button", { name: /^(Back|Atrás)$/ }).click()
+  await expect(page.locator(".fc-artifact-viewer")).toHaveCount(0)
 
   // Filtering by kind narrows the list.
-  await page.getByRole("button", { name: /^(report|informe)$/ }).click()
-  await expect(page.locator(".fc-run-card")).toHaveCount(1)
-  await expect(page.locator(".fc-run-card")).toContainText("Run success")
+  await page.locator(".fc-artifact-kinds").getByRole("button", { name: /^(report|informe)$/ }).click()
+  await expect(page.locator(".fc-artifact-card")).toHaveCount(1)
+  await expect(page.locator(".fc-artifact-card")).toContainText("Run success")
 
-  await page.getByRole("button", { name: /^(All|Todo)$/ }).click()
-  await page.locator(".fc-run-card").first().getByRole("button", { name: /^(Delete|Eliminar)$/ }).click()
+  await page.locator(".fc-artifact-kinds").getByRole("button", { name: /^(All|Todo)$/ }).click()
+  await page
+    .locator(".fc-artifact-card")
+    .first()
+    .locator(".fc-artifact-card-actions")
+    .getByRole("button", { name: /^(Delete|Eliminar)$/ })
+    .click()
   await expect.poll(() => removed).toBe("a1")
+
+  // The files this session wrote are their own tab, with their own search.
+  await page.getByRole("button", { name: /Files this session wrote/ }).click()
+  await expect(page.locator(".fc-artifact-kinds")).toHaveCount(0)
 })
 
 // H-32's noted gap: a task that ran in its own worktree has its points, its diff and its

@@ -909,7 +909,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
       createdAt: now,
       ...(content !== undefined ? { content } : {}),
       ...(truncated ? { bytes: full.length, truncated: true } : {}),
-      ...(content !== undefined ? { hash: artifactHash(content) } : {}),
+      // An explicit identity wins: a tool-dropped artifact is recognised by its own id, not by words
+      // that may repeat (H-14).
+      ...(input.hash ? { hash: input.hash } : content !== undefined ? { hash: artifactHash(content) } : {}),
     }
     this.db
       .query(

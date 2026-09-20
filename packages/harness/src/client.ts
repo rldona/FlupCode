@@ -1113,6 +1113,8 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** A download link for one artifact as Markdown or JSON (HF-7). */
       exportUrl: (id: string, format: "md" | "json" = "md") =>
         `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/export?format=${format}`,
+      /** The bytes as they are, for a viewer that draws rather than reads (H-14). */
+      rawUrl: (id: string) => `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/raw`,
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
