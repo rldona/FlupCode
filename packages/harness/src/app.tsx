@@ -59,6 +59,7 @@ import {
   type LegacyPart,
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
+import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
 import { recoverablePrompt } from "./unsend"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
@@ -1687,6 +1688,8 @@ export const App: Component = () => {
   )
   const blockedSessions = () => [...new Set((blocked()?.data ?? []).map((request) => request.sessionID))]
   const blockedElsewhere = () => blockedSessions().filter((id) => id !== selected())
+  /** Sessions with a question to answer, told apart from plain blocked ones (QH-1). */
+  const questionSessions = () => findQuestionSessions((blocked()?.data ?? []) as PendingRequest[])
 
   // What "Allow always" wrote. The engine applies these to every session in the project, so they
   // only become reviewable once something lists them.
@@ -5063,6 +5066,7 @@ export const App: Component = () => {
             selectedSession={selected()}
             runningSessions={Object.keys(runState()).filter((id) => runState()[id])}
             blockedSessions={blockedSessions()}
+            questionSessions={questionSessions()}
             pinnedSessions={pinnedSessions()}
             sessionTags={sessionTags()}
             expandedProjects={expanded()}

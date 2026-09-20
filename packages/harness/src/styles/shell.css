@@ -7160,6 +7160,16 @@ button.fc-status {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--fc-warning) 26%, transparent);
 }
 
+/* A question waiting on an answer (QH-1): a yellow hand instead of any dot. */
+.fc-session-hand {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+}
+
 .fc-session-dot-running {
   border-color: var(--fc-accent);
   background: var(--fc-accent);
