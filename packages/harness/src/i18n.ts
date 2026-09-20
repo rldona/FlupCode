@@ -371,6 +371,18 @@ const ES: Record<string, string> = {
   "Already use FlupCode on a computer? Open Remote control → Pair a device there and scan the code with this device.":
     "¿Ya usas FlupCode en un ordenador? Abre allí Control remoto → Emparejar un dispositivo y escanea el código con este dispositivo.",
   "Use a server on this device": "Usar un servidor en este dispositivo",
+  Devices: "Dispositivos",
+  "Add device": "Añadir dispositivo",
+  "Tap to connect": "Toca para conectar",
+  "Filter sessions": "Filtrar sesiones",
+  "Active sessions": "Activas",
+  "No active sessions": "No hay sesiones activas",
+  now: "ahora",
+  Working: "Trabajando",
+  "Needs your input": "Necesita tu respuesta",
+  Idle: "Inactiva",
+  "Choose a project": "Elige un proyecto",
+  "Describe a task to start a new session.": "Describe una tarea para empezar una sesión nueva.",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

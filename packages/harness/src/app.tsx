@@ -1,4 +1,5 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
+import { createResource } from "./resource"
 import type { PermissionV2Request, ProviderDirectoryInfo, QuestionV2Request } from "./engine-types"
 import type { SessionMessageAssistant } from "./engine-types"
 import { createClient, resolveServerUrl } from "./client"
@@ -34,7 +35,9 @@ import { RemotePanel } from "./components/RemotePanel"
 import { ArtifactsPanel } from "./components/ArtifactsPanel"
 import { SkillsPanel } from "./components/SkillsPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
-import { desktopRemote, remote, remoteBaseUrl } from "./remote"
+import { desktopRemote, remote, remoteBaseUrl, touchDevice } from "./remote"
+import { RemoteHome, type RemoteSessionItem } from "./components/RemoteHome"
+import { engineFetch } from "./transport"
 
 type Client = ReturnType<typeof createClient>
 
@@ -72,6 +75,32 @@ export const App: Component = () => {
   const [error, setError] = createSignal<string>()
   const [collapsed, setCollapsed] = createSignal(readStorage(STORAGE_KEYS.sidebarCollapsed, false))
   const [narrow, setNarrow] = createSignal(typeof window !== "undefined" && window.innerWidth < 768)
+  // Phones controlling a computer get their own layout: a sessions home and a focused session screen.
+  const mobileRemote = () => touchDevice && !desktopRemote() && !!remote.activeHost()
+  const [mobileComposing, setMobileComposing] = createSignal(false)
+  // Run state from the event stream; it takes precedence over the last activity snapshot.
+  const [runState, setRunState] = createSignal<Record<string, boolean>>({})
+  const [activityTick, setActivityTick] = createSignal(0)
+  const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const trackActivity = (type: string, data: { sessionID?: string; status?: { type?: string } } | undefined) => {
+    const sessionID = data?.sessionID
+    if (!sessionID) return
+    const status = data?.status?.type
+    const running = type === "session.next.step.started" || status === "busy" || status === "retry"
+    const stopped =
+      type === "session.next.step.ended" ||
+      type === "session.next.step.failed" ||
+      type === "session.idle" ||
+      status === "idle"
+    if (!running && !stopped) return
+    clearTimeout(idleTimers.get(sessionID))
+    if (running) return setRunState((state) => ({ ...state, [sessionID]: true }))
+    // Steps end between tool calls; only settle to idle when no new step follows shortly.
+    idleTimers.set(
+      sessionID,
+      setTimeout(() => setRunState((state) => ({ ...state, [sessionID]: false })), 2500),
+    )
+  }
   const [pinned, setPinned] = createSignal(readStorage<string[]>(STORAGE_KEYS.pinnedSessions, []))
   const [expanded, setExpanded] = createSignal<Record<string, boolean>>(
     readStorage<Record<string, boolean>>(STORAGE_KEYS.expandedProjects, {}),
@@ -508,6 +537,7 @@ export const App: Component = () => {
             attempt = 0
             const type = event.type ?? ""
             const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
+            trackActivity(type, payload as { sessionID?: string; status?: { type?: string } } | undefined)
             if (type === "session.next.step.started") {
               if (payload?.sessionID === selected()) {
                 setStreamedChars(0)
@@ -524,6 +554,7 @@ export const App: Component = () => {
               }
               continue
             }
+            if (type.startsWith("permission.") || type.startsWith("question.")) setActivityTick((value) => value + 1)
             if (type.startsWith("permission.")) {
               if (type === "permission.v2.asked") notify(t("Permission needed"), "")
               void refetchPermissions()
@@ -686,6 +717,96 @@ export const App: Component = () => {
     }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   })
+
+  const [remoteActivity] = createResource(
+    () =>
+      mobileRemote() && ready()
+        ? JSON.stringify({
+            url: serverUrl(),
+            directories: projects().map((project) => project.directory),
+            tick: activityTick(),
+          })
+        : undefined,
+    async (key) => {
+      const input = JSON.parse(key) as { url: string; directories: string[] }
+      const base = input.url.replace(/\/$/, "")
+      const lists = await Promise.all(
+        input.directories.map(async (directory) => {
+          const get = (path: string): Promise<unknown> =>
+            engineFetch(`${base}${path}?directory=${encodeURIComponent(directory)}`)
+              .then((response) => (response.ok ? response.json() : undefined))
+              .catch(() => undefined)
+          const [status, permissions, questions, vcs] = await Promise.all([
+            get("/session/status"),
+            get("/permission"),
+            get("/question"),
+            createClient(input.url)
+              .vcs.get(directory)
+              .catch(() => undefined),
+          ])
+          const requests = [permissions, questions].flatMap((list) =>
+            Array.isArray(list) ? (list as Array<{ sessionID?: string }>) : [],
+          )
+          return {
+            directory,
+            busy: Object.entries((status ?? {}) as Record<string, { type?: string }>)
+              .filter(([, value]) => value?.type && value.type !== "idle")
+              .map(([id]) => id),
+            waiting: requests.flatMap((request) => (request.sessionID ? [request.sessionID] : [])),
+            branch: (vcs as { branch?: string } | undefined)?.branch,
+          }
+        }),
+      )
+      return {
+        busy: new Set(lists.flatMap((list) => list.busy)),
+        waiting: new Set(lists.flatMap((list) => list.waiting)),
+        branches: Object.fromEntries(lists.map((list) => [list.directory, list.branch])),
+      }
+    },
+  )
+
+  const remoteSessions = createMemo((): RemoteSessionItem[] => {
+    if (!mobileRemote()) return []
+    const activity = remoteActivity.latest
+    const runs = runState()
+    return (sessionList() ?? [])
+      .filter((session) => !session.parentID && !session.time.archived)
+      .sort((a, b) => b.time.updated - a.time.updated)
+      .map((session) => {
+        const directory = session.location?.directory
+        const running = session.id in runs ? runs[session.id] : activity?.busy.has(session.id)
+        return {
+          id: session.id,
+          title: session.title,
+          project: directory?.split("/").filter(Boolean).at(-1),
+          branch: directory ? activity?.branches[directory] : undefined,
+          updated: session.time.updated,
+          state: activity?.waiting.has(session.id) ? "waiting" : running ? "busy" : "idle",
+        }
+      })
+  })
+
+  const mobileScreen = () => (selected() || mobileComposing() ? "session" : "home")
+  const openMobileSession = (sessionID: string) => {
+    selectSession(sessionID)
+    window.history.pushState({ flupcode: "session" }, "")
+  }
+  const startMobileSession = (directory: string | undefined) => {
+    newSession(directory)
+    setMobileComposing(true)
+    window.history.pushState({ flupcode: "session" }, "")
+  }
+  const leaveMobileSession = () => {
+    setMobileComposing(false)
+    setSelected(undefined)
+    setTargetDirectory(undefined)
+    setPrompt("")
+  }
+  const onPopState = () => {
+    if (mobileRemote() && mobileScreen() === "session") leaveMobileSession()
+  }
+  window.addEventListener("popstate", onPopState)
+  onCleanup(() => window.removeEventListener("popstate", onPopState))
 
   const [range, setRange] = createSignal<UsageRange>("all")
   const filteredSessions = createMemo(() => filterByRange(sessionList() ?? [], range()))
@@ -1507,95 +1628,137 @@ export const App: Component = () => {
   return (
     <div
       class="fc-app"
+      classList={{ "fc-mobile-remote": mobileRemote() }}
       style={{
-        "--fc-content-left": collapsed() ? "0px" : `${sidebarWidth()}px`,
-        "--fc-content-right": `${(panels().length > 0 ? workspaceWidth() : 0) + (selectedSession() ? 300 : 0)}px`,
+        "--fc-content-left": collapsed() || mobileRemote() ? "0px" : `${sidebarWidth()}px`,
+        "--fc-content-right": mobileRemote()
+          ? "0px"
+          : `${(panels().length > 0 ? workspaceWidth() : 0) + (selectedSession() ? 300 : 0)}px`,
       }}
     >
-      <Show when={narrow() && !collapsed()}>
-        <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
-      </Show>
-      <Sidebar
-        collapsed={collapsed()}
-        width={sidebarWidth()}
-        displayName={displayName()}
-        sessions={sessionList()}
-        sessionsLoading={sessions.loading}
-        selectedSession={selected()}
-        pinnedSessions={pinned()}
-        expandedProjects={expanded()}
-        noFolderSessions={noFolderSessions()}
-        onDisplayName={updateDisplayName}
-        onToggleSessionPin={togglePin}
-        onToggleProject={toggleProject}
-        onNewSession={newSession}
-        onSelectSession={selectSession}
-        onDeleteSession={deleteSession}
-        onRenameSession={renameSession}
-        onDeleteProject={deleteProject}
-        onResize={updateSidebarWidth}
-        onCollapse={toggleSidebar}
-        onCopyPath={copyPath}
-        onRefresh={refresh}
-        onAbout={() => setAboutOpen(true)}
-        onSettings={() => setSettingsOpen(true)}
-        onRoutines={() => setRoutinesOpen(true)}
-        onArtifacts={() => setArtifactsOpen(true)}
-        onProviders={() => setProvidersOpen(true)}
-        onConfig={() => setConfigOpen(true)}
-        onRemote={() => setRemoteOpen(true)}
-        onMcp={() => setMcpOpen(true)}
-      />
-      <main class="fc-main">
-        <Topbar
-          healthLoading={health.loading}
-          healthHealthy={health()?.healthy === true}
-          healthError={!health.loading && health()?.healthy === false}
-          canGoBack={canGoBack()}
-          canGoForward={canGoForward()}
-          onBack={goBack}
-          onForward={goForward}
-          onToggleSidebar={toggleSidebar}
-          onOpenPalette={() => setPaletteOpen(true)}
-          workspace={panels()}
-          onTogglePanel={togglePanel}
-          remote={
-            remote.activeHost()
-              ? {
-                  name: remote.activeHost()!.name,
-                  connected: remote.status() === "connected",
-                  onOpen: () => setRemoteOpen(true),
-                }
-              : undefined
-          }
-          sessionTitle={
-            <Show when={selectedSession()}>
-              {(session) => (
-                <SessionTitle session={session()} tags={currentTags()} onAddTag={addTag} onRemoveTag={removeTag} />
-              )}
-            </Show>
-          }
-          sessionActions={
-            <Show when={selectedSession()}>
-              {(session) => (
-                <SessionActions
-                  session={session()}
-                  projects={projects()}
-                  reverting={!!session().revert}
-                  onFork={forkSession}
-                  onCompact={compactSession}
-                  onRename={renameSession}
-                  onExport={exportMarkdown}
-                  onMove={moveSession}
-                  onDelete={deleteSession}
-                  onUndo={undo}
-                  onRedo={redo}
-                  onCommitRevert={commitRevert}
-                />
-              )}
-            </Show>
-          }
+      <Show when={!mobileRemote()}>
+        <Show when={narrow() && !collapsed()}>
+          <div class="fc-sidebar-backdrop" onClick={() => setCollapsed(true)} />
+        </Show>
+        <Sidebar
+          collapsed={collapsed()}
+          width={sidebarWidth()}
+          displayName={displayName()}
+          sessions={sessionList()}
+          sessionsLoading={sessions.loading}
+          selectedSession={selected()}
+          pinnedSessions={pinned()}
+          expandedProjects={expanded()}
+          noFolderSessions={noFolderSessions()}
+          onDisplayName={updateDisplayName}
+          onToggleSessionPin={togglePin}
+          onToggleProject={toggleProject}
+          onNewSession={newSession}
+          onSelectSession={selectSession}
+          onDeleteSession={deleteSession}
+          onRenameSession={renameSession}
+          onDeleteProject={deleteProject}
+          onResize={updateSidebarWidth}
+          onCollapse={toggleSidebar}
+          onCopyPath={copyPath}
+          onRefresh={refresh}
+          onAbout={() => setAboutOpen(true)}
+          onSettings={() => setSettingsOpen(true)}
+          onRoutines={() => setRoutinesOpen(true)}
+          onArtifacts={() => setArtifactsOpen(true)}
+          onProviders={() => setProvidersOpen(true)}
+          onConfig={() => setConfigOpen(true)}
+          onRemote={() => setRemoteOpen(true)}
+          onMcp={() => setMcpOpen(true)}
         />
+      </Show>
+      <main class="fc-main">
+        <Show
+          when={!mobileRemote()}
+          fallback={
+            <Show when={mobileScreen() === "session"}>
+              <header class="fc-mobile-header">
+                <button
+                  class="fc-icon-button fc-mobile-back"
+                  type="button"
+                  aria-label={t("Back")}
+                  onClick={() =>
+                    window.history.state?.flupcode === "session" ? window.history.back() : leaveMobileSession()
+                  }
+                >
+                  ←
+                </button>
+                <span class="fc-mobile-heading">
+                  <span class="fc-mobile-title">{selectedSession()?.title || t("New session")}</span>
+                  <Show
+                    when={(targetDirectory() ?? selectedSession()?.location?.directory)
+                      ?.split("/")
+                      .filter(Boolean)
+                      .at(-1)}
+                  >
+                    {(project) => <span class="fc-mobile-subtitle">{project()}</span>}
+                  </Show>
+                </span>
+                <button
+                  class={`fc-remote-dot fc-remote-dot-${remote.status() === "connected" ? "online" : "connecting"} fc-mobile-host`}
+                  type="button"
+                  aria-label={t("Remote: {name}", { name: remote.activeHost()?.name ?? "" })}
+                  onClick={() => setRemoteOpen(true)}
+                />
+              </header>
+            </Show>
+          }
+        >
+          <Topbar
+            healthLoading={health.loading}
+            healthHealthy={health()?.healthy === true}
+            healthError={!health.loading && health()?.healthy === false}
+            canGoBack={canGoBack()}
+            canGoForward={canGoForward()}
+            onBack={goBack}
+            onForward={goForward}
+            onToggleSidebar={toggleSidebar}
+            onOpenPalette={() => setPaletteOpen(true)}
+            workspace={panels()}
+            onTogglePanel={togglePanel}
+            remote={
+              remote.activeHost()
+                ? {
+                    name: remote.activeHost()!.name,
+                    connected: remote.status() === "connected",
+                    onOpen: () => setRemoteOpen(true),
+                  }
+                : undefined
+            }
+            sessionTitle={
+              <Show when={selectedSession()}>
+                {(session) => (
+                  <SessionTitle session={session()} tags={currentTags()} onAddTag={addTag} onRemoveTag={removeTag} />
+                )}
+              </Show>
+            }
+            sessionActions={
+              <Show when={selectedSession()}>
+                {(session) => (
+                  <SessionActions
+                    session={session()}
+                    projects={projects()}
+                    reverting={!!session().revert}
+                    onFork={forkSession}
+                    onCompact={compactSession}
+                    onRename={renameSession}
+                    onExport={exportMarkdown}
+                    onMove={moveSession}
+                    onDelete={deleteSession}
+                    onUndo={undo}
+                    onRedo={redo}
+                    onCommitRevert={commitRevert}
+                  />
+                )}
+              </Show>
+            }
+          />
+        </Show>
         <Show when={onboarded() && !remote.activeHost() && !health.loading && health()?.healthy !== true}>
           <div class="fc-offline-banner">
             <span>
@@ -1611,17 +1774,34 @@ export const App: Component = () => {
         <Show
           when={selected()}
           fallback={
-            <HomeCanvas
-              displayName={displayName()}
-              range={range()}
-              metrics={metrics()}
-              messages={messageCount()}
-              activity={activity()}
-              comparison={comparisonLine()}
-              error={error()}
-              onRangeChange={setRange}
-              onAction={(value) => setPrompt(value)}
-            />
+            mobileRemote() ? (
+              mobileComposing() ? (
+                <div class="fc-mobile-new">
+                  <p class="fc-onboarding-text">{t("Describe a task to start a new session.")}</p>
+                </div>
+              ) : (
+                <RemoteHome
+                  sessions={remoteSessions()}
+                  loading={sessions.loading}
+                  projects={projects()}
+                  onOpen={openMobileSession}
+                  onNew={startMobileSession}
+                  onAddDevice={() => setRemoteOpen(true)}
+                />
+              )
+            ) : (
+              <HomeCanvas
+                displayName={displayName()}
+                range={range()}
+                metrics={metrics()}
+                messages={messageCount()}
+                activity={activity()}
+                comparison={comparisonLine()}
+                error={error()}
+                onRangeChange={setRange}
+                onAction={(value) => setPrompt(value)}
+              />
+            )
           }
         >
           <SessionView
@@ -1637,74 +1817,78 @@ export const App: Component = () => {
             onEditUser={editMessage}
           />
         </Show>
-        <div class="fc-docks">
-          <For each={permissions()?.data ?? []}>
-            {(request) => (
-              <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
-            )}
-          </For>
-          <For each={questions()?.data ?? []}>
-            {(request) => (
-              <QuestionDock
-                request={request}
-                busy={busy()}
-                onReply={(answers) => replyQuestion(request, answers)}
-                onReject={() => rejectQuestion(request)}
-              />
-            )}
-          </For>
-        </div>
-        <Composer
-          value={prompt()}
-          sending={busy()}
-          modelLabel={modelLabel()}
-          variants={variants()}
-          variantKey={variantKey()}
-          usage={contextUsage()}
-          repo={
-            vcsDirectory()
-              ? {
-                  directory: vcsDirectory()!,
-                  branch: vcsInfo()?.branch,
-                  additions: vcsTotals().additions,
-                  deletions: vcsTotals().deletions,
-                  onCommit: commitChanges,
-                }
-              : undefined
-          }
-          attachments={attachments()}
-          commands={commandOptions()}
-          projects={projects()}
-          targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
-          agents={agents()?.data ?? []}
-          agent={agent()}
-          permissionMode={permissionModeId()}
-          onInput={setPrompt}
-          onSend={send}
-          onCommandPick={(name) => setPrompt(`/${name} `)}
-          onOpenModelPicker={() => setModelPickerOpen(true)}
-          onVariantChange={changeVariant}
-          onAttach={addAttachments}
-          onRemoveAttachment={removeAttachment}
-          searchFiles={searchFiles}
-          onPasteText={collapsePaste}
-          onStash={() => stashPrompt(prompt(), true)}
-          onTargetChange={changeTargetDirectory}
-          onOpenFolder={() => setFolderOpen(true)}
-          onAgentChange={changeAgent}
-          onPermissionModeChange={changePermissionMode}
-        />
+        <Show when={!mobileRemote() || mobileScreen() === "session"}>
+          <div class="fc-docks">
+            <For each={permissions()?.data ?? []}>
+              {(request) => (
+                <PermissionDock request={request} busy={busy()} onReply={(reply) => replyPermission(request, reply)} />
+              )}
+            </For>
+            <For each={questions()?.data ?? []}>
+              {(request) => (
+                <QuestionDock
+                  request={request}
+                  busy={busy()}
+                  onReply={(answers) => replyQuestion(request, answers)}
+                  onReject={() => rejectQuestion(request)}
+                />
+              )}
+            </For>
+          </div>
+          <Composer
+            value={prompt()}
+            sending={busy()}
+            modelLabel={modelLabel()}
+            variants={variants()}
+            variantKey={variantKey()}
+            usage={contextUsage()}
+            repo={
+              vcsDirectory()
+                ? {
+                    directory: vcsDirectory()!,
+                    branch: vcsInfo()?.branch,
+                    additions: vcsTotals().additions,
+                    deletions: vcsTotals().deletions,
+                    onCommit: commitChanges,
+                  }
+                : undefined
+            }
+            attachments={attachments()}
+            commands={commandOptions()}
+            projects={projects()}
+            targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
+            agents={agents()?.data ?? []}
+            agent={agent()}
+            permissionMode={permissionModeId()}
+            onInput={setPrompt}
+            onSend={send}
+            onCommandPick={(name) => setPrompt(`/${name} `)}
+            onOpenModelPicker={() => setModelPickerOpen(true)}
+            onVariantChange={changeVariant}
+            onAttach={addAttachments}
+            onRemoveAttachment={removeAttachment}
+            searchFiles={searchFiles}
+            onPasteText={collapsePaste}
+            onStash={() => stashPrompt(prompt(), true)}
+            onTargetChange={changeTargetDirectory}
+            onOpenFolder={() => setFolderOpen(true)}
+            onAgentChange={changeAgent}
+            onPermissionModeChange={changePermissionMode}
+          />
+        </Show>
       </main>
-      <WorkspacePanels
-        panels={panels()}
-        serverUrl={serverUrl()}
-        session={selectedSession()}
-        width={workspaceWidth()}
-        onResize={updateWorkspaceWidth}
-        onClose={closePanel}
-      />
-      <Show when={selectedSession()}>
-        {(session) => <RightAside session={session()} models={modelList()} todos={todos()} />}
+      <Show when={!mobileRemote()}>
+        <WorkspacePanels
+          panels={panels()}
+          serverUrl={serverUrl()}
+          session={selectedSession()}
+          width={workspaceWidth()}
+          onResize={updateWorkspaceWidth}
+          onClose={closePanel}
+        />
+        <Show when={selectedSession()}>
+          {(session) => <RightAside session={session()} models={modelList()} todos={todos()} />}
+        </Show>
       </Show>
       <CommandPalette
         open={paletteOpen()}

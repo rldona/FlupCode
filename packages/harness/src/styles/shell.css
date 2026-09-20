@@ -4003,3 +4003,285 @@ button.fc-row-main {
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* Mobile remote layout (phones controlling a computer) */
+
+.fc-mobile-remote .fc-main {
+  width: 100%;
+}
+
+.fc-remote-home {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--fc-space-5) var(--fc-space-4) calc(96px + env(safe-area-inset-bottom));
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-5);
+}
+
+.fc-remote-home-title {
+  margin: var(--fc-space-4) 0 0;
+  font-size: 32px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.fc-remote-home-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+}
+
+.fc-remote-home-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fc-remote-home-heading {
+  margin: 0 0 var(--fc-space-1) var(--fc-space-2);
+  font-size: var(--fc-text-lg);
+  font-weight: 500;
+  color: var(--fc-text-muted);
+}
+
+.fc-remote-filter {
+  border: none;
+  background: transparent;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-md);
+  padding: 4px 8px;
+}
+
+.fc-remote-card {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-3);
+  width: 100%;
+  min-height: 64px;
+  padding: var(--fc-space-3) var(--fc-space-4);
+  border: 1px solid var(--fc-border);
+  border-radius: 22px;
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  text-align: left;
+}
+
+.fc-remote-card:active {
+  background: color-mix(in srgb, var(--fc-border) 40%, var(--fc-bg-elevated));
+}
+
+.fc-remote-card-active {
+  border-color: color-mix(in srgb, var(--fc-success-soft) 45%, var(--fc-border));
+}
+
+.fc-remote-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-remote-card-title {
+  font-size: var(--fc-text-lg);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-remote-card-meta {
+  font-size: 13px;
+  color: var(--fc-text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-remote-card-time {
+  align-self: flex-start;
+  font-size: 13px;
+  color: var(--fc-text-muted);
+  white-space: nowrap;
+}
+
+.fc-remote-dot {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 2px solid var(--fc-text-muted);
+  border-radius: 50%;
+  background: transparent;
+}
+
+.fc-remote-dot-busy {
+  border-color: var(--fc-accent);
+  background: var(--fc-accent);
+  animation: fc-remote-pulse 1.4s ease-in-out infinite;
+}
+
+.fc-remote-dot-waiting {
+  border-color: #f79009;
+  background: #f79009;
+}
+
+.fc-remote-dot-online {
+  border-color: var(--fc-success-soft);
+  background: var(--fc-success-soft);
+}
+
+.fc-remote-dot-connecting {
+  border-color: #f79009;
+}
+
+.fc-remote-dot-error {
+  border-color: var(--fc-danger);
+  background: var(--fc-danger);
+}
+
+@keyframes fc-remote-pulse {
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-remote-dot-busy {
+    animation: none;
+  }
+}
+
+.fc-remote-pill {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  height: var(--fc-control-lg);
+  padding: 0 var(--fc-space-4);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: var(--fc-text-md);
+}
+
+.fc-remote-empty {
+  margin: 0 var(--fc-space-2);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-md);
+}
+
+.fc-remote-fab {
+  position: fixed;
+  right: var(--fc-space-4);
+  bottom: calc(var(--fc-space-4) + env(safe-area-inset-bottom));
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  height: 52px;
+  padding: 0 var(--fc-space-5);
+  border: none;
+  border-radius: var(--fc-radius-pill);
+  background: var(--fc-text);
+  color: var(--fc-bg);
+  font-size: var(--fc-text-lg);
+  font-weight: 500;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.25);
+}
+
+.fc-remote-sheet-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: flex-end;
+  background: rgb(0 0 0 / 0.45);
+}
+
+.fc-remote-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  width: 100%;
+  max-height: 75vh;
+  overflow-y: auto;
+  padding: var(--fc-space-4) var(--fc-space-4) calc(var(--fc-space-4) + env(safe-area-inset-bottom));
+  border-radius: 24px 24px 0 0;
+  background: var(--fc-bg);
+}
+
+.fc-mobile-header {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  min-height: 56px;
+  padding: calc(var(--fc-space-1) + env(safe-area-inset-top)) var(--fc-space-3) var(--fc-space-1);
+  border-bottom: 1px solid var(--fc-border);
+}
+
+.fc-mobile-back {
+  width: var(--fc-control-lg);
+  height: var(--fc-control-lg);
+  font-size: 20px;
+}
+
+.fc-mobile-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+}
+
+.fc-mobile-title {
+  max-width: 100%;
+  font-size: var(--fc-text-md);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-mobile-subtitle {
+  font-size: var(--fc-text-sm);
+  color: var(--fc-text-muted);
+}
+
+.fc-mobile-host {
+  margin: 0 var(--fc-space-3);
+  cursor: pointer;
+}
+
+.fc-mobile-new {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--fc-space-5);
+  text-align: center;
+}
+
+/* The session screen already fixes the folder; keep the phone composer focused on the prompt. */
+.fc-mobile-remote .fc-repo-bar,
+.fc-mobile-remote .fc-composer-left .fc-folder {
+  display: none;
+}
+
+.fc-mobile-remote .fc-composer {
+  padding-bottom: calc(var(--fc-space-2) + env(safe-area-inset-bottom));
+}
+
+.fc-remote-filter {
+  width: auto;
+  appearance: none;
+  -webkit-appearance: none;
+  padding-right: 20px;
+  background: transparent
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 4.5l3 3 3-3' fill='none' stroke='%23888' stroke-width='1.5'/%3E%3C/svg%3E")
+    no-repeat right 4px center;
+}
