@@ -47,6 +47,24 @@ describe("the @ menu", () => {
     expect(mentionItems("", { files: many, agents: [], artifacts: [] })).toHaveLength(8)
   })
 
+  test("HF-6: inline artifacts are offered by title and cite by id", () => {
+    const items = mentionItems("verif", {
+      files: [],
+      agents: [],
+      artifacts: [
+        { path: "reports/review.md", title: "Review" },
+        { id: "abc123-def", title: "verify — passed", kind: "verdict" },
+      ],
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      kind: "artifact",
+      value: "artifact:abc123-def",
+      label: "@verify — passed",
+      hint: "verdict",
+    })
+  })
+
   test("a pack is offered, and carries the refs it stands for", () => {
     const [pack] = mentionItems("rev", {
       files: [],
