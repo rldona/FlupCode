@@ -4,7 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   TEMPLATES,
+  UnknownTaskError,
   duration,
+  explainWorkflow,
   fill,
   findWorkflow,
   listWorkflows,
@@ -102,6 +104,25 @@ tasks:
       { name: "plan", prompt: "Plan search", kind: "agent", agent: "plan" },
       { name: "verify", prompt: "", kind: "verify", retries: 2 },
     ])
+  })
+
+  test("stops at the named task when asked (HF-1)", () => {
+    const workflow = parseWorkflow(
+      `name: feature
+tasks:
+  - id: plan
+    prompt: plan it
+  - id: build
+    prompt: build it
+  - id: verify
+    kind: verify
+`,
+      "x",
+    )!
+    expect(tasksFor(workflow, {}, "plan").map((task) => task.name)).toEqual(["plan"])
+    expect(tasksFor(workflow, {}, "build").map((task) => task.name)).toEqual(["plan", "build"])
+    expect(tasksFor(workflow, {}, "verify").map((task) => task.name)).toEqual(["plan", "build", "verify"])
+    expect(() => tasksFor(workflow, {}, "nope")).toThrow(UnknownTaskError)
   })
 })
 
@@ -275,6 +296,68 @@ describe("editing a workflow file (H-28)", () => {
     expect(await removeWorkflow("x", project)).toBe(true)
     expect(await readWorkflow("x", project)).toBeUndefined()
     expect(await removeWorkflow("x", project)).toBe(false)
+  })
+
+  test("HF-2: explains why a file is not a workflow", () => {
+    expect(explainWorkflow("tasks: [", "x").ok).toBe(false)
+    expect(explainWorkflow("name: empty\ntasks: []\n", "x")).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("at least one task"),
+    })
+    expect(explainWorkflow("name: x\ntasks:\n  - id: a\n    prompt: one\n  - id: a\n    prompt: two\n", "x")).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("share an id"),
+    })
+    expect(
+      explainWorkflow("name: x\ntasks:\n  - id: a\n    dependsOn: [ghost]\n    prompt: a\n", "x"),
+    ).toMatchObject({ ok: false, problem: expect.stringContaining("ghost") })
+    expect(explainWorkflow("name: x\ntasks:\n  - id: a\n    prompt: a\n", "x").ok).toBe(true)
+  })
+
+  test("HF-2: inputs carry defaults that fill prompts", () => {
+    const workflow = parseWorkflow(
+      `name: review
+inputs:
+  - name: scope
+    default: "all changes"
+    description: What to review
+tasks:
+  - id: review
+    prompt: "Review {{scope}}"
+`,
+      "x",
+    )!
+    expect(workflow.inputs).toEqual(["scope"])
+    expect(workflow.inputDefaults).toEqual({ scope: "all changes" })
+    expect(workflow.inputHelp).toEqual({ scope: "What to review" })
+    expect(tasksFor(workflow, {})[0]!.prompt).toBe("Review all changes")
+    expect(tasksFor(workflow, { scope: "HEAD" })[0]!.prompt).toBe("Review HEAD")
+  })
+
+  test("HF-3: a file can ask for worktrees, and a verify names its recovery", () => {
+    const workflow = parseWorkflow(
+      `name: feature
+inputs: [goal]
+worktrees: true
+tasks:
+  - id: build
+    prompt: "Build {{goal}}"
+  - id: check
+    kind: verify
+    dependsOn: [build]
+  - id: explain
+    prompt: explain
+    dependsOn: [check]
+    when: { task: check, is: [failed] }
+`,
+      "x",
+    )!
+    expect(workflow.worktrees).toBe(true)
+    const tasks = tasksFor(workflow, { goal: "search" })
+    expect(tasks.map((task) => task.name)).toEqual(["build", "check", "explain"])
+    expect(tasks[2]).toMatchObject({ when: { task: "check", is: ["failed"] } })
+    // And a file that says nothing about trees asks for none: isolation is stated, never default.
+    expect(parseWorkflow("name: x\ntasks:\n  - id: a\n    prompt: a\n", "x")!.worktrees).toBeUndefined()
   })
 })
 

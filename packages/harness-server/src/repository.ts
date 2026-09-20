@@ -12,6 +12,7 @@ import type {
   RoutineInput,
   RoutineRepository,
   Run,
+  RunPolicy,
   RunSource,
   Task,
   TaskCondition,
@@ -219,6 +220,8 @@ type RoutineRow = {
   project_directory: string | null
   agent: string | null
   model_json: string | null
+  workflow_json: string | null
+  policy_json: string | null
   enabled: number
   created_at: number
   last_run_at: number | null
@@ -495,11 +498,41 @@ const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine => ({
   projectDirectory: row.project_directory ?? undefined,
   agent: row.agent ?? undefined,
   model: decodeModel(row.model_json),
+  workflow: decodeRoutineWorkflow(row.workflow_json),
+  policy: decodeRoutinePolicy(row.policy_json),
   enabled: row.enabled === 1,
   createdAt: row.created_at,
   lastRunAt: row.last_run_at ?? undefined,
   runs,
 })
+
+/** A routine's workflow, or nothing when it runs a single prompt (HF-8). */
+function decodeRoutineWorkflow(value: string | null): Routine["workflow"] {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as { name?: unknown; inputs?: unknown }
+    if (typeof parsed.name !== "string" || !parsed.name.trim()) return undefined
+    const inputs: Record<string, string> = {}
+    if (parsed.inputs && typeof parsed.inputs === "object" && !Array.isArray(parsed.inputs)) {
+      for (const [name, entry] of Object.entries(parsed.inputs as Record<string, unknown>)) {
+        if (typeof entry === "string") inputs[name] = entry
+      }
+    }
+    return { name: parsed.name.trim(), ...(Object.keys(inputs).length > 0 ? { inputs } : {}) }
+  } catch {
+    return undefined
+  }
+}
+
+function decodeRoutinePolicy(value: string | null): Routine["policy"] {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as RunPolicy
+    return parsed && typeof parsed === "object" ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
 
 const decodeSource = (row: RunRow): RunSource =>
   row.source_type === "routine" && row.source_id ? { type: "routine", routineID: row.source_id } : { type: "manual" }
@@ -598,6 +631,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("runs", "directory", "TEXT")
     this.addColumn("findings", "source", "TEXT")
     this.addColumn("runs", "options", "TEXT")
+    this.addColumn("routines", "workflow_json", "TEXT")
+    this.addColumn("routines", "policy_json", "TEXT")
     this.addColumn("tasks", "directory", "TEXT")
     this.addColumn("tasks", "depends_on", "TEXT")
     this.addColumn("tasks", "when_json", "TEXT")
@@ -649,8 +684,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       this.db
         .query(
           `INSERT INTO routines
-            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, enabled, created_at, last_run_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)`,
+            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, workflow_json, policy_json, enabled, created_at, last_run_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
         )
         .run(
           routine.id,
@@ -661,6 +696,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
           routine.projectDirectory ?? null,
           routine.agent ?? null,
           routine.model ? JSON.stringify(routine.model) : null,
+          routine.workflow ? JSON.stringify(routine.workflow) : null,
+          routine.policy ? JSON.stringify(routine.policy) : null,
           routine.enabled ? 1 : 0,
           routine.createdAt,
           routine.lastRunAt ?? null,
@@ -676,8 +713,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db
       .query(
         `UPDATE routines
-         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7
-         WHERE id = ?8`,
+         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7, workflow_json = ?8, policy_json = ?9
+         WHERE id = ?10`,
       )
       .run(
         input.name,
@@ -687,6 +724,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         input.projectDirectory ?? null,
         input.agent ?? null,
         input.model ? JSON.stringify(input.model) : null,
+        input.workflow ? JSON.stringify(input.workflow) : null,
+        input.policy ? JSON.stringify(input.policy) : null,
         id,
       )
     const routine = this.get(id)
@@ -902,7 +941,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return artifact
   }
 
-  listArtifacts(filter: { directory?: string; runID?: string; kind?: ArtifactKind } = {}, limit = 100) {
+  listArtifacts(filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string } = {}, limit = 100) {
     const where: string[] = []
     const values: unknown[] = []
     if (filter.directory) {
@@ -916,6 +955,13 @@ export class SqliteRoutineRepository implements RoutineRepository {
     if (filter.kind) {
       values.push(filter.kind)
       where.push(`kind = ?${values.length}`)
+    }
+    // Text search over title and inline content (HF-7). LIKE wildcards in the query are escaped
+    // so searching for `100%` finds that, not everything.
+    if (filter.q?.trim()) {
+      const needle = `%${filter.q.trim().replace(/[\\%_]/g, (char) => `\\${char}`)}%`
+      values.push(needle, needle)
+      where.push(`(title LIKE ?${values.length - 1} ESCAPE '\\' OR content LIKE ?${values.length} ESCAPE '\\')`)
     }
     values.push(limit)
     const rows = this.db
@@ -1327,7 +1373,30 @@ export class SqliteRoutineRepository implements RoutineRepository {
          WHERE status IN ('running', 'awaiting')`,
       )
       .run(now)
+    // Work in flight died with the process, but its row says otherwise. Back to queued with the
+    // reason on it, so a resume picks it up — with the caveat that its side effects may already
+    // have happened, which the resume names (HF-5).
+    this.requeueActiveTasks("Harness server restarted while the task was active")
     this.db.query("DELETE FROM locks").run()
+  }
+
+  /**
+   * In-flight rows back to queued (HF-5).
+   *
+   * A task the runner had started but never finished has an unknown outcome: the engine may have
+   * done the work and only the record was lost. Requeueing keeps the reason visible so a resume is
+   * an explicit decision, not a silent replay.
+   */
+  requeueActiveTasks(reason: string) {
+    return this.db.transaction(() => {
+      const rows = this.db.query("SELECT id FROM tasks WHERE status = 'running'").all() as Array<{ id: string }>
+      for (const row of rows) {
+        this.db.query("UPDATE tasks SET status = 'queued', error = ?1 WHERE id = ?2 AND status = 'running'").run(reason, row.id)
+        const task = this.getTask(row.id)
+        if (task) this.append({ type: "task.changed", task })
+      }
+      return rows.map((row) => row.id)
+    })()
   }
 
   // ---- tasks ----------------------------------------------------------------------------------

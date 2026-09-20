@@ -1,12 +1,12 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import type { FileSystemEntry, SessionInfo } from "../engine-types"
-import type { Artifact, CommandOption, ProjectItem, Routine, Run } from "../types"
+import type { Artifact, CommandOption, ProjectItem, Routine, Run, Workflow } from "../types"
 import { t } from "../i18n"
 import { sessionTitle } from "../session-title"
 import { isCoworkSession } from "../chat"
 
 /** What can be found. The order is the order of the tabs. */
-export const KINDS = ["session", "project", "artifact", "routine", "run", "command", "file"] as const
+export const KINDS = ["session", "project", "artifact", "routine", "run", "workflow", "command", "file"] as const
 export type Kind = (typeof KINDS)[number]
 
 export type PaletteItem = {
@@ -27,6 +27,7 @@ const LABELS: Record<Kind, string> = {
   artifact: "Artifacts",
   routine: "Routines",
   run: "Runs",
+  workflow: "Workflows",
   command: "Commands",
   file: "Files",
 }
@@ -37,6 +38,7 @@ const BADGES: Record<Kind, string> = {
   artifact: "A",
   routine: "R",
   run: "▸",
+  workflow: "W",
   command: "/",
   file: "@",
 }
@@ -61,6 +63,7 @@ export function search(
     artifacts: Artifact[]
     routines: Routine[]
     runs: Run[]
+    workflows: Workflow[]
     files: FileSystemEntry[]
   },
 ): PaletteItem[] {
@@ -102,6 +105,16 @@ export function search(
     if (value && !contains(`${label} ${run.status}`, value)) continue
     items.push({ kind: "run", id: `run:${run.id}`, label, detail: run.status, value: run.id })
   }
+  for (const workflow of sources.workflows) {
+    if (value && !contains(`${workflow.name} ${workflow.description ?? ""}`, value)) continue
+    items.push({
+      kind: "workflow",
+      id: `workflow:${workflow.name}`,
+      label: workflow.name,
+      detail: workflow.description,
+      value: workflow.name,
+    })
+  }
   for (const command of sources.commands) {
     if (value && !contains(command.name, value)) continue
     items.push({
@@ -134,6 +147,7 @@ type CommandPaletteProps = {
   artifacts: Artifact[]
   routines: Routine[]
   runs: Run[]
+  workflows: Workflow[]
   onClose: () => void
   onCommand: (name: string) => void
   onSession: (id: string) => void
@@ -141,6 +155,7 @@ type CommandPaletteProps = {
   onArtifact: (id: string) => void
   onRoutine: (id: string) => void
   onRun: (id: string) => void
+  onWorkflow: (name: string) => void
   onFile: (path: string) => void
   searchFiles: (query: string) => Promise<FileSystemEntry[]>
   /** Sessions matching the query that the loaded page does not hold (H-18). */
@@ -206,6 +221,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
       artifacts: props.artifacts,
       routines: props.routines,
       runs: props.runs,
+      workflows: props.workflows,
       files: files(),
     }),
   )
@@ -238,6 +254,7 @@ export const CommandPalette: Component<CommandPaletteProps> = (props) => {
     else if (item.kind === "artifact") props.onArtifact(item.value)
     else if (item.kind === "routine") props.onRoutine(item.value)
     else if (item.kind === "run") props.onRun(item.value)
+    else if (item.kind === "workflow") props.onWorkflow(item.value)
     else props.onFile(item.value)
     props.onClose()
   }

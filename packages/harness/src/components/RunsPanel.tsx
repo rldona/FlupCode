@@ -35,9 +35,12 @@ type RunsPanelProps = {
   onRetry: (taskID: string, model?: { providerID: string; id: string; variant?: string }) => void
   /** Sends a message to a running task's own session, which steers it (H-12). */
   onSteer: (taskID: string, text: string) => void
+  /** Takes a queued task off the run without stopping the rest (HF-4). */
+  onCancelTask: (taskID: string) => void
+  /** Picks up a run that ended with work still queued (HF-5). */
+  onResume: (id: string) => void
   /** Opens the best-of-n launcher: one task, several models, then compare them (H-44). */
   onBestOfN: () => void
-  onClose: () => void
 }
 
 /**
@@ -170,9 +173,6 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                 {t("Clear finished")}
               </button>
             </Show>
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
           </div>
         </div>
 
@@ -276,14 +276,30 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                     <Show
                       when={going(run)}
                       fallback={
-                        <button
-                          class="fc-run-open fc-run-danger"
-                          type="button"
-                          disabled={!props.serverAvailable}
-                          onClick={() => setConfirming(run.id)}
-                        >
-                          {t("Delete")}
-                        </button>
+                        <>
+                          {/* A run that ended with work still queued can be picked up (HF-5). */}
+                          <Show
+                            when={(run.status === "failed" || run.status === "stopped") &&
+                              (run.tasks ?? []).some((task) => task.status === "queued")}
+                          >
+                            <button
+                              class="fc-run-open"
+                              type="button"
+                              disabled={!props.serverAvailable}
+                              onClick={() => props.onResume(run.id)}
+                            >
+                              {t("Resume")}
+                            </button>
+                          </Show>
+                          <button
+                            class="fc-run-open fc-run-danger"
+                            type="button"
+                            disabled={!props.serverAvailable}
+                            onClick={() => setConfirming(run.id)}
+                          >
+                            {t("Delete")}
+                          </button>
+                        </>
                       }
                     >
                       <button
@@ -484,6 +500,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                 onOpenSession={props.onOpenSession}
                 onRetry={props.onRetry}
                 onSteer={props.onSteer}
+                onCancel={props.onCancelTask}
                 onOpenChanges={props.onOpenChanges ?? (() => undefined)}
                 onClose={() => setSelectedTask(undefined)}
               />

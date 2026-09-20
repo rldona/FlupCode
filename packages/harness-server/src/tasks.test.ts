@@ -902,6 +902,36 @@ describe("context packs and handoffs (H-31)", () => {
     repository.close()
   })
 
+  test("HF-6: an artifact ref in a pack reaches the task as its content", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-packs-"))
+    scratch.push(directory)
+    const artifact = repository.addArtifact({
+      kind: "verdict",
+      title: "verify — passed",
+      producer: "harness",
+      content: "Verification: passed",
+      directory,
+    })
+    repository.savePack({ name: "ctx", refs: [`@artifact:${artifact.id}`], directory })
+
+    const sent: string[] = []
+    const engine = {
+      createSession: async () => ({ id: `ses_${sent.length}` }),
+      prompt: async (input: { text: string }) => void sent.push(input.text),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory, { packs: ["ctx"] })
+    repository.addTasks(run.id, [{ name: "build", prompt: "Do it" }])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    expect(sent[0]).toContain("--- verify — passed (verdict) ---")
+    expect(sent[0]).toContain("Verification: passed")
+    repository.close()
+  })
+
   test("a closing note is kept as an artifact and handed to the next task", async () => {
     const repository = open()
     const directory = mkdtempSync(join(tmpdir(), "flupcode-handoff-"))

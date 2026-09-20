@@ -1,11 +1,11 @@
 import { sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
-import type { Run, Task, TaskStatus } from "./types"
+import type { Run, Task, TaskStatus, Artifact } from "./types"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { externalCommand, runExternal } from "./external"
 import { take } from "./checkpoint"
 import { parseFindings } from "./findings"
-import { packFiles, packRefs } from "./packs"
+import { packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
 import { budgetReason, fallbackModel, modelForTask } from "./policy"
 
@@ -314,6 +314,17 @@ export class TaskRunner {
     return { action: "run" }
   }
 
+  /** An `@artifact:` ref answered with the artifact's content, newest of its kind (HF-6). */
+  private artifactQuote(key: string, run: Run, directory?: string) {
+    const exact = this.repository.getArtifact(key)
+    if (exact) return { title: exact.title, kind: exact.kind, content: exact.content }
+    const kind = key as Artifact["kind"]
+    const byRun = this.repository.listArtifacts({ kind, runID: run.id })
+    const latest = byRun.length > 0 ? byRun[0] : directory ? this.repository.listArtifacts({ kind, directory })[0] : undefined
+    if (!latest) return undefined
+    return { title: latest.title, kind: latest.kind, content: latest.content }
+  }
+
   /** What the tasks before it concluded, joined: a graph task may have several (H-28). */
   private handoffFor(task: Task, tasks: Task[], context: RunContext) {
     const notes = this.dependencies(task, tasks)
@@ -489,12 +500,14 @@ export class TaskRunner {
           this.repository.attachTaskDirectory(task.id, directory)
         }
       }
-      // What the run's packs point at, in this task's tree.
+      // What the run's packs point at, in this task's tree. Artifact refs are said as their
+      // content, so a handoff or a verdict is actually read, not just named (HF-6).
       const packs =
         context.packRefsList.length > 0 && directory
           ? packFiles(context.packRefsList, directory)
           : { files: [], others: [] }
-      const contextText = packs.others.length > 0 ? packs.others.join("\n") : undefined
+      const quoted = expandArtifactRefs(packs.others, (key) => this.artifactQuote(key, run, directory))
+      const contextText = quoted.length > 0 ? quoted.join("\n") : undefined
       const contextFiles = packs.files.map((path) => ({ path }))
       // Another vendor's CLI does the work (H-38). It is a process this server holds, so stop and
       // the run's ceiling reach it; it has no session, no model and no tokens the harness can bill.

@@ -57,11 +57,17 @@ export type Workflow = {
   description: string
   /** The names a launcher asks for and the prompts interpolate, e.g. `goal`. */
   inputs: string[]
+  /** Defaults for inputs, so a launcher can start without asking for every one (HF-2). */
+  inputDefaults?: Record<string, string>
+  /** One-line help per input, shown in the launcher (HF-2). */
+  inputHelp?: Record<string, string>
   tasks: WorkflowTask[]
   /** `limits: { tool: 10m }` — how long one tool call may run before the task is stopped (H-47). */
   toolLimitMs?: number
   /** `outside: true` — let this workflow's tasks reach outside the project. Stated, never default. */
   outside?: boolean
+  /** `worktrees: true` — give each writing task its own tree (H-29). Stated, never default. */
+  worktrees?: boolean
   /** `shell: false` — refuse the shell for this workflow's tasks (H-47). Stated, never default. */
   shell?: boolean
 }
@@ -86,28 +92,92 @@ export function duration(value: unknown): number | undefined {
 
 /** What v1 runs. `dependsOn`, `parallel`, `foreach` and `when` are H-28; order is the dependency. */
 export function parseWorkflow(text: string, fallbackName: string): Workflow | undefined {
+  const explained = explainWorkflow(text, fallbackName)
+  return explained.ok ? explained.workflow : undefined
+}
+
+/**
+ * Why a workflow file does not parse, with the line when YAML names one (HF-2).
+ *
+ * The editor shows this instead of a generic refusal: a mistake that says where it is
+ * gets fixed, one that does not gets retried blindly.
+ */
+export function explainWorkflow(
+  text: string,
+  fallbackName: string,
+): { ok: true; workflow: Workflow } | { ok: false; problem: string; line?: number } {
   let parsed: unknown
   try {
     parsed = Bun.YAML.parse(text)
-  } catch {
-    return undefined
+  } catch (cause) {
+    const detail = cause instanceof Error ? cause.message : String(cause)
+    const line = /line\s+(\d+)/i.exec(detail)?.[1]
+    return {
+      ok: false,
+      problem: `YAML${line ? ` (line ${line})` : ""}: ${detail}`,
+      ...(line ? { line: Number(line) } : {}),
+    }
   }
-  if (!parsed || typeof parsed !== "object") return undefined
+  if (!parsed || typeof parsed !== "object") return { ok: false, problem: "The file is empty or not a mapping" }
   const value = parsed as Record<string, unknown>
-  const tasks = Array.isArray(value.tasks) ? value.tasks.map(taskFrom).filter((task) => !!task) : []
-  if (tasks.length === 0) return undefined
-  if (graphProblem(tasks)) return undefined
+  const rawTasks = Array.isArray(value.tasks) ? value.tasks : []
+  const tasks = rawTasks.map(taskFrom).filter((task) => !!task)
+  if (rawTasks.length === 0) return { ok: false, problem: "A workflow needs at least one task under `tasks:`" }
+  if (tasks.length !== rawTasks.length)
+    return { ok: false, problem: "One task has no id, or an agent task has no prompt" }
+  if (tasks.length === 0) return { ok: false, problem: "A workflow needs at least one task under `tasks:`" }
+  const graph = graphProblem(tasks)
+  if (graph) return { ok: false, problem: graph }
   const limits = value.limits && typeof value.limits === "object" ? (value.limits as Record<string, unknown>) : undefined
   const toolLimitMs = duration(limits?.tool)
+  const { inputs, inputDefaults, inputHelp } = inputsFrom(value.inputs)
   return {
-    ...(toolLimitMs ? { toolLimitMs } : {}),
-    ...(value.outside === true ? { outside: true as const } : {}),
-    ...(value.shell === false ? { shell: false as const } : {}),
-    name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : fallbackName,
-    description: typeof value.description === "string" ? value.description.trim() : "",
-    inputs: Array.isArray(value.inputs) ? value.inputs.filter((input): input is string => typeof input === "string") : [],
-    tasks,
+    ok: true,
+    workflow: {
+      ...(toolLimitMs ? { toolLimitMs } : {}),
+      ...(value.outside === true ? { outside: true as const } : {}),
+      ...(value.worktrees === true ? { worktrees: true as const } : {}),
+      ...(value.shell === false ? { shell: false as const } : {}),
+      name: typeof value.name === "string" && value.name.trim() ? value.name.trim() : fallbackName,
+      description: typeof value.description === "string" ? value.description.trim() : "",
+      inputs,
+      ...(Object.keys(inputDefaults).length > 0 ? { inputDefaults } : {}),
+      ...(Object.keys(inputHelp).length > 0 ? { inputHelp } : {}),
+      tasks,
+    },
   }
+}
+
+/**
+ * `inputs: [goal]` or `inputs: [{ name: goal, default: "...", description: "..." }]` (HF-2).
+ *
+ * Strings keep v1 files working unchanged; objects let a file answer its own
+ * questions so the launcher starts with the rest filled in instead of refusing.
+ */
+function inputsFrom(value: unknown): {
+  inputs: string[]
+  inputDefaults: Record<string, string>
+  inputHelp: Record<string, string>
+} {
+  if (!Array.isArray(value)) return { inputs: [], inputDefaults: {}, inputHelp: {} }
+  const inputs: string[] = []
+  const inputDefaults: Record<string, string> = {}
+  const inputHelp: Record<string, string> = {}
+  for (const entry of value) {
+    if (typeof entry === "string" && entry.trim()) {
+      inputs.push(entry.trim())
+      continue
+    }
+    if (!entry || typeof entry !== "object") continue
+    const record = entry as Record<string, unknown>
+    const name = typeof record.name === "string" ? record.name.trim() : ""
+    if (!name || inputs.includes(name)) continue
+    inputs.push(name)
+    if (typeof record.default === "string" && record.default.trim()) inputDefaults[name] = record.default.trim()
+    if (typeof record.description === "string" && record.description.trim())
+      inputHelp[name] = record.description.trim()
+  }
+  return { inputs, inputDefaults, inputHelp }
 }
 
 const taskFrom = (value: unknown): WorkflowTask | undefined => {
@@ -209,11 +279,25 @@ export function fill(text: string, inputs: Record<string, string>) {
   return text.replace(/\{\{\s*(\w+)\s*\}\}/g, (whole, name: string) => inputs[name] ?? whole)
 }
 
+/** Thrown when `until` names no task of the workflow (HF-1). */
+export class UnknownTaskError extends Error {
+  constructor(readonly task: string) {
+    super(`No task called ${task}`)
+    this.name = "UnknownTaskError"
+  }
+}
+
 /** The tasks a run is made of, in the order the file wrote them. */
-export function tasksFor(workflow: Workflow, inputs: Record<string, string>): TaskInput[] {
+export function tasksFor(workflow: Workflow, inputs: Record<string, string>, until?: string): TaskInput[] {
+  const filled = { ...(workflow.inputDefaults ?? {}), ...inputs }
+  if (until !== undefined) {
+    const trimmed = until.trim()
+    if (!workflow.tasks.some((task) => task.id === trimmed)) throw new UnknownTaskError(trimmed)
+    workflow = { ...workflow, tasks: workflow.tasks.slice(0, workflow.tasks.findIndex((task) => task.id === trimmed) + 1) }
+  }
   return workflow.tasks.map((task) => ({
     name: task.id,
-    prompt: task.prompt ? fill(task.prompt, inputs) : "",
+    prompt: task.prompt ? fill(task.prompt, filled) : "",
     kind: task.kind ?? "agent",
     // An external command is filled like a prompt: `{{goal}}` is the same idea wherever it appears.
     ...(task.command ? { command: fill(task.command, inputs) } : {}),
@@ -336,8 +420,9 @@ export async function saveWorkflow(input: {
   directory?: string
   scope?: "project" | "global"
 }): Promise<{ saved: WorkflowFile } | { problem: string }> {
-  const workflow = parseWorkflow(input.source, input.name)
-  if (!workflow) return { problem: "That is not a workflow this server can read" }
+  const explained = explainWorkflow(input.source, input.name)
+  if (!explained.ok) return { problem: explained.problem }
+  const workflow = explained.workflow
   const scope = input.scope ?? (input.directory ? "project" : "global")
   if (scope === "project" && !input.directory) return { problem: "A project's workflow needs a folder" }
   const directory =
