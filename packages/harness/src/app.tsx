@@ -3084,6 +3084,9 @@ export const App: Component = () => {
     const selectSession = (id: string) => {
       leaveScreen()
       if (narrow()) setCollapsed(true)
+      // Opening a session leaves behind any folder picked for one that never started. Without this
+      // the repo bar keeps showing that folder instead of the selected session's own directory.
+      setTargetDirectory(undefined)
       setSelected(id)
       if (history()[historyIndex()] === id) return
       const next = history().slice(0, historyIndex() + 1)
