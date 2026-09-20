@@ -2,7 +2,6 @@ import { For, Show, createEffect, createSignal, onCleanup, type Component } from
 import type { AgentInfo, FileSystemEntry, ModelVariant } from "../engine-types"
 import type { Attachment, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
-import { Mascot } from "./Mascot"
 import { ModeMenu } from "./ModeMenu"
 
 type ComposerProps = {
@@ -18,7 +17,6 @@ type ComposerProps = {
   agents: AgentInfo[]
   agent: string
   permissionMode: string
-  mascotState: string
   onInput: (value: string) => void
   onSend: () => void
   onOpenModelPicker: () => void
@@ -239,7 +237,6 @@ export const Composer: Component<ComposerProps> = (props) => {
       </Show>
 
       <div class="fc-input-wrap">
-        <Mascot class="fc-mascot" state={props.mascotState} />
         <textarea
           class="fc-input"
           rows={1}

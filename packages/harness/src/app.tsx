@@ -1173,31 +1173,6 @@ export const App: Component = () => {
     }, t("Message sent"))
   }
 
-  const [success, setSuccess] = createSignal(false)
-  let wasBusy = false
-  createEffect(() => {
-    const value = busy()
-    if (value) {
-      wasBusy = true
-      setSuccess(false)
-      return
-    }
-    if (!wasBusy) return
-    wasBusy = false
-    setSuccess(true)
-    const timer = setTimeout(() => setSuccess(false), 2500)
-    onCleanup(() => clearTimeout(timer))
-  })
-
-  const mascotState = () => {
-    if (generating()) return agent() === "plan" ? "planning" : "thinking"
-    if (success()) return "success"
-    const list = messages()?.data ?? []
-    const last = list[list.length - 1]
-    if (last && last.type === "assistant" && (last as { error?: unknown }).error) return "error"
-    return "idle"
-  }
-
   return (
     <div class="fc-app" style={{ "--fc-content-left": collapsed() ? "0px" : `${sidebarWidth()}px` }}>
       <Sidebar
@@ -1331,7 +1306,6 @@ export const App: Component = () => {
           agents={agents()?.data ?? []}
           agent={agent()}
           permissionMode={permissionModeId()}
-          mascotState={mascotState()}
           onInput={setPrompt}
           onSend={send}
           onCommandPick={(name) => setPrompt(`/${name} `)}
