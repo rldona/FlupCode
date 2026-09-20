@@ -112,6 +112,7 @@ const ES: Record<string, string> = {
   Forward: "Adelante",
   Connecting: "Conectando",
   Connected: "Conectado",
+  Disconnected: "Desconectado",
   Offline: "Sin conexión",
 
   // Home
@@ -451,6 +452,7 @@ const ES: Record<string, string> = {
   "Control this computer's sessions from your phone, on any network. Traffic is end-to-end encrypted.":
     "Controla las sesiones de este ordenador desde el móvil, desde cualquier red. El tráfico va cifrado de extremo a extremo.",
   "Allow remote control": "Permitir control remoto",
+  "This computer": "Este ordenador",
   Online: "En línea",
   "Pair a device": "Emparejar un dispositivo",
   "Show a QR code and scan it with your phone's camera.": "Muestra un código QR y escanéalo con la cámara del móvil.",
