@@ -702,3 +702,96 @@ describe("a run with worktrees (H-29)", () => {
     repository.close()
   })
 })
+
+describe("a run's model policy (H-30)", () => {
+  test("a task runs on the model the policy names for its role", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-policy-"))
+    scratch.push(directory)
+    const sent: Array<{ model?: { providerID: string; id: string } }> = []
+    const engine = {
+      createSession: async () => ({ id: "ses_one" }),
+      prompt: async (input: { model?: { providerID: string; id: string } }) => void sent.push({ model: input.model }),
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory, { policy: { models: { build: "anthropic/claude" } } })
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "go", agent: "build" },
+      { name: "plan", prompt: "go", agent: "plan" },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    expect(sent[0]!.model).toEqual({ providerID: "anthropic", id: "claude" })
+    // A role the policy does not name is left to the engine's own default.
+    expect(sent[1]!.model).toBeUndefined()
+    repository.close()
+  })
+
+  test("a retry falls back to the model the policy names", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-fallback-"))
+    scratch.push(directory)
+    writeFileSync(join(directory, "broken"), "yes")
+    mkdirSync(join(directory, ".flupcode"), { recursive: true })
+    writeFileSync(
+      join(directory, ".flupcode", "project.yaml"),
+      "verify:\n  test: test ! -f broken || { echo 'still broken' >&2; exit 1; }\n",
+    )
+    let attempts = 0
+    const engine = {
+      createSession: async () => ({ id: `ses_${attempts}` }),
+      prompt: async () => {
+        attempts++
+        // The second attempt fixes it, so the run can finish rather than throwing.
+        if (attempts > 1) rmSync(join(directory, "broken"))
+      },
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done" }),
+    } as never
+
+    const run = repository.startRun(manual, 1000, directory, { policy: { fallback: "a/backup" } })
+    repository.addTasks(run.id, [
+      { name: "build", prompt: "go" },
+      { name: "verify", prompt: "", kind: "verify", retries: 1 },
+    ])
+    await new TaskRunner(repository, engine).execute(run, { directory })
+
+    const retry = repository.listTasks(run.id).find((task) => task.name === "build" && task.attempt === 2)
+    expect(retry?.model).toEqual({ providerID: "a", id: "backup" })
+    repository.close()
+  })
+
+  test("a run stops at its budget, and carries on when it is let through", async () => {
+    const repository = open()
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-budget-"))
+    scratch.push(directory)
+    const engine = {
+      createSession: async () => ({ id: "ses_one" }),
+      prompt: async () => undefined,
+      waitForIdle: async () => undefined,
+      lastAnswer: async () => ({ text: "done", tokens: 100, cost: 0.5 }),
+    } as never
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    Object.assign(scheduler, { engine })
+
+    const run = await scheduler.runTasks({
+      tasks: [
+        { name: "one", prompt: "a" },
+        { name: "two", prompt: "b" },
+      ],
+      directory,
+      policy: { budget: { tokens: 50 } },
+    })
+    await settledAt(repository, run.id, "awaiting")
+
+    expect(repository.getRun(run.id)!.paused).toBe("budget")
+    expect(repository.listTasks(run.id)[1]!.status).toBe("queued")
+
+    scheduler.approve(run.id)
+    await settledAt(repository, run.id, "success")
+    expect(repository.getRun(run.id)!.budgetApproved).toBe(true)
+    repository.close()
+  })
+})

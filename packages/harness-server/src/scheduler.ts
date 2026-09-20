@@ -2,7 +2,7 @@ import { Engine } from "./engine"
 import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
 import { findWorkflow, tasksFor } from "./workflow"
-import type { Run, RunSource, TaskInput } from "./types"
+import type { Run, RunPolicy, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 
 type Result<T> = { data?: T; error?: unknown }
@@ -97,6 +97,8 @@ export class RoutineScheduler {
     packs?: string[]
     /** Give each writing task its own worktree (H-29). */
     worktrees?: boolean
+    /** Model per role, a fallback, and a budget (H-30). */
+    policy?: RunPolicy
   }) {
     if (input.tasks.length === 0) throw new Error("A run needs at least one task")
     const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory, {
@@ -104,6 +106,7 @@ export class RoutineScheduler {
       ...(input.outside ? { outside: true } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees ? { worktrees: true } : {}),
+      ...(input.policy ? { policy: input.policy } : {}),
     })
     this.repository.addTasks(run.id, input.tasks)
     // More than one task means a thread of its own: the run's session is what a person reads, and
@@ -138,6 +141,7 @@ export class RoutineScheduler {
     directory?: string
     packs?: string[]
     worktrees?: boolean
+    policy?: RunPolicy
   }) {
     const workflow = await findWorkflow(input.name, input.directory)
     if (!workflow) throw new UnknownWorkflowError(input.name)
@@ -151,6 +155,7 @@ export class RoutineScheduler {
       ...(workflow.outside ? { outside: true } : {}),
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees ? { worktrees: true } : {}),
+      ...(input.policy ? { policy: input.policy } : {}),
     })
   }
 
@@ -182,6 +187,9 @@ export class RoutineScheduler {
   approve(runID: string) {
     const run = this.repository.getRun(runID)
     if (!run || run.status !== "awaiting") return undefined
+    // A budget pause is not a gate: letting it through means the budget stops being checked (H-30),
+    // or the very next check would pause it again on the same totals.
+    if (run.paused === "budget") this.repository.approveBudget(runID)
     if (!this.repository.resumeRun(runID)) return undefined
     void this.drive(runID, run.directory)
     return this.repository.getRun(runID)

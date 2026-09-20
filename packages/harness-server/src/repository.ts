@@ -451,10 +451,20 @@ const decodeRun = (row: RunRow): Run => ({
  * A run is driven twice — once when it starts and again when somebody lets it through a gate — and a
  * limit that lived only in the first call would quietly stop applying at the second.
  */
-const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees"> => {
+const decodeOptions = (
+  value: string | null,
+): Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved"> => {
   if (!value) return {}
   try {
-    const parsed = JSON.parse(value) as { toolLimitMs?: unknown; outside?: unknown; packs?: unknown; worktrees?: unknown }
+    const parsed = JSON.parse(value) as {
+      toolLimitMs?: unknown
+      outside?: unknown
+      packs?: unknown
+      worktrees?: unknown
+      policy?: unknown
+      paused?: unknown
+      budgetApproved?: unknown
+    }
     return {
       ...(typeof parsed.toolLimitMs === "number" && parsed.toolLimitMs > 0 ? { toolLimitMs: parsed.toolLimitMs } : {}),
       ...(parsed.outside === true ? { outside: true } : {}),
@@ -462,18 +472,28 @@ const decodeOptions = (value: string | null): Pick<Run, "toolLimitMs" | "outside
         ? { packs: parsed.packs.filter((entry): entry is string => typeof entry === "string") }
         : {}),
       ...(parsed.worktrees === true ? { worktrees: true } : {}),
+      ...(parsed.policy && typeof parsed.policy === "object" && !Array.isArray(parsed.policy)
+        ? { policy: parsed.policy as Run["policy"] }
+        : {}),
+      ...(parsed.paused === "gate" || parsed.paused === "budget" ? { paused: parsed.paused } : {}),
+      ...(parsed.budgetApproved === true ? { budgetApproved: true } : {}),
     }
   } catch {
     return {}
   }
 }
 
-const encodeOptions = (run: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees">) => {
+const encodeOptions = (
+  run: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved">,
+) => {
   const options = {
     ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
     ...(run.outside ? { outside: true } : {}),
     ...(run.packs && run.packs.length > 0 ? { packs: run.packs } : {}),
     ...(run.worktrees ? { worktrees: true } : {}),
+    ...(run.policy ? { policy: run.policy } : {}),
+    ...(run.paused ? { paused: run.paused } : {}),
+    ...(run.budgetApproved ? { budgetApproved: true } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
 }
@@ -647,7 +667,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
       )
   }
 
-  startRun(source: RunSource, now: number, directory?: string, options: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees"> = {}) {
+  startRun(
+    source: RunSource,
+    now: number,
+    directory?: string,
+    options: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy"> = {},
+  ) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
       this.insertRun(run)
@@ -714,6 +739,24 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const run = this.getRun(runID)
     if (run) this.append({ type: "run.changed", run })
     return true
+  }
+
+  /** Why a run is waiting: a person at a gate, or a budget it reached (H-30). */
+  setPaused(runID: string, paused: "gate" | "budget") {
+    this.patchOptions(runID, { paused })
+  }
+
+  /** Somebody said to carry on past the budget (H-30), so it is not checked again. */
+  approveBudget(runID: string) {
+    this.patchOptions(runID, { budgetApproved: true, paused: undefined })
+  }
+
+  private patchOptions(runID: string, patch: Pick<Run, "paused" | "budgetApproved">) {
+    const run = this.getRun(runID)
+    if (!run) return
+    this.db.query("UPDATE runs SET options = ?1 WHERE id = ?2").run(encodeOptions({ ...run, ...patch }), runID)
+    const next = this.getRun(runID)
+    if (next) this.append({ type: "run.changed", run: next })
   }
 
   /**

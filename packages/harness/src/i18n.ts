@@ -1056,6 +1056,10 @@ const ES: Record<string, string> = {
   "Clean up": "Limpiar",
   "Merged {n} worktrees": "Fusionados {n} worktrees",
   "Removed {n} worktrees": "Eliminados {n} worktrees",
+
+  // Model and budget policy (H-30)
+  "Paused at its budget": "En pausa al llegar a su presupuesto",
+  "Carry on": "Continuar",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
