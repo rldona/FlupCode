@@ -13,12 +13,18 @@ import { AddMenu, AgentMenu, DockIcon, ModelMenu } from "./DockMenus"
 import { stepHistory } from "../prompt-history"
 import { dictationAvailable, startDictation } from "../dictation"
 import { primaryAgents } from "../agents"
-import type { AppView } from "../chat"
+import type { AppView, ChatClass } from "../chat"
 import type { Delivery } from "../pending-prompts"
 
 type ComposerProps = {
   /** Chats get a plain input: no commands, mentions, folder, agent, permissions or context meter. */
   mode: AppView
+  /** In the Chat tab, the class of the conversation: "chat" without a project, "cowork" with one. */
+  chatClass?: ChatClass
+  /** Present where the Chat/Cowork switch belongs; the split panes and Code leave it out. */
+  onChatClassChange?: (value: ChatClass) => void
+  /** A conversation is open: switching then starts a new one, and the switch says so. */
+  sessionOpen?: boolean
   /** In split view only the focused pane's input answers window shortcuts (⌘U). */
   inactive?: boolean
   value: string
@@ -49,6 +55,8 @@ type ComposerProps = {
     onCommit: () => void
     /** Opens the diff viewer on this folder. */
     onOpenChanges?: () => void
+    /** Closes the open session and goes back to its home. */
+    onClose?: () => void
     onClear?: () => void
   }
   /** Where the branch stands on GitHub, drawn above the repo bar. Absent when `gh` cannot say. */
@@ -167,7 +175,15 @@ export const Composer: Component<ComposerProps> = (props) => {
     props.onAttach(Array.from(files))
   }
 
-  const chat = () => props.mode === "chat"
+  // A plain chat is the minimal input. Cowork is in the Chat tab too, but it earns Code's chrome:
+  // commands, mentions, folder, permission and delivery menus, and the context meter. The class is
+  // what decides: a cowork session in a split pane is out of the Chat tab and still hides the agent.
+  const tabChat = () => props.mode === "chat"
+  const chat = () => props.mode === "chat" && props.chatClass === "chat"
+  const cowork = () => props.chatClass === "cowork"
+  // With a conversation open, only the other class starts something new, so only it says "New".
+  const chatLabel = () => (props.sessionOpen && cowork() ? t("New chat") : t("Chat"))
+  const coworkLabel = () => (props.sessionOpen && !cowork() ? t("New cowork") : t("Cowork"))
 
   const commandQuery = () => {
     const value = props.value
@@ -521,6 +537,34 @@ export const Composer: Component<ComposerProps> = (props) => {
                     }
               }
             />
+            <Show when={tabChat() && !!props.onChatClassChange}>
+              <div class="fc-chat-mode" role="tablist" aria-label={t("Conversation")}>
+                <button
+                  class="fc-chat-mode-option"
+                  classList={{ "fc-chat-mode-option-active": !cowork() }}
+                  type="button"
+                  role="tab"
+                  aria-selected={!cowork()}
+                  disabled={props.generating}
+                  title={props.generating ? t("Wait for the answer before switching") : undefined}
+                  onClick={() => props.onChatClassChange?.("chat")}
+                >
+                  {chatLabel()}
+                </button>
+                <button
+                  class="fc-chat-mode-option"
+                  classList={{ "fc-chat-mode-option-active": cowork() }}
+                  type="button"
+                  role="tab"
+                  aria-selected={cowork()}
+                  disabled={props.generating}
+                  title={props.generating ? t("Wait for the answer before switching") : undefined}
+                  onClick={() => props.onChatClassChange?.("cowork")}
+                >
+                  {coworkLabel()}
+                </button>
+              </div>
+            </Show>
             <button
               class="fc-dock-icon"
               classList={{ "fc-dock-listening": listening() }}
@@ -545,7 +589,7 @@ export const Composer: Component<ComposerProps> = (props) => {
               <span class="fc-chip fc-chip-active">{t("Shell")}</span>
             </Show>
             <Show when={!chat()}>
-              <Show when={primaryAgents(props.agents).length > 1}>
+              <Show when={!cowork() && primaryAgents(props.agents).length > 1}>
                 <AgentMenu agents={primaryAgents(props.agents)} value={props.agent} onChange={props.onAgentChange} />
               </Show>
               <ModeMenu value={props.permissionMode} onChange={props.onPermissionModeChange} />

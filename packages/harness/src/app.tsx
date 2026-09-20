@@ -40,7 +40,7 @@ import {
 import { promptHistory, recordPrompt } from "./prompt-history"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "./model-switch"
 import { hasModel, replacementModel } from "./model-catalog"
-import { CHAT_PERMISSION, CHAT_SYSTEM, isChatSession, type AppView } from "./chat"
+import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, sessionChatClass, type AppView, type ChatClass } from "./chat"
 import { messageID } from "./ids"
 import { sessionTitle } from "./session-title"
 import {
@@ -538,12 +538,42 @@ export const App: Component = () => {
         .catch(() => undefined),
   )
   const chatsDirectory = () => enginePaths()?.state
-  const isChat = (session: { location?: { directory?: string } } | undefined) =>
-    !!session && isChatSession(session, chatsDirectory())
+  type ClassifiedSession = { agent?: string; location?: { directory?: string } }
+  // A chat-class session is one of the two conversations in the chat tab: a plain chat, which lives
+  // in the engine's state folder, or a Cowork chat, which runs in the project under its reserved
+  // agent. Everything else is a code session. See chat.ts and ADR-0013.
+  const chatClass = (session: ClassifiedSession | undefined): ChatClass | undefined =>
+    session ? sessionChatClass(session, chatsDirectory()) : undefined
+  const isPlainChat = (session: ClassifiedSession | undefined) => chatClass(session) === "chat"
+  const isChatLike = (session: ClassifiedSession | undefined) => chatClass(session) !== undefined
+  const selectedChatClass = () => chatClass(selectedSession())
+  // The Chat/Cowork choice for the next new conversation, remembered like the tab itself. A
+  // selected session answers with its own class; with none, the remembered choice does.
+  const [chatMode, setChatMode] = createSignal<ChatClass>(readStorage<ChatClass>(STORAGE_KEYS.chatMode, "chat"))
+  const composerChatClass = (): ChatClass | undefined =>
+    chatView() ? (selectedChatClass() ?? chatMode()) : undefined
+  const plainChatView = () => chatView() && composerChatClass() === "chat"
+  // The Code chrome Cowork earns: repo bar, workspace panels, context panel.
+  const codeChrome = () => !plainChatView()
+  const changeChatClass = (next: ChatClass) => {
+    setChatMode(next)
+    writeStorage(STORAGE_KEYS.chatMode, next)
+    if (!selected() || selectedChatClass() === next) return
+    // Leaving a conversation of the other class goes to this class's home, keeping the draft.
+    const sessionID = selected()
+    if (sessionID && !messagesLoading() && (activeMessages() ?? []).length === 0) {
+      void createClient(serverUrl())
+        .session.remove({ sessionID })
+        .then(() => refetchSessions())
+        .catch(() => undefined)
+    }
+    setSelected(undefined)
+    setMobileComposing(false)
+  }
   // Sessions the engine forked for a subagent live in the context panel, under the parent they
   // belong to; as rows in this column they read as projects of their own.
   const viewSessions = () =>
-    sessionList()?.filter((session) => isChat(session) === chatView() && !session.parentID)
+    sessionList()?.filter((session) => isChatLike(session) === chatView() && !session.parentID)
   const changeView = (next: AppView) => {
     leaveScreen()
     if (next === view()) return
@@ -571,7 +601,7 @@ export const App: Component = () => {
     if (!chatsDirectory()) return
     const session = selectedSession()
     if (session) {
-      const kind: AppView = isChat(session) ? "chat" : "code"
+      const kind: AppView = isChatLike(session) ? "chat" : "code"
       setOpenSessions((previous) => (previous[kind] === session.id ? previous : { ...previous, [kind]: session.id }))
       return
     }
@@ -584,16 +614,19 @@ export const App: Component = () => {
   createEffect(() => {
     const session = selectedSession()
     if (!session || !chatsDirectory()) return
-    const kind: AppView = isChat(session) ? "chat" : "code"
+    const kind: AppView = isChatLike(session) ? "chat" : "code"
     if (kind !== untrack(view)) {
       setView(kind)
       writeStorage(STORAGE_KEYS.view, kind)
     }
   })
   // The Build/Plan switch follows the open session's agent. `untrack` keeps the effect from
-  // fighting the optimistic update when the reader picks an agent in the dock.
+  // fighting the optimistic update when the reader picks an agent in the dock. Chat-class sessions
+  // never set it: Cowork's marker agent must not leak into the Code composer.
   createEffect(() => {
-    const next = selectedSession()?.agent
+    const session = selectedSession()
+    if (isChatLike(session)) return
+    const next = session?.agent
     if (!next || next === untrack(agent)) return
     setAgent(next)
   })
@@ -2061,7 +2094,7 @@ export const App: Component = () => {
       const map = new Map<string, ProjectItem>()
       for (const session of sessionList() ?? []) {
         const directory = session.location?.directory
-        if (!directory || isChat(session)) continue
+        if (!directory || isPlainChat(session)) continue
         if (map.has(directory)) continue
         map.set(directory, {
           id: session.projectID || directory,
@@ -2136,7 +2169,7 @@ export const App: Component = () => {
       const activity = remoteActivity.latest
       const runs = runState()
       return (sessionList() ?? [])
-        .filter((session) => !session.parentID && !session.time.archived && isChat(session) === chatView())
+        .filter((session) => !session.parentID && !session.time.archived && isChatLike(session) === chatView())
         .sort((a, b) => b.time.updated - a.time.updated)
         .map((session) => {
           const directory = session.location?.directory
@@ -2144,7 +2177,8 @@ export const App: Component = () => {
           return {
             id: session.id,
             title: sessionTitle(session),
-            project: isChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
+            project: isPlainChat(session) ? undefined : directory?.split("/").filter(Boolean).at(-1),
+            cowork: chatClass(session) === "cowork",
             branch: directory ? activity?.branches[directory] : undefined,
             updated: session.time.updated,
             state: activity?.waiting.has(session.id) ? "waiting" : running ? "busy" : "idle",
@@ -2320,6 +2354,17 @@ export const App: Component = () => {
         return
       }
       setSelected(undefined)
+    }
+
+    /**
+     * The composer's folder picker. In Code, choosing a folder that already has sessions resumes the
+     * latest one; a Cowork conversation has no code session to resume, so the folder is only where
+     * the new conversation will work and the reader stays on the chat home. `Open folder…` never
+     * resumed anything, which is why it already worked.
+     */
+    const changeComposerTarget = (directory: string | undefined) => {
+      if (composerChatClass() !== "cowork") return changeTargetDirectory(directory)
+      setTargetDirectory(directory)
     }
 
     const goBack = () => {
@@ -3423,19 +3468,22 @@ export const App: Component = () => {
   }
 
   /** Sends a prompt to the selected session (or a new one); the composer is cleared unless the draft is kept. */
-  const submitPrompt = (text: string, files: Attachment[], keepDraft = false) => {
+  const submitPrompt = (text: string, files: Attachment[], keepDraft = false, options?: { agent?: string; system?: string }) => {
     // Delivery only means something when a turn is already running; an idle session starts one.
     const mode = generating() ? delivery() : undefined
     const id = messageID()
+    // Cowork overrides the app's agent and adds its system prompt; Code sends neither.
+    const promptAgent = options?.agent ?? agent()
     void run(async (current) => {
       const model = selectedModel()
       const location = targetDirectory()
       const existing = selected()
+      const created = !existing
       const sessionID =
         existing ??
         (
           await current.session.create({
-            agent: agent(),
+            agent: promptAgent,
             ...(model ? { model } : {}),
             ...(location ? { location: { directory: location } } : {}),
           })
@@ -3458,7 +3506,8 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
         text,
         files,
-        agent: agent(),
+        agent: promptAgent,
+        ...(options?.system ? { system: options.system } : {}),
         ...(model ? { model } : {}),
         delivery: mode,
       })
@@ -3485,16 +3534,34 @@ export const App: Component = () => {
           directory: location ?? selectedSession()?.location?.directory,
           id,
           text: expandPastes(text),
-          agent: agent(),
+          agent: promptAgent,
+          ...(options?.system ? { system: options.system } : {}),
           ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
         })
       } catch (cause) {
         pendingPrompts.remove(id)
+        // A first turn that never reached the engine (an engine that does not know the agent, a
+        // refused model) would otherwise leave an empty session in the list. Drop the one this
+        // send just created; the reader is left with the error, not an orphan row.
+        if (created) await current.session.remove({ sessionID }).catch(() => {})
         throw cause
       }
       return sessionID
     })
+  }
+
+  /**
+   * Sends in Cowork: the same path as Code, but in the project folder, with the conversational
+   * prompt and the reserved agent that keeps the session a chat-class session. See ADR-0013.
+   */
+  const sendCowork = (text: string, files: Attachment[], keepDraft = false) => {
+    const directory = targetDirectory() ?? selectedSession()?.location?.directory
+    if (!directory) {
+      setError(t("Choose a project folder for Cowork"))
+      return
+    }
+    submitPrompt(text, files, keepDraft, { agent: COWORK_AGENT, system: COWORK_SYSTEM })
   }
 
   /** Resends the prompt that opened a failed turn, leaving whatever is typed in the composer alone. */
@@ -3506,7 +3573,9 @@ export const App: Component = () => {
       uri: file.uri,
       name: file.name ?? file.uri,
     }))
-    if (chatView()) return sendChat(text, files, true)
+    if (chatView()) {
+      return composerChatClass() === "cowork" ? sendCowork(text, files, true) : sendChat(text, files, true)
+    }
     submitPrompt(text, files, true)
   }
 
@@ -3515,7 +3584,9 @@ export const App: Component = () => {
     const files = attachments()
     if (!text && files.length === 0) return
     recordPrompt(text)
-    if (chatView()) return sendChat(text, files)
+    if (chatView()) {
+      return composerChatClass() === "cowork" ? sendCowork(text, files) : sendChat(text, files)
+    }
 
     if (text.startsWith("/")) {
       const [rawName, ...rest] = text.slice(1).split(/\s+/)
@@ -3678,7 +3749,7 @@ export const App: Component = () => {
                     </span>
                     <Show
                       when={
-                        !chatView() &&
+                        codeChrome() &&
                         (targetDirectory() ?? selectedSession()?.location?.directory)?.split("/").filter(Boolean).at(-1)
                       }
                     >
@@ -3711,9 +3782,10 @@ export const App: Component = () => {
               onToggleSidebar={toggleSidebar}
               view={view()}
               onViewChange={changeView}
+              codeChrome={codeChrome()}
               sidebarCollapsed={collapsed()}
               contextPanel={
-                selectedSession() && !chatView() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
+                selectedSession() && codeChrome() ? { open: !contextHidden(), onToggle: toggleContextPanel } : undefined
               }
               onTogglePanel={togglePanel}
               openPanels={panels()}
@@ -3860,7 +3932,7 @@ export const App: Component = () => {
                         serverUrl={serverUrl()}
                         focused={selected() === session().id}
                         running={!!runState()[session().id]}
-                        chat={isChat(session())}
+                        chat={chatClass(session())}
                         chatsDirectory={chatsDirectory()}
                         showTools={showTools()}
                         showReasoning={showReasoning()}
@@ -3900,7 +3972,7 @@ export const App: Component = () => {
                 mobileComposing() ? (
                   <div class="fc-mobile-new">
                     <p class="fc-onboarding-text">
-                      {chatView()
+                      {plainChatView()
                         ? t("Write a message to start a chat.")
                         : t("Describe a task to start a new session.")}
                     </p>
@@ -3944,7 +4016,7 @@ export const App: Component = () => {
                 modelName={modelName}
                 showTools={showTools()}
                 showReasoning={showReasoning()}
-                chat={chatView()}
+                chat={plainChatView()}
                 pending={pendingForSession()}
                 onEditUser={editMessage}
                 onForkUser={forkSession}
@@ -3991,6 +4063,10 @@ export const App: Component = () => {
               fallback={
                 <MobileComposer
                   mode={view()}
+                  chatClass={composerChatClass()}
+                  onChatClassChange={changeChatClass}
+                  sessionOpen={!!selected()}
+                  generating={!!selected() && generating()}
                   value={prompt()}
                   sending={busy()}
                   attachments={attachments()}
@@ -4016,6 +4092,9 @@ export const App: Component = () => {
             >
               <Composer
                 mode={view()}
+                chatClass={composerChatClass()}
+                onChatClassChange={changeChatClass}
+                sessionOpen={!!selected()}
                 value={prompt()}
                 sending={busy()}
                 generating={!!selected() && generating()}
@@ -4029,7 +4108,7 @@ export const App: Component = () => {
                 variantKey={variantKey()}
                 usage={contextUsage()}
                 repo={
-                  vcsDirectory() && !chatView()
+                  vcsDirectory() && codeChrome()
                     ? {
                         directory: vcsDirectory()!,
                         branch: vcsInfo()?.branch,
@@ -4037,12 +4116,13 @@ export const App: Component = () => {
                         deletions: vcsTotals().deletions,
                         onCommit: commitChanges,
                         onOpenChanges: openChanges,
+                        onClose: selected() ? () => newSession() : undefined,
                         onClear: !selected() && targetDirectory() ? () => changeTargetDirectory(undefined) : undefined,
                       }
                     : undefined
                 }
                 pullRequest={
-                  vcsDirectory() && !chatView()
+                  vcsDirectory() && codeChrome()
                     ? {
                         state: branchState(),
                         creating: openingPullRequest(),
@@ -4087,7 +4167,7 @@ export const App: Component = () => {
                 searchFiles={searchFiles}
                 onPasteText={collapsePaste}
                 onStash={() => stashPrompt(prompt(), true)}
-                onTargetChange={changeTargetDirectory}
+                onTargetChange={changeComposerTarget}
                 onOpenFolder={() => setFolderOpen(true)}
                 onAgentChange={changeAgent}
                 onPermissionModeChange={changePermissionMode}
@@ -4099,7 +4179,7 @@ export const App: Component = () => {
           </Show>
         </Show>
       </main>
-      <Show when={!mobileRemote() && !chatView()}>
+      <Show when={!mobileRemote() && codeChrome()}>
         <PanelBoundary name={t("The side panels")}>
           <WorkspacePanels
             panels={panels()}
@@ -4146,7 +4226,7 @@ export const App: Component = () => {
         onSession={selectSession}
         onProject={(directory) => {
           leaveScreen()
-          changeTargetDirectory(directory)
+          changeComposerTarget(directory)
         }}
         onArtifact={() => showScreen("artifacts")}
         onRoutine={(id) => {

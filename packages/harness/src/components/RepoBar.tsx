@@ -10,6 +10,8 @@ type RepoBarProps = {
   onCommit: () => void
   /** Opens the diff viewer. Absent where there is no screen to open, as on the mobile layout. */
   onOpenChanges?: () => void
+  /** Closes the open session and goes back to its home. */
+  onClose?: () => void
   /** Clears the folder picked for a new session. Only while picking one. */
   onClear?: () => void
   /** Where the branch stands on GitHub. Absent when `gh` cannot say. */
@@ -130,34 +132,50 @@ export const RepoBar: Component<RepoBarProps> = (props) => {
                 />
               )}
             </Show>
-            {/*
-              One glyph, and it closes whichever thing the bar is standing in for: the folder that
-              was picked for a session that has not started, or — once it has — the bar itself.
-            */}
-            <Show
-              when={props.onClear}
-              fallback={
+          {/*
+              One glyph, and it leaves whichever thing the bar is standing in for: the open session
+              (back to its home), the folder picked for one that has not started, or — with neither —
+              the bar itself.
+          */}
+          <Show
+            when={props.onClose}
+            fallback={
+              <Show
+                when={props.onClear}
+                fallback={
+                  <button
+                    class="fc-repo-clear"
+                    type="button"
+                    aria-label={t("Hide this")}
+                    title={t("Hide until there is something new to say")}
+                    onClick={() => setHidden(subject())}
+                  >
+                    ×
+                  </button>
+                }
+              >
                 <button
                   class="fc-repo-clear"
                   type="button"
-                  aria-label={t("Hide this")}
-                  title={t("Hide until there is something new to say")}
-                  onClick={() => setHidden(subject())}
+                  aria-label={t("Remove folder")}
+                  title={t("Remove folder")}
+                  onClick={() => props.onClear?.()}
                 >
                   ×
                 </button>
-              }
+              </Show>
+            }
+          >
+            <button
+              class="fc-repo-clear"
+              type="button"
+              aria-label={t("Close session")}
+              title={t("Close session")}
+              onClick={() => props.onClose?.()}
             >
-              <button
-                class="fc-repo-clear"
-                type="button"
-                aria-label={t("Remove folder")}
-                title={t("Remove folder")}
-                onClick={() => props.onClear?.()}
-              >
-                ×
-              </button>
-            </Show>
+              ×
+            </button>
+          </Show>
           </div>
         </div>
         {/*

@@ -18,6 +18,8 @@ type TopbarProps = {
   onToggleSidebar: () => void
   view: AppView
   onViewChange: (view: AppView) => void
+  /** True where the Code chrome applies: the Code tab, or a Cowork conversation in the Chat tab. */
+  codeChrome: boolean
   /** The Chat / Code tabs live at the top of the sidebar; while it is hidden they show here. */
   sidebarCollapsed: boolean
   /** The tabs live here when the sidebar has no room for them, and always in the desktop strip. */
@@ -132,7 +134,7 @@ export const Topbar: Component<TopbarProps> = (props) => {
       </div>
       <div class="fc-topbar-right">
         {props.sessionActions}
-        <Show when={props.view === "code"}>
+        <Show when={props.codeChrome}>
           <button
             class="fc-nav-arrow"
             classList={{ "fc-nav-arrow-active": props.openPanels.includes("diff") }}
