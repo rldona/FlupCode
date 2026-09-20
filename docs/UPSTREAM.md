@@ -137,7 +137,8 @@ One-line registrations that make the files above reachable:
 `packages/core/src/config.ts`, `packages/core/src/database/migration.gen.ts`,
 `packages/schema/src/index.ts`, `packages/schema/src/session.ts`, `packages/protocol/src/api.ts`,
 `packages/protocol/src/errors.ts`, `packages/server/src/handlers.ts`,
-`packages/client/src/contract.ts`, `packages/core/src/v1/config/migrate.ts`,
+`packages/client/src/contract.ts`, `packages/core/src/v1/config/config.ts` (the generic
+`flupcode.composeTools` field the FlupCode apps read), `packages/core/src/v1/config/migrate.ts`,
 `packages/core/src/session/info.ts`.
 
 **Take upstream, then re-add our line.** Never keep our whole version: upstream adds entries to

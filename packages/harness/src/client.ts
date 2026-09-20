@@ -289,7 +289,10 @@ export function createClient(baseUrl = resolveServerUrl()) {
     /** The engine's settings, which decide when it folds a session: the meter reads the compaction
      *  ones. Only what this side asks for is typed; the rest of the config is the engine's. */
     config: async () =>
-      (await unwrap(client.config.get())) as { compaction?: { auto?: boolean; reserved?: number } },
+      (await unwrap(client.config.get())) as {
+        compaction?: { auto?: boolean; reserved?: number }
+        flupcode?: { composeTools?: string[] }
+      },
     /** Writes back one key of the engine's config and leaves the rest as it is (H-25). */
     updateConfig: (patch: Record<string, unknown>) => patchConfig(baseUrl, patch),
     session: {
