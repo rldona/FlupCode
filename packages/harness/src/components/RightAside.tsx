@@ -34,8 +34,21 @@ const mark = (status: string) => {
   return ""
 }
 
+/**
+ * Whether clearing these contents empties the panel (hide-empty-panel): no todos left and no
+ * subagents to show. An empty tasks section is not worth the panel; memory reads fine anywhere.
+ */
+export function clearsPanel(todos: TodoItem[], cleared: string[], subagents: number): boolean {
+  return todos.filter((todo) => !cleared.includes(todo.content)).length === 0 && subagents === 0
+}
+
 export const RightAside: Component<RightAsideProps> = (props) => {
   const completed = () => props.todos.filter((todo) => todo.status === "completed").length
+
+  const clear = (contents: string[]) => {
+    props.onClearTodos(contents)
+    if (clearsPanel(props.todos, contents, (props.subagents ?? []).length)) props.onHide()
+  }
 
   return (
     <aside class="fc-rightaside" style={{ width: `${props.width}px` }}>
@@ -82,7 +95,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
                     class="fc-aside-clear"
                     type="button"
                     onClick={() =>
-                      props.onClearTodos(
+                      clear(
                         props.todos.filter((todo) => todo.status === "completed").map((todo) => todo.content),
                       )
                     }
@@ -94,7 +107,7 @@ export const RightAside: Component<RightAsideProps> = (props) => {
                 <button
                   class="fc-aside-clear"
                   type="button"
-                  onClick={() => props.onClearTodos(props.todos.map((todo) => todo.content))}
+                  onClick={() => clear(props.todos.map((todo) => todo.content))}
                 >
                   {t("Clear all")}
                 </button>
