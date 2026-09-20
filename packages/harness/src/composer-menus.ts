@@ -41,6 +41,11 @@ export function filterCommands<T extends { name: string }>(commands: T[], query:
   return commands.filter((command) => command.name.toLowerCase().includes(query)).slice(0, 8)
 }
 
+/** The badge a `/` entry shows for its source; built-ins show none (SK-2). */
+export function commandBadge(source: "builtin" | "command" | "skill" | "workflow" | undefined): string | undefined {
+  return source === undefined || source === "builtin" ? undefined : source
+}
+
 /** The mention token, or `undefined` when the draft is not an `@` mention in progress. */
 export function mentionToken(value: string, chat: boolean): string | undefined {
   if (chat) return undefined
