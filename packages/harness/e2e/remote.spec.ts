@@ -248,8 +248,14 @@ test.describe("on a phone", () => {
     expect(Math.round(bodyLeft)).toBeGreaterThan(Math.round(fieldLeft))
     // The phone dock: "+" opens attachments and settings as a bottom sheet.
     const dock = page.locator(".fc-mobile-dock")
-    await expect(dock.getByPlaceholder("Type / for commands")).toBeVisible()
+    const mobileInput = dock.getByPlaceholder("Type / for commands")
+    await expect(mobileInput).toBeVisible()
     await expect(page.locator(".fc-composer")).toHaveCount(0)
+    // The phone dock has the same `/` menu the desktop field has (H-26).
+    await mobileInput.fill("/")
+    await expect(dock.locator(".fc-command-menu")).toBeVisible()
+    await mobileInput.press("Escape")
+    await expect(dock.locator(".fc-command-menu")).toHaveCount(0)
     await dock.getByRole("button", { name: "Add context" }).click()
     const sheet = page.getByRole("dialog", { name: "Add context" })
     await expect(sheet.getByRole("button", { name: "Camera" })).toBeVisible()

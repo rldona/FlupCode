@@ -4489,10 +4489,20 @@ export const App: Component = () => {
                   variants={variants()}
                   variantKey={variantKey()}
                   agents={agents()?.data ?? []}
+                  artifacts={artifactList().flatMap((artifact) =>
+                    artifact.path ? [{ path: artifact.path, title: artifact.title }] : [],
+                  )}
                   agent={agent()}
                   permissionMode={permissionModeId()}
+                  commands={commandOptions()}
+                  onCommandPick={(name) => setPrompt(`/${name} `)}
+                  onCommandRun={runCommand}
+                  searchFiles={searchFiles}
+                  delivery={delivery()}
+                  onDeliveryChange={changeDelivery}
                   onInput={setPrompt}
                   onSend={send}
+                  onStop={stopSession}
                   onAttach={addAttachments}
                   onRemoveAttachment={removeAttachment}
                   onModelChange={pickModel}
@@ -4556,6 +4566,9 @@ export const App: Component = () => {
                 projects={projects()}
                 targetDirectory={targetDirectory() ?? selectedSession()?.location?.directory}
                 agents={agents()?.data ?? []}
+                artifacts={artifactList().flatMap((artifact) =>
+                  artifact.path ? [{ path: artifact.path, title: artifact.title }] : [],
+                )}
                 agent={agent()}
                 permissionMode={permissionModeId()}
                 delivery={delivery()}
