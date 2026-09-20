@@ -72,8 +72,16 @@ async function open(page: Page, options: Options = {}) {
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
-  await page.goto("/agents")
-  await expect(page.getByRole("heading", { name: /^Agents$|^Agentes$/ })).toBeVisible()
+  await page.goto("/")
+  // Agents live in Settings now, not on a screen of their own (CU-1).
+  await page
+    .getByRole("button", { name: /Customize|Personalizar/ })
+    .first()
+    .click()
+  const dialog = page.getByRole("dialog", { name: "Customize" })
+  await expect(dialog).toBeVisible()
+  await dialog.getByRole("tab", { name: /^Agents$/ }).click()
+  await expect(dialog.getByRole("heading", { name: /^Agents$|^Agentes$/ })).toBeVisible()
   return { saved: () => saved, deleted: () => deleted }
 }
 
