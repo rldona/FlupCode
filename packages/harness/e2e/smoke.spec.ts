@@ -23,6 +23,29 @@ test("installs as a FlupCode-branded app", async ({ page, request }) => {
   await page.goto("/")
   const touchIcon = await page.locator('link[rel="apple-touch-icon"]').getAttribute("href")
   expect((await request.get(touchIcon!)).ok()).toBe(true)
+  // The favicon must be one of the manifest icons so it keeps the app's dark ground.
+  const favicon = await page.locator('link[rel="icon"]').getAttribute("href")
+  expect(manifest.icons.map((icon: { src: string }) => icon.src)).toContain(favicon)
+
+  const cornerAlpha = (src: string) =>
+    page.evaluate(async (url) => {
+      const image = new Image()
+      image.src = url
+      await image.decode()
+      const canvas = document.createElement("canvas")
+      canvas.width = image.naturalWidth
+      canvas.height = image.naturalHeight
+      const context = canvas.getContext("2d")!
+      context.drawImage(image, 0, 0)
+      return context.getImageData(0, 0, 1, 1).data[3]
+    }, src)
+
+  // "any" icons carry the same rounded shape as the desktop app icon. The maskable icon and
+  // the Apple touch icon stay full-bleed because iOS and Android apply their own mask.
+  for (const icon of manifest.icons as Array<{ src: string; purpose: string }>) {
+    expect(await cornerAlpha(icon.src)).toBe(icon.purpose === "maskable" ? 255 : 0)
+  }
+  expect(await cornerAlpha(touchIcon!)).toBe(255)
 })
 
 test("completes onboarding", async ({ page }) => {
