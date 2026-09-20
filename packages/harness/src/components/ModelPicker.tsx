@@ -10,6 +10,9 @@ type ModelPickerProps = {
   selectedKey: string | undefined
   favorites: string[]
   onRetry?: () => void
+  /** When set, a row above the catalog leaves the choice unset — "the default" — instead of picking one. */
+  emptyLabel?: string
+  onClear?: () => void
   onSelect: (providerID: string, id: string) => void
   onToggleFavorite: (key: string) => void
   onClose: () => void
@@ -45,6 +48,21 @@ export const ModelPicker: Component<ModelPickerProps> = (props) => {
             placeholder={t("Search models")}
             onInput={(event) => setQuery(event.currentTarget.value)}
           />
+          <Show when={props.onClear}>
+            <button
+              class="fc-model-clear"
+              classList={{ "fc-model-clear-on": !props.selectedKey }}
+              type="button"
+              onClick={props.onClear}
+            >
+              <span class="fc-model-name">{props.emptyLabel}</span>
+              <Show when={!props.selectedKey}>
+                <span class="fc-model-clear-check" aria-hidden="true">
+                  ✓
+                </span>
+              </Show>
+            </button>
+          </Show>
           <div class="fc-model-picker">
             <Show
               when={!props.loading || groups().length > 0}
