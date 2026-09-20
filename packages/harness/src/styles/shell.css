@@ -444,8 +444,6 @@ button.fc-row-main {
   justify-content: center;
   width: 28px;
   height: 28px;
-  border-radius: var(--fc-radius-pill);
-  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
   color: var(--fc-text);
   font-size: var(--fc-text-xs);
   font-weight: 600;
