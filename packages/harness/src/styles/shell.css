@@ -5227,3 +5227,137 @@ button.fc-row-main {
 .fc-mobile-remote .fc-chapters-anchor {
   display: none;
 }
+
+/* Back to the end: a round button centred over the bottom of the chat while reading older turns. */
+.fc-transcript > .fc-scroll-end-anchor {
+  position: sticky;
+  bottom: 12px;
+  z-index: 6;
+  align-self: stretch;
+  width: auto;
+  max-width: none;
+  height: 0;
+  margin-top: calc(-1 * var(--fc-space-3));
+  pointer-events: none;
+}
+
+.fc-scroll-end {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--fc-border);
+  border-radius: 50%;
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.35);
+  opacity: 0;
+  transform: translate(-50%, 10px) scale(0.9);
+  transition:
+    opacity 180ms cubic-bezier(0.2, 0, 0, 1),
+    transform 220ms cubic-bezier(0.2, 0, 0, 1),
+    background var(--fc-motion-fast);
+}
+
+.fc-scroll-end-visible {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  pointer-events: auto;
+}
+
+.fc-scroll-end:hover {
+  background: color-mix(in srgb, var(--fc-border) 70%, var(--fc-bg-elevated));
+}
+
+.fc-scroll-end:active {
+  transform: translate(-50%, 1px) scale(0.96);
+}
+
+/* Motion: menus and popovers rise into place; the navigator's ticks ease between states. */
+@keyframes fc-rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes fc-drop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.fc-dock-popover,
+.fc-composer .fc-mode-popover,
+.fc-composer .fc-folder-popover,
+.fc-composer .fc-effort-popover,
+.fc-composer .fc-context-popover {
+  transform-origin: bottom left;
+  animation: fc-rise-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.fc-dock-popover-right,
+.fc-composer .fc-effort-popover,
+.fc-composer .fc-context-popover {
+  transform-origin: bottom right;
+}
+
+.fc-chapters-list,
+.fc-menu {
+  transform-origin: top left;
+  animation: fc-drop-in 160ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.fc-chapters-ticks span,
+.fc-chapters-item-mark {
+  transition:
+    width 200ms cubic-bezier(0.2, 0, 0, 1),
+    background 200ms;
+}
+
+.fc-dock-attachment {
+  animation: fc-rise-in 180ms cubic-bezier(0.2, 0, 0, 1);
+}
+
+.fc-composer .fc-input-send {
+  transition:
+    background 160ms,
+    color 160ms,
+    transform 120ms;
+}
+
+.fc-composer .fc-input-send:active:not(:disabled) {
+  transform: scale(0.92);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-dock-popover,
+  .fc-composer .fc-mode-popover,
+  .fc-composer .fc-folder-popover,
+  .fc-composer .fc-effort-popover,
+  .fc-composer .fc-context-popover,
+  .fc-chapters-list,
+  .fc-menu,
+  .fc-dock-attachment {
+    animation: none;
+  }
+
+  .fc-scroll-end,
+  .fc-chapters-ticks span,
+  .fc-chapters-item-mark {
+    transition: none;
+  }
+}
