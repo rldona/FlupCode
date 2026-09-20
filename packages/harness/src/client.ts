@@ -819,6 +819,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     /**
      * What the server changed, as it changes it. A different origin from the engine, so the
      * connection it holds does not come out of the handful the browser allows for talking to it.
+     *
+     * No cursor is sent on purpose: every connection re-reads the lists first, so the server's
+     * backlog would only describe runs and routines that have since been deleted.
      */
     events: (options?: { signal?: AbortSignal }) => subscribeEvents(baseUrl, options?.signal, "/harness/events"),
     runs: {
@@ -826,6 +829,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       /** A run with the tasks it is made of; the list leaves them out. */
       get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
       tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
+      /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
+      stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+      /** Interrupt every run still going. */
+      stopAll: () => harnessRequest<{ stopped: number }>(baseUrl, "/harness/runs/stop", { method: "POST" }),
+      /** Forget every run that has finished. Running ones stay. */
+      clear: () => harnessRequest<{ removed: number }>(baseUrl, "/harness/runs", { method: "DELETE" }),
+      /** Forget a run and its tasks. The server refuses while it is still going. */
+      remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     routines: {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),

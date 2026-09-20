@@ -119,6 +119,18 @@ export class RoutineScheduler {
     return this.repository.getRun(runID)
   }
 
+  /**
+   * Stop everything that is going.
+   *
+   * One run failing to be interrupted must not leave the rest running, so each is asked on its own
+   * and the count returned is what was asked, not what the engine managed.
+   */
+  async stopAll() {
+    const running = this.repository.listRunning()
+    await Promise.all(running.map((run) => this.stopRun(run.id).catch(() => undefined)))
+    return running.length
+  }
+
   private async tick() {
     if (this.ticking) return
     this.ticking = true

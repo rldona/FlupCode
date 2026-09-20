@@ -366,6 +366,11 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return rows.map(decodeRun)
   }
 
+  listRunning() {
+    const rows = this.db.query("SELECT * FROM runs WHERE status = 'running' ORDER BY started_at DESC").all() as RunRow[]
+    return rows.map(decodeRun)
+  }
+
   attachSession(runID: string, sessionID: string) {
     this.db.query("UPDATE runs SET session_id = ?1 WHERE id = ?2").run(sessionID, runID)
     const run = this.getRun(runID)
@@ -378,6 +383,30 @@ export class SqliteRoutineRepository implements RoutineRepository {
       .run(status, now, error ?? null, runID)
     const run = this.getRun(runID)
     if (run) this.append({ type: "run.changed", run })
+  }
+
+  removeRun(runID: string) {
+    const removed = this.db.transaction(() => {
+      this.db.query("DELETE FROM tasks WHERE run_id = ?1").run(runID)
+      return this.db.query("DELETE FROM runs WHERE id = ?1").run(runID).changes > 0
+    })()
+    if (removed) this.append({ type: "run.removed", runID })
+    return removed
+  }
+
+  removeFinishedRuns() {
+    const removed = this.db.transaction(() => {
+      const rows = this.db.query("SELECT id FROM runs WHERE status != 'running'").all() as Array<{ id: string }>
+      const ids = rows.map((row) => row.id)
+      if (ids.length === 0) return ids
+      this.db.query("DELETE FROM tasks WHERE run_id IN (SELECT id FROM runs WHERE status != 'running')").run()
+      this.db.query("DELETE FROM runs WHERE status != 'running'").run()
+      return ids
+    })()
+    // One event per run, the same one a single delete sends: a reader that already handles it needs
+    // to learn nothing new to keep up with a clear-out.
+    for (const id of removed) this.append({ type: "run.removed", runID: id })
+    return removed
   }
 
   recoverRunning(now: number) {
@@ -526,6 +555,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
       }
     }
     return entry
+  }
+
+  /** The sequence the log is at, so a client with nothing to catch up on starts at the end. */
+  lastSeq(): number {
+    const row = this.db.query("SELECT MAX(seq) as seq FROM events").get() as { seq: number | null } | null
+    return row?.seq ?? 0
   }
 
   listEvents(afterSeq: number, limit = 200): StoredEvent[] {
