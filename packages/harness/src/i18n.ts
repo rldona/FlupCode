@@ -166,6 +166,11 @@ const ES: Record<string, string> = {
   "Don't ask again": "No volver a preguntar",
   "This session is cached for {from}. Switching to {to} means the whole session is re-read on your next message, which uses more of your limit.":
     "Esta sesión está en caché para {from}. Cambiar a {to} hace que se vuelva a leer toda la sesión en tu siguiente mensaje, lo que consume más de tu límite.",
+  Deprecated: "Obsoleto",
+  "Model not available": "Modelo no disponible",
+  "This session is pinned to a model the catalog no longer serves. Pick another one to carry on.":
+    "Esta sesión está fijada a un modelo que el catálogo ya no sirve. Elige otro para continuar.",
+  "Use {model}": "Usar {model}",
   "Choose a model": "Elige un modelo",
   "Loading models…": "Cargando modelos…",
   "No models": "Sin modelos",
