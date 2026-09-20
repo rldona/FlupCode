@@ -3,13 +3,19 @@ import type { TodoItem } from "./TodoDock"
 import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
 import type { SessionInfo } from "../engine-types"
-import { formatTokens } from "../metrics"
+import { compactionNear, formatTokens } from "../metrics"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
 type RightAsideProps = {
   /** The composer's context meter figures: tokens in the window, its size, and what the session spent. */
-  usage: { used: number; limit: number; cost: number; estimated?: boolean }
+  usage: {
+    used: number
+    limit: number
+    cost: number
+    estimated?: boolean
+    compaction?: { at: number; count: number }
+  }
   todos: TodoItem[]
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
@@ -92,8 +98,21 @@ export const RightAside: Component<RightAsideProps> = (props) => {
                 {used()}%
               </span>
             </div>
-            <div class="fc-meter">
+            <div class="fc-meter" classList={{ "fc-meter-near": compactionNear(props.usage.compaction) }}>
               <div class="fc-meter-fill" style={{ width: `${used()}%` }} />
+            </div>
+          </Show>
+          {/* The window ends before the model's own limit: this is where the engine folds the session. */}
+          <Show when={props.usage.compaction}>
+            <div class="fc-aside-row fc-aside-compaction">
+              <span title={t("The engine folds this session when its own budget runs out")}>
+                {props.usage.compaction!.count >= props.usage.compaction!.at ? t("Compaction") : t("Compaction at")}
+              </span>
+              <span class="fc-aside-count">
+                {props.usage.compaction!.count >= props.usage.compaction!.at
+                  ? t("next step")
+                  : formatTokens(props.usage.compaction!.at)}
+              </span>
             </div>
           </Show>
           <div class="fc-aside-row">

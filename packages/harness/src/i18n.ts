@@ -744,6 +744,14 @@ const ES: Record<string, string> = {
   "Compacted {n} times: everything before each is a summary now.":
     "Compactada {n} veces: todo lo anterior a cada una es ahora un resumen.",
   "Compacted automatically": "Compactada automáticamente",
+  Compaction: "Compactación",
+  "Compaction at": "Compactación a los",
+  "next step": "siguiente paso",
+  left: "restantes",
+  "Compaction is close": "La compactación está cerca",
+  "The engine folds this session on the next step": "El motor compacta esta sesión en el siguiente paso",
+  "The engine folds this session when its own budget runs out":
+    "El motor compacta esta sesión cuando se agota su propio presupuesto",
   "The system prompt": "El system prompt",
   "Recorded as each request went out, so it is what the model was given and not a description of it. The longest is the turn; titles and compactions are recorded too.":
     "Grabado según salía cada petición, así que es lo que recibió el modelo y no una descripción. El más largo es el del turno; los títulos y las compactaciones también quedan grabados.",

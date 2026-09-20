@@ -39,6 +39,7 @@ type ComposerProps = {
     cost?: number
     tokens?: { input: number; output: number; reasoning: number }
     estimated?: boolean
+    compaction?: { at: number; count: number }
   }
   repo?: {
     directory: string
@@ -580,6 +581,7 @@ export const Composer: Component<ComposerProps> = (props) => {
                 cost={props.usage.cost}
                 tokens={props.usage.tokens}
                 estimated={props.usage.estimated}
+                compaction={props.usage.compaction}
               />
             </Show>
           </div>

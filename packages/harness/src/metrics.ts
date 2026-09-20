@@ -201,6 +201,53 @@ export type ContextFigures = {
    * the compacted session yet. The views say so rather than pass it off as measured.
    */
   estimated?: boolean
+  /**
+   * What the engine counts and where it folds the session: `count` is over the same step the rest of
+   * the figures come from, `at` is where the engine stops sending it. Absent when the engine will
+   * not compact this session, and when the figure is an estimate rather than a step of its own.
+   */
+  compaction?: { at: number; count: number }
+}
+
+/** The engine's own numbers (`session/overflow.ts`, `provider/transform.ts`), read rather than
+ *  guessed: the meter warns about the compaction a session is actually about to get. */
+const COMPACTION_BUFFER = 20_000
+const OUTPUT_TOKEN_MAX = 32_000
+
+export type CompactionConfig = { auto?: boolean; reserved?: number }
+
+/**
+ * The count at which the engine decides the session is full: the window less what it keeps for the
+ * answer. Undefined when it will not compact — a model whose window it does not know, or automatic
+ * compaction turned off — which is what tells the meter it has nothing to warn about.
+ *
+ * The two branches are the engine's own: a model that reports an input limit leaves `reserved` off
+ * it, and one that does not has the answer's room taken off the window instead, whatever the
+ * configured reserve says.
+ */
+export function compactionAt(model: ModelInfo | undefined, compaction?: CompactionConfig): number | undefined {
+  // A model the catalog describes without limits is one whose window is unknown, not one of zero.
+  const context = model?.limit?.context ?? 0
+  if (context === 0) return undefined
+  if (compaction?.auto === false) return undefined
+  const output = Math.min(model!.limit.output ?? 0, OUTPUT_TOKEN_MAX) || OUTPUT_TOKEN_MAX
+  const reserved = compaction?.reserved ?? Math.min(COMPACTION_BUFFER, output)
+  const input = model!.limit.input
+  return input ? Math.max(0, input - reserved) : Math.max(0, context - output)
+}
+
+/** How the engine counts a step against that point. The provider's own total is not in the message
+ *  the client sees, so this is the sum the engine falls back to. */
+const overflowCount = (tokens: NonNullable<SessionMessageAssistant["tokens"]>) =>
+  tokens.input + tokens.output + tokens.cache.read + tokens.cache.write
+
+/**
+ * Whether the session is close enough to be folded for the meter to say so. The engine's rule is
+ * exact (`count >= at`); this is only how early the screen starts warning, so the reader has a turn
+ * to ask for a summary before the engine takes one.
+ */
+export function compactionNear(compaction: { at: number; count: number } | undefined) {
+  return !!compaction && compaction.count >= compaction.at * 0.9
 }
 
 const hasTokens = (tokens: SessionMessageAssistant["tokens"]) =>
@@ -231,28 +278,32 @@ export function contextFigures(
   session: SessionInfo | undefined,
   messages: SessionMessageInfo[],
   models: ModelInfo[],
-  limit: number,
+  model: ModelInfo | undefined,
+  compaction?: CompactionConfig,
 ): ContextFigures {
-  const compaction = messages.findLastIndex(isCompaction)
+  const limit = model?.limit?.context ?? 0
+  const boundary = messages.findLastIndex(isCompaction)
   // Only after the last compaction: a step before it measured a history that is no longer sent, and
   // the summary itself is at the boundary, so the slice leaves both out.
   const measured = messages
-    .slice(compaction + 1)
+    .slice(boundary + 1)
     .findLast(
       (message): message is SessionMessageAssistant => message.type === "assistant" && hasTokens(message.tokens),
     )
   const cost = sessionCost(session, messages, models)
   if (measured) {
     const tokens = measured.tokens!
+    const at = compactionAt(model, compaction)
     return {
       used: tokens.input + tokens.cache.read,
       limit,
       cost,
       tokens: { input: tokens.input, output: tokens.output, reasoning: tokens.reasoning },
+      ...(at !== undefined ? { compaction: { at, count: overflowCount(tokens) } } : {}),
     }
   }
-  if (compaction >= 0)
-    return { used: standingTokens(messages) + sentTokens(messages.slice(compaction)), limit, cost, estimated: true }
+  if (boundary >= 0)
+    return { used: standingTokens(messages) + sentTokens(messages.slice(boundary)), limit, cost, estimated: true }
   return {
     used: (session?.tokens.input ?? 0) + (session?.tokens.cache.read ?? 0),
     limit,
