@@ -92,6 +92,7 @@ test("adding an MCP server reaches the engine and its configuration", async ({ p
   await page.locator(".fc-palette-input").fill("mcp")
   await page.keyboard.press("Enter")
 
+  await page.getByRole("button", { name: "Add server" }).click()
   await page.getByPlaceholder("Name").fill("linear")
   await page.locator(".fc-mcp-form select").selectOption("remote")
   await page.getByPlaceholder("https://…").fill("https://mcp.linear.app")
