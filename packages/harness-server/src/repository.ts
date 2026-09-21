@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite"
 import type { UsageRow } from "./usage"
 import { mkdirSync } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, join } from "node:path"
+import { dirname, isAbsolute, join, sep } from "node:path"
 import type {
   Routine,
   RoutineCreateOptions,
@@ -32,6 +32,9 @@ import type {
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
 export const ARTIFACT_LIMIT = 1_000_000
+
+/** Mirrors `documents.ts`; duplicated rather than imported to avoid a reverse dependency. */
+const DOCUMENTS_DIRECTORY = join(".flupcode", "artifacts")
 
 /**
  * The identity of an artifact's text, so the same report written twice is recognised (H-14).
@@ -640,6 +643,29 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("checkpoints", "summary", "TEXT")
     this.addColumn("artifacts", "pinned", "INTEGER")
     this.addColumn("artifacts", "expires_at", "INTEGER")
+    this.migrateDocumentPaths()
+  }
+
+  /**
+   * Rows indexed before documents stored a project-relative path kept only what was below
+   * `.flupcode/artifacts`, so the same file would look new and be indexed again on the next pass.
+   * Repairing them once keeps one convention and stops the duplicate rows.
+   */
+  private migrateDocumentPaths() {
+    const rows = this.db
+      .query(
+        "SELECT id, path FROM artifacts WHERE kind = 'document' AND path IS NOT NULL AND path <> '' AND directory IS NOT NULL",
+      )
+      .all() as Array<{ id: string; path: string }>
+    for (const row of rows) {
+      if (isAbsolute(row.path)) continue
+      // An API-made row may already be project-relative with either separator, so compare by
+      // normalized segments before deciding it is a legacy one that still needs the prefix.
+      const normalized = row.path.replace(/[\\/]+/g, sep)
+      if (normalized === DOCUMENTS_DIRECTORY) continue
+      if (normalized.startsWith(DOCUMENTS_DIRECTORY + sep)) continue
+      this.db.query("UPDATE artifacts SET path = ?1 WHERE id = ?2").run(join(DOCUMENTS_DIRECTORY, row.path), row.id)
+    }
   }
 
   private addColumn(table: string, column: string, definition: string) {

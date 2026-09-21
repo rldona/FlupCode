@@ -43,20 +43,30 @@ describe("documents the agent produced (H-14)", () => {
 
     const documents = discoverDocuments(root)
     // Only the three documents, not the script.
-    expect(documents.map((doc) => doc.path).sort()).toEqual([
-      "page.html",
-      "report.md",
-      "shot.png",
-    ])
-    const report = documents.find((doc) => doc.path === "report.md")!
+    expect(documents.map((doc) => doc.path).sort()).toEqual(
+      [
+        join(".flupcode", "artifacts", "page.html"),
+        join(".flupcode", "artifacts", "report.md"),
+        join(".flupcode", "artifacts", "shot.png"),
+      ].sort(),
+    )
+    const report = documents.find((doc) => doc.path === join(".flupcode", "artifacts", "report.md"))!
     expect(report.title).toBe("Weekly review")
     expect(report.content).toContain("All good.")
-    const page = documents.find((doc) => doc.path === "page.html")!
+    const page = documents.find((doc) => doc.path === join(".flupcode", "artifacts", "page.html"))!
     expect(page.title).toBe("Landing")
     // An image keeps its path and no words.
-    const image = documents.find((doc) => doc.path === "shot.png")!
+    const image = documents.find((doc) => doc.path === join(".flupcode", "artifacts", "shot.png"))!
     expect(image.mime).toBe("image/png")
     expect(image.content).toBeUndefined()
+  })
+
+  test("a document in a subfolder keeps its whole project-relative path", () => {
+    const root = project()
+    write(root, "nested/shot.png", "", true)
+
+    const [document] = discoverDocuments(root)
+    expect(document!.path).toBe(join(".flupcode", "artifacts", "nested", "shot.png"))
   })
 
   test("a missing folder is empty, not an error", () => {

@@ -3,6 +3,7 @@ import { t } from "../i18n"
 import type { Artifact, ArtifactKind } from "../types"
 import { viewerFor, viewerNeedsRaw } from "../artifact-view"
 import { openImagePreview } from "../image-preview"
+import { isAbsolutePath, joinPath } from "../folder"
 import { Markdown } from "./Markdown"
 
 type ArtifactsPanelProps = {
@@ -52,6 +53,13 @@ const size = (artifact: Artifact) => {
 }
 
 const fileName = (path: string) => path.split(/[\\/]/).filter(Boolean).at(-1) ?? path
+
+/** An artifact's path is relative to its directory; the desktop bridge wants the absolute one. */
+const resolvedPath = (artifact: Artifact) => {
+  if (!artifact.path) return undefined
+  if (!artifact.directory || isAbsolutePath(artifact.path)) return artifact.path
+  return joinPath(artifact.directory, artifact.path)
+}
 
 /**
  * Artifacts (H-14): what the runs left behind, and what the agent kept.
@@ -338,16 +346,16 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
                     <button
                       class="fc-button fc-button-primary"
                       type="button"
-                      onClick={() => props.onOpenInEditor(artifact().path!)}
+                      onClick={() => props.onOpenInEditor(resolvedPath(artifact())!)}
                     >
                       {t("VS Code")}
                     </button>
-                    <button class="fc-button" type="button" onClick={() => props.onOpenPath(artifact().path!)}>
+                    <button class="fc-button" type="button" onClick={() => props.onOpenPath(resolvedPath(artifact())!)}>
                       {t("Open")}
                     </button>
                   </Show>
                   <Show when={artifact().path}>
-                    <button class="fc-button" type="button" onClick={() => props.onCopy(artifact().path!)}>
+                    <button class="fc-button" type="button" onClick={() => props.onCopy(resolvedPath(artifact())!)}>
                       {t("Copy path")}
                     </button>
                   </Show>
