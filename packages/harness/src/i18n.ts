@@ -392,6 +392,8 @@ const ES: Record<string, string> = {
   Default: "Default",
 
   // Settings
+  General: "General",
+  Interface: "Interfaz",
   Appearance: "Apariencia",
   Theme: "Tema",
   System: "Sistema",
@@ -415,6 +417,8 @@ const ES: Record<string, string> = {
   Server: "Servidor",
   Integrations: "Integraciones",
   "MCP servers": "Servidores MCP",
+  "Add a server": "Añadir un servidor",
+  "Add server": "Añadir servidor",
   "Open FlupCode on your phone by scanning the code.": "Abre FlupCode desde el móvil escaneando el código.",
   URL: "URL",
   "Copy URL": "Copiar URL",

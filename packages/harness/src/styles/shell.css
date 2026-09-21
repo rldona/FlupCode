@@ -2775,15 +2775,50 @@ button.fc-status {
 
 .fc-mcp-form {
   display: flex;
-  gap: 6px;
-  align-items: center;
-  flex-wrap: wrap;
-  padding-top: var(--fc-space-2);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 12px;
+}
+
+.fc-mcp-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--fc-space-4);
+}
+
+/* The add/edit form is its own dialog, so the list behind it stays where the reader left it. */
+.fc-mcp-modal {
+  width: min(640px, 100%);
+  max-height: min(88vh, 860px);
+}
+
+.fc-mcp-modal .fc-mcp-form {
+  min-height: 0;
+  overflow-y: auto;
+  padding-inline-end: var(--fc-space-2);
+}
+
+.fc-mcp-form > .fc-field {
+  flex: 0 0 auto;
+}
+
+.fc-mcp-form .fc-field,
+.fc-mcp-form .fc-check {
+  margin-top: 0;
 }
 
 .fc-mcp-form .fc-question-custom {
-  flex: 1;
-  min-width: 120px;
+  width: 100%;
+  min-width: 0;
+}
+
+.fc-mcp-form .fc-field-area {
+  width: 100%;
+}
+
+.fc-mcp-form-actions {
+  display: flex;
+  justify-content: flex-end;
 }
 
 .fc-stash-list {
@@ -3027,11 +3062,10 @@ button.fc-status {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-4);
-  max-height: min(72vh, 820px);
+  min-height: 0;
+  max-height: none;
   overflow-y: auto;
-  /* Room between the content and the scrollbar. */
-  padding-right: var(--fc-space-4);
-  margin-right: calc(-1 * var(--fc-space-2));
+  padding: 28px 32px 32px;
 }
 
 .fc-settings-section {
@@ -3046,31 +3080,78 @@ button.fc-status {
 */
 .fc-modal-settings {
   width: min(1120px, 100%);
+  height: min(88vh, 920px);
   max-height: min(92vh, 1040px);
+  padding: 0;
+  gap: 0;
+  overflow: hidden;
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.28);
 }
 
 .fc-settings-layout {
+  position: relative;
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  gap: var(--fc-space-4);
-  min-height: 420px;
+  grid-template-columns: 200px minmax(0, 1fr);
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+}
+
+.fc-settings-header {
+  position: absolute;
+  inset-block-start: 12px;
+  inset-inline-end: 16px;
+  z-index: 1;
+}
+
+.fc-settings-header-title {
+  display: none;
+}
+
+/* Kept opaque so scrolling content never shows through the floating close. */
+.fc-settings-close {
+  border: 1px solid var(--fc-border);
+  background: var(--fc-bg-elevated);
 }
 
 .fc-settings-nav {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding-right: var(--fc-space-3);
-  border-right: 1px solid var(--fc-border);
+  padding: 16px 12px;
+  border-inline-end: 1px solid var(--fc-border);
+  background: var(--fc-sidebar);
+  overflow-y: auto;
+}
+
+.fc-settings-group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-settings-group + .fc-settings-group {
+  margin-top: 18px;
+}
+
+/* Deliberately unlike a nav item: smaller, spaced-out caps in muted text, so the
+   headings read as labels rather than options. */
+.fc-settings-group-label {
+  padding: 0 10px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fc-text-muted);
 }
 
 .fc-settings-nav-item {
-  padding: 7px 10px;
+  padding: 8px 10px;
   border: 0;
   border-radius: var(--fc-radius-sm);
   background: transparent;
-  color: var(--fc-text-muted);
-  font-size: 13px;
+  color: var(--fc-text);
+  font-size: 14px;
   text-align: start;
   cursor: pointer;
 }
@@ -3130,6 +3211,30 @@ button.fc-status {
   flex-direction: column;
 }
 
+/* The command editor is its own dialog, so the list behind it stays where the reader left it. */
+.fc-command-modal {
+  width: min(640px, 100%);
+  max-height: min(88vh, 860px);
+}
+
+.fc-command-modal .fc-command-form {
+  min-height: 0;
+  overflow-y: auto;
+  padding-inline-end: var(--fc-space-2);
+}
+
+.fc-command-modal .fc-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--fc-space-4);
+}
+
+.fc-command-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--fc-space-4);
+}
+
 .fc-permissions-editor {
   display: flex;
   flex-direction: column;
@@ -3143,25 +3248,6 @@ button.fc-status {
   font-size: var(--fc-text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-@media (max-width: 620px) {
-  .fc-settings-layout {
-    grid-template-columns: minmax(0, 1fr);
-    min-height: 0;
-  }
-
-  .fc-settings-nav {
-    flex-direction: row;
-    overflow-x: auto;
-    padding: 0 0 var(--fc-space-2);
-    border-right: 0;
-    border-bottom: 1px solid var(--fc-border);
-  }
-
-  .fc-settings-nav-item {
-    white-space: nowrap;
-  }
 }
 
 .fc-settings-title {
@@ -3184,6 +3270,161 @@ button.fc-status {
 .fc-settings-row .fc-question-custom {
   flex: 1;
   max-width: 60%;
+}
+
+/* A clear on/off switch: the knob's side and the track's colour carry the state, not a word. */
+.fc-switch {
+  position: relative;
+  flex: 0 0 auto;
+  width: 40px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--fc-radius-pill);
+  background: color-mix(in srgb, var(--fc-text) 22%, transparent);
+  cursor: pointer;
+  transition: background var(--fc-motion-fast);
+}
+
+.fc-switch[aria-checked="true"] {
+  background: var(--fc-accent);
+}
+
+.fc-switch:focus-visible {
+  outline: 2px solid var(--fc-focus-border);
+  outline-offset: 2px;
+}
+
+.fc-switch-knob {
+  position: absolute;
+  inset-block-start: 3px;
+  inset-inline-start: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+  transition: inset-inline-start var(--fc-motion-fast);
+}
+
+.fc-switch[aria-checked="true"] .fc-switch-knob {
+  inset-inline-start: calc(100% - 21px);
+}
+
+/*
+  Content overrides scoped to the settings tabpanel: `.fc-settings` only exists there, so the base
+  rules above keep serving RemotePanel, ExportDialog and Onboarding.
+*/
+.fc-settings > .fc-settings-section > .fc-settings-title {
+  margin: 0 0 4px;
+  font-size: 18px;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: -0.01em;
+  color: var(--fc-text);
+}
+
+.fc-settings .fc-settings-row {
+  padding-block: 14px;
+  border-bottom: 1px solid var(--fc-border);
+  align-items: center;
+  gap: 16px;
+}
+
+.fc-settings .fc-settings-row:last-child {
+  padding-block-end: 0;
+  border-bottom: 0;
+}
+
+.fc-settings .fc-settings-row > :first-child {
+  min-width: 0;
+}
+
+@media (max-width: 820px) {
+  .fc-settings-layout {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto auto minmax(0, 1fr);
+    min-height: 0;
+  }
+
+  .fc-settings-header {
+    position: static;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 12px 16px 0;
+  }
+
+  .fc-settings-header-title {
+    display: inline;
+    font-size: 16px;
+    font-weight: 600;
+  }
+
+  .fc-settings-nav {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 12px 16px 8px;
+    border-inline-end: 0;
+    border-bottom: 1px solid var(--fc-border);
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x proximity;
+  }
+
+  .fc-settings-nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .fc-settings-group {
+    display: contents;
+  }
+
+  .fc-settings-group-label {
+    display: none;
+  }
+
+  .fc-settings-nav-item {
+    flex: 0 0 auto;
+    white-space: nowrap;
+    scroll-snap-align: start;
+  }
+
+  .fc-settings {
+    padding: 16px;
+  }
+
+  .fc-settings .fc-settings-row {
+    flex-wrap: wrap;
+  }
+
+  .fc-settings-row .fc-question-custom {
+    max-width: 100%;
+  }
+
+  .fc-modal.fc-modal-settings {
+    width: 100%;
+    height: 92vh;
+    max-height: 92vh;
+    overflow: hidden;
+  }
+}
+
+@media (max-width: 520px) {
+  .fc-modal-backdrop-settings {
+    padding: 0;
+  }
+
+  .fc-modal.fc-modal-settings {
+    width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+  }
 }
 
 .fc-settings-status {
@@ -3253,6 +3494,12 @@ button.fc-status {
   overflow: visible;
   padding: 0;
   background: transparent;
+}
+
+/* An embedded editor's heading should not shout louder than the settings section title. */
+.fc-modal-settings .fc-routines-screen .fc-routines-header h1 {
+  font-size: 20px;
+  letter-spacing: -0.01em;
 }
 
 .fc-routines-header,
@@ -4533,17 +4780,8 @@ button.fc-status {
   color: var(--fc-warning);
 }
 
-.fc-context-near .fc-context-ring circle + circle {
-  stroke: var(--fc-warning);
-}
-
-.fc-context-near .fc-context-bar span,
 .fc-context-compaction {
   color: var(--fc-warning);
-}
-
-.fc-context-near .fc-context-bar span {
-  background: var(--fc-warning);
 }
 
 /*
@@ -8474,7 +8712,13 @@ button.fc-status {
 
 .fc-agent-row {
   width: 100%;
+  align-items: center;
   text-align: left;
+}
+
+/* The "New agent" button sits centred against the heading block, not pinned to its top. */
+.fc-agents-header {
+  align-items: center;
 }
 
 .fc-agent-problem {
@@ -8522,6 +8766,7 @@ button.fc-status {
 
 .fc-check {
   display: flex;
+  flex-direction: row;
   gap: 6px;
   align-items: center;
   margin-top: 10px;
