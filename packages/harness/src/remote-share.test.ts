@@ -26,6 +26,7 @@ describe("the local URL status line", () => {
   test("one label per probe outcome, checking while none", () => {
     expect(reachabilityLabel("online")).toBe("Reachable")
     expect(reachabilityLabel("blocked")).toBe("Blocked by the browser")
+    expect(reachabilityLabel("unauthorized")).toBe("Authentication required")
     expect(reachabilityLabel("offline")).toBe("Offline")
     expect(reachabilityLabel(undefined)).toBe("Checking…")
   })

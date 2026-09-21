@@ -485,6 +485,11 @@ const ES: Record<string, string> = {
   "Server connected": "Servidor conectado",
   "Server offline": "Sin conexión al servidor",
   "Connection blocked by the browser": "Conexión bloqueada por el navegador",
+  "Authentication required": "Autenticación requerida",
+  "The engine is asking for authentication": "El motor pide autenticación",
+  "restart it without a password, or use the desktop app": "reinícialo sin contraseña o usa la app de escritorio",
+  "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:":
+    "Este motor se arrancó con OPENCODE_SERVER_PASSWORD, así que rechaza toda llamada desde una página del navegador — una página no puede enviar credenciales. Reinícialo sin esa variable o abre la app de escritorio de FlupCode, que inicia sesión por ti:",
   Troubleshooting: "Solución de problemas",
   "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.":
     "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (inicio de sesión de GitHub Copilot, modos de permisos, memoria) no están disponibles.",
