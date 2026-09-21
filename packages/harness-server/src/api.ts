@@ -574,7 +574,7 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       // Plans the agent wrote live on disk and the harness never produced; index them while
       // somebody is looking at this folder's artifacts, which is when it is worth doing (H-14). The
       // same lazy pass indexes the documents the agent produced, including the ones it declared with
-      // `artifact.write`, since those are written into the same folder.
+      // `artifact_write`, since those are written into the same folder.
       if (directory) {
         try {
           registerPlans(repository, directory)
