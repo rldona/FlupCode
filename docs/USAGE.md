@@ -39,6 +39,11 @@ bun run dev:harness
 Open http://localhost:4444. The server URL defaults to `http://localhost:4096`; change it in
 **Settings → Server**, or set `VITE_OPENCODE_SERVER_URL`.
 
+Do not start the engine with `OPENCODE_SERVER_PASSWORD` set. A browser page has no credentials to
+send and the engine refuses every call, which FlupCode reports as **Authentication required**. Only
+the desktop app hands the page a password. To clear one inherited from the shell, start it as
+`env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096`.
+
 ### Hosted web app
 
 There is a deployed UI at https://app.flupcode.com that talks to an engine on your machine. Install
@@ -51,6 +56,10 @@ opencode serve --port 4096 --cors https://app.flupcode.com
 
 The `--cors` origin is required because the page and the engine are different origins. The app
 connects to `http://localhost:4096` by default (change it in **Settings → Server**).
+
+The hosted page is a browser page, so it cannot send credentials either: keep
+`OPENCODE_SERVER_PASSWORD` out of the engine's environment, or FlupCode shows **Authentication
+required** instead of connecting. Use the desktop app when you want the engine password-protected.
 
 **The first connection asks for local network access.** Chrome 141 and later treat a public page
 reaching a service on your machine as a *local network request*, gated behind a permission the user
@@ -88,6 +97,11 @@ looks for `FLUPCODE_OPENCODE`, then the engine from this checkout, then `opencod
 when none is found it shows an install prompt. Set `FLUPCODE_NO_SERVER=1` to disable the automatic
 start, `FLUPCODE_SERVER_URL` to point at an engine already running elsewhere (default
 `http://127.0.0.1:4096`), or `FLUPCODE_DEV_URL` to point at another renderer.
+
+The engine the app starts is password-protected, and the app hands that password to its own window.
+A browser page cannot receive it, so pointing the web app or the source checkout at that engine
+reports **Authentication required**; use a separate engine started without `OPENCODE_SERVER_PASSWORD`
+for browser clients.
 
 ### Installing a release
 

@@ -29,9 +29,10 @@ export function tunnelCommand(port: number): string {
 }
 
 /** What the local URL line says about a probe result (TN-2). No result yet means checking. */
-export function reachabilityLabel(status: "online" | "blocked" | "offline" | undefined): string {
+export function reachabilityLabel(status: "online" | "blocked" | "offline" | "unauthorized" | undefined): string {
   if (status === "online") return "Reachable"
   if (status === "blocked") return "Blocked by the browser"
+  if (status === "unauthorized") return "Authentication required"
   if (status === "offline") return "Offline"
   return "Checking…"
 }

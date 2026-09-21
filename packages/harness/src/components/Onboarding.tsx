@@ -10,6 +10,8 @@ type OnboardingProps = {
   serverHealthy: boolean | undefined
   /** The engine is reachable but the browser blocked the response (CORS, mixed content, LNA). */
   serverBlocked: boolean
+  /** The engine answers `401`/`403`: it was started with a password a browser page cannot send. */
+  serverAuthRequired: boolean
   /** The browser's Local Network Access permission, when this page needs one (H-45). */
   localNetwork: LocalNetworkState
   allowingLocalNetwork: boolean
@@ -34,12 +36,14 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
   const [copied, setCopied] = createSignal(false)
   const origin = () => (typeof window === "undefined" ? "http://localhost:4444" : window.location.origin)
   const command = () => `opencode serve --port 4096 --cors ${origin()}`
+  const passwordlessCommand = () =>
+    `env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors ${origin()}`
   // On touch devices the engine rarely runs locally, so controlling a computer comes first.
   const remoteFirst = () => props.remoteClient && touchDevice
 
   let copiedTimer: number | undefined
-  const copyCommand = () => {
-    void navigator.clipboard?.writeText(command())
+  const copy = (value: string) => {
+    void navigator.clipboard?.writeText(value)
     setCopied(true)
     clearTimeout(copiedTimer)
     copiedTimer = window.setTimeout(() => setCopied(false), 1500)
@@ -66,7 +70,9 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
             ? t("Server connected")
             : props.serverBlocked
               ? t("Connection blocked by the browser")
-              : t("Server offline")}
+              : props.serverAuthRequired
+                ? t("Authentication required")
+                : t("Server offline")}
       </div>
 
       <Show when={props.serverHealthy === true && props.engineProfile === "stock"}>
@@ -107,7 +113,23 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         </Show>
       </Show>
 
-      <Show when={props.serverHealthy !== true}>
+      <Show when={props.serverAuthRequired}>
+        <p class="fc-onboarding-text">
+          {t(
+            "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:",
+          )}
+        </p>
+        <div class="fc-onboarding-command">
+          <pre class="fc-onboarding-code">
+            <code>{passwordlessCommand()}</code>
+          </pre>
+          <button class="fc-button" type="button" onClick={() => copy(passwordlessCommand())}>
+            {copied() ? t("Copied") : t("Copy command")}
+          </button>
+        </div>
+      </Show>
+
+      <Show when={props.serverHealthy !== true && !props.serverAuthRequired}>
         <p class="fc-onboarding-text">{t("FlupCode needs the OpenCode engine. Install it once, then start it:")}</p>
         <p class="fc-onboarding-text">
           {t("FlupCode is a client and does not ship the engine.")}{" "}
@@ -119,7 +141,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
           <pre class="fc-onboarding-code">
             <code>{command()}</code>
           </pre>
-          <button class="fc-button" type="button" onClick={copyCommand}>
+          <button class="fc-button" type="button" onClick={() => copy(command())}>
             {copied() ? t("Copied") : t("Copy command")}
           </button>
         </div>
