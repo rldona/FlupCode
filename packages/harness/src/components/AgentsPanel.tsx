@@ -263,7 +263,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
   return (
     <Show when={props.open}>
       <section class="fc-routines-screen" aria-label={t("Agents")}>
-        <div class="fc-routines-header">
+        <div class="fc-routines-header fc-agents-header">
           <div>
             <div class="fc-routines-kicker">{t("Automation")}</div>
             <h1>{t("Agents")}</h1>

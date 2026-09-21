@@ -75,6 +75,8 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
   const [headers, setHeaders] = createSignal("")
   const [timeout, setTimeout] = createSignal("")
   const [enabled, setEnabled] = createSignal(true)
+  const [formOpen, setFormOpen] = createSignal(false)
+  const [editing, setEditing] = createSignal(false)
 
   // Who can reach each server (H-34), from the agent files the engine reads.
   const access = createMemo(
@@ -102,6 +104,8 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
   const edit = (server: McpServer) => {
     const config = props.configs?.[server.name]
     setName(server.name)
+    setEditing(true)
+    setFormOpen(true)
     if (!config) return
     setType(config.type)
     if (config.type === "local") {
@@ -115,6 +119,14 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     setTimeout(config.timeout === undefined ? "" : String(config.timeout))
     setEnabled(config.enabled !== false)
   }
+
+  const startAdd = () => {
+    reset()
+    setEditing(false)
+    setFormOpen(true)
+  }
+
+  const close = () => setFormOpen(false)
 
   const submit = () => {
     const serverName = name().trim()
@@ -141,6 +153,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     if (config.type === "remote" && !config.url) return
     props.onAdd(serverName, config)
     reset()
+    setFormOpen(false)
   }
 
   return (
@@ -232,113 +245,144 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
         </ul>
       </Show>
 
-      <div class="fc-mcp-form">
-        <div class="fc-field-row">
-          <label class="fc-field">
-            <span>{t("Name")}</span>
-            <input
-              class="fc-question-custom"
-              placeholder={t("Name")}
-              value={name()}
-              onInput={(event) => setName(event.currentTarget.value)}
-            />
-          </label>
-          <label class="fc-field">
-            <span>{t("Type")}</span>
-            <select
-              class="fc-toolbar-select"
-              value={type()}
-              onChange={(event) => setType(event.currentTarget.value as "local" | "remote")}
-            >
-              <option value="local">{t("Local")}</option>
-              <option value="remote">{t("Remote")}</option>
-            </select>
-          </label>
+      <Show when={!formOpen()}>
+        <div class="fc-mcp-actions">
+          <button class="fc-button" type="button" disabled={props.busy} onClick={startAdd}>
+            {t("Add server")}
+          </button>
         </div>
+      </Show>
 
-        <Show
-          when={type() === "local"}
-          fallback={
-            <>
-              <label class="fc-field">
-                <span>{t("URL")}</span>
-                <input
-                  class="fc-question-custom"
-                  placeholder="https://…"
-                  value={url()}
-                  onInput={(event) => setUrl(event.currentTarget.value)}
-                />
-              </label>
-              <label class="fc-field">
-                <span>{t("Headers")}</span>
-                <textarea
-                  class="fc-field-area"
-                  rows={3}
-                  placeholder="Authorization=Bearer …"
-                  value={headers()}
-                  onInput={(event) => setHeaders(event.currentTarget.value)}
-                />
-                <span class="fc-field-hint">{t("One Header=value per line.")}</span>
-              </label>
-            </>
-          }
-        >
-          <label class="fc-field">
-            <span>{t("Command")}</span>
-            <input
-              class="fc-question-custom"
-              placeholder={t("command and arguments")}
-              value={command()}
-              onInput={(event) => setCommand(event.currentTarget.value)}
-            />
-          </label>
-          <label class="fc-field">
-            <span>{t("Working directory")}</span>
-            <input
-              class="fc-question-custom"
-              placeholder={t("Optional")}
-              value={cwd()}
-              onInput={(event) => setCwd(event.currentTarget.value)}
-            />
-          </label>
-          <label class="fc-field">
-            <span>{t("Environment")}</span>
-            <textarea
-              class="fc-field-area"
-              rows={3}
-              placeholder="API_KEY=…"
-              value={environment()}
-              onInput={(event) => setEnvironment(event.currentTarget.value)}
-            />
-            <span class="fc-field-hint">{t("One KEY=value per line.")}</span>
-          </label>
-        </Show>
+      <Show when={formOpen()}>
+        <div class="fc-modal-backdrop" onClick={close}>
+          <div
+            class="fc-modal fc-mcp-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-label={editing() ? name() : t("Add a server")}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div class="fc-modal-header">
+              <span>{editing() ? name() : t("Add a server")}</span>
+              <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={close}>
+                ×
+              </button>
+            </div>
 
-        <div class="fc-field-row">
-          <label class="fc-field">
-            <span>{t("Timeout (ms)")}</span>
-            <input
-              class="fc-question-custom"
-              inputmode="numeric"
-              placeholder={t("5000")}
-              value={timeout()}
-              onInput={(event) => setTimeout(event.currentTarget.value)}
-            />
-          </label>
-          <label class="fc-field fc-check">
-            <input
-              type="checkbox"
-              checked={enabled()}
-              onChange={(event) => setEnabled(event.currentTarget.checked)}
-            />
-            <span>{t("Start on launch")}</span>
-          </label>
+            <div class="fc-mcp-form">
+              <div class="fc-field-row">
+                <label class="fc-field">
+                  <span>{t("Name")}</span>
+                  <input
+                    class="fc-question-custom"
+                    placeholder={t("Name")}
+                    value={name()}
+                    onInput={(event) => setName(event.currentTarget.value)}
+                  />
+                </label>
+                <label class="fc-field">
+                  <span>{t("Type")}</span>
+                  <select
+                    class="fc-toolbar-select"
+                    value={type()}
+                    onChange={(event) => setType(event.currentTarget.value as "local" | "remote")}
+                  >
+                    <option value="local">{t("Local")}</option>
+                    <option value="remote">{t("Remote")}</option>
+                  </select>
+                </label>
+              </div>
+
+              <Show
+                when={type() === "local"}
+                fallback={
+                  <>
+                    <label class="fc-field">
+                      <span>{t("URL")}</span>
+                      <input
+                        class="fc-question-custom"
+                        placeholder="https://…"
+                        value={url()}
+                        onInput={(event) => setUrl(event.currentTarget.value)}
+                      />
+                    </label>
+                    <label class="fc-field">
+                      <span>{t("Headers")}</span>
+                      <textarea
+                        class="fc-field-area"
+                        rows={3}
+                        placeholder="Authorization=Bearer …"
+                        value={headers()}
+                        onInput={(event) => setHeaders(event.currentTarget.value)}
+                      />
+                      <span class="fc-field-hint">{t("One Header=value per line.")}</span>
+                    </label>
+                  </>
+                }
+              >
+                <div class="fc-field-row">
+                  <label class="fc-field">
+                    <span>{t("Command")}</span>
+                    <input
+                      class="fc-question-custom"
+                      placeholder={t("command and arguments")}
+                      value={command()}
+                      onInput={(event) => setCommand(event.currentTarget.value)}
+                    />
+                  </label>
+                  <label class="fc-field">
+                    <span>{t("Working directory")}</span>
+                    <input
+                      class="fc-question-custom"
+                      placeholder={t("Optional")}
+                      value={cwd()}
+                      onInput={(event) => setCwd(event.currentTarget.value)}
+                    />
+                  </label>
+                </div>
+                <label class="fc-field">
+                  <span>{t("Environment")}</span>
+                  <textarea
+                    class="fc-field-area"
+                    rows={3}
+                    placeholder="API_KEY=…"
+                    value={environment()}
+                    onInput={(event) => setEnvironment(event.currentTarget.value)}
+                  />
+                  <span class="fc-field-hint">{t("One KEY=value per line.")}</span>
+                </label>
+              </Show>
+
+              <div class="fc-field-row">
+                <label class="fc-field">
+                  <span>{t("Timeout (ms)")}</span>
+                  <input
+                    class="fc-question-custom"
+                    inputmode="numeric"
+                    placeholder={t("5000")}
+                    value={timeout()}
+                    onInput={(event) => setTimeout(event.currentTarget.value)}
+                  />
+                </label>
+                <label class="fc-field fc-check">
+                  <input
+                    type="checkbox"
+                    checked={enabled()}
+                    onChange={(event) => setEnabled(event.currentTarget.checked)}
+                  />
+                  <span>{t("Start on launch")}</span>
+                </label>
+              </div>
+
+              <div class="fc-mcp-form-actions">
+                <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={submit}>
+                  {editing() ? t("Save") : t("Add")}
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
-
-        <button class="fc-button fc-button-primary" type="button" disabled={props.busy} onClick={submit}>
-          {t("Add")}
-        </button>
-      </div>
+      </Show>
     </>
   )
 }

@@ -125,7 +125,7 @@ test("turning thinking on in Settings puts it back, closed", async ({ page }) =>
   await page
     .locator(".fc-settings-row")
     .filter({ hasText: /Show thinking|Mostrar el razonamiento/ })
-    .getByRole("button")
+    .getByRole("switch")
     .click()
   await page
     .getByRole("button", { name: /^Close$|^Cerrar$/ })
