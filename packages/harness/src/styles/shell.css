@@ -138,10 +138,6 @@ select:focus-visible,
   z-index: 5;
 }
 
-.fc-sidebar-resizer:hover {
-  background: color-mix(in srgb, var(--fc-accent) 40%, transparent);
-}
-
 .fc-menu {
   position: fixed;
   z-index: 80;
@@ -3330,8 +3326,11 @@ button.fc-status {
 }
 
 .fc-routines-notice-icon {
+  display: inline-flex;
+  align-items: center;
   color: var(--fc-accent);
   font-size: 18px;
+  line-height: 1;
 }
 
 .fc-routines-toolbar {
@@ -3615,6 +3614,7 @@ button.fc-status {
   color: var(--fc-accent);
   background: color-mix(in srgb, var(--fc-accent) 12%, transparent);
   font-size: 28px;
+  line-height: 1;
 }
 
 .fc-routines-empty .fc-button { margin-top: 22px; }
@@ -4476,10 +4476,6 @@ button.fc-status {
   z-index: 5;
 }
 
-.fc-rightaside-resizer:hover {
-  background: color-mix(in srgb, var(--fc-accent) 40%, transparent);
-}
-
 .fc-aside-section {
   display: flex;
   flex-direction: column;
@@ -4730,10 +4726,6 @@ button.fc-status {
   height: 100%;
   cursor: col-resize;
   z-index: 5;
-}
-
-.fc-workspace-resizer:hover {
-  background: color-mix(in srgb, var(--fc-accent) 40%, transparent);
 }
 
 .fc-panel {
