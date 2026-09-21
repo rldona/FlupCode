@@ -25,6 +25,7 @@ type Values = {
   description: string
   agent: string
   model: string
+  variant: string
   subtask: boolean
   template: string
 }
@@ -40,11 +41,12 @@ export function fieldsFor(values: Values, original: Record<string, unknown>): Re
   if (values.description.trim()) fields.description = values.description.trim()
   if (values.agent.trim()) fields.agent = values.agent.trim()
   if (values.model.trim()) fields.model = values.model.trim()
+  if (values.variant.trim()) fields.variant = values.variant.trim()
   if (values.subtask) fields.subtask = true
   return fields
 }
 
-const empty: Values = { description: "", agent: "", model: "", subtask: false, template: "" }
+const empty: Values = { description: "", agent: "", model: "", variant: "", subtask: false, template: "" }
 
 export const CommandsPanel: Component<CommandsPanelProps> = (props) => {
   const [openPath, setOpenPath] = createSignal<string>()
@@ -70,6 +72,7 @@ export const CommandsPanel: Component<CommandsPanelProps> = (props) => {
       description: typeof file.fields.description === "string" ? file.fields.description : "",
       agent: typeof file.fields.agent === "string" ? file.fields.agent : "",
       model: typeof file.fields.model === "string" ? file.fields.model : "",
+      variant: typeof file.fields.variant === "string" ? file.fields.variant : "",
       subtask: file.fields.subtask === true,
       template: file.template,
     })
@@ -211,6 +214,15 @@ export const CommandsPanel: Component<CommandsPanelProps> = (props) => {
                   placeholder={t("Optional")}
                   value={values().model}
                   onInput={(event) => setValues({ ...values(), model: event.currentTarget.value })}
+                />
+              </label>
+              <label class="fc-field">
+                <span>{t("Variant")}</span>
+                <input
+                  class="fc-question-custom"
+                  placeholder={t("Optional")}
+                  value={values().variant}
+                  onInput={(event) => setValues({ ...values(), variant: event.currentTarget.value })}
                 />
               </label>
               <label class="fc-field fc-check">
