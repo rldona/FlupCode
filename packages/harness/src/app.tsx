@@ -711,6 +711,19 @@ export const App: Component = () => {
   // reopening the event streams, and refetching sessions, messages and both blocked registries, on
   // a clock, forever. Only a change of the answer is worth waking anything for.
   const ready = createMemo(() => health()?.healthy === true)
+  /**
+   * Whether the local network permission can still be what is holding this page back.
+   *
+   * A blocked call is not proof that the permission is missing: an engine that does not allow this
+   * origin fails the same way, and so does mixed content. Asking again for one the browser already
+   * granted — or one it does not gate at all — answers nothing, so the banner would keep offering a
+   * button that cannot work while never naming the `--cors` the engine actually needs. Declared
+   * after `health`: a memo reads its sources as soon as it is created.
+   */
+  const localNetworkAsking = createMemo(
+    () =>
+      Boolean(localNetworkEngine() && health()?.blocked) && (localNetwork() === "prompt" || localNetwork() === "denied"),
+  )
   // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
   // stock OpenCode CLI, whose extras (Copilot sign-in, permission modes, memory) are missing.
   const [engineProfile] = createResource(
@@ -5157,7 +5170,7 @@ export const App: Component = () => {
         >
           <div class="fc-offline-banner">
             <Show
-              when={localNetworkEngine() && health()?.blocked}
+              when={localNetworkAsking()}
               fallback={
                 <>
                   <span>
