@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { fieldsFor } from "./CommandsPanel"
 
-const values = { description: "", agent: "", model: "", subtask: false, template: "" }
+const values = { description: "", agent: "", model: "", variant: "", subtask: false, template: "" }
 
 describe("the command form's fields", () => {
   test("only writes the ones that were filled in", () => {
@@ -24,5 +24,11 @@ describe("the command form's fields", () => {
 
   test("clearing a known key removes it rather than leaving it empty", () => {
     expect(fieldsFor(values, { description: "Old", agent: "build" })).toEqual({})
+  })
+
+  test("writes the variant the form was given instead of dropping it", () => {
+    expect(fieldsFor({ ...values, variant: "thinking" }, { variant: "thinking" })).toEqual({
+      variant: "thinking",
+    })
   })
 })
