@@ -13,6 +13,7 @@ export const OPENCODE_DOCS = "https://opencode.ai/docs/"
 let child: ChildProcess | undefined
 let harnessChild: ChildProcess | undefined
 let prompted = false
+let promptedRestart = false
 
 /**
  * The engine answers any request from any `http://localhost:*` origin, so an unsecured one lets
@@ -181,11 +182,35 @@ function promptInstall() {
     })
 }
 
-export async function ensureServer() {
-  if (process.env.FLUPCODE_NO_SERVER === "1") return
+/**
+ * An engine this app did not start reads its plugins once, when it starts.
+ *
+ * One that was already listening when FlupCode wrote them is running without them, and nothing says
+ * so: the chat works, while the effort menu stays empty and the Context screen captures nothing. Not
+ * fatal, so it is said once and the app carries on.
+ */
+function promptPluginRestart() {
+  if (promptedRestart) return
+  promptedRestart = true
+  void dialog.showMessageBox({
+    type: "info",
+    title: "Restart the engine to load FlupCode's plugins",
+    message: "The engine was already running when FlupCode installed its plugins",
+    detail:
+      "An engine reads its plugins when it starts, and this one was already listening.\n\n" +
+      "Until it is restarted, the effort menu and the Context screen have nothing to show.\n\n" +
+      "Stop it and start it again, or close it and let FlupCode start its own.",
+    buttons: ["Continue"],
+  })
+}
+
+export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "1") return
   // Before any engine starts: plugins load at startup (an engine already running picks them up on restart).
-  await installEnginePlugins()
-  if (await isServerHealthy()) return
+  const plugins = await installEnginePlugins()
+  if (await isServerHealthy()) {
+    if (plugins.changed) promptPluginRestart()
+    return
+  }
 
   const engine = resolveEngine()
   if (!engine) {
