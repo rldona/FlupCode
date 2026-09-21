@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -172,6 +172,39 @@ describe("writing one", () => {
 
   test("an empty map is left out rather than written as an empty key", () => {
     expect(serialiseAgentFile({ fields: { mode: "subagent", tools: {} }, prompt: "x" })).not.toContain("tools")
+  })
+
+  test("editing writes back to the file it came from, not to a new one", () => {
+    // `agents` not `agent`, nested, and a name a fresh path could not even reproduce. Recomputing
+    // the path would write a second file here and leave this one untouched.
+    write(join(project, ".opencode", "agents", "team", "scout.md"), "---\nmode: subagent\n---\n\nLook.\n")
+    const [file] = listAgentFiles(project, project)
+    expect(file!.name).toBe("team/scout")
+
+    const path = writeAgentFile(
+      { name: file!.name, scope: file!.scope, path: file!.path, fields: { mode: "primary" }, prompt: "Look harder." },
+      project,
+      project,
+    )
+
+    expect(path).toBe(join(project, ".opencode", "agents", "team", "scout.md"))
+    expect(existsSync(join(project, ".opencode", "agent", "team", "scout.md"))).toBe(false)
+    const [again] = listAgentFiles(project, project)
+    expect(again!.fields).toEqual({ mode: "primary" })
+    expect(again!.prompt).toBe("Look harder.")
+  })
+
+  test("editing a file this listing never named is refused", () => {
+    write(join(project, ".opencode", "agent", "real.md"), "---\nmode: subagent\n---\n\nBye.\n")
+    expect(() =>
+      writeAgentFile(
+        { name: "real", scope: "project", path: join(project, "elsewhere.md"), fields: {}, prompt: "x" },
+        project,
+        project,
+      ),
+    ).toThrow(AgentError)
+    // And the file it named is untouched.
+    expect(readFileSync(join(project, ".opencode", "agent", "real.md"), "utf8")).toContain("Bye.")
   })
 })
 

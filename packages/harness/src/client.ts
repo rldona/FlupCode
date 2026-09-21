@@ -1288,6 +1288,8 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         scope: "global" | "project"
         fields: Record<string, unknown>
         prompt: string
+        /** The file being edited, so an edit writes back to it instead of a new one. */
+        path?: string
         directory?: string
         project?: string
       }) =>
