@@ -1,7 +1,8 @@
 import { spawn, spawnSync, type ChildProcess } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { existsSync } from "node:fs"
-import { join } from "node:path"
+import { homedir } from "node:os"
+import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 
@@ -53,8 +54,54 @@ export async function isHarnessServerHealthy() {
 }
 
 function commandExists(command: string) {
-  const probe = spawnSync(command, ["--version"], { stdio: "ignore", shell: process.platform === "win32" })
+  const probe = spawnSync(command, ["--version"], {
+    stdio: "ignore",
+    env: { ...process.env, PATH: searchPath() },
+    shell: process.platform === "win32",
+  })
   return !probe.error
+}
+
+/**
+ * The PATH the engine is looked up in, and the one the processes we start run with.
+ *
+ * An app opened from the Finder or the Dock inherits launchd's PATH — `/usr/bin:/bin:/usr/sbin:/sbin`
+ * on macOS — not the one the user's shell builds. An engine installed by Homebrew, bun or the
+ * OpenCode installer is invisible to it, so FlupCode would say it is offline on a machine where
+ * `opencode serve` runs fine in a terminal. The login shell's PATH is asked for once and merged in,
+ * together with the usual install folders in case the shell cannot be read. The children get the
+ * same value: the agent's own tools (git, node, a formatter) have to be found too.
+ */
+let mergedPath: string | undefined
+function searchPath() {
+  if (mergedPath) return mergedPath
+  const home = homedir()
+  const known =
+    process.platform === "win32"
+      ? []
+      : [
+          "/opt/homebrew/bin",
+          "/usr/local/bin",
+          join(home, ".opencode", "bin"),
+          join(home, ".local", "bin"),
+          join(home, ".bun", "bin"),
+        ]
+  const entries = [...(process.env.PATH ?? "").split(delimiter), ...loginShellPath(), ...known]
+  mergedPath = Array.from(new Set(entries.filter((entry) => entry))).join(delimiter)
+  return mergedPath
+}
+
+function loginShellPath() {
+  // Only for a packaged app: in development the terminal's PATH is already the user's, and starting
+  // a login shell there would only cost time.
+  if (!app.isPackaged || process.platform === "win32" || !process.env.SHELL) return []
+  const probe = spawnSync(process.env.SHELL, ["-ilc", "printf %s \"$PATH\""], {
+    encoding: "utf8",
+    timeout: 5000,
+    // A shell that asks something on startup must not hold the app up: it gets no input at all.
+    stdio: ["ignore", "pipe", "ignore"],
+  })
+  return (probe.stdout ?? "").trim().split(delimiter)
 }
 
 function repoEngineDir() {
@@ -151,7 +198,7 @@ export async function ensureServer() {
     cwd: engine.cwd,
     stdio: "inherit",
     shell: process.platform === "win32",
-    env: { ...process.env, OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: password },
+    env: { ...process.env, PATH: searchPath(), OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: password },
   })
   child.on("error", () => {
     child = undefined
@@ -177,6 +224,7 @@ export async function ensureHarnessServer() {
     cwd: harness.cwd,
     env: {
       ...process.env,
+      PATH: searchPath(),
       FLUPCODE_ENGINE_URL: SERVER_URL,
       FLUPCODE_HARNESS_PORT: port,
     },
