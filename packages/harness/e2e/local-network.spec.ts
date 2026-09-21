@@ -72,3 +72,15 @@ test("a browser that already granted it connects without being asked", async () 
   expect(answered).toBeGreaterThan(0)
   await browser.close()
 })
+
+test("a page still blocked with the permission granted is told what the engine has to allow", async () => {
+  const { browser, page } = await launch(["local-network-access"])
+  await boot(page, () => "blocked", () => {})
+
+  // The permission is not what is missing, so asking for it again would answer nothing: what the
+  // engine needs is this origin on its allowed list.
+  const banner = page.locator(".fc-offline-banner")
+  await expect(banner).toContainText("--cors http://app.flupcode.test:4173")
+  await expect(banner.getByRole("button", { name: /Allow access|Permitir acceso/ })).toHaveCount(0)
+  await browser.close()
+})
