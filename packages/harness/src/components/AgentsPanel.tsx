@@ -20,6 +20,8 @@ type AgentsPanelProps = {
     scope: "global" | "project"
     fields: Record<string, unknown>
     prompt: string
+    /** The file being edited, so the write goes back to it rather than to a new one. */
+    path?: string
   }) => Promise<unknown>
   onDelete: (path: string) => Promise<unknown>
 }
@@ -141,7 +143,6 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
   const [prompt, setPrompt] = createSignal("")
   const [saving, setSaving] = createSignal(false)
   const [problem, setProblem] = createSignal<string>()
-  const [saved, setSaved] = createSignal<string>()
   const [confirming, setConfirming] = createSignal<string>()
 
   const selected = createMemo(() => props.files.find((file) => file.path === openPath()))
@@ -149,7 +150,6 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
   /** Puts a file into the form. A file is loaded once; typing in it must not be overwritten. */
   const load = (file: AgentFile | undefined) => {
     setProblem(undefined)
-    setSaved(undefined)
     if (!file) {
       setForm({ ...empty })
       setPrompt("")
@@ -201,20 +201,24 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
 
   const save = async () => {
     setProblem(undefined)
-    setSaved(undefined)
     if (!name().trim()) {
       setProblem(t("An agent needs a name"))
       return
     }
     setSaving(true)
+    const file = selected()
     try {
       await props.onSave({
         name: name().trim(),
         scope: scope(),
-        fields: fieldsFrom(form(), selected()?.fields ?? {}),
+        fields: fieldsFrom(form(), file?.fields ?? {}),
         prompt: prompt(),
+        // Editing sends the file it came from: recomputing the path would write a second file when
+        // the original lives in `agents`, is nested, or sits under another `.opencode`.
+        ...(file ? { path: file.path } : {}),
       })
-      setSaved(t("Saved. The engine reads it on the next turn."))
+      // A save is done: the dialog closes, the way the commands editor does.
+      closeEditor()
     } catch (cause) {
       setProblem(cause instanceof Error ? cause.message : String(cause))
     } finally {
@@ -246,6 +250,7 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
   const closeEditor = () => {
     setCreating(false)
     setOpenPath(undefined)
+    setConfirming(undefined)
   }
 
   createEffect(() => {
@@ -507,7 +512,6 @@ export const AgentsPanel: Component<AgentsPanelProps> = (props) => {
               />
 
               <Show when={problem()}>{(why) => <p class="fc-run-error">{why()}</p>}</Show>
-              <Show when={saved()}>{(message) => <p class="fc-usage-note fc-agent-saved">{message()}</p>}</Show>
 
               </div>
               <div class="fc-dialog-actions">
