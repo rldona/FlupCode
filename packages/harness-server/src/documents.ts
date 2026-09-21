@@ -105,7 +105,7 @@ function walk(root: string, at: string, out: LocalDocument[]) {
     } catch {
       continue
     }
-    const path = relative(root, full)
+    const path = join(DOCUMENTS_DIRECTORY, relative(root, full))
     let content: string | undefined
     if (type.text && size <= MAX_INLINE) {
       try {

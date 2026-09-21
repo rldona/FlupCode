@@ -1,7 +1,26 @@
-import { describe, expect, test } from "bun:test"
-import { ARTIFACT_LIMIT, SqliteRoutineRepository } from "./repository"
+import { afterEach, describe, expect, test } from "bun:test"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { registerDocuments } from "./documents"
+import { ARTIFACT_LIMIT, artifactHash, SqliteRoutineRepository } from "./repository"
 
 const open = () => new SqliteRoutineRepository(":memory:")
+
+const insertLegacyArtifact = (
+  repository: SqliteRoutineRepository,
+  id: string,
+  path: string,
+  kind = "document",
+  directory = "/work/demo",
+  hash?: string,
+) =>
+  repository.db
+    .query(
+      `INSERT INTO artifacts (id, kind, title, mime, producer, path, directory, hash, created_at)
+       VALUES (?1, ?2, ?1, 'text/markdown', 'agent', ?3, ?4, ?5, 1000)`,
+    )
+    .run(id, kind, path, directory, hash ?? null)
 
 describe("what a run leaves behind", () => {
   test("is kept, and comes back newest first", () => {
@@ -131,5 +150,65 @@ describe("what a run leaves behind", () => {
     expect(repository.removeExpiredArtifacts(6000)).toBe(0)
     expect(repository.getArtifact(artifact.id)).toBeDefined()
     repository.close()
+  })
+})
+
+describe("documents indexed before the path convention was fixed", () => {
+  const directories: string[] = []
+  const scratch = () => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-artifacts-"))
+    directories.push(directory)
+    return join(directory, "harness.sqlite")
+  }
+  afterEach(() => {
+    for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
+  })
+
+  test("lifts legacy document paths to project-relative, leaves the rest alone, and is idempotent", () => {
+    const path = scratch()
+    const before = new SqliteRoutineRepository(path)
+    insertLegacyArtifact(before, "d1", "report.md")
+    insertLegacyArtifact(before, "d2", join("sub", "report.md"))
+    insertLegacyArtifact(before, "d3", join(".flupcode", "artifacts", "report.md"))
+    insertLegacyArtifact(before, "d4", "/work/demo/notes.md")
+    insertLegacyArtifact(before, "d5", "report.md", "plan")
+    insertLegacyArtifact(before, "d6", "report.md", "report")
+    // An API-made row can already be project-relative with forward slashes on any platform.
+    insertLegacyArtifact(before, "d7", ".flupcode/artifacts/report.md")
+    before.close()
+
+    const after = new SqliteRoutineRepository(path)
+    expect(after.getArtifact("d1")?.path).toBe(join(".flupcode", "artifacts", "report.md"))
+    expect(after.getArtifact("d2")?.path).toBe(join(".flupcode", "artifacts", "sub", "report.md"))
+    // Already project-relative, absolute, or not a document: untouched.
+    expect(after.getArtifact("d3")?.path).toBe(join(".flupcode", "artifacts", "report.md"))
+    expect(after.getArtifact("d4")?.path).toBe("/work/demo/notes.md")
+    expect(after.getArtifact("d5")?.path).toBe("report.md")
+    expect(after.getArtifact("d6")?.path).toBe("report.md")
+    expect(after.getArtifact("d7")?.path).toBe(".flupcode/artifacts/report.md")
+    after.close()
+
+    const again = new SqliteRoutineRepository(path)
+    expect(again.getArtifact("d1")?.path).toBe(join(".flupcode", "artifacts", "report.md"))
+    expect(again.getArtifact("d3")?.path).toBe(join(".flupcode", "artifacts", "report.md"))
+    expect(again.getArtifact("d7")?.path).toBe(".flupcode/artifacts/report.md")
+    again.close()
+  })
+
+  test("a repaired document is not indexed a second time", () => {
+    const path = scratch()
+    const project = dirname(path)
+    const content = "# One\n\nbody"
+    mkdirSync(join(project, ".flupcode", "artifacts"), { recursive: true })
+    writeFileSync(join(project, ".flupcode", "artifacts", "report.md"), content)
+
+    const before = new SqliteRoutineRepository(path)
+    insertLegacyArtifact(before, "doc1", "report.md", "document", project, artifactHash(content))
+    before.close()
+
+    const after = new SqliteRoutineRepository(path)
+    registerDocuments(after, project)
+    expect(after.listArtifacts({ directory: project, kind: "document" })).toHaveLength(1)
+    after.close()
   })
 })

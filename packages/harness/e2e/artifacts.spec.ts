@@ -126,3 +126,62 @@ test("a file the session wrote opens in VS Code, in the system, or is copied", a
     ])
   await expect(file.getByRole("button", { name: /^(Copy|Copiar)$/ })).toBeVisible()
 })
+
+test("an artifact's path reaches the bridge absolute, joined to its directory", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_x"))
+    // The desktop bridge, stubbed: it records what it was asked to open, and with which app.
+    ;(window as unknown as { __opened: unknown[] }).__opened = []
+    ;(window as unknown as { __copied: string[] }).__copied = []
+    ;(window as unknown as { flupcode: unknown }).flupcode = {
+      platform: "darwin",
+      openPath: (path: string, app?: string) => {
+        ;(window as unknown as { __opened: unknown[] }).__opened.push([path, app])
+        return Promise.resolve(true)
+      },
+    }
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: (text: string) => {
+          ;(window as unknown as { __copied: string[] }).__copied.push(text)
+          return Promise.resolve()
+        },
+      },
+    })
+  })
+  await engine(page, [])
+  // A document stores a path relative to its directory, the same convention plans use.
+  await harness(page, [
+    {
+      id: "doc1",
+      kind: "document",
+      title: "Report",
+      producer: "agent",
+      mime: "text/markdown",
+      createdAt: now,
+      content: "# Report",
+      path: ".flupcode/artifacts/report.md",
+      directory: "/work/demo",
+    },
+  ])
+  await page.goto("/artifacts")
+
+  await page.locator(".fc-artifact-card", { hasText: "Report" }).locator(".fc-artifact-card-main").click()
+  await page.locator(".fc-artifact-viewer-bar").getByRole("button", { name: /^VS Code$/ }).click()
+  await page.locator(".fc-artifact-viewer-bar").getByRole("button", { name: /^(Open|Abrir)$/ }).click()
+  await page.locator(".fc-artifact-viewer-bar").getByRole("button", { name: /^(Copy path|Copiar ruta)$/ }).click()
+
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __opened: unknown[] }).__opened))
+    .toEqual([
+      ["/work/demo/.flupcode/artifacts/report.md", "Visual Studio Code"],
+      ["/work/demo/.flupcode/artifacts/report.md", undefined],
+    ])
+  await expect
+    .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
+    .toEqual(["/work/demo/.flupcode/artifacts/report.md"])
+})
