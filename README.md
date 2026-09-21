@@ -3,7 +3,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/flupcode-cover-new.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
+  Web and desktop harness for OpenCode — a project sidebar, usage dashboard, runs, workflows,
+  artifacts and routines, with a polished composer.
 </p>
 
 <p align="center">
@@ -19,6 +20,10 @@
   <a href="https://github.com/rldona/FlupCode/issues"><img alt="issues" src="https://img.shields.io/github/issues/rldona/FlupCode" /></a>
   <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen" />
   <img alt="fork of OpenCode" src="https://img.shields.io/badge/fork%20of-OpenCode-blueviolet" />
+</p>
+
+<p align="center">
+  <img src="docs/assets/flupcode-cover-new.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
 </p>
 
 ---
