@@ -62,10 +62,10 @@
     tmx = 0.5,
     tmy = 0.4
   const ribbons = [
-    { c: "#5b8cff", a: 0.4, y: 0.42, amp: 0.1, f: 1.3, s: 0.00022, w: 0.36 },
-    { c: "#8b5cf6", a: 0.36, y: 0.52, amp: 0.13, f: 0.9, s: 0.00017, w: 0.3 },
-    { c: "#4cc9ff", a: 0.3, y: 0.34, amp: 0.08, f: 1.7, s: 0.00028, w: 0.22 },
-    { c: "#c084fc", a: 0.2, y: 0.62, amp: 0.11, f: 1.1, s: 0.00013, w: 0.26 },
+    { c: "#f0603a", a: 0.3, y: 0.42, amp: 0.1, f: 1.3, s: 0.00022, w: 0.34 },
+    { c: "#c6472a", a: 0.24, y: 0.52, amp: 0.13, f: 0.9, s: 0.00017, w: 0.28 },
+    { c: "#e0a24a", a: 0.18, y: 0.34, amp: 0.08, f: 1.7, s: 0.00028, w: 0.22 },
+    { c: "#7c2d12", a: 0.12, y: 0.62, amp: 0.11, f: 1.1, s: 0.00013, w: 0.24 },
   ]
   function size() {
     const r = aurora.getBoundingClientRect()
@@ -82,7 +82,7 @@
     mx += (tmx - mx) * 0.03
     my += (tmy - my) * 0.03
     octx.globalCompositeOperation = "source-over"
-    octx.fillStyle = "#05060b"
+    octx.fillStyle = "#050505"
     octx.fillRect(0, 0, w, h)
     octx.globalCompositeOperation = "lighter"
     ribbons.forEach((r, i) => {
@@ -107,9 +107,9 @@
     octx.globalAlpha = 1
     // dark vignette at the top so the nav stays legible
     const g = octx.createLinearGradient(0, 0, 0, h)
-    g.addColorStop(0, "rgba(5,6,11,.9)")
-    g.addColorStop(0.35, "rgba(5,6,11,.15)")
-    g.addColorStop(1, "rgba(5,6,11,0)")
+    g.addColorStop(0, "rgba(5,5,5,.9)")
+    g.addColorStop(0.35, "rgba(5,5,5,.15)")
+    g.addColorStop(1, "rgba(5,5,5,0)")
     octx.globalCompositeOperation = "source-over"
     octx.fillStyle = g
     octx.fillRect(0, 0, w, h)
@@ -151,13 +151,13 @@
           y = ((((p.y - t * drift * p.v) % h) + h) % h) + oy * p.d
         if (p.big) {
           c.globalAlpha = tw * 0.35
-          c.fillStyle = "#9fb8ff"
+          c.fillStyle = "#e5e5e5"
           c.beginPath()
           c.arc(x, y, p.r * 3, 0, 6.28)
           c.fill()
         }
         c.globalAlpha = tw
-        c.fillStyle = p.big ? "#ffffff" : "#e3e9ff"
+        c.fillStyle = p.big ? "#ffffff" : "#ffffff"
         c.beginPath()
         c.arc(x, y, p.r, 0, 6.28)
         c.fill()
