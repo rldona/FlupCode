@@ -11,7 +11,7 @@
  * that fits is kept inline so it can be read and searched; anything else (an image, a PDF, a page
  * too large to hold) is kept as a path, and the raw route serves it.
  *
- * The agent can also declare one directly with the `artifact.write` tool, which writes the document
+ * The agent can also declare one directly with the `artifact_write` tool, which writes the document
  * into the same folder — so there is one place documents live and one pass that finds them.
  */
 
