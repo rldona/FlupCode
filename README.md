@@ -2,8 +2,6 @@
   <a href="https://flupcode.com"><img src="assets/flupcode-tentative-logo.png" alt="FlupCode" width="180" /></a>
 </p>
 
-<h1 align="center">FlupCode</h1>
-
 <p align="center">
   <img src="docs/assets/flupcode-cover-new.png" alt="FlupCode — the web and desktop harness for OpenCode" width="920" />
 </p>
@@ -25,7 +23,7 @@
 
 ---
 
-## Contents
+### Contents
 
 - [Why a fork](#why-a-fork)
 - [Highlights](#highlights)
