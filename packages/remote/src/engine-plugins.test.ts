@@ -199,7 +199,11 @@ describe("installEnginePlugins", () => {
     const project = await temp()
     const plugin = await installed(config, ARTIFACT_WRITE_PLUGIN.file, "flupcodeArtifactWrite")
     const hooks = await plugin()
-    const tool = hooks.tool["artifact.write"]
+    const tool = hooks.tool["artifact_write"]
+
+    // Providers with an OpenAI-shaped API reject any function name outside this pattern, so a tool
+    // named with a dot fails every request that carries it, not just the ones that call it.
+    for (const name of Object.keys(hooks.tool)) expect(name).toMatch(/^[a-zA-Z0-9_-]+$/)
 
     await tool.execute(
       { title: "Report", filename: "../../escape.html", content: "<h1>hi</h1>" },
