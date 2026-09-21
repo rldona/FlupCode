@@ -1052,7 +1052,6 @@ const ES: Record<string, string> = {
   "No agent files yet. A new one is written where the engine looks.":
     "Todavía no hay ficheros de agente. El nuevo se escribe donde el motor los busca.",
   "An agent needs a name": "Un agente necesita un nombre",
-  "Saved. The engine reads it on the next turn.": "Guardado. El motor lo lee en el siguiente turno.",
   "Saving would overwrite what this file says: {why}": "Guardar sobrescribiría lo que dice este fichero: {why}",
   Where: "Dónde",
   "This project": "Este proyecto",

@@ -799,7 +799,15 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     }
     if (path[1] === "agents" && request.method === "POST" && !path[2]) {
       const body = (await readJSON(request)) as
-        | { name?: unknown; scope?: unknown; fields?: unknown; prompt?: unknown; directory?: unknown; project?: unknown }
+        | {
+            name?: unknown
+            scope?: unknown
+            fields?: unknown
+            prompt?: unknown
+            path?: unknown
+            directory?: unknown
+            project?: unknown
+          }
         | undefined
       const name = typeof body?.name === "string" ? body.name.trim() : ""
       const scope = body?.scope === "global" ? "global" : "project"
@@ -807,10 +815,12 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         ? (body.fields as Record<string, unknown>)
         : {}
       const prompt = typeof body?.prompt === "string" ? body.prompt : ""
+      // An edit names the file it came from; a new agent has none and gets a path computed for it.
+      const path = typeof body?.path === "string" && body.path ? body.path : undefined
       const directory = typeof body?.directory === "string" ? body.directory : undefined
       const project = typeof body?.project === "string" ? body.project : undefined
       try {
-        const written = writeAgentFile({ name, scope, fields, prompt }, directory, project)
+        const written = writeAgentFile({ name, scope, fields, prompt, ...(path ? { path } : {}) }, directory, project)
         return json({ data: { path: written } })
       } catch (cause) {
         if (cause instanceof AgentError) return error(cause.message, cause.status)

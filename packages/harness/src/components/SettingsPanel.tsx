@@ -102,6 +102,7 @@ type SettingsPanelProps = {
     scope: "global" | "project"
     fields: Record<string, unknown>
     prompt: string
+    path?: string
   }) => Promise<unknown>
   onDeleteAgent: (path: string) => Promise<unknown>
   /** Providers for the providers section (CU-3): directory, methods and links. */

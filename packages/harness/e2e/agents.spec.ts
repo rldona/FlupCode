@@ -123,9 +123,13 @@ test("saving sends the file back, keeping what the form does not draw", async ({
   const body = saved()[0]!
   expect(body.name).toBe("reviewer")
   expect(body.prompt).toBe("Review it harder.")
+  // The file it was opened from, so the write goes back to it rather than to a new one.
+  expect(body.path).toBe("/work/demo/.opencode/agent/reviewer.md")
   // `top_p` is not a field this form has. An editor that dropped it would be eating work.
   expect((body.fields as Record<string, unknown>).top_p).toBe(0.9)
   expect((body.fields as Record<string, unknown>).description).toBe("Reviews a diff")
+  // A save is done: the dialog closes instead of staying open.
+  await expect(page.locator(".fc-agent-form")).toBeHidden()
 })
 
 test("a tool goes unset, off, on and back", async ({ page }) => {

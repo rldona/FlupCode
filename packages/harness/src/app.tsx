@@ -1480,6 +1480,7 @@ export const App: Component = () => {
     scope: "global" | "project"
     fields: Record<string, unknown>
     prompt: string
+    path?: string
   }) => {
     const directory = vcsDirectory()
     await createHarnessClient(harnessServerUrl()).agents.save({ ...draft, ...(directory ? { directory } : {}) })

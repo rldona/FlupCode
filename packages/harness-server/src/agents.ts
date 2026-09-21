@@ -47,6 +47,8 @@ export type AgentDraft = {
   scope: AgentScope
   fields: Record<string, unknown>
   prompt: string
+  /** An existing file to write back to, when this is an edit rather than a new agent. */
+  path?: string
 }
 
 /** The folder names the engine looks in, in the order it looks. */
@@ -165,8 +167,23 @@ export function pathFor(draft: Pick<AgentDraft, "name" | "scope">, directory?: s
   return path
 }
 
+/**
+ * The file an edit writes back to: one this listing already named, and nothing else.
+ *
+ * An agent already on disk may live in `agents`, `mode` or `modes` rather than `agent`, under a
+ * nested name, or in another `.opencode` on the way up. Recomputing its path would write a second
+ * file and leave the first one untouched, so an edit goes to exactly the path it was opened from.
+ */
+function editPath(path: string, directory?: string, projectDirectory?: string) {
+  const known = listAgentFiles(directory, projectDirectory).some((file) => file.path === path)
+  if (!known) throw new AgentError("That is not an agent file this project knows about", 404)
+  return path
+}
+
 export function writeAgentFile(draft: AgentDraft, directory?: string, projectDirectory?: string) {
-  const path = pathFor(draft, directory, projectDirectory)
+  const path = draft.path
+    ? editPath(draft.path, directory, projectDirectory)
+    : pathFor(draft, directory, projectDirectory)
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, serialiseAgentFile({ fields: draft.fields, prompt: draft.prompt }))
   return path
