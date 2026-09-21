@@ -102,6 +102,11 @@ test("settings is a rail of sections, and the editors live inside it", async ({ 
   await expect(dialog.getByRole("tablist")).toBeVisible()
   await expect(dialog.getByRole("tab", { name: "Appearance" })).toHaveAttribute("aria-selected", "true")
 
+  // Wide: a labelled rail, and one close button floating on the content pane instead of a title bar.
+  await expect(dialog.getByRole("button", { name: "Close" })).toBeVisible()
+  await expect(dialog.locator(".fc-settings-header-title")).toBeHidden()
+  await expect(dialog.locator(".fc-settings-group-label", { hasText: "General" })).toBeVisible()
+
   // Commands are read from the harness server, not from a modal of their own.
   await dialog.getByRole("tab", { name: "Commands" }).click()
   await expect(dialog.getByText("/review")).toBeVisible()
@@ -134,6 +139,7 @@ test("an MCP server can be given an environment and headers, not just a command"
   const dialog = await openSettings(page)
 
   await dialog.getByRole("tab", { name: "MCP servers" }).click()
+  await dialog.getByRole("button", { name: "Add server" }).click()
   await dialog.getByPlaceholder("Name").fill("local1")
   await dialog.getByPlaceholder("command and arguments").fill("npx -y server")
   await dialog.getByPlaceholder("API_KEY=…").fill("API_KEY=abc\nDEBUG=true")
@@ -246,15 +252,39 @@ test("a conversation toggle survives a reload", async ({ page }) => {
   let dialog = await openSettings(page)
   await dialog.getByRole("tab", { name: "Conversation" }).click()
 
-  const tools = dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("button")
-  await expect(tools).toHaveText(/^Yes$|^Sí$/)
+  const tools = dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("switch")
+  await expect(tools).toHaveAttribute("aria-checked", "true")
   await tools.click()
-  await expect(tools).toHaveText(/^No$/)
+  await expect(tools).toHaveAttribute("aria-checked", "false")
 
   await page.reload()
   dialog = await openSettings(page)
   await dialog.getByRole("tab", { name: "Conversation" }).click()
-  await expect(dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("button")).toHaveText(
-    /^No$/,
-  )
+  await expect(
+    dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("switch"),
+  ).toHaveAttribute("aria-checked", "false")
+})
+
+test("on a narrow screen the rail becomes a horizontally scrollable tab strip", async ({ page }) => {
+  await page.setViewportSize({ width: 640, height: 800 })
+  await openApp(page)
+  // On narrow screens the Customize button lives in the off-canvas sidebar.
+  await page.getByTitle("Toggle sidebar").click()
+  const dialog = await openSettings(page)
+
+  // The group labels give way to a header title, and the tabs stay on one scrollable line.
+  await expect(dialog.locator(".fc-settings-group-label").first()).toBeHidden()
+  await expect(dialog.locator(".fc-settings-header-title")).toBeVisible()
+
+  const nav = dialog.getByRole("tablist")
+  await expect(nav).toHaveCSS("flex-wrap", "nowrap")
+  expect(await nav.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true)
+
+  // The strip scrolls horizontally. RTL scrolls toward negative values, so match the direction.
+  const scrolled = await nav.evaluate((el) => {
+    const rtl = getComputedStyle(el).direction === "rtl"
+    el.scrollLeft = rtl ? -el.scrollWidth : el.scrollWidth
+    return Math.abs(el.scrollLeft) > 0
+  })
+  expect(scrolled).toBe(true)
 })

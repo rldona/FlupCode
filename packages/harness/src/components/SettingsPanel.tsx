@@ -159,22 +159,55 @@ export type SettingsSection =
   | "server"
   | "advanced"
 
-/** The sections, in the order the rail shows them. */
-export const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string }> = [
-  { id: "appearance", label: "Appearance" },
-  { id: "profile", label: "Profile" },
-  { id: "model", label: "Model" },
-  { id: "providers", label: "Providers" },
-  { id: "conversation", label: "Conversation" },
-  { id: "notifications", label: "Notifications" },
-  { id: "shortcuts", label: "Shortcuts" },
-  { id: "permissions", label: "Permissions" },
-  { id: "commands", label: "Commands" },
-  { id: "agents", label: "Agents" },
-  { id: "mcp", label: "MCP servers" },
-  { id: "server", label: "Server" },
-  { id: "advanced", label: "Advanced" },
+type SettingsGroup = {
+  label: string
+  items: Array<{ id: SettingsSection; label: string }>
+}
+
+/** The sections, grouped the way the rail shows them. */
+export const SETTINGS_GROUPS: SettingsGroup[] = [
+  {
+    label: "General",
+    items: [
+      { id: "appearance", label: "Appearance" },
+      { id: "profile", label: "Profile" },
+    ],
+  },
+  {
+    label: "Models",
+    items: [
+      { id: "model", label: "Model" },
+      { id: "providers", label: "Providers" },
+    ],
+  },
+  {
+    label: "Interface",
+    items: [
+      { id: "conversation", label: "Conversation" },
+      { id: "notifications", label: "Notifications" },
+      { id: "shortcuts", label: "Shortcuts" },
+    ],
+  },
+  {
+    label: "Automation",
+    items: [
+      { id: "permissions", label: "Permissions" },
+      { id: "commands", label: "Commands" },
+      { id: "agents", label: "Agents" },
+      { id: "mcp", label: "MCP servers" },
+    ],
+  },
+  {
+    label: "System",
+    items: [
+      { id: "server", label: "Server" },
+      { id: "advanced", label: "Advanced" },
+    ],
+  },
 ]
+
+/** The sections, in the order the rail shows them. */
+export const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((group) => group.items)
 
 function groupModels(models: ModelInfo[]) {
   const map = new Map<string, ModelInfo[]>()
@@ -185,6 +218,20 @@ function groupModels(models: ModelInfo[]) {
   }
   return [...map.entries()].map(([providerID, items]) => ({ providerID, items }))
 }
+
+/** A clear on/off switch: the knob's side and colour say the state, not a word to read. */
+const Toggle: Component<{ checked: boolean; label: string; onToggle: () => void }> = (props) => (
+  <button
+    class="fc-switch"
+    role="switch"
+    type="button"
+    aria-checked={props.checked}
+    aria-label={props.label}
+    onClick={props.onToggle}
+  >
+    <span class="fc-switch-knob" aria-hidden="true" />
+  </button>
+)
 
 export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   // The section lives in app (CU-1): resource keys and the sidebar read it, so tab clicks
@@ -223,7 +270,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
   }
   return (
     <Show when={props.open}>
-      <div class="fc-modal-backdrop" onClick={props.onClose}>
+      <div class="fc-modal-backdrop fc-modal-backdrop-settings" onClick={props.onClose}>
         <div
           class="fc-modal fc-modal-wide fc-modal-settings"
           role="dialog"
@@ -231,27 +278,36 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
           aria-label={t("Customize")}
           onClick={(event) => event.stopPropagation()}
         >
-          <div class="fc-modal-header">
-            <span>{t("Customize")}</span>
-            <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={props.onClose}>
-              ×
-            </button>
-          </div>
-
           <div class="fc-settings-layout">
+            <header class="fc-settings-header">
+              <span class="fc-settings-header-title">{t("Settings")}</span>
+              <button class="fc-icon-button fc-settings-close" type="button" aria-label={t("Close")} onClick={props.onClose}>
+                ×
+              </button>
+            </header>
+
             <nav class="fc-settings-nav" role="tablist" aria-label={t("Settings sections")}>
-              <For each={SETTINGS_SECTIONS}>
-                {(item) => (
-                  <button
-                    class="fc-settings-nav-item"
-                    classList={{ "fc-settings-nav-active": section() === item.id }}
-                    role="tab"
-                    type="button"
-                    aria-selected={section() === item.id}
-                    onClick={() => setSection(item.id)}
-                  >
-                    {t(item.label)}
-                  </button>
+              <For each={SETTINGS_GROUPS}>
+                {(group) => (
+                  <div class="fc-settings-group" role="presentation">
+                    <div class="fc-settings-group-label" aria-hidden="true">
+                      {t(group.label)}
+                    </div>
+                    <For each={group.items}>
+                      {(item) => (
+                        <button
+                          class="fc-settings-nav-item"
+                          classList={{ "fc-settings-nav-active": section() === item.id }}
+                          role="tab"
+                          type="button"
+                          aria-selected={section() === item.id}
+                          onClick={() => setSection(item.id)}
+                        >
+                          {t(item.label)}
+                        </button>
+                      )}
+                    </For>
+                  </div>
                 )}
               </For>
             </nav>
@@ -326,14 +382,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                         {t("The sessions you open in this window stay in a strip above the conversation.")}
                       </span>
                     </span>
-                    <button
-                      class="fc-chip fc-chip-button"
-                      classList={{ "fc-chip-active": props.sessionTabs }}
-                      type="button"
-                      onClick={props.onToggleSessionTabs}
-                    >
-                      {props.sessionTabs ? t("Yes") : t("No")}
-                    </button>
+                    <Toggle
+                      checked={props.sessionTabs}
+                      label={t("Open sessions as tabs")}
+                      onToggle={props.onToggleSessionTabs}
+                    />
                   </div>
                 </section>
               </Show>
@@ -402,14 +455,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <h3 class="fc-settings-title">{t("Conversation")}</h3>
                   <div class="fc-settings-row">
                     <span>{t("Show tool steps")}</span>
-                    <button
-                      class="fc-chip fc-chip-button"
-                      classList={{ "fc-chip-active": props.showTools }}
-                      type="button"
-                      onClick={props.onToggleTools}
-                    >
-                      {props.showTools ? t("Yes") : t("No")}
-                    </button>
+                    <Toggle checked={props.showTools} label={t("Show tool steps")} onToggle={props.onToggleTools} />
                   </div>
                   <div class="fc-settings-row">
                     <span class="fc-settings-usage">
@@ -418,14 +464,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                         {t("What the model thought before answering, as a block you can open.")}
                       </span>
                     </span>
-                    <button
-                      class="fc-chip fc-chip-button"
-                      classList={{ "fc-chip-active": props.showReasoning }}
-                      type="button"
-                      onClick={props.onToggleReasoning}
-                    >
-                      {props.showReasoning ? t("Yes") : t("No")}
-                    </button>
+                    <Toggle
+                      checked={props.showReasoning}
+                      label={t("Show thinking")}
+                      onToggle={props.onToggleReasoning}
+                    />
                   </div>
                   <div class="fc-settings-row">
                     <span class="fc-settings-usage">
@@ -434,14 +477,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                         {t("After each answer a model suggests your next message; Tab accepts it.")}
                       </span>
                     </span>
-                    <button
-                      class="fc-chip fc-chip-button"
-                      classList={{ "fc-chip-active": props.replySuggestions }}
-                      type="button"
-                      onClick={props.onToggleReplySuggestions}
-                    >
-                      {props.replySuggestions ? t("Yes") : t("No")}
-                    </button>
+                    <Toggle
+                      checked={props.replySuggestions}
+                      label={t("Suggest replies")}
+                      onToggle={props.onToggleReplySuggestions}
+                    />
                   </div>
                   <Show when={props.replySuggestions}>
                     <label class="fc-settings-row">
@@ -514,14 +554,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <h3 class="fc-settings-title">{t("Notifications")}</h3>
                   <div class="fc-settings-row">
                     <span>{t("Enable notifications")}</span>
-                    <button
-                      class="fc-chip fc-chip-button"
-                      classList={{ "fc-chip-active": props.notifications }}
-                      type="button"
-                      onClick={props.onToggleNotifications}
-                    >
-                      {props.notifications ? t("On") : t("Off")}
-                    </button>
+                    <Toggle
+                      checked={props.notifications}
+                      label={t("Enable notifications")}
+                      onToggle={props.onToggleNotifications}
+                    />
                   </div>
                 </section>
               </Show>

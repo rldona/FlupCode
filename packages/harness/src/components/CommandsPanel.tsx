@@ -110,6 +110,11 @@ export const CommandsPanel: Component<CommandsPanelProps> = (props) => {
     setOpenPath(undefined)
   }
 
+  const close = () => {
+    setCreating(false)
+    setOpenPath(undefined)
+  }
+
   return (
     <div class="fc-command-editor">
       <Show
@@ -148,126 +153,138 @@ export const CommandsPanel: Component<CommandsPanelProps> = (props) => {
         </Show>
 
         <Show when={creating() || selected()}>
-          <div class="fc-command-form">
-            <div class="fc-field-row">
-              <label class="fc-field">
-                <span>{t("Name")}</span>
-                <input
-                  class="fc-question-custom"
-                  placeholder="git/release"
-                  value={name()}
-                  disabled={!creating()}
-                  onInput={(event) => setName(event.currentTarget.value)}
-                />
-                <span class="fc-field-hint">{t("A slash makes a nested command.")}</span>
-              </label>
-              <label class="fc-field">
-                <span>{t("Where")}</span>
-                <select
-                  class="fc-toolbar-select"
-                  value={scope()}
-                  disabled={!creating()}
-                  onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
-                >
-                  <option value="project">{t("Project")}</option>
-                  <option value="global">{t("Global")}</option>
-                </select>
-              </label>
-            </div>
+          <div class="fc-modal-backdrop" onClick={close}>
+            <div
+              class="fc-modal fc-command-modal"
+              role="dialog"
+              aria-modal="true"
+              aria-label={creating() ? t("New command") : name()}
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div class="fc-modal-header">
+                <span>{creating() ? t("New command") : name()}</span>
+                <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={close}>
+                  ×
+                </button>
+              </div>
 
-            <label class="fc-field">
-              <span>{t("Description")}</span>
-              <input
-                class="fc-question-custom"
-                value={values().description}
-                onInput={(event) => setValues({ ...values(), description: event.currentTarget.value })}
-              />
-            </label>
-
-            <div class="fc-field-row">
-              <label class="fc-field">
-                <span>{t("Agent")}</span>
-                <Show
-                  when={props.agents.length > 0}
-                  fallback={
+              <div class="fc-command-form">
+                <div class="fc-field-row">
+                  <label class="fc-field">
+                    <span>{t("Name")}</span>
                     <input
                       class="fc-question-custom"
-                      value={values().agent}
-                      onInput={(event) => setValues({ ...values(), agent: event.currentTarget.value })}
+                      placeholder="git/release"
+                      value={name()}
+                      disabled={!creating()}
+                      onInput={(event) => setName(event.currentTarget.value)}
                     />
-                  }
-                >
-                  <select
-                    class="fc-toolbar-select"
-                    value={values().agent}
-                    onChange={(event) => setValues({ ...values(), agent: event.currentTarget.value })}
-                  >
-                    <option value="">{t("Default")}</option>
-                    <For each={props.agents}>{(agent) => <option value={agent}>{agent}</option>}</For>
-                  </select>
-                </Show>
-              </label>
-              <label class="fc-field">
-                <span>{t("Model")}</span>
-                <input
-                  class="fc-question-custom"
-                  placeholder={t("Optional")}
-                  value={values().model}
-                  onInput={(event) => setValues({ ...values(), model: event.currentTarget.value })}
-                />
-              </label>
-              <label class="fc-field">
-                <span>{t("Variant")}</span>
-                <input
-                  class="fc-question-custom"
-                  placeholder={t("Optional")}
-                  value={values().variant}
-                  onInput={(event) => setValues({ ...values(), variant: event.currentTarget.value })}
-                />
-              </label>
-              <label class="fc-field fc-check">
-                <input
-                  type="checkbox"
-                  checked={values().subtask}
-                  onChange={(event) => setValues({ ...values(), subtask: event.currentTarget.checked })}
-                />
-                <span>{t("Run in a subtask")}</span>
-              </label>
-            </div>
+                    <span class="fc-field-hint">{t("A slash makes a nested command.")}</span>
+                  </label>
+                  <label class="fc-field">
+                    <span>{t("Where")}</span>
+                    <select
+                      class="fc-toolbar-select"
+                      value={scope()}
+                      disabled={!creating()}
+                      onChange={(event) => setScope(event.currentTarget.value as "global" | "project")}
+                    >
+                      <option value="project">{t("Project")}</option>
+                      <option value="global">{t("Global")}</option>
+                    </select>
+                  </label>
+                </div>
 
-            <label class="fc-field">
-              <span>{t("Template")}</span>
-              <textarea
-                class="fc-field-area"
-                rows={6}
-                placeholder={t("What the command says. $ARGUMENTS is what was typed after it.")}
-                value={values().template}
-                onInput={(event) => setValues({ ...values(), template: event.currentTarget.value })}
-              />
-            </label>
+                <label class="fc-field">
+                  <span>{t("Description")}</span>
+                  <input
+                    class="fc-question-custom"
+                    value={values().description}
+                    onInput={(event) => setValues({ ...values(), description: event.currentTarget.value })}
+                  />
+                </label>
 
-            <div class="fc-settings-actions">
-              <button class="fc-button fc-button-primary" type="button" onClick={save}>
-                {t("Save")}
-              </button>
-              <button
-                class="fc-button"
-                type="button"
-                onClick={() => {
-                  setCreating(false)
-                  setOpenPath(undefined)
-                }}
-              >
-                {t("Cancel")}
-              </button>
+                <div class="fc-field-row">
+                  <label class="fc-field">
+                    <span>{t("Agent")}</span>
+                    <Show
+                      when={props.agents.length > 0}
+                      fallback={
+                        <input
+                          class="fc-question-custom"
+                          value={values().agent}
+                          onInput={(event) => setValues({ ...values(), agent: event.currentTarget.value })}
+                        />
+                      }
+                    >
+                      <select
+                        class="fc-toolbar-select"
+                        value={values().agent}
+                        onChange={(event) => setValues({ ...values(), agent: event.currentTarget.value })}
+                      >
+                        <option value="">{t("Default")}</option>
+                        <For each={props.agents}>{(agent) => <option value={agent}>{agent}</option>}</For>
+                      </select>
+                    </Show>
+                  </label>
+                  <label class="fc-field">
+                    <span>{t("Model")}</span>
+                    <input
+                      class="fc-question-custom"
+                      placeholder={t("Optional")}
+                      value={values().model}
+                      onInput={(event) => setValues({ ...values(), model: event.currentTarget.value })}
+                    />
+                  </label>
+                  <label class="fc-field">
+                    <span>{t("Variant")}</span>
+                    <input
+                      class="fc-question-custom"
+                      placeholder={t("Optional")}
+                      value={values().variant}
+                      onInput={(event) => setValues({ ...values(), variant: event.currentTarget.value })}
+                    />
+                  </label>
+                  <label class="fc-field fc-check">
+                    <input
+                      type="checkbox"
+                      checked={values().subtask}
+                      onChange={(event) => setValues({ ...values(), subtask: event.currentTarget.checked })}
+                    />
+                    <span>{t("Run in a subtask")}</span>
+                  </label>
+                </div>
+
+                <label class="fc-field">
+                  <span>{t("Template")}</span>
+                  <textarea
+                    class="fc-field-area"
+                    rows={6}
+                    placeholder={t("What the command says. $ARGUMENTS is what was typed after it.")}
+                    value={values().template}
+                    onInput={(event) => setValues({ ...values(), template: event.currentTarget.value })}
+                  />
+                </label>
+
+                <div class="fc-settings-actions">
+                  <button class="fc-button fc-button-primary" type="button" onClick={save}>
+                    {t("Save")}
+                  </button>
+                  <button class="fc-button" type="button" onClick={close}>
+                    {t("Cancel")}
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </Show>
 
         <Show when={!creating() && !selected()}>
-          <button class="fc-button" type="button" onClick={startNew}>
-            {t("New command")}
-          </button>
+          <div class="fc-command-editor-actions">
+            <button class="fc-button" type="button" onClick={startNew}>
+              {t("New command")}
+            </button>
+          </div>
         </Show>
       </Show>
     </div>

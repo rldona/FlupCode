@@ -14,6 +14,13 @@ type ContextMeterProps = {
   compaction?: { at: number; count: number }
 }
 
+/** Green when empty, amber at half, red when full — blended so the colour slides, not jumps. */
+const meterColor = (percent: number) => {
+  const p = Math.max(0, Math.min(100, percent))
+  const hue = p <= 50 ? 120 - 75 * (p / 50) : 45 - 45 * ((p - 50) / 50)
+  return `hsl(${Math.round(hue)} 75% 50%)`
+}
+
 export const ContextMeter: Component<ContextMeterProps> = (props) => {
   const [open, setOpen] = createSignal(false)
   let root: HTMLDivElement | undefined
@@ -52,7 +59,7 @@ export const ContextMeter: Component<ContextMeterProps> = (props) => {
             cy="12"
             r="9"
             fill="none"
-            stroke="var(--fc-accent)"
+            stroke={meterColor(percent())}
             stroke-width="3"
             stroke-linecap="round"
             stroke-dasharray={`${(percent() / 100) * circumference} ${circumference}`}
@@ -70,7 +77,7 @@ export const ContextMeter: Component<ContextMeterProps> = (props) => {
             </span>
           </div>
           <div class="fc-context-bar">
-            <span style={{ width: `${percent()}%` }} />
+            <span style={{ width: `${percent()}%`, background: meterColor(percent()) }} />
           </div>
           <Show when={props.tokens}>
             <div class="fc-context-row">
