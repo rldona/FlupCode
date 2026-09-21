@@ -1161,6 +1161,10 @@ export const App: Component = () => {
       )
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
+  // Bumped when the reader asks the engine to reload. The engine re-reads its configuration then, so
+  // the resources that carry it — the agent and skill lists above the config — must be asked again.
+  const [serverReload, setServerReload] = createSignal(0)
+  const [serverReloading, setServerReloading] = createSignal(false)
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
     (key) => {
@@ -1189,13 +1193,15 @@ export const App: Component = () => {
     const data = models()?.data
     return data && data.length > 0 ? data : lastModels()
   })
+  // The reload counter is part of the key so a reload asks for both lists again; the fetcher reads
+  // the URL off the same key.
   const [agents] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).agent.list(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
+    async (key) => createClient(key.split("\n")[0]!).agent.list(),
   )
   const [skills] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).skill.list(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
+    async (key) => createClient(key.split("\n")[0]!).skill.list(),
   )
   const [mcp, { refetch: refetchMcp }] = createResource(
     () => (ready() ? serverUrl() : undefined),
@@ -3479,6 +3485,35 @@ export const App: Component = () => {
 
     const refresh = () => {
       void refetchSessions()
+    }
+
+    /**
+     * Ask the engine to drop its cached instances, so agents and skills written since it started
+     * take effect. It disposes every instance, so turns in flight are dropped: the button asks for a
+     * second click first, and the whole fleet of lists is reread once it is done.
+     */
+    const reloadEngine = async () => {
+      if (serverReloading()) return
+      setServerReloading(true)
+      // The engine disposes the very instance that serves this session, so its reply cannot arrive
+      // while the app is attached: the request stays open and the promise never settles. The dispose
+      // itself is uninterruptible and does run, so ask, do not wait for the answer, and reread the
+      // lists once the engine has had a moment to drop the old instances.
+      void createClient(serverUrl())
+        .reload()
+        .catch(() => undefined)
+      await new Promise((resolve) => setTimeout(resolve, 2500))
+      setServerReload((count) => count + 1)
+      setAgentsRefresh((count) => count + 1)
+      await Promise.allSettled([
+        refetchHealth(),
+        refetchSessions(),
+        refetchModels(),
+        refetchModelDirectory(),
+        refetchProviderDirectory(),
+      ])
+      setServerReloading(false)
+      toast(t("Engine reloaded"), "success")
     }
 
     const copyPath = (path: string) => {
@@ -5843,6 +5878,8 @@ export const App: Component = () => {
         onDisplayName={updateDisplayName}
         onServerInput={setServerInput}
         onServerCommit={commitServer}
+        onServerReload={reloadEngine}
+        serverReloading={serverReloading()}
         onModelChange={changeModel}
         onToggleTools={toggleTools}
         onToggleReasoning={toggleReasoning}

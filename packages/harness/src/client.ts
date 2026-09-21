@@ -259,6 +259,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
         return { healthy: result?.healthy ?? true, version: result?.version }
       },
     },
+    /**
+     * Drop the engine's cached instances so the next request re-reads its configuration.
+     *
+     * The engine resolves agents and skills once per instance and never reloads them, so a file
+     * written afterwards — by the Agents panel, say — is on disk but not in a running session. This
+     * is the same dispose the credential flow already uses, exposed so the reader can ask for it.
+     * It disposes every instance, so turns in flight are dropped: callers confirm first.
+     */
+    reload: () => unwrap(client.global.dispose()),
     event: {
       subscribe: (options?: { signal?: AbortSignal; idleTimeout?: number }) =>
         subscribeEvents(baseUrl, options?.signal, "/api/event", options?.idleTimeout),
