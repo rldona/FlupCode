@@ -503,8 +503,8 @@ const ES: Record<string, string> = {
   "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:":
     "Este motor se arrancó con OPENCODE_SERVER_PASSWORD, así que rechaza toda llamada desde una página del navegador — una página no puede enviar credenciales. Reinícialo sin esa variable o abre la app de escritorio de FlupCode, que inicia sesión por ti:",
   Troubleshooting: "Solución de problemas",
-  "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.":
-    "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (inicio de sesión de GitHub Copilot, modos de permisos, memoria) no están disponibles.",
+  "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.":
+    "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (modos de permisos, memoria) no están disponibles.",
   "How to run FlupCode's engine": "Cómo ejecutar el engine de FlupCode",
   Engine: "Engine",
   "Source build": "Compilación local",
@@ -647,7 +647,6 @@ const ES: Record<string, string> = {
     "Añade una API key para un proveedor. La guarda el servidor de OpenCode.",
   "No providers": "Sin proveedores",
   "Search providers": "Buscar proveedores",
-  "OAuth available": "OAuth disponible",
   "Sign in": "Iniciar sesión",
   "Signed in": "Sesión iniciada",
   "Signing in…": "Iniciando sesión…",
@@ -655,6 +654,9 @@ const ES: Record<string, string> = {
   "Waiting for authorization…": "Esperando autorización…",
   "The sign-in request expired. Try again.": "La solicitud de inicio de sesión caducó. Inténtalo de nuevo.",
   "Sign in failed": "Error al iniciar sesión",
+  Continue: "Continuar",
+  "Authorization code": "Código de autorización",
+  "This provider did not offer OAuth": "Este proveedor no ofreció OAuth",
   "{count} models": "{count} modelos",
   Configured: "Configurado",
   "Not configured": "Sin configurar",
