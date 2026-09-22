@@ -142,11 +142,7 @@ async function requireBlackAccount(account: { id: string; email: string }): Prom
       .from(UserTable)
       .innerJoin(BillingTable, eq(BillingTable.workspaceID, UserTable.workspaceID))
       .where(
-        and(
-          eq(UserTable.accountID, account.id),
-          isNull(UserTable.timeDeleted),
-          isNotNull(BillingTable.subscriptionID),
-        ),
+        and(eq(UserTable.accountID, account.id), isNull(UserTable.timeDeleted), isNotNull(BillingTable.subscriptionID)),
       )
       .limit(1)
       .then((rows) => rows[0]),
