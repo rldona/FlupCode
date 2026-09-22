@@ -668,6 +668,25 @@ export function createClient(baseUrl = resolveServerUrl()) {
       },
       auth: () => unwrap(client.provider.auth()),
       /**
+       * The engine's legacy provider OAuth, the one the TUI uses. A stock OpenCode CLI registers
+       * Copilot's device flow here but not in the v2 integration registry, so the panel falls back
+       * to this when a provider advertises an OAuth method in `provider.auth()` and the integration
+       * has none. `callback` blocks until the provider authorizes (device flow) and stores the
+       * credential itself; unlike the v2 attempt there is no cancel, so it keeps polling server-side.
+       */
+      oauth: {
+        authorize: (input: { providerID: string; method: number; inputs?: Record<string, string> }) =>
+          unwrap(
+            client.provider.oauth.authorize({
+              providerID: input.providerID,
+              method: input.method,
+              inputs: input.inputs ?? {},
+            }),
+          ),
+        callback: (input: { providerID: string; method: number; code?: string }) =>
+          unwrap(client.provider.oauth.callback({ providerID: input.providerID, method: input.method, code: input.code })),
+      },
+      /**
        * Registers the API keys already in the engine's own configuration as v2 credentials, which is
        * what makes those providers usable by v2 sessions. The keys stay inside this call: the reader
        * asks for it from the providers panel, it is never done on its own.
