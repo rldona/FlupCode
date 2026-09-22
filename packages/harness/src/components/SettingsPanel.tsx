@@ -8,6 +8,7 @@ import type {
   IntegrationInfo,
   McpResource,
   McpServer,
+  ProviderAuthAuthorization,
   ProviderAuthMethod,
   ProviderDirectoryInfo,
 } from "../engine-types"
@@ -121,6 +122,13 @@ type SettingsPanelProps = {
   onProviderOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
   onProviderOAuthCancel: (attemptID: string) => Promise<void>
   onProviderOAuthDone: () => void
+  /** Legacy provider OAuth, for engines whose v2 integration registry has no OAuth method. */
+  onProviderOAuthLegacy: (
+    providerID: string,
+    method: number,
+    inputs?: Record<string, string>,
+  ) => Promise<ProviderAuthAuthorization>
+  onProviderOAuthLegacyCallback: (providerID: string, method: number, code?: string) => Promise<void>
   onLinkConfiguredProviders: () => void
   /** The Console org behind providers, when the engine has one (CO-1). */
   consoleActive?: ConsoleState
@@ -641,6 +649,8 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     onOAuthStatus={props.onProviderOAuthStatus}
                     onOAuthCancel={props.onProviderOAuthCancel}
                     onOAuthDone={props.onProviderOAuthDone}
+                    onOAuthLegacy={props.onProviderOAuthLegacy}
+                    onOAuthLegacyCallback={props.onProviderOAuthLegacyCallback}
                     onLinkConfigured={props.onLinkConfiguredProviders}
                     consoleActive={props.consoleActive}
                     consoleOrgs={props.consoleOrgs}
@@ -709,7 +719,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <Show when={props.engineProfile === "stock"}>
                     <div class="fc-settings-hint">
                       {t(
-                        "This engine is the stock OpenCode CLI, so FlupCode's extras (GitHub Copilot sign-in, permission modes, memory) are unavailable.",
+                        "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.",
                       )}
                     </div>
                   </Show>

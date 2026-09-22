@@ -5,10 +5,13 @@ import { NonNegativeInt } from "@opencode-ai/core/schema"
 import { Global } from "@opencode-ai/core/global"
 import { FSUtil } from "@opencode-ai/core/fs-util"
 import { Credential } from "@opencode-ai/core/credential"
+import { Integration } from "@opencode-ai/core/integration"
 
 export const OAUTH_DUMMY_KEY = "opencode-oauth-dummy-key"
 
 const file = path.join(Global.Path.data, "auth.json")
+const githubCopilot = Integration.ID.make("github-copilot")
+const githubCopilotMethod = Integration.MethodID.make("device")
 
 const fail = (message: string) => (cause: unknown) => new AuthError({ message, cause })
 
@@ -90,6 +93,12 @@ const layer = Layer.effect(
       yield* fsys
         .writeJson(file, { ...data, [norm]: info }, 0o600)
         .pipe(Effect.mapError(fail("Failed to write auth data")))
+      if (norm === githubCopilot && info.type === "oauth") {
+        yield* credential.create({
+          integrationID: githubCopilot,
+          value: githubCopilotCredential(info),
+        })
+      }
     })
 
     const remove = Effect.fn("Auth.remove")(function* (key: string) {
@@ -98,11 +107,42 @@ const layer = Layer.effect(
       delete data[key]
       delete data[norm]
       yield* fsys.writeJson(file, data, 0o600).pipe(Effect.mapError(fail("Failed to write auth data")))
+      if (norm === githubCopilot) {
+        yield* Effect.forEach(yield* credential.list(githubCopilot), (item) => credential.remove(item.id), {
+          discard: true,
+        })
+      }
     })
+
+    const legacyCopilot = (yield* stored())[githubCopilot]
+    if (legacyCopilot?.type === "oauth" && !(yield* credential.list(githubCopilot)).length) {
+      yield* credential.create({
+        integrationID: githubCopilot,
+        value: githubCopilotCredential(legacyCopilot),
+      })
+    }
 
     return Service.of({ get, all, set, remove })
   }),
 )
+
+function githubCopilotCredential(info: Oauth) {
+  return Credential.OAuth.make({
+    type: "oauth",
+    methodID: githubCopilotMethod,
+    access: info.access,
+    refresh: info.refresh,
+    expires: info.expires,
+    ...(info.accountId || info.enterpriseUrl
+      ? {
+          metadata: {
+            ...(info.accountId ? { accountId: info.accountId } : {}),
+            ...(info.enterpriseUrl ? { enterpriseUrl: info.enterpriseUrl } : {}),
+          },
+        }
+      : {}),
+  })
+}
 
 function fromCredential(value: Credential.Value): Info {
   if (value.type === "key") return new Api({ type: "api", key: value.key })
