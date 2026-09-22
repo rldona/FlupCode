@@ -6,8 +6,9 @@
 
 ## Git Workflow
 
-- Never commit or push directly to `power` (or `dev`). `power` only receives changes through a pull request.
+- `power` is our master. It only receives changes through a pull request: never commit or push directly to it.
 - Work on a short feature branch based on `power`, push it, open a PR, and merge it. Do not leave local commits sitting on `power`.
+- `dev` is not ours to change: do not commit to it and do not open PRs against it. It exists only to sync the OpenCode upstream, and that sync is later merged into `power`.
 
 ## Branch Names
 
