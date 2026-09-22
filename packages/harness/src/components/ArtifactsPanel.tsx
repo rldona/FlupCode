@@ -186,7 +186,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
               </Show>
 
               {/* Two kinds of thing, two lists: the artifacts, then the files this session wrote. */}
-              <div class="fc-routines-toolbar">
+              <div class="fc-routines-toolbar fc-artifact-toolbar">
                 <div class="fc-routines-tabs">
                   <button
                     class="fc-routines-tab"

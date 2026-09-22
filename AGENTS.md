@@ -4,6 +4,12 @@
 - The default branch in this repo is `dev`.
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
 
+## Git Workflow
+
+- `power` is our master. It only receives changes through a pull request: never commit or push directly to it.
+- Work on a short feature branch based on `power`, push it, open a PR, and merge it. Do not leave local commits sitting on `power`.
+- `dev` is not ours to change: do not commit to it and do not open PRs against it. It exists only to sync the OpenCode upstream, and that sync is later merged into `power`.
+
 ## Branch Names
 
 Use a short branch name of at most three words, separated by hyphens. Do not use slashes or type prefixes such as `feat/` or `fix/`.
