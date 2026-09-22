@@ -45,10 +45,10 @@ Sigue el formato de la plantilla canónica. No digas que son dos pegados ni que 
 Escribe y publica el post del mediodía de Isobaria para X. No preguntes nada: si algo no se puede hacer, dilo y para.
 
 1. `plazoleta_get_product_brief("isobaria")` y quédate con `locations`, en el orden en que vienen. Ese orden es la lista; no lo reordenes.
-2. `plazoleta_get_weather("isobaria", <slug>)` para cada municipio de la lista. Si alguna llamada falla, dilo y para: sin el tiempo no hay pieza.
-3. Elige el municipio así, y no de otra manera:
+2. `plazoleta_get_weather("isobaria", <slug>)` para cada municipio de la lista. Un fallo puntual de la fuente (`WEATHER_SOURCE_UNAVAILABLE` o `WEATHER_SOURCE_DEGRADED`) **no** es «no hay pieza»: aparta ese municipio y sigue con el resto. Al terminar, vuelve a pedir **una vez** los que fallaron: la fuente cachea la degradación un minuto, y a esas alturas suele haber pasado. Solo paras si **ninguno** devolvió tiempo.
+3. Elige entre los municipios que **sí** trajeron datos, así y no de otra manera:
    a) Si alguno tiene un aviso de AEMET activo en `alerts`, gana ese. Si hay varios, el de nivel más alto (rojo > naranja > amarillo); si empatan, el primero de la lista.
-   b) Si no hay ninguno, gana el que toque por el día de la semana: índice = (número del día − 1) mod (número de municipios), con lunes = 1 … domingo = 7 y el índice desde 0 sobre la lista del paso 1.
+   b) Si no hay ninguno, gana el que toque por el día de la semana: índice = (número del día − 1) mod (número de municipios de la lista completa), con lunes = 1 … domingo = 7 y el índice desde 0 sobre la lista del paso 1. Si ese municipio quedó apartado, avanza por la lista (circular) hasta el primero con datos.
 4. La imagen:
    - Con aviso: `plazoleta_compose_map("isobaria", <plantilla del fenómeno>, <slug>)`.
    - Sin aviso: `plazoleta_compose_map` con la plantilla del fenómeno que los datos sostengan; si devuelve `MAP_NOT_AVAILABLE`, entonces `plazoleta_compose_card("isobaria", <la frase de la decisión>, "landscape")`.
