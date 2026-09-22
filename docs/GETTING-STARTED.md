@@ -58,18 +58,20 @@ to an engine already running elsewhere.
 **Hosted web app:** start it yourself, with the hosted origin allowed, and **leave it running**:
 
 ```bash
-opencode serve --port 4096 --cors https://app.flupcode.com
+env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
 ```
 
 `--cors` is required because the page (`https://app.flupcode.com`) and the engine
-(`http://localhost:4096`) are different origins. Closing the terminal stops the engine and the tab
-goes back to "offline".
+(`http://localhost:4096`) are different origins. `env -u OPENCODE_SERVER_PASSWORD` drops that
+variable for this one command: a shell that exports it would otherwise make the engine demand
+credentials a browser page cannot send, and the web app would read it as offline. Closing the
+terminal stops the engine and the tab goes back to "offline".
 
 **From source** (gets FlupCode's engine patches — GitHub Copilot OAuth, permission modes):
 
 ```bash
 bun install
-OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
+env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
   --port 4096 --cors https://app.flupcode.com
 ```
 
@@ -93,7 +95,7 @@ means the engine is listening but the browser refused to hand the response to th
 
 | Symptom                                          | Cause                                                                            | Fix                                                                                        |
 | ------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| "Server offline"                                 | No engine is running, or the port is wrong                                       | Start `opencode serve`, check the server URL in Settings                                   |
+| "Server offline"                                 | No engine is running, or the port is wrong                                       | Start `opencode serve` (see [Start the engine](#step-2--start-the-engine)), check the server URL in Settings |
 | "Authentication required"                        | The engine was started with `OPENCODE_SERVER_PASSWORD` (a browser page cannot send it) | Restart it without that variable, or use the desktop app (see below)                  |
 | "Connection blocked by the browser"              | The engine was started without `--cors` for this origin                          | Stop it and start it again with `--cors <page origin>`                                     |
 | Nothing connects on **Safari**                   | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content)  | Use the **desktop app**, which is not subject to the mixed-content rule                    |
@@ -132,7 +134,7 @@ The most common cause is an engine started **without** `--cors`. If you already 
 `opencode serve --port 4096` running, stop it (`Ctrl+C`) and start it again with the origin:
 
 ```bash
-opencode serve --port 4096 --cors https://app.flupcode.com
+env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
 ```
 
 Then press **Retry** or reconnect in FlupCode. A preflight from the same origin should answer `204`
