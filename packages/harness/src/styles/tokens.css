@@ -109,6 +109,7 @@
   --fc-space-4: 16px;
   --fc-space-5: 24px;
   --fc-space-6: 32px;
+  --fc-section-title-gap: var(--fc-space-4);
 
   --fc-control-sm: 28px;
   --fc-control-md: 36px;

@@ -396,7 +396,7 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
                             class="fc-run-open"
                             classList={{ "fc-run-open-active": selectedTask() === task.id }}
                             type="button"
-                            onClick={() => setSelectedTask(selectedTask() === task.id ? undefined : task.id)}
+                            onClick={() => setSelectedTask(task.id)}
                           >
                             {t("Details")}
                           </button>
@@ -486,27 +486,39 @@ export const RunsPanel: Component<RunsPanelProps> = (props) => {
             </For>
           </div>
         </Show>
-          <Show when={detail()}>
-            {(picked) => (
-              <RunTaskDetail
-                run={picked().run}
-                task={picked().task}
-                activity={props.activity[picked().task.id]}
-                touched={props.touched[picked().task.id]}
-                tools={props.tools?.[picked().task.id]}
-                artifacts={props.artifacts?.[picked().run.id] ?? []}
-                models={props.models}
-                serverAvailable={props.serverAvailable}
-                onOpenSession={props.onOpenSession}
-                onRetry={props.onRetry}
-                onSteer={props.onSteer}
-                onCancel={props.onCancelTask}
-                onOpenChanges={props.onOpenChanges ?? (() => undefined)}
-                onClose={() => setSelectedTask(undefined)}
-              />
-            )}
-          </Show>
         </div>
+        <Show when={detail()}>
+          {(picked) => (
+            <div class="fc-modal-backdrop" onClick={() => setSelectedTask(undefined)}>
+              <div
+                class="fc-modal fc-detail-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label={t("Task detail")}
+                onClick={(event) => event.stopPropagation()}
+              >
+                <div class="fc-modal-body">
+                  <RunTaskDetail
+                    run={picked().run}
+                    task={picked().task}
+                    activity={props.activity[picked().task.id]}
+                    touched={props.touched[picked().task.id]}
+                    tools={props.tools?.[picked().task.id]}
+                    artifacts={props.artifacts?.[picked().run.id] ?? []}
+                    models={props.models}
+                    serverAvailable={props.serverAvailable}
+                    onOpenSession={props.onOpenSession}
+                    onRetry={props.onRetry}
+                    onSteer={props.onSteer}
+                    onCancel={props.onCancelTask}
+                    onOpenChanges={props.onOpenChanges ?? (() => undefined)}
+                    onClose={() => setSelectedTask(undefined)}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+        </Show>
       </section>
     </Show>
   )
