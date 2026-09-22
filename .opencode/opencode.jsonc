@@ -12,7 +12,22 @@
       "description": "Contains opencode logs and data",
     },
   },
-  "mcp": {},
+  "mcp": {
+    // El taller de Plazoleta: tiempo, guardas y composición del mapa.
+    // OAuth con registro dinámico, así que no hace falta clientId.
+    "plazoleta": {
+      "type": "remote",
+      "url": "https://api.plazoleta.dev/mcp",
+      "enabled": true,
+    },
+    // Para probar en local contra el repo de Plazoleta, por stdio:
+    // "plazoleta-local": {
+    //   "type": "local",
+    //   "command": ["python", "-m", "app.mcp"],
+    //   "cwd": "../plazoleta-workspace/apps/api",
+    //   "environment": { "PLAZOLETA_MCP_TOKEN": "{env:PLAZOLETA_MCP_TOKEN}" },
+    // },
+  },
   "tools": {
     "github-triage": false,
     "github-pr-search": false,
