@@ -35,9 +35,10 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
   const [name, setName] = createSignal("")
   const [copied, setCopied] = createSignal(false)
   const origin = () => (typeof window === "undefined" ? "http://localhost:4444" : window.location.origin)
-  const command = () => `opencode serve --port 4096 --cors ${origin()}`
-  const passwordlessCommand = () =>
-    `env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors ${origin()}`
+  // `env -u` from the start: a shell that exports OPENCODE_SERVER_PASSWORD would otherwise make the
+  // engine ask for credentials no browser page can send, and a new user would meet that wall before
+  // knowing why. The variable is only dropped for this one command.
+  const command = () => `env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors ${origin()}`
   // On touch devices the engine rarely runs locally, so controlling a computer comes first.
   const remoteFirst = () => props.remoteClient && touchDevice
 
@@ -121,9 +122,9 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         </p>
         <div class="fc-onboarding-command">
           <pre class="fc-onboarding-code">
-            <code>{passwordlessCommand()}</code>
+            <code>{command()}</code>
           </pre>
-          <button class="fc-button" type="button" onClick={() => copy(passwordlessCommand())}>
+          <button class="fc-button" type="button" onClick={() => copy(command())}>
             {copied() ? t("Copied") : t("Copy command")}
           </button>
         </div>
