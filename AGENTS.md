@@ -4,6 +4,11 @@
 - The default branch in this repo is `dev`.
 - Local `main` ref may not exist; use `dev` or `origin/dev` for diffs.
 
+## Git Workflow
+
+- Never commit or push directly to `power` (or `dev`). `power` only receives changes through a pull request.
+- Work on a short feature branch based on `power`, push it, open a PR, and merge it. Do not leave local commits sitting on `power`.
+
 ## Branch Names
 
 Use a short branch name of at most three words, separated by hyphens. Do not use slashes or type prefixes such as `feat/` or `fix/`.
