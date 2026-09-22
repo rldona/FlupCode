@@ -98,7 +98,9 @@ type SettingsPanelProps = {
   /** What the agents section edits: files on disk plus what the engine reports (CU-1). */
   agentsList: AgentInfo[]
   agentTools: string[]
-  agentModelsList: string[]
+  /** The model favorites the picker stars, shared with the dock. */
+  favorites: string[]
+  onToggleFavorite: (key: string) => void
   agentsLoading: boolean
   agentsHasProject: boolean
   onSaveAgent: (draft: {
@@ -343,13 +345,13 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       value={props.colorTheme}
                       onChange={(event) => props.onColorTheme(event.currentTarget.value)}
                     >
-                      <option value="flupcode">{t("FlupCode")}</option>
+                      <option value="sublime-dark">{t("Default")}</option>
                       <option value="classic">{t("Classic")}</option>
-                      <option value="sublime">{t("Sublime")}</option>
-                      <option value="sublime-dark">{t("Sublime Dark")}</option>
                       <option value="github">{t("GitHub")}</option>
-                      <option value="copilot">{t("Copilot")}</option>
                       <option value="vercel">{t("Vercel")}</option>
+                      <option value="copilot">{t("Copilot")}</option>
+                      <option value="sublime">{t("Sublime Light")}</option>
+                      <option value="flupcode">{t("Purple")}</option>
                     </select>
                   </label>
                   <label class="fc-settings-row">
@@ -667,7 +669,9 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     agents={props.agentsList}
                     tools={props.agentTools}
                     mcp={props.mcpServers}
-                    models={props.agentModelsList}
+                    models={props.models}
+                    favorites={props.favorites}
+                    onToggleFavorite={props.onToggleFavorite}
                     loading={props.agentsLoading}
                     serverAvailable={props.permissionServerAvailable}
                     hasProject={props.agentsHasProject}

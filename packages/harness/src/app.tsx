@@ -1486,8 +1486,6 @@ export const App: Component = () => {
     const [url = "", directory = ""] = key.split("\n")
     return createClient(url).agent.listFor(directory || undefined)
   })
-  /** `provider/model`, which is how an agent file names one. */
-  const agentModels = createMemo(() => modelList().map((model) => `${model.providerID}/${model.id}`))
   // Agents you can edit (H-13). The files come from the harness server, which can read the disk;
   // what exists comes from the engine, which reports more than there are files.
   const agentFilesKey = () => {
@@ -5417,7 +5415,9 @@ export const App: Component = () => {
             agents={folderAgents() ?? []}
             tools={engineTools() ?? []}
             mcp={mcp()?.data ?? []}
-            models={agentModels()}
+            models={modelList()}
+            favorites={favorites()}
+            onToggleFavorite={toggleFavoriteModel}
             loading={agentFiles.loading}
             serverAvailable={routinesServerAvailable()}
             hasProject={!!vcsDirectory()}
@@ -5932,7 +5932,8 @@ export const App: Component = () => {
         onSectionChange={setSettingsSection}
         agentsList={folderAgents() ?? []}
         agentTools={engineTools() ?? []}
-        agentModelsList={agentModels()}
+        favorites={favorites()}
+        onToggleFavorite={toggleFavoriteModel}
         agentsLoading={agentFiles.loading}
         agentsHasProject={!!vcsDirectory()}
         onSaveAgent={saveAgent}
