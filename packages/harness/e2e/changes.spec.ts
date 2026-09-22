@@ -302,6 +302,18 @@ test("the repo bar's counts open a diff of what changed", async ({ page }) => {
   expect(seen.contexts).not.toContain(null)
 })
 
+// The screen belongs to the main column now, where the conversation goes, with the sidebar still
+// there — not an app-level overlay with its own way out. So there is no "Back to sessions" button.
+test("the changes screen sits in the main column and has no back button", async ({ page }) => {
+  await openSession(page)
+  await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
+
+  const screen = page.locator(".fc-main .fc-routines-screen")
+  await expect(screen).toBeVisible()
+  await expect(screen.getByRole("heading", { name: /Changes|Cambios/ })).toBeVisible()
+  await expect(page.getByRole("button", { name: /Back to sessions|Volver a sesiones/ })).toHaveCount(0)
+})
+
 test("a file's diff shows its hunks and not git's file header", async ({ page }) => {
   await openSession(page)
   await page.getByRole("button", { name: /\+3.*-1|\+3.*−1/ }).click()
@@ -382,7 +394,9 @@ test("committing is the server running git, not a turn spent asking a model to",
   await page.getByRole("button", { name: /^(Commit|Confirmar)$/ }).click()
 
   await expect.poll(() => seen.commits).toEqual([{ message: "only the server", paths: ["src/server.ts"] }])
-  // The composer stayed empty: nothing was sent to the engine to make this happen.
+  // The screen fills the main column now, so the composer is not mounted to be read while it is
+  // open. Leaving the screen shows the composer stayed empty: nothing was sent to the engine.
+  await page.goBack()
   await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
 })
 
@@ -471,6 +485,9 @@ test("the repo bar's commit button opens the diff instead of sending a prompt", 
 
   await expect(page).toHaveURL(/\/changes$/)
   await expect(page.locator(".fc-commit")).toBeVisible()
+  // The screen takes the main column, so the composer is not mounted while it is open. Leaving it
+  // shows the composer stayed empty: the click opened the diff, it did not send a prompt.
+  await page.goBack()
   await expect(page.getByRole("textbox", { name: /Type \/ for commands/ })).toHaveValue("")
 })
 

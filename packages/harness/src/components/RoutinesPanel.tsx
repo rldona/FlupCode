@@ -80,7 +80,8 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
   createEffect(() => {
     if (!props.open) return
     const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") props.onClose()
+      if (event.key !== "Escape" || event.defaultPrevented) return
+      props.onClose()
     }
     document.addEventListener("keydown", closeOnEscape)
     onCleanup(() => document.removeEventListener("keydown", closeOnEscape))
@@ -243,6 +244,55 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
           <input class="fc-question-custom fc-routines-search" value={search()} placeholder={t("Search routines")} aria-label={t("Search routines")} onInput={(event) => setSearch(event.currentTarget.value)} />
         </div>
 
+        <Show when={visible().length > 0} fallback={<div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
+            <div class="fc-routines-layout">
+              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small></span><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
+            </div>
+            <Show when={selected()}>
+              {(routine) => (
+                <div class="fc-modal-backdrop" onClick={() => setSelectedID(undefined)}>
+                  <article
+                    class="fc-modal fc-detail-modal fc-routines-detail"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label={routine().name}
+                    onClick={(event) => event.stopPropagation()}
+                  >
+                    <div class="fc-modal-header">
+                      <span>{routine().name}</span>
+                      <button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setSelectedID(undefined)}>×</button>
+                    </div>
+                    <div class="fc-modal-body">
+                      <div class="fc-routines-kicker">{t("Routine")}</div>
+                      <p>{routine().description || t("No description")}</p>
+                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show></dl>
+                      <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
+                      <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-running": run.status === "running", "fc-routine-run-dot-stopped": run.status === "stopped" }} /><span><strong>{runLabel(run)}</strong><small>{new Date(run.startedAt).toLocaleString()}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
+                    </div>
+                    <div class="fc-dialog-actions">
+                      <Show
+                        when={deleteID() !== routine().id}
+                        fallback={
+                          <>
+                            <span>{t("Delete this routine?")}</span>
+                            <button class="fc-button" type="button" onClick={() => setDeleteID(undefined)}>{t("Cancel")}</button>
+                            <button class="fc-button fc-button-danger" type="button" onClick={() => { const id = routine().id; props.onRemove(id); setDeleteID(undefined); if (selectedID() === id) setSelectedID(undefined) }}>{t("Delete")}</button>
+                          </>
+                        }
+                      >
+                        <Show when={props.busy && props.busyRoutineID === routine().id} fallback={<button class="fc-button fc-button-primary" type="button" disabled={props.busy || !props.serverAvailable} onClick={() => props.onRun(routine().id)}>▶ {t("Run now")}</button>}>
+                          <button class="fc-button fc-button-danger" type="button" onClick={props.onStop}>{t("Stop run")}</button>
+                        </Show>
+                        <button class="fc-button" type="button" onClick={() => openEdit(routine())}>{t("Edit")}</button>
+                        <button class="fc-button" type="button" onClick={() => props.onToggle(routine().id)}>{routine().enabled ? t("Pause") : t("Resume")}</button>
+                        <button class="fc-button fc-button-danger" type="button" onClick={() => setDeleteID(routine().id)}>{t("Delete")}</button>
+                      </Show>
+                    </div>
+                  </article>
+                </div>
+              )}
+            </Show>
+          </Show>
         <Show when={editing()}>
           <div class="fc-modal-backdrop" onClick={() => setEditing(false)}>
             <div
@@ -282,12 +332,6 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
             </div>
           </div>
         </Show>
-        <Show when={visible().length > 0} fallback={<div class="fc-routines-empty"><div class="fc-routines-empty-icon">◷</div><h2>{search() ? t("No routines found") : t("No routines yet")}</h2><p>{search() ? t("Try a different search.") : t("Create a routine to automate a repeatable task.")}</p><button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable} onClick={openCreate}>{t("Create your first routine")}</button></div>}>
-            <div class="fc-routines-layout">
-              <div class="fc-routine-cards"><For each={visible()}>{(routine) => <button class="fc-routine-card" classList={{ "fc-routine-card-selected": selectedID() === routine.id }} type="button" onClick={() => select(routine)}><span class="fc-routine-card-icon">◷</span><span class="fc-routine-card-content"><strong>{routine.name}</strong><span>{routine.description || routine.prompt}</span><small>{scheduleLabel(routine.schedule)} · {nextRunLabel(routine)}</small></span><span class="fc-routine-status" classList={{ "fc-routine-status-off": !routine.enabled }}>{routine.enabled ? t("Active") : t("Paused")}</span></button>}</For></div>
-              <Show when={selected()} fallback={<div class="fc-routines-detail fc-routines-detail-empty"><span>{t("Select a routine to see its details.")}</span></div>}>{(routine) => <article class="fc-routines-detail"><div class="fc-routines-detail-top"><div><div class="fc-routines-kicker">{t("Routine")}</div><h2>{routine().name}</h2><p>{routine().description || t("No description")}</p></div><button class="fc-icon-button" type="button" aria-label={t("Close")} onClick={() => setSelectedID(undefined)}>×</button></div><div class="fc-routine-detail-actions"><Show when={props.busy && props.busyRoutineID === routine().id} fallback={<button class="fc-button fc-button-primary" type="button" disabled={props.busy || !props.serverAvailable} onClick={() => props.onRun(routine().id)}>▶ {t("Run now")}</button>}><button class="fc-button fc-button-danger" type="button" onClick={props.onStop}>{t("Stop run")}</button></Show><button class="fc-button" type="button" onClick={() => openEdit(routine())}>{t("Edit")}</button><button class="fc-button" type="button" onClick={() => props.onToggle(routine().id)}>{routine().enabled ? t("Pause") : t("Resume")}</button><button class="fc-button fc-button-danger" type="button" onClick={() => setDeleteID(routine().id)}>{t("Delete")}</button></div><Show when={deleteID() === routine().id}><div class="fc-confirm-inline"><span>{t("Delete this routine?")}</span><button class="fc-button" type="button" onClick={() => setDeleteID(undefined)}>{t("Cancel")}</button><button class="fc-button fc-button-danger" type="button" onClick={() => { const id = routine().id; props.onRemove(id); setDeleteID(undefined); if (selectedID() === id) setSelectedID(undefined) }}>{t("Delete")}</button></div></Show><dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show></dl><section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section><section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-running": run.status === "running", "fc-routine-run-dot-stopped": run.status === "stopped" }} /><span><strong>{runLabel(run)}</strong><small>{new Date(run.startedAt).toLocaleString()}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section></article>}</Show>
-            </div>
-          </Show>
       </section>
     </Show>
   )
