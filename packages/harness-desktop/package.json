@@ -1,12 +1,16 @@
 {
   "$schema": "https://json.schemastore.org/package.json",
   "name": "@flupcode/desktop",
-  "version": "1.17.1",
+  "version": "1.17.2",
   "private": true,
   "type": "module",
   "license": "MIT",
+  "homepage": "https://flupcode.com",
   "description": "FlupCode desktop — a Claude Code–style harness for OpenCode.",
-  "author": "FlupCode",
+  "author": {
+    "name": "FlupCode",
+    "email": "hello@plazoleta.dev"
+  },
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "bash scripts/build-speech.sh && electron-vite dev",
@@ -19,6 +23,9 @@
     "appId": "com.flupcode.desktop",
     "productName": "FlupCode",
     "copyright": "Copyright © 2026 FlupCode",
+    "extraMetadata": {
+      "desktopName": "flupcode.desktop"
+    },
     "directories": {
       "output": "release"
     },
@@ -98,11 +105,35 @@
           "arch": [
             "x64"
           ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "rpm",
+          "arch": [
+            "x64"
+          ]
         }
       ],
       "category": "Development",
       "artifactName": "FlupCode-linux-x64.${ext}",
-      "icon": "build/icon.png"
+      "icon": "build/icon.png",
+      "syncDesktopName": true,
+      "desktop": {
+        "entry": {
+          "StartupWMClass": "flupcode"
+        }
+      }
+    },
+    "deb": {
+      "packageName": "flupcode"
+    },
+    "rpm": {
+      "packageName": "flupcode"
     }
   },
   "devDependencies": {
