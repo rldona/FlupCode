@@ -51,15 +51,15 @@ the OpenCode CLI first (instructions per platform at https://opencode.ai/docs/),
 CORS enabled for the hosted origin:
 
 ```bash
-opencode serve --port 4096 --cors https://app.flupcode.com
+env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
 ```
 
-The `--cors` origin is required because the page and the engine are different origins. The app
-connects to `http://localhost:4096` by default (change it in **Settings → Server**).
-
-The hosted page is a browser page, so it cannot send credentials either: keep
-`OPENCODE_SERVER_PASSWORD` out of the engine's environment, or FlupCode shows **Authentication
-required** instead of connecting. Use the desktop app when you want the engine password-protected.
+The `--cors` origin is required because the page and the engine are different origins. `env -u
+OPENCODE_SERVER_PASSWORD` keeps that variable out of the engine's environment for this one command:
+the hosted page is a browser page, so it cannot send credentials, and a password-protected engine
+reads as **Authentication required** instead of connecting. Use the desktop app when you want the
+engine password-protected. The app connects to `http://localhost:4096` by default (change it in
+**Settings → Server**).
 
 **The first connection asks for local network access.** Chrome 141 and later treat a public page
 reaching a service on your machine as a *local network request*, gated behind a permission the user
@@ -81,7 +81,7 @@ landing, and `packages/harness` or the packages it builds from for the app (`ign
 > the engine from this fork's source instead:
 >
 > ```bash
-> OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
+> env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
 >   --port 4096 --cors https://app.flupcode.com
 > ```
 
