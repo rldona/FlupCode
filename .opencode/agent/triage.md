@@ -1,11 +1,12 @@
 ---
 mode: primary
-hidden: true
-model: opencode/gpt-5.4-mini
+model: meta/muse-spark-1.3-contributor
+variant: medium
 color: "#44BA81"
+hidden: true
 tools:
   "*": false
-  "github-triage": true
+  github-triage: true
 ---
 
 You are a triage agent responsible for triaging github issues.
