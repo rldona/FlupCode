@@ -130,3 +130,68 @@ test("a jump to an earlier prompt stays up", async ({ page }) => {
   const target = (await container.locator('[data-chapter="msg_000"]').boundingBox())!
   expect(target.y - box.y).toBeLessThan(40)
 })
+
+test("a body growth does not drag back a reader who scrolled up in a short transcript", async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_long"))
+  })
+  await page.route("http://127.0.0.1:9/**", (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/ses_long/message")
+      return route.fulfill({
+        json: {
+          data: [{ id: "msg_000", type: "user", text: "A single short prompt", time: { created: now } }],
+          cursor: {},
+        },
+      })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  const container = page.locator(".fc-transcript")
+  await expect(container).toBeVisible()
+  await expect(page.getByText("A single short prompt")).toBeVisible()
+
+  // One short message leaves the transcript shorter than its viewport. Grow the body just past it so
+  // the whole scroll range stays below the 120px re-stick band: the case of a single tall block that
+  // fills the visible chat, where a fixed band counts every scroll position as "near the end".
+  await container.evaluate((element) => {
+    const body = element.querySelector<HTMLElement>(".fc-transcript-body")!
+    const style = getComputedStyle(element)
+    const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom)
+    body.style.minHeight = `${element.clientHeight - padding + 64}px`
+  })
+  await expect
+    .poll(() => container.evaluate((element) => Math.round(element.scrollHeight - element.clientHeight)))
+    .toBeGreaterThan(58)
+
+  // The reader goes to the end, scrolls all the way up, then settles a little lower. That last
+  // downward nudge is close enough to the end in absolute pixels to re-stick a fixed band, even
+  // though the reader is nowhere near the end of this short range.
+  await container.evaluate((element) => {
+    element.scrollTop = element.scrollHeight
+  })
+  await container.hover()
+  await page.mouse.wheel(0, -1000)
+  await page.waitForTimeout(300)
+  await page.mouse.wheel(0, 20)
+  await page.waitForTimeout(1200)
+
+  const before = await container.evaluate((element) => Math.round(element.scrollTop))
+  expect(before).toBeGreaterThan(0)
+
+  // The status line grows, as it does when the model's thinking changes. A reader who scrolled
+  // away must stay put: re-sticking here used to snap them back down to the end.
+  await container.evaluate((element) => {
+    const body = element.querySelector<HTMLElement>(".fc-transcript-body")!
+    body.style.minHeight = `${body.getBoundingClientRect().height + 40}px`
+  })
+  await page.waitForTimeout(200)
+
+  expect(await container.evaluate((element) => Math.round(element.scrollTop))).toBe(before)
+})
