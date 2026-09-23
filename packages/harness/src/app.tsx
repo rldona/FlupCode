@@ -380,13 +380,16 @@ export const App: Component = () => {
   // run goes on, ask the engine whether it still lists the session as active. A legacy turn — every
   // Code and Chat turn — never appears there, only in its folder's status map, so both are asked: a
   // lost `session.idle` otherwise leaves the status line spinning over a turn that already ended.
-  const watchRun = (sessionID: string, delay: number) => {
+  const watchRun = (sessionID: string, delay: number, knownDirectory?: string) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.set(
       sessionID,
       setTimeout(async () => {
         const engine = createClient(serverUrl())
-        const directory = sessionDirectory(sessionID)
+        // The folder the run was found in outranks the list: a session the list does not carry — one
+        // opened from the palette, or a routine/worktree run outside the page — has no directory to
+        // look up, and without it this poll has no status map to ask and never clears the run.
+        const directory = knownDirectory ?? sessionDirectory(sessionID)
         const [active, status] = await Promise.all([
           engine.session.active().catch(() => undefined),
           directory ? engine.session.status({ directory }).catch(() => undefined) : undefined,
@@ -395,16 +398,17 @@ export const App: Component = () => {
         // A poll nobody answered says nothing. Clearing the run on a missing answer would end the
         // status line because the engine was briefly unreachable, which is the very thing this poll
         // exists to prevent, so keep the run and ask again.
-        if (active === undefined && status === undefined) return watchRun(sessionID, 2000)
+        if (active === undefined && status === undefined) return watchRun(sessionID, 2000, knownDirectory)
         if (active?.has(sessionID) !== true && status?.has(sessionID) !== true) return setRunning(sessionID, false)
         setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
-        watchRun(sessionID, 2000)
+        watchRun(sessionID, 2000, knownDirectory)
       }, delay),
     )
   }
   const trackActivity = (
     type: string,
     data: { sessionID?: string; status?: { type?: string; message?: string; attempt?: number } } | undefined,
+    knownDirectory?: string,
   ) => {
     const sessionID = data?.sessionID
     if (!sessionID) return
@@ -418,7 +422,10 @@ export const App: Component = () => {
     if (status === "busy" || status === "retry") {
       setRunning(sessionID, true)
       // The turn's end arrives as `session.idle` on a stream; when that is lost, this poll notices.
-      if (sessionDirectory(sessionID)) watchRun(sessionID, 2000)
+      // A folder stream names the folder it came from, which is what clears a run in a folder the
+      // list does not carry.
+      const directory = knownDirectory ?? sessionDirectory(sessionID)
+      if (directory) watchRun(sessionID, 2000, directory)
     }
     // The engine only says why it is waiting while it retries, so the notice is kept until the turn
     // moves on; otherwise the status line falls back to "Thinking…" between attempts.
@@ -2426,6 +2433,14 @@ export const App: Component = () => {
       ])
       const v2 = v2Result ?? new Set<string>()
       const legacy = new Set(legacyResults.flatMap((set) => (set ? [...set] : [])))
+      // Each result answers the folder at the same index, so the folder a run was found in is known
+      // even when the session list does not carry the session — which is exactly when it is needed.
+      const legacyDirectories = new Map<string, string>()
+      legacyResults.forEach((set, index) => {
+        const directory = directories[index]
+        if (!set || !directory) return
+        for (const id of set) legacyDirectories.set(id, directory)
+      })
       const running = new Set([...v2, ...legacy])
       const known = new Set([
         ...v2,
@@ -2445,7 +2460,9 @@ export const App: Component = () => {
         setRunning(id, true)
         // A legacy run in a folder this window cannot name is left to its idle event: without the
         // folder there is no status map to ask, and clearing it on the v2 set alone would be a lie.
-        if (v2.has(id) || sessionDirectory(id)) watchRun(id, 2000)
+        // The folder the run was found in counts, even when the session list does not carry it.
+        const directory = legacyDirectories.get(id) ?? sessionDirectory(id)
+        if (v2.has(id) || directory) watchRun(id, 2000, directory)
       })
     }
 
@@ -2687,7 +2704,7 @@ export const App: Component = () => {
                 }
               }
             ).data
-            trackActivity(type, data)
+            trackActivity(type, data, directory)
             const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
             if (type.startsWith("message.")) {
               // Every message event is applied to the transcript instead of triggering a refetch of
