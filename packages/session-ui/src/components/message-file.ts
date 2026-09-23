@@ -14,6 +14,25 @@ export function kind(part: FilePart) {
   return part.mime.startsWith("image/") ? "image" : "file"
 }
 
+export function isToolImageAttachment(value: unknown): value is FilePart {
+  if (!value || typeof value !== "object") return false
+  const mime = (value as { mime?: unknown }).mime
+  const url = (value as { url?: unknown }).url
+  if (typeof mime !== "string" || typeof url !== "string" || !url) return false
+  return kind(value as FilePart) === "image"
+}
+
+// Tool outputs may carry FilePart-shaped attachments (v1 and v2 are structurally
+// compatible here); only completed tools expose them, so anything else short-circuits
+// without touching the attachments array.
+export function toolImageAttachments(state: unknown): FilePart[] {
+  if (!state || typeof state !== "object") return []
+  if ((state as { status?: unknown }).status !== "completed") return []
+  const attachments = (state as { attachments?: unknown }).attachments
+  if (!Array.isArray(attachments)) return []
+  return attachments.filter(isToolImageAttachment)
+}
+
 // language metadata only; grammars stay behind shiki's lazy imports
 const LANGUAGE_NAMES = new Map<string, string>(
   bundledLanguagesInfo.flatMap((info) =>
