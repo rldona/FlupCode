@@ -1,0 +1,42 @@
+name: upstream-inventory
+
+on:
+  pull_request:
+    branches: [power]
+    paths:
+      - "packages/**"
+      - "docs/upstream-inventory.txt"
+      - "script/upstream-inventory.ts"
+      - ".github/workflows/upstream-inventory.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upstream-inventory-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026 and a build that
+    # changes its own OS on a calendar date is a build that breaks on one.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream mirror
+        # The inventory is defined against the mirror, which a PR checkout does not bring.
+        run: git fetch origin dev:refs/remotes/origin/dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # No install: the script only shells out to git.
+      - name: Check inventory
+        run: bun script/upstream-inventory.ts
