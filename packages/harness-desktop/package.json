@@ -146,6 +146,7 @@
     "typescript": "catalog:"
   },
   "dependencies": {
+    "electron-context-menu": "4.1.2",
     "electron-updater": "6.8.9"
   }
 }
