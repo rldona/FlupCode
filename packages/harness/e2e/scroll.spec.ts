@@ -195,3 +195,85 @@ test("a body growth does not drag back a reader who scrolled up in a short trans
 
   expect(await container.evaluate((element) => Math.round(element.scrollTop))).toBe(before)
 })
+
+// The engine updates the user message again mid-answer (its time, the run's own accounting). That
+// re-announcement used to rebuild the message object, which remounted its row: a tall prompt collapsed
+// for a frame and Chromium dropped the reader to the top. The prompt keeps its element, and the reader
+// their place.
+test("the engine re-announcing the prompt does not drop the reader", async ({ page }) => {
+  let release: (() => void) | undefined
+  const gate = new Promise<void>((resolve) => (release = resolve))
+  const tall = `Investiga la causa raiz\n${"linea de contenido del prompt\n".repeat(120)}`
+  const tallMessages = [
+    { id: "msg_u", sessionID: "ses_long", type: "user", text: tall, time: { created: now } },
+    {
+      id: "msg_a",
+      sessionID: "ses_long",
+      type: "assistant",
+      agent: "build",
+      model: { providerID: "openai", id: "gpt" },
+      cost: 0,
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      time: { created: now + 1 },
+      content: [
+        { id: "pa", type: "text", text: "Voy a investigar." },
+        { id: "pr", type: "reasoning", streaming: true, text: "…" },
+      ],
+    },
+  ]
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_long"))
+  })
+  await page.route("http://127.0.0.1:9/**", async (route) => {
+    const url = new URL(route.request().url())
+    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+    if (url.pathname === "/api/session/active")
+      return route.fulfill({ json: { data: { ses_long: { type: "running" } } } })
+    if (url.pathname === "/session/status") return route.fulfill({ json: { ses_long: { type: "busy" } } })
+    if (url.pathname === "/api/session/ses_long/message")
+      return route.fulfill({ json: { data: tallMessages, cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (url.pathname === "/event") {
+      // Hold the folder stream back until the reader is where they want to be, then re-announce the
+      // prompt the way the engine does mid-answer.
+      await gate
+      return route.fulfill({
+        headers: { "content-type": "text/event-stream" },
+        body: `data: ${JSON.stringify({
+          type: "message.updated",
+          properties: { sessionID: "ses_long", info: { id: "msg_u", sessionID: "ses_long", role: "user", time: { created: now } } },
+        })}\n\n`,
+      })
+    }
+    if (url.pathname === "/api/event")
+      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+    return route.fulfill({ status: 404, json: {} })
+  })
+  await page.goto("/")
+  const container = page.locator(".fc-transcript")
+  await expect(page.getByText("Investiga la causa raiz", { exact: false })).toBeVisible()
+  await page.waitForTimeout(800)
+
+  // The reader goes to the top, then back to the end, and marks the prompt's row.
+  await container.hover()
+  await page.mouse.wheel(0, -100_000)
+  await page.waitForTimeout(300)
+  await page.mouse.wheel(0, 100_000)
+  await page.waitForTimeout(600)
+  const bottom = await container.evaluate((element) => Math.round(element.scrollTop))
+  expect(bottom).toBeGreaterThan(0)
+  const row = container.locator(".fc-message-user").first()
+  await row.evaluate((element) => ((element as HTMLElement).dataset.probe = "kept"))
+
+  release?.()
+  await page.waitForTimeout(1000)
+
+  // Same row and same place: the re-announced prompt was not rebuilt.
+  await expect(row).toHaveAttribute("data-probe", "kept")
+  expect(await container.evaluate((element) => Math.round(element.scrollTop))).toBe(bottom)
+})
