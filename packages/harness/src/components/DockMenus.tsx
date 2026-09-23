@@ -192,6 +192,9 @@ export const ModelMenu: Component<{
   placement?: "up" | "down"
   onSelect: (providerID: string, id: string) => void
   onMore: () => void
+  /** An entry above the shortlist for "no model of my own", like the automatic suggestion model. */
+  autoLabel?: string
+  onAuto?: () => void
 }> = (props) => {
   // The current model and favourites, like Claude Code's short list; everything else is under "More models".
   const shortlist = () => {
@@ -210,6 +213,17 @@ export const ModelMenu: Component<{
     >
       {(close) => (
         <>
+          <Show when={props.autoLabel}>
+            <MenuItem
+              label={props.autoLabel!}
+              active={!props.selectedKey}
+              onClick={() => {
+                close()
+                props.onAuto?.()
+              }}
+            />
+            <div class="fc-dock-separator" />
+          </Show>
           <For each={shortlist()}>
             {(model) => (
               <MenuItem
