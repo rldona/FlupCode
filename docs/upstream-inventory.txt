@@ -77,3 +77,7 @@ packages/schema/src/session.ts
 packages/sdk/js/src/v2/gen/
 packages/server/src/handlers.ts
 packages/server/src/handlers/memory.ts
+packages/session-ui/src/components/message-file.test.ts
+packages/session-ui/src/components/message-file.ts
+packages/session-ui/src/components/message-part.css
+packages/session-ui/src/components/message-part.tsx
