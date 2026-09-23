@@ -162,11 +162,23 @@ describe("the engine call deadline", () => {
     expect(sent[0]!.init?.signal).toBeUndefined()
   })
 
-  test("a Request that already carries a signal keeps it", async () => {
+  // The generated SDK builds a `Request` for every call, and a `Request` always carries a signal of
+  // its own. Reading that as "the caller brought a deadline" left every engine call without one, and
+  // a dead socket after an engine restart pinned the composer on Stop until a reload.
+  test("a Request from the SDK still gets the deadline", async () => {
     const sent = capture()
-    const signal = AbortSignal.timeout(10)
-    await engineFetch(new Request("http://127.0.0.1:4096/global/health", { signal }))
-    expect(sent[0]!.init?.signal).toBeUndefined()
-    expect((sent[0]!.input as Request).signal).toBe(signal)
+    await engineFetch(new Request("http://127.0.0.1:4096/session/ses_1/prompt_async", { method: "POST" }))
+    expect(sent[0]!.init?.signal).toBeInstanceOf(AbortSignal)
+    expect(sent[0]!.init?.signal?.aborted).toBe(false)
+  })
+
+  // These hold the connection open while a model answers or a shell command runs: slow work, not a
+  // dead socket.
+  test("leaves the routes that are legitimately long alone", async () => {
+    const sent = capture()
+    await engineFetch(new Request("http://127.0.0.1:4096/session/ses_1/shell", { method: "POST" }))
+    await engineFetch(new Request("http://127.0.0.1:4096/session/ses_1/prompt", { method: "POST" }))
+    await engineFetch(new Request("http://127.0.0.1:4096/api/session/ses_1/wait", { method: "POST" }))
+    expect(sent.map((call) => call.init?.signal)).toEqual([undefined, undefined, undefined])
   })
 })
