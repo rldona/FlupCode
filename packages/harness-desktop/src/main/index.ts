@@ -1,4 +1,5 @@
 import { BrowserWindow, app, dialog, ipcMain, net, protocol, shell } from "electron"
+import contextMenu from "electron-context-menu"
 import { execFile } from "node:child_process"
 import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -110,6 +111,9 @@ function createWindow() {
 let remote: ReturnType<typeof initRemoteHost> | undefined
 
 app.whenReady().then(async () => {
+  // Native right-click menu for chats and everywhere else: Copy/Cut/Paste plus
+  // Copy Image (on by default) and Save Image As. Mirrors packages/desktop.
+  contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
   registerRendererProtocol()
   setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
   initAutoUpdate()
