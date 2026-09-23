@@ -43,6 +43,12 @@ package READMEs under `packages/` stay: they document upstream code we still shi
 Review the PR, resolve any conflict in *our* files (almost always keep-ours), and merge with a
 **merge commit** (see [Merge methods](#merge-methods)).
 
+The workflow authenticates with the `UPSTREAM_SYNC_TOKEN` repository secret, a personal access
+token with the `repo` and `workflow` scopes. The scope matters: the default `GITHUB_TOKEN` is
+refused when a push touches `.github/workflows/`, which upstream changes regularly, so the mirror
+cannot fast-forward without it. Renew the token before it expires; the workflow fails fast with an
+explicit error when the secret is missing.
+
 ### Manual (local)
 
 ```bash
