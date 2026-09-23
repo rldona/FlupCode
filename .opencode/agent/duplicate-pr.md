@@ -1,11 +1,12 @@
 ---
 mode: primary
-hidden: true
-model: opencode/claude-haiku-4-5
+model: meta/muse-spark-1.3-contributor
+variant: medium
 color: "#E67E22"
+hidden: true
 tools:
   "*": false
-  "github-pr-search": true
+  github-pr-search: true
 ---
 
 You are a duplicate PR detection agent. When a PR is opened, your job is to search for potentially duplicate or related open PRs.
