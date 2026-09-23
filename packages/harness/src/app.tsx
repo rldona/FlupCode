@@ -2512,6 +2512,7 @@ export const App: Component = () => {
               } else if (type.startsWith("question.")) {
                 if (type === "question.v2.asked") notify(t("Question asked"), "")
                 void refetchQuestions()
+                void refetchBlocked()
               } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
                 if (type.startsWith("message.")) {
                   const legacy = event as {
@@ -5923,6 +5924,9 @@ export const App: Component = () => {
         onServerReload={reloadEngine}
         serverReloading={serverReloading()}
         onModelChange={changeModel}
+        modelVariants={variants()}
+        modelVariant={variantKey()}
+        onModelVariantChange={changeVariant}
         onToggleTools={toggleTools}
         onToggleReasoning={toggleReasoning}
         onToggleSessionTabs={toggleSessionTabs}
