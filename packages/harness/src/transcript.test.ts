@@ -84,6 +84,22 @@ describe("applying one event at a time", () => {
     expect(assistant(data).content).toEqual([{ type: "text", id: "p1", text: "Hello", streaming: false }])
   })
 
+  test("a re-announced message keeps its object, so the view does not rebuild its row", () => {
+    // The engine updates the user message again mid-answer (its time, the run's own accounting). The
+    // history's message carries more than the event's shape — its `sessionID`, for one.
+    const existing = [
+      { ...applyMessage([], info("u1", "user", { time: { created: 5 } }))[0]!, sessionID: "ses" },
+    ] as unknown as SessionMessageInfo[]
+
+    const unchanged = applyMessage(existing, info("u1", "user", { time: { created: 5 } }))
+    expect(unchanged[0]).toBe(existing[0])
+
+    // A field that really moved still lands.
+    const changed = applyMessage(existing, info("u1", "user", { time: { created: 6 } }))
+    expect(changed[0]).not.toBe(existing[0])
+    expect((changed[0] as { time?: { created?: number } }).time?.created).toBe(6)
+  })
+
   test("a user part that arrives before its message waits for it instead of being dropped", () => {
     // The bus can hand a part over before the message it belongs to. Dropped, the prompt stayed
     // blank until the next refetch rebuilt it; held, it is there the moment the message lands.
