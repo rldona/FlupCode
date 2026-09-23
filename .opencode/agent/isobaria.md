@@ -1,6 +1,7 @@
 ---
 description: Escribe y publica las piezas diarias de Isobaria en X (el parte de la mañana y el de la provincia).
 mode: primary
+hidden: true
 steps: 30
 permission:
   "*": deny

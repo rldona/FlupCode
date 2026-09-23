@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { annotateLocalNetwork, anonymousFetch, askLocalNetwork, engineFetch, setEngineTransport } from "./transport"
+import {
+  annotateLocalNetwork,
+  anonymousFetch,
+  askLocalNetwork,
+  engineFetch,
+  setEngineTransport,
+  withRequestTimeout,
+} from "./transport"
 
 const original = globalThis.fetch
 type Sent = { input: RequestInfo | URL; init?: RequestInit }
@@ -118,5 +125,48 @@ describe("requests without the engine credentials", () => {
     await anonymousFetch("http://127.0.0.1:4097/harness/runs")
     expect(sent).toHaveLength(1)
     expect(String(sent[0]!.input)).toContain("/harness/runs")
+  })
+})
+
+describe("the engine call deadline", () => {
+  // A keep-alive socket the engine left behind after a restart never answers: without a deadline the
+  // caller stays busy forever and the page stops sending.
+  test("adds a signal when the caller gave none and the call is not a stream", () => {
+    const init = withRequestTimeout("http://127.0.0.1:4096/global/health", undefined)
+    expect(init?.signal).toBeInstanceOf(AbortSignal)
+    expect(init?.signal?.aborted).toBe(false)
+  })
+
+  // The streams are meant to stay open, so the deadline must not reach them.
+  test("leaves a request that asks for an event stream alone", () => {
+    const init = { headers: { accept: "text/event-stream" } }
+    expect(withRequestTimeout("http://127.0.0.1:4096/event", init)).toBe(init)
+  })
+
+  test("respects a signal the caller already provided", () => {
+    const signal = AbortSignal.timeout(10)
+    const init = { signal }
+    expect(withRequestTimeout("http://127.0.0.1:4096/global/health", init)).toBe(init)
+  })
+
+  test("injects the deadline into what the transport actually receives", async () => {
+    const sent = capture()
+    await engineFetch("http://127.0.0.1:4096/global/health")
+    expect(sent[0]!.init?.signal).toBeInstanceOf(AbortSignal)
+    expect(sent[0]!.init?.signal?.aborted).toBe(false)
+  })
+
+  test("a Request that asks for an event stream gets no deadline", async () => {
+    const sent = capture()
+    await engineFetch(new Request("http://127.0.0.1:4096/event", { headers: { accept: "text/event-stream" } }))
+    expect(sent[0]!.init?.signal).toBeUndefined()
+  })
+
+  test("a Request that already carries a signal keeps it", async () => {
+    const sent = capture()
+    const signal = AbortSignal.timeout(10)
+    await engineFetch(new Request("http://127.0.0.1:4096/global/health", { signal }))
+    expect(sent[0]!.init?.signal).toBeUndefined()
+    expect((sent[0]!.input as Request).signal).toBe(signal)
   })
 })

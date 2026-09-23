@@ -9,6 +9,8 @@ const DockPopover: Component<{
   label: JSX.Element
   title: string
   align?: "left" | "right"
+  /** Where the menu opens. The dock sits at the bottom and rises; a row inside a scrolling panel drops. */
+  placement?: "up" | "down"
   disabled?: boolean
   children: (close: () => void) => JSX.Element
 }> = (props) => {
@@ -51,7 +53,14 @@ const DockPopover: Component<{
         {props.label}
       </button>
       <Show when={open()}>
-        <div class="fc-dock-popover" classList={{ "fc-dock-popover-right": props.align === "right" }} role="menu">
+        <div
+          class="fc-dock-popover"
+          classList={{
+            "fc-dock-popover-right": props.align === "right",
+            "fc-dock-popover-down": props.placement === "down",
+          }}
+          role="menu"
+        >
           {props.children(() => setOpen(false))}
         </div>
       </Show>
@@ -179,6 +188,8 @@ export const ModelMenu: Component<{
   favorites: string[]
   /** A turn is running: switching the model now would break it. */
   disabled?: boolean
+  /** See `DockPopover`; the settings row opens downward. */
+  placement?: "up" | "down"
   onSelect: (providerID: string, id: string) => void
   onMore: () => void
 }> = (props) => {
@@ -193,6 +204,7 @@ export const ModelMenu: Component<{
       class="fc-dock-text"
       title={t("Model")}
       align="right"
+      placement={props.placement}
       disabled={props.disabled}
       label={<span class="fc-dock-text-label">{props.label}</span>}
     >
