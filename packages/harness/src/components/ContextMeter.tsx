@@ -14,11 +14,12 @@ type ContextMeterProps = {
   compaction?: { at: number; count: number }
 }
 
-/** Green when empty, amber at half, red when full — blended so the colour slides, not jumps. */
+/** Green, yellow and red in three equal thirds — solid blocks, no blend between them. */
 const meterColor = (percent: number) => {
   const p = Math.max(0, Math.min(100, percent))
-  const hue = p <= 50 ? 120 - 75 * (p / 50) : 45 - 45 * ((p - 50) / 50)
-  return `hsl(${Math.round(hue)} 75% 50%)`
+  if (p < 100 / 3) return "hsl(120 75% 50%)"
+  if (p < 200 / 3) return "hsl(45 75% 50%)"
+  return "hsl(0 75% 50%)"
 }
 
 export const ContextMeter: Component<ContextMeterProps> = (props) => {

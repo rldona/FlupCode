@@ -103,6 +103,12 @@ A browser page cannot receive it, so pointing the web app or the source checkout
 reports **Authentication required**; use a separate engine started without `OPENCODE_SERVER_PASSWORD`
 for browser clients.
 
+If FlupCode opens but the local project sessions are missing, the harness may
+be connected to an engine using a different channel database. See
+[Recovering Local FlupCode Sessions](FLUPCODE-SESSION-RECOVERY.md) to compare
+the databases and restart the engine on port `4096` with
+`~/.local/share/opencode/opencode.db`.
+
 ### Installing a release
 
 The installers do **not** bundle the OpenCode engine. Install the
