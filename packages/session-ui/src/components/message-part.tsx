@@ -63,7 +63,7 @@ import { ToolStatusTitle } from "./tool-status-title"
 import { patchFiles } from "./apply-patch-file"
 import { partDefaultOpen } from "./part-default-open"
 import { animate } from "motion"
-import { attached, inline, kind, typeLabel } from "./message-file"
+import { attached, inline, kind, toolImageAttachments, typeLabel } from "./message-file"
 import { readPartText } from "./message-part-text"
 import { SessionProgressIndicatorV2 } from "../v2/components/session-progress-indicator-v2"
 
@@ -1533,6 +1533,7 @@ function ToolFileAccordion(props: { path: string; actions?: JSX.Element; childre
 
 PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const data = useData()
+  const dialog = useDialog()
   const i18n = useI18n()
   const part = () => props.part as ToolPart
   if (part().tool === "todowrite") return null
@@ -1566,6 +1567,10 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
   const render = createMemo(() => ToolRegistry.render(part().tool) ?? GenericTool)
   const controlledOpen = () => (props.onToolOpenChange ? (props.toolOpen ?? props.defaultOpen) : undefined)
   const handleToolOpenChange = (open: boolean) => props.onToolOpenChange?.(open)
+
+  // Images returned by tools (e.g. generated maps) live in state.attachments and are
+  // otherwise invisible in the timeline; shown even when the tool card is collapsed.
+  const toolImages = createMemo(() => toolImageAttachments(part().state))
 
   return (
     <Show when={!hideQuestion()}>
@@ -1627,6 +1632,25 @@ PART_MAPPING["tool"] = function ToolPartDisplay(props) {
             />
           </Match>
         </Switch>
+        <Show when={toolImages().length > 0}>
+          <div data-slot="tool-message-attachments" dir="auto">
+            <For each={toolImages()}>
+              {(file) => {
+                const name = file.filename ?? i18n.t("ui.message.attachment.alt")
+                return (
+                  <div
+                    data-slot="tool-message-attachment"
+                    data-clickable="true"
+                    title={name}
+                    onClick={() => dialog.show(() => <ImagePreview src={file.url} alt={name} />)}
+                  >
+                    <img data-slot="tool-message-attachment-image" src={file.url} alt={name} />
+                  </div>
+                )
+              }}
+            </For>
+          </div>
+        </Show>
       </div>
     </Show>
   )

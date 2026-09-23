@@ -550,8 +550,10 @@ export class TaskRunner {
       }
       // What the next task starts from (H-31): a closing note, not the whole answer. The note is kept
       // as an artifact so the run can be read back, and the raw answer is the fallback when the note
-      // cannot be written.
-      context.handoffs.set(task.id, await this.handoffNote(run, task, answer?.text, directory))
+      // cannot be written. A run of a single task has no next task and no thread of its own (see
+      // `parentID`), so its closing note would open a session nobody reads: the answer stands as it is.
+      const wantsHandoff = tasks.length > 1
+      context.handoffs.set(task.id, wantsHandoff ? await this.handoffNote(run, task, answer?.text, directory) : answer?.text)
       // Findings (H-32). Tried after every agent task rather than only after a review: an answer with
       // no parseable block simply has none, and it costs one regular expression. A task that was asked
       // for them and produced none has genuinely found nothing.
