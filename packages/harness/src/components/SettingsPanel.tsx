@@ -365,6 +365,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       <option value="github">{t("GitHub")}</option>
                       <option value="vercel">{t("Vercel")}</option>
                       <option value="copilot">{t("Copilot")}</option>
+                      <option value="code">{t("Code")}</option>
                       <option value="sublime">{t("Sublime Light")}</option>
                       <option value="flupcode">{t("Purple")}</option>
                     </select>
