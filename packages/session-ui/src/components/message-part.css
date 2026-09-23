@@ -722,6 +722,56 @@
 
 [data-component="tool-part-wrapper"] {
   width: 100%;
+
+  [data-slot="tool-message-attachments"] {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+    width: fit-content;
+    max-width: 100%;
+    margin-block-start: 8px;
+  }
+
+  [data-slot="tool-message-attachment"] {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 0;
+    border-radius: 6px;
+    overflow: hidden;
+    background: var(--v2-background-bg-layer-02);
+    cursor: default;
+    transition:
+      border-color 0.15s ease,
+      opacity 0.3s ease;
+
+    &[data-clickable] {
+      cursor: pointer;
+    }
+
+    position: relative;
+    width: 58px;
+    height: 46px;
+    border: none;
+
+    /* inset box-shadows do not paint over <img> content, so the hairline is an overlay */
+    &::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      border-radius: inherit;
+      box-shadow: inset 0 0 0 0.5px var(--v2-border-border-base);
+      pointer-events: none;
+    }
+  }
+
+  [data-slot="tool-message-attachment-image"] {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
 }
 
 [data-component="dock-prompt"][data-kind="permission"] {

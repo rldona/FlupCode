@@ -172,6 +172,7 @@ keep-ours, because upstream may have changed the surrounding code.
 | `packages/llm/src/protocols/openai-chat.ts`                                                  | Drops reasoning-only assistant turns that OpenAI Chat rejects on replay                                                                                      |
 | `packages/llm/src/route/executor.ts`, `packages/llm/src/schema/errors.ts`                    | Retry budget and which transport errors are retryable                                                                                                        |
 | `packages/opencode/src/server/routes/instance/httpapi/**`                                    | `revertCommit` endpoint                                                                                                                                      |
+| `packages/session-ui/src/components/message-part.tsx`, `message-file.ts`, `message-part.css` | The timeline renders the images a completed tool returned (its `state.attachments`), not only the files of a user message: thumbnails that open `ImagePreview` |
 
 Their tests move with them: `packages/core/test/**`, `packages/llm/test/**`,
 `packages/opencode/test/**` follow the same rule as the file they cover.

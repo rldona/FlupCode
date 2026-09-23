@@ -18,6 +18,9 @@ import { ChapterNav, type Chapter } from "./ChapterNav"
 
 type MessageFile = { uri: string; mime?: string; name?: string }
 
+/** A legacy tool result attachment, as the engine stores it on the tool state. */
+type LegacyToolAttachment = { mime?: string; url?: string; filename?: string }
+
 type SessionViewProps = {
   messages: SessionMessageInfo[] | undefined
   /** Resets scroll/follow state when the viewed session changes; the view instance is reused. */
@@ -115,6 +118,33 @@ function toolOutput(tool: SessionMessageAssistantTool) {
 function toolInput(tool: SessionMessageAssistantTool): Record<string, unknown> {
   if (tool.state.status === "pending") return {}
   return tool.state.input as Record<string, unknown>
+}
+
+/**
+ * Tools whose image is an input to the piece rather than the piece itself: the map is drawn here,
+ * but it is delivered —and shown— with the post, so it does not paint twice in the timeline.
+ */
+const COMPOSITION_TOOLS = new Set(["compose_map", "compose_card"])
+
+/**
+ * The images a completed tool returned, painted like the prompt's own attachments. The transcript
+ * maps the legacy result attachments onto v2 file content; the raw `attachments` fallback covers
+ * a part that reached the view any other way.
+ */
+function toolImages(tool: SessionMessageAssistantTool): MessageFile[] {
+  if (tool.state.status !== "completed") return []
+  if (COMPOSITION_TOOLS.has(tool.name)) return []
+  const files = tool.state.content
+    .filter((content) => content.type === "file")
+    .map((content) => ({ uri: content.uri, mime: content.mime, name: content.name }))
+  if (files.length > 0) return files
+  const raw = (tool.state as { attachments?: LegacyToolAttachment[] }).attachments ?? []
+  return raw.flatMap((attachment) => {
+    const uri = attachment.url
+    const mime = attachment.mime
+    if (!uri || !mime || !mime.startsWith("image/")) return []
+    return [{ uri, mime, name: attachment.filename }]
+  })
 }
 
 /** Whether the engine dropped this result from the context it sends. `compaction.prune` marks the
@@ -240,12 +270,14 @@ const ToolCall: Component<{
   onOpenSession?: (id: string) => void
 }> = (props) => {
   const [open, setOpen] = createSignal(
-    props.live &&
+    (props.live &&
       (props.part.state.status === "error" ||
         props.part.name === "write" ||
         props.part.name === "edit" ||
         props.part.name === "multiedit" ||
-        props.part.name === "bash"),
+        props.part.name === "bash")) ||
+      // A result that carries an image opens on its image: it is what the call was for.
+      toolImages(props.part).length > 0,
   )
   const input = createMemo(() => toolInput(props.part))
   const output = () => toolOutput(props.part)
@@ -282,6 +314,7 @@ const ToolCall: Component<{
       </button>
       <Show when={open()}>
         <div class="fc-tool-body">
+          <MessageFiles files={toolImages(props.part)} />
           <Show when={hasDiff()}>
             <DiffView oldText={oldText() ?? ""} newText={newText() ?? ""} lang={languageFor(path())} />
           </Show>
@@ -413,6 +446,9 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[]; onOpenSession
   // A closed block still says how many of its results left the context: the reader should not have to
   // open every one of them to find out what the engine dropped.
   const cleared = () => props.parts.filter(isCleared).length
+  // Images the block's tools returned, visible without opening anything: they are what the calls
+  // were for. Once open, each call shows its own above its output.
+  const images = () => props.parts.flatMap(toolImages)
   return (
     <div class="fc-toolgroup" classList={{ "fc-toolgroup-running": running(), "fc-toolgroup-open": open() }}>
       <button class="fc-toolgroup-line" type="button" aria-expanded={open()} onClick={() => setOpen((value) => !value)}>
@@ -438,6 +474,9 @@ const ToolGroup: Component<{ parts: SessionMessageAssistantTool[]; onOpenSession
           />
         </svg>
       </button>
+      <Show when={!open()}>
+        <MessageFiles files={images()} />
+      </Show>
       <Show when={open()}>
         <div class="fc-toolgroup-list">
           <Index each={props.parts}>
