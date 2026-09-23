@@ -104,9 +104,28 @@ function isEventStream(input: Request | string | URL, init: RequestInit | undefi
   return (headers.get("accept") ?? "").includes("text/event-stream")
 }
 
+/**
+ * The routes that hold the connection open while a model answers, a shell command runs or the
+ * engine waits for a session to go idle. They are slow because the work is slow, not because the
+ * socket is dead, so no deadline of ours fits them. `prompt_async` is not one of them: it admits the
+ * input and returns, which is what the composer waits on.
+ */
+const LONG_ROUTES = /\/(prompt|shell|command|summarize|init|wait|compact)$/
+
+function isLongRoute(input: Request | string | URL) {
+  const url = input instanceof Request ? input.url : String(input)
+  const path = URL.canParse(url) ? new URL(url).pathname : url
+  return LONG_ROUTES.test(path)
+}
+
+/**
+ * The deadline cannot be decided from `input.signal`: the generated SDK builds a `Request` for every
+ * call, and a `Request` always carries a signal of its own. Reading it as "the caller brought a
+ * deadline" left every engine call without one — which is how a dead socket after an engine restart
+ * pinned `busy` and stopped the composer from sending. Only an explicit `init.signal` counts.
+ */
 export function withRequestTimeout(input: Request | string | URL, init: RequestInit | undefined): RequestInit | undefined {
-  const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
-  if (signal || isEventStream(input, init)) return init
+  if (init?.signal || isEventStream(input, init) || isLongRoute(input)) return init
   return { ...init, signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT) }
 }
 
