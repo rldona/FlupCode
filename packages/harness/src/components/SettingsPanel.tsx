@@ -27,7 +27,6 @@ import { PermissionsPanel } from "./PermissionsPanel"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
-import { isDeprecated } from "../model-catalog"
 
 type SettingsPanelProps = {
   open: boolean
@@ -97,6 +96,10 @@ type SettingsPanelProps = {
   onToggleSessionTabs: () => void
   onToggleReplySuggestions: () => void
   onSuggestionModel: (key: string) => void
+  /** The effort levels the chosen suggestion model offers, and the stored one. */
+  suggestionVariants: ModelVariant[]
+  suggestionVariant: string
+  onSuggestionVariantChange: (variant: string) => void
   onToggleNotifications: () => void
   onKeybind: (action: KeybindAction, binding: string) => void
   /** The visible section, owned by app so keys and callers can read it (CU-1). */
@@ -226,16 +229,6 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
 /** The sections, in the order the rail shows them. */
 export const SETTINGS_SECTIONS = SETTINGS_GROUPS.flatMap((group) => group.items)
 
-function groupModels(models: ModelInfo[]) {
-  const map = new Map<string, ModelInfo[]>()
-  for (const model of models) {
-    const list = map.get(model.providerID) ?? []
-    list.push(model)
-    map.set(model.providerID, list)
-  }
-  return [...map.entries()].map(([providerID, items]) => ({ providerID, items }))
-}
-
 /** A clear on/off switch: the knob's side and colour say the state, not a word to read. */
 const Toggle: Component<{ checked: boolean; label: string; onToggle: () => void }> = (props) => (
   <button
@@ -285,11 +278,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     setConfirmReload(false)
     props.onServerReload()
   }
-  // The full catalog is a modal of its own, opened from the model row's "More models".
-  const [modelPickerOpen, setModelPickerOpen] = createSignal(false)
-  const modelLabel = () => {
-    const key = props.modelKey
-    if (!key) return t("Default model")
+  // The full catalog is a modal of its own, opened from a model row's "More models"; which row
+  // opened it decides where the pick lands.
+  const [pickerTarget, setPickerTarget] = createSignal<"model" | "suggestion">()
+  const labelFor = (key: string | undefined, fallback: string) => {
+    if (!key) return fallback
     // The provider goes with the name: the same model name lives under several providers.
     const model = props.models.find((entry) => `${entry.providerID}/${entry.id}` === key)
     if (model) return `${model.name} · ${model.providerID}`
@@ -298,6 +291,8 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
     const id = rest.join("/")
     return providerID && id ? `${id} · ${providerID}` : key
   }
+  const modelLabel = () => labelFor(props.modelKey, t("Default model"))
+  const suggestionLabel = () => labelFor(props.suggestionModel || undefined, t("Automatic (small model)"))
   return (
     <Show when={props.open}>
       <div class="fc-modal-backdrop fc-modal-backdrop-settings" onClick={props.onClose}>
@@ -450,7 +445,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                         placement="down"
                         disabled={props.running}
                         onSelect={(providerID, id) => props.onModelChange(`${providerID}/${id}`)}
-                        onMore={() => setModelPickerOpen(true)}
+                        onMore={() => setPickerTarget("model")}
                       />
                       <select
                         class="fc-toolbar-select"
@@ -506,35 +501,35 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     />
                   </div>
                   <Show when={props.replySuggestions}>
-                    <label class="fc-settings-row">
+                    <div class="fc-settings-row">
                       <span>{t("Suggestion model")}</span>
-                      <select
-                        class="fc-toolbar-select"
-                        value={props.suggestionModel}
-                        disabled={props.running}
-                        onChange={(event) => props.onSuggestionModel(event.currentTarget.value)}
-                      >
-                        <option value="" selected={!props.suggestionModel}>
-                          {t("Automatic (small model)")}
-                        </option>
-                        <For each={groupModels(props.models)}>
-                          {(group) => (
-                            <optgroup label={group.providerID}>
-                              <For each={group.items}>
-                                {(model) => (
-                                  <option
-                                    value={`${model.providerID}/${model.id}`}
-                                    selected={props.suggestionModel === `${model.providerID}/${model.id}`}
-                                  >
-                                    {isDeprecated(model) ? `${model.name} (${t("Deprecated")})` : model.name}
-                                  </option>
-                                )}
-                              </For>
-                            </optgroup>
-                          )}
-                        </For>
-                      </select>
-                    </label>
+                      <div class="fc-settings-controls">
+                        <ModelMenu
+                          label={suggestionLabel()}
+                          models={props.models}
+                          selectedKey={props.suggestionModel || undefined}
+                          favorites={props.favorites}
+                          placement="down"
+                          disabled={props.running}
+                          autoLabel={t("Automatic (small model)")}
+                          onAuto={() => props.onSuggestionModel("")}
+                          onSelect={(providerID, id) => props.onSuggestionModel(`${providerID}/${id}`)}
+                          onMore={() => setPickerTarget("suggestion")}
+                        />
+                        <select
+                          class="fc-toolbar-select"
+                          aria-label={t("Effort")}
+                          value={props.suggestionVariant}
+                          disabled={props.running || props.suggestionVariants.length === 0}
+                          onChange={(event) => props.onSuggestionVariantChange(event.currentTarget.value)}
+                        >
+                          <option value="">{t("Default")}</option>
+                          <For each={props.suggestionVariants}>
+                            {(variant) => <option value={variant.id}>{effortLabel(variant.id)}</option>}
+                          </For>
+                        </select>
+                      </div>
+                    </div>
                     <Show when={props.running}>
                       <div class="fc-settings-hint">{t("Locked while a session is running.")}</div>
                     </Show>
@@ -813,16 +808,18 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
             </div>
           </div>
           <ModelPicker
-            open={modelPickerOpen()}
+            open={!!pickerTarget()}
             models={props.models}
-            selectedKey={props.modelKey}
+            selectedKey={pickerTarget() === "suggestion" ? props.suggestionModel || undefined : props.modelKey}
             favorites={props.favorites}
             onSelect={(providerID, id) => {
-              setModelPickerOpen(false)
+              const target = pickerTarget()
+              setPickerTarget(undefined)
+              if (target === "suggestion") return props.onSuggestionModel(`${providerID}/${id}`)
               props.onModelChange(`${providerID}/${id}`)
             }}
             onToggleFavorite={props.onToggleFavorite}
-            onClose={() => setModelPickerOpen(false)}
+            onClose={() => setPickerTarget(undefined)}
           />
         </div>
       </div>

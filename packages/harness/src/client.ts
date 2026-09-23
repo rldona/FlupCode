@@ -615,7 +615,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
       reply: async (input: {
         parentID: string
         directory?: string
-        model: { providerID: string; id: string }
+        model: { providerID: string; id: string; variant?: string }
         prompt: string
         system: string
       }) => {
@@ -634,6 +634,7 @@ export function createClient(baseUrl = resolveServerUrl()) {
               directory: input.directory,
               agent: "compaction",
               model: { providerID: input.model.providerID, modelID: input.model.id },
+              ...(input.model.variant ? { variant: input.model.variant } : {}),
               system: input.system,
               parts: [{ type: "text", text: input.prompt }],
             }),

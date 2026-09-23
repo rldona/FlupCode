@@ -1869,6 +1869,21 @@ export const App: Component = () => {
   const [suggestionsOn, setSuggestionsOn] = createSignal(readStorage(STORAGE_KEYS.replySuggestions, true))
   const [suggestion, setSuggestion] = createSignal<{ sessionID: string; text: string }>()
   const [suggestionModel, setSuggestionModel] = createSignal(readStorage(STORAGE_KEYS.suggestionModel, ""))
+  const [suggestionEffort, setSuggestionEffort] = createSignal(readStorage(STORAGE_KEYS.suggestionEffort, ""))
+  // The effort levels the chosen suggestion model offers. The automatic small model is resolved at
+  // request time, so it has no catalog entry here and no effort to pick.
+  const suggestionVariants = () => {
+    const chosen = suggestionModel()
+    const slash = chosen.indexOf("/")
+    if (slash <= 0) return []
+    return (
+      modelList().find((model) => model.providerID === chosen.slice(0, slash) && model.id === chosen.slice(slash + 1))
+        ?.variants ?? []
+    )
+  }
+  // A stored level the chosen model does not offer would be rejected by the engine, so it is dropped.
+  const suggestionVariant = () =>
+    suggestionVariants().some((variant) => variant.id === suggestionEffort()) ? suggestionEffort() : ""
   let suggestedFor: string | undefined
   let suggestionRun = 0
   createEffect(() => {
@@ -1904,7 +1919,11 @@ export const App: Component = () => {
           const slash = chosen.indexOf("/")
           const model =
             slash > 0
-              ? { providerID: chosen.slice(0, slash), id: chosen.slice(slash + 1) }
+              ? {
+                  providerID: chosen.slice(0, slash),
+                  id: chosen.slice(slash + 1),
+                  ...(suggestionVariant() ? { variant: suggestionVariant() } : {}),
+                }
               : pickSuggestionModel(await client.suggest.smallModel().catch(() => undefined), modelRef(), modelList())
           if (!model) return
           const raw = await client.suggest
@@ -5910,6 +5929,15 @@ export const App: Component = () => {
         onSuggestionModel={(key) => {
           setSuggestionModel(key)
           writeStorage(STORAGE_KEYS.suggestionModel, key)
+          // Another model offers other levels; keeping the old one would send a level it does not have.
+          setSuggestionEffort("")
+          writeStorage(STORAGE_KEYS.suggestionEffort, "")
+        }}
+        suggestionVariants={suggestionVariants()}
+        suggestionVariant={suggestionVariant()}
+        onSuggestionVariantChange={(variant) => {
+          setSuggestionEffort(variant)
+          writeStorage(STORAGE_KEYS.suggestionEffort, variant)
         }}
         notifications={notifications()}
         keybinds={keybinds()}

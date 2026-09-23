@@ -28,6 +28,7 @@ export const STORAGE_KEYS = {
   usageResetAt: "flupcode.usageResetAt",
   replySuggestions: "flupcode.replySuggestions",
   suggestionModel: "flupcode.suggestionModel",
+  suggestionEffort: "flupcode.suggestionEffort",
   serverUrl: "flupcode.serverUrl",
   remoteHosts: "flupcode.remoteHosts",
   remoteActive: "flupcode.remoteActive",
