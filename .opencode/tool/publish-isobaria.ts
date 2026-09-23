@@ -7,6 +7,8 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { assessVaguePost } from "../lib/isobaria-vague"
 import {
+  alertsAvailability,
+  assessAlertsClaim,
   dataUrlParts,
   findImageDataUrl,
   fingerprint,
@@ -143,6 +145,8 @@ export default tool({
 
 No publica una pieza vaga: si el texto de una plantilla de provincia no trae cifra, ni cita literal de AEMET, ni el registro de que no lo sabemos, para y lo dice. No la reescribe.
 
+Tampoco publica una pieza que cite un aviso de AEMET o afirme que no los hay cuando la capa de avisos no se pudo consultar: eso es «no lo sabemos», no «hoy no hay».
+
 El texto va tal cual, con su enlace. La imagen y el texto no se pegan: se publican juntos.`,
   args: {
     text: tool.schema.string().describe("El texto exacto del post, con su línea de enlace, tal y como se publica."),
@@ -159,6 +163,17 @@ El texto va tal cual, con su enlace. La imagen y el texto no se pegan: se public
       return `No se publica. ${verdict.code}: ${verdict.reason}`
     }
 
+    // Los avisos que no se pudieron consultar no se citan ni se dan por
+    // ausentes. Se lee de la salida de `get_weather` de esta sesión.
+    const messages = propertyAt(ctx, "messages")
+    const alertsVerdict = assessAlertsClaim({
+      text: args.text,
+      alertsAvailable: alertsAvailability(messages, args.location),
+    })
+    if (!alertsVerdict.allow) {
+      return `No se publica. ${alertsVerdict.code}: ${alertsVerdict.reason}`
+    }
+
     const id = await fingerprint(args.text)
     if ((await publishedToday()).includes(id)) {
       return "Esta misma pieza ya se publicó hoy; no se repite."
@@ -171,7 +186,6 @@ El texto va tal cual, con su enlace. La imagen y el texto no se pegan: se public
       metadata: { template: args.template, dry_run: args.dry_run ?? false },
     })
 
-    const messages = propertyAt(ctx, "messages")
     let imageDataUrl = findImageDataUrl(messages)
     let alt = args.alt ?? ""
     if (!imageDataUrl) {

@@ -33,6 +33,15 @@ Trabajas con el conector **Plazoleta Workspace**. Escribes y publicas **el parte
 - **Si la fuente del tiempo falla, la tool falla y no hay pieza.** No escribas el parte con lo que recuerdes ni con lo que dijo ayer: dilo y para.
 - Si `plazoleta_get_national_weather` responde `NATIONAL_NOT_SUPPORTED` o `WEATHER_SOURCE_UNAVAILABLE` (con `ALERTS_NOT_READY`), eso **no** significa que no haya avisos: significa que hoy no lo sabemos. Lee el motivo, dilo y para.
 
+## Si los avisos no se pudieron consultar
+
+`plazoleta_get_weather` devuelve `alerts_available: false` (y el motivo en `alerts_reason`) cuando la capa de avisos de AEMET no respondió. **Eso no es «hoy no hay avisos»: es que no lo sabemos.** Cuando pase:
+
+- La previsión sigue siendo válida: es de Open-Meteo y está entera. Escribe con lo que sí hay.
+- En la franja de provincia (12:00), **salta la elección por aviso** (el paso 3a) y usa la **rotación del día** (el paso 3b).
+- **No cites ningún aviso y no afirmes que no los hay**: ni bloque `[AVISO]`, ni niveles (`amarillo`/`naranja`/`rojo`), ni «sin avisos».
+- `publish-isobaria` rechaza la pieza si lo intentas (`ALERTS_UNAVAILABLE_CLAIM`). No la fuerces: reescríbela sin avisos.
+
 ## La decisión lleva hora o umbral, siempre
 
 Es la regla que ningún código comprueba, y la razón de que este producto exista.
@@ -54,7 +63,7 @@ plazoleta_compose_map("isobaria", <plantilla>, <slug>?)
 - `rain`, `wind`, `heat`, `sun` resaltan la provincia del municipio con el tinte de su fenómeno y **exigen** `location`.
 - `panorama` (el cielo y la máxima de las 52 capitales) y `alerts` (el semáforo de AEMET por provincia) son el mapa nacional entero y **no admiten** `location`.
 - **Se pide antes que `plazoleta_compose_card`.** La tarjeta con la frase es el respaldo para cuando el mapa no se puede dibujar, no la primera opción.
-- Si devuelve `MAP_NOT_AVAILABLE`, dice el motivo y **no degrada solo**. Léelo y cae a `plazoleta_compose_card("isobaria", <la frase de la decisión>, "landscape")`.
+- Si devuelve `MAP_NOT_AVAILABLE`, dice el motivo y **no degrada solo**: prueba primero las otras plantillas de fenómeno que los datos sostengan (`rain`, `wind`, `heat`, `sun`), y solo cuando ninguna se sostenga cae a `plazoleta_compose_card("isobaria", <la frase de la decisión>, "landscape")`.
 - El pie del mapa firma el modelo y la pasada. **Dentro del mapa no va ninguna cifra del post**: el mapa dice _dónde_, el texto dice _cuánto_.
 
 ## El enlace
