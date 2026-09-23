@@ -57,8 +57,9 @@
    - Palette: the `data-fc-theme` attribute on <html>. No attribute is the FlupCode palette
      (the default, taken from the landing page); `data-fc-theme="classic"` is the original
      neutral grey/blue palette; `data-fc-theme="sublime"` is the dark-grey editor palette,
-     `data-fc-theme="sublime-dark"` its deeper, dark-only variant, `data-fc-theme="github"`
-     the Primer-based light/dark pair, and `data-fc-theme="copilot"` the neutral graphite pair.
+      `data-fc-theme="sublime-dark"` its deeper, dark-only variant, `data-fc-theme="github"`
+      the Primer-based light/dark pair, `data-fc-theme="copilot"` the neutral graphite pair, and
+      `data-fc-theme="code"` the neutral VS Code editor pair.
 
    Order matters: palette blocks come after `.fc-dark` so a palette overrides the mode defaults.
    Every token set by a palette must also be set by its `.fc-dark` block, otherwise the light
@@ -97,6 +98,13 @@
   --fc-terminal-bg: #05060b;
   --fc-terminal-fg: #eef0f7;
   --fc-bg-subtle: rgba(18, 20, 42, 0.05);
+  /* The sidebar's own hairline, kept apart from --fc-border so a palette can make the rail edge
+     subtler than the cards. Defaults to the palette border. */
+  --fc-sidebar-border: var(--fc-border);
+  /* Chrome bars (top strip, right aside) sit on the canvas by default; a palette can tint them
+     with the sidebar colour, as the Code palette does. */
+  --fc-topbar-bg: var(--fc-bg);
+  --fc-rightaside-bg: var(--fc-bg);
 
   --fc-radius-sm: 8px;
   --fc-radius-md: 12px;
@@ -425,6 +433,77 @@
   --fc-terminal-bg: #0b0b0e;
   --fc-terminal-fg: #ececf1;
   --fc-bg-subtle: rgba(160, 160, 171, 0.16);
+}
+
+/* Code palette: the neutral VS Code editor pair — warm graphite greys with no blue cast, a
+   periwinkle accent and the Dark Modern / Light Modern syntax sets. Keep the light and dark blocks
+   in sync token by token, and cover every token the light block sets. */
+[data-fc-theme="code"] {
+  --fc-bg: #ffffff;
+  --fc-bg-elevated: #ffffff;
+  --fc-sidebar: #f3f3f3;
+  --fc-border: #d4d4d4;
+  --fc-sidebar-border: transparent;
+  --fc-topbar-bg: var(--fc-sidebar);
+  --fc-rightaside-bg: var(--fc-sidebar);
+  --fc-text: #1f1f1f;
+  --fc-text-muted: #6e6e6e;
+  --fc-accent: #0b6bcb;
+  --fc-accent-soft: rgba(11, 107, 203, 0.12);
+  --fc-on-accent: #ffffff;
+  --fc-danger: #cf222e;
+  --fc-success: #1a7f37;
+  --fc-success-soft: #2da44e;
+  --fc-warning: #9a6700;
+  --fc-favorite: #9a6700;
+  --fc-merged: #8250df;
+  --fc-diff-add: #1a7f37;
+  --fc-diff-del: #cf222e;
+  --fc-diff-add-bg: #2da44e;
+  --fc-diff-del-bg: #cf222e;
+  --fc-syn-comment: #008000;
+  --fc-syn-string: #a31515;
+  --fc-syn-number: #098658;
+  --fc-syn-keyword: #0000ff;
+  --fc-syn-const: #267f99;
+  --fc-code-inline: #a31515;
+  --fc-terminal-bg: #1e1e1e;
+  --fc-terminal-fg: #d4d4d4;
+  --fc-bg-subtle: rgba(31, 31, 31, 0.05);
+}
+
+[data-fc-theme="code"].fc-dark {
+  --fc-bg: #191a1b;
+  --fc-bg-elevated: #202122;
+  --fc-sidebar: #121314;
+  --fc-border: #303132;
+  --fc-sidebar-border: transparent;
+  --fc-topbar-bg: var(--fc-sidebar);
+  --fc-rightaside-bg: var(--fc-sidebar);
+  --fc-text: #e6e6e6;
+  --fc-text-muted: #a0a0a0;
+  --fc-accent: #6da5f7;
+  --fc-accent-soft: rgba(109, 165, 247, 0.15);
+  --fc-on-accent: #0c0c0f;
+  --fc-danger: #e86060;
+  --fc-success: #6ad57a;
+  --fc-success-soft: #2f9e44;
+  --fc-warning: #e0b34d;
+  --fc-favorite: #e0b34d;
+  --fc-merged: #b39df3;
+  --fc-diff-add: #6ad57a;
+  --fc-diff-del: #ff8080;
+  --fc-diff-add-bg: #37b24d;
+  --fc-diff-del-bg: #e03131;
+  --fc-syn-comment: #6a9955;
+  --fc-syn-string: #ce9178;
+  --fc-syn-number: #b5cea8;
+  --fc-syn-keyword: #569cd6;
+  --fc-syn-const: #4ec9b0;
+  --fc-code-inline: #ce9178;
+  --fc-terminal-bg: #0d0e0f;
+  --fc-terminal-fg: #d4d4d4;
+  --fc-bg-subtle: rgba(255, 255, 255, 0.06);
 }
 
 /* Sublime dark: the deeper, dark-only cut of the Sublime palette. It has no light variant on
