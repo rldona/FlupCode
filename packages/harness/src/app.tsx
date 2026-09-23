@@ -353,6 +353,17 @@ export const App: Component = () => {
     return "live"
   }
   const idleTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  /**
+   * The folder every session was last seen in. The session list is one page and a session opened from
+   * the palette, from a routine or in another window may not be on it: without a folder there is no
+   * status map to poll and no stream to follow, so a run that lost its `session.idle` stayed working
+   * forever and the composer stayed on Stop until a reload. Remembering the folder is what keeps that
+   * session pollable, so it is fed from every source that learns one and never dropped.
+   */
+  const sessionDirectories = new Map<string, string>()
+  const rememberDirectory = (sessionID: string | undefined, directory: string | undefined) => {
+    if (sessionID && directory) sessionDirectories.set(sessionID, directory)
+  }
   // Assigned further down, where the refetches live. A turn ending is the moment the transcript is
   // worth reconciling against the engine, and the only one.
   let turnEnded: (sessionID: string) => void = () => undefined
@@ -807,9 +818,19 @@ export const App: Component = () => {
     createClient(serverUrl())
       .session.list({ search: query, limit: 50 })
       .then((response) => response.data ?? [])
+      .then((found) => {
+        // The palette reaches sessions the loaded page never had. Their folder is learnt here or
+        // nowhere: opening one from here is how a session ends up selected but unlisted.
+        found.forEach((session) => rememberDirectory(session.id, session.location?.directory))
+        return found
+      })
       .catch(() => [] as SessionInfo[])
   // Reply suggestions run in throwaway child sessions that are never shown.
   const sessionList = () => sessions()?.data?.filter((session) => !isSuggestionSession(session))
+  // Every page of the list is a chance to learn where a session lives, and the next page may drop it.
+  createEffect(() =>
+    (sessionList() ?? []).forEach((session) => rememberDirectory(session.id, session.location?.directory)),
+  )
   // The sessions working right now, listed under the home card. Top-level only: a child's work is
   // its parent's, and the parent is what a click should open.
   const activeSessions = createMemo(() =>
@@ -2458,7 +2479,10 @@ export const App: Component = () => {
       legacyResults.forEach((set, index) => {
         const directory = directories[index]
         if (!set || !directory) return
-        for (const id of set) legacyDirectories.set(id, directory)
+        for (const id of set) {
+          legacyDirectories.set(id, directory)
+          rememberDirectory(id, directory)
+        }
       })
       const running = new Set([...v2, ...legacy])
       const known = new Set([
@@ -2618,7 +2642,7 @@ export const App: Component = () => {
     const watchedDirectories = () => {
       const list = sessionList()
       const directoryOf = (id: string | undefined) =>
-        id ? list?.find((session) => session.id === id)?.location?.directory : undefined
+        id ? (list?.find((session) => session.id === id)?.location?.directory ?? sessionDirectories.get(id)) : undefined
       const open = [selected(), ...(splitActive() ? splitPanes() : [])].map(directoryOf)
       // What is on screen first: the conversation being read is the one that needs its stream. The
       // folders behind it (the code project, the chats) come after, so a chat in a project the app
@@ -2725,6 +2749,8 @@ export const App: Component = () => {
             ).data
             trackActivity(type, data, directory)
             const sessionID = data?.sessionID ?? data?.info?.sessionID ?? data?.part?.sessionID
+            // This stream names its folder: any session heard here lives in it, listed or not.
+            rememberDirectory(sessionID, directory)
             if (type.startsWith("message.")) {
               // Every message event is applied to the transcript instead of triggering a refetch of
               // the whole history. A refetch per event meant two full requests every 300ms for the
@@ -2753,7 +2779,10 @@ export const App: Component = () => {
               invalidateLegacyHistory(sessionID)
             } else if (type === "session.idle") {
               // The end of a turn is where the applied events are reconciled against the engine's own
-              // copy: one refetch per turn instead of one every 300ms.
+              // copy: one refetch per turn instead of one every 300ms. The cache is dropped first: if
+              // the final `message.updated` was lost with a dying stream, the refetch would otherwise
+              // rebuild the same unfinished last message and the composer would stay on Stop.
+              invalidateLegacyHistory(sessionID)
               scheduleRefetch(true, true)
             } else if (type.startsWith("session.")) {
               scheduleRefetch(false, true)
@@ -4225,7 +4254,8 @@ export const App: Component = () => {
   // raises today, and only it can unblock that turn; v2 is tried after it for requests left from
   // before, so an old session is still answerable.
   const sessionDirectory = (sessionID: string) =>
-    sessionList()?.find((session) => session.id === sessionID)?.location?.directory
+    sessionList()?.find((session) => session.id === sessionID)?.location?.directory ??
+    sessionDirectories.get(sessionID)
 
   const replyPermission = (request: PermissionV2Request, reply: PermissionReply, message?: string) =>
     run(async (current) => {
@@ -4750,11 +4780,14 @@ export const App: Component = () => {
         directory: location ?? selectedSession()?.location?.directory,
       })
       forgetRun(sessionID)
+      // The folder this session lives in: the list is one page, so a session opened from the palette
+      // has no row here and the remembered folder is the only one there is.
+      const directory = location ?? selectedSession()?.location?.directory ?? sessionDirectories.get(sessionID)
       const system = withProjectMemory(options?.system)
       pendingPrompts.add({
         id,
         sessionID,
-        directory: location ?? selectedSession()?.location?.directory,
+        directory,
         text,
         files,
         agent: promptAgent,
@@ -4776,13 +4809,11 @@ export const App: Component = () => {
       // waiting on. Queue is how the reader asks for the opposite. The interrupted turn, and the
       // partial output of the tool it was running, stay in history for the next turn to read.
       if (mode === "steer")
-        await current.session
-          .abort({ sessionID, directory: location ?? selectedSession()?.location?.directory })
-          .catch(() => {})
+        await current.session.abort({ sessionID, directory }).catch(() => {})
       try {
         await current.session.send({
           sessionID,
-          directory: location ?? selectedSession()?.location?.directory,
+          directory,
           id,
           text: expandPastes(text),
           agent: promptAgent,
