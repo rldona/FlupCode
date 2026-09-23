@@ -91,6 +91,25 @@ function authorizedSocketUrl(url: string) {
   return target.toString()
 }
 
+/**
+ * A keep-alive socket the engine left behind after a restart never answers, and a request without a
+ * deadline hangs forever — the caller stays busy and the page stops sending. The streams are the
+ * exception: they are meant to stay open, so they are left alone and detected by their accept header.
+ */
+export const ENGINE_REQUEST_TIMEOUT = 60_000
+
+function isEventStream(input: Request | string | URL, init: RequestInit | undefined) {
+  const headers = new Headers(input instanceof Request ? input.headers : undefined)
+  new Headers(init?.headers).forEach((value, key) => headers.set(key, value))
+  return (headers.get("accept") ?? "").includes("text/event-stream")
+}
+
+export function withRequestTimeout(input: Request | string | URL, init: RequestInit | undefined): RequestInit | undefined {
+  const signal = init?.signal ?? (input instanceof Request ? input.signal : undefined)
+  if (signal || isEventStream(input, init)) return init
+  return { ...init, signal: AbortSignal.timeout(ENGINE_REQUEST_TIMEOUT) }
+}
+
 const local: EngineTransport = {
   fetch: (input, init) => globalThis.fetch(input, authorized(input, init)),
   socket: (url) => new WebSocket(authorizedSocketUrl(url)),
@@ -103,7 +122,7 @@ export function setEngineTransport(transport: EngineTransport | undefined) {
 }
 
 export function engineFetch(input: Request | string | URL, init?: RequestInit) {
-  return current.fetch(input, init)
+  return current.fetch(input, withRequestTimeout(input, init))
 }
 
 /**
