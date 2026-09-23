@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import {
+  alertsAvailability,
+  assessAlertsClaim,
   dataUrlParts,
   findImageDataUrl,
   fingerprint,
@@ -127,5 +129,46 @@ describe("la huella del texto", () => {
   it("es estable para el mismo texto y distinta para otro", async () => {
     expect(await fingerprint("hola")).toBe(await fingerprint("hola"))
     expect(await fingerprint("hola")).not.toBe(await fingerprint("hola."))
+  })
+})
+
+describe("la pieza no cita avisos que no se pudieron consultar", () => {
+  const weatherPart = (payload: Record<string, unknown>, tool = "plazoleta_get_weather") => ({
+    type: "tool",
+    tool,
+    state: { output: JSON.stringify(payload) },
+  })
+
+  it("deja pasar la pieza cuando los avisos se consultaron o no consta", () => {
+    expect(assessAlertsClaim({ text: "Aviso naranja por calor.", alertsAvailable: true })).toEqual({ allow: true })
+    expect(assessAlertsClaim({ text: "Sin avisos hoy.", alertsAvailable: undefined })).toEqual({ allow: true })
+  })
+
+  it("para una pieza que cita un nivel o afirma que no hay avisos", () => {
+    expect(assessAlertsClaim({ text: "Sevilla en naranja desde las 13:00.", alertsAvailable: false }).allow).toBe(false)
+    expect(assessAlertsClaim({ text: "Hoy no hay avisos.", alertsAvailable: false }).allow).toBe(false)
+    expect(assessAlertsClaim({ text: "Sin ninguna alerta.", alertsAvailable: false }).allow).toBe(false)
+  })
+
+  it("deja pasar una pieza que no habla de avisos aunque no se consultaran", () => {
+    expect(assessAlertsClaim({ text: "Máxima de 28 °C a las 15:00.", alertsAvailable: false })).toEqual({ allow: true })
+  })
+
+  it("lee la disponibilidad de la sesión y la del municipio pedido", () => {
+    const messages = [
+      { parts: [weatherPart({ location_slug: "madrid", alerts_available: true })] },
+      { parts: [weatherPart({ location_slug: "bilbao", alerts_available: false })] },
+    ]
+    expect(alertsAvailability(messages, "madrid")).toBe(true)
+    expect(alertsAvailability(messages, "bilbao")).toBe(false)
+    // Sin coincidencia de municipio, cualquier caída basta.
+    expect(alertsAvailability(messages, "sevilla")).toBe(false)
+    expect(alertsAvailability(messages)).toBe(false)
+  })
+
+  it("no inventa disponibilidad cuando no hay salidas que lo digan", () => {
+    expect(alertsAvailability([{ parts: [{ type: "text", text: "hola" }] }])).toBeUndefined()
+    expect(alertsAvailability([{ parts: [weatherPart({ location_slug: "madrid" })] }])).toBeUndefined()
+    expect(alertsAvailability(undefined)).toBeUndefined()
   })
 })
