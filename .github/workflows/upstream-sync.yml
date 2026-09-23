@@ -18,11 +18,24 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
+      # The default GITHUB_TOKEN cannot create or update files under
+      # .github/workflows/, and no `permissions:` entry grants it. Mirroring
+      # upstream verbatim needs a PAT with the `workflow` scope.
+      - name: Require sync token
+        env:
+          UPSTREAM_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          if [ -z "$UPSTREAM_SYNC_TOKEN" ]; then
+            echo "::error::UPSTREAM_SYNC_TOKEN is not set. Create a PAT with 'repo' + 'workflow' scope and store it as the UPSTREAM_SYNC_TOKEN repository secret."
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
         with:
           fetch-depth: 0
           ref: power
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
 
       - name: Configure git
         run: |
@@ -42,7 +55,7 @@ jobs:
 
       - name: Open or update sync PR
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
         run: |
           set -euo pipefail
           if git diff --quiet origin/power..dev; then
