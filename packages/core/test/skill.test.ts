@@ -1,7 +1,7 @@
 import fs from "fs/promises"
 import path from "path"
 import { describe, expect } from "bun:test"
-import { Effect, Layer } from "effect"
+import { Deferred, Effect, Fiber, Layer } from "effect"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { AppNodeBuilder } from "@opencode-ai/core/effect/app-node-builder"
 import { LayerNode } from "@opencode-ai/core/effect/layer-node"
@@ -14,12 +14,20 @@ import { testEffect } from "./lib/effect"
 
 const urls = new Map<string, AbsolutePath[]>()
 let pulls = 0
+// A pull that a test wants to hold open, so a reload can land while a list is still loading.
+let pullGate: { url: string; started: Deferred.Deferred<void>; release: Deferred.Deferred<void> } | undefined
 const discovery = Layer.succeed(
   SkillDiscovery.Service,
   SkillDiscovery.Service.of({
     pull: (url) => {
       pulls++
-      return Effect.succeed(urls.get(url) ?? [])
+      const gate = pullGate
+      if (!gate || gate.url !== url) return Effect.succeed(urls.get(url) ?? [])
+      return Effect.gen(function* () {
+        yield* Deferred.succeed(gate.started, undefined)
+        yield* Deferred.await(gate.release)
+        return urls.get(url) ?? []
+      })
     },
   }),
 )
@@ -90,6 +98,37 @@ describe("SkillV2", () => {
     ),
   )
 
+  it.live("reload refreshes cached skill contents from disk", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const dir = path.join(tmp.path, "skills")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(dir, "alpha"), { recursive: true })
+            await write(dir, "alpha", "Alpha")
+          })
+
+          const skill = yield* SkillV2.Service
+          yield* skill.transform((editor) => editor.source({ type: "directory", path: AbsolutePath.make(dir) }))
+          expect((yield* skill.list()).map((item) => item.name)).toEqual(["alpha"])
+
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(dir, "beta"), { recursive: true })
+            await write(dir, "beta", "Beta")
+            await fs.rm(path.join(dir, "alpha"), { recursive: true })
+          })
+          expect((yield* skill.list()).map((item) => item.name)).toEqual(["alpha"])
+
+          yield* skill.reload()
+          expect((yield* skill.list()).map((item) => item.name)).toEqual(["beta"])
+        }),
+      ),
+    ),
+  )
+
   it.live("loads URL sources and filters skills for agents", () =>
     Effect.acquireRelease(
       Effect.promise(() => tmpdir()),
@@ -118,6 +157,50 @@ describe("SkillV2", () => {
           expect((yield* skill.list()).map((item) => item.name)).toEqual(["deploy"])
           expect(pulls).toBe(1)
           expect(SkillV2.available(yield* skill.list(), (yield* agents.get(AgentV2.ID.make("reviewer")))!)).toEqual([])
+        }),
+      ),
+    ),
+  )
+
+  it.live("a reload while a list is loading does not let it cache the stale read", () =>
+    Effect.acquireRelease(
+      Effect.promise(() => tmpdir()),
+      (tmp) => Effect.promise(() => tmp[Symbol.asyncDispose]()),
+    ).pipe(
+      Effect.flatMap((tmp) =>
+        Effect.gen(function* () {
+          const dir = path.join(tmp.path, "skills")
+          yield* Effect.promise(async () => {
+            await fs.mkdir(path.join(dir, "alpha"), { recursive: true })
+            await write(dir, "alpha", "Alpha")
+          })
+          const url = "https://example.test/race/"
+          urls.set(url, [AbsolutePath.make(dir)])
+
+          const started = yield* Deferred.make<void>()
+          const release = yield* Deferred.make<void>()
+          pullGate = { url, started, release }
+          yield* Effect.addFinalizer(() => Effect.sync(() => (pullGate = undefined)))
+
+          const skill = yield* SkillV2.Service
+          yield* skill.transform((editor) => editor.source({ type: "url", url }))
+
+          // The list misses the cache and blocks inside its source pull; the reload lands while it
+          // is still loading, so its read is pre-reload content.
+          const loading = yield* skill.list().pipe(Effect.forkChild)
+          yield* Deferred.await(started)
+          yield* skill.reload()
+          yield* Deferred.succeed(release, undefined)
+          expect((yield* Fiber.join(loading)).map((item) => item.name)).toEqual(["alpha"])
+
+          // Change the source on disk: the next list must answer from a fresh read, not from what
+          // the interrupted one tried to cache after the reload.
+          yield* Effect.promise(async () => {
+            await fs.rm(path.join(dir, "alpha"), { recursive: true })
+            await fs.mkdir(path.join(dir, "beta"), { recursive: true })
+            await write(dir, "beta", "Beta")
+          })
+          expect((yield* skill.list()).map((item) => item.name)).toEqual(["beta"])
         }),
       ),
     ),

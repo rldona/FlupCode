@@ -190,6 +190,36 @@ test("updateGlobalConfig writes to the global configuration", async () => {
   expect(calls).toEqual([{ method: "PATCH", path: "/global/config" }])
 })
 
+test("reloadConfig re-reads the configuration for the directory it is given", async () => {
+  const calls: Array<{ method: string; path: string; search: string }> = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      calls.push({ method: request.method.toUpperCase(), path: url.pathname, search: url.search })
+      return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  await createClient("http://engine").reloadConfig({ directory: "/work/demo" })
+
+  expect(calls).toEqual([{ method: "POST", path: "/config/reload", search: "?directory=%2Fwork%2Fdemo" }])
+})
+
+test("reloadConfig reports a response that is not ok", async () => {
+  setEngineTransport({
+    fetch: async () => new Response("{}", { status: 500 }),
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  await expect(createClient("http://engine").reloadConfig()).rejects.toThrow()
+})
+
 test("removing an MCP server clears it from both configurations and disconnects it", async () => {
   const calls: Array<{ method: string; path: string }> = []
   recordingEngine(calls)

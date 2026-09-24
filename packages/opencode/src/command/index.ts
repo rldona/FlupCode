@@ -51,6 +51,7 @@ export const Default = {
 export interface Interface {
   readonly get: (name: string) => Effect.Effect<Info | undefined>
   readonly list: () => Effect.Effect<Info[]>
+  readonly reload: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/Command") {}
@@ -168,7 +169,11 @@ const layer = Layer.effect(
       return Object.values(s.commands)
     })
 
-    return Service.of({ get, list })
+    const reload = Effect.fn("Command.reload")(function* () {
+      yield* InstanceState.invalidate(state)
+    })
+
+    return Service.of({ get, list, reload })
   }),
 )
 

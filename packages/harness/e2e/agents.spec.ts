@@ -27,6 +27,10 @@ type Options = { files?: unknown[]; agents?: unknown[] }
 async function open(page: Page, options: Options = {}) {
   const saved: Array<Record<string, unknown>> = []
   const deleted: string[] = []
+  const reloads: Array<string | null> = []
+  const agentListReads: Array<string | null> = []
+  // One timeline of the calls that matter, so a test can say the reload came before the list.
+  const calls: string[] = []
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -64,8 +68,18 @@ async function open(page: Page, options: Options = {}) {
           { name: "reviewer", description: "Reviews a diff", mode: "subagent" },
         ],
       })
-    if (url.pathname === "/api/agent")
+    if (url.pathname === "/api/agent") {
+      const directory = url.searchParams.get("location[directory]")
+      agentListReads.push(directory)
+      calls.push(`agent:${directory}`)
       return route.fulfill({ json: { data: [{ id: "somewhere-else", description: "Another folder's" }] } })
+    }
+    if (url.pathname === "/config/reload" && route.request().method() === "POST") {
+      const directory = url.searchParams.get("directory")
+      reloads.push(directory)
+      calls.push(`reload:${directory}`)
+      return route.fulfill({ json: true })
+    }
     if (url.pathname === "/mcp") return route.fulfill({ json: {} })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
     if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
@@ -82,7 +96,13 @@ async function open(page: Page, options: Options = {}) {
   await expect(dialog).toBeVisible()
   await dialog.getByRole("tab", { name: /^Agents$/ }).click()
   await expect(dialog.getByRole("heading", { name: /^Agents$|^Agentes$/ })).toBeVisible()
-  return { saved: () => saved, deleted: () => deleted }
+  return {
+    saved: () => saved,
+    deleted: () => deleted,
+    reloads: () => reloads,
+    agentListReads: () => agentListReads,
+    calls: () => calls,
+  }
 }
 
 test("lists the agent files, with where each one lives", async ({ page }) => {
@@ -130,6 +150,25 @@ test("saving sends the file back, keeping what the form does not draw", async ({
   expect((body.fields as Record<string, unknown>).description).toBe("Reviews a diff")
   // A save is done: the dialog closes instead of staying open.
   await expect(page.locator(".fc-agent-form")).toBeHidden()
+})
+
+test("saving an agent reloads the engine's definitions and re-reads the lists", async ({ page }) => {
+  const { reloads, agentListReads, calls } = await open(page)
+  const readsBefore = agentListReads().length
+
+  await page.getByRole("button", { name: /New agent|Nuevo agente/ }).click()
+  await page.locator(".fc-agent-form").getByLabel(/^Name$|^Nombre$/).fill("scout")
+  await page.getByRole("button", { name: /^Save$|^Guardar$/ }).click()
+
+  // The reload names the folder the panel wrote into, and the engine's agent list is asked again.
+  await expect.poll(() => reloads()).toEqual(["/work/demo"])
+  await expect.poll(() => agentListReads().length).toBeGreaterThan(readsBefore)
+  // The list re-read after the reload names that same folder, through `location[directory]`, and the
+  // reload is recorded before it.
+  const reloadIndex = calls().indexOf("reload:/work/demo")
+  expect(reloadIndex).toBeGreaterThanOrEqual(0)
+  const agentAfterReload = calls().findIndex((call, index) => index > reloadIndex && call === "agent:/work/demo")
+  expect(agentAfterReload).toBeGreaterThan(reloadIndex)
 })
 
 test("a tool goes unset, off, on and back", async ({ page }) => {

@@ -162,6 +162,12 @@ const scenarios: Scenario[] = [
     .at((ctx) => ({ path: "/config", headers: ctx.headers(), body: { username: 1 } }))
     .status(400),
   http.protected.get("/config/providers", "config.providers").json(),
+  http.protected
+    .post("/config/reload", "config.reload")
+    .mutating()
+    .json(200, (body) => {
+      check(body === true, "config reload should return true")
+    }),
   http.protected.get("/project", "project.list").json(200, array, "status"),
   http.protected.get("/project/current", "project.current").json(
     200,
