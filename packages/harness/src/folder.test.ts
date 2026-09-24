@@ -3,29 +3,29 @@ import { entryName, isAbsolutePath, joinPath, parentPath, pathOfSegments, segmen
 
 describe("folder paths", () => {
   test("joinPath handles roots and relative paths", () => {
-    expect(joinPath("/Users/raul", "")).toBe("/Users/raul")
-    expect(joinPath("/Users/raul/", "workspace/app/")).toBe("/Users/raul/workspace/app")
+    expect(joinPath("/Users/u", "")).toBe("/Users/u")
+    expect(joinPath("/Users/u/", "workspace/app/")).toBe("/Users/u/workspace/app")
     expect(joinPath("/", "opt")).toBe("/opt")
-    expect(joinPath("C:\\Users\\raul", "code/app")).toBe("C:\\Users\\raul\\code\\app")
+    expect(joinPath("C:\\Users\\u", "code/app")).toBe("C:\\Users\\u\\code\\app")
   })
 
   test("parentPath stops at the filesystem root", () => {
-    expect(parentPath("/Users/raul/workspace")).toBe("/Users/raul")
+    expect(parentPath("/Users/u/workspace")).toBe("/Users/u")
     expect(parentPath("/Users")).toBe("/")
     expect(parentPath("/")).toBeUndefined()
-    expect(parentPath("C:\\Users\\raul")).toBe("C:\\Users")
+    expect(parentPath("C:\\Users\\u")).toBe("C:\\Users")
     expect(parentPath("C:\\Users")).toBe("C:\\")
     expect(parentPath("C:\\")).toBeUndefined()
   })
 
   test("segments round-trip through pathOfSegments", () => {
-    const segments = segmentsOf("/Users/raul/workspace/")
-    expect(segments).toEqual(["/", "Users", "raul", "workspace"])
+    const segments = segmentsOf("/Users/u/workspace/")
+    expect(segments).toEqual(["/", "Users", "u", "workspace"])
     expect(pathOfSegments(segments, 1)).toBe("/")
-    expect(pathOfSegments(segments, 3)).toBe("/Users/raul")
-    expect(pathOfSegments(segments, 4)).toBe("/Users/raul/workspace")
-    expect(segmentsOf("C:\\Users\\raul")).toEqual(["C:\\", "Users", "raul"])
-    expect(pathOfSegments(["C:\\", "Users", "raul"], 2)).toBe("C:\\Users")
+    expect(pathOfSegments(segments, 3)).toBe("/Users/u")
+    expect(pathOfSegments(segments, 4)).toBe("/Users/u/workspace")
+    expect(segmentsOf("C:\\Users\\u")).toEqual(["C:\\", "Users", "u"])
+    expect(pathOfSegments(["C:\\", "Users", "u"], 2)).toBe("C:\\Users")
   })
 
   test("isAbsolutePath and entryName", () => {

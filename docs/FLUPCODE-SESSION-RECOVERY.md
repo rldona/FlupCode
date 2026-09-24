@@ -72,7 +72,7 @@ Get the PIDs from the diagnosis above. If the engine was started from this
 repository, run it as follows:
 
 ```bash
-cd /Users/raul.lopezcepsa.com/workspace/opencode-ui-power/packages/opencode
+cd "$REPO/packages/opencode"   # $REPO = the FlupCode checkout
 
 OPENCODE_DB="$HOME/.local/share/opencode/opencode.db" \
 env -u OPENCODE_SERVER_PASSWORD \

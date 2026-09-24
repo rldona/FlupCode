@@ -1,0 +1,33 @@
+name: repo-hygiene
+
+on:
+  push:
+    branches: [power, dev]
+  pull_request:
+    branches: [power, dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: repo-hygiene-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026 and a build that
+    # changes its own OS on a calendar date is a build that breaks on one.
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # No install: the check only shells out to git.
+      - name: Check for private references
+        run: bun script/repo-hygiene.ts
