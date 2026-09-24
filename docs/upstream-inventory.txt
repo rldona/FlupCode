@@ -35,6 +35,7 @@ packages/core/src/session/runner/model.ts
 packages/core/src/tool/builtins.ts
 packages/core/src/tool/memory.ts
 packages/core/src/tool/plan-exit.ts
+packages/core/src/v1/config/config.ts
 packages/core/src/v1/config/migrate.ts
 packages/core/test/location-layer.test.ts
 packages/core/test/memory-explicit.test.ts

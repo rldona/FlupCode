@@ -121,10 +121,14 @@ function toolInput(tool: SessionMessageAssistantTool): Record<string, unknown> {
 }
 
 /**
- * Tools whose image is an input to the piece rather than the piece itself: the map is drawn here,
- * but it is delivered —and shown— with the post, so it does not paint twice in the timeline.
+ * Tools whose image is an input to the piece rather than the piece itself: a delivery re-attaches it,
+ * so painting it here would show it twice. The list is configuration — `flupcode.composeTools` — and
+ * never a product name: FlupCode does not know which tools those are until the settings say so.
  */
-const COMPOSITION_TOOLS = new Set(["compose_map", "compose_card"])
+const [compositionTools, setCompositionToolsSignal] = createSignal<ReadonlySet<string>>(new Set())
+export function setCompositionTools(names: readonly string[] | undefined) {
+  setCompositionToolsSignal(new Set(names ?? []))
+}
 
 /**
  * The images a completed tool returned, painted like the prompt's own attachments. The transcript
@@ -133,7 +137,7 @@ const COMPOSITION_TOOLS = new Set(["compose_map", "compose_card"])
  */
 function toolImages(tool: SessionMessageAssistantTool): MessageFile[] {
   if (tool.state.status !== "completed") return []
-  if (COMPOSITION_TOOLS.has(tool.name)) return []
+  if (compositionTools().has(tool.name)) return []
   const files = tool.state.content
     .filter((content) => content.type === "file")
     .map((content) => ({ uri: content.uri, mime: content.mime, name: content.name }))

@@ -17,6 +17,7 @@
     "dev:stats": "bun sst shell --stage=production -- bun run --cwd packages/stats/app dev",
     "dev:storybook": "bun --cwd packages/storybook storybook",
     "restart:engine": "bash script/restart-engine.sh",
+    "repo-hygiene": "bun script/repo-hygiene.ts",
     "lint": "oxlint",
     "typecheck": "bun turbo typecheck",
     "upgrade-opentui": "bun run script/upgrade-opentui.ts",
