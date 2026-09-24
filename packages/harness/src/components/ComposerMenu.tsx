@@ -42,7 +42,7 @@ export const ComposerMenu: Component<{
         >
                             <span class="fc-command-name">{item.label}</span>
                             <Show when={item.badge}>
-                              <span class="fc-palette-badge">{item.badge}</span>
+                              <span class="fc-command-source">{item.badge}</span>
                             </Show>
                             <Show when={item.hint}>
             <span class="fc-command-desc">{item.hint}</span>

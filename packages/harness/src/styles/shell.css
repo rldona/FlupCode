@@ -1615,7 +1615,26 @@ button.fc-status {
   font-weight: 500;
 }
 
+/*
+  The source of a `/` row is a word ("command", "skill", "workflow"), not a glyph. It was reusing
+  `.fc-palette-badge` — a fixed 20x20 box meant for a single character — so the word spilled out of
+  its box and landed on top of the command name. It sizes to its text here, and the description takes
+  the remaining width so it ellipsizes instead of pushing the row wider.
+*/
+.fc-command-source {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border-radius: var(--fc-radius-pill);
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .fc-command-desc {
+  flex: 1;
+  min-width: 0;
   font-size: var(--fc-text-xs);
   color: var(--fc-text-muted);
   overflow: hidden;
