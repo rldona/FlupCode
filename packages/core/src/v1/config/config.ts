@@ -48,6 +48,16 @@ export const Info = Schema.Struct({
   reference: Schema.optional(ConfigReference.Info).annotate({
     description: "@deprecated Use 'references' field instead. Named git or local directory references",
   }),
+  flupcode: Schema.optional(
+    Schema.Struct({
+      composeTools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))).annotate({
+        description:
+          "Tool names whose returned image is an input to a delivered piece rather than the piece itself; FlupCode does not paint their image on its own, because the delivery re-attaches it.",
+      }),
+    }),
+  ).annotate({
+    description: "FlupCode client settings. The engine only carries them; the FlupCode apps read them.",
+  }),
   watcher: Schema.optional(Schema.Struct({ ignore: Schema.optional(Schema.mutable(Schema.Array(Schema.String))) })),
   snapshot: Schema.optional(Schema.Boolean).annotate({
     description:
