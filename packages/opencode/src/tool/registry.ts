@@ -77,6 +77,7 @@ type State = {
 export interface Interface {
   readonly ids: () => Effect.Effect<string[]>
   readonly all: () => Effect.Effect<Tool.Def[]>
+  readonly reload: () => Effect.Effect<void>
   readonly named: () => Effect.Effect<{ task: TaskDef; read: ReadDef }>
   readonly tools: (model: {
     providerID: ProviderV2.ID
@@ -262,6 +263,10 @@ const layer = Layer.effect(
       return (yield* all()).map((tool) => tool.id)
     })
 
+    const reload: Interface["reload"] = Effect.fn("ToolRegistry.reload")(function* () {
+      yield* InstanceState.invalidate(state)
+    })
+
     const describeTask = Effect.fn("ToolRegistry.describeTask")(function* (agent: Agent.Info) {
       const items = (yield* agents.list()).filter((item) => item.mode !== "primary")
       const filtered = items.filter(
@@ -344,7 +349,7 @@ const layer = Layer.effect(
       return { task: s.task, read: s.read }
     })
 
-    return Service.of({ ids, all, named, tools })
+    return Service.of({ ids, all, reload, named, tools })
   }),
 )
 

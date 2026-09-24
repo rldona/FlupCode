@@ -5,6 +5,6 @@
  * an old install after an update — and asking for a route the server does not have is a 404 in every
  * browser console. `/harness/health` says what is here, so the client only asks for that.
  */
-export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares", "memory"] as const
+export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares", "memory", "config-files"] as const
 
 export type Capability = (typeof CAPABILITIES)[number]
