@@ -118,3 +118,6 @@ FlupCode must respect upstream's layering:
 - ADR-0010 — Remote control through an end-to-end encrypted relay
 - ADR-0011 — Push notifications for remote control
 - ADR-0012 — Memory as a first-class knowledge primitive (see `docs/MEMORY.md`)
+- ADR-0013 — Cowork, a chat that can work in the project
+- ADR-0014 — Memory handoff and guarded capture
+- ADR-0015 — Web actions and browser automation (see `docs/WEB-ACTIONS.md`)
