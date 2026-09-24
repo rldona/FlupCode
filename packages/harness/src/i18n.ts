@@ -1162,6 +1162,9 @@ const ES: Record<string, string> = {
   Optional: "Opcional",
   Template: "Plantilla",
   Global: "Global",
+  Scope: "Ámbito",
+  "Where a server is defined is not known; Global is assumed.":
+    "No se sabe dónde está definido un servidor; se asume Global.",
 
   // Permission policy editor (H-25)
   "The engine asks by default. A rule per tool, and `*` for the rest.":

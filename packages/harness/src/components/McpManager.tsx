@@ -1,8 +1,11 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { McpResource, McpServer } from "../engine-types"
-import type { AgentFile, McpConfig } from "../types"
+import type { AgentFile, McpConfig, McpScope } from "../types"
 import { mcpAccess } from "../mcp-access"
 import { t } from "../i18n"
+
+/** A server added from here goes to the global configuration unless the reader says otherwise. */
+export const DEFAULT_MCP_SCOPE: McpScope = "global"
 
 type McpEditorProps = {
   servers: McpServer[]
@@ -13,7 +16,7 @@ type McpEditorProps = {
   /** The agent files, so the panel can say who can reach each server (H-34). */
   agents?: AgentFile[]
   busy: boolean
-  onAdd: (name: string, config: McpConfig) => void
+  onAdd: (name: string, config: McpConfig, scope: McpScope) => void
   onRemove: (name: string) => void
   onConnect: (name: string) => void
   onDisconnect: (name: string) => void
@@ -75,6 +78,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
   const [headers, setHeaders] = createSignal("")
   const [timeout, setTimeout] = createSignal("")
   const [enabled, setEnabled] = createSignal(true)
+  const [scope, setScope] = createSignal<McpScope>(DEFAULT_MCP_SCOPE)
   const [formOpen, setFormOpen] = createSignal(false)
   const [editing, setEditing] = createSignal(false)
 
@@ -105,6 +109,8 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     const config = props.configs?.[server.name]
     setName(server.name)
     setEditing(true)
+    // Where the server is defined is not knowable from the list; it defaults to Global.
+    setScope(DEFAULT_MCP_SCOPE)
     setFormOpen(true)
     if (!config) return
     setType(config.type)
@@ -123,6 +129,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
   const startAdd = () => {
     reset()
     setEditing(false)
+    setScope(DEFAULT_MCP_SCOPE)
     setFormOpen(true)
   }
 
@@ -151,7 +158,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
           }
     if (config.type === "local" && config.command.length === 0) return
     if (config.type === "remote" && !config.url) return
-    props.onAdd(serverName, config)
+    props.onAdd(serverName, config, scope())
     reset()
     setFormOpen(false)
   }
@@ -290,6 +297,18 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                     <option value="local">{t("Local")}</option>
                     <option value="remote">{t("Remote")}</option>
                   </select>
+                </label>
+                <label class="fc-field">
+                  <span>{t("Scope")}</span>
+                  <select
+                    class="fc-toolbar-select"
+                    value={scope()}
+                    onChange={(event) => setScope(event.currentTarget.value as McpScope)}
+                  >
+                    <option value="global">{t("Global")}</option>
+                    <option value="project">{t("Project")}</option>
+                  </select>
+                  <span class="fc-field-hint">{t("Where a server is defined is not known; Global is assumed.")}</span>
                 </label>
               </div>
 

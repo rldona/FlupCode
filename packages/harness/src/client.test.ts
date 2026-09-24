@@ -140,3 +140,66 @@ test("saving a credential drops the engine's cached providers, so the new key is
 
   expect(calls).toEqual(["/auth/opencode-go", "/global/dispose"])
 })
+
+/** Records every request, and answers with an empty object the generated calls can unwrap. */
+function recordingEngine(calls: Array<{ method: string; path: string }>) {
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      calls.push({ method: request.method.toUpperCase(), path: new URL(request.url).pathname })
+      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+}
+
+test("an MCP server added with the global scope is written to the global configuration", async () => {
+  const calls: Array<{ method: string; path: string }> = []
+  recordingEngine(calls)
+
+  await createClient("http://engine").mcp.add({
+    server: "srv",
+    config: { type: "remote", url: "https://mcp.example" },
+    scope: "global",
+  })
+
+  expect(calls.filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: "/global/config" }])
+})
+
+test("an MCP server added with the project scope is written to the directory configuration", async () => {
+  const calls: Array<{ method: string; path: string }> = []
+  recordingEngine(calls)
+
+  await createClient("http://engine").mcp.add({
+    server: "srv",
+    config: { type: "remote", url: "https://mcp.example" },
+    scope: "project",
+  })
+
+  expect(calls.filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: "/config" }])
+})
+
+test("updateGlobalConfig writes to the global configuration", async () => {
+  const calls: Array<{ method: string; path: string }> = []
+  recordingEngine(calls)
+
+  await createClient("http://engine").updateGlobalConfig({ flupcode: { composeTools: [] } })
+
+  expect(calls).toEqual([{ method: "PATCH", path: "/global/config" }])
+})
+
+test("removing an MCP server clears it from both configurations and disconnects it", async () => {
+  const calls: Array<{ method: string; path: string }> = []
+  recordingEngine(calls)
+
+  await createClient("http://engine").mcp.remove({ server: "srv" })
+
+  const patches = calls
+    .filter((call) => call.method === "PATCH")
+    .map((call) => call.path)
+    .sort()
+  expect(patches).toEqual(["/config", "/global/config"])
+  expect(calls.some((call) => call.path.endsWith("/disconnect"))).toBe(true)
+})

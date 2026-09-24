@@ -76,6 +76,12 @@ async function openApp(page: Page) {
       calls.patches.push({ path: url.pathname, body: request.postDataJSON() })
       return route.fulfill({ json: {} })
     }
+    if (url.pathname === "/global/config" && request.method() === "GET")
+      return route.fulfill({ json: { mcp: { docs: { type: "remote", url: "https://docs.example" } } } })
+    if (url.pathname === "/global/config" && request.method() === "PATCH") {
+      calls.patches.push({ path: url.pathname, body: request.postDataJSON() })
+      return route.fulfill({ json: {} })
+    }
     if (url.pathname === "/mcp" && request.method() === "POST") return route.fulfill({ json: { status: {} } })
     if (/^\/mcp\/[^/]+\/(connect|disconnect)$/.test(url.pathname)) return route.fulfill({ json: {} })
     if (url.pathname === "/api/event")
@@ -146,7 +152,7 @@ test("an MCP server can be given an environment and headers, not just a command"
   await dialog.locator(".fc-mcp-form .fc-button-primary").click()
 
   await expect
-    .poll(() => calls.patches.find((call) => call.path === "/config")?.body)
+    .poll(() => calls.patches.find((call) => call.path === "/global/config")?.body)
     .toMatchObject({
       mcp: {
         local1: { type: "local", command: ["npx", "-y", "server"], environment: { API_KEY: "abc", DEBUG: "true" } },
