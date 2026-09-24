@@ -4125,7 +4125,7 @@ button.fc-status {
   overflow-y: auto;
 }
 
-.fc-skill-row {
+.fc-skill-list .fc-skill-row {
   display: flex;
   align-items: center;
   gap: var(--fc-space-2);
@@ -8761,6 +8761,7 @@ button.fc-status {
 .fc-skill-file {
   display: flex;
   flex-direction: column;
+  gap: 6px;
 }
 
 .fc-skill-row {
