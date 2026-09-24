@@ -8,7 +8,7 @@ test("the built-in agents keep their own icons", () => {
 })
 
 test("any other agent gets the same robot", () => {
-  const robot = agentIconPath("jornia")
+  const robot = agentIconPath("custom")
   expect(robot.length).toBeGreaterThan(0)
   expect(agentIconPath("whatever")).toBe(robot)
   expect(robot).not.toBe(agentIconPath("plan"))
