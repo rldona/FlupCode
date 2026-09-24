@@ -212,6 +212,20 @@ async function patchGlobalConfig(baseUrl: string, patch: Record<string, unknown>
   if (!response.ok) throw new Error(`Could not save the global configuration (HTTP ${response.status})`)
 }
 
+/**
+ * `POST /config/reload` re-reads the configuration-derived state (agents, skills, commands) for the
+ * location it names, without disposing the instance, so a turn in flight survives. The generated
+ * client has no typed call for it, so it goes through the transport directly, like the patches above.
+ */
+async function reloadConfig(baseUrl: string, input?: { directory?: string; workspace?: string }) {
+  const params = new URLSearchParams()
+  if (input?.directory) params.set("directory", input.directory)
+  if (input?.workspace) params.set("workspace", input.workspace)
+  const query = params.size ? `?${params.toString()}` : ""
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/config/reload${query}`, { method: "POST" })
+  if (!response.ok) throw new Error(`Could not reload the configuration (HTTP ${response.status})`)
+}
+
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
 
@@ -322,6 +336,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
     updateConfig: (patch: Record<string, unknown>) => patchConfig(baseUrl, patch),
     /** Writes back one key of the engine's global config, shared by every directory (H-25). */
     updateGlobalConfig: (patch: Record<string, unknown>) => patchGlobalConfig(baseUrl, patch),
+    /** Re-reads the engine's config-derived state for a location, without disposing its instances. */
+    reloadConfig: (input?: { directory?: string; workspace?: string }) => reloadConfig(baseUrl, input),
     session: {
       /**
        * The engine's list, searched and paged server-side (H-18).
@@ -889,12 +905,8 @@ export function createClient(baseUrl = resolveServerUrl()) {
     agent: {
       list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
       /**
-       * The agents this folder actually has (H-13).
-       *
-       * `/api/agent` ignores the directory it is given and answers for wherever the engine itself
-       * was opened — measured: asking it about a folder with its own `.opencode/agent/probe.md`
-       * came back with *this* repository's agents and not that one's. The legacy `/agent?directory=`
-       * answers per folder, and it is the one the engine reads those files for.
+       * The agents this folder actually has (H-13), through the legacy `/agent?directory=`, which is
+       * the list the engine reads those files with.
        */
       listFor: async (directory?: string) => {
         const answer = (await unwrap(

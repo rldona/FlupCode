@@ -369,6 +369,7 @@ const layer = Layer.effect(
             }
 
             const agent = yield* agents.get(ctx.assistantMessage.agent)
+            if (!agent) return
             yield* permission.ask({
               permission: "doom_loop",
               patterns: [value.name],

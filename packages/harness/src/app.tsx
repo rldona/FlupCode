@@ -1245,13 +1245,20 @@ export const App: Component = () => {
   })
   // The reload counter is part of the key so a reload asks for both lists again; the fetcher reads
   // the URL off the same key.
+  const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
   const [agents] = createResource(
-    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
-    async (key) => createClient(key.split("\n")[0]!).agent.list(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}\n${vcsDirectory() ?? ""}` : undefined),
+    async (key) => {
+      const [url = "", , directory = ""] = key.split("\n")
+      return createClient(url).agent.list(directory ? { location: { directory } } : undefined)
+    },
   )
   const [skills] = createResource(
-    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
-    async (key) => createClient(key.split("\n")[0]!).skill.list(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}\n${vcsDirectory() ?? ""}` : undefined),
+    async (key) => {
+      const [url = "", , directory = ""] = key.split("\n")
+      return createClient(url).skill.list(directory ? { location: { directory } } : undefined)
+    },
   )
   const [mcp, { refetch: refetchMcp }] = createResource(
     () => (ready() ? serverUrl() : undefined),
@@ -1273,8 +1280,11 @@ export const App: Component = () => {
   // The reload counter is part of the key so the list is asked for again when the engine reloads:
   // a command (or a whole skill set) added on disk only shows up after the engine re-reads it.
   const [commands] = createResource(
-    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
-    async (key) => createClient(key.split("\n")[0]!).command.list(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}\n${vcsDirectory() ?? ""}` : undefined),
+    async (key) => {
+      const [url = "", , directory = ""] = key.split("\n")
+      return createClient(url).command.list(directory ? { location: { directory } } : undefined)
+    },
   )
   const [integrations, { refetch: refetchIntegrations }] = createResource(
     () => (ready() ? serverUrl() : undefined),
@@ -1330,7 +1340,6 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const vcsDirectory = () => targetDirectory() ?? selectedSession()?.location?.directory
   const vcsKey = () => {
     const directory = vcsDirectory()
     return ready() && directory ? `${serverUrl()}::${directory}` : undefined
@@ -1515,22 +1524,33 @@ export const App: Component = () => {
         if (!answer) throw new Error(t("Could not read that file"))
         return answer.content
       })
+  /**
+   * Re-reads the engine's agent, skill and command definitions after a panel wrote a file. Best
+   * effort: a failed reload must not lose the file already written or surface as a failed save, so
+   * the failure is dropped and the engine's lists are asked to refresh next.
+   */
+  const reloadEngineDefinitions = async () => {
+    const directory = vcsDirectory()
+    await createClient(serverUrl())
+      .reloadConfig(directory ? { directory } : undefined)
+      .catch(() => undefined)
+    setServerReload((count) => count + 1)
+  }
   const saveSkill = async (draft: { name: string; scope: "global" | "project"; description: string; body: string }) => {
     const directory = vcsDirectory()
     await createHarnessClient(harnessServerUrl()).skills.save({ ...draft, ...(directory ? { directory } : {}) })
+    await reloadEngineDefinitions()
     setSkillsRefresh((count) => count + 1)
   }
   const deleteSkillFile = async (path: string) => {
     const directory = vcsDirectory()
     await createHarnessClient(harnessServerUrl()).skills.remove({ path, ...(directory ? { directory } : {}) })
+    await reloadEngineDefinitions()
     setSkillsRefresh((count) => count + 1)
   }
   /**
-   * The agents this folder has, for the screen that is about this folder's agent files.
-   *
-   * Not `agents()`: that one asks `/api/agent`, which answers for wherever the engine was opened
-   * rather than for the folder it is given — measured against the local engine. The rest of the app
-   * still uses it, and that is its own ticket.
+   * The agents this folder has, for the screen that is about this folder's agent files. It is the
+   * legacy `/agent?directory=` list, which is the one the engine reads those files with.
    */
   const folderAgentsKey = () => ((agentsSectionVisible() || agentsOpen()) && ready() ? `${serverUrl()}\n${vcsDirectory() ?? ""}` : undefined)
   const [folderAgents] = createResource(folderAgentsKey, (key) => {
@@ -1558,11 +1578,13 @@ export const App: Component = () => {
   }) => {
     const directory = vcsDirectory()
     await createHarnessClient(harnessServerUrl()).agents.save({ ...draft, ...(directory ? { directory } : {}) })
+    await reloadEngineDefinitions()
     setAgentsRefresh((count) => count + 1)
   }
   const deleteAgent = async (path: string) => {
     const directory = vcsDirectory()
     await createHarnessClient(harnessServerUrl()).agents.remove({ path, ...(directory ? { directory } : {}) })
+    await reloadEngineDefinitions()
     setAgentsRefresh((count) => count + 1)
   }
   // Commands you can edit (H-25). The files behind the engine's slash commands; the palette already
@@ -1580,14 +1602,20 @@ export const App: Component = () => {
     const directory = vcsDirectory()
     void createHarnessClient(harnessServerUrl())
       .commands.save({ ...draft, ...(directory ? { directory } : {}) })
-      .then(() => setCommandsRefresh((count) => count + 1))
+      .then(async () => {
+        await reloadEngineDefinitions()
+        setCommandsRefresh((count) => count + 1)
+      })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
   const deleteCommand = (path: string) => {
     const directory = vcsDirectory()
     void createHarnessClient(harnessServerUrl())
       .commands.remove({ path, ...(directory ? { directory } : {}) })
-      .then(() => setCommandsRefresh((count) => count + 1))
+      .then(async () => {
+        await reloadEngineDefinitions()
+        setCommandsRefresh((count) => count + 1)
+      })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
   // The configured MCP servers (H-25): so the form can open one for editing, not just add a new one.

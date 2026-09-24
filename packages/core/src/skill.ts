@@ -107,12 +107,21 @@ const layer = Layer.effect(
     // QUESTION(Dax): Should local skill sources invalidate on filesystem watch
     // events, following the reload policy chosen for other context sources?
     const cache = new Map<string, Info[]>()
+    // Bumped by reload so a list that missed the cache and is still loading cannot write pre-reload
+    // content back over it once it resumes.
+    let epoch = 0
+    const reload = Effect.fn("SkillV2.reload")(function* () {
+      yield* state.reload()
+      epoch++
+      cache.clear()
+    })
     const list = Effect.fn("SkillV2.list")(function* () {
       const skills = new Map<string, Info>()
+      const loadedEpoch = epoch
       for (const source of state.get().sources) {
         const key = Source.key(source)
         const loaded = cache.get(key) ?? (yield* load(source))
-        cache.set(key, loaded)
+        if (epoch === loadedEpoch) cache.set(key, loaded)
         for (const skill of loaded) skills.set(skill.name, skill)
       }
       return Array.from(skills.values())
@@ -120,7 +129,7 @@ const layer = Layer.effect(
 
     return Service.of({
       transform: state.transform,
-      reload: state.reload,
+      reload,
       sources: Effect.fn("SkillV2.sources")(function* () {
         return state.get().sources
       }),

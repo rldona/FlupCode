@@ -1,6 +1,7 @@
 import { Config } from "@/config/config"
 import { ConfigV1 } from "@opencode-ai/core/v1/config/config"
 import { Provider } from "@/provider/provider"
+import { Schema } from "effect"
 import { HttpApi, HttpApiEndpoint, HttpApiError, HttpApiGroup, OpenApi } from "effect/unstable/httpapi"
 import { Authorization } from "../middleware/authorization"
 import { InstanceContextMiddleware } from "../middleware/instance-context"
@@ -43,6 +44,17 @@ export const ConfigApi = HttpApi.make("config")
             identifier: "config.providers",
             summary: "List config providers",
             description: "Get a list of all configured AI providers and their default models.",
+          }),
+        ),
+        HttpApiEndpoint.post("reload", `${root}/reload`, {
+          query: WorkspaceRoutingQuery,
+          success: described(Schema.Boolean, "Configuration reloaded"),
+        }).annotateMerge(
+          OpenApi.annotations({
+            identifier: "config.reload",
+            summary: "Reload configuration",
+            description:
+              "Reread configuration files and config-derived state for the current directory without disposing instances or interrupting in-flight runs.",
           }),
         ),
       )
