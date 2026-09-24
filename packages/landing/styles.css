@@ -1,18 +1,18 @@
 :root {
-  --bg: #050505;
-  --bg-2: #0b0b0b;
-  --surface: #121212;
-  --surface-2: #181818;
-  --line: #262626;
-  --line-2: #333333;
-  --text: #f5f5f5;
-  --muted: #a3a3a3;
-  --dim: #737373;
-  --accent: #fb5626;
-  --violet: #da3b15;
-  --sky: #f5a524;
-  --mint: #8fce9b;
-  --coral: #f98080;
+  --bg: #05060b;
+  --bg-2: #0a0c14;
+  --surface: #0f121b;
+  --surface-2: #151927;
+  --line: #1f2436;
+  --line-2: #2a3048;
+  --text: #eef0f7;
+  --muted: #8e94ab;
+  --dim: #5b6075;
+  --accent: #5b8cff;
+  --violet: #8b5cf6;
+  --sky: #4cc9ff;
+  --mint: #7ee2a8;
+  --coral: #f19a90;
   --amber: #f5b80c;
   --brand: "Nunito Sans", "Roboto", ui-sans-serif, system-ui, sans-serif;
   --ui: "Roboto", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
@@ -124,7 +124,7 @@ button {
     box-shadow 0.35s ease;
 }
 .nav.scrolled .nav-pill {
-  background: color-mix(in srgb, #111111 76%, transparent);
+  background: color-mix(in srgb, #0b0d15 76%, transparent);
   backdrop-filter: blur(18px);
   border-color: var(--line);
   box-shadow: 0 10px 40px rgb(0 0 0 / 0.45);
@@ -193,7 +193,7 @@ button {
 }
 .btn-light {
   background: #fff;
-  color: #111111;
+  color: #0b0d15;
 }
 .btn-light:hover {
   box-shadow: 0 8px 30px rgb(255 255 255 / 0.18);
@@ -289,7 +289,7 @@ button {
 }
 .lead {
   font-size: clamp(16px, 1.6vw, 19px);
-  color: #d4d4d4;
+  color: #d3d7e6;
   text-shadow: 0 1px 18px rgb(5 6 11 / 0.6);
   max-width: 640px;
   margin: 0 auto;
@@ -314,7 +314,7 @@ button {
   margin: 36px auto 0;
   border-radius: var(--r-lg);
   border: 1px solid color-mix(in srgb, #ffffff 12%, transparent);
-  background: color-mix(in srgb, #111111 70%, transparent);
+  background: color-mix(in srgb, #0b0d15 70%, transparent);
   backdrop-filter: blur(18px);
   overflow: hidden;
   animation: rise 0.9s 0.45s cubic-bezier(0.2, 0.7, 0.2, 1) both;
@@ -398,12 +398,12 @@ button {
   max-width: 1080px;
   border-radius: 16px;
   overflow: hidden;
-  background: #131313;
+  background: #0c0e15;
   border: 1px solid var(--line-2);
   box-shadow:
     0 0 0 1px rgb(0 0 0 / 0.6),
     0 60px 120px -30px rgb(0 0 0 / 0.8),
-    0 0 120px -30px color-mix(in srgb, var(--accent) 26%, transparent);
+    0 0 120px -30px color-mix(in srgb, var(--accent) 45%, transparent);
   transform-origin: 50% 0;
   transform: rotateX(12deg) translateY(10px);
   will-change: transform;
@@ -457,7 +457,7 @@ button {
   min-height: 560px;
 }
 .side {
-  background: #0b0b0b;
+  background: #0a0c13;
   border-right: 1px solid var(--line);
   padding: 12px;
   font-size: 12.5px;
@@ -502,7 +502,7 @@ button {
   font-size: 12px;
 }
 .side li.sess.on {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--text);
 }
 .side li .n {
@@ -529,8 +529,8 @@ button {
 .u {
   align-self: flex-end;
   max-width: 78%;
-  background: color-mix(in srgb, var(--accent) 14%, #121212);
-  border: 1px solid color-mix(in srgb, var(--accent) 20%, transparent);
+  background: color-mix(in srgb, var(--accent) 22%, #10131c);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
   border-radius: 14px 14px 4px 14px;
   padding: 10px 14px;
 }
@@ -561,7 +561,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
-  background: #0b0b0b;
+  background: #0a0c13;
 }
 .tool-h {
   display: flex;
@@ -580,7 +580,7 @@ button {
   color: var(--text);
 }
 .tool-h .badge.edit {
-  background: color-mix(in srgb, var(--violet) 16%, transparent);
+  background: color-mix(in srgb, var(--violet) 30%, transparent);
 }
 .tool-h .badge.bash {
   background: color-mix(in srgb, var(--mint) 22%, transparent);
@@ -620,11 +620,11 @@ button {
 }
 .diff .del {
   background: rgb(241 154 144 / 0.12);
-  color: #f98080;
+  color: #f5b3aa;
 }
 .diff .add {
   background: rgb(126 226 168 / 0.12);
-  color: #8fce9b;
+  color: #a8efc4;
 }
 .diff .same {
   color: var(--muted);
@@ -653,7 +653,7 @@ button {
   margin: 0 20px 16px;
   border: 1px solid var(--line-2);
   border-radius: 12px;
-  background: #121212;
+  background: #0f121b;
 }
 .composer .in {
   padding: 12px 14px;
@@ -768,7 +768,7 @@ button {
   position: absolute;
   inset: 0;
   pointer-events: none;
-  background: radial-gradient(60% 40% at 50% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%);
+  background: radial-gradient(60% 40% at 50% -10%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%);
   opacity: 0;
   transition: opacity 0.35s ease;
 }
@@ -781,8 +781,8 @@ button {
   border-radius: 10px;
   display: grid;
   place-items: center;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 16%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
   color: var(--sky);
   margin-bottom: 18px;
 }
@@ -863,11 +863,11 @@ button {
 .scene-frame {
   border-radius: 16px;
   overflow: hidden;
-  background: #131313;
+  background: #0c0e15;
   border: 1px solid var(--line-2);
   box-shadow:
     0 50px 100px -30px rgb(0 0 0 / 0.8),
-    0 0 100px -40px color-mix(in srgb, var(--violet) 16%, transparent);
+    0 0 100px -40px color-mix(in srgb, var(--violet) 55%, transparent);
   aspect-ratio: 16 / 10.4;
   position: relative;
 }
@@ -894,13 +894,13 @@ button {
   overflow: hidden;
 }
 .term {
-  background: #050505;
+  background: #07080d;
   height: 100%;
   padding: 14px 16px;
   font-family: var(--mono);
   font-size: 12.5px;
   line-height: 1.7;
-  color: #d4d4d4;
+  color: #cfd3e3;
 }
 .term .p {
   color: var(--mint);
@@ -918,7 +918,7 @@ button {
   display: inline-block;
   width: 7px;
   height: 13px;
-  background: #d4d4d4;
+  background: #cfd3e3;
   vertical-align: -2px;
   animation: blink 1s steps(2) infinite;
 }
@@ -926,7 +926,7 @@ button {
   display: flex;
   gap: 6px;
   padding: 8px 10px 0;
-  background: #0b0b0b;
+  background: #0a0c13;
   font-family: var(--mono);
   font-size: 11px;
   color: var(--dim);
@@ -937,7 +937,7 @@ button {
   border-radius: 6px 6px 0 0;
 }
 .term-tabs span.on {
-  background: #050505;
+  background: #07080d;
   color: var(--text);
 }
 .split2 {
@@ -966,11 +966,11 @@ button {
   border-radius: 10px;
   padding: 10px 14px;
   font-size: 13px;
-  background: #0b0b0b;
+  background: #0a0c13;
 }
 .mode-row.on {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, #0b0b0b);
+  background: color-mix(in srgb, var(--accent) 12%, #0a0c13);
 }
 .mode-row em {
   font-style: normal;
@@ -989,10 +989,10 @@ button {
 .home {
   display: grid;
   grid-template-columns: 150px 1fr;
-  background: #131313;
+  background: #0c0e15;
 }
 .home-side {
-  background: #0b0b0b;
+  background: #0a0c13;
   border-right: 1px solid var(--line);
   padding: 10px;
   font-size: 11.5px;
@@ -1056,7 +1056,7 @@ button {
   padding: 9px 10px;
   font-size: 10.5px;
   color: var(--text);
-  background: #121212;
+  background: #0f121b;
   line-height: 1.35;
 }
 .sugg i {
@@ -1068,7 +1068,7 @@ button {
 .usage {
   border: 1px solid var(--line);
   border-radius: 10px;
-  background: #121212;
+  background: #0f121b;
   padding: 10px 12px 8px;
   text-align: left;
   max-width: 520px;
@@ -1101,7 +1101,7 @@ button {
   margin-bottom: 10px;
 }
 .tiles div {
-  background: #1a1a1a;
+  background: #141826;
   border-radius: 6px;
   padding: 7px 9px;
 }
@@ -1127,13 +1127,13 @@ button {
   display: block;
   aspect-ratio: 1;
   border-radius: 1.5px;
-  background: #262626;
+  background: #1a1f2e;
 }
 .heat i.l1 {
-  background: color-mix(in srgb, var(--accent) 20%, #262626);
+  background: color-mix(in srgb, var(--accent) 35%, #1a1f2e);
 }
 .heat i.l2 {
-  background: color-mix(in srgb, var(--accent) 42%, #262626);
+  background: color-mix(in srgb, var(--accent) 65%, #1a1f2e);
 }
 .heat i.l3 {
   background: var(--accent);
@@ -1163,7 +1163,7 @@ button {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  background: #111111;
+  background: #0b0d15;
 }
 .demo-modes .lbl {
   font-family: var(--mono);
@@ -1191,8 +1191,8 @@ button {
   background: color-mix(in srgb, #fff 4%, transparent);
 }
 .mode-btn[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 .mode-btn b {
   font-weight: 500;
@@ -1228,7 +1228,7 @@ button {
   border: 1px solid var(--line);
   border-radius: 10px;
   padding: 10px 14px;
-  background: #0b0b0b;
+  background: #0a0c13;
   font-family: var(--mono);
   font-size: 12.5px;
   transition: border-color 0.25s ease;
@@ -1286,7 +1286,7 @@ button {
   position: relative;
   overflow: hidden;
   background:
-    radial-gradient(80% 70% at 50% 110%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 70%), #0b0b0b;
+    radial-gradient(80% 70% at 50% 110%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 70%), #0a0c13;
   border-bottom: 1px solid var(--line);
   display: grid;
   place-items: end center;
@@ -1297,7 +1297,7 @@ button {
   border: 1px solid var(--line-2);
   border-bottom: 0;
   border-radius: 10px 10px 0 0;
-  background: #121212;
+  background: #0f121b;
   position: relative;
   overflow: hidden;
 }
@@ -1308,7 +1308,7 @@ button {
   right: 0;
   top: 0;
   height: 22px;
-  background: #1a1a1a;
+  background: #141826;
   border-bottom: 1px solid var(--line);
 }
 .mini.web::after {
@@ -1320,7 +1320,7 @@ button {
   font-family: var(--mono);
   font-size: 9px;
   color: var(--dim);
-  background: #0b0b0b;
+  background: #0a0c13;
   padding: 1px 10px;
   border-radius: 4px;
 }
@@ -1341,7 +1341,7 @@ button {
     26px 0 0 #28c840;
 }
 .mini.term {
-  background: #050505;
+  background: #07080d;
 }
 .mini.term::after {
   content: "➜ opencode serve --port 4096";
@@ -1364,7 +1364,7 @@ button {
 .mini .g i {
   display: block;
   border-radius: 4px;
-  background: #1d1d1d;
+  background: #161a27;
   height: 60px;
 }
 .surface .txt {
@@ -1407,10 +1407,10 @@ button {
   transform: translateY(-2px);
 }
 .dl a.yours {
-  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 60%, transparent);
   box-shadow:
-    0 0 0 1px color-mix(in srgb, var(--accent) 16%, transparent),
-    0 20px 50px -20px color-mix(in srgb, var(--accent) 38%, transparent);
+    0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+    0 20px 50px -20px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 .dl a.yours::before {
   content: "Your platform";
@@ -1476,7 +1476,7 @@ button {
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: radial-gradient(50% 60% at 50% 100%, color-mix(in srgb, var(--violet) 14%, transparent), transparent 70%);
+  background: radial-gradient(50% 60% at 50% 100%, color-mix(in srgb, var(--violet) 28%, transparent), transparent 70%);
 }
 .final h2 {
   font-size: clamp(36px, 5.4vw, 64px);
