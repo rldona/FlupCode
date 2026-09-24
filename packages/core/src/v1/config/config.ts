@@ -54,6 +54,31 @@ export const Info = Schema.Struct({
         description:
           "Tool names whose returned image is an input to a delivered piece rather than the piece itself; FlupCode does not paint their image on its own, because the delivery re-attaches it.",
       }),
+      delivery: Schema.optional(
+        Schema.Record(
+          Schema.String,
+          Schema.Struct({
+            tool: Schema.String,
+            description: Schema.optional(Schema.String),
+            composeTools: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+            imageRequired: Schema.optional(Schema.Boolean),
+            imageMissing: Schema.optional(Schema.String),
+            labels: Schema.optional(
+              Schema.Struct({
+                title: Schema.optional(Schema.String),
+                text: Schema.optional(Schema.String),
+                alt: Schema.optional(Schema.String),
+                image: Schema.optional(Schema.String),
+                missingAlt: Schema.optional(Schema.String),
+              }),
+            ),
+            guards: Schema.optional(Schema.mutable(Schema.Array(Schema.String))),
+          }),
+        ),
+      ).annotate({
+        description:
+          "Delivery profiles keyed by profile id. The engine only carries them; the FlupCode apps read them.",
+      }),
     }),
   ).annotate({
     description: "FlupCode client settings. The engine only carries them; the FlupCode apps read them.",

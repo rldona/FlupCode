@@ -12,7 +12,7 @@ import type {
   ProviderAuthMethod,
   ProviderDirectoryInfo,
 } from "../engine-types"
-import type { AgentFile, CommandFile, McpConfig } from "../types"
+import type { AgentFile, CommandFile, McpConfig, McpScope } from "../types"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { effortLabel } from "../effort"
@@ -73,7 +73,7 @@ type SettingsPanelProps = {
   mcpResources?: McpResource[]
   agentFiles?: AgentFile[]
   mcpBusy: boolean
-  onAddMcp: (name: string, config: McpConfig) => void
+  onAddMcp: (name: string, config: McpConfig, scope: McpScope) => void
   onRemoveMcp: (name: string) => void
   onConnectMcp: (name: string) => void
   onDisconnectMcp: (name: string) => void

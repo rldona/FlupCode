@@ -324,8 +324,272 @@ export const flupcodeArtifactWrite = async () => ({
 `,
 }
 
+/**
+ * delivery: one tool per profile declared under `flupcode.delivery`. The profile carries the tool id,
+ * the description, the labels, the composed-image rules and the guards, so a new product needs
+ * configuration alone and no per-product tool file. Guards are modules in the reader's own config
+ * directory; the plugin imports them and runs them in order before delivering anything.
+ *
+ * Unlike the other plugins this one imports `@opencode-ai/plugin` for its Zod args, which the engine
+ * installs into the config directory and waits for before loading. That is what lets optional
+ * arguments stay optional instead of being marked required.
+ */
+export const DELIVERY_PLUGIN = {
+  file: "flupcode-deliver.js",
+  source: String.raw`// Installed by FlupCode. Registers one delivery tool per profile declared under flupcode.delivery,
+// so a new product needs only configuration and no tool file of its own: the tool id, the
+// description, the labels, the composed-image rules and the guards all come from the config folder.
+// Product names live there, never here. Regenerated when FlupCode starts the engine; edits here are
+// overwritten.
+import { randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import { tool } from "@opencode-ai/plugin"
+
+// The plugin sits in <configDir>/plugins, so its parent is the config directory. Both the config
+// files and the guards are named against it: that is where the plugin actually lives and where
+// install.sh symlinks lib/, so the two can never disagree about which directory is the reader's.
+const CONFIG_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+
+// JSONC without a parser: comments and trailing commas are all that separates it from JSON. The scan
+// is string-aware, so a URL keeps its double slash and a string keeps whatever looks like a comment.
+function stripJsonc(text) {
+  let out = ""
+  let inString = false
+  let escape = false
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (escape) escape = false
+      else if (ch === "\\") escape = true
+      else if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      i += 2
+      while (i < text.length && text[i] !== "\n") i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      i += 2
+      while (i + 1 < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1
+      i += 2
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out.replace(/,(?=\s*[}\]])/g, "")
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// The engine merges config.json, then opencode.json, then opencode.jsonc, later files winning; the
+// same order here, recursively, so a profile the advanced editor wrote to jsonc is still seen and
+// jsonc wins. Arrays replace rather than concatenate: a profile list is the file's whole list.
+function mergeConfig(target, source) {
+  if (!isPlainObject(target) || !isPlainObject(source)) return source
+  const merged = { ...target }
+  for (const key of Object.keys(source)) {
+    merged[key] =
+      isPlainObject(target[key]) && isPlainObject(source[key])
+        ? mergeConfig(target[key], source[key])
+        : source[key]
+  }
+  return merged
+}
+
+const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"]
+
+// A missing file is skipped, and one that does not parse is skipped too: loading never throws.
+async function readJsonc(file) {
+  const text = await readFile(file, "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(stripJsonc(text))
+  } catch {
+    return undefined
+  }
+}
+
+async function loadConfig() {
+  let merged = {}
+  for (const name of CONFIG_FILES) {
+    const parsed = await readJsonc(path.join(CONFIG_DIR, name))
+    if (isPlainObject(parsed)) merged = mergeConfig(merged, parsed)
+  }
+  return merged
+}
+
+function propertyAt(value, key) {
+  return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined
+}
+
+// The composed PNG is not a part of its own: it stays inside the state of the tool that produced it,
+// so the newest one is looked for there, last-first, and only when its producer is in composeTools.
+function findImageDataUrl(messages, composeTools) {
+  if (!Array.isArray(messages)) return undefined
+  const wanted = Array.isArray(composeTools) && composeTools.length ? composeTools : undefined
+  for (let m = messages.length - 1; m >= 0; m--) {
+    const message = messages[m]
+    const parts = message && message.parts
+    if (!Array.isArray(parts)) continue
+    for (let p = parts.length - 1; p >= 0; p--) {
+      const part = parts[p]
+      if (!part) continue
+      if (wanted && typeof part.tool === "string" && !wanted.includes(part.tool)) continue
+      const bags = [part.state && part.state.attachments, part.attachments]
+      for (const bag of bags) {
+        if (!Array.isArray(bag)) continue
+        for (let a = bag.length - 1; a >= 0; a--) {
+          const attachment = bag[a]
+          if (!attachment) continue
+          if (
+            typeof attachment.mime === "string" &&
+            attachment.mime.startsWith("image/") &&
+            typeof attachment.url === "string" &&
+            attachment.url.startsWith("data:")
+          ) {
+            return attachment.url
+          }
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+function imageAttachment(dataUrl) {
+  const match = /^data:([^;,]+);base64,/.exec(dataUrl)
+  const mime = match && match[1]
+  if (!mime || !mime.startsWith("image/")) return undefined
+  return { type: "file", mime: mime, url: dataUrl }
+}
+
+// Guards are modules the product owns, resolved against the config directory. Every module's guards
+// array is appended in turn, and the first refusal stops the delivery. A safety gate must not
+// disappear silently: a module that cannot be loaded or one whose assess throws refuses the delivery.
+async function runGuards(paths, input) {
+  if (!Array.isArray(paths)) return undefined
+  const guards = []
+  for (const entry of paths) {
+    if (typeof entry !== "string" || !entry) continue
+    const url = pathToFileURL(path.resolve(CONFIG_DIR, entry)).href
+    let mod
+    try {
+      mod = await import(url)
+    } catch {
+      return "No se entrega. GUARD_LOAD_ERROR: " + entry
+    }
+    const list = mod && mod.guards
+    if (!Array.isArray(list)) return "No se entrega. GUARD_LOAD_ERROR: " + entry
+    guards.push(...list)
+  }
+  for (const guard of guards) {
+    if (!guard || typeof guard.assess !== "function") continue
+    let verdict
+    try {
+      verdict = await guard.assess(input)
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      return "No se entrega. GUARD_ERROR: " + String(guard.id) + " - " + message
+    }
+    if (verdict && verdict.allow === false) {
+      return "No se entrega. " + String(verdict.code) + ": " + String(verdict.reason)
+    }
+  }
+  return undefined
+}
+
+function definition(profile) {
+  return tool({
+    description:
+      profile.description ||
+      "Deliver the piece you have just written and composed so a person can copy and paste it by hand. Does not publish anything: it re-emits the composed image as an attachment.",
+    args: {
+      text: tool.schema.string().describe("The exact text of the piece, as it is copied."),
+      template: tool.schema.string().describe("The template that was composed."),
+      alt: tool.schema.string().optional().describe("The image alt text, when there is one."),
+      location: tool.schema.string().optional().describe("The place the piece is about, when the guards need it."),
+    },
+    async execute(args, ctx) {
+      const messages = propertyAt(ctx, "messages")
+      const denied = await runGuards(profile.guards, {
+        text: args.text,
+        template: args.template,
+        alt: args.alt,
+        location: args.location,
+        messages: messages,
+      })
+      if (denied) return denied
+
+      const imageDataUrl = findImageDataUrl(messages, profile.composeTools)
+      if (!imageDataUrl && profile.imageRequired !== false) {
+        return (
+          profile.imageMissing ||
+          "I cannot find the composed image in this conversation. Compose it first and try again."
+        )
+      }
+      const attachment = imageDataUrl ? imageAttachment(imageDataUrl) : undefined
+      const labels = profile.labels || {}
+      const alt = args.alt || ""
+      const lines = [
+        labels.title || "Ready to copy and paste. Nothing was published.",
+        "",
+        labels.text || "Text:",
+        args.text,
+        "",
+        alt ? (labels.alt || "Image alt:") + "\n" + alt : labels.missingAlt || "The image has no alt.",
+      ]
+      if (attachment) lines.push("", labels.image || "The image goes with the piece, below: copy them together.")
+      const output = lines.join("\n")
+      const sessionID = propertyAt(ctx, "sessionID")
+      const messageID = propertyAt(ctx, "messageID")
+      if (!attachment || typeof sessionID !== "string" || typeof messageID !== "string") return output
+      return {
+        output: output,
+        attachments: [{ id: "prt_" + randomUUID(), sessionID, messageID, ...attachment }],
+      }
+    },
+  })
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeDeliver = async () => {
+  const config = await loadConfig().catch(() => undefined)
+  const profiles = config && config.flupcode && config.flupcode.delivery
+  if (!profiles || typeof profiles !== "object") return {}
+  const tools = {}
+  for (const profile of Object.values(profiles)) {
+    if (!profile || typeof profile !== "object") continue
+    if (typeof profile.tool !== "string" || !profile.tool) continue
+    tools[profile.tool] = definition(profile)
+  }
+  return { tool: tools }
+}
+`,
+}
+
 /** The engine plugins FlupCode owns. */
-const PLUGINS = [REASONING_VARIANTS_PLUGIN, TOOL_USES_PLUGIN, SYSTEM_PROMPT_PLUGIN, ARTIFACT_WRITE_PLUGIN]
+const PLUGINS = [
+  REASONING_VARIANTS_PLUGIN,
+  TOOL_USES_PLUGIN,
+  SYSTEM_PROMPT_PLUGIN,
+  ARTIFACT_WRITE_PLUGIN,
+  DELIVERY_PLUGIN,
+]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */
 export function engineConfigDir(env: NodeJS.ProcessEnv = process.env, home = os.homedir()) {
