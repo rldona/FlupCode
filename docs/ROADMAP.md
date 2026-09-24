@@ -18,6 +18,7 @@ Status: `todo` · `doing` · `done` · `blocked` · `cut`
 | **M4 Remote/mobile** | F6 | PWA, QR pairing, push |
 | **M5 v1.0** | F7 | Stable, documented, released |
 | **M6 Remote control** | F8 | Phone drives a desktop session through an E2E encrypted relay |
+| **M7 Web actions** | F9 | The agent acts on a real website through a profile you declare, with approval |
 
 ---
 
@@ -176,6 +177,31 @@ Corrected, and now really done:
 
 ---
 
+## F9 — Web actions
+
+The agent acts on a real website on your machine through a browser, driven by a **profile you
+declare** in `flupcode.actions`. Publishing is one profile; reading a page is another. Approval is per
+sensitive action, credentials are injected by name, and every step keeps evidence. Publishing to a
+specific site is a use case, not the feature. See [ADR-0015](adr/0015-web-actions-and-browser-automation.md),
+[WEB-ACTIONS.md](WEB-ACTIONS.md) and [tickets/WA-web-actions.md](tickets/WA-web-actions.md). Native OS
+automation is a later, separate medium (`flupcode.os`), not a profile inside `actions`.
+
+| ID | P | Ticket | Status |
+| --- | --- | --- | --- |
+| WA-0 | P0 | Contract and docs (ADR-0015, WEB-ACTIONS) | todo |
+| WA-1 | P0 | Browser runtime and boundary (token, SSRF, screenshots) | todo |
+| WA-2 | P0 | Action engine (recipe, deterministic runner, extract, guards) | todo |
+| WA-3 | P0 | Plugin tools and per-action approval | todo |
+| WA-4 | P0 | Permissions and session UI | todo |
+| WA-5 | P0 | Credentials, isolated profiles, redaction | todo |
+| WA-6 | P1 | Live view and takeover | todo |
+| WA-7 | P0 | Routines integration | todo |
+| WA-8 | P0 | Actions config UI (PoC) | todo |
+| WA-9 | P0 | Packaging and security hardening (release blocker) | todo |
+| WA-10 | P0 | Validation PoC: publish and read via configuration | todo |
+
+---
+
 ## Sequencing rules
 
 1. F0/F1 unblock everything; keep upstream sync green before starting F2.
@@ -184,6 +210,8 @@ Corrected, and now really done:
 4. F5 can start once F2 stabilises; desktop reuses the web renderer.
 5. F6 is independent of F5 and can run in parallel once the web app is responsive.
 6. F8: protocol (F8-2, F8-3) before relay and host; harness transport (F8-6) before the UI.
+7. F9: WA-1 (runtime and boundary) before WA-2/WA-3 — the token and the SSRF guard land before any
+   navigation. WA-9 is a release blocker; the PoC runs in development first.
 
 ---
 
