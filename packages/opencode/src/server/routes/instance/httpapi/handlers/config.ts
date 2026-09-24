@@ -3,6 +3,7 @@ import { Command } from "@/command"
 import { Config } from "@/config/config"
 import { Provider } from "@/provider/provider"
 import { Skill } from "@/skill"
+import { ToolRegistry } from "@/tool/registry"
 import * as InstanceState from "@/effect/instance-state"
 import { AgentV2 } from "@opencode-ai/core/agent"
 import { CommandV2 } from "@opencode-ai/core/command"
@@ -24,6 +25,7 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
     const agentSvc = yield* Agent.Service
     const skillSvc = yield* Skill.Service
     const commandSvc = yield* Command.Service
+    const toolRegistry = yield* ToolRegistry.Service
     const locations = yield* LocationServiceMap.Service
 
     const get = Effect.fn("ConfigHttpApi.get")(function* () {
@@ -46,6 +48,7 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
 
     const reload = Effect.fn("ConfigHttpApi.reload")(function* (ctx) {
       yield* configSvc.reload()
+      yield* toolRegistry.reload()
       yield* skillSvc.reload()
       yield* commandSvc.reload()
       yield* agentSvc.reload()

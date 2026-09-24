@@ -3,9 +3,11 @@ import fs from "fs/promises"
 import path from "path"
 import { Server } from "../../src/server/server"
 import { GlobalBus } from "../../src/bus/global"
+import { Global } from "@opencode-ai/core/global"
 import { Effect, Schema } from "effect"
 import { resetDatabase } from "../fixture/db"
 import { disposeAllInstances, tmpdir } from "../fixture/fixture"
+import { markPluginDependenciesReady } from "../fixture/plugin"
 import { it, pollWithTimeout } from "../lib/effect"
 
 function app() {
@@ -34,6 +36,7 @@ const decodeV2IDs = Schema.decodeUnknownSync(
 const decodeV2Names = Schema.decodeUnknownSync(
   Schema.Struct({ data: Schema.Array(Schema.Struct({ name: Schema.String })) }),
 )
+const decodeToolIDs = Schema.decodeUnknownSync(Schema.Array(Schema.String))
 
 afterEach(async () => {
   await disposeAllInstances()
@@ -157,6 +160,58 @@ describe("config reload", () => {
       expect(yield* Effect.promise(() => response.json())).toBe(true)
 
       expect(yield* v2Agents()).toContain("reload-probe")
+    }),
+  )
+
+  it.live(
+    "registers a tool file written after the registry loaded",
+    Effect.gen(function* () {
+      const tmp = yield* tmpdirEffect({ config: { formatter: false, lsp: false } })
+      const toolDir = path.join(tmp.path, ".opencode", "tool")
+      yield* Effect.promise(() => fs.mkdir(toolDir, { recursive: true }))
+
+      // Loading a group over a tool directory waits for the engine's `@opencode-ai/plugin` install
+      // into every config directory. Marking the lock ready on both the project and global config
+      // makes those installs no-ops, so the test stays off the network instead of racing an npm reify.
+      yield* Effect.promise(() => markPluginDependenciesReady(path.join(tmp.path, ".opencode")))
+      yield* Effect.promise(() => markPluginDependenciesReady(Global.Path.config))
+
+      const toolIDs = () =>
+        getJson("/experimental/tool/ids", tmp.path).pipe(Effect.map((body) => decodeToolIDs(body)))
+
+      // The registry scans the tool directories only when its per-directory state is first built, so
+      // this read materializes it before the new file exists and the reload is what makes it visible.
+      expect(yield* toolIDs()).not.toContain("reload-probe")
+
+      // Bun caches an ESM module by its resolved path and ignores `?query` cache busting, so only a
+      // new file can be picked up here; editing `reload-probe.ts` would need an engine restart.
+      yield* Effect.promise(() =>
+        Bun.write(
+          path.join(toolDir, "reload-probe.ts"),
+          [
+            "export default {",
+            "  description: 'reload probe tool',",
+            "  args: {},",
+            "  execute: async () => 'reload probe',",
+            "}",
+            "",
+          ].join("\n"),
+        ),
+      )
+      expect(yield* toolIDs()).not.toContain("reload-probe")
+
+      const response = yield* Effect.promise(() =>
+        Promise.resolve(
+          app().request("/config/reload", {
+            method: "POST",
+            headers: { "x-opencode-directory": tmp.path },
+          }),
+        ),
+      )
+      expect(response.status).toBe(200)
+      expect(yield* Effect.promise(() => response.json())).toBe(true)
+
+      expect(yield* toolIDs()).toContain("reload-probe")
     }),
   )
 })

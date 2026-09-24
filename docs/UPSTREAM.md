@@ -139,7 +139,8 @@ One-line registrations that make the files above reachable:
 `packages/schema/src/index.ts`, `packages/schema/src/session.ts`, `packages/protocol/src/api.ts`,
 `packages/protocol/src/errors.ts`, `packages/server/src/handlers.ts`,
 `packages/client/src/contract.ts`, `packages/core/src/v1/config/config.ts` (the generic
-`flupcode.composeTools` field the FlupCode apps read), `packages/core/src/v1/config/migrate.ts`,
+`flupcode.composeTools`/`flupcode.configRepo` fields the FlupCode apps read),
+`packages/core/src/v1/config/migrate.ts`,
 `packages/core/src/session/info.ts`.
 
 **Take upstream, then re-add our line.** Never keep our whole version: upstream adds entries to
@@ -174,7 +175,8 @@ keep-ours, because upstream may have changed the surrounding code.
 | `packages/llm/src/protocols/openai-chat.ts`                                                  | Drops reasoning-only assistant turns that OpenAI Chat rejects on replay                                                                                      |
 | `packages/llm/src/route/executor.ts`, `packages/llm/src/schema/errors.ts`                    | Retry budget and which transport errors are retryable                                                                                                        |
 | `packages/opencode/src/server/routes/instance/httpapi/**`                                    | `revertCommit` endpoint and the light reload (`POST /config/reload`)                                                                                         |
-| `packages/core/src/skill.ts`, `packages/opencode/src/config/config.ts`, `packages/opencode/src/skill/index.ts`, `packages/opencode/src/command/index.ts`, `packages/opencode/src/session/processor.ts` | Light config reload: a per-directory `reload()` so a saved agent/command/skill takes effect without disposing instances, `SkillV2.reload` clearing its cache, and the doom-loop skipping the ask when the named agent is gone |
+| `packages/core/src/skill.ts`, `packages/opencode/src/config/config.ts`, `packages/opencode/src/skill/index.ts`, `packages/opencode/src/command/index.ts`, `packages/opencode/src/session/processor.ts`, `packages/opencode/src/tool/registry.ts` | Light config reload: a per-directory `reload()` so a saved agent/command/tool takes effect without disposing instances, `SkillV2.reload` clearing its cache, `ToolRegistry.reload` invalidating its per-directory state so `POST /config/reload` rescans the tool directories, and the doom-loop skipping the ask when the named agent is gone |
+| `packages/core/src/v1/config/config.ts`                                                      | The `flupcode.configRepo` field: an absolute path to the user's own config repository that the FlupCode apps may export to, which the engine only carries                                         |
 | `packages/session-ui/src/components/message-part.tsx`, `message-file.ts`, `message-part.css` | The timeline renders the images a completed tool returned (its `state.attachments`), not only the files of a user message: thumbnails that open `ImagePreview` |
 
 Their tests move with them: `packages/core/test/**`, `packages/llm/test/**`,

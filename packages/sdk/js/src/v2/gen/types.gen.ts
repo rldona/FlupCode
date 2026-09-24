@@ -1911,6 +1911,27 @@ export type Config = {
   reference?: {
     [key: string]: string | ConfigV2ReferenceGit | ConfigV2ReferenceLocal
   }
+  flupcode?: {
+    composeTools?: Array<string>
+    configRepo?: string
+    delivery?: {
+      [key: string]: {
+        tool: string
+        description?: string
+        composeTools?: Array<string>
+        imageRequired?: boolean
+        imageMissing?: string
+        labels?: {
+          title?: string
+          text?: string
+          alt?: string
+          image?: string
+          missingAlt?: string
+        }
+        guards?: Array<string>
+      }
+    }
+  }
   watcher?: {
     ignore?: Array<string>
   }
@@ -7613,6 +7634,34 @@ export type ConfigProvidersResponses = {
 }
 
 export type ConfigProvidersResponse = ConfigProvidersResponses[keyof ConfigProvidersResponses]
+
+export type ConfigReloadData = {
+  body?: never
+  path?: never
+  query?: {
+    directory?: string
+    workspace?: string
+  }
+  url: "/config/reload"
+}
+
+export type ConfigReloadErrors = {
+  /**
+   * Bad request
+   */
+  400: BadRequestError
+}
+
+export type ConfigReloadError = ConfigReloadErrors[keyof ConfigReloadErrors]
+
+export type ConfigReloadResponses = {
+  /**
+   * Configuration reloaded
+   */
+  200: boolean
+}
+
+export type ConfigReloadResponse = ConfigReloadResponses[keyof ConfigReloadResponses]
 
 export type ExperimentalCapabilitiesGetData = {
   body?: never

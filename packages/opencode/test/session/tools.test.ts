@@ -72,6 +72,7 @@ const layer = Layer.mergeAll(
     ToolRegistry.Service.of({
       ids: () => Effect.succeed(["timing"]),
       all: () => Effect.succeed([]),
+      reload: () => Effect.void,
       named: () => Effect.die("unused"),
       tools: () =>
         Effect.succeed([

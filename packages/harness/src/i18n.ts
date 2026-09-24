@@ -1233,6 +1233,40 @@ const ES: Record<string, string> = {
   "Use the server, not the browser, for anything durable":
     "Usa el servidor, no el navegador, para lo que deba durar",
   "Add note": "Añadir nota",
+
+  // The rest of the engine's configuration, on disk
+  "Config files": "Archivos de configuración",
+  Tools: "Herramientas",
+  Guards: "Guardas",
+  "No config files are loaded for this folder.": "No se carga ningún archivo de configuración para esta carpeta.",
+  "Select {name}": "Seleccionar {name}",
+  Missing: "Falta",
+  "link to {target}": "enlace a {target}",
+  "Open in editor": "Abrir en el editor",
+  "The desktop app is required to open files in an editor.":
+    "Se necesita la app de escritorio para abrir archivos en un editor.",
+  "Guards are cached as ESM: a change needs an engine restart.":
+    "Las guardas se cachean como ESM: un cambio necesita reiniciar el motor.",
+  "An edited tool file needs an engine restart; a new one takes effect after a reload.":
+    "Un archivo de herramienta editado necesita reiniciar el motor; uno nuevo surte efecto tras recargar.",
+  "Export to config repo": "Exportar al repositorio de configuración",
+  "Copies the chosen global config files into the repository the global config names. Project files, and links that leave the repository, are left alone.":
+    "Copia los archivos de configuración globales elegidos al repositorio que indica la configuración global. Los archivos de proyecto, y los enlaces que salen del repositorio, se dejan como están.",
+  "No config repository is set in the global config (flupcode.configRepo).":
+    "No hay ningún repositorio de configuración en la configuración global (flupcode.configRepo).",
+  "Repository: {repo}": "Repositorio: {repo}",
+  "Config repository": "Repositorio de configuración",
+  "Select all": "Seleccionar todo",
+  "Clear selection": "Limpiar selección",
+  "Plan export": "Planificar exportación",
+  "This is a plan; nothing has been written yet.": "Esto es un plan; todavía no se ha escrito nada.",
+  "Confirm export": "Confirmar exportación",
+  "Exported {n} files.": "Exportados {n} archivos.",
+  written: "escritos",
+  unchanged: "sin cambios",
+  conflicts: "conflictos",
+  skipped: "omitidos",
+  outside: "fuera",
 }
 
 const STORAGE_DEFAULT: Locale = "en"
