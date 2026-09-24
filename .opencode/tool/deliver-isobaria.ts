@@ -1,6 +1,7 @@
 import { tool } from "@opencode-ai/plugin"
-import { alertsAvailability, assessAlertsClaim, findImageDataUrl, imageAttachment, propertyAt } from "../lib/isobaria-deliver"
+import { alertsAvailability, assessAlertsClaim } from "../lib/isobaria-deliver"
 import { assessVaguePost } from "../lib/isobaria-vague"
+import { findImageDataUrl, imageAttachment, propertyAt } from "../lib/piece-image"
 
 /**
  * Entrega la pieza de Isobaria que el modelo acaba de escribir y componer.

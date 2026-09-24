@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test"
 import deliver from "../tool/deliver-isobaria"
-import { alertsAvailability, assessAlertsClaim, findImageDataUrl, imageAttachment } from "./isobaria-deliver"
+import { alertsAvailability, assessAlertsClaim } from "./isobaria-deliver"
+import { findImageDataUrl, imageAttachment } from "./piece-image"
 
 const png = (marker: string) => `data:image/png;base64,${marker}`
 
