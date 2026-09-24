@@ -495,7 +495,7 @@
     },
     "packages/flupcode-cli": {
       "name": "@flupcode/cli",
-      "version": "1.18.2",
+      "version": "1.19.0",
       "bin": {
         "flupcode": "./src/index.ts",
       },
@@ -529,7 +529,7 @@
     },
     "packages/harness": {
       "name": "@flupcode/harness",
-      "version": "1.18.2",
+      "version": "1.19.0",
       "dependencies": {
         "@flupcode/remote": "workspace:*",
         "@opencode-ai/sdk": "workspace:*",
@@ -557,7 +557,7 @@
     },
     "packages/harness-desktop": {
       "name": "@flupcode/desktop",
-      "version": "1.18.2",
+      "version": "1.19.0",
       "dependencies": {
         "electron-context-menu": "4.1.2",
         "electron-updater": "6.8.9",
@@ -574,7 +574,7 @@
     },
     "packages/harness-server": {
       "name": "@flupcode/harness-server",
-      "version": "1.18.2",
+      "version": "1.19.0",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
       },
@@ -808,7 +808,7 @@
     },
     "packages/relay": {
       "name": "@flupcode/relay",
-      "version": "1.18.2",
+      "version": "1.19.0",
       "dependencies": {
         "@flupcode/remote": "workspace:*",
       },
@@ -821,7 +821,7 @@
     },
     "packages/remote": {
       "name": "@flupcode/remote",
-      "version": "1.18.2",
+      "version": "1.19.0",
       "devDependencies": {
         "@tsconfig/bun": "catalog:",
         "@types/bun": "catalog:",
@@ -7285,14 +7285,6 @@
     "opencode/@ai-sdk/openai-compatible/@ai-sdk/provider": ["@ai-sdk/provider@3.0.8", "", { "dependencies": { "json-schema": "^0.4.0" } }, "sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ=="],
 
     "opencode/@ai-sdk/openai-compatible/@ai-sdk/provider-utils": ["@ai-sdk/provider-utils@4.0.23", "", { "dependencies": { "@ai-sdk/provider": "3.0.8", "@standard-schema/spec": "^1.1.0", "eventsource-parser": "^3.0.6" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-z8GlDaCmRSDlqkMF2f4/RFgWxdarvIbyuk+m6WXT1LYgsnGiXRJGTD2Z1+SDl3LqtFuRtGX1aghYvQLoHL/9pg=="],
-
-    "opencode/gitlab-ai-provider/openai": ["openai@6.39.1", "", { "peerDependencies": { "ws": "^8.18.0", "zod": "^3.25 || ^4.0" }, "optionalPeers": ["ws", "zod"], "bin": { "openai": "bin/cli" } }, "sha512-z3dO9fEWOXBzlXynVb/xZ/tujzUjFWQWn3C0n0mw6Vo0zJTbEkaN4b2cLWjhJ6haJQx8LlREoafHRl+Gu/Hl+A=="],
-
-    "opencode/gitlab-ai-provider/zod": ["zod@3.25.76", "", {}, "sha512-gzUt/qt81nXsFGKIFcC3YnfEAx5NkunCfnDlvuBSSFS02bcXu4Lmea0AFIUwbLWxWPx3d9p8S5QoaujKcNQxcQ=="],
-
-    "p-locate/p-limit/yocto-queue": ["yocto-queue@0.1.0", "", {}, "sha512-rVksvsnNCdJ/ohGc6xgPwyN8eheCxsiLM8mxuE/t/mOVqJewPuO1miLpTHQiRgTKCLexL4MeAFVagts7HmNZ2Q=="],
-
-    "pkg-dir/find-up/locate-path": ["locate-path@5.0.0", "", { "dependencies": { "p-locate": "^4.1.0" } }, "sha512-t7hw9pI+WvuwNJXwk5zVHpyhIqzg2qTlklJOf0mVxGSbe3Fp2VieZcduNYjaLDoy6p9uGpQEGWG87WpMKlNq8g=="],
 
     "pkg-up/find-up/locate-path": ["locate-path@3.0.0", "", { "dependencies": { "p-locate": "^3.0.0", "path-exists": "^3.0.0" } }, "sha512-7AO748wWnIhNqAuaty2ZWHkQHRSNfPVIsPIfwEOWO22AmaoVrWavlOcMR5nzTLNYvp36X220/maaRsrec1G65A=="],
 
