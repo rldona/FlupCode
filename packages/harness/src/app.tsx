@@ -1196,6 +1196,15 @@ export const App: Component = () => {
   // the resources that carry it — the agent and skill lists above the config — must be asked again.
   const [serverReload, setServerReload] = createSignal(0)
   const [serverReloading, setServerReloading] = createSignal(false)
+  // A new engine process rereads its configuration, and the agent, command and skill lists are cached
+  // under the server URL, so they must be asked again when it comes back. `ready` moving to true is
+  // that signal: it only changes when the health poll's answer does.
+  let wasReady = false
+  createEffect(() => {
+    const now = ready()
+    if (now && !wasReady) setServerReload((count) => count + 1)
+    wasReady = now
+  })
   const [models, { refetch: refetchModels }] = createResource(
     () => (ready() ? `${serverUrl()}::${modelLocation() ?? ""}` : undefined),
     (key) => {
@@ -1212,8 +1221,8 @@ export const App: Component = () => {
   // The engine's own settings. The context meter needs the compaction ones: they are what decides
   // when the engine folds a session, and how much room the reader really has.
   const [engineConfig] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    (url) => createClient(url).config(),
+    () => (ready() ? `${serverUrl()}\n${serverReload()}` : undefined),
+    async (key) => createClient(key.split("\n")[0]!).config(),
   )
   // Which tools draw an image a delivery re-attaches is configuration, not knowledge: FlupCode reads
   // `flupcode.composeTools`, plus each delivery profile's own `composeTools`, and never names a tool
@@ -2531,6 +2540,10 @@ export const App: Component = () => {
       void (async () => {
         for (let attempt = 0; !controller.signal.aborted; attempt++) {
           setStreamState("global", attempt === 0 ? "connecting" : "reconnecting")
+          // Reconnecting means the socket was lost, and an engine that came back under a new process
+          // may carry a new configuration: ask the cached lists again. A restart the health poll did
+          // not catch still lands here.
+          if (attempt > 0) setServerReload((count) => count + 1)
           try {
             // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
             // every reconnection resyncs the state the events would have carried. Missing the blocked
