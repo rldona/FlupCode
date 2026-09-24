@@ -32,6 +32,7 @@ packages/core/src/session/info.ts
 packages/core/src/session/projector.ts
 packages/core/src/session/runner/llm.ts
 packages/core/src/session/runner/model.ts
+packages/core/src/skill.ts
 packages/core/src/tool/builtins.ts
 packages/core/src/tool/memory.ts
 packages/core/src/tool/plan-exit.ts
@@ -47,6 +48,7 @@ packages/core/test/permission.test.ts
 packages/core/test/plugin/provider-github-copilot.test.ts
 packages/core/test/session-projector.test.ts
 packages/core/test/session-runner-model.test.ts
+packages/core/test/skill.test.ts
 packages/core/test/tool-plan-exit.test.ts
 packages/flupcode-cli/
 packages/harness-desktop/
@@ -61,12 +63,21 @@ packages/llm/test/provider/openai-chat.test.ts
 packages/opencode/src/agent/agent.ts
 packages/opencode/src/auth/index.ts
 packages/opencode/src/cli/cmd/serve.ts
+packages/opencode/src/command/index.ts
+packages/opencode/src/config/config.ts
+packages/opencode/src/server/routes/instance/httpapi/groups/config.ts
 packages/opencode/src/server/routes/instance/httpapi/groups/session.ts
+packages/opencode/src/server/routes/instance/httpapi/handlers/config.ts
 packages/opencode/src/server/routes/instance/httpapi/handlers/session.ts
+packages/opencode/src/session/processor.ts
+packages/opencode/src/skill/index.ts
 packages/opencode/test/agent/agent.test.ts
 packages/opencode/test/auth/auth.test.ts
+packages/opencode/test/config/reload.test.ts
+packages/opencode/test/fixture/config.ts
 packages/opencode/test/server/httpapi-exercise/index.ts
 packages/opencode/test/server/httpapi-session.test.ts
+packages/opencode/test/session/system.test.ts
 packages/protocol/src/api.ts
 packages/protocol/src/errors.ts
 packages/protocol/src/groups/memory.ts

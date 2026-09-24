@@ -127,8 +127,9 @@ Persistent memory (`packages/core/src/memory.ts`, `packages/core/src/memory/**`,
 `packages/core/src/config/memory.ts`, `packages/core/src/tool/memory.ts`,
 `packages/schema/src/memory.ts`, `packages/protocol/src/groups/memory.ts`,
 `packages/server/src/handlers/memory.ts`, the `20260914143517_add_memory` migration) and the
-`plan_exit` tool (`packages/core/src/tool/plan-exit.ts`), plus their tests. New paths, so they only
-conflict through the registries below. **Keep ours.**
+`plan_exit` tool (`packages/core/src/tool/plan-exit.ts`), plus their tests. The light-reload test
+(`packages/opencode/test/config/reload.test.ts`) is also ours. New paths, so they only conflict
+through the registries below. **Keep ours.**
 
 ### Registry lines
 
@@ -172,7 +173,8 @@ keep-ours, because upstream may have changed the surrounding code.
 | `packages/opencode/src/cli/cmd/serve.ts`                                                     | A taken port reports the address instead of a bare `ServeError`                                                                                              |
 | `packages/llm/src/protocols/openai-chat.ts`                                                  | Drops reasoning-only assistant turns that OpenAI Chat rejects on replay                                                                                      |
 | `packages/llm/src/route/executor.ts`, `packages/llm/src/schema/errors.ts`                    | Retry budget and which transport errors are retryable                                                                                                        |
-| `packages/opencode/src/server/routes/instance/httpapi/**`                                    | `revertCommit` endpoint                                                                                                                                      |
+| `packages/opencode/src/server/routes/instance/httpapi/**`                                    | `revertCommit` endpoint and the light reload (`POST /config/reload`)                                                                                         |
+| `packages/core/src/skill.ts`, `packages/opencode/src/config/config.ts`, `packages/opencode/src/skill/index.ts`, `packages/opencode/src/command/index.ts`, `packages/opencode/src/session/processor.ts` | Light config reload: a per-directory `reload()` so a saved agent/command/skill takes effect without disposing instances, `SkillV2.reload` clearing its cache, and the doom-loop skipping the ask when the named agent is gone |
 | `packages/session-ui/src/components/message-part.tsx`, `message-file.ts`, `message-part.css` | The timeline renders the images a completed tool returned (its `state.attachments`), not only the files of a user message: thumbnails that open `ImagePreview` |
 
 Their tests move with them: `packages/core/test/**`, `packages/llm/test/**`,
