@@ -6,6 +6,7 @@ import { toast } from "../toast"
 import { desktopRemote, remote, type RemoteErrorCode } from "../remote"
 import { enginePort, lanServeCommand, reachabilityLabel, tunnelCommand } from "../remote-share"
 import { RemoteNotifications } from "./RemoteNotifications"
+import { Toggle } from "./Toggle"
 import { probeServer, type ServerStatus } from "../client"
 
 type RemotePanelProps = {
@@ -101,14 +102,11 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
                 >
                   {connectionLabel()}
                 </span>
-                <button
-                  class="fc-chip fc-chip-button"
-                  classList={{ "fc-chip-active": current().enabled }}
-                  type="button"
-                  onClick={() => run(() => props.bridge.setEnabled(!current().enabled))}
-                >
-                  {current().enabled ? t("On") : t("Off")}
-                </button>
+                <Toggle
+                  checked={current().enabled}
+                  label={t("Allow remote control")}
+                  onToggle={() => run(() => props.bridge.setEnabled(!current().enabled))}
+                />
               </span>
             </div>
             <Show when={current().enabled && current().detail}>
@@ -167,23 +165,25 @@ const HostView: Component<{ bridge: NonNullable<ReturnType<typeof desktopRemote>
             >
               <For each={current().devices}>
                 {(device) => (
-                  <div class="fc-mcp-row">
+                  <div class="fc-settings-row">
                     <span class="fc-mcp-name">{device.name}</span>
-                    <span class="fc-status" classList={{ "fc-status-on": device.connected }}>
-                      {device.connected ? t("Connected") : relativeTime(device.lastSeen)}
-                    </span>
-                    <Show when={device.notifications}>
-                      <span class="fc-status" title={t("Notifications on")} aria-label={t("Notifications on")}>
-                        🔔
+                    <span class="fc-remote-actions">
+                      <span class="fc-status" classList={{ "fc-status-on": device.connected }}>
+                        {device.connected ? t("Connected") : relativeTime(device.lastSeen)}
                       </span>
-                    </Show>
-                    <button
-                      class="fc-button fc-button-danger"
-                      type="button"
-                      onClick={() => run(() => props.bridge.revokeDevice(device.id))}
-                    >
-                      {t("Remove")}
-                    </button>
+                      <Show when={device.notifications}>
+                        <span class="fc-status" title={t("Notifications on")} aria-label={t("Notifications on")}>
+                          🔔
+                        </span>
+                      </Show>
+                      <button
+                        class="fc-button fc-button-danger"
+                        type="button"
+                        onClick={() => run(() => props.bridge.revokeDevice(device.id))}
+                      >
+                        {t("Remove")}
+                      </button>
+                    </span>
                   </div>
                 )}
               </For>
