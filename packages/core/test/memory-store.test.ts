@@ -29,6 +29,7 @@ const config = (info?: Config.Info) =>
   Layer.succeed(
     Config.Service,
     Config.Service.of({
+      reload: () => Effect.void,
       entries: () => Effect.succeed(info ? [new Config.Document({ type: "document", info })] : ([] as Config.Entry[])),
     }),
   )

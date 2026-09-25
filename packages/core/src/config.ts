@@ -111,6 +111,7 @@ export class Info extends Schema.Class<Info>("Config.Info")({
   }),
   experimental: ConfigExperimental.Experimental.pipe(Schema.optional),
   providers: Schema.Record(Schema.String, ConfigProvider.Info).pipe(Schema.optional),
+  disabled_providers: Schema.String.pipe(Schema.Array, Schema.optional),
 }) {}
 
 export class Document extends Schema.Class<Document>("Config.Document")({
@@ -135,6 +136,7 @@ export function latest<K extends keyof Info>(entries: readonly Entry[], key: K):
 export interface Interface {
   /** Returns location config documents and supplemental directories from lowest to highest priority. */
   readonly entries: () => Effect.Effect<Entry[]>
+  readonly reload: () => Effect.Effect<void>
 }
 
 export class Service extends Context.Service<Service, Interface>()("@opencode/v2/Config") {}
@@ -179,47 +181,53 @@ const layer = Layer.effect(
 
     const globalDirectory = AbsolutePath.make(global.config)
     const locationIsGlobal = path.resolve(location.directory) === path.resolve(global.config)
-    // Read configuration once when this location opens. Later calls reuse these
-    // values until the location is reopened.
-    const discovered = locationIsGlobal
-      ? []
-      : yield* fs
-          .up({
-            targets: [".opencode", ...names.toReversed()],
-            start: location.directory,
-            stop: location.project.directory,
-          })
-          .pipe(Effect.orDie)
-    const directories = [
-      globalDirectory,
-      ...discovered
-        .filter((item) => path.basename(item) === ".opencode")
-        .toReversed()
-        .map((directory) => AbsolutePath.make(directory)),
-    ]
-    // A config closer to the opened directory should win over one higher up.
-    // Search starts nearby, so reverse the results before applying them.
-    const directPaths = discovered.filter((item) => path.basename(item) !== ".opencode").toReversed()
-    const direct = yield* Effect.forEach(directPaths, loadFile).pipe(
-      Effect.orDie,
-      Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
-    )
-    const supplementary = yield* Effect.forEach(directories, loadDirectory).pipe(Effect.orDie)
-    // Apply general settings first and more specific settings last:
-    // global config, project files, then `.opencode` files.
-    const configs = [...(supplementary[0] ?? []), ...direct, ...supplementary.slice(1).flat()]
-    // Rules use the opposite order so a user-global rule can override a
-    // repository rule. Statement order inside each file stays unchanged.
-    yield* policy.load(
-      configs
-        .filter((config): config is Document => config.type === "document")
-        .toReversed()
-        .flatMap((config) => config.info.experimental?.policies ?? []),
-    )
 
+    const load = Effect.fnUntraced(function* () {
+      const discovered = locationIsGlobal
+        ? []
+        : yield* fs
+            .up({
+              targets: [".opencode", ...names.toReversed()],
+              start: location.directory,
+              stop: location.project.directory,
+            })
+            .pipe(Effect.orDie)
+      const directories = [
+        globalDirectory,
+        ...discovered
+          .filter((item) => path.basename(item) === ".opencode")
+          .toReversed()
+          .map((directory) => AbsolutePath.make(directory)),
+      ]
+      // A config closer to the opened directory should win over one higher up.
+      // Search starts nearby, so reverse the results before applying them.
+      const directPaths = discovered.filter((item) => path.basename(item) !== ".opencode").toReversed()
+      const direct = yield* Effect.forEach(directPaths, loadFile).pipe(
+        Effect.orDie,
+        Effect.map((configs) => configs.filter((config): config is Document => config !== undefined)),
+      )
+      const supplementary = yield* Effect.forEach(directories, loadDirectory).pipe(Effect.orDie)
+      // Apply general settings first and more specific settings last:
+      // global config, project files, then `.opencode` files.
+      const configs = [...(supplementary[0] ?? []), ...direct, ...supplementary.slice(1).flat()]
+      // Rules use the opposite order so a user-global rule can override a
+      // repository rule. Statement order inside each file stays unchanged.
+      yield* policy.load(
+        configs
+          .filter((config): config is Document => config.type === "document")
+          .toReversed()
+          .flatMap((config) => config.info.experimental?.policies ?? []),
+      )
+      return configs
+    })
+
+    let configs = yield* load()
     return Service.of({
       entries: Effect.fn("Config.entries")(function* () {
         return configs
+      }),
+      reload: Effect.fn("Config.reload")(function* () {
+        configs = yield* load()
       }),
     })
   }),

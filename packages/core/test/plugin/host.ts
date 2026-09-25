@@ -103,6 +103,7 @@ export function catalogHost(catalog: Catalog.Interface): PluginContext["catalog"
                 update(current)
                 Object.assign(value, current, { id: ProviderV2.ID.make(current.id) })
               }),
+            markExplicit: (id) => draft.provider.markExplicit(ProviderV2.ID.make(id)),
             remove: (id) => draft.provider.remove(ProviderV2.ID.make(id)),
           },
           model: {

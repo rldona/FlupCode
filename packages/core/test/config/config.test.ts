@@ -73,6 +73,22 @@ describe("Config", () => {
       expect(ConfigMigrateV1.isV1({ reference: {} })).toBe(true)
       expect(ConfigMigrateV1.isV1({ shell: "/bin/zsh", model: "anthropic/claude" })).toBe(false)
       expect(ConfigMigrateV1.isV1({ references: {} })).toBe(false)
+      // A v2 file keeps its `providers` block: the v2 field must not mark the file as v1.
+      expect(ConfigMigrateV1.isV1({ providers: {}, disabled_providers: [] })).toBe(false)
+      expect(ConfigMigrateV1.isV1({ disabled_providers: ["openai"] })).toBe(false)
+    }),
+  )
+
+  it.effect("carries disabled_providers through v1 migration", () =>
+    Effect.sync(() => {
+      const migrated = ConfigMigrateV1.migrate({
+        provider: { custom: { npm: "@ai-sdk/openai-compatible", name: "Custom" } },
+        disabled_providers: ["retired"],
+      })
+      expect(migrated.disabled_providers).toEqual(["retired"])
+      expect(Schema.decodeUnknownSync(Config.Info)(migrated, { errors: "all" }).disabled_providers).toEqual([
+        "retired",
+      ])
     }),
   )
 
@@ -112,6 +128,40 @@ describe("Config", () => {
         headers: { "x-test": "1" },
         body: { trace: true },
       })
+    }),
+  )
+
+  it.effect("migrates a custom openai-compatible provider with effort variants", () =>
+    Effect.sync(() => {
+      const migrated = ConfigMigrateV1.migrate({
+        provider: {
+          custom: {
+            npm: "@ai-sdk/openai-compatible",
+            name: "Custom",
+            options: { baseURL: "https://api.example.com", headers: { "X-Test": "1" } },
+            models: {
+              chat: {
+                name: "Chat",
+                variants: {
+                  low: { reasoningEffort: "low" },
+                  high: { reasoningEffort: "high" },
+                },
+              },
+            },
+          },
+        },
+      })
+
+      expect(migrated.providers?.custom?.api).toMatchObject({
+        type: "aisdk",
+        package: "@ai-sdk/openai-compatible",
+        url: "https://api.example.com",
+      })
+      expect(migrated.providers?.custom?.request?.headers).toEqual({ "X-Test": "1" })
+      expect(migrated.providers?.custom?.models?.chat?.variants).toEqual([
+        { id: "low", body: { reasoning_effort: "low" } },
+        { id: "high", body: { reasoning_effort: "high" } },
+      ])
     }),
   )
 

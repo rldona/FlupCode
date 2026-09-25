@@ -4,15 +4,18 @@ import { define } from "../../plugin/internal"
 import { Effect } from "effect"
 import { Config } from "../../config"
 import { ModelV2 } from "../../model"
+import { ModelsDev } from "../../models-dev"
 import { ProviderV2 } from "../../provider"
 
 export const Plugin = define({
   id: "config-provider",
   effect: Effect.fn(function* (ctx) {
     const config = yield* Config.Service
+    const modelsDev = yield* ModelsDev.Service
     yield* ctx.integration.transform(
       Effect.fn(function* (integrations) {
         const files = (yield* config.entries()).filter((entry): entry is Config.Document => entry.type === "document")
+        const data = yield* modelsDev.get()
         const configuredIntegrations = new Set(
           files.flatMap((file) =>
             Object.entries(file.info.providers ?? {}).flatMap(([id, provider]) =>
@@ -23,10 +26,15 @@ export const Plugin = define({
         for (const file of files) {
           for (const [id, item] of Object.entries(file.info.providers ?? {})) {
             const integrationID = id
-            if (!configuredIntegrations.has(id) && !integrations.get(integrationID)) continue
+            const known = data[id]
+            const custom = item.env === undefined && (known === undefined || known.env.length === 0)
+            if (!configuredIntegrations.has(id) && !integrations.get(integrationID) && !custom) continue
             integrations.update(integrationID, (integration) => {
               integration.name = item.name ?? integration.name
             })
+            if (custom) {
+              integrations.method.update({ integrationID, method: { type: "key" } })
+            }
             if (item.env !== undefined) {
               integrations.method.update({
                 integrationID,
@@ -42,6 +50,8 @@ export const Plugin = define({
       Effect.fn(function* (catalog) {
         const entries = yield* config.entries()
         const files = entries.filter((entry): entry is Config.Document => entry.type === "document")
+        const data = yield* modelsDev.get()
+        const disabled = new Set(Config.latest(entries, "disabled_providers") ?? [])
         const configuredDefault = Config.latest(entries, "model")
         if (configuredDefault !== undefined) {
           const model = ModelV2.parse(configuredDefault)
@@ -50,6 +60,9 @@ export const Plugin = define({
         for (const file of files) {
           for (const [id, item] of Object.entries(file.info.providers ?? {})) {
             const providerID = id
+            const known = data[id]
+            const custom = item.env === undefined && (known === undefined || known.env.length === 0)
+            if (custom) catalog.provider.markExplicit(providerID)
             catalog.provider.update(providerID, (provider) => {
               if (item.name !== undefined) provider.name = item.name
               if (item.api !== undefined) provider.api = { ...item.api }
@@ -105,6 +118,13 @@ export const Plugin = define({
                 if (config.limit !== undefined) model.limit = { ...model.limit, ...config.limit }
               })
             }
+          }
+        }
+        for (const id of disabled) {
+          if (catalog.provider.get(id)) {
+            catalog.provider.update(id, (provider) => {
+              provider.disabled = true
+            })
           }
         }
       }),

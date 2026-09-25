@@ -5,18 +5,25 @@ import { Config } from "@opencode-ai/core/config"
 import { ConfigProviderPlugin } from "@opencode-ai/core/config/plugin/provider"
 import { Integration } from "@opencode-ai/core/integration"
 import { ModelV2 } from "@opencode-ai/core/model"
+import { ModelsDev } from "@opencode-ai/core/models-dev"
 import { PluginV2 } from "@opencode-ai/core/plugin"
 import { PluginHost } from "@opencode-ai/core/plugin/host"
+import { ModelsDevPlugin } from "@opencode-ai/core/plugin/models-dev"
 import { ProviderV2 } from "@opencode-ai/core/provider"
 import { testEffect } from "../lib/effect"
 import { PluginTestLayer } from "../plugin/fixture"
 
 const it = testEffect(PluginTestLayer)
 
-const addPlugin = Effect.fn(function* (config: Config.Interface) {
+const modelsDev = ModelsDev.Service.of({ get: () => Effect.succeed({}), refresh: () => Effect.void })
+
+const addPlugin = Effect.fn(function* (config: Config.Interface, modelsDevService: ModelsDev.Interface = modelsDev) {
   const plugin = yield* PluginV2.Service
   const host = yield* PluginHost.make(plugin)
-  yield* ConfigProviderPlugin.Plugin.effect(host).pipe(Effect.provideService(Config.Service, config))
+  yield* ConfigProviderPlugin.Plugin.effect(host).pipe(
+    Effect.provideService(Config.Service, config),
+    Effect.provideService(ModelsDev.Service, modelsDevService),
+  )
 })
 
 function required<T>(value: T | undefined): T {
@@ -61,6 +68,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
       const providerID = ProviderV2.ID.opencode
       const modelID = ModelV2.ID.make("alpha-gpt-next")
       const config = Config.Service.of({
+        reload: () => Effect.void,
         entries: () =>
           Effect.succeed([
             new Config.Document({
@@ -112,6 +120,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
       const providerID = ProviderV2.ID.opencode
       const modelID = ModelV2.ID.make("alpha-gpt-next")
       const config = Config.Service.of({
+        reload: () => Effect.void,
         entries: () =>
           Effect.succeed([
             new Config.Document({
@@ -159,6 +168,7 @@ describe("ConfigProviderPlugin.Plugin", () => {
         const providerID = ProviderV2.ID.make("custom")
         const modelID = ModelV2.ID.make("chat")
         const config = Config.Service.of({
+          reload: () => Effect.void,
           entries: () =>
             Effect.succeed([
               new Config.Document({
@@ -265,5 +275,120 @@ describe("ConfigProviderPlugin.Plugin", () => {
         expect(model.variants[1]?.headers).toEqual({ slow: "slow" })
       }),
     ),
+  )
+
+  it.effect("adds a key method and marks explicit a config provider absent from models.dev", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const integrations = yield* Integration.Service
+      const providerID = ProviderV2.ID.make("custom")
+      const config = Config.Service.of({
+        reload: () => Effect.void,
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({ providers: { custom: {} } }),
+            }),
+          ]),
+      })
+
+      yield* addPlugin(config)
+
+      expect((yield* integrations.get(Integration.ID.make("custom")))?.methods).toContainEqual({ type: "key" })
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toContain(providerID)
+    }),
+  )
+
+  it.effect("adds a key method for a config provider overriding a models.dev entry with no env", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const integrations = yield* Integration.Service
+      const providerID = ProviderV2.ID.make("ollama")
+      const models = ModelsDev.Service.of({
+        get: () =>
+          Effect.succeed({
+            ollama: { id: "ollama", name: "Ollama", env: [], models: {} },
+          } satisfies Record<string, ModelsDev.Provider>),
+        refresh: () => Effect.void,
+      })
+      const config = Config.Service.of({
+        reload: () => Effect.void,
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({ providers: { ollama: {} } }),
+            }),
+          ]),
+      })
+
+      yield* addPlugin(config, models)
+
+      expect((yield* integrations.get(Integration.ID.make("ollama")))?.methods).toContainEqual({ type: "key" })
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).toContain(providerID)
+    }),
+  )
+
+  it.effect("leaves a config provider whose models.dev entry has env non-explicit and without an extra key method", () =>
+    withEnv({ OPENAI_API_KEY: undefined }, () =>
+      Effect.gen(function* () {
+        const catalog = yield* Catalog.Service
+        const integrations = yield* Integration.Service
+        const plugin = yield* PluginV2.Service
+        const providerID = ProviderV2.ID.make("openai")
+        const models = ModelsDev.Service.of({
+          get: () =>
+            Effect.succeed({
+              openai: { id: "openai", name: "OpenAI", env: ["OPENAI_API_KEY"], models: {} },
+            } satisfies Record<string, ModelsDev.Provider>),
+          refresh: () => Effect.void,
+        })
+        const config = Config.Service.of({
+          reload: () => Effect.void,
+          entries: () =>
+            Effect.succeed([
+              new Config.Document({
+                type: "document",
+                info: decode({ providers: { openai: {} } }),
+              }),
+            ]),
+        })
+        // Models.dev owns the integration for providers with env; the config plugin must not
+        // duplicate its key method nor mark the provider explicit.
+        const host = yield* PluginHost.make(plugin)
+        yield* ModelsDevPlugin.effect(host).pipe(Effect.provideService(ModelsDev.Service, models))
+
+        yield* addPlugin(config, models)
+
+        expect((yield* integrations.get(Integration.ID.make("openai")))?.methods).toEqual([
+          { type: "key" },
+          { type: "env", names: ["OPENAI_API_KEY"] },
+        ])
+        expect((yield* catalog.provider.available()).map((provider) => provider.id)).not.toContain(providerID)
+      }),
+    ),
+  )
+
+  it.effect("disables providers listed in disabled_providers", () =>
+    Effect.gen(function* () {
+      const catalog = yield* Catalog.Service
+      const providerID = ProviderV2.ID.make("custom")
+      const config = Config.Service.of({
+        reload: () => Effect.void,
+        entries: () =>
+          Effect.succeed([
+            new Config.Document({
+              type: "document",
+              info: decode({ providers: { custom: {} }, disabled_providers: ["custom"] }),
+            }),
+          ]),
+      })
+
+      yield* addPlugin(config)
+
+      expect((yield* catalog.provider.get(providerID))?.disabled).toBe(true)
+      expect((yield* catalog.provider.available()).map((provider) => provider.id)).not.toContain(providerID)
+    }),
   )
 })

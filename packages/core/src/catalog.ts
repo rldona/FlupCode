@@ -23,6 +23,7 @@ export const Event = Catalog.Event
 
 type Data = {
   providers: Map<ProviderV2.ID, ProviderRecord>
+  explicit: Set<ProviderV2.ID>
   defaultModel?: DefaultModel
 }
 
@@ -31,6 +32,7 @@ export type Draft = {
     list: () => readonly ProviderRecord[]
     get: (providerID: ProviderV2.ID) => ProviderRecord | undefined
     update: (providerID: ProviderV2.ID, fn: (provider: ProviderV2.MutableInfo) => void) => void
+    markExplicit: (providerID: ProviderV2.ID) => void
     remove: (providerID: ProviderV2.ID) => void
   }
   model: {
@@ -68,8 +70,9 @@ const layer = Layer.effect(
     const policy = yield* Policy.Service
     const integrations = yield* Integration.Service
 
-    const available = (provider: ProviderV2.Info, integration: Integration.Info | undefined) => {
+    const available = (provider: ProviderV2.Info, integration: Integration.Info | undefined, explicit: boolean) => {
       if (provider.disabled) return false
+      if (explicit) return true
       if (typeof provider.request.body.apiKey === "string") return true
       if (integration?.connections.length) return true
       return provider.integrationID === undefined && !integration
@@ -103,12 +106,15 @@ const layer = Layer.effect(
     }
 
     const state = State.create<Data, Draft>({
-      initial: () => ({ providers: new Map() }),
+      initial: () => ({ providers: new Map(), explicit: new Set() }),
       draft: (draft) => {
         const result: Draft = {
           provider: {
             list: () => Array.fromIterable(draft.providers.values()) as ProviderRecord[],
             get: (providerID) => draft.providers.get(providerID),
+            markExplicit: (providerID) => {
+              draft.explicit.add(providerID)
+            },
             update: (providerID, fn) => {
               let current = draft.providers.get(providerID)
               if (!current) {
@@ -184,7 +190,11 @@ const layer = Layer.effect(
         available: Effect.fn("CatalogV2.provider.available")(function* () {
           const active = new Map((yield* integrations.list()).map((integration) => [integration.id, integration]))
           return (yield* result.provider.all()).filter((provider) =>
-            available(provider, active.get(provider.integrationID ?? Integration.ID.make(provider.id))),
+            available(
+              provider,
+              active.get(provider.integrationID ?? Integration.ID.make(provider.id)),
+              state.get().explicit.has(provider.id),
+            ),
           )
         }),
       },
