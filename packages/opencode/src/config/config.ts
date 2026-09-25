@@ -662,7 +662,7 @@ const layer = Layer.effect(
     const updateGlobal = Effect.fn("Config.updateGlobal")(function* (config: Info) {
       const file = globalConfigFile()
       const before = (yield* readConfigFile(file)) ?? "{}"
-      const patch = writableGlobal(config)
+      const { provider, ...patch } = writableGlobal(config)
 
       let next: Info
       let changed: boolean
@@ -670,12 +670,23 @@ const layer = Layer.effect(
         const existing = ConfigParse.jsonc(before, file)
         ConfigParse.schema(ConfigV1.Info, ConfigV2Compat.lower(normalizeLoadedConfig(existing), file).value, file)
         const merged = mergeDeep(isRecord(existing) ? existing : {}, patch)
+        // A provider is written as a unit: replacing its entry lets an edit drop models, options or
+        // effort variants that a deep merge would otherwise keep.
+        if (provider && isRecord(merged)) merged.provider = { ...(merged.provider ?? {}), ...provider }
         const serialized = JSON.stringify(merged, null, 2)
         next = yield* decodeConfig(merged, file)
         changed = serialized !== before
         if (changed) yield* fs.writeFileString(file, serialized).pipe(Effect.orDie)
       } else {
-        const updated = patchJsonc(before, patch)
+        let updated = patchJsonc(before, patch)
+        if (provider) {
+          for (const [id, value] of Object.entries(provider)) {
+            updated = applyEdits(
+              updated,
+              modify(updated, ["provider", id], value, { formattingOptions: { insertSpaces: true, tabSize: 2 } }),
+            )
+          }
+        }
         next = yield* decodeConfig(ConfigParse.jsonc(updated, file), file)
         changed = updated !== before
         if (changed) yield* fs.writeFileString(file, updated).pipe(Effect.orDie)

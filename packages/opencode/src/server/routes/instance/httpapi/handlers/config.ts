@@ -6,7 +6,9 @@ import { Skill } from "@/skill"
 import { ToolRegistry } from "@/tool/registry"
 import * as InstanceState from "@/effect/instance-state"
 import { AgentV2 } from "@opencode-ai/core/agent"
+import { Catalog } from "@opencode-ai/core/catalog"
 import { CommandV2 } from "@opencode-ai/core/command"
+import { Integration } from "@opencode-ai/core/integration"
 import { Location } from "@opencode-ai/core/location"
 import { LocationServiceMap } from "@opencode-ai/core/location-services"
 import { AbsolutePath } from "@opencode-ai/core/schema"
@@ -65,6 +67,13 @@ export const configHandlers = HttpApiBuilder.group(InstanceHttpApi, "config", (h
       const workspaceID = ctx.query.workspace ? WorkspaceV2.ID.make(ctx.query.workspace) : undefined
       const ref = Location.Ref.make({ directory: AbsolutePath.make(directory), workspaceID })
       yield* Effect.gen(function* () {
+        const coreConfig = yield* Effect.promise(() => import("@opencode-ai/core/config"))
+        const configV2 = yield* coreConfig.Config.Service
+        yield* configV2.reload()
+        const integrationV2 = yield* Integration.Service
+        yield* integrationV2.reload()
+        const catalogV2 = yield* Catalog.Service
+        yield* catalogV2.reload()
         const agents = yield* AgentV2.Service
         const commands = yield* CommandV2.Service
         const skills = yield* SkillV2.Service

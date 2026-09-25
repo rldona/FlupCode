@@ -13,6 +13,7 @@ import type {
   ProviderDirectoryInfo,
 } from "../engine-types"
 import type { AgentFile, CommandFile, McpConfig, McpScope } from "../types"
+import type { ConfiguredProvider, CustomProviderResult } from "../custom-provider"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
 import { effortLabel } from "../effort"
@@ -131,6 +132,11 @@ type SettingsPanelProps = {
   providersBusy: boolean
   onSaveProvider: (providerID: string, key: string) => void
   onRemoveProvider: (providerID: string) => void
+  existingProviderIDs: string[]
+  disabledProviders: string[]
+  configuredProviders: Record<string, ConfiguredProvider>
+  onSaveCustomProvider: (result: CustomProviderResult) => Promise<void> | void
+  onRemoveCustomProvider: (providerID: string) => Promise<void> | void
   onProviderOAuth: (providerID: string, methodID?: string) => Promise<IntegrationAttempt>
   onProviderOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
   onProviderOAuthCancel: (attemptID: string) => Promise<void>
@@ -644,6 +650,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     busy={props.providersBusy}
                     onSave={props.onSaveProvider}
                     onRemove={props.onRemoveProvider}
+                    existingProviderIDs={props.existingProviderIDs}
+                    disabledProviders={props.disabledProviders}
+                    configuredProviders={props.configuredProviders}
+                    onSaveCustomProvider={props.onSaveCustomProvider}
+                    onRemoveCustomProvider={props.onRemoveCustomProvider}
                     onOAuth={props.onProviderOAuth}
                     onOAuthStatus={props.onProviderOAuthStatus}
                     onOAuthCancel={props.onProviderOAuthCancel}

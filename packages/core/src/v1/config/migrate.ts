@@ -15,7 +15,6 @@ const keys = new Set([
   "snapshot",
   "plugin",
   "autoshare",
-  "disabled_providers",
   "enabled_providers",
   "small_model",
   "mode",
@@ -69,6 +68,7 @@ export function migrate(info: typeof ConfigV1.Info.Type) {
     ),
     experimental: info.experimental?.policies && { policies: info.experimental.policies },
     providers: providers(info.provider),
+    disabled_providers: info.disabled_providers,
   }
 }
 

@@ -78,6 +78,7 @@ export const make = Effect.fn("PluginHost.make")(function* (plugin: PluginV2.Int
               list: () => mutable(draft.provider.list()),
               get: (id) => mutable(draft.provider.get(ProviderV2.ID.make(id))),
               update: (id, update) => draft.provider.update(ProviderV2.ID.make(id), update),
+              markExplicit: (id) => draft.provider.markExplicit(ProviderV2.ID.make(id)),
               remove: (id) => draft.provider.remove(ProviderV2.ID.make(id)),
             },
             model: {

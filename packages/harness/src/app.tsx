@@ -45,6 +45,7 @@ import {
 import { promptHistory, recordPrompt } from "./prompt-history"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "./model-switch"
 import { hasModel, replacementModel } from "./model-catalog"
+import { customProviderPayload, type CustomProviderResult } from "./custom-provider"
 import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, sessionChatClass, type AppView, type ChatClass } from "./chat"
 import { messageID } from "./ids"
 import { sessionTitle } from "./session-title"
@@ -1283,6 +1284,10 @@ export const App: Component = () => {
   const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).provider.directory(),
+  )
+  const [globalConfig, { refetch: refetchGlobalConfig }] = createResource(
+    () => (ready() && providersSectionVisible() ? serverUrl() : undefined),
+    async (url) => createClient(url).globalConfig(),
   )
   const [providerAuth] = createResource(
     () => (ready() ? serverUrl() : undefined),
@@ -4651,6 +4656,47 @@ export const App: Component = () => {
       return undefined
     }, t("Provider removed"))
 
+  const saveCustomProvider = (result: CustomProviderResult) =>
+    run(async (current) => {
+      const disabled = (await current.globalConfig()).disabled_providers ?? []
+      await current.updateGlobalConfig(customProviderPayload(result, disabled))
+      await current.reloadConfig(vcsDirectory() ? { directory: vcsDirectory()! } : undefined)
+      if (result.key) {
+        await current.auth.set({ providerID: result.providerID, key: result.key })
+        await current.integration
+          .connectKey({ integrationID: result.providerID, key: result.key, label: result.providerID })
+          .catch(() => undefined)
+      }
+      await current.auth.reload().catch(() => undefined)
+      void refetchProviderDirectory()
+      void refetchModelDirectory()
+      void refetchModels()
+      void refetchIntegrations()
+      void refetchGlobalConfig()
+      return undefined
+    }, t("Provider saved"))
+
+  const removeCustomProvider = (providerID: string) =>
+    run(async (current) => {
+      const integrations = await current.integration.list()
+      const integration = integrations.data.find((item) => item.id === providerID)
+      for (const connection of integration?.connections ?? []) {
+        if (connection.type !== "credential") continue
+        await current.integration.disconnect(connection.id)
+      }
+      await current.auth.remove({ providerID })
+      const disabled = (await current.globalConfig()).disabled_providers ?? []
+      await current.updateGlobalConfig({ disabled_providers: Array.from(new Set([...disabled, providerID])) })
+      await current.reloadConfig(vcsDirectory() ? { directory: vcsDirectory()! } : undefined)
+      await current.auth.reload().catch(() => undefined)
+      void refetchProviderDirectory()
+      void refetchModelDirectory()
+      void refetchModels()
+      void refetchIntegrations()
+      void refetchGlobalConfig()
+      return undefined
+    }, t("Provider removed"))
+
   const startOAuth = (providerID: string, methodID?: string) =>
     client()
       .integration.oauth({ integrationID: providerID, methodID, label: providerID })
@@ -6095,6 +6141,11 @@ export const App: Component = () => {
         providersBusy={busy()}
         onSaveProvider={saveProvider}
         onRemoveProvider={removeProvider}
+        existingProviderIDs={providerDirectory()?.all.map((p) => p.id) ?? []}
+        disabledProviders={globalConfig()?.disabled_providers ?? []}
+        configuredProviders={globalConfig()?.provider ?? {}}
+        onSaveCustomProvider={saveCustomProvider}
+        onRemoveCustomProvider={removeCustomProvider}
         onProviderOAuth={startOAuth}
         onProviderOAuthStatus={oAuthStatus}
         onProviderOAuthCancel={cancelOAuth}

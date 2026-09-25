@@ -21,7 +21,7 @@ const it = testEffect(
       Location.node,
       Layer.succeed(Location.Service, Location.Service.of({ directory, project: { id: projectID, directory } })),
     ],
-    [Config.node, Layer.succeed(Config.Service, Config.Service.of({ entries: () => Effect.succeed([]) }))],
+    [Config.node, Layer.succeed(Config.Service, Config.Service.of({ entries: () => Effect.succeed([]), reload: () => Effect.void }))],
   ]),
 )
 

@@ -10,6 +10,8 @@ import type {
   ProviderAuthMethod,
   ProviderDirectoryInfo,
 } from "../engine-types"
+import { isEditableProvider, type ConfiguredProvider, type CustomProviderResult } from "../custom-provider"
+import { CustomProviderForm } from "./CustomProviderForm"
 import { t } from "../i18n"
 
 type ProvidersEditorProps = {
@@ -22,6 +24,14 @@ type ProvidersEditorProps = {
   busy: boolean
   onSave: (providerID: string, key: string) => void
   onRemove: (providerID: string) => void
+  /** Providers the engine already knows, so a custom one can be told apart. */
+  existingProviderIDs: string[]
+  /** Providers hidden by the global config; a custom save clears its own id from here. */
+  disabledProviders: string[]
+  /** The global config's provider entries, so an existing custom provider can be reopened. */
+  configuredProviders: Record<string, ConfiguredProvider>
+  onSaveCustomProvider: (result: CustomProviderResult) => Promise<void> | void
+  onRemoveCustomProvider: (providerID: string) => Promise<void> | void
   onOAuth: (providerID: string, methodID?: string) => Promise<IntegrationAttempt>
   onOAuthStatus: (attemptID: string) => Promise<IntegrationAttemptStatus>
   onOAuthCancel: (attemptID: string) => Promise<void>
@@ -99,8 +109,38 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
   const [legacyPending, setLegacyPending] = createSignal(false)
   const [legacyCode, setLegacyCode] = createSignal("")
   const [legacySeq, setLegacySeq] = createSignal(0)
+  const [customOpen, setCustomOpen] = createSignal(false)
+  const [editing, setEditing] = createSignal<string | undefined>()
 
   const setDraft = (id: string, value: string) => setDrafts((current) => ({ ...current, [id]: value }))
+
+  /**
+   * A provider the engine already knew keeps the plain remove. Any provider defined in the config
+   * file loses its credential and is added to `disabled_providers`: `source` cannot tell a custom
+   * provider from a known one a user overrode in config, and a merged PATCH cannot delete the key.
+   */
+  const isConfigProvider = (provider: ProviderDirectoryInfo) => provider.source === "config"
+
+  const removeProvider = (provider: ProviderDirectoryInfo) => {
+    if (isConfigProvider(provider)) return props.onRemoveCustomProvider(provider.id)
+    return props.onRemove(provider.id)
+  }
+
+  /** Opens the form blank for a new provider, or with an existing one's values when editing. */
+  const openCustom = (providerID?: string) => {
+    setEditing(providerID)
+    setCustomOpen(true)
+  }
+
+  const closeCustom = () => {
+    setCustomOpen(false)
+    setEditing(undefined)
+  }
+
+  const saveCustom = async (result: CustomProviderResult) => {
+    await props.onSaveCustomProvider(result)
+    closeCustom()
+  }
 
   const integrationFor = (providerID: string) => props.integrations.find((integration) => integration.id === providerID)
   const oauthMethods = (providerID: string) =>
@@ -316,13 +356,19 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
                 </button>
               </div>
             </Show>
-            <input
-              class="fc-filter-input"
-              placeholder={t("Search providers")}
-              aria-label={t("Search providers")}
-              value={query()}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-            />
+            <div class="fc-field-row">
+              <input
+                class="fc-filter-input"
+                style={{ flex: "1" }}
+                placeholder={t("Search providers")}
+                aria-label={t("Search providers")}
+                value={query()}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+              />
+              <button class="fc-button" type="button" disabled={props.busy} onClick={() => openCustom()}>
+                {t("Add provider")}
+              </button>
+            </div>
             <Show
               when={list().length > 0}
               fallback={
@@ -396,12 +442,17 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
                         >
                           {t("Save")}
                         </button>
-                        <Show when={configured()}>
+                        <Show when={isEditableProvider(props.configuredProviders[provider.id] ?? {})}>
+                          <button class="fc-button" type="button" disabled={props.busy} onClick={() => openCustom(provider.id)}>
+                            {t("Edit")}
+                          </button>
+                        </Show>
+                        <Show when={configured() || isConfigProvider(provider)}>
                           <button
                             class="fc-button fc-button-danger"
                             type="button"
                             disabled={props.busy}
-                            onClick={() => props.onRemove(provider.id)}
+                            onClick={() => removeProvider(provider)}
                           >
                             {t("Remove")}
                           </button>
@@ -583,6 +634,17 @@ export const ProvidersEditor: Component<ProvidersEditorProps> = (props) => {
             </div>
           </div>
         </div>
+      </Show>
+      <Show when={customOpen()}>
+        <CustomProviderForm
+          existingProviderIDs={props.existingProviderIDs}
+          disabledProviders={props.disabledProviders}
+          configured={props.configuredProviders}
+          editing={editing()}
+          busy={props.busy}
+          onSave={(result) => void saveCustom(result)}
+          onClose={closeCustom}
+        />
       </Show>
     </>
   )

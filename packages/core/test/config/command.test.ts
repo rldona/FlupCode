@@ -48,6 +48,7 @@ Review files`,
             Effect.provideService(
               Config.Service,
               Config.Service.of({
+                reload: () => Effect.void,
                 entries: () =>
                   Effect.succeed([
                     new Config.Document({

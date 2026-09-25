@@ -11,6 +11,7 @@ export interface CatalogDraft {
     list(): readonly CatalogProviderRecord[]
     get(providerID: string): CatalogProviderRecord | undefined
     update(providerID: string, update: (provider: ProviderV2Info) => void): void
+    markExplicit(providerID: string): void
     remove(providerID: string): void
   }
   readonly model: {

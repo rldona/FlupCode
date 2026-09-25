@@ -13,6 +13,7 @@ import type {
   SessionMessagesResponse,
 } from "./engine-types"
 import type { McpConfig, McpScope } from "./types"
+import type { ConfiguredProvider } from "./custom-provider"
 import { anonymousFetch, engineFetch } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
@@ -335,6 +336,12 @@ export function createClient(baseUrl = resolveServerUrl()) {
           /** The repository `configFiles.export` copies global files into. */
           configRepo?: string
         }
+      },
+    /** The global config's provider lists, shared by every directory. */
+    globalConfig: async () =>
+      (await unwrap(client.global.config.get())) as {
+        disabled_providers?: string[]
+        provider?: Record<string, ConfiguredProvider>
       },
     /** Writes back one key of the engine's config and leaves the rest as it is (H-25). */
     updateConfig: (patch: Record<string, unknown>) => patchConfig(baseUrl, patch),

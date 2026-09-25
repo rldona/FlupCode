@@ -399,6 +399,64 @@ it.effect("updates global config and omits empty shell key in jsonc", () =>
   ),
 )
 
+const customProviderPatch = ConfigParse.schema(
+  ConfigV1.Info,
+  {
+    provider: {
+      custom: {
+        npm: "@ai-sdk/openai-compatible",
+        options: { baseURL: "https://api.example.com" },
+        models: { chat: { variants: { low: { reasoningEffort: "low" } } } },
+      },
+    },
+  },
+  "test:provider-patch",
+)
+
+const customProviderInput = {
+  provider: {
+    custom: {
+      npm: "@ai-sdk/openai-compatible",
+      options: { baseURL: "https://api.example.com" },
+      models: { chat: { variants: { low: { reasoningEffort: "low" }, high: { reasoningEffort: "high" } } } },
+    },
+  },
+}
+
+it.effect("replaces a global provider entry so removed model variants do not linger (jsonc)", () =>
+  withGlobalConfig({ name: "opencode.jsonc", config: customProviderInput }, ({ dir }) =>
+    Effect.gen(function* () {
+      yield* Config.use.updateGlobal(customProviderPatch)
+
+      const file = path.join(dir, "opencode.jsonc")
+      const written = ConfigParse.schema(
+        ConfigV1.Info,
+        ConfigParse.jsonc(yield* FSUtil.use.readFileString(file), file),
+        file,
+      )
+      expect(written.provider?.custom?.models?.chat?.variants).toEqual({ low: { reasoningEffort: "low" } })
+      expect(written.provider?.custom?.models?.chat?.variants).not.toHaveProperty("high")
+    }),
+  ),
+)
+
+it.effect("replaces a global provider entry so removed model variants do not linger (json)", () =>
+  withGlobalConfig({ name: "opencode.json", config: customProviderInput }, ({ dir }) =>
+    Effect.gen(function* () {
+      yield* Config.use.updateGlobal(customProviderPatch)
+
+      const file = path.join(dir, "opencode.json")
+      const written = ConfigParse.schema(
+        ConfigV1.Info,
+        ConfigParse.jsonc(yield* FSUtil.use.readFileString(file), file),
+        file,
+      )
+      expect(written.provider?.custom?.models?.chat?.variants).toEqual({ low: { reasoningEffort: "low" } })
+      expect(written.provider?.custom?.models?.chat?.variants).not.toHaveProperty("high")
+    }),
+  ),
+)
+
 it.effect("logs global update diagnostics once without exposing values", () =>
   withGlobalConfig(
     {

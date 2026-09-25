@@ -16,7 +16,10 @@ const location = Layer.succeed(
   Location.Service,
   Location.Service.of({ directory, project: { id: projectID, directory } }),
 )
-const config = Layer.succeed(Config.Service, Config.Service.of({ entries: () => Effect.succeed([] as Config.Entry[]) }))
+const config = Layer.succeed(
+  Config.Service,
+  Config.Service.of({ entries: () => Effect.succeed([] as Config.Entry[]), reload: () => Effect.void }),
+)
 
 const it = testEffect(
   AppNodeBuilder.build(LayerNode.group([Database.node, MemoryV2.node]), [
