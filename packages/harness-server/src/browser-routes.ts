@@ -63,6 +63,30 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     )
   }
 
+  if (route === "login" && method === "POST") {
+    const body = await bodyFrom(request)
+    return json(
+      {
+        data: await browser.openLogin({
+          id,
+          project: typeof body.project === "string" ? body.project : "",
+          ...(typeof body.headed === "boolean" ? { headed: body.headed } : {}),
+          ...(typeof body.idleTimeoutMs === "number" && body.idleTimeoutMs > 0
+            ? { idleTimeoutMs: body.idleTimeoutMs }
+            : {}),
+        }),
+      },
+      201,
+    )
+  }
+
+  if (route === "clear" && method === "POST") {
+    const body = await bodyFrom(request)
+    const project = typeof body.project === "string" ? body.project.trim() : ""
+    if (!project) return error("A project is required", "project_required", 400)
+    return json({ data: { cleared: await browser.clearData(project) } })
+  }
+
   if (route === "session" && method === "GET") {
     const session = browser.get(id)
     return session ? json({ data: session }) : error("No browser session is open", "no_session", 404)

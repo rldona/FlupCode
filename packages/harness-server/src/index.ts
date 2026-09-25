@@ -10,6 +10,8 @@ import { createActionRunner } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
 import { unavailableActionCredentialResolver } from "./action-credentials"
 import type { ActionCredentialResolver } from "./action-credentials"
+import { createVault, parseVaultKey, readOrCreateVaultKeyFile, readVaultKeyFile, vaultKeyFile } from "./vault"
+import type { CredentialVault } from "./vault"
 import { loadActionProfiles } from "./config-files"
 
 export type HarnessServerOptions = {
@@ -24,6 +26,8 @@ export type HarnessServerOptions = {
   browserExecutablePath?: string
   browserIdleTimeoutMs?: number
   actionCredentials?: ActionCredentialResolver
+  vaultKey?: string
+  vaultKeyFile?: string
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -39,13 +43,22 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   repository.removeExpiredArtifacts()
   const sweep = setInterval(() => repository.removeExpiredArtifacts(), 60 * 60 * 1000)
   const browser = browserFrom(options, repository)
+  // A vault exists only when there is a key to open it: without one, a profile that names a
+  // credential fails closed rather than running with an empty field, and `/harness/credentials/*`
+  // is an ordinary 404 (WA-5).
+  const key = parseVaultKey(options.vaultKey) ?? (() => {
+    const raw = readVaultKeyFile(options.vaultKeyFile ?? vaultKeyFile())
+    return parseVaultKey(raw)
+  })()
+  const vault: CredentialVault | undefined = key ? createVault({ store: repository, key }) : undefined
+  const credentials = vault ?? options.actionCredentials ?? unavailableActionCredentialResolver
   // The runner needs a browser to drive, so it exists only when the runtime does. Without it
   // `/harness/actions/*` is an ordinary 404, and credentials fail closed (WA-2).
   const actions: ActionRunner | undefined = browser.runtime
     ? createActionRunner({
         browser: browser.runtime,
         repository,
-        credentials: options.actionCredentials ?? unavailableActionCredentialResolver,
+        credentials,
         loadProfiles: loadActionProfiles,
       })
     : undefined
@@ -56,6 +69,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(browser.runtime ? { browser: browser.runtime } : {}),
       ...(browser.token ? { token: browser.token } : {}),
       ...(actions ? { actions } : {}),
+      ...(vault ? { credentials: vault } : {}),
     }),
   })
   return {
@@ -64,6 +78,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     scheduler,
     ...(browser.runtime ? { browser: browser.runtime } : {}),
     ...(actions ? { actions } : {}),
+    ...(vault ? { vault } : {}),
     stop: async () => {
       clearInterval(sweep)
       scheduler.stop()
@@ -109,6 +124,24 @@ const createBrowserToken = (): string | undefined => {
   }
 }
 
+/**
+ * The key the desktop injected, when it is one, and otherwise the file this process owns.
+ *
+ * The desktop sends `FLUPCODE_VAULT_KEY` on the platforms where `safeStorage` holds it, so the
+ * harness opens the same vault. macOS (and any machine without a usable keychain) sends nothing,
+ * and the entrypoint creates its own file. A read-only config directory starts without a vault.
+ */
+const createVaultKey = (): string | undefined => {
+  const fromEnv = process.env.FLUPCODE_VAULT_KEY
+  if (parseVaultKey(fromEnv)) return fromEnv
+  try {
+    return readOrCreateVaultKeyFile(vaultKeyFile())
+  } catch (cause) {
+    console.warn(`Could not write the vault key: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return undefined
+  }
+}
+
 if (import.meta.main) {
   // Only here, and not in `createHarnessServer`: a test that builds a server would otherwise write
   // template files into whatever home directory it is running in. That is how fixtures ended up in
@@ -118,7 +151,8 @@ if (import.meta.main) {
   // The entrypoint is the one place that writes the secret; a read-only config dir must not stop
   // the harness from serving everything else, so it starts without a browser instead.
   const token = createBrowserToken()
-  const app = createHarnessServer({ browserToken: token })
+  const vaultKey = createVaultKey()
+  const app = createHarnessServer({ ...(token ? { browserToken: token } : {}), ...(vaultKey ? { vaultKey } : {}) })
   console.log(`FlupCode harness server listening on ${app.server.url}`)
   // Playwright swallows SIGTERM, so without this the browser outlives the server that owns it.
   let stopping = false

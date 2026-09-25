@@ -22,6 +22,8 @@ import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
+import { handleCredentialRequest } from "./credential-routes"
+import type { CredentialVault } from "./vault"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -294,7 +296,12 @@ import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
-export type HarnessHandlerOptions = { browser?: BrowserRuntime; token?: string; actions?: ActionRunner }
+export type HarnessHandlerOptions = {
+  browser?: BrowserRuntime
+  token?: string
+  actions?: ActionRunner
+  credentials?: CredentialVault
+}
 
 export const createHarnessHandler = (
   repository: SqliteRoutineRepository,
@@ -329,6 +336,14 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleActionRequest(request, path.slice(2), options.actions)
     }
+    // What a web action signs in with (WA-5). Stored secrets are the most sensitive thing here, so
+    // the vault is behind the same bearer rather than the loopback address alone, and it is only a
+    // route at all when a key was resolved.
+    if (path[1] === "credentials" && options.credentials) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleCredentialRequest(request, path.slice(2), options.credentials)
+    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
     // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
     // was actually built: the kill switch and a missing token leave it out (WA-1).
@@ -339,6 +354,7 @@ export const createHarnessHandler = (
           ...CAPABILITIES,
           ...(options.browser ? (["browser"] as const) : []),
           ...(options.actions ? (["web-actions"] as const) : []),
+          ...(options.credentials ? (["credentials"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking.

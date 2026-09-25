@@ -5,6 +5,7 @@ import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { vaultKeyForHarness } from "./vault"
 
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
 export const HARNESS_SERVER_URL = process.env.FLUPCODE_HARNESS_SERVER_URL ?? "http://127.0.0.1:4097"
@@ -253,6 +254,9 @@ export async function ensureHarnessServer() {
   if (!harness) return
 
   const port = new URL(HARNESS_SERVER_URL).port || "4097"
+  // Windows and Linux hand the harness the key their keychain holds, so both processes open the
+  // same vault. macOS gets nothing here and the harness writes its own file instead (WA-5).
+  const vaultKey = vaultKeyForHarness()
   harnessChild = spawn(harness.command, harness.args, {
     cwd: harness.cwd,
     env: {
@@ -260,6 +264,7 @@ export async function ensureHarnessServer() {
       PATH: searchPath(),
       FLUPCODE_ENGINE_URL: SERVER_URL,
       FLUPCODE_HARNESS_PORT: port,
+      ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
     },
     stdio: "inherit",
     shell: process.platform === "win32",

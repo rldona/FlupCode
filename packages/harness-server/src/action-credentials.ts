@@ -1,9 +1,10 @@
 /**
  * Where a web action's credential comes from, and how its value stays out of the record (WA-2).
  *
- * The vault lands in WA-5. Until then the resolver is unavailable and fails closed: a profile that
- * names a credential does not run rather than run with an empty field. Collecting the names here lets
- * the runner and the UI know what a recipe needs without ever holding a value.
+ * The vault (WA-5) is the resolver that can actually open a credential; the one here is the fallback
+ * a build without a vault gets, so a profile that names a credential does not run rather than run
+ * with an empty field. Collecting the names here lets the runner and the UI know what a recipe needs
+ * without ever holding a value.
  */
 
 import type { ActionProfile } from "./actions"
@@ -29,10 +30,5 @@ export function collectCredentialNames(profile: ActionProfile): string[] {
   return [...names]
 }
 
-/** A value is replaced wherever it appears; the longest first, so one secret inside another still goes. */
-export function redactSecrets(text: string, secrets: string[]): string {
-  return [...secrets]
-    .filter((secret) => secret !== "")
-    .sort((left, right) => right.length - left.length)
-    .reduce((result, secret) => result.split(secret).join("[redacted]"), text)
-}
+// Kept here so callers that know this module do not have to reach for the redaction one.
+export { redactSecrets } from "./redact"

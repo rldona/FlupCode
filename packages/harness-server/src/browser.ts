@@ -8,18 +8,21 @@
  */
 
 import { createHash, randomUUID } from "node:crypto"
-import { mkdirSync, writeFileSync } from "node:fs"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import type { BrowserContext, Page } from "playwright"
 import type { EgressGuard } from "./browser-egress"
 import { NavigationBlockedError, createEgressGuard } from "./browser-egress"
 import { flupcodeConfigDir } from "./browser-token"
+import { redactSecrets } from "./redact"
 import type { SqliteRoutineRepository } from "./repository"
 
 const DEFAULT_IDLE_TIMEOUT_MS = 600_000
 /** How much page text a snapshot keeps, so a huge page cannot become an unbounded result. */
 const MAX_PAGE_TEXT = 200_000
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
+/** Credential-shaped fields the browser always blacks out, whatever the profile declared. */
+const BASE_MASK = 'input[type="password"], [autocomplete^="cc-"]'
 
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | "commit"
 
@@ -52,6 +55,12 @@ export type BrowserStartInput = {
 
 export type BrowserRuntime = {
   start(input: BrowserStartInput): Promise<BrowserSession>
+  /** Opens the persistent profile headed by default: a login a person needs to see and finish. */
+  openLogin(input: BrowserStartInput): Promise<BrowserSession>
+  /** Remembers a value to redact and, when a selector comes with it, a field to black out. */
+  protect(id: string, input: { selector?: string; value: string }): void
+  /** Deletes a project's persistent profile; refuses while a browser for it is still open. */
+  clearData(project: string): Promise<boolean>
   get(id: string): BrowserSession | undefined
   close(id: string): Promise<boolean>
   navigate(id: string, url: string, waitUntil?: WaitUntil): Promise<{ url: string; title: string }>
@@ -127,6 +136,9 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     const session = sessions.get(id)
     if (!session) return false
     if (session.timer) clearTimeout(session.timer)
+    // The values live only for as long as the browser that saw them.
+    session.secrets.clear()
+    session.maskSelectors.clear()
     sessions.delete(id)
     if (projects.get(session.view.project) === id) projects.delete(session.view.project)
     await session.context.close().then(
@@ -151,10 +163,38 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     return session
   }
 
+  /** The view with every protected value stripped, since a URL or title can carry one. */
+  const redactedView = (session: ActiveSession): BrowserSession => ({
+    ...session.view,
+    url: redactSecrets(session.view.url, [...session.secrets]),
+    title: redactSecrets(session.view.title, [...session.secrets]),
+  })
+
+  /** The values the fields BASE_MASK always blacks out currently hold, however they were typed. */
+  const maskedFieldValues = (session: ActiveSession): Promise<string[]> =>
+    session.page
+      .$$eval(BASE_MASK, (nodes) =>
+        nodes.flatMap((node) => {
+          const value = "value" in node ? node.value : undefined
+          return typeof value === "string" && value !== "" ? [value] : []
+        }),
+      )
+      .catch(() => [])
+
+  /**
+   * Remembers those values beside the protected ones, so every view, read and artifact title built
+   * afterwards replaces them too: a login a person completed by hand never passed through `protect`.
+   */
+  const collectSecrets = async (session: ActiveSession): Promise<string[]> => {
+    for (const value of await maskedFieldValues(session)) session.secrets.add(value)
+    return [...session.secrets]
+  }
+
   const syncView = async (session: ActiveSession): Promise<BrowserSession> => {
+    await collectSecrets(session)
     session.view.url = session.page.url()
     session.view.title = await session.page.title().catch(() => "")
-    return { ...session.view }
+    return redactedView(session)
   }
 
   const start = async (input: BrowserStartInput): Promise<BrowserSession> => {
@@ -197,6 +237,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       page,
       timer: undefined,
       aborted: undefined,
+      secrets: new Set(),
+      maskSelectors: new Set(),
     }
     await context.route("**/*", (route) => {
       const url = route.request().url()
@@ -214,16 +256,34 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     // loopback or RFC1918 without ever passing it, so in WA-1 every page's WebSockets are closed.
     await context.routeWebSocket("**/*", (ws) => ws.close())
     sessions.set(id, session)
-    session.view.title = await page.title().catch(() => "")
     touch(session)
-    return { ...session.view }
+    return syncView(session)
   }
 
   const get = (id: string): BrowserSession | undefined => {
     const session = sessions.get(id)
     if (!session) return undefined
     touch(session)
-    return { ...session.view }
+    return redactedView(session)
+  }
+
+  const protect = (id: string, input: { selector?: string; value: string }): void => {
+    const session = requireSession(id)
+    if (input.value !== "") session.secrets.add(input.value)
+    if (input.selector) session.maskSelectors.add(input.selector)
+  }
+
+  const openLogin = (input: BrowserStartInput): Promise<BrowserSession> =>
+    start({ ...input, headed: input.headed ?? true })
+
+  const clearData = async (project: string): Promise<boolean> => {
+    const name = project.trim()
+    if (!name) throw new BrowserError("project_required", 400, "A project is required")
+    // The profile belongs to a live browser while one is open, so deleting out from under it is not a
+    // clean forget: the caller has to close the session first.
+    if (projects.has(name)) throw new BrowserError("browser_busy", 409, "This project already has a browser session")
+    rmSync(join(dataDir, "profiles", profileName(name)), { recursive: true, force: true })
+    return true
   }
 
   const navigate = async (id: string, url: string, waitUntil?: WaitUntil) => {
@@ -246,10 +306,17 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
 
   const snapshot = async (id: string, options?: { html?: boolean }) => {
     const session = requireSession(id)
-    const text = (await session.page.evaluate(() => document.body?.innerText ?? "")).slice(0, MAX_PAGE_TEXT)
+    const secrets = await collectSecrets(session)
+    const text = redactSecrets(
+      (await session.page.evaluate(() => document.body?.innerText ?? "")).slice(0, MAX_PAGE_TEXT),
+      secrets,
+    )
     const view = await syncView(session)
     const html = options?.html
-      ? (await session.page.evaluate(() => document.documentElement.outerHTML)).slice(0, MAX_PAGE_TEXT)
+      ? redactSecrets(
+          (await session.page.evaluate(() => document.documentElement.outerHTML)).slice(0, MAX_PAGE_TEXT),
+          secrets,
+        )
       : undefined
     return { ...pick(view), text, ...(html !== undefined ? { html } : {}) }
   }
@@ -317,6 +384,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   ) => {
     const session = requireSession(id)
     const as = options?.as ?? "text"
+    const secrets = await collectSecrets(session)
     try {
       const locator = session.page.locator(selector).first()
       // A hidden node still has attributes and inner HTML; only text needs it on screen.
@@ -328,7 +396,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
             ? await locator.getAttribute(options?.attribute ?? "")
             : await locator.innerText()
       return {
-        value: typeof value === "string" ? value.slice(0, MAX_PAGE_TEXT) : value,
+        // `null` stays `null`: a missing attribute is not a value that could leak.
+        value: typeof value === "string" ? redactSecrets(value.slice(0, MAX_PAGE_TEXT), secrets) : value,
         ...pick(await syncView(session)),
       }
     } catch (cause) {
@@ -336,12 +405,26 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     }
   }
 
+  // Playwright applies the mask for the shot and lifts it again, so the profile on disk never learns
+  // which fields were blacked out.
+  const captureOptions = (session: ActiveSession) => ({
+    type: "png" as const,
+    mask: [
+      session.page.locator(BASE_MASK),
+      ...[...session.maskSelectors].map((selector) => session.page.locator(selector)),
+    ],
+    maskColor: "#000",
+  })
+
   const storeScreenshot = async (session: ActiveSession, label?: string) => {
-    const bytes = await session.page.screenshot({ type: "png" })
+    const bytes = await session.page.screenshot(captureOptions(session))
     const relative = join("frames", session.view.id, `${randomUUID()}.png`)
     mkdirSync(dirname(join(dataDir, relative)), { recursive: true })
     writeFileSync(join(dataDir, relative), bytes)
-    const title = label?.trim() || (await session.page.title().catch(() => "")).trim() || "Browser screenshot"
+    // A page title can carry a protected value, so the fallback is redacted before it becomes an artifact.
+    const secrets = await collectSecrets(session)
+    const fallback = (await session.page.title().catch(() => "")).trim()
+    const title = label?.trim() || redactSecrets(fallback, secrets) || "Browser screenshot"
     const artifact = repository.addArtifact({
       kind: "screenshot",
       title,
@@ -366,7 +449,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     const session = requireSession(id)
     // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
     // the disk without anybody ever asking for it back.
-    if (options?.store === false) return { bytes: await session.page.screenshot({ type: "png" }) }
+    if (options?.store === false) return { bytes: await session.page.screenshot(captureOptions(session)) }
     return storeScreenshot(session)
   }
 
@@ -374,7 +457,25 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     await Promise.all([...sessions.keys()].map((id) => closeSession(id)))
   }
 
-  return { start, get, close: closeSession, navigate, snapshot, click, type, submit, waitFor, upload, text, screenshot, frame, stop }
+  return {
+    start,
+    openLogin,
+    protect,
+    clearData,
+    get,
+    close: closeSession,
+    navigate,
+    snapshot,
+    click,
+    type,
+    submit,
+    waitFor,
+    upload,
+    text,
+    screenshot,
+    frame,
+    stop,
+  }
 }
 
 type ActiveSession = {
@@ -383,6 +484,9 @@ type ActiveSession = {
   page: Page
   timer: ReturnType<typeof setTimeout> | undefined
   aborted: { reason: string; url: string } | undefined
+  /** Values to replace in anything read back, and selectors to black out in later captures. */
+  secrets: Set<string>
+  maskSelectors: Set<string>
 }
 
 const launch = async (

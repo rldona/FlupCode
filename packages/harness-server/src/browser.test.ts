@@ -1,12 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, rmSync, statSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { createBrowserRuntime } from "./browser"
 import type { BrowserRuntime } from "./browser"
 import { createEgressGuard, NavigationBlockedError } from "./browser-egress"
+import { redactSecrets } from "./redact"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 
@@ -35,21 +36,75 @@ afterEach(async () => {
 
 const headers = (id: string, token = TOKEN) => ({ "x-flupcode-session": id, authorization: `Bearer ${token}` })
 
+// `caret-color: transparent` keeps a focused field from blinking into the byte comparison: Playwright's
+// own `caret: "hide"` is applied too late to be reliable for a persistent profile.
+const PAGE = `<!doctype html><html><head><title>Fixture</title><style>body { margin: 0 } input { outline: none; caret-color: transparent }</style></head><body>
+  <h1 id="head">hello</h1>
+  <button id="go" type="button">go</button>
+  <input id="pw" type="password" />
+  <input id="user" />
+  <p id="mirror"></p>
+  <script>
+    document.getElementById("go").addEventListener("click", () => { document.getElementById("head").textContent = "clicked" })
+    document.getElementById("user").addEventListener("input", (event) => { document.getElementById("mirror").textContent = event.target.value })
+  </script>
+</body></html>`
+
 /** A local page, so the whole loop is exercised without a third party and without DNS. */
 const fixture = () => {
   const server = Bun.serve({
     port: 0,
     fetch(request) {
       const path = new URL(request.url).pathname
-      const html =
-        path === "/second"
-          ? '<!doctype html><html><head><title>Second</title></head><body><p id="out">second page</p></body></html>'
-          : `<!doctype html><html><head><title>Fixture</title></head><body>
-               <h1 id="head">hello</h1>
-               <button id="go" type="button">go</button>
-               <script>document.getElementById("go").addEventListener("click", () => { document.getElementById("head").textContent = "clicked" })</script>
-             </body></html>`
-      return new Response(html, { headers: { "content-type": "text/html" } })
+      if (path === "/second")
+        return new Response(
+          '<!doctype html><html><head><title>Second</title></head><body><p id="out">second page</p></body></html>',
+          { headers: { "content-type": "text/html" } },
+        )
+      if (path === "/set")
+        return new Response(PAGE, {
+          headers: { "content-type": "text/html", "set-cookie": "flup=yes; Path=/; Max-Age=3600" },
+        })
+      if (path === "/cookie")
+        return new Response(
+          `<!doctype html><html><head><title>Cookie</title></head><body><p id="cookie">${request.headers.get("cookie") ?? ""}</p></body></html>`,
+          { headers: { "content-type": "text/html" } },
+        )
+      if (path === "/reflect") {
+        const value = new URL(request.url).searchParams.get("value") ?? ""
+        return new Response(
+          `<!doctype html><html><head><title>Reflect</title></head><body><p id="raw"></p><script>
+             const value = ${JSON.stringify(value)}
+             document.title = value
+             document.getElementById("raw").textContent = value
+           </script></body></html>`,
+          { headers: { "content-type": "text/html" } },
+        )
+      }
+      if (path === "/mask") {
+        const field = new URL(request.url).searchParams.get("field") === "pw" ? "pw" : "secret"
+        return new Response(
+          `<!doctype html><html><head><title>Mask</title><style>
+             html, body { margin: 0; height: 100% }
+             input { position: fixed; inset: 0; width: 100vw; height: 100vh; border: 0; outline: none; caret-color: transparent; font-size: 40px }
+           </style></head><body><input id="${field}" type="${field === "pw" ? "password" : "text"}" /></body></html>`,
+          { headers: { "content-type": "text/html" } },
+        )
+      }
+      if (path === "/manual")
+        return new Response(
+          `<!doctype html><html><head><title>Manual</title></head><body>
+             <input id="pw" type="password" />
+             <div id="out"></div>
+             <script>
+               document.getElementById("pw").addEventListener("input", (event) => {
+                 document.getElementById("out").textContent = event.target.value
+               })
+             </script>
+           </body></html>`,
+          { headers: { "content-type": "text/html" } },
+        )
+      return new Response(PAGE, { headers: { "content-type": "text/html" } })
     },
   })
   servers.push(server)
@@ -73,6 +128,30 @@ const open = (server?: ReturnType<typeof Bun.serve>) => {
     { browser: runtime, token: TOKEN },
   )
   return { directory, handler, repository, runtime }
+}
+
+type Handler = ReturnType<typeof createHarnessHandler>
+
+const browserRequest = (
+  handler: Handler,
+  path: string,
+  id: string,
+  init?: { method?: string; body?: unknown; query?: string },
+) =>
+  handler(
+    new Request(`http://x/harness/browser/${path}${init?.query ?? ""}`, {
+      method: init?.method ?? "POST",
+      headers: headers(id),
+      ...(init?.body === undefined ? {} : { body: JSON.stringify(init.body) }),
+    }),
+  )
+
+/** The bytes behind a screenshot artifact, read back through the route the UI would use. */
+const screenshotBytes = async (handler: Handler, id: string, label: string) => {
+  const response = await browserRequest(handler, "screenshot", id, { body: { label } })
+  const artifactId = (await response.json()).data.artifactId
+  const raw = await handler(new Request(`http://x/harness/artifacts/${artifactId}/raw`))
+  return Buffer.from(await raw.arrayBuffer())
 }
 
 describe("the browser boundary", () => {
@@ -114,6 +193,22 @@ describe("the browser boundary", () => {
     expect((await missing.json()).code).toBe("no_session")
   })
 
+  test("clear forgets a stored profile and requires a project", async () => {
+    const { directory, handler } = open()
+    const profile = join(directory, "profiles", createHash("sha256").update("proj").digest("hex").slice(0, 16))
+    mkdirSync(profile, { recursive: true })
+    writeFileSync(join(profile, "cookie"), "x")
+
+    const cleared = await browserRequest(handler, "clear", "admin", { body: { project: "proj" } })
+    expect(cleared.status).toBe(200)
+    expect(await cleared.json()).toEqual({ data: { cleared: true } })
+    expect(existsSync(profile)).toBe(false)
+
+    const missing = await browserRequest(handler, "clear", "admin", { body: {} })
+    expect(missing.status).toBe(400)
+    expect((await missing.json()).code).toBe("project_required")
+  })
+
   test("the strict guard refuses file, loopback, link-local and private addresses", async () => {
     const guard = createEgressGuard()
     for (const url of [
@@ -127,6 +222,32 @@ describe("the browser boundary", () => {
     ]) {
       await expect(guard.assertNavigable(url)).rejects.toThrow(NavigationBlockedError)
     }
+  })
+
+  test("redaction covers the raw, HTML-escaped and encoded shapes of a secret", () => {
+    const secret = "P&SS<1 2"
+    const shapes = [
+      secret,
+      "P&amp;SS&lt;1 2",
+      encodeURIComponent(secret),
+      encodeURIComponent(secret).replace(/%20/g, "+"),
+    ]
+    for (const shape of shapes) expect(redactSecrets(`before ${shape} after`, [secret])).toBe("before [redacted] after")
+    // Quotes are escaped too, and a value that is not there is left alone.
+    expect(redactSecrets("x &quot;y&quot;", ['"y"'])).toBe("x [redacted]")
+    expect(redactSecrets("nothing here", [secret])).toBe("nothing here")
+  })
+
+  test("redaction covers the form encoding and the attribute serialization of a secret", () => {
+    // `URLSearchParams` escapes `~ ! ' ( )` that `encodeURIComponent` leaves alone.
+    const formSecret = "A~B!C(D)E'F G"
+    const form = new URLSearchParams({ v: formSecret }).toString().slice(2)
+    expect(redactSecrets(`before ${form} after`, [formSecret])).toBe("before [redacted] after")
+
+    // A browser writes control characters back as numeric entities inside an attribute.
+    const attributeSecret = "line\nbreak\ttab\rreturn\u00a0nbsp"
+    const serialized = "line&#10;break&#9;tab&#13;return&nbsp;nbsp"
+    expect(redactSecrets(`before ${serialized} after`, [attributeSecret])).toBe("before [redacted] after")
   })
 })
 
@@ -280,6 +401,226 @@ describe("driving a real browser", () => {
 
       const profile = join(directory, "profiles", createHash("sha256").update("proj").digest("hex").slice(0, 16))
       expect(statSync(profile).mode & 0o777).toBe(0o700)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "protect blacks out a field so its value and its length never show",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      const maskURL = (field: string) => `http://127.0.0.1:${server.port}/mask?field=${field}`
+
+      /** Types two different-length values into a full-viewport field and returns both captures. */
+      const pair = async (id: string, project: string, field: string, protectSelector?: string) => {
+        await browserRequest(handler, "start", id, { body: { project } })
+        await browserRequest(handler, "navigate", id, { body: { url: maskURL(field) } })
+        if (protectSelector) runtime.protect(id, { selector: protectSelector, value: "site-password" })
+        await browserRequest(handler, "type", id, { body: { selector: `#${field}`, text: "ab" } })
+        const short = await screenshotBytes(handler, id, "short")
+        await browserRequest(handler, "type", id, { body: { selector: `#${field}`, text: "abcdefghijklmnop" } })
+        const long = await screenshotBytes(handler, id, "long")
+        return { short, long }
+      }
+
+      // The password-shaped field: `protect` names it, and the base mask would cover it anyway.
+      const password = await pair("s1", "proj", "pw", "#pw")
+      expect(password.short.equals(password.long)).toBe(true)
+
+      // A text field BASE_MASK would never cover, so this identity is `protect`'s own doing.
+      const masked = await pair("s2", "proj2", "secret", "#secret")
+      expect(masked.short.equals(masked.long)).toBe(true)
+
+      // Control: the same experiment without `protect` differs, so the identity above is the mask.
+      const bare = await pair("s3", "proj3", "secret")
+      expect(bare.short.equals(bare.long)).toBe(false)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a protected value is stripped from snapshots and reads",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      const base = `http://127.0.0.1:${server.port}/`
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      await browserRequest(handler, "navigate", "s1", { body: { url: base } })
+      runtime.protect("s1", { value: "S3CRET" })
+      await browserRequest(handler, "type", "s1", { body: { selector: "#user", text: "S3CRET" } })
+
+      const text = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      expect(text.text).not.toContain("S3CRET")
+      expect(text.text).toContain("[redacted]")
+
+      const html = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET", query: "?html=1" })).json())
+        .data
+      expect(html.html).not.toContain("S3CRET")
+
+      const read = (await (await browserRequest(handler, "text", "s1", { body: { selector: "#mirror" } })).json()).data
+      expect(read.value).not.toContain("S3CRET")
+      expect(read.value).toBe("[redacted]")
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a secret is stripped however the page writes it back",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      const secret = "P&SS<1 2"
+      const escaped = "P&amp;SS&lt;1 2"
+      const base = `http://127.0.0.1:${server.port}/`
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      runtime.protect("s1", { value: secret })
+
+      // The mirror renders what is typed as text, so the page carries the HTML-escaped shape.
+      await browserRequest(handler, "navigate", "s1", { body: { url: base } })
+      await browserRequest(handler, "type", "s1", { body: { selector: "#user", text: secret } })
+
+      const snapshot = (
+        await (await browserRequest(handler, "snapshot", "s1", { method: "GET", query: "?html=1" })).json()
+      ).data
+      expect(snapshot.text).not.toContain(secret)
+      expect(snapshot.html).not.toContain(secret)
+      expect(snapshot.html).not.toContain(escaped)
+
+      const read = (
+        await (await browserRequest(handler, "text", "s1", { body: { selector: "#mirror", as: "html" } })).json()
+      ).data
+      expect(read.value).not.toContain(secret)
+      expect(read.value).not.toContain(escaped)
+
+      // The page names the secret in its title and carries it percent-encoded in the URL.
+      await browserRequest(handler, "navigate", "s1", {
+        body: { url: `${base}reflect?value=${encodeURIComponent(secret)}` },
+      })
+      const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
+      expect(session.title).toBe("[redacted]")
+      expect(session.title).not.toContain(secret)
+      expect(session.url).not.toContain(secret)
+      expect(session.url).not.toContain(encodeURIComponent(secret))
+      expect(session.url).toContain("[redacted]")
+
+      const reflected = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      expect(reflected.title).not.toContain(secret)
+      expect(reflected.url).not.toContain(secret)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a form-encoded secret is stripped from the URL the page reflects it in",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      // The characters `URLSearchParams` escapes and `encodeURIComponent` does not.
+      const secret = "A~B!C(D)E'F G"
+      const form = new URLSearchParams({ v: secret }).toString().slice(2)
+      const base = `http://127.0.0.1:${server.port}/`
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      runtime.protect("s1", { value: secret })
+      await browserRequest(handler, "navigate", "s1", { body: { url: `${base}reflect?value=${form}` } })
+
+      const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
+      expect(session.url).not.toContain(secret)
+      expect(session.url).not.toContain(form)
+      expect(session.url).toContain("[redacted]")
+
+      const snapshot = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      expect(snapshot.url).not.toContain(secret)
+      expect(snapshot.url).not.toContain(form)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "an artifact title never carries a secret held by the page",
+    async () => {
+      const server = fixture()
+      const { handler, repository, runtime } = open(server)
+      const secret = "TITLE-S3CRET"
+      const base = `http://127.0.0.1:${server.port}/`
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      runtime.protect("s1", { value: secret })
+      // The fixture copies the query value into `document.title`.
+      await browserRequest(handler, "navigate", "s1", {
+        body: { url: `${base}reflect?value=${encodeURIComponent(secret)}` },
+      })
+
+      const shot = await browserRequest(handler, "screenshot", "s1", { body: {} })
+      const artifactId = (await shot.json()).data.artifactId
+      const artifact = repository.getArtifact(artifactId)
+      expect(artifact?.title).not.toContain(secret)
+      expect(artifact?.title).toBe("[redacted]")
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a password a person types by hand is not read back through a snapshot",
+    async () => {
+      const server = fixture()
+      const { handler } = open(server)
+      const secret = "manual-pass-123"
+      const base = `http://127.0.0.1:${server.port}/`
+      // No `protect`: this is the login the runtime knows nothing about.
+      await browserRequest(handler, "login", "s1", { body: { project: "proj", headed: false } })
+      await browserRequest(handler, "navigate", "s1", { body: { url: `${base}manual` } })
+      await browserRequest(handler, "type", "s1", { body: { selector: "#pw", text: secret } })
+
+      const snapshot = (await (await browserRequest(handler, "snapshot", "s1", { method: "GET" })).json()).data
+      expect(snapshot.text).not.toContain(secret)
+      expect(snapshot.text).toContain("[redacted]")
+
+      const read = (await (await browserRequest(handler, "text", "s1", { body: { selector: "#out" } })).json()).data
+      expect(read.value).not.toContain(secret)
+      expect(read.value).toBe("[redacted]")
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a login profile keeps its cookie across sessions",
+    async () => {
+      const server = fixture()
+      const { handler } = open(server)
+      const base = `http://127.0.0.1:${server.port}/`
+
+      const first = await browserRequest(handler, "login", "s1", { body: { project: "proj", headed: false } })
+      expect(first.status).toBe(201)
+      await browserRequest(handler, "navigate", "s1", { body: { url: `${base}set` } })
+      await browserRequest(handler, "close", "s1", { body: {} })
+
+      const second = await browserRequest(handler, "login", "s2", { body: { project: "proj", headed: false } })
+      expect(second.status).toBe(201)
+      await browserRequest(handler, "navigate", "s2", { body: { url: `${base}cookie` } })
+      const snapshot = (await (await browserRequest(handler, "snapshot", "s2", { method: "GET" })).json()).data
+      expect(snapshot.text).toContain("flup=yes")
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "clearData removes the profile a login stored",
+    async () => {
+      const server = fixture()
+      const { directory, handler } = open(server)
+      const profile = join(directory, "profiles", createHash("sha256").update("proj").digest("hex").slice(0, 16))
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      expect(existsSync(profile)).toBe(true)
+
+      const busy = await browserRequest(handler, "clear", "admin", { body: { project: "proj" } })
+      expect(busy.status).toBe(409)
+      expect((await busy.json()).code).toBe("browser_busy")
+
+      await browserRequest(handler, "close", "s1", { body: {} })
+      const cleared = await browserRequest(handler, "clear", "admin", { body: { project: "proj" } })
+      expect(cleared.status).toBe(200)
+      expect((await cleared.json()).data.cleared).toBe(true)
+      expect(existsSync(profile)).toBe(false)
     },
     30_000,
   )

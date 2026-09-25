@@ -622,11 +622,16 @@ describe("running action recipes", () => {
                  <button id="go" type="button">go</button>
                  <input id="title" />
                  <input id="user" />
+                 <input id="pw" type="password" />
                  <input id="file" type="file" />
                  <p id="status">ready</p>
+                 <p id="mirror"></p>
                  <span id="hidden-code" data-code="xyz" hidden>hidden</span>
                  <a id="next" href="/second">next</a>
-                 <script>document.getElementById("go").addEventListener("click", () => { document.getElementById("head").textContent = "clicked" })</script>
+                 <script>
+                   document.getElementById("go").addEventListener("click", () => { document.getElementById("head").textContent = "clicked" })
+                   document.getElementById("user").addEventListener("input", (event) => { document.getElementById("mirror").textContent = event.target.value })
+                 </script>
                </body></html>`
         return new Response(html, { headers: { "content-type": "text/html" } })
       },
@@ -906,6 +911,42 @@ describe("running action recipes", () => {
       const error = await failureOf(runner.run({ action: "signin", sessionID: "s1", project: "proj" }))
       expect(error.message).not.toContain("s3cret-pass")
       expect(JSON.stringify(toActionErrorBody(error))).not.toContain("s3cret-pass")
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a credential is stripped from the result, the text artifact and the extract",
+    async () => {
+      const server = fixture()
+      const origin = `http://127.0.0.1:${server.port}`
+      const { runtime, repository } = open(server)
+      const credentials: ActionCredentialResolver = {
+        async resolve() {
+          return "S3CRET"
+        },
+      }
+      const runner = runnerFor(
+        runtime,
+        repository,
+        {
+          publish: profile(origin, {
+            credential: "site_account",
+            steps: [{ goto: "{{origin}}/" }, { fill: { selector: "#user", credential: "{{credential}}" } }],
+            extract: { mirror: { selector: "#mirror", as: "text" } },
+            evidence: { screenshots: "none", text: true },
+          }),
+        },
+        credentials,
+      )
+
+      const result = await runner.run({ action: "publish", sessionID: "s1", project: "proj" })
+      if (result.status !== "success") throw new Error("expected success")
+      expect(JSON.stringify(result)).not.toContain("S3CRET")
+      expect(result.extract).toEqual({ mirror: "[redacted]" })
+      const id = result.evidence.find((candidate) => repository.getArtifact(candidate)?.kind === "log")
+      expect(id).toBeDefined()
+      expect(repository.getArtifact(id!)?.content).not.toContain("S3CRET")
     },
     30_000,
   )

@@ -12,8 +12,9 @@ import type { BrowserRuntime } from "./browser"
 import { NavigationBlockedError } from "./browser-egress"
 import { ActionInputError, resolveActionInputs } from "./action-inputs"
 import type { ResolvedActionInputs } from "./action-inputs"
-import { collectCredentialNames, redactSecrets } from "./action-credentials"
+import { collectCredentialNames } from "./action-credentials"
 import type { ActionCredentialResolver } from "./action-credentials"
+import { redactSecrets } from "./redact"
 import { runActionGuards } from "./action-guards"
 import { substituteActionTemplate, validateActionProfile } from "./actions"
 import type { ActionInputKind, ActionProfile, ActionStep, ActionStepName } from "./actions"
@@ -227,6 +228,9 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
     }
 
     await browser.start({ id: sessionID, project: input.project, ...(input.headed === true ? { headed: true } : {}) })
+    // Registered the moment the browser exists, not when a `fill` happens: a run that fails before
+    // the credential is typed still must not echo it from a snapshot or a capture.
+    for (const value of Object.values(credentialValues)) browser.protect(sessionID, { value })
     const mode = profile.evidence.screenshots ?? fallbackEvidence
     const context: StepContext = {
       sessionID,
@@ -484,6 +488,8 @@ const fillStep = async (
     // A credential is bound to an origin: the page may have navigated between `goto` and this fill.
     ensureOrigin(browser, context.sessionID, profile)
     await browser.type(context.sessionID, fill.selector, value, timeoutMs)
+    // The value is redacted already; the selector blacks the field out in every later capture.
+    browser.protect(context.sessionID, { selector: fill.selector, value })
     return
   }
   const template = fill.text ?? ""

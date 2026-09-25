@@ -190,6 +190,15 @@ CREATE TABLE IF NOT EXISTS project_memory (
   created_at INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS project_memory_directory ON project_memory(directory, created_at);
+CREATE TABLE IF NOT EXISTS action_credentials (
+  name TEXT PRIMARY KEY,
+  origin TEXT NOT NULL,
+  iv TEXT NOT NULL,
+  tag TEXT NOT NULL,
+  ciphertext TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS locks (
   key TEXT PRIMARY KEY,
   owner TEXT NOT NULL,
@@ -451,6 +460,16 @@ const decodeArtifact = (row: ArtifactRow): Artifact => ({
 })
 
 type EventRow = { seq: number; created_at: number; payload_json: string }
+
+type ActionCredentialRow = {
+  name: string
+  origin: string
+  iv: string
+  tag: string
+  ciphertext: string
+  created_at: number
+  updated_at: number
+}
 
 const decodeModel = (value: string | null) => {
   if (!value) return undefined
@@ -1527,6 +1546,47 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const task = this.getTask(taskID)
     if (task) this.append({ type: "task.changed", task })
     return task
+  }
+
+  // ---- action credentials (WA-5) ---------------------------------------------------------------
+
+  /**
+   * One row per credential name, replaced wholesale on write.
+   *
+   * The vault produces every column, so there is nothing to merge: re-saving a name is a new IV and
+   * a new ciphertext, and keeping the old ciphertext around would only be a second copy to leak.
+   */
+  upsertActionCredential(
+    input: { name: string; origin: string; iv: string; tag: string; ciphertext: string },
+    now = Date.now(),
+  ) {
+    this.db
+      .query(
+        `INSERT INTO action_credentials (name, origin, iv, tag, ciphertext, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6)
+         ON CONFLICT(name) DO UPDATE SET origin = ?2, iv = ?3, tag = ?4, ciphertext = ?5, updated_at = ?6`,
+      )
+      .run(input.name, input.origin, input.iv, input.tag, input.ciphertext, now)
+  }
+
+  /** The names and where they belong. Never the sealed value: a listing has no use for it. */
+  listActionCredentials() {
+    const rows = this.db
+      .query("SELECT name, origin, updated_at FROM action_credentials ORDER BY updated_at DESC, name ASC")
+      .all() as Array<{ name: string; origin: string; updated_at: number }>
+    return rows.map((row) => ({ name: row.name, origin: row.origin, updatedAt: row.updated_at }))
+  }
+
+  getActionCredential(
+    name: string,
+  ): Pick<ActionCredentialRow, "name" | "origin" | "iv" | "tag" | "ciphertext"> | undefined {
+    const row = this.db.query("SELECT * FROM action_credentials WHERE name = ?1").get(name) as ActionCredentialRow | null
+    if (!row) return undefined
+    return { name: row.name, origin: row.origin, iv: row.iv, tag: row.tag, ciphertext: row.ciphertext }
+  }
+
+  removeActionCredential(name: string) {
+    return this.db.query("DELETE FROM action_credentials WHERE name = ?1").run(name).changes > 0
   }
 
   // ---- locks ----------------------------------------------------------------------------------
