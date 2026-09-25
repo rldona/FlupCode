@@ -14,9 +14,19 @@ afterEach(() => {
   running = undefined
 })
 
-/** A server on its own port, with the scheduler idle: these tests are about the stream. */
+/**
+ * A server on its own port, with the scheduler idle: these tests are about the stream.
+ *
+ * The token is given rather than read, so building a server in a test never writes a secret into the
+ * reader's real config directory.
+ */
 const start = () => {
-  const app = createHarnessServer({ port: 0, databasePath: ":memory:", intervalMs: 3_600_000 })
+  const app = createHarnessServer({
+    port: 0,
+    databasePath: ":memory:",
+    intervalMs: 3_600_000,
+    browserToken: "stream-test-token",
+  })
   running = app
   return app
 }

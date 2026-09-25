@@ -206,6 +206,8 @@ distribuir.
   `extraResources`; los binarios anidados se firman (verificar `after-pack.cjs`); sin entitlement
   nuevo de macOS (Playwright no usa accessibility/captura).
 - Auth y **CORS restringido** en `/harness/browser/*`; el token no se filtra.
+- `/harness/artifacts*` (y en particular los `screenshot` que produce el runtime WA-1) detrás de
+  auth/token y CORS restringido; un `screenshot` es dato sensible para la redacción (WA-5).
 - Contenido de página = **no confiable** (anti prompt-injection): un texto de página nunca autoriza
   una acción.
 

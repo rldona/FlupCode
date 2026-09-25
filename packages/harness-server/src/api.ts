@@ -17,6 +17,9 @@ import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBus
 import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
+import { handleBrowserRequest } from "./browser-routes"
+import type { BrowserRuntime } from "./browser"
+import { bearerFrom, tokenMatches } from "./browser-token"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -289,7 +292,13 @@ import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
-export const createHarnessHandler = (repository: SqliteRoutineRepository, scheduler: RoutineScheduler) =>
+export type HarnessHandlerOptions = { browser?: BrowserRuntime; token?: string }
+
+export const createHarnessHandler = (
+  repository: SqliteRoutineRepository,
+  scheduler: RoutineScheduler,
+  options: HarnessHandlerOptions = {},
+) =>
   async (request: Request) => {
     if (request.method === "OPTIONS") {
       return new Response(null, {
@@ -304,9 +313,21 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
 
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
+    // The browser runtime is the one surface a page can reach from outside the process, so it is
+    // behind its own bearer token rather than the loopback address alone (WA-1).
+    if (path[1] === "browser" && options.browser) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleBrowserRequest(request, path.slice(2), options.browser)
+    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
-    // does not have and leave a 404 in the console (H-18).
-    if (path[1] === "health" && request.method === "GET") return json({ healthy: true, capabilities: [...CAPABILITIES] })
+    // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
+    // was actually built: the kill switch and a missing token leave it out (WA-1).
+    if (path[1] === "health" && request.method === "GET")
+      return json({
+        healthy: true,
+        capabilities: [...CAPABILITIES, ...(options.browser ? (["browser"] as const) : [])],
+      })
     // Everything the server changes, in order, so a client follows along instead of asking.
     if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
     // Runs, whatever asked for them. A routine's own are still under its own path.

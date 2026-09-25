@@ -577,6 +577,7 @@
       "version": "1.21.0",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
+        "playwright": "catalog:",
       },
       "devDependencies": {
         "@types/bun": "catalog:",
@@ -1234,6 +1235,7 @@
     "marked": "18.0.7",
     "marked-shiki": "1.2.1",
     "opentui-spinner": "0.0.7",
+    "playwright": "1.59.1",
     "remeda": "2.26.0",
     "remend": "1.3.0",
     "semver": "7.7.4",

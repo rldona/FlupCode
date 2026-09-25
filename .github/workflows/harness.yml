@@ -60,7 +60,12 @@ jobs:
           bun run --cwd packages/relay typecheck
           bun run --cwd packages/flupcode-cli typecheck
 
+      - name: Install Playwright browsers
+        run: cd packages/harness && bunx playwright install --with-deps chromium
+
       - name: Test remote control
+        env:
+          FLUPCODE_REQUIRE_BROWSER: "1"
         run: |
           bun run --cwd packages/remote test
           bun run --cwd packages/relay test
@@ -69,9 +74,6 @@ jobs:
 
       - name: Build
         run: bun run --cwd packages/harness build
-
-      - name: Install Playwright browsers
-        run: cd packages/harness && bunx playwright install --with-deps chromium
 
       - name: E2E
         run: bun run --cwd packages/harness test:e2e

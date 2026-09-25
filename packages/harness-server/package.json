@@ -7,12 +7,13 @@
   "license": "MIT",
   "scripts": {
     "dev": "bun src/index.ts",
-    "build": "bun build src/index.ts --compile --outfile dist/flupcode-harness",
+    "build": "bun build src/index.ts --compile --external playwright --external playwright-core --outfile dist/flupcode-harness",
     "test": "bun test src",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
-    "@opencode-ai/sdk": "workspace:*"
+    "@opencode-ai/sdk": "workspace:*",
+    "playwright": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
