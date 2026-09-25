@@ -584,13 +584,23 @@ export const MobileComposer: Component<MobileComposerProps> = (props) => {
       <Show when={sheet() === "effort"}>
         <BottomSheet title={t("Effort")} onClose={close} onBack={() => setSheet("model")}>
           <div class="fc-sheet-group">
-            <Option label={t("Default")} active={!props.variantKey} onClick={() => props.onVariantChange("")} />
+            <Option
+              label={t("Default")}
+              active={!props.variantKey}
+              onClick={() => {
+                props.onVariantChange("")
+                close()
+              }}
+            />
             <For each={props.variants}>
               {(variant) => (
                 <Option
                   label={effortLabel(variant.id)}
                   active={props.variantKey === variant.id}
-                  onClick={() => props.onVariantChange(variant.id)}
+                  onClick={() => {
+                    props.onVariantChange(variant.id)
+                    close()
+                  }}
                 />
               )}
             </For>
