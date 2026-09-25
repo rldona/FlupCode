@@ -118,10 +118,11 @@ app.whenReady().then(async () => {
   setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
   initAutoUpdate()
   initSpeech()
-  // The engine starts first: it is what decides the password, which both the remote host and the
-  // window need in order to reach it.
-  await ensureServer()
+  // The harness starts first: the actions plugin reads its token and its profiles from it as the
+  // engine loads, and the engine's own startup decides the password both the remote host and the
+  // window need. Starting the engine first would leave that plugin with nothing to register.
   await ensureHarnessServer()
+  await ensureServer()
   remote = initRemoteHost()
   createWindow()
 

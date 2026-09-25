@@ -94,6 +94,31 @@ describe("validating an action profile", () => {
     expect(validateActionProfile("x", baseProfile({ tool: "" }))).toMatchObject({ ok: false, code: "invalid_tool" })
   })
 
+  test("a tool that shadows an engine builtin is refused", () => {
+    for (const tool of ["bash", "read", "edit", "write", "glob", "grep", "task", "webfetch", "websearch", "question", "skill", "todowrite"])
+      expect(validateActionProfile("x", baseProfile({ tool }))).toMatchObject({ ok: false, code: "reserved_tool" })
+  })
+
+  test("an id that could widen the approval resource is refused", () => {
+    for (const id of ["a*b", "a?b", "a/b", "a b", "", "x".repeat(65)])
+      expect(validateActionProfile(id, baseProfile())).toMatchObject({ ok: false, code: "invalid_id" })
+    expect(validateActionProfile("do_publish-1", baseProfile()).ok).toBe(true)
+  })
+
+  test("an explicit sensitive:false cannot downgrade an action with effects", () => {
+    expect(validateActionProfile("x", baseProfile({ sensitive: false, steps: [{ submit: { selector: "#send" } }] }))).toMatchObject({
+      ok: false,
+      code: "invalid_sensitive",
+    })
+    expect(validateActionProfile("x", baseProfile({ sensitive: false, credential: "site_account" }))).toMatchObject({
+      ok: false,
+      code: "invalid_sensitive",
+    })
+    // A pure read stays valid when it declares itself not sensitive.
+    const readOnly = validateActionProfile("x", baseProfile({ sensitive: false }))
+    expect(readOnly.ok && readOnly.profile.sensitive).toBe(false)
+  })
+
   test("a malformed step is refused", () => {
     const bad = (steps: unknown[]) => validateActionProfile("x", baseProfile({ steps }))
     expect(bad([{ goto: "{{origin}}", click: "button" }])).toMatchObject({ ok: false, code: "invalid_step" })

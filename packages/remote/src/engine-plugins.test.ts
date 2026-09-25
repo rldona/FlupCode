@@ -9,6 +9,7 @@ import {
   REASONING_VARIANTS_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
   TOOL_USES_PLUGIN,
+  WEB_ACTIONS_PLUGIN,
   engineConfigDir,
   installEnginePlugins,
 } from "./engine-plugins"
@@ -23,12 +24,24 @@ const temp = async () => {
   dirs.push(dir)
   return dir
 }
+
+const installed = async (config: string, file: string, exported: string) => {
+  const { paths } = await installEnginePlugins(config)
+  const target = paths.find((entry) => entry.endsWith(file))
+  expect(target).toBeDefined()
+  return (await import(pathToFileURL(target!).href))[exported]
+}
+
 afterEach(async () => {
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   delete process.env.OPENCODE_MODELS_PATH
   delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
   delete process.env.FLUPCODE_TOOL_USES_DIR
   delete process.env.OPENCODE_CONFIG_DIR
+  delete process.env.FLUPCODE_CONFIG_DIR
+  delete process.env.FLUPCODE_HARNESS_SERVER_URL
+  delete process.env.FLUPCODE_HARNESS_PORT
+  delete process.env.FLUPCODE_BROWSER_DISABLED
 })
 
 describe("engineConfigDir", () => {
@@ -47,13 +60,14 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(5)
+    expect(first.paths).toHaveLength(6)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
       TOOL_USES_PLUGIN,
       ARTIFACT_WRITE_PLUGIN,
       DELIVERY_PLUGIN,
+      WEB_ACTIONS_PLUGIN,
     ]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }
@@ -61,13 +75,6 @@ describe("installEnginePlugins", () => {
 
     expect((await installEnginePlugins(config)).changed).toBe(false)
   })
-
-  const installed = async (config: string, file: string, exported: string) => {
-    const { paths } = await installEnginePlugins(config)
-    const target = paths.find((entry) => entry.endsWith(file))
-    expect(target).toBeDefined()
-    return (await import(pathToFileURL(target!).href))[exported]
-  }
 
   test("the installed plugin records the system prompt of each request", async () => {
     const config = await temp()
@@ -385,5 +392,408 @@ describe("installEnginePlugins", () => {
       )
     expect(await call("deliver_missing")).toBe("No se entrega. GUARD_LOAD_ERROR: plans/nope.mjs")
     expect(await call("deliver_throwing")).toBe("No se entrega. GUARD_ERROR: boom - kaboom")
+  })
+})
+
+describe("WEB_ACTIONS_PLUGIN", () => {
+  const servers: Array<() => void> = []
+  afterEach(() => {
+    for (const stop of servers.splice(0)) stop()
+  })
+
+  // The profiles the harness would list. `do_demo` writes and uploads, so it is sensitive and needs
+  // an image; `read_demo` only reads, so it runs under `browser` alone.
+  const profiles = [
+    {
+      id: "do_demo",
+      tool: "do_demo",
+      description: "Publish the demo piece.",
+      kind: "browser",
+      origin: "https://example.test",
+      inputs: { text: "string", image: "image" },
+      steps: [
+        { goto: "{{origin}}/compose" },
+        { fill: { selector: "[data-editor]", text: "{{text}}" } },
+        { upload: { selector: "input[type=file]", from: "{{image}}" } },
+        { submit: { selector: "[data-publish]" } },
+      ],
+      guards: [],
+      sensitive: true,
+      availability: "host",
+      evidence: { screenshots: "each" },
+    },
+    {
+      id: "read_demo",
+      tool: "read_demo",
+      description: "Read the demo status.",
+      kind: "browser",
+      origin: "https://example.test",
+      inputs: {},
+      steps: [{ goto: "{{origin}}/status" }, { waitFor: "[data-status]" }],
+      extract: { status: { selector: "[data-status]", as: "text" } },
+      guards: [],
+      sensitive: false,
+      availability: "host",
+      evidence: { screenshots: "each" },
+    },
+  ]
+
+  const successResult = (body: Record<string, unknown>) => ({
+    action: typeof body.action === "string" ? body.action : "do_demo",
+    tool: "do_demo",
+    status: "success",
+    origin: "https://example.test",
+    url: "https://example.test/done",
+    title: "Done",
+    startedAt: 1,
+    finishedAt: 2,
+    steps: [{ index: 0, kind: "goto", status: "ok", attempts: 1, durationMs: 1 }],
+    evidence: ["art1"],
+  })
+
+  const startFixture = (
+    options: {
+      serveProfiles?: boolean
+      run?: (body: Record<string, unknown>) => Response
+      artifact?: (id: string) => Response | undefined
+    } = {},
+  ) => {
+    const requests: Array<{ method: string; path: string; auth: string | null }> = []
+    const runs: Array<Record<string, unknown>> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const url = new URL(request.url)
+        requests.push({ method: request.method, path: url.pathname, auth: request.headers.get("authorization") })
+        if (url.pathname === "/harness/actions" && request.method === "GET") {
+          if (options.serveProfiles === false) return new Response("Not found", { status: 404 })
+          return Response.json({
+            data: { profiles, rejected: [{ id: "broken", code: "unsupported_kind", message: "Only browser" }] },
+          })
+        }
+        if (url.pathname === "/harness/actions/run" && request.method === "POST") {
+          const parsed: unknown = await request.json().catch(() => ({}))
+          const record: Record<string, unknown> =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed } : {}
+          runs.push(record)
+          return options.run ? options.run(record) : Response.json({ data: successResult(record) })
+        }
+        if (url.pathname.startsWith("/harness/artifacts/") && url.pathname.endsWith("/raw") && request.method === "GET") {
+          const id = decodeURIComponent(url.pathname.slice("/harness/artifacts/".length, -"/raw".length))
+          const custom = options.artifact ? options.artifact(id) : undefined
+          if (custom) return custom
+          if (id === "art1")
+            return new Response(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), {
+              headers: { "content-type": "image/png" },
+            })
+        }
+        return new Response("Not found", { status: 404 })
+      },
+    })
+    const stop = () => {
+      void server.stop(true)
+    }
+    servers.push(stop)
+    return { url: server.url.origin, requests, runs }
+  }
+
+  const open = async (
+    options: { fixture?: { url: string } | string; token?: string | false; composeTools?: string[] } = {},
+  ) => {
+    const config = await temp()
+    const tokenDir = await temp()
+    await writeFile(
+      path.join(config, "opencode.json"),
+      JSON.stringify({ flupcode: { composeTools: options.composeTools ?? ["compose_demo"] } }),
+    )
+    if (options.token !== false) await writeFile(path.join(tokenDir, "browser-token"), options.token ?? "token-abc")
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.FLUPCODE_CONFIG_DIR = tokenDir
+    if (options.fixture) {
+      process.env.FLUPCODE_HARNESS_SERVER_URL =
+        typeof options.fixture === "string" ? options.fixture : options.fixture.url
+    }
+    await symlink(nodeModules, path.join(config, "node_modules"), "dir")
+    const plugin = await installed(config, WEB_ACTIONS_PLUGIN.file, "flupcodeActions")
+    const hooks = await plugin()
+    return { plugin, hooks }
+  }
+
+  const composedMessages = () => [
+    {
+      parts: [
+        {
+          type: "tool",
+          tool: "compose_demo",
+          state: { attachments: [{ mime: "image/png", url: "data:image/png;base64,AAAA" }] },
+        },
+      ],
+    },
+  ]
+
+  test("registers one tool per profile with only the string inputs as args", async () => {
+    const fixture = startFixture()
+    const { plugin, hooks } = await open({ fixture })
+
+    expect(typeof plugin).toBe("function")
+    expect(plugin.name).toBe("flupcodeActions")
+    expect(Object.keys(hooks.tool).sort()).toEqual(["do_demo", "read_demo"])
+    expect(hooks.tool.do_demo.description).toBe("Publish the demo piece.")
+    // The image input is not an argument: it comes from the composed piece, not the model.
+    expect(hooks.tool.do_demo.args).toEqual({ text: { type: "string", description: 'Value for the "text" input.' } })
+    expect(hooks.tool.read_demo.args).toEqual({})
+
+    const listed = fixture.requests.filter((entry) => entry.method === "GET" && entry.path === "/harness/actions")
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.auth).toBe("Bearer token-abc")
+  })
+
+  test("a denied approval rejects and makes no run request", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+    let asked = 0
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {
+        asked++
+        throw new Error("denied")
+      },
+    }
+
+    await expect(hooks.tool.do_demo.execute({ text: "hola" }, ctx)).rejects.toThrow("denied")
+    expect(asked).toBe(1)
+    expect(fixture.requests.filter((entry) => entry.method === "POST")).toHaveLength(0)
+  })
+
+  test("asks once, runs the recipe and re-emits the evidence image", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+    let asked = 0
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async (request: { permission: string; patterns: string[]; always: string[]; metadata: Record<string, unknown> }) => {
+        asked++
+        expect(request.permission).toBe("browser_sensitive")
+        expect(request.patterns).toEqual(["https://example.test:do_demo"])
+        expect(request.always).toEqual(["https://example.test:do_demo"])
+        expect(request.metadata.kind).toBe("browser")
+        expect(request.metadata.action).toBe("do_demo")
+        expect(request.metadata.steps).toEqual([
+          { index: 1, kind: "fill", selector: "[data-editor]" },
+          { index: 2, kind: "upload", selector: "input[type=file]" },
+          { index: 3, kind: "submit", selector: "[data-publish]" },
+        ])
+      },
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(asked).toBe(1)
+    expect(fixture.runs).toHaveLength(1)
+    expect(fixture.runs[0]!.action).toBe("do_demo")
+    expect(fixture.runs[0]!.sessionID).toBe("ses_abc")
+    expect(fixture.runs[0]!.project).toBe("/tmp/project")
+    expect(fixture.runs[0]!.inputs).toEqual({ text: "hola", image: { dataUrl: "data:image/png;base64,AAAA" } })
+    expect(result.output).toContain("do_demo")
+    expect(result.attachments).toHaveLength(1)
+    expect(result.attachments[0].url).toMatch(/^data:image\/png;base64,/)
+  })
+
+  test("a trailing text artifact does not hide the screenshot", async () => {
+    // `evidence.text: true` makes the runner append a text artifact last; the frame before it is the
+    // one to attach, so the scan cannot just take the tail.
+    const fixture = startFixture({
+      run: (body) => Response.json({ data: { ...successResult(body), evidence: ["shot1", "logtext"] } }),
+      artifact: (id) => {
+        if (id === "shot1")
+          return new Response(new Uint8Array([1, 2, 3, 4]), { headers: { "content-type": "image/png" } })
+        if (id === "logtext") return new Response("page text", { headers: { "content-type": "text/plain" } })
+        return undefined
+      },
+    })
+    const { hooks } = await open({ fixture })
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {},
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(result.attachments).toHaveLength(1)
+    expect(result.attachments[0].mime).toBe("image/png")
+    expect(result.attachments[0].url).toBe("data:image/png;base64," + Buffer.from([1, 2, 3, 4]).toString("base64"))
+  })
+
+  test("an artifact that is not a raster image is dropped", async () => {
+    const fixture = startFixture({
+      run: (body) => Response.json({ data: { ...successResult(body), evidence: ["doc1"] } }),
+      // SVG starts with image/ but is a document, so the allowlist, not the prefix, must reject it.
+      artifact: (id) =>
+        id === "doc1" ? new Response("<svg/>", { headers: { "content-type": "image/svg+xml" } }) : undefined,
+    })
+    const { hooks } = await open({ fixture })
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {},
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(typeof result).toBe("string")
+    expect(result).toContain("do_demo")
+  })
+
+  test("an artifact past the byte cap is dropped", async () => {
+    const big = new Uint8Array(5 * 1024 * 1024 + 1)
+    const fixture = startFixture({
+      run: (body) => Response.json({ data: { ...successResult(body), evidence: ["big1"] } }),
+      artifact: (id) => (id === "big1" ? new Response(big, { headers: { "content-type": "image/png" } }) : undefined),
+    })
+    const { hooks } = await open({ fixture })
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {},
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(typeof result).toBe("string")
+    expect(result).toContain("do_demo")
+  })
+
+  test("the composed image comes only from a declared compose tool", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+    // A non-listed producer sits both older and newer than the declared one: the newest image must
+    // still be the declared tool's, or dropping the filter would let the other win.
+    const messages = [
+      {
+        parts: [
+          { type: "tool", tool: "compose_other", state: { attachments: [{ mime: "image/png", url: "data:image/png;base64,CCCC" }] } },
+        ],
+      },
+      {
+        parts: [
+          { type: "tool", tool: "compose_demo", state: { attachments: [{ mime: "image/png", url: "data:image/png;base64,AAAA" }] } },
+        ],
+      },
+      {
+        parts: [
+          { type: "tool", tool: "compose_other", state: { attachments: [{ mime: "image/png", url: "data:image/png;base64,BBBB" }] } },
+        ],
+      },
+    ]
+    const ctx = { messages, sessionID: "ses_abc", messageID: "msg_1", directory: "/tmp/project", ask: async () => {} }
+
+    await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(fixture.runs).toHaveLength(1)
+    expect(fixture.runs[0]!.inputs).toEqual({
+      text: "hola",
+      image: { dataUrl: "data:image/png;base64,AAAA" },
+    })
+  })
+
+  test("a read profile asks for the browser permission on its origin", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+    let asked = 0
+    const ctx = {
+      messages: [],
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async (request: { permission: string; patterns: string[]; always: string[] }) => {
+        asked++
+        expect(request.permission).toBe("browser")
+        expect(request.patterns).toEqual(["https://example.test"])
+        expect(request.always).toEqual(["https://example.test"])
+      },
+    }
+
+    const result = await hooks.tool.read_demo.execute({}, ctx)
+    expect(asked).toBe(1)
+    expect(result.output).toContain("read_demo")
+  })
+
+  test("a recipe that uploads with no composed image stops before approval or HTTP", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+    let asked = 0
+    const ctx = {
+      messages: [],
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {
+        asked++
+      },
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(typeof result).toBe("string")
+    expect(result).toContain("imagen compuesta")
+    expect(asked).toBe(0)
+    expect(fixture.requests.filter((entry) => entry.method === "POST")).toHaveLength(0)
+  })
+
+  test("the kill switch registers nothing and makes no request at all", async () => {
+    const fixture = startFixture()
+    process.env.FLUPCODE_BROWSER_DISABLED = "1"
+    const { hooks } = await open({ fixture })
+    expect(hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("no endpoint, no server or no token all register nothing without throwing", async () => {
+    const notFound = startFixture({ serveProfiles: false })
+    expect((await open({ fixture: notFound })).hooks).toEqual({})
+    expect(notFound.requests.filter((entry) => entry.method === "GET")).toHaveLength(1)
+
+    expect((await open({ fixture: "http://127.0.0.1:1" })).hooks).toEqual({})
+
+    const fixture = startFixture()
+    expect((await open({ fixture, token: false })).hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("a non-loopback harness URL is refused before any token is sent", async () => {
+    // The fixture stays up as a control: if the plugin resolved the remote host at all it would show
+    // up as a request, and the bearer token would have left the machine.
+    const fixture = startFixture()
+    process.env.FLUPCODE_HARNESS_SERVER_URL = "https://evil.example"
+    const { hooks } = await open({})
+    expect(hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("a structured runner error becomes a Spanish sentence", async () => {
+    const fixture = startFixture({
+      run: () =>
+        Response.json({ error: "denied by guard", code: "guard_denied", guardCode: "NOPE", evidence: [] }, { status: 422 }),
+    })
+    const { hooks } = await open({ fixture })
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {},
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(result).toContain("denegada")
+    expect(result).toContain("NOPE")
+    expect(fixture.runs).toHaveLength(1)
   })
 })

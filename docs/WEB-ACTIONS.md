@@ -134,7 +134,8 @@ creation with an actionable warning.
 
 From the app: open **Actions**, add a profile, set its origin and credential, add steps and (for a
 read action) an extract, then run a dry-run against the browser. Profiles are saved to the global
-config or the project's `.opencode`, and can be exported to your own configuration repository.
+config and can be exported to your own configuration repository; the project-scoped `.opencode` is
+read only once the WA-8 editor lands.
 
 By hand: add the profile to the `flupcode.actions` block of your global `opencode.json` /
 `opencode.jsonc`. The engine carries the settings; FlupCode's plugin reads them and registers the

@@ -46,10 +46,31 @@ export const DEFAULT_STEP_TIMEOUT_MS = 15_000
 export const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000
 export const MAX_STEP_TIMEOUT_MS = 120_000
 
+const ACTION_ID = /^[A-Za-z0-9_-]{1,64}$/
 const TOOL_NAME = /^[a-zA-Z0-9_-]{1,64}$/
 const INPUT_NAME = /^[A-Za-z0-9_-]{1,64}$/
 const RESERVED_INPUT = "origin"
 const ACTION_KEYS = ["goto", "waitFor", "fill", "click", "upload", "submit", "assert", "screenshot"] as const
+
+/**
+ * Tools the engine already owns. The plugin registers one tool per profile in the same namespace, so a
+ * profile named like a built-in would replace it instead of adding one. This is a safety net against
+ * that collision, not a policy about which names a profile may use.
+ */
+const RESERVED_TOOLS = new Set([
+  "bash",
+  "read",
+  "edit",
+  "write",
+  "glob",
+  "grep",
+  "task",
+  "webfetch",
+  "websearch",
+  "question",
+  "skill",
+  "todowrite",
+])
 const TEMPLATE_INPUT = /\{\{\s*([A-Za-z0-9_-]+)\s*\}\}/g
 const TEMPLATE_LEFT = /\{\{[\s\S]*?\}\}/
 const UPLOAD_FROM = /^\{\{\s*([A-Za-z0-9_-]+)\s*\}\}$/
@@ -91,9 +112,16 @@ export function normalizeActionOrigin(value: unknown): { ok: true; origin: strin
 export function validateActionProfile(id: string, raw: unknown): ActionValidation {
   if (!isPlainObject(raw)) return fail("invalid_profile", "A profile must be an object")
 
+  // The id becomes part of the approval resource (`origin:id`), so a wildcard or separator here would
+  // widen what "Allow always" approves beyond the action it names.
+  if (typeof id !== "string" || !ACTION_ID.test(id))
+    return fail("invalid_id", "id must match ^[A-Za-z0-9_-]{1,64}$")
+
   const tool = raw.tool
   if (typeof tool !== "string" || !TOOL_NAME.test(tool))
     return fail("invalid_tool", "tool must match ^[a-zA-Z0-9_-]{1,64}$")
+  if (RESERVED_TOOLS.has(tool))
+    return fail("reserved_tool", `tool "${tool}" collides with an engine tool`)
 
   // The refusal at load. An `api` or `mcp` profile is the same envelope with a backend this build
   // does not have, so it is named and refused rather than silently skipped.
@@ -134,6 +162,10 @@ export function validateActionProfile(id: string, raw: unknown): ActionValidatio
   const hasEffect = steps.steps.some(
     (step) => "fill" in step || "click" in step || "upload" in step || "submit" in step,
   )
+  // An explicit `sensitive: false` cannot win over the recipe: an action with those steps or a
+  // credential needs the strong permission, and downgrading it here would approve less than it acts.
+  if (raw.sensitive === false && (hasEffect || credential !== undefined))
+    return fail("invalid_sensitive", "an action with side effects cannot be marked as not sensitive")
   const sensitive =
     typeof raw.sensitive === "boolean" ? raw.sensitive : markedSensitive || hasEffect || credential !== undefined
 

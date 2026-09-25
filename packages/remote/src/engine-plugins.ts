@@ -582,6 +582,490 @@ export const flupcodeDeliver = async () => {
 `,
 }
 
+/**
+ * web-actions: one browser-action tool per profile the harness accepts. The plugin is a thin proxy:
+ * it asks `harness-server` for the profiles under `flupcode.actions`, registers a tool for each and,
+ * when the model calls one, asks for approval once and forwards the whole recipe to the runner. It
+ * holds no browser state, no selectors and no credentials.
+ *
+ * Plain JavaScript with no third-party imports, like the other plugins, and its args are plain JSON
+ * Schema rather than Zod: the registry marks every declared input required, which is what the runner
+ * expects. The loopback token and the profiles both live outside the engine, so the desktop starts
+ * the harness first (see `ensureHarnessServer`).
+ */
+export const WEB_ACTIONS_PLUGIN = {
+  file: "flupcode-actions.js",
+  source: String.raw`// Installed by FlupCode. Registers one browser-action tool per profile under "flupcode.actions", so
+// a new site action needs only configuration and no tool file of its own. It is a thin proxy over the
+// harness runner: it holds no browser state, no selectors and no credentials. Regenerated when
+// FlupCode starts the engine; edits here are overwritten.
+import { randomUUID } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+// The plugin sits in <configDir>/plugins, so its parent is the config directory the engine loads
+// config.json / opencode.json / opencode.jsonc from.
+const CONFIG_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+
+// The profiles endpoint is the loopback harness the desktop spawns. It is asked briefly when the
+// engine loads: a slow or absent server must not hold startup, so a timeout is retried a couple of
+// times and then the plugin simply registers nothing.
+const PROFILE_TIMEOUT_MS = 1200
+const PROFILE_ATTEMPTS = 3
+const PROFILE_DELAY_MS = 400
+
+// One action can drive a whole recipe, so the run gets a long ceiling; the evidence fetch is a single
+// image and stays short. An attachment travels inside the conversation, so a runaway one is dropped.
+const RUN_TIMEOUT_MS = 600000
+const ARTIFACT_TIMEOUT_MS = 15000
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+// Only raster images travel back as an attachment: an SVG is a document that can carry script, and a
+// generic image/* would let the runner choose the type.
+const ATTACHMENT_MIMES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"])
+// A runaway recipe could list many artifacts; only the tail is worth probing for a frame.
+const EVIDENCE_SCAN = 5
+// The same shape validateActionProfile enforces: a wider id would widen the approval resource.
+const PROFILE_ID = /^[A-Za-z0-9_-]{1,64}$/
+
+// The token the harness issued for this machine, and the base it answers on, are fixed when the
+// plugin loads and shared by every tool it registers.
+let activeToken
+let activeBase
+
+// JSONC without a parser: comments and trailing commas are all that separates it from JSON. The scan
+// is string-aware, so a URL keeps its double slash and a string keeps whatever looks like a comment.
+function stripJsonc(text) {
+  let out = ""
+  let inString = false
+  let escape = false
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (escape) escape = false
+      else if (ch === "\\") escape = true
+      else if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      i += 2
+      while (i < text.length && text[i] !== "\n") i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      i += 2
+      while (i + 1 < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1
+      i += 2
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out.replace(/,(?=\s*[}\]])/g, "")
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+// The engine merges config.json, then opencode.json, then opencode.jsonc, later files winning; the
+// same order here, recursively, so the flupcode.composeTools setting is seen wherever it was written.
+function mergeConfig(target, source) {
+  if (!isPlainObject(target) || !isPlainObject(source)) return source
+  const merged = { ...target }
+  for (const key of Object.keys(source)) {
+    merged[key] =
+      isPlainObject(target[key]) && isPlainObject(source[key])
+        ? mergeConfig(target[key], source[key])
+        : source[key]
+  }
+  return merged
+}
+
+const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"]
+
+async function readJsonc(file) {
+  const text = await readFile(file, "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(stripJsonc(text))
+  } catch {
+    return undefined
+  }
+}
+
+async function loadConfig() {
+  let merged = {}
+  for (const name of CONFIG_FILES) {
+    const parsed = await readJsonc(path.join(CONFIG_DIR, name))
+    if (isPlainObject(parsed)) merged = mergeConfig(merged, parsed)
+  }
+  return merged
+}
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+function propertyAt(value, key) {
+  return typeof value === "object" && value !== null ? Reflect.get(value, key) : undefined
+}
+
+// The composed PNG is not a part of its own: it stays inside the state of the tool that produced it,
+// so the newest one is looked for there, last-first, and only when its producer is in composeTools.
+function findImageDataUrl(messages, composeTools) {
+  if (!Array.isArray(messages)) return undefined
+  const wanted = Array.isArray(composeTools) && composeTools.length ? composeTools : undefined
+  for (let m = messages.length - 1; m >= 0; m--) {
+    const message = messages[m]
+    const parts = message && message.parts
+    if (!Array.isArray(parts)) continue
+    for (let p = parts.length - 1; p >= 0; p--) {
+      const part = parts[p]
+      if (!part) continue
+      if (wanted && typeof part.tool === "string" && !wanted.includes(part.tool)) continue
+      const bags = [part.state && part.state.attachments, part.attachments]
+      for (const bag of bags) {
+        if (!Array.isArray(bag)) continue
+        for (let a = bag.length - 1; a >= 0; a--) {
+          const attachment = bag[a]
+          if (!attachment) continue
+          if (
+            typeof attachment.mime === "string" &&
+            attachment.mime.startsWith("image/") &&
+            typeof attachment.url === "string" &&
+            attachment.url.startsWith("data:")
+          ) {
+            return attachment.url
+          }
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+// A run combines its own ceiling with the session's abort, so a call the engine cancels stops the
+// fetch too. The signal is only ever used to stop a request; a missing abort leaves the timeout.
+function requestSignal(ms, abort) {
+  const timeout = AbortSignal.timeout(ms)
+  if (!abort || typeof AbortSignal.any !== "function") return timeout
+  return AbortSignal.any([timeout, abort])
+}
+
+const UPLOAD_FROM = /^\{\{\s*([A-Za-z0-9_-]+)\s*\}\}$/
+
+// Which image inputs a recipe actually uploads. Only those have to be present before approving: an
+// image input nothing reads is not a reason to stop.
+function requiredImageNames(steps, imageInputs) {
+  const referenced = new Set()
+  for (const step of steps) {
+    if (!isPlainObject(step) || !isPlainObject(step.upload)) continue
+    const match = typeof step.upload.from === "string" ? UPLOAD_FROM.exec(step.upload.from) : undefined
+    if (match) referenced.add(match[1])
+  }
+  return imageInputs.filter((name) => referenced.has(name))
+}
+
+// Only the steps with an effect are shown for approval: goto, waitFor, assert and screenshot
+// do not change a page. No input values and no credential values, only the name of a credential.
+function effectSteps(steps) {
+  const out = []
+  for (let index = 0; index < steps.length; index++) {
+    const step = steps[index]
+    if (!isPlainObject(step)) continue
+    if ("fill" in step) {
+      const fill = isPlainObject(step.fill) ? step.fill : {}
+      out.push({
+        index: index,
+        kind: "fill",
+        ...(typeof fill.selector === "string" ? { selector: fill.selector } : {}),
+        ...(typeof fill.credential === "string" ? { credential: fill.credential } : {}),
+      })
+    } else if ("click" in step) {
+      out.push({ index: index, kind: "click", selector: step.click })
+    } else if ("upload" in step) {
+      const upload = isPlainObject(step.upload) ? step.upload : {}
+      out.push({ index: index, kind: "upload", selector: upload.selector })
+    } else if ("submit" in step) {
+      const submit = isPlainObject(step.submit) ? step.submit : {}
+      out.push({ index: index, kind: "submit", selector: submit.selector })
+    }
+  }
+  return out
+}
+
+// The profile's own file, asked for once at load. Only a network failure or a timeout is retried; a
+// served status is the server's answer, including a 404 that says the harness has no runner.
+async function loadProfiles(base, token) {
+  const url = base + "/harness/actions"
+  for (let attempt = 0; attempt < PROFILE_ATTEMPTS; attempt++) {
+    let response
+    try {
+      response = await fetch(url, {
+        headers: { authorization: "Bearer " + token },
+        signal: AbortSignal.timeout(PROFILE_TIMEOUT_MS),
+      })
+    } catch {
+      if (attempt + 1 < PROFILE_ATTEMPTS) await sleep(PROFILE_DELAY_MS)
+      continue
+    }
+    if (response.status !== 200) return undefined
+    const body = await response.json().catch(() => undefined)
+    const profiles = propertyAt(propertyAt(body, "data"), "profiles")
+    return Array.isArray(profiles) ? profiles : undefined
+  }
+  return undefined
+}
+
+function summarise(profile, data) {
+  const result = isPlainObject(data) ? data : {}
+  const lines = ['Acción "' + (result.action || profile.id) + '" completada.']
+  lines.push("Origen: " + (result.origin || profile.origin))
+  if (typeof result.url === "string" && result.url) lines.push("URL: " + result.url)
+  if (typeof result.title === "string" && result.title) lines.push("Título: " + result.title)
+  if (isPlainObject(result.extract)) {
+    for (const field of Object.keys(result.extract)) {
+      lines.push("Extraído " + field + ": " + String(result.extract[field]))
+    }
+  }
+  const steps = Array.isArray(result.steps) ? result.steps : []
+  if (steps.length > 0) {
+    lines.push("Pasos:")
+    for (const step of steps) {
+      if (!isPlainObject(step)) continue
+      lines.push("- #" + step.index + " " + step.kind + ": " + step.status)
+    }
+  }
+  const evidence = Array.isArray(result.evidence) ? result.evidence : []
+  if (evidence.length > 0) lines.push("Evidencia: " + evidence.join(", "))
+  return lines.join("\n")
+}
+
+// The runner already redacts its own message, so the fallback never echoes a raw body. The structured
+// codes get a Spanish sentence with only the field or code the caller needs.
+function failureText(profile, body) {
+  const error = isPlainObject(body) ? body : {}
+  const code = typeof error.code === "string" ? error.code : ""
+  if (code === "guard_denied")
+    return "La acción fue denegada por un guard (" + (error.guardCode || "sin código") + ")."
+  if (code === "credential_unavailable")
+    return (
+      "Falta la credencial nombrada «" +
+      (typeof error.field === "string" && error.field ? error.field : profile.credential || "credential") +
+      "»."
+    )
+  if (code === "origin_mismatch" || code === "navigation_blocked")
+    return "La navegación salió del origen permitido."
+  if (code === "step_failed")
+    return "Falló el paso " + (error.step || "?") + " (#" + (error.index !== undefined ? error.index : "?") + ")."
+  if (code === "missing_input" || code === "unknown_input" || code === "invalid_input")
+    return "Falta o no es válido el input " + (error.field || "?") + "."
+  if (code === "extract_failed") return "No se pudo leer " + (error.field || "?") + "."
+  if (code === "unknown_action") return "Esa acción ya no existe; reinicia el motor."
+  return typeof error.error === "string" && error.error ? error.error : "La acción no se pudo completar."
+}
+
+// The newest frame the runner kept travels back as an attachment, so the tool result shows it. An
+// unreadable or oversized artifact is dropped and the text summary still stands.
+async function fetchAttachment(base, token, id, sessionID, messageID) {
+  if (typeof id !== "string" || id === "") return undefined
+  if (typeof sessionID !== "string" || !sessionID || typeof messageID !== "string" || !messageID) return undefined
+  let response
+  try {
+    response = await fetch(base + "/harness/artifacts/" + encodeURIComponent(id) + "/raw", {
+      headers: { authorization: "Bearer " + token },
+      signal: AbortSignal.timeout(ARTIFACT_TIMEOUT_MS),
+    })
+  } catch {
+    return undefined
+  }
+  if (!response.ok) return undefined
+  const mime = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase()
+  if (!ATTACHMENT_MIMES.has(mime)) return undefined
+  const declared = response.headers.get("content-length")
+  if (declared !== null && Number(declared) > MAX_ATTACHMENT_BYTES) return undefined
+  const bytes = await response.arrayBuffer().catch(() => undefined)
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_ATTACHMENT_BYTES) return undefined
+  return {
+    id: "prt_" + randomUUID(),
+    sessionID: sessionID,
+    messageID: messageID,
+    type: "file",
+    mime: mime,
+    url: "data:" + mime + ";base64," + Buffer.from(bytes).toString("base64"),
+  }
+}
+
+// The runner appends a text artifact last when evidence.text is on, so the tail is not always the
+// screenshot. The last few ids are probed newest-first and the first image wins; a non-image or an
+// oversized one is simply skipped.
+async function fetchEvidenceAttachment(base, token, value, sessionID, messageID) {
+  const evidence = propertyAt(value, "evidence")
+  if (!Array.isArray(evidence)) return undefined
+  const start = Math.max(0, evidence.length - EVIDENCE_SCAN)
+  for (let i = evidence.length - 1; i >= start; i--) {
+    const attachment = await fetchAttachment(base, token, evidence[i], sessionID, messageID)
+    if (attachment) return attachment
+  }
+  return undefined
+}
+
+function definition(profile, composeTools) {
+  const args = {}
+  for (const name of Object.keys(profile.inputs)) {
+    if (profile.inputs[name] === "string") {
+      args[name] = { type: "string", description: 'Value for the "' + name + '" input.' }
+    }
+  }
+  return {
+    description: profile.description,
+    args: args,
+    async execute(rawArgs, ctx) {
+      const args = isPlainObject(rawArgs) ? rawArgs : {}
+      const sessionID = propertyAt(ctx, "sessionID")
+      const project = propertyAt(ctx, "directory") || propertyAt(ctx, "worktree")
+      if (typeof sessionID !== "string" || !sessionID || typeof project !== "string" || !project) {
+        return "Esta sesión no tiene una carpeta de proyecto donde ejecutar la acción."
+      }
+      const messageID = propertyAt(ctx, "messageID")
+
+      const imageInputs = Object.keys(profile.inputs).filter((name) => profile.inputs[name] === "image")
+      const imageDataUrl =
+        imageInputs.length > 0 ? findImageDataUrl(propertyAt(ctx, "messages"), composeTools) : undefined
+      // Before asking: a recipe that uploads an image with none composed cannot run, and asking first
+      // would put an approval in front of a call that was never going to happen.
+      if (requiredImageNames(profile.steps, imageInputs).length > 0 && !imageDataUrl) {
+        return "No encuentro la imagen compuesta en esta conversación. Compónla primero y vuelve a intentarlo."
+      }
+
+      const inputs = {}
+      for (const name of Object.keys(profile.inputs)) {
+        const kind = profile.inputs[name]
+        if (kind === "string" && typeof args[name] === "string") inputs[name] = args[name]
+        else if (kind === "image" && imageDataUrl) inputs[name] = { dataUrl: imageDataUrl }
+      }
+
+      // One approval per action, before any request. A denial is not caught: it propagates so the
+      // engine records a failed tool, and no HTTP is made.
+      //
+      // A profile cannot talk its way out of sensitivity: a recipe with effects or a credential is
+      // sensitive whatever the profile says, so the strong permission is what gets asked.
+      const steps = effectSteps(profile.steps)
+      const credential = typeof profile.credential === "string" && profile.credential !== ""
+      const sensitive = profile.sensitive === true || steps.length > 0 || credential
+      const resource = sensitive ? profile.origin + ":" + profile.id : profile.origin
+      await ctx.ask({
+        permission: sensitive ? "browser_sensitive" : "browser",
+        patterns: [resource],
+        always: [resource],
+        metadata: {
+          kind: "browser",
+          origin: profile.origin,
+          action: profile.id,
+          tool: profile.tool,
+          description: profile.description,
+          sensitive: sensitive,
+          steps: steps,
+        },
+      })
+
+      const base = activeBase
+      const token = activeToken
+      let response
+      try {
+        response = await fetch(base + "/harness/actions/run", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: "Bearer " + token },
+          body: JSON.stringify({ action: profile.id, sessionID: sessionID, project: project, inputs: inputs }),
+          signal: requestSignal(RUN_TIMEOUT_MS, propertyAt(ctx, "abort")),
+        })
+      } catch {
+        return "No se pudo contactar con el servidor del navegador. Comprueba que sigue en marcha."
+      }
+
+      const payload = await response.json().catch(() => undefined)
+      if (response.status !== 200) {
+        const body = isPlainObject(payload) ? payload : {}
+        const text = failureText(profile, body)
+        const attachment = await fetchEvidenceAttachment(base, token, body, sessionID, messageID)
+        return attachment ? { output: text, attachments: [attachment] } : text
+      }
+      const data = propertyAt(payload, "data")
+      const output = summarise(profile, data)
+      const attachment = await fetchEvidenceAttachment(base, token, data, sessionID, messageID)
+      return attachment ? { output: output, attachments: [attachment] } : output
+    },
+  }
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeActions = async () => {
+  // The whole-engine kill switch: no token read, no profiles fetch, no tools.
+  if (process.env.FLUPCODE_BROWSER_DISABLED === "1") return {}
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+  const config = await loadConfig().catch(() => ({}))
+  const profiles = await loadProfiles(base, token)
+  if (profiles === undefined) return {}
+  activeToken = token
+  activeBase = base
+  const composeTools = config && config.flupcode && config.flupcode.composeTools
+  const tools = {}
+  for (const profile of profiles) {
+    if (!isPlainObject(profile)) continue
+    if (typeof profile.tool !== "string" || !profile.tool) continue
+    if (typeof profile.id !== "string" || !PROFILE_ID.test(profile.id)) continue
+    if (typeof profile.origin !== "string" || !profile.origin) continue
+    if (!isPlainObject(profile.inputs)) continue
+    if (!Array.isArray(profile.steps)) continue
+    tools[profile.tool] = definition(profile, composeTools)
+  }
+  return { tool: tools }
+}
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
@@ -589,6 +1073,7 @@ const PLUGINS = [
   SYSTEM_PROMPT_PLUGIN,
   ARTIFACT_WRITE_PLUGIN,
   DELIVERY_PLUGIN,
+  WEB_ACTIONS_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

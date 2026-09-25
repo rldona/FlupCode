@@ -223,7 +223,15 @@ export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "
     cwd: engine.cwd,
     stdio: "inherit",
     shell: process.platform === "win32",
-    env: { ...process.env, PATH: searchPath(), OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: password },
+    // The actions plugin reads its token and profiles from the harness, so the engine is told where
+    // that server answers. It is not the engine's own URL.
+    env: {
+      ...process.env,
+      PATH: searchPath(),
+      OPENCODE_SERVER_USERNAME: username,
+      OPENCODE_SERVER_PASSWORD: password,
+      FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
+    },
   })
   child.on("error", () => {
     child = undefined
