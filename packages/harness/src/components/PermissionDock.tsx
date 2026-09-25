@@ -1,7 +1,7 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { PermissionV2Request, SessionMessageInfo } from "../engine-types"
 import { t } from "../i18n"
-import { alwaysScope, permissionPreview } from "../permission-preview"
+import { alwaysScope, permissionPreview, previewImage, type PermissionPreview } from "../permission-preview"
 import { diffLines, highlight, highlightDiff } from "../highlight"
 
 export type PermissionReply = "once" | "always" | "reject"
@@ -15,6 +15,8 @@ type PermissionDockProps = {
 }
 
 const languageFor = (path: string) => path.split(".").pop() ?? ""
+
+const browserPreview = (preview: PermissionPreview) => (preview.kind === "browser" ? preview : undefined)
 
 export const PermissionDock: Component<PermissionDockProps> = (props) => {
   const [rejecting, setRejecting] = createSignal(false)
@@ -67,6 +69,54 @@ export const PermissionDock: Component<PermissionDockProps> = (props) => {
 
       <Show when={preview().kind === "url" && preview()} keyed>
         {(value) => <code class="fc-permission-preview">{(value as { url: string }).url}</code>}
+      </Show>
+
+      <Show when={browserPreview(preview())} keyed>
+        {(browser) => (
+          <div class="fc-permission-preview fc-permission-browser">
+            <div class="fc-permission-browser-head">
+              <span class="fc-permission-browser-origin">
+                {t("Origin")}: {browser.origin}
+              </span>
+              <Show when={browser.sensitive}>
+                <span class="fc-chip fc-permission-sensitive">{t("Sensitive")}</span>
+              </Show>
+            </div>
+            <dl class="fc-permission-browser-facts">
+              <dt>{t("Action")}</dt>
+              <dd>{browser.action}</dd>
+              <Show when={browser.tool}>
+                <dt>{t("Profile")}</dt>
+                <dd>{browser.tool}</dd>
+              </Show>
+            </dl>
+            <Show when={browser.description}>
+              <p class="fc-permission-browser-desc">{browser.description}</p>
+            </Show>
+            <Show when={browser.steps && browser.steps.length > 0}>
+              <ul class="fc-dock-list">
+                <For each={browser.steps}>
+                  {(step) => (
+                    <li>
+                      <code>
+                        #{step.index} {step.kind}
+                      </code>
+                      <Show when={step.selector}>
+                        <span class="fc-permission-browser-selector">{step.selector}</span>
+                      </Show>
+                      <Show when={step.credential}>
+                        <span class="fc-permission-browser-credential">{step.credential}</span>
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+            <Show when={previewImage(browser.screenshot ?? "")}>
+              <img class="fc-permission-screenshot" src={browser.screenshot} alt={t("Screenshot")} />
+            </Show>
+          </div>
+        )}
       </Show>
 
       <Show when={preview().kind === "resources" && props.request.resources.length > 0}>

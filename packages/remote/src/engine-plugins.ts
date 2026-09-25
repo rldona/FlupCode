@@ -855,15 +855,22 @@ async function loadProfiles(base, token) {
   return undefined
 }
 
+// A value read from the page is written into a line-based summary, so a newline inside one would
+// forge a line of the summary (an extra "URL:" line, say). Everything the page controls is folded
+// onto a single line before it is written.
+function oneLine(value) {
+  return String(value).replace(/\s*[\r\n]+\s*/g, " ")
+}
+
 function summarise(profile, data) {
   const result = isPlainObject(data) ? data : {}
   const lines = ['Acción "' + (result.action || profile.id) + '" completada.']
   lines.push("Origen: " + (result.origin || profile.origin))
-  if (typeof result.url === "string" && result.url) lines.push("URL: " + result.url)
-  if (typeof result.title === "string" && result.title) lines.push("Título: " + result.title)
+  if (typeof result.url === "string" && result.url) lines.push("URL: " + oneLine(result.url))
+  if (typeof result.title === "string" && result.title) lines.push("Título: " + oneLine(result.title))
   if (isPlainObject(result.extract)) {
     for (const field of Object.keys(result.extract)) {
-      lines.push("Extraído " + field + ": " + String(result.extract[field]))
+      lines.push("Extraído " + field + ": " + oneLine(result.extract[field]))
     }
   }
   const steps = Array.isArray(result.steps) ? result.steps : []

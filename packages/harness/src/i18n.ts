@@ -186,8 +186,8 @@ const ES: Record<string, string> = {
   "Always ask before making changes": "Preguntar siempre antes de hacer cambios",
   "Automatically accept all file edits": "Aceptar automáticamente todas las ediciones",
   "Accepts all permissions": "Acepta todos los permisos",
-  "Runs everything without asking, including commands and edits outside the folder":
-    "Ejecuta todo sin preguntar, incluidos comandos y ediciones fuera de la carpeta",
+  "Runs everything without asking, including commands, edits outside the folder and browser actions":
+    "Ejecuta todo sin preguntar, incluidos comandos, ediciones fuera de la carpeta y acciones del navegador",
   "Click again to confirm": "Pulsa otra vez para confirmar",
   "Show thinking": "Mostrar el razonamiento",
   "What the model thought before answering, as a block you can open.":
@@ -200,6 +200,10 @@ const ES: Record<string, string> = {
   "Reject with reason": "Rechazar con motivo",
   "Remembers: {patterns}": "Recuerda: {patterns}",
   "every {action}": "cualquier {action}",
+  Origin: "Origen",
+  Action: "Acción",
+  Sensitive: "Sensible",
+  Screenshot: "Captura",
   "Waiting for permission": "Esperando permiso",
   "Another session is waiting for permission": "Otra sesión está esperando permiso",
   "{count} waiting": "{count} en espera",
