@@ -75,8 +75,8 @@ retries.
 | `screenshot` | `{ "screenshot": "label" }`                                             | Capture evidence at this point.                                    |
 
 A `fill` with `credential` injects the stored value; the value is never returned. A step marked
-`"sensitive": true` triggers an approval request before it runs. An action whose `sensitive` is
-`false` (a pure read) needs no per-step approval beyond navigation.
+`"sensitive": true` makes the action sensitive and is shown in its single approval request. An action
+whose `sensitive` is `false` (a pure read) needs no approval beyond navigation.
 
 ## Extract
 
@@ -112,12 +112,16 @@ the profile runs unconditionally.
 Side-effecting actions are governed by two permissions:
 
 - **`browser`** — navigate and read. Resource: `origin`.
-- **`browser_sensitive`** — click, type, submit, credential. Resource: `origin:action`.
+- **`browser_sensitive`** — side effects: click, type, upload, submit, credential. Resource:
+  `origin:action`.
 
-The agent tool asks for approval before every side-effecting step, showing the origin, the action and
-a screenshot. "Allow always" remembers at most `origin` or `origin:action`, never everything. Modes
-that grant broad access (including bypass) are documented as including the browser; a whole-engine
-kill switch disables every browser tool regardless of mode.
+Approval is **one request per action, before it runs**. The tool shows the origin, the action and the
+steps that have effects, with a screenshot; once you approve, the runner executes the whole recipe in
+that one request. There is no approval between steps. A step marked `sensitive` is what makes the
+action count as sensitive, so a pure `extract` action runs under `browser` alone. "Allow always"
+remembers at most `origin` or `origin:action`, never everything. Modes that grant broad access
+(including bypass) are documented as including the browser; a whole-engine kill switch disables every
+browser tool regardless of mode.
 
 ## Scheduling
 

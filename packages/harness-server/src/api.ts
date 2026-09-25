@@ -20,6 +20,8 @@ import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
 import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
+import { handleActionRequest } from "./action-routes"
+import type { ActionRunner } from "./action-runner"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -292,7 +294,7 @@ import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
-export type HarnessHandlerOptions = { browser?: BrowserRuntime; token?: string }
+export type HarnessHandlerOptions = { browser?: BrowserRuntime; token?: string; actions?: ActionRunner }
 
 export const createHarnessHandler = (
   repository: SqliteRoutineRepository,
@@ -320,13 +322,24 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleBrowserRequest(request, path.slice(2), options.browser)
     }
+    // The runner drives the browser on the user's machine, so it sits behind the same bearer as
+    // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.
+    if (path[1] === "actions" && options.actions) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleActionRequest(request, path.slice(2), options.actions)
+    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
     // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
     // was actually built: the kill switch and a missing token leave it out (WA-1).
     if (path[1] === "health" && request.method === "GET")
       return json({
         healthy: true,
-        capabilities: [...CAPABILITIES, ...(options.browser ? (["browser"] as const) : [])],
+        capabilities: [
+          ...CAPABILITIES,
+          ...(options.browser ? (["browser"] as const) : []),
+          ...(options.actions ? (["web-actions"] as const) : []),
+        ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking.
     if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))

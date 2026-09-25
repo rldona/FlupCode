@@ -97,8 +97,10 @@ sensitive, availability, evidence`; `kind` no soportado se rechaza al cargar.
 
 - `WEB_ACTIONS_PLUGIN` (plain-JS, sin imports de terceros, fichero generado `flupcode-actions.js`) registra **una tool por perfil**, como
   `DELIVERY_PLUGIN`; lee perfiles de `flupcode.actions` y el token del fichero de loopback.
-- Antes de cada paso con efectos llama `ctx.ask({permission, patterns, always, metadata})`; el
-  `always` recuerda como máximo `origin` o `origin:action`.
+- Aprobación **pre-flight única por acción**, no un `ctx.ask` antes de cada paso: `ctx.ask({permission:
+  "browser_sensitive", patterns, always, metadata})` con recurso `origin:action` y los pasos con
+  efectos a la vista; `browser` cubre navegar y leer. El `always` recuerda como máximo `origin` o
+  `origin:action`.
 - Devuelve resumen de texto, screenshot y artefacto de evidencia.
 - Con `FLUPCODE_BROWSER_DISABLED=1` no registra tools de navegador (kill switch).
 

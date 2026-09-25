@@ -102,6 +102,36 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     return json({ data: await browser.submit(id, selector, timeoutFrom(body.timeoutMs)) })
   }
 
+  if (route === "waitFor" && method === "POST") {
+    const body = await bodyFrom(request)
+    const selector = typeof body.selector === "string" ? body.selector : ""
+    if (!selector) return error("A selector is required", "selector_required", 400)
+    const state = body.state === "attached" || body.state === "visible" ? body.state : undefined
+    return json({ data: await browser.waitFor(id, selector, timeoutFrom(body.timeoutMs), state) })
+  }
+
+  if (route === "text" && method === "POST") {
+    const body = await bodyFrom(request)
+    const selector = typeof body.selector === "string" ? body.selector : ""
+    if (!selector) return error("A selector is required", "selector_required", 400)
+    const as = body.as === "text" || body.as === "html" || body.as === "attribute" ? body.as : undefined
+    const attribute = typeof body.attribute === "string" ? body.attribute : undefined
+    const timeoutMs = timeoutFrom(body.timeoutMs)
+    return json({
+      data: await browser.text(id, selector, {
+        ...(as !== undefined ? { as } : {}),
+        ...(attribute !== undefined ? { attribute } : {}),
+        ...(timeoutMs !== undefined ? { timeoutMs } : {}),
+      }),
+    })
+  }
+
+  if (route === "screenshot" && method === "POST") {
+    const body = await bodyFrom(request)
+    const label = typeof body.label === "string" ? body.label : undefined
+    return json({ data: await browser.screenshot(id, label) })
+  }
+
   if (route === "frame" && method === "GET") {
     const store = new URL(request.url).searchParams.get("store") !== "0"
     const result = await browser.frame(id, store ? undefined : { store: false })

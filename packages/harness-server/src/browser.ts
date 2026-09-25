@@ -62,6 +62,19 @@ export type BrowserRuntime = {
   click(id: string, selector: string, timeoutMs?: number): Promise<{ url: string; title: string }>
   type(id: string, selector: string, text: string, timeoutMs?: number): Promise<{ url: string; title: string }>
   submit(id: string, selector: string, timeoutMs?: number): Promise<{ url: string; title: string }>
+  waitFor(
+    id: string,
+    selector: string,
+    timeoutMs?: number,
+    state?: "attached" | "visible",
+  ): Promise<{ url: string; title: string }>
+  upload(id: string, selector: string, filePath: string, timeoutMs?: number): Promise<{ url: string; title: string }>
+  text(
+    id: string,
+    selector: string,
+    options?: { as?: "text" | "html" | "attribute"; attribute?: string; timeoutMs?: number },
+  ): Promise<{ value: string | null; url: string; title: string }>
+  screenshot(id: string, label?: string): Promise<{ artifactId: string }>
   frame(id: string, options?: { store?: boolean }): Promise<{ bytes: Uint8Array; artifactId?: string }>
   stop(): Promise<void>
 }
@@ -277,19 +290,58 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     return pick(await syncView(session))
   }
 
-  const frame = async (
-    id: string,
-    options?: { store?: boolean },
-  ): Promise<{ bytes: Uint8Array; artifactId?: string }> => {
+  const waitFor = async (id: string, selector: string, timeoutMs?: number, state?: "attached" | "visible") => {
     const session = requireSession(id)
+    try {
+      await session.page.waitForSelector(selector, { ...timeoutOptions(timeoutMs), state: state ?? "visible" })
+    } catch (cause) {
+      throw new BrowserError("action_failed", 422, messageOf(cause))
+    }
+    return pick(await syncView(session))
+  }
+
+  const upload = async (id: string, selector: string, filePath: string, timeoutMs?: number) => {
+    const session = requireSession(id)
+    try {
+      await session.page.setInputFiles(selector, filePath, timeoutOptions(timeoutMs))
+    } catch (cause) {
+      throw new BrowserError("action_failed", 422, messageOf(cause))
+    }
+    return pick(await syncView(session))
+  }
+
+  const text = async (
+    id: string,
+    selector: string,
+    options?: { as?: "text" | "html" | "attribute"; attribute?: string; timeoutMs?: number },
+  ) => {
+    const session = requireSession(id)
+    const as = options?.as ?? "text"
+    try {
+      const locator = session.page.locator(selector).first()
+      // A hidden node still has attributes and inner HTML; only text needs it on screen.
+      await locator.waitFor({ state: as === "text" ? "visible" : "attached", ...timeoutOptions(options?.timeoutMs) })
+      const value =
+        as === "html"
+          ? await locator.innerHTML()
+          : as === "attribute"
+            ? await locator.getAttribute(options?.attribute ?? "")
+            : await locator.innerText()
+      return {
+        value: typeof value === "string" ? value.slice(0, MAX_PAGE_TEXT) : value,
+        ...pick(await syncView(session)),
+      }
+    } catch (cause) {
+      throw new BrowserError("action_failed", 422, messageOf(cause))
+    }
+  }
+
+  const storeScreenshot = async (session: ActiveSession, label?: string) => {
     const bytes = await session.page.screenshot({ type: "png" })
-    // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
-    // the disk without anybody ever asking for it back.
-    if (options?.store === false) return { bytes }
-    const relative = join("frames", id, `${randomUUID()}.png`)
+    const relative = join("frames", session.view.id, `${randomUUID()}.png`)
     mkdirSync(dirname(join(dataDir, relative)), { recursive: true })
     writeFileSync(join(dataDir, relative), bytes)
-    const title = (await session.page.title().catch(() => "")).trim() || "Browser screenshot"
+    const title = label?.trim() || (await session.page.title().catch(() => "")).trim() || "Browser screenshot"
     const artifact = repository.addArtifact({
       kind: "screenshot",
       title,
@@ -301,11 +353,28 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     return { bytes, artifactId: artifact.id }
   }
 
+  const screenshot = async (id: string, label?: string) => {
+    const session = requireSession(id)
+    const { artifactId } = await storeScreenshot(session, label)
+    return { artifactId }
+  }
+
+  const frame = async (
+    id: string,
+    options?: { store?: boolean },
+  ): Promise<{ bytes: Uint8Array; artifactId?: string }> => {
+    const session = requireSession(id)
+    // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
+    // the disk without anybody ever asking for it back.
+    if (options?.store === false) return { bytes: await session.page.screenshot({ type: "png" }) }
+    return storeScreenshot(session)
+  }
+
   const stop = async (): Promise<void> => {
     await Promise.all([...sessions.keys()].map((id) => closeSession(id)))
   }
 
-  return { start, get, close: closeSession, navigate, snapshot, click, type, submit, frame, stop }
+  return { start, get, close: closeSession, navigate, snapshot, click, type, submit, waitFor, upload, text, screenshot, frame, stop }
 }
 
 type ActiveSession = {

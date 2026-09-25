@@ -93,14 +93,16 @@ The browser runtime — Playwright plus a persistent, isolated Chromium profile 
 component that can call `ctx.ask`. The plugin holds no browser state, no selectors and no
 credentials.
 
-### 5. Per-sensitive-action approval; credentials never cross the transcript
+### 5. Per-action approval; credentials never cross the transcript
 
-Two permissions: **`browser`** (navigate/read) and **`browser_sensitive`** (click/type/submit/
-credential). The resource grammar is `origin` for `browser` and `origin:action` for
-`browser_sensitive`. The plugin calls `ctx.ask` before every side-effecting step. The agent
-references a credential **by name**; the vault resolves and injects it inside the runtime, and the
-value never enters the transcript, a tool result or an artifact. Screenshots and DOM snapshots are
-redacted at capture.
+Two permissions: **`browser`** (navigate/read) and **`browser_sensitive`** (side effects). The
+resource grammar is `origin` for `browser` and `origin:action` for `browser_sensitive`. Approval is
+**one request per action, before it runs**: the plugin calls `ctx.ask` once, showing the steps that
+have effects, and the runner then executes the whole recipe in that one request. A step marked
+`sensitive` is what makes the action count as sensitive, so a pure `extract` action stays under
+`browser` alone. There is no `ctx.ask` between steps. The agent references a credential **by name**;
+the vault resolves and injects it inside the runtime, and the value never enters the transcript, a
+tool result or an artifact. Screenshots and DOM snapshots are redacted at capture.
 
 ### 6. Scheduling is Routines, not a new mechanism
 

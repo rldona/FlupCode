@@ -78,6 +78,12 @@ export type ExportResult = {
   entries: ExportEntry[]
 }
 
+/** The raw `flupcode.actions` block, with the directory its guards resolve against (WA-2). */
+export type ActionProfilesSource = {
+  configDir: string
+  profiles: Record<string, unknown>
+}
+
 export class ConfigFileError extends Error {
   constructor(
     message: string,
@@ -222,6 +228,19 @@ function loadGlobalConfig(): Record<string, unknown> {
   let merged: Record<string, unknown> = {}
   for (const dir of globalConfigDirectories()) merged = mergeConfig(merged, loadConfigDirectory(dir))
   return merged
+}
+
+/**
+ * The `flupcode.actions` profiles as written, and the directory their guards resolve against.
+ *
+ * Nothing is validated here: `validateActionProfile` owns the schema and a caller may want to show
+ * the raw block, an unsupported `kind` included. The config directory is the one the engine's own
+ * config rules pick, so a guard path means the same thing to the action runner as to this screen.
+ */
+export function loadActionProfiles(): ActionProfilesSource {
+  const flupcode = loadGlobalConfig().flupcode
+  const actions = isPlainObject(flupcode) ? flupcode.actions : undefined
+  return { configDir: configDirectory(), profiles: isPlainObject(actions) ? actions : {} }
 }
 
 /** Every guard every delivery profile names, resolved against the config directory. */

@@ -6,6 +6,11 @@ import { createBrowserRuntime } from "./browser"
 import type { BrowserRuntime } from "./browser"
 import { browserTokenFile, readBrowserToken, readOrCreateBrowserToken } from "./browser-token"
 import { createEgressGuard } from "./browser-egress"
+import { createActionRunner } from "./action-runner"
+import type { ActionRunner } from "./action-runner"
+import { unavailableActionCredentialResolver } from "./action-credentials"
+import type { ActionCredentialResolver } from "./action-credentials"
+import { loadActionProfiles } from "./config-files"
 
 export type HarnessServerOptions = {
   port?: number
@@ -18,6 +23,7 @@ export type HarnessServerOptions = {
   browserDataDir?: string
   browserExecutablePath?: string
   browserIdleTimeoutMs?: number
+  actionCredentials?: ActionCredentialResolver
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -33,12 +39,23 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   repository.removeExpiredArtifacts()
   const sweep = setInterval(() => repository.removeExpiredArtifacts(), 60 * 60 * 1000)
   const browser = browserFrom(options, repository)
+  // The runner needs a browser to drive, so it exists only when the runtime does. Without it
+  // `/harness/actions/*` is an ordinary 404, and credentials fail closed (WA-2).
+  const actions: ActionRunner | undefined = browser.runtime
+    ? createActionRunner({
+        browser: browser.runtime,
+        repository,
+        credentials: options.actionCredentials ?? unavailableActionCredentialResolver,
+        loadProfiles: loadActionProfiles,
+      })
+    : undefined
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",
     fetch: createHarnessHandler(repository, scheduler, {
       ...(browser.runtime ? { browser: browser.runtime } : {}),
       ...(browser.token ? { token: browser.token } : {}),
+      ...(actions ? { actions } : {}),
     }),
   })
   return {
@@ -46,6 +63,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     repository,
     scheduler,
     ...(browser.runtime ? { browser: browser.runtime } : {}),
+    ...(actions ? { actions } : {}),
     stop: async () => {
       clearInterval(sweep)
       scheduler.stop()
