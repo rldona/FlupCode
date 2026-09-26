@@ -4,6 +4,8 @@ import { mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, sep } from "node:path"
 import type {
+  ActionTaskInput,
+  BrowserAllowRule,
   Routine,
   RoutineCreateOptions,
   Artifact,
@@ -65,6 +67,8 @@ CREATE TABLE IF NOT EXISTS routines (
   project_directory TEXT,
   agent TEXT,
   model_json TEXT,
+  action_json TEXT,
+  allow_json TEXT,
   enabled INTEGER NOT NULL DEFAULT 1,
   created_at INTEGER NOT NULL,
   last_run_at INTEGER
@@ -90,6 +94,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   prompt TEXT NOT NULL,
   kind TEXT NOT NULL DEFAULT 'agent',
   command TEXT,
+  action_json TEXT,
   attempt INTEGER NOT NULL DEFAULT 1,
   retries INTEGER,
   retry_of TEXT,
@@ -234,6 +239,8 @@ type RoutineRow = {
   model_json: string | null
   workflow_json: string | null
   policy_json: string | null
+  action_json: string | null
+  allow_json: string | null
   enabled: number
   created_at: number
   last_run_at: number | null
@@ -260,6 +267,7 @@ type TaskRow = {
   prompt: string
   kind: string | null
   command: string | null
+  action_json: string | null
   attempt: number | null
   retries: number | null
   retry_of: string | null
@@ -286,8 +294,16 @@ const decodeTask = (row: TaskRow): Task => ({
   position: row.position,
   name: row.name,
   prompt: row.prompt,
-  kind: row.kind === "verify" ? "verify" : row.kind === "external" ? "external" : "agent",
+  kind:
+    row.kind === "verify"
+      ? "verify"
+      : row.kind === "external"
+        ? "external"
+        : row.kind === "action"
+          ? "action"
+          : "agent",
   command: row.command ?? undefined,
+  action: decodeAction(row.action_json),
   attempt: row.attempt ?? 1,
   retries: row.retries ?? undefined,
   retryOf: row.retry_of ?? undefined,
@@ -522,11 +538,64 @@ const decodeRoutine = (row: RoutineRow, runs: Run[]): Routine => ({
   model: decodeModel(row.model_json),
   workflow: decodeRoutineWorkflow(row.workflow_json),
   policy: decodeRoutinePolicy(row.policy_json),
+  action: decodeAction(row.action_json),
+  allow: decodeAllow(row.allow_json),
   enabled: row.enabled === 1,
   createdAt: row.created_at,
   lastRunAt: row.last_run_at ?? undefined,
   runs,
 })
+
+/**
+ * An action a routine or task runs (WA-7), or nothing when the row predates the column.
+ *
+ * An unreadable value means "no action", never a half-parsed one: a scheduled run must not invent
+ * the recipe it is about to drive.
+ */
+export function decodeAction(value: string | null): ActionTaskInput | undefined {
+  if (!value) return undefined
+  try {
+    const parsed = JSON.parse(value) as { id?: unknown; inputs?: unknown }
+    if (typeof parsed.id !== "string" || !parsed.id.trim()) return undefined
+    const inputs =
+      parsed.inputs && typeof parsed.inputs === "object" && !Array.isArray(parsed.inputs)
+        ? (parsed.inputs as Record<string, unknown>)
+        : undefined
+    return { id: parsed.id.trim(), ...(inputs ? { inputs } : {}) }
+  } catch {
+    return undefined
+  }
+}
+
+/** The allow rules a scheduled action runs under (WA-7). Same rule: unreadable means none. */
+export function decodeAllow(value: string | null): BrowserAllowRule[] | undefined {
+  if (!value) return undefined
+  try {
+    return parseAllow(JSON.parse(value) as unknown)
+  } catch {
+    return undefined
+  }
+}
+
+/** The same reading for a value that is already parsed, as a run's options store it. */
+export function parseAllow(value: unknown): BrowserAllowRule[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const rules = value.flatMap((entry): BrowserAllowRule[] => {
+    if (!entry || typeof entry !== "object") return []
+    const rule = entry as { permission?: unknown; pattern?: unknown; action?: unknown }
+    if (rule.action !== "allow") return []
+    if (rule.permission !== "browser" && rule.permission !== "browser_sensitive") return []
+    if (typeof rule.pattern !== "string" || !rule.pattern) return []
+    return [{ permission: rule.permission, pattern: rule.pattern, action: "allow" }]
+  })
+  return rules.length > 0 ? rules : undefined
+}
+
+const encodeAction = (action: ActionTaskInput | undefined): string | null =>
+  action ? JSON.stringify({ id: action.id, ...(action.inputs ? { inputs: action.inputs } : {}) }) : null
+
+const encodeAllow = (allow: BrowserAllowRule[] | undefined): string | null =>
+  allow && allow.length > 0 ? JSON.stringify(allow) : null
 
 /** A routine's workflow, or nothing when it runs a single prompt (HF-8). */
 function decodeRoutineWorkflow(value: string | null): Routine["workflow"] {
@@ -579,7 +648,10 @@ const decodeRun = (row: RunRow): Run => ({
  */
 const decodeOptions = (
   value: string | null,
-): Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved"> => {
+): Pick<
+  Run,
+  "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow"
+> => {
   if (!value) return {}
   try {
     const parsed = JSON.parse(value) as {
@@ -591,7 +663,9 @@ const decodeOptions = (
       policy?: unknown
       paused?: unknown
       budgetApproved?: unknown
+      allow?: unknown
     }
+    const allow = parseAllow(parsed.allow)
     return {
       ...(typeof parsed.toolLimitMs === "number" && parsed.toolLimitMs > 0 ? { toolLimitMs: parsed.toolLimitMs } : {}),
       ...(parsed.outside === true ? { outside: true } : {}),
@@ -605,6 +679,7 @@ const decodeOptions = (
         : {}),
       ...(parsed.paused === "gate" || parsed.paused === "budget" ? { paused: parsed.paused } : {}),
       ...(parsed.budgetApproved === true ? { budgetApproved: true } : {}),
+      ...(allow !== undefined ? { allow } : {}),
     }
   } catch {
     return {}
@@ -612,7 +687,10 @@ const decodeOptions = (
 }
 
 const encodeOptions = (
-  run: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved">,
+  run: Pick<
+    Run,
+    "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "paused" | "budgetApproved" | "allow"
+  >,
 ) => {
   const options = {
     ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
@@ -623,6 +701,7 @@ const encodeOptions = (
     ...(run.policy ? { policy: run.policy } : {}),
     ...(run.paused ? { paused: run.paused } : {}),
     ...(run.budgetApproved ? { budgetApproved: true } : {}),
+    ...(run.allow && run.allow.length > 0 ? { allow: run.allow } : {}),
   }
   return Object.keys(options).length > 0 ? JSON.stringify(options) : null
 }
@@ -655,6 +734,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("runs", "options", "TEXT")
     this.addColumn("routines", "workflow_json", "TEXT")
     this.addColumn("routines", "policy_json", "TEXT")
+    this.addColumn("routines", "action_json", "TEXT")
+    this.addColumn("routines", "allow_json", "TEXT")
+    this.addColumn("tasks", "action_json", "TEXT")
     this.addColumn("tasks", "directory", "TEXT")
     this.addColumn("tasks", "depends_on", "TEXT")
     this.addColumn("tasks", "when_json", "TEXT")
@@ -729,8 +811,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       this.db
         .query(
           `INSERT INTO routines
-            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, workflow_json, policy_json, enabled, created_at, last_run_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)`,
+            (id, name, description, prompt, schedule_json, project_directory, agent, model_json, workflow_json, policy_json, action_json, allow_json, enabled, created_at, last_run_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)`,
         )
         .run(
           routine.id,
@@ -743,6 +825,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
           routine.model ? JSON.stringify(routine.model) : null,
           routine.workflow ? JSON.stringify(routine.workflow) : null,
           routine.policy ? JSON.stringify(routine.policy) : null,
+          encodeAction(routine.action),
+          encodeAllow(routine.allow),
           routine.enabled ? 1 : 0,
           routine.createdAt,
           routine.lastRunAt ?? null,
@@ -758,8 +842,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.db
       .query(
         `UPDATE routines
-         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7, workflow_json = ?8, policy_json = ?9
-         WHERE id = ?10`,
+         SET name = ?1, description = ?2, prompt = ?3, schedule_json = ?4, project_directory = ?5, agent = ?6, model_json = ?7, workflow_json = ?8, policy_json = ?9, action_json = ?10, allow_json = ?11
+         WHERE id = ?12`,
       )
       .run(
         input.name,
@@ -771,6 +855,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         input.model ? JSON.stringify(input.model) : null,
         input.workflow ? JSON.stringify(input.workflow) : null,
         input.policy ? JSON.stringify(input.policy) : null,
+        encodeAction(input.action),
+        encodeAllow(input.allow),
         id,
       )
     const routine = this.get(id)
@@ -833,7 +919,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     source: RunSource,
     now: number,
     directory?: string,
-    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy"> = {},
+    options: Pick<Run, "toolLimitMs" | "outside" | "shell" | "packs" | "worktrees" | "policy" | "allow"> = {},
   ) {
     const run: Run = { id: crypto.randomUUID(), source, status: "running", startedAt: now, directory, ...options }
     this.db.transaction(() => {
@@ -1464,8 +1550,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db
           .query(
             `INSERT INTO tasks
-               (id, run_id, position, name, prompt, kind, command, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, status)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, 'queued')`,
+               (id, run_id, position, name, prompt, kind, command, action_json, attempt, retries, retry_of, gate, agent, model_json, depends_on, when_json, foreach_source, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 'queued')`,
           )
           .run(
             task.id,
@@ -1475,6 +1561,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             task.prompt,
             task.kind,
             task.command ?? null,
+            encodeAction(task.action),
             task.attempt,
             task.retries ?? null,
             task.retryOf ?? null,

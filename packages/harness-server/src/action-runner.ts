@@ -45,8 +45,27 @@ export type ActionRunRequest = {
   inputs?: Record<string, unknown>
   sessionID: string
   project: string
+  /** The folder a project profile is resolved from (WA-7). */
+  directory?: string
   headed?: boolean
   dryRun?: boolean
+  /**
+   * The run and task this action belongs to (WA-7).
+   *
+   * An interactive call has a session the evidence can hang on; a scheduled one has none, so it
+   * names the run and task and every artifact — screenshot or text — is filed under them.
+   */
+  runID?: string
+  taskID?: string
+  /** The run was stopped: refuse between steps instead of driving a browser nobody is watching. */
+  stopped?: () => boolean
+  /**
+   * Close the browser when the run ends (WA-7).
+   *
+   * A scheduled action keys its browser by task id and has nobody to reuse it, so leaving it open
+   * would hold the project's reservation until the idle timeout. The interactive path keeps it.
+   */
+  closeOnFinish?: boolean
 }
 
 export type ActionStepReport = {
@@ -80,8 +99,10 @@ export type ActionDryRunResult = {
   steps: ActionStepReport[]
 }
 
+export type ActionListInput = { directory?: string; project?: string }
+
 export type ActionRunner = {
-  list(): { profiles: ActionProfile[]; rejected: Array<{ id: string; code: string; message: string }> }
+  list(input?: ActionListInput): { profiles: ActionProfile[]; rejected: Array<{ id: string; code: string; message: string }> }
   run(input: ActionRunRequest): Promise<ActionRunResult | ActionDryRunResult>
 }
 
@@ -89,7 +110,7 @@ export type ActionRunnerOptions = {
   browser: BrowserRuntime
   repository: Pick<SqliteRoutineRepository, "addArtifact" | "getArtifact">
   credentials: ActionCredentialResolver
-  loadProfiles: () => ActionProfilesSource
+  loadProfiles: (input?: ActionListInput) => ActionProfilesSource
   defaultEvidence?: "each" | "failure" | "none"
 }
 
@@ -148,8 +169,8 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
   const { browser, repository, credentials, loadProfiles } = options
   const fallbackEvidence = options.defaultEvidence ?? "each"
 
-  const list = () => {
-    const source = loadProfiles()
+  const list = (input?: ActionListInput) => {
+    const source = loadProfiles(input)
     const profiles: ActionProfile[] = []
     const rejected: Array<{ id: string; code: string; message: string }> = []
     const tools = new Set<string>()
@@ -170,7 +191,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
   }
 
   const run = async (input: ActionRunRequest): Promise<ActionRunResult | ActionDryRunResult> => {
-    const source = loadProfiles()
+    const source = loadProfiles({ directory: input.directory, project: input.project })
     const profile = resolveProfile(source, input)
     const provided = isPlainObject(input.inputs) ? input.inputs : {}
     const resolved = await resolveActionInputs({ profile, provided, repository }).catch((cause) => {
@@ -204,6 +225,9 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       return await drive(profile, resolved, input, secrets)
     } finally {
       resolved.cleanup()
+      // A scheduled action is one shot: closing here releases the project before the task is
+      // written down, and a failure closes just the same. Interactive calls keep their window.
+      if (input.closeOnFinish === true) await browser.close(input.sessionID).catch(() => undefined)
     }
   }
 
@@ -228,7 +252,13 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       credentialValues[name] = value
     }
 
-    await browser.start({ id: sessionID, project: input.project, ...(input.headed === true ? { headed: true } : {}) })
+    await browser.start({
+      id: sessionID,
+      project: input.project,
+      ...(input.headed === true ? { headed: true } : {}),
+      ...(input.runID ? { runID: input.runID } : {}),
+      ...(input.taskID ? { taskID: input.taskID } : {}),
+    })
     // Registered the moment the browser exists, not when a `fill` happens: a run that fails before
     // the credential is typed still must not echo it from a snapshot or a capture.
     for (const value of Object.values(credentialValues)) browser.protect(sessionID, { value })
@@ -253,6 +283,9 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
     const startedAt = Date.now()
 
     for (const [index, step] of profile.steps.entries()) {
+      // A scheduled run can be stopped with nothing driving the browser: the flag is checked
+      // between steps, so the recipe does not carry on opening windows nobody asked for (WA-7).
+      if (input.stopped?.() === true) throw stoppedError(profile)
       const kind = stepKind(step)
       const stepStartedAt = Date.now()
       const allowed = canRetry(kind) ? MAX_STEP_ATTEMPTS : 1
@@ -342,6 +375,8 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         title: `${profile.id}:text`,
         producer: "harness",
         content: redactSecrets(snapshot.text, secrets),
+        ...(input.runID ? { runID: input.runID } : {}),
+        ...(input.taskID ? { taskID: input.taskID } : {}),
       })
       evidence.push(artifact.id)
     }

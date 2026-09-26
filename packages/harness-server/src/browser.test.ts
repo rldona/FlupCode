@@ -625,6 +625,21 @@ describe("driving a real browser", () => {
     },
     30_000,
   )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "a browser started for a run files its screenshots under that run and task (WA-7)",
+    async () => {
+      const server = fixture()
+      const { runtime, repository } = open(server)
+
+      await runtime.start({ id: "s-scope", project: "proj", runID: "run_1", taskID: "task_1" })
+      await runtime.navigate("s-scope", `http://127.0.0.1:${server.port}/`)
+      const { artifactId } = await runtime.screenshot("s-scope", "scoped")
+
+      expect(repository.getArtifact(artifactId)).toMatchObject({ runID: "run_1", taskID: "task_1" })
+    },
+    30_000,
+  )
 })
 
 describe("the live view's control (WA-6)", () => {

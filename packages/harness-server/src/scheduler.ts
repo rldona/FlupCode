@@ -4,8 +4,9 @@ import { TaskRunner } from "./runner"
 import { isDue } from "./schedule"
 import { findWorkflow, tasksFor } from "./workflow"
 import { restore } from "./checkpoint"
-import type { Run, RunPolicy, RunSource, TaskInput } from "./types"
+import type { BrowserAllowRule, Run, RunPolicy, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
+import type { ActionRunner } from "./action-runner"
 
 type Result<T> = { data?: T; error?: unknown }
 
@@ -14,6 +15,8 @@ type SchedulerOptions = {
   engineURL: string
   intervalMs?: number
   lockTtlMs?: number
+  /** The web actions a scheduled action drives (WA-7). Absent means action routines fail closed. */
+  actions?: ActionRunner
 }
 
 const unwrap = async <T>(call: Promise<Result<T>>) => {
@@ -68,6 +71,7 @@ export class RoutineScheduler {
   readonly engine: Engine
   readonly intervalMs: number
   readonly lockTtlMs: number
+  readonly actions?: ActionRunner
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
   private timer: ReturnType<typeof setInterval> | undefined
@@ -79,6 +83,7 @@ export class RoutineScheduler {
     this.engine = new Engine(this.engineURL)
     this.intervalMs = options.intervalMs ?? 30_000
     this.lockTtlMs = options.lockTtlMs ?? 24 * 60 * 60 * 1000
+    this.actions = options.actions
   }
 
   start() {
@@ -118,6 +123,8 @@ export class RoutineScheduler {
     worktrees?: boolean
     /** Model per role, a fallback, and a budget (H-30). */
     policy?: RunPolicy
+    /** The approval an action task runs under (WA-7). Without it, an action task fails closed. */
+    allow?: BrowserAllowRule[]
   }) {
     if (input.tasks.length === 0) throw new Error("A run needs at least one task")
     const run = this.repository.startRun({ type: "manual" }, Date.now(), input.directory, {
@@ -127,6 +134,7 @@ export class RoutineScheduler {
       ...(input.packs && input.packs.length > 0 ? { packs: input.packs } : {}),
       ...(input.worktrees ? { worktrees: true } : {}),
       ...(input.policy ? { policy: input.policy } : {}),
+      ...(input.allow && input.allow.length > 0 ? { allow: input.allow } : {}),
     })
     this.repository.addTasks(run.id, input.tasks)
     // More than one task means a thread of its own: the run's session is what a person reads, and
@@ -243,11 +251,14 @@ export class RoutineScheduler {
   private async drive(runID: string, directory?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return
-    const runner = new TaskRunner(this.repository, this.engine)
+    const runner = new TaskRunner(this.repository, this.engine, this.actions)
     try {
       const outcome = await runner.execute(run, { directory, stopped: () => this.stopping.has(runID) })
       if (outcome === "paused" && !this.stopping.has(runID)) return this.repository.awaitRun(runID)
-      this.finishRun(runID, this.stopping.has(runID) ? "stopped" : "success")
+      // A task the browser stopped on its own is the run called off too, even though the scheduler
+      // never set its own flag (WA-7).
+      const halted = this.stopping.has(runID) || outcome === "stopped"
+      this.finishRun(runID, halted ? "stopped" : "success")
     } catch (cause) {
       this.finishRun(runID, "failed", cause instanceof Error ? cause.message : String(cause))
     }
@@ -291,6 +302,7 @@ export class RoutineScheduler {
         prompt: task.prompt,
         kind: task.kind,
         ...(task.command ? { command: task.command } : {}),
+        ...(task.action ? { action: task.action } : {}),
         agent: task.agent,
         model: options.model ?? task.model,
         attempt: (task.attempt ?? 1) + 1,
@@ -436,6 +448,25 @@ export class RoutineScheduler {
       this.repository.release(key, this.owner)
       return undefined
     }
+    // A routine drives a web action, a workflow's tasks, or one prompt. An action is one
+    // deterministic task with no model turn, and the run carries the consent it was saved with
+    // (WA-7); without that consent `runActionTask` refuses before the browser opens.
+    if (routine.action) {
+      const inputs = { ...(routine.action.inputs ?? {}), ...(overrides ?? {}) }
+      const run = this.repository.startRun(source, now, routine.projectDirectory, {
+        ...(routine.policy ? { policy: routine.policy } : {}),
+        ...(routine.allow && routine.allow.length > 0 ? { allow: routine.allow } : {}),
+      })
+      this.repository.addTasks(run.id, [
+        {
+          name: routine.name,
+          prompt: "",
+          kind: "action",
+          action: { id: routine.action.id, ...(Object.keys(inputs).length > 0 ? { inputs } : {}) },
+        },
+      ])
+      return run
+    }
     // A routine runs one prompt, or the tasks of a workflow file (HF-8). Either way the run
     // carries the routine's policy, so budgets and fallbacks apply on schedule as on demand.
     if (!routine.workflow) {
@@ -488,7 +519,7 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const runner = new TaskRunner(this.repository, this.engine)
+      const runner = new TaskRunner(this.repository, this.engine, this.actions)
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),
@@ -505,7 +536,8 @@ export class RoutineScheduler {
       const [task] = this.repository.listTasks(run.id)
       const fresh = this.repository.getRun(run.id) ?? run
       if (task?.sessionID && !fresh.sessionID) this.repository.attachSession(run.id, task.sessionID)
-      this.finish(run, this.stopping.has(run.id) ? "stopped" : "success", this.stopping.has(run.id) ? "Routine stopped" : undefined)
+      const halted = this.stopping.has(run.id) || outcome === "stopped"
+      this.finish(run, halted ? "stopped" : "success", halted ? "Routine stopped" : undefined)
     } catch (cause) {
       this.finish(
         run,

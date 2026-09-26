@@ -11,7 +11,7 @@ import type { ActionInputKind, ActionProfile } from "./actions"
 import { ActionRunError, createActionRunner, toActionErrorBody } from "./action-runner"
 import { createHarnessHandler } from "./api"
 import { createBrowserRuntime } from "./browser"
-import type { BrowserRuntime } from "./browser"
+import type { BrowserRuntime, BrowserStartInput } from "./browser"
 import { BrowserError } from "./browser"
 import { createEgressGuard } from "./browser-egress"
 import { loadActionProfiles } from "./config-files"
@@ -678,6 +678,59 @@ describe("running action recipes", () => {
     throw new Error("expected the action to fail")
   }
 
+  /** A browser that records how it was asked to start, and when it was closed (WA-7). */
+  const recordingBrowser = (options: { stopped?: boolean } = {}) => {
+    const starts: BrowserStartInput[] = []
+    const closed: string[] = []
+    const calls: string[] = []
+    const session = {
+      id: "s1",
+      project: "proj",
+      headed: false,
+      createdAt: 0,
+      lastUsedAt: 0,
+      idleTimeoutMs: 0,
+      url: "https://example.com/",
+      title: "",
+      paused: false,
+      stopped: false,
+    }
+    const view = { url: session.url, title: session.title }
+    const browser: BrowserRuntime = {
+      start: async (input) => {
+        starts.push(input)
+        return session
+      },
+      openLogin: async () => session,
+      protect: () => {},
+      clearData: async () => true,
+      get: () => session,
+      close: async (id) => {
+        closed.push(id)
+        return true
+      },
+      pause: () => session,
+      resume: () => session,
+      takeOver: async () => session,
+      abort: async () => true,
+      waitIfPaused: async () => {
+        if (options.stopped) throw new BrowserError("stopped", 409, "stopped")
+      },
+      navigate: async () => (calls.push("navigate"), view),
+      snapshot: async () => ({ ...view, text: "" }),
+      click: async () => (calls.push("click"), view),
+      type: async () => (calls.push("type"), view),
+      submit: async () => (calls.push("submit"), view),
+      waitFor: async () => (calls.push("waitFor"), view),
+      upload: async () => (calls.push("upload"), view),
+      text: async () => ({ value: null, ...view }),
+      screenshot: async () => (calls.push("screenshot"), { artifactId: "artifact" }),
+      frame: async () => (calls.push("frame"), { bytes: new Uint8Array() }),
+      stop: async () => {},
+    }
+    return { browser, starts, closed, calls }
+  }
+
   const profile = (origin: string, overrides: Record<string, unknown> = {}) => ({
     tool: "do_publish",
     kind: "browser",
@@ -882,6 +935,38 @@ describe("running action recipes", () => {
     expect(error).toMatchObject({ code: "stopped", status: 409 })
     expect(pauses).toBe(1)
   })
+
+  test("a scheduled run is headless, scoped to its run and task, and closed on finish (WA-7)", async () => {
+    const { repository } = open()
+    const { browser, starts, closed } = recordingBrowser()
+    const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
+
+    await runner.run({
+      action: "publish",
+      sessionID: "task_1",
+      project: "proj",
+      runID: "run_1",
+      taskID: "task_1",
+      closeOnFinish: true,
+    })
+
+    // Headless unless a person asked for a window, and the evidence knows where it belongs.
+    expect(starts[0]).toMatchObject({ id: "task_1", project: "proj", runID: "run_1", taskID: "task_1" })
+    expect(starts[0]!.headed).toBeUndefined()
+    expect(closed).toEqual(["task_1"])
+  })
+
+  test("a stopped run refuses before the next step instead of driving on (WA-7)", async () => {
+    const { repository } = open()
+    const { browser } = recordingBrowser()
+    const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
+
+    const error = await failureOf(
+      runner.run({ action: "publish", sessionID: "task_1", project: "proj", stopped: () => true }),
+    )
+    expect(error).toMatchObject({ code: "stopped", status: 409 })
+  })
+
   test.skipIf(!existsSync(chromiumPath))(
     "runs a recipe end to end and keeps a recoverable screenshot",
     async () => {

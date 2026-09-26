@@ -5,7 +5,11 @@ import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { TaskRunner } from "./runner"
 import { RoutineScheduler } from "./scheduler"
-import type { RunSource, RunStatus } from "./types"
+import { ActionRunError } from "./action-runner"
+import type { ActionProfile } from "./actions"
+import type { ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
+import { BrowserError } from "./browser"
+import type { BrowserAllowRule, RunSource, RunStatus } from "./types"
 
 /** Waits for a run the scheduler is driving to reach a state, rather than guessing at a delay. */
 const settledAt = async (
@@ -1146,6 +1150,252 @@ describe("project memory in a run (H-37)", () => {
     repository.addTasks(run2.id, [{ name: "one", prompt: "Do it" }])
     await new TaskRunner(repository, engine2).execute(run2, { directory: other })
     expect(empty[0]).not.toContain("Project memory:")
+    repository.close()
+  })
+})
+
+// WA-7: a scheduled web action is a normal Run with a deterministic `action` task. The runner
+// calls the action runner in process, so no model turn is spent — and without the consent the
+// routine declared, it fails closed before any browser opens.
+describe("a web action task (WA-7)", () => {
+  const engine = new Proxy({} as never, {
+    get(_target, name) {
+      throw new Error(`the runner asked the engine for ${String(name)} during an action task`)
+    },
+  })
+
+  const publishProfile = (): ActionProfile => ({
+    id: "publish",
+    tool: "do_publish",
+    description: "Publish the piece",
+    kind: "browser",
+    origin: "https://example.com",
+    inputs: { text: "string" },
+    steps: [],
+    guards: [],
+    sensitive: true,
+    availability: "host",
+    evidence: {},
+  })
+
+  const allowed: BrowserAllowRule[] = [
+    { permission: "browser_sensitive", pattern: "https://example.com:publish", action: "allow" },
+  ]
+
+  const actionRunner = (run?: (request: ActionRunRequest) => Promise<ActionRunResult>) => {
+    const calls: ActionRunRequest[] = []
+    const runner: ActionRunner = {
+      list: () => ({ profiles: [publishProfile()], rejected: [] }),
+      run: async (request) => {
+        calls.push(request)
+        if (run) return run(request)
+        return {
+          action: "publish",
+          tool: "do_publish",
+          status: "success",
+          origin: "https://example.com",
+          url: "https://example.com/done",
+          title: "Done",
+          startedAt: 0,
+          finishedAt: 1,
+          steps: [],
+          evidence: [],
+        }
+      },
+    }
+    return { runner, calls }
+  }
+
+  const addPublish = (repository: SqliteRoutineRepository, runID: string) =>
+    repository.addTasks(runID, [
+      { name: "publish", prompt: "", kind: "action", action: { id: "publish", inputs: { text: "hola" } } },
+    ])
+
+  test("without an allow rule it fails closed and never calls the action runner", async () => {
+    const repository = open()
+    const { runner, calls } = actionRunner()
+    const run = repository.startRun(manual, 1000)
+    addPublish(repository, run.id)
+
+    await expect(new TaskRunner(repository, engine, runner).execute(run)).rejects.toThrow(/allow rule/)
+
+    expect(calls).toHaveLength(0)
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "failed" })
+    expect(task!.error).toContain("https://example.com:publish")
+    repository.close()
+  })
+
+  test("with the allow rule it runs and its evidence is bound to the run and task", async () => {
+    const repository = open()
+    const { runner, calls } = actionRunner(async (request) => {
+      repository.addArtifact({
+        kind: "screenshot",
+        title: "shot",
+        producer: "harness",
+        path: "frames/x.png",
+        directory: "/tmp",
+        ...(request.runID ? { runID: request.runID } : {}),
+        ...(request.taskID ? { taskID: request.taskID } : {}),
+      })
+      return {
+        action: "publish",
+        tool: "do_publish",
+        status: "success",
+        origin: "https://example.com",
+        url: "https://example.com/done",
+        title: "Done",
+        startedAt: 0,
+        finishedAt: 1,
+        steps: [],
+        evidence: [],
+      }
+    })
+    const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
+    addPublish(repository, run.id)
+
+    await new TaskRunner(repository, engine, runner).execute(run)
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "success" })
+    expect(calls[0]).toMatchObject({
+      action: "publish",
+      sessionID: task!.id,
+      runID: run.id,
+      taskID: task!.id,
+      closeOnFinish: true,
+    })
+    const [artifact] = repository.listArtifacts({ runID: run.id }).filter((entry) => entry.taskID === task!.id)
+    expect(artifact).toMatchObject({ kind: "screenshot", runID: run.id, taskID: task!.id })
+    repository.close()
+  })
+
+  test("a recipe that fails records the failure on the run, with a log", async () => {
+    const repository = open()
+    const { runner } = actionRunner(async () => {
+      throw new ActionRunError({ code: "step_failed", status: 422, message: "the button was missing", action: "publish" })
+    })
+    const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
+    addPublish(repository, run.id)
+
+    await expect(new TaskRunner(repository, engine, runner).execute(run)).rejects.toThrow("the button was missing")
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "failed", error: "the button was missing" })
+    const [log] = repository.listArtifacts({ runID: run.id, kind: "log" })
+    expect(log?.content).toBe("the button was missing")
+    repository.close()
+  })
+
+  test("a stop is not a failure: the task is stopped and the run carries no error", async () => {
+    const repository = open()
+    const { runner } = actionRunner(async () => {
+      throw new ActionRunError({ code: "stopped", status: 409, message: "The run was stopped", action: "publish" })
+    })
+    const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
+    addPublish(repository, run.id)
+
+    await new TaskRunner(repository, engine, runner).execute(run)
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "stopped", error: "The run was stopped" })
+    repository.close()
+  })
+
+  test("a browser stop the scheduler did not ask for closes the run as stopped", async () => {
+    const repository = open()
+    const { runner } = actionRunner(async () => {
+      throw new ActionRunError({
+        code: "stopped",
+        status: 409,
+        message: "The browser session was stopped",
+        action: "publish",
+      })
+    })
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1", actions: runner })
+    const routine = repository.create({
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow: allowed,
+    })
+
+    const run = await scheduler.runNow(routine.id)
+    await settledAt(repository, run.id, "stopped")
+
+    expect(repository.getRun(run.id)?.status).toBe("stopped")
+    expect(repository.listTasks(run.id)[0]).toMatchObject({ status: "stopped" })
+    repository.close()
+  })
+
+  test("a project whose browser is busy is waited out before the recipe runs", async () => {
+    const repository = open()
+    const { runner, calls } = actionRunner(async () => {
+      if (calls.length < 3) throw new BrowserError("browser_busy", 409, "This project already has a browser session")
+      return {
+        action: "publish",
+        tool: "do_publish",
+        status: "success",
+        origin: "https://example.com",
+        url: "https://example.com/done",
+        title: "Done",
+        startedAt: 0,
+        finishedAt: 1,
+        steps: [],
+        evidence: [],
+      }
+    })
+    const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
+    addPublish(repository, run.id)
+
+    await new TaskRunner(repository, engine, runner).execute(run)
+
+    expect(calls).toHaveLength(3)
+    expect(repository.listTasks(run.id)[0]).toMatchObject({ status: "success" })
+    repository.close()
+  })
+
+  test("a project still busy after the retries fails with an actionable reason", async () => {
+    const repository = open()
+    const { runner, calls } = actionRunner(async () => {
+      throw new BrowserError("browser_busy", 409, "This project already has a browser session")
+    })
+    const run = repository.startRun(manual, 1000, undefined, { allow: allowed })
+    addPublish(repository, run.id)
+
+    await expect(new TaskRunner(repository, engine, runner).execute(run)).rejects.toThrow(/busy with another action/)
+
+    expect(calls).toHaveLength(3)
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ status: "failed" })
+    expect(task!.error).toContain("busy")
+    repository.close()
+  })
+
+  test("a routine that drives an action starts the run with the task and its allow rules", async () => {
+    const repository = open()
+    const { runner, calls } = actionRunner()
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1", actions: runner })
+    const routine = repository.create({
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow: allowed,
+    })
+
+    const run = await scheduler.runNow(routine.id)
+    await settledAt(repository, run.id, "success")
+
+    expect(repository.getRun(run.id)?.allow).toEqual(allowed)
+    expect(repository.listTasks(run.id)[0]).toMatchObject({
+      kind: "action",
+      action: { id: "publish", inputs: { text: "hola" } },
+    })
+    expect(calls).toHaveLength(1)
     repository.close()
   })
 })

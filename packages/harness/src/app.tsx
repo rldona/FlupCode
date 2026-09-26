@@ -65,8 +65,12 @@ import { recoverablePrompt } from "./unsend"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
+  ActionCatalog,
+  ActionProfileSummary,
+  ActionTaskInput,
   Artifact,
   Attachment,
+  BrowserAllowRule,
   CommandOption,
   McpConfig,
   McpScope,
@@ -217,6 +221,30 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "providers", descriptionKey: "Providers & API keys" },
 ]
 
+const normalizeAction = (value: unknown): ActionTaskInput | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== "string" || !record.id.trim()) return undefined
+  const inputs =
+    record.inputs && typeof record.inputs === "object" && !Array.isArray(record.inputs)
+      ? (record.inputs as Record<string, unknown>)
+      : undefined
+  return { id: record.id.trim(), ...(inputs ? { inputs } : {}) }
+}
+
+const normalizeAllow = (value: unknown): BrowserAllowRule[] | undefined => {
+  if (!Array.isArray(value)) return undefined
+  const rules = value.flatMap((entry): BrowserAllowRule[] => {
+    if (!entry || typeof entry !== "object") return []
+    const rule = entry as { permission?: unknown; pattern?: unknown; action?: unknown }
+    if (rule.action !== "allow") return []
+    if (rule.permission !== "browser" && rule.permission !== "browser_sensitive") return []
+    if (typeof rule.pattern !== "string" || !rule.pattern) return []
+    return [{ permission: rule.permission, pattern: rule.pattern, action: "allow" }]
+  })
+  return rules.length > 0 ? rules : undefined
+}
+
 const normalizeRoutine = (value: unknown): Routine | undefined => {
   if (!value || typeof value !== "object") return undefined
   const item = value as Record<string, unknown>
@@ -281,6 +309,8 @@ const normalizeRoutine = (value: unknown): Routine | undefined => {
           }
         : undefined,
     policy: (item.policy ?? undefined) as Routine["policy"],
+    action: normalizeAction(item.action),
+    allow: normalizeAllow(item.allow),
     enabled: item.enabled !== false,
     createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
     lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
@@ -633,6 +663,8 @@ export const App: Component = () => {
   const [runs, setRuns] = createSignal<Run[]>([])
   const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
   const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
+  /** The web actions the server knows (WA-7), for the routine editor's action preset. */
+  const [actionProfiles, setActionProfiles] = createSignal<ActionProfileSummary[]>([])
   createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
@@ -3773,12 +3805,15 @@ export const App: Component = () => {
       setRoutinesServerLoading(true)
       try {
         const current = createHarnessClient(harnessServerUrl())
+        // The action catalogue is only there when a browser runtime was built; without it the
+        // editor simply offers no actions. A missing catalogue is not the server being down.
+        const catalog = await current.actions.list().catch(() => undefined)
+        setActionProfiles(catalog?.profiles ?? [])
         const remote = normalizeRoutines(await current.routines.list())
         const migrated = readStorage(STORAGE_KEYS.routinesMigration, false)
         if (!migrated && remote.length === 0 && routines().length > 0) {
           const created = await Promise.all(
-            routines().map((routine) => current.routines.create(routine)),
-
+            routines().map((routine) => current.routines.create(routine).then((saved) => saved.data)),
           )
           writeStorage(STORAGE_KEYS.routinesMigration, true)
           setRoutineState(normalizeRoutines(created))
@@ -3953,8 +3988,9 @@ export const App: Component = () => {
   const addRoutine = (input: RoutineInput) => {
     void createHarnessClient(harnessServerUrl())
       .routines.create(input)
-      .then((routine) => {
+      .then(({ data: routine, warnings }) => {
         setRoutineState([routine, ...routines()])
+        showRoutineWarnings(warnings)
         toast(t("Routine created"), "success")
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
@@ -3963,11 +3999,17 @@ export const App: Component = () => {
   const updateRoutine = (id: string, input: RoutineInput) => {
     void createHarnessClient(harnessServerUrl())
       .routines.update(id, input)
-      .then((routine) => {
+      .then(({ data: routine, warnings }) => {
         setRoutineState(routines().map((entry) => (entry.id === id ? routine : entry)))
+        showRoutineWarnings(warnings)
         toast(t("Routine saved"), "success")
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  /** What the server said beside a saved routine, without pretending it failed (WA-7). */
+  const showRoutineWarnings = (warnings: string[]) => {
+    for (const warning of warnings) toast(warning, "info")
   }
 
   const toggleRoutine = (id: string) => {
@@ -5561,6 +5603,8 @@ export const App: Component = () => {
             projects={routineProjects()}
             models={modelList()}
             agents={agents()?.data ?? []}
+            actions={actionProfiles()}
+            artifacts={artifactList()}
             onAdd={addRoutine}
             onUpdate={updateRoutine}
             onToggle={toggleRoutine}

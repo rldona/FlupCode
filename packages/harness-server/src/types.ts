@@ -102,6 +102,36 @@ export type Run = {
   paused?: "gate" | "budget"
   /** Somebody said to carry on past the budget, so it is not checked again. */
   budgetApproved?: boolean
+  /**
+   * The approval a web action may run under when no model turn is there to ask (WA-7).
+   *
+   * A scheduled action has nobody to answer `ctx.ask`, so its consent is declared on the run and
+   * checked before the browser opens. Only `allow` is meaningful here.
+   */
+  allow?: BrowserAllowRule[]
+}
+
+/**
+ * One rule of the approval a web action runs under (WA-7).
+ *
+ * The shape is the engine's own permission rule, with the action narrowed to `allow`: a scheduled
+ * run can hold a consent, never a refusal it would have to enforce later.
+ */
+export type BrowserAllowRule = {
+  permission: "browser" | "browser_sensitive"
+  pattern: string
+  action: "allow"
+}
+
+/**
+ * A web action a routine (or a task) runs (WA-7).
+ *
+ * The profile id names the recipe; the inputs fill its declared values. Nothing here is a model
+ * turn: the action runner executes the recipe in process.
+ */
+export type ActionTaskInput = {
+  id: string
+  inputs?: Record<string, unknown>
 }
 
 export type RoutineInput = {
@@ -116,6 +146,15 @@ export type RoutineInput = {
   workflow?: { name: string; inputs?: Record<string, string> }
   /** Model fallback and budget for the runs this routine starts (HF-8). */
   policy?: RunPolicy
+  /**
+   * Drive a deterministic web action instead of a prompt (WA-7).
+   *
+   * A scheduled run of an action has no model and no `ctx.ask`, so the consent it runs under is
+   * declared beside it in `allow`.
+   */
+  action?: ActionTaskInput
+  /** The allow rules the action above needs; without them a browser action is refused (WA-7). */
+  allow?: BrowserAllowRule[]
 }
 
 export type Routine = RoutineInput & {
@@ -166,11 +205,11 @@ export type TaskCondition = {
  *
  * `agent` is a turn of the engine. `verify` is not: it runs the project's own commands and keeps
  * what they printed (H-22). `external` is not either: another vendor's CLI does the work (H-38),
- * declared as a command. Keeping them as kinds of the same thing is what lets a run be a mix —
- * do the work, then check it — without the supervisor, the stream or the store learning a new
- * shape.
+ * declared as a command. `action` is not either: a web recipe runs in process (WA-7). Keeping them
+ * as kinds of the same thing is what lets a run be a mix — do the work, then check it — without the
+ * supervisor, the stream or the store learning a new shape.
  */
-export type TaskKind = "agent" | "verify" | "external"
+export type TaskKind = "agent" | "verify" | "external" | "action"
 
 export type TaskInput = {
   name: string
@@ -186,6 +225,8 @@ export type TaskInput = {
    * through a login shell, and what it printed is what the task answered.
    */
   command?: string
+  /** An `action` task's recipe and values (WA-7). No model, no session. */
+  action?: ActionTaskInput
   /**
    * On a verify task: how many times the work before it may be attempted again if it fails (H-22).
    *
@@ -440,7 +481,7 @@ export type RunRepository = {
     source: RunSource,
     now: number,
     directory?: string,
-    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy">,
+    options?: Pick<Run, "toolLimitMs" | "outside" | "packs" | "worktrees" | "policy" | "allow">,
   ): Run
   /** Hold a run at a gate: not running, not finished, waiting for a person. */
   awaitRun(runID: string): void

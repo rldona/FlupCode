@@ -106,10 +106,16 @@ tool result or an artifact. Screenshots and DOM snapshots are redacted at captur
 
 ### 6. Scheduling is Routines, not a new mechanism
 
-A scheduled action is a Routine (`packages/harness-server/src/scheduler.ts`) whose prompt drives the
-agent and whose agent configuration carries explicit allow rules for the origins it needs. An
-unattended `ask` cannot be answered, so a browser Routine without allow rules is refused at creation
-with an actionable warning instead of hanging silently.
+A scheduled action is a Routine whose `action` names the profile and the values it runs with, and
+whose `allow` carries the consent it needs. Each execution is an ordinary **Run** with one
+deterministic task of kind `action`; the `TaskRunner` calls the action runner **in process**, with no
+model turn and no `ctx.ask`, so nothing has to answer an approval at 2am. The failure that an
+unattended run cannot answer is refused before it can happen: a Routine that drives a browser action
+without an `allow` rule covering the profile's origin (or `origin:action` for a sensitive one) is
+rejected at creation with an actionable warning, and the task re-checks the same rule before the
+browser opens, so a hand-written run fails closed too. Evidence the browser stores — screenshots and
+the text log — is filed under the run and task, so a scheduled action reads back without a
+transcript. Scheduled runs are headless; only an action a person starts from the app is headed.
 
 ### 7. Live view is frame polling; takeover reveals the real window
 

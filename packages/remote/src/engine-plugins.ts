@@ -1030,8 +1030,8 @@ function definition(profile, composeTools) {
             sessionID: sessionID,
             project: project,
             // An action the app runs is shown in a real window so a person can watch and take over
-            // (WA-6); unattended scheduling will pass its own headed flag in WA-7.
             // (WA-6). Scheduled actions never come through this tool: the harness server drives
+            // them in process and headless (WA-7).
             headed: true,
             inputs: inputs,
           }),

@@ -19,6 +19,7 @@ import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
 import type {
+  ActionCatalog,
   Artifact,
   ArtifactKind,
   BranchState,
@@ -1119,6 +1120,51 @@ async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestIn
   return body?.data as T
 }
 
+/**
+ * The same request, keeping the warnings the server sent beside the data.
+ *
+ * A routine can be saved and still carry something the reader should know — an edit that is ignored
+ * because an action drives the run, for instance (WA-7). Refusing it would be wrong; staying quiet
+ * would be worse, so the notes travel with the answer.
+ */
+async function harnessRequestEnvelope<T>(
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T; warnings: string[] }> {
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: { "content-type": "application/json", ...init?.headers },
+  })
+  const body = (await response.json().catch(() => undefined)) as
+    | { data?: T; error?: string; warnings?: unknown }
+    | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  const warnings = Array.isArray(body?.warnings)
+    ? body.warnings.filter((entry): entry is string => typeof entry === "string")
+    : []
+  return { data: body?.data as T, warnings }
+}
+
+/**
+ * A call to the action surface (WA-7). Like the browser routes it is behind the desktop's loopback
+ * bearer, but it belongs to the server rather than to a browser session of the user's.
+ */
+async function actionRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
+  const token = harnessBrowserToken()
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  })
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
 /** What the live view watches (WA-6): the status a session's browser run is in. */
 export type AgentBrowserSession = {
   id: string
@@ -1584,12 +1630,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),
       get: (id: string) => harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`),
       create: (input: RoutineCreateRequest) =>
-        harnessRequest<Routine>(baseUrl, "/harness/routines", {
+        harnessRequestEnvelope<Routine>(baseUrl, "/harness/routines", {
           method: "POST",
           body: JSON.stringify(input),
         }),
       update: (id: string, input: RoutineInput) =>
-        harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, {
+        harnessRequestEnvelope<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(input),
         }),
@@ -1612,5 +1658,22 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           { method: "POST" },
         ),
     },
+    /**
+     * The web actions this server knows (WA-7). The routine editor lists them, and the chosen
+     * profile decides which inputs to ask for and what consent the routine must carry.
+     */
+    actions: {
+      /** No folder is the plugin's own catalogue: the global config alone (WA-2, WA-7). */
+      list: (input: { directory?: string; project?: string } = {}) =>
+        actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+    },
   }
+}
+
+/** `?directory=&project=` when either is set, and nothing when neither is (WA-7). */
+function actionQuery(input: { directory?: string; project?: string }): string {
+  const search = new URLSearchParams()
+  if (input.directory) search.set("directory", input.directory)
+  if (input.project) search.set("project", input.project)
+  return search.size ? `?${search}` : ""
 }

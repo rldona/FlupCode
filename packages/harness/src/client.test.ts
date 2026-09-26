@@ -366,3 +366,47 @@ test("configFiles.export posts the chosen paths, and confirm only when asked", a
     },
   ])
 })
+
+test("creating a routine keeps the warnings the server sent beside it", async () => {
+  setEngineTransport({
+    fetch: async () =>
+      new Response(JSON.stringify({ data: { id: "r1", name: "Publish" }, warnings: ["Instructions are ignored."] }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  const result = await createHarnessClient("http://harness").routines.create({
+    name: "Publish",
+    description: "",
+    prompt: "",
+    schedule: { type: "manual" },
+  })
+
+  expect(result.warnings).toEqual(["Instructions are ignored."])
+  expect(result.data).toMatchObject({ id: "r1", name: "Publish" })
+})
+
+test("the action catalogue is asked for under /harness/actions", async () => {
+  const seen: string[] = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      seen.push(new URL(request.url).pathname)
+      return new Response(JSON.stringify({ data: { profiles: [], rejected: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  await createHarnessClient("http://harness").actions.list()
+
+  expect(seen).toEqual(["/harness/actions"])
+})

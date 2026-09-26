@@ -2,7 +2,15 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, type Comp
 import type { AgentInfo, ModelInfo } from "../engine-types"
 import { t } from "../i18n"
 import { routineNextRunAt } from "../routine-schedule"
-import type { Routine, RoutineInput, RoutineRun, RoutineSchedule } from "../types"
+import type {
+  ActionProfileSummary,
+  Artifact,
+  BrowserAllowRule,
+  Routine,
+  RoutineInput,
+  RoutineRun,
+  RoutineSchedule,
+} from "../types"
 
 type RoutinesPanelProps = {
   open: boolean
@@ -14,6 +22,10 @@ type RoutinesPanelProps = {
   projects: Array<{ directory: string; name: string }>
   models: ModelInfo[]
   agents: AgentInfo[]
+  /** The web actions the server knows (WA-7); empty when no browser runtime is available. */
+  actions: ActionProfileSummary[]
+  /** Kept artifacts, so an image input can be pointed at one (WA-7). */
+  artifacts: Artifact[]
   onAdd: (input: RoutineInput) => void
   onUpdate: (id: string, input: RoutineInput) => void
   onToggle: (id: string) => void
@@ -62,6 +74,24 @@ const runLabel = (run: RoutineRun) => {
   if (run.status === "failed") return t("Failed")
   return t("Succeeded")
 }
+
+/**
+ * The consent a selected action needs to run unattended (WA-7).
+ *
+ * The same resource the plugin's `ctx.ask` uses: the origin for a read, `origin:id` for an action
+ * with effects. Derived here so the user never has to type a permission by hand.
+ */
+const requiredAllow = (profile: ActionProfileSummary): BrowserAllowRule[] => [
+  {
+    permission: profile.sensitive ? "browser_sensitive" : "browser",
+    pattern: profile.sensitive ? `${profile.origin}:${profile.id}` : profile.origin,
+    action: "allow",
+  },
+]
+
+/** The artifacts an image input can point at. */
+const imageArtifacts = (artifacts: Artifact[]) =>
+  artifacts.filter((artifact) => artifact.mime.startsWith("image/") || artifact.kind === "screenshot")
 
 const emptyInput = (): RoutineInput => ({
   name: "",
@@ -120,6 +150,8 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
       model: routine.model,
       workflow: routine.workflow,
       policy: routine.policy,
+      action: routine.action,
+      allow: routine.allow,
     })
     setEditing(true)
   }
@@ -194,9 +226,56 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
     return "intervalMinutes" in schedule ? schedule.intervalMinutes : 60
   }
 
+  const isAction = () => form().action !== undefined
+  const selectedProfile = createMemo(() => props.actions.find((action) => action.id === form().action?.id))
+
+  // Switching to an action picks the first one there is, so the form is never in a mode with
+  // nothing chosen; switching back clears the consent that only made sense with the action.
+  const setMode = (mode: "prompt" | "action") => {
+    if (mode === "prompt") {
+      updateForm({ action: undefined, allow: undefined })
+      return
+    }
+    const first = props.actions[0]
+    if (!first) return
+    // The action drives the run, so instructions left over from the prompt mode would only be
+    // ignored; clearing them keeps the saved routine honest.
+    updateForm({ action: { id: first.id }, allow: requiredAllow(first), prompt: "" })
+  }
+
+  const selectAction = (id: string) => {
+    const profile = props.actions.find((action) => action.id === id)
+    // A different recipe has different inputs, so the values of the old one are dropped rather
+    // than left behind as undeclared keys the server would refuse.
+    const same = form().action?.id === id
+    updateForm({
+      action: { id, ...(same && form().action?.inputs ? { inputs: form().action?.inputs } : {}) },
+      allow: profile ? requiredAllow(profile) : undefined,
+    })
+  }
+
+  const updateActionInput = (name: string, value: unknown) => {
+    const action = form().action
+    if (!action) return
+    updateForm({ action: { ...action, inputs: { ...(action.inputs ?? {}), [name]: value } } })
+  }
+
+  const actionInputValue = (name: string) => {
+    const value = form().action?.inputs?.[name]
+    return typeof value === "string" ? value : ""
+  }
+
+  const actionImageValue = (name: string) => {
+    const value = form().action?.inputs?.[name]
+    if (value && typeof value === "object" && "artifactId" in value && typeof value.artifactId === "string")
+      return value.artifactId
+    return ""
+  }
+
   const submit = () => {
     const value = form()
-    if (!value.name.trim() || !value.prompt.trim()) return
+    if (!value.name.trim()) return
+    if (!value.action && !value.prompt.trim()) return
     const workflowName = value.workflow?.name.trim()
     const fallback = value.policy?.fallback?.trim()
     const budget = value.policy?.budget
@@ -211,7 +290,13 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
       ...value,
       name: value.name.trim(),
       prompt: value.prompt.trim(),
-      workflow: workflowName ? { name: workflowName, ...(value.workflow?.inputs ? { inputs: value.workflow.inputs } : {}) } : undefined,
+      // An action drives the run, so the workflow it might have named is not what runs (WA-7).
+      action: value.action,
+      allow: value.action ? value.allow : undefined,
+      workflow:
+        !value.action && workflowName
+          ? { name: workflowName, ...(value.workflow?.inputs ? { inputs: value.workflow.inputs } : {}) }
+          : undefined,
       policy,
     }
     const id = selectedID()
@@ -265,7 +350,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
                     <div class="fc-modal-body">
                       <div class="fc-routines-kicker">{t("Routine")}</div>
                       <p>{routine().description || t("No description")}</p>
-                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show></dl>
+                      <dl class="fc-routine-facts"><div><dt>{t("Schedule")}</dt><dd>{scheduleLabel(routine().schedule)}</dd></div><div><dt>{t("Project")}</dt><dd dir="auto">{routine().projectDirectory ?? t("No folder")}</dd></div><div><dt>{t("Agent")}</dt><dd>{routine().agent ?? t("Default")}</dd></div><div><dt>{t("Next run")}</dt><dd>{nextRunLabel(routine())}</dd></div><Show when={routine().workflow}><div><dt>{t("Workflow")}</dt><dd>{routine().workflow!.name}</dd></div></Show><Show when={routine().action}><div><dt>{t("Action")}</dt><dd>{routine().action!.id}</dd></div></Show><Show when={routine().allow && routine().allow!.length > 0}><div><dt>{t("Approval")}</dt><dd>{routine().allow!.map((rule) => rule.pattern).join(", ")}</dd></div></Show><Show when={routine().policy?.fallback}><div><dt>{t("Fallback")}</dt><dd>{routine().policy!.fallback}</dd></div></Show></dl>
                       <section class="fc-routine-detail-section"><h3>{t("Instructions")}</h3><pre dir="auto">{routine().prompt}</pre></section>
                       <section class="fc-routine-detail-section"><h3>{t("Run history")}</h3><Show when={routine().runs.length > 0} fallback={<p class="fc-routine-muted">{t("No runs yet")}</p>}><ul class="fc-routine-runs"><For each={routine().runs}>{(run) => <li><span class="fc-routine-run-dot" classList={{ "fc-routine-run-dot-failed": run.status === "failed", "fc-routine-run-dot-running": run.status === "running", "fc-routine-run-dot-stopped": run.status === "stopped" }} /><span><strong>{runLabel(run)}</strong><small>{new Date(run.startedAt).toLocaleString()}</small></span><Show when={run.error}><small>{run.error}</small></Show><Show when={run.sessionID}><button class="fc-button" type="button" onClick={() => props.onOpenSession(run.sessionID!)}>{t("Open run")}</button></Show></li>}</For></ul></Show></section>
                     </div>
@@ -313,8 +398,24 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
               <div class="fc-routine-editor-grid">
               <label>{t("Name")}<input class="fc-question-custom" value={form().name} placeholder={t("Routine name")} onInput={(event) => updateForm({ name: event.currentTarget.value })} /></label>
               <label>{t("Description")}<input class="fc-question-custom" value={form().description} placeholder={t("What this routine does")} onInput={(event) => updateForm({ description: event.currentTarget.value })} /></label>
-              <label class="fc-routine-editor-wide">{t("Instructions")}<textarea class="fc-question-custom fc-routine-instructions" value={form().prompt} placeholder={t("Tell the agent what to do…")} onInput={(event) => updateForm({ prompt: event.currentTarget.value })} /></label>
-              <label>{t("Workflow (optional)")}<input class="fc-question-custom" value={form().workflow?.name ?? ""} placeholder={t("feature")} onInput={(event) => updateForm({ workflow: event.currentTarget.value.trim() ? { name: event.currentTarget.value } : undefined })} /></label>
+              <label>{t("Mode")}<select class="fc-question-custom" value={isAction() ? "action" : "prompt"} onChange={(event) => setMode(event.currentTarget.value === "action" ? "action" : "prompt")}><option value="prompt">{t("A prompt")}</option><option value="action" disabled={props.actions.length === 0}>{t("A web action")}</option></select></label>
+              <Show when={!isAction()}><label class="fc-routine-editor-wide">{t("Instructions")}<textarea class="fc-question-custom fc-routine-instructions" value={form().prompt} placeholder={t("Tell the agent what to do…")} onInput={(event) => updateForm({ prompt: event.currentTarget.value })} /></label></Show>
+              <Show when={isAction()}>
+                <label class="fc-routine-editor-wide">{t("Action")}<select class="fc-question-custom" value={form().action?.id ?? ""} onChange={(event) => selectAction(event.currentTarget.value)}><For each={props.actions}>{(action) => <option value={action.id}>{action.id} — {action.description}</option>}</For></select></label>
+                <Show when={selectedProfile()}>
+                  {(profile) => (
+                    <Show when={Object.keys(profile().inputs).length > 0} fallback={<p class="fc-modal-note">{t("This action needs no inputs.")}</p>}>
+                      <For each={Object.entries(profile().inputs)}>{([name, kind]) => (
+                        <Show when={kind === "image"} fallback={<label>{name}<input class="fc-question-custom" value={actionInputValue(name)} onInput={(event) => updateActionInput(name, event.currentTarget.value)} /></label>}>
+                          <label class="fc-routine-editor-wide">{name} · {t("Artifact")}<select class="fc-question-custom" value={actionImageValue(name)} onChange={(event) => updateActionInput(name, event.currentTarget.value ? { artifactId: event.currentTarget.value } : undefined)}><option value="">{t("Choose an artifact")}</option><For each={imageArtifacts(props.artifacts)}>{(artifact) => <option value={artifact.id}>{artifact.title}</option>}</For></select></label>
+                        </Show>
+                      )}</For>
+                    </Show>
+                  )}
+                </Show>
+                <Show when={selectedProfile()}>{(profile) => <p class="fc-modal-note">{profile().sensitive ? t("This action has effects; the routine carries the strong approval.") : t("This action only reads; the routine carries the read approval.")}</p>}</Show>
+              </Show>
+              <label>{t("Workflow (optional)")}<input class="fc-question-custom" value={form().workflow?.name ?? ""} placeholder={t("feature")} disabled={isAction()} onInput={(event) => updateForm({ workflow: event.currentTarget.value.trim() ? { name: event.currentTarget.value } : undefined })} /></label>
               <label>{t("Fallback model")}<input class="fc-question-custom" value={form().policy?.fallback ?? ""} placeholder="provider/model" onInput={(event) => updateForm({ policy: { ...form().policy, fallback: event.currentTarget.value } })} /></label>
               <label>{t("Project")}<select class="fc-question-custom" value={form().projectDirectory ?? ""} onChange={(event) => updateForm({ projectDirectory: event.currentTarget.value || undefined })}><option value="">{t("No folder")}</option><For each={props.projects}>{(project) => <option value={project.directory}>{project.name}</option>}</For></select></label>
               <label>{t("Agent")}<select class="fc-question-custom" value={form().agent ?? ""} onChange={(event) => updateForm({ agent: event.currentTarget.value || undefined })}><option value="">{t("Default")}</option><For each={props.agents.filter((agent) => !agent.hidden && agent.mode !== "subagent")}>{(agent) => <option value={agent.id}>{agent.id}</option>}</For></select></label>
@@ -327,7 +428,7 @@ export const RoutinesPanel: Component<RoutinesPanelProps> = (props) => {
               </div>
               <div class="fc-dialog-actions">
                 <button class="fc-button" type="button" onClick={() => setEditing(false)}>{t("Cancel")}</button>
-                <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable || !form().name.trim() || !form().prompt.trim()} onClick={submit}>{t("Save")}</button>
+                <button class="fc-button fc-button-primary" type="button" disabled={!props.serverAvailable || !form().name.trim() || (!form().prompt.trim() && !form().action)} onClick={submit}>{t("Save")}</button>
               </div>
             </div>
           </div>

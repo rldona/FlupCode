@@ -123,12 +123,22 @@ remembers at most `origin` or `origin:action`, never everything. Modes that gran
 (including bypass) are documented as including the browser; a whole-engine kill switch disables every
 browser tool regardless of mode.
 
+A **scheduled** action never reaches `ctx.ask`: there is nobody to answer it. Its approval is written
+down on the routine as an `allow` list and checked when the routine is saved and again before the
+browser opens (see [Scheduling](#scheduling)).
+
 ## Scheduling
 
-A scheduled action is a **Routine**, not a separate mechanism. Create a routine whose prompt drives
-the agent and whose agent carries explicit allow rules for the origins it needs. Because an
-unattended run cannot answer an approval, a browser routine without allow rules is refused at
-creation with an actionable warning.
+A scheduled action is a **Routine**, not a separate mechanism. Create a routine whose `action`
+names the profile and whose `inputs` fill its declared values; the routine's `allow` list carries the
+consent it needs. Each execution is a normal **Run** with one deterministic task of kind `action`,
+and the harness server drives the action runner in process: no model turn, no engine session, and no
+`ctx.ask`. Because an unattended run cannot answer an approval, a browser routine without an `allow`
+rule covering the profile — `origin` for `browser`, `origin:action` for `browser_sensitive` — is
+refused at creation with an actionable warning, and the task re-checks the same rule before the
+browser opens. Scheduled runs are headless; the window is only shown when a person starts the action
+from the app. The screenshots and text log the run produces are filed under its run and task, so the
+evidence travels with the run.
 
 ## Authoring one
 

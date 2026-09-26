@@ -115,6 +115,26 @@ describe("opening a database written by an older server", () => {
     expect(after.getCheckpoint(fresh.id)?.summary).toBe("The task concluded X")
     after.close()
   })
+
+  test("a routines table written before scheduled actions keeps its rows and gains the columns", () => {
+    const path = scratch()
+    const before = open(path)
+    const old = before.create(input)
+    // Put it back the way a server without scheduled actions left it.
+    before.db.exec("ALTER TABLE routines DROP COLUMN action_json")
+    before.db.exec("ALTER TABLE routines DROP COLUMN allow_json")
+    before.close()
+
+    const after = open(path)
+    // A routine saved before the columns existed simply has no action, rather than a broken one.
+    expect(after.get(old.id)?.action).toBeUndefined()
+    after.update(old.id, { ...input, action: { id: "publish" }, allow: [{ permission: "browser", pattern: "https://example.com", action: "allow" }] })
+    expect(after.get(old.id)?.action).toEqual({ id: "publish" })
+    expect(after.get(old.id)?.allow).toEqual([
+      { permission: "browser", pattern: "https://example.com", action: "allow" },
+    ])
+    after.close()
+  })
 })
 
 describe("SqliteRoutineRepository", () => {
@@ -384,8 +404,7 @@ describe("project memory (H-37)", () => {
   })
 })
 
-describe("a task's place in the graph (H-28)", () => {
-  test("the tasks it waits for, and the condition that lets it run, survive a round trip", () => {
+describe("a task's place in the graph (H-28)", () => {  test("the tasks it waits for, and the condition that lets it run, survive a round trip", () => {
     const repository = open()
     const run = repository.startRun({ type: "manual" }, 1000)
     const [task] = repository.addTasks(run.id, [
@@ -420,6 +439,54 @@ describe("a task's place in the graph (H-28)", () => {
       error: "Not run: check did not succeed",
       finishedAt: 1200,
     })
+    repository.close()
+  })
+})
+
+// WA-7: a routine can drive a web action, and the consent it runs under is stored beside it.
+describe("a scheduled web action (WA-7)", () => {
+  test("the action, its inputs and its allow rules survive a routine round trip", () => {
+    const repository = open()
+    const routine = repository.create({
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "daily", time: "09:00" },
+      action: { id: "publish", inputs: { text: "hola", image: { artifactId: "art_1" } } },
+      allow: [{ permission: "browser_sensitive", pattern: "https://example.com:publish", action: "allow" }],
+    })
+
+    expect(repository.get(routine.id)).toMatchObject({
+      action: { id: "publish", inputs: { text: "hola", image: { artifactId: "art_1" } } },
+      allow: [{ permission: "browser_sensitive", pattern: "https://example.com:publish", action: "allow" }],
+    })
+    repository.close()
+  })
+
+  test("an action task and the run's allow rules survive a round trip", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, 1000, undefined, {
+      allow: [{ permission: "browser", pattern: "https://example.com", action: "allow" }],
+    })
+    repository.addTasks(run.id, [
+      { name: "read", prompt: "", kind: "action", action: { id: "read_status", inputs: { page: "1" } } },
+    ])
+
+    expect(repository.getRun(run.id)?.allow).toEqual([
+      { permission: "browser", pattern: "https://example.com", action: "allow" },
+    ])
+    expect(repository.listTasks(run.id)[0]).toMatchObject({
+      kind: "action",
+      action: { id: "read_status", inputs: { page: "1" } },
+    })
+    repository.close()
+  })
+
+  test("a routine saved without an action reads back without one", () => {
+    const repository = open()
+    const routine = repository.create(input)
+    expect(repository.get(routine.id)?.action).toBeUndefined()
+    expect(repository.get(routine.id)?.allow).toBeUndefined()
     repository.close()
   })
 })

@@ -5,6 +5,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
+import { ActionRunError } from "./action-runner"
+import type { ActionProfile } from "./actions"
+import type { ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
+import type { BrowserAllowRule } from "./types"
 
 /**
  * Waits for a run the request only started.
@@ -1345,6 +1349,23 @@ describe("harness runs API", () => {
     await settled(repository, clean.id)
     repository.close()
   })
+
+  // WA-7: an action task needs the allow rule only a routine can carry, and this path has no field
+  // to send one. Refusing it here beats a task that always fails closed with "needs an allow rule".
+  test("an action task is refused, pointing at routines", async () => {
+    const { handler, repository } = open()
+    const response = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "publish", kind: "action", action: { id: "publish" } }] }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toContain("routine")
+    expect(repository.listRuns()).toEqual([])
+    repository.close()
+  })
 })
 
 describe("harness worktree API", () => {
@@ -1550,6 +1571,156 @@ describe("harness config files API", () => {
     )
     expect(refused.status).toBe(400)
     expect((await refused.json()).error).toMatch(/config repository/i)
+    repository.close()
+  })
+})
+
+// WA-7: a routine can drive a web action. Nothing answers an approval unattended, so the consent
+// is declared on the routine and checked at creation — and the run is an ordinary Run.
+describe("scheduling a web action (WA-7)", () => {
+  const engine = new Proxy({} as never, {
+    get(_target, name) {
+      throw new Error(`the runner asked the engine for ${String(name)} during an action run`)
+    },
+  })
+
+  const profile = (): ActionProfile => ({
+    id: "publish",
+    tool: "do_publish",
+    description: "Publish the piece",
+    kind: "browser",
+    origin: "https://example.com",
+    inputs: { text: "string" },
+    steps: [],
+    guards: [],
+    sensitive: true,
+    availability: "host",
+    evidence: {},
+  })
+
+  const allow: BrowserAllowRule[] = [
+    { permission: "browser_sensitive", pattern: "https://example.com:publish", action: "allow" },
+  ]
+
+  const successResult = {
+    action: "publish",
+    tool: "do_publish",
+    status: "success" as const,
+    origin: "https://example.com",
+    url: "https://example.com/done",
+    title: "Done",
+    startedAt: 0,
+    finishedAt: 1,
+    steps: [],
+    evidence: [],
+  }
+
+  const openActions = (run?: (request: ActionRunRequest) => Promise<ActionRunResult>) => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const calls: ActionRunRequest[] = []
+    const lists: Array<{ directory?: string; project?: string } | undefined> = []
+    const actions: ActionRunner = {
+      list: (input) => {
+        lists.push(input)
+        return { profiles: [profile()], rejected: [] }
+      },
+      run: async (request) => {
+        calls.push(request)
+        return run ? run(request) : successResult
+      },
+    }
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1", actions })
+    Object.assign(scheduler, { engine })
+    const handler = createHarnessHandler(repository, scheduler, { actions })
+    return { repository, handler, calls, lists }
+  }
+
+  const post = (handler: ReturnType<typeof createHarnessHandler>, path: string, body: unknown) =>
+    handler(
+      new Request(`http://x${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    )
+
+
+  test("creating one without an allow rule is refused with an actionable message", async () => {
+    const { repository, handler } = openActions()
+    const response = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+    })
+
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.error).toContain("https://example.com:publish")
+    // Refused, not saved half-way.
+    expect(repository.list()).toEqual([])
+    repository.close()
+  })
+
+  test("with the allow rule it runs and leaves evidence bound to the run", async () => {
+    const { repository, handler } = openActions(async (request) => {
+      repository.addArtifact({
+        kind: "screenshot",
+        title: "evidence",
+        producer: "harness",
+        path: "frames/x.png",
+        directory: "/tmp",
+        ...(request.runID ? { runID: request.runID } : {}),
+        ...(request.taskID ? { taskID: request.taskID } : {}),
+      })
+      return successResult
+    })
+
+    const created = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow,
+    })
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+
+    const started = await post(handler, `/harness/routines/${routine.id}/runs`, {})
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    await settled(repository, run.id, 10_000)
+    expect(repository.getRun(run.id)?.status).toBe("success")
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ kind: "action", status: "success" })
+    const [artifact] = repository.listArtifacts({ runID: run.id }).filter((entry) => entry.taskID === task!.id)
+    expect(artifact).toMatchObject({ kind: "screenshot", runID: run.id, taskID: task!.id })
+    repository.close()
+  })
+
+  test("a recipe that fails ends the run as failed, with the reason", async () => {
+    const { repository, handler } = openActions(async () => {
+      throw new ActionRunError({ code: "step_failed", status: 422, message: "the button was missing", action: "publish" })
+    })
+
+    const created = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow,
+    })
+    const routine = (await created.json()).data
+
+    const started = await post(handler, `/harness/routines/${routine.id}/runs`, {})
+    const run = (await started.json()).data
+    await settled(repository, run.id, 10_000)
+
+    expect(repository.getRun(run.id)).toMatchObject({ status: "failed", error: "the button was missing" })
     repository.close()
   })
 })

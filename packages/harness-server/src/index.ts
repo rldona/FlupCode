@@ -32,12 +32,6 @@ export type HarnessServerOptions = {
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
   const repository = new SqliteRoutineRepository(options.databasePath)
-  const scheduler = new RoutineScheduler({
-    repository,
-    engineURL: options.engineURL ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096",
-    intervalMs: options.intervalMs,
-  })
-  scheduler.start()
   // Forget what was told to expire (H-14). At startup, so a server that was away for a while acts
   // on it, and hourly after that. Pinned ones are never touched, and nothing expires by default.
   repository.removeExpiredArtifacts()
@@ -62,6 +56,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         loadProfiles: loadActionProfiles,
       })
     : undefined
+  // Built after the actions so a scheduled action is driven in process by the same runner the
+  // interactive path uses (WA-7), never by a second copy that would drift.
+  const scheduler = new RoutineScheduler({
+    repository,
+    engineURL: options.engineURL ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096",
+    intervalMs: options.intervalMs,
+    ...(actions ? { actions } : {}),
+  })
+  scheduler.start()
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",

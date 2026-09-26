@@ -1,6 +1,7 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
 import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
+import type { BrowserAllowRule } from "./types"
 
 type Result<T> = { data?: T; error?: unknown }
 
@@ -55,13 +56,23 @@ export const CONFINED: PermissionRule[] = [{ permission: "external_directory", p
 export const NO_SHELL: PermissionRule[] = [{ permission: "bash", pattern: "*", action: "deny" }]
 
 /**
- * The rules a run's sessions are created under (H-47).
+ * The rules a run's sessions are created under (H-47, WA-7).
  *
  * `outside` opens the boundary and `shell: false` closes the shell; everything else keeps the
- * confined default. Both are stated on the run, never guessed.
+ * confined default. A run that carries the allow rules a scheduled action was consented under also
+ * gets them, because a task of that run may still reach the browser through the plan (WA-7).
+ * Nothing here is guessed: every rule is stated on the run.
  */
-export function sessionPermission(run: { outside?: boolean; shell?: boolean }): PermissionRule[] {
-  return [...(run.outside ? [] : CONFINED), ...(run.shell === false ? NO_SHELL : [])]
+export function sessionPermission(run: {
+  outside?: boolean
+  shell?: boolean
+  allow?: BrowserAllowRule[]
+}): PermissionRule[] {
+  return [
+    ...(run.outside ? [] : CONFINED),
+    ...(run.shell === false ? NO_SHELL : []),
+    ...(run.allow ?? []).map((rule) => ({ permission: rule.permission, pattern: rule.pattern, action: "allow" as const })),
+  ]
 }
 
 /** What a task was stopped for: one tool call that ran past the run's declared ceiling (H-47). */

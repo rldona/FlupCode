@@ -208,6 +208,8 @@ export type Run = {
   paused?: "gate" | "budget"
   /** Somebody let it past the budget. */
   budgetApproved?: boolean
+  /** The approval a scheduled web action ran under (WA-7). */
+  allow?: BrowserAllowRule[]
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
 }
@@ -220,8 +222,21 @@ export type TaskCondition = {
   is: Array<Exclude<TaskStatus, "queued" | "running">>
 }
 
-/** What a task does: a turn of the engine, the project's own checks (H-22), or another vendor's CLI (H-38). */
-export type TaskKind = "agent" | "verify" | "external"
+/** What a task does: a turn of the engine, the project's checks (H-22), another vendor's CLI (H-38), or a web recipe (WA-7). */
+export type TaskKind = "agent" | "verify" | "external" | "action"
+
+/** The approval a scheduled web action runs under (WA-7): the engine's own rule, narrowed to allow. */
+export type BrowserAllowRule = {
+  permission: "browser" | "browser_sensitive"
+  pattern: string
+  action: "allow"
+}
+
+/** A web action a routine or task runs (WA-7): a profile id and the values it was given. */
+export type ActionTaskInput = {
+  id: string
+  inputs?: Record<string, unknown>
+}
 
 export type Task = {
   id: string
@@ -232,6 +247,8 @@ export type Task = {
   kind?: TaskKind
   /** The command an `external` task ran (H-38). */
   command?: string
+  /** The recipe and values an `action` task ran (WA-7). */
+  action?: ActionTaskInput
   /** Which attempt this is, from 1. A retry after a failed check is a new task (H-22). */
   attempt?: number
   /** The task this one attempts again. */
@@ -284,6 +301,10 @@ export type RoutineInput = {
   workflow?: { name: string; inputs?: Record<string, string> }
   /** Model fallback and budget for the runs it starts (HF-8). */
   policy?: RunPolicy
+  /** Drive a deterministic web action instead of a prompt (WA-7). */
+  action?: ActionTaskInput
+  /** The allow rules the action needs to run unattended (WA-7). */
+  allow?: BrowserAllowRule[]
 }
 
 export type Routine = {
@@ -297,6 +318,8 @@ export type Routine = {
   model?: { providerID: string; id: string; variant?: string }
   workflow?: { name: string; inputs?: Record<string, string> }
   policy?: RunPolicy
+  action?: ActionTaskInput
+  allow?: BrowserAllowRule[]
   enabled: boolean
   createdAt: number
   lastRunAt?: number
@@ -546,4 +569,18 @@ export type TaskTools = {
   taskID: string
   name: string
   calls: ToolCall[]
+}
+/** The catalogue as a routine preselects from (WA-7). */
+export type ActionProfileSummary = {
+  id: string
+  tool: string
+  description: string
+  origin: string
+  sensitive: boolean
+  inputs: Record<string, unknown>
+}
+
+export type ActionCatalog = {
+  profiles: ActionProfileSummary[]
+  rejected: Array<{ id: string; code: string; message: string }>
 }

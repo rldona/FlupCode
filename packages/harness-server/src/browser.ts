@@ -55,6 +55,14 @@ export type BrowserStartInput = {
   project: string
   headed?: boolean
   idleTimeoutMs?: number
+  /**
+   * What this browser is working for (WA-7).
+   *
+   * A scheduled action has no session of a model to hang its evidence on, so the run and task that
+   * asked for the browser travel with it and every artifact it stores is filed under them.
+   */
+  runID?: string
+  taskID?: string
 }
 
 export type BrowserRuntime = {
@@ -284,6 +292,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       wake: undefined,
       secrets: new Set(),
       maskSelectors: new Set(),
+      runID: input.runID,
+      taskID: input.taskID,
     }
     await context.route("**/*", (route) => {
       const url = route.request().url()
@@ -527,6 +537,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       producer: "harness",
       path: relative,
       directory: dataDir,
+      ...(session.runID ? { runID: session.runID } : {}),
+      ...(session.taskID ? { taskID: session.taskID } : {}),
     })
     // Only a stored frame changes what a viewer can see, so only here does the stream carry it; a
     // `store: false` poll is served and forgotten and must not announce an artifact nobody has.
@@ -603,6 +615,9 @@ type ActiveSession = {
   stopped: boolean
   /** Resolves `waitIfPaused` so a resume or an abort is noticed. */
   wake: (() => void) | undefined
+  /** The run and task this browser works for (WA-7), so its screenshots are filed under them. */
+  runID?: string
+  taskID?: string
 }
 
 const launch = async (

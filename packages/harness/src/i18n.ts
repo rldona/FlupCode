@@ -830,6 +830,16 @@ const ES: Record<string, string> = {
   "What this routine does": "Qué hace esta rutina",
   Instructions: "Instrucciones",
   "Tell the agent what to do…": "Indica al agente qué debe hacer…",
+  "A prompt": "Un prompt",
+  "A web action": "Una acción web",
+  Artifact: "Artefacto",
+  "Choose an artifact": "Elige un artefacto",
+  "This action needs no inputs.": "Esta acción no necesita entradas.",
+  "This action has effects; the routine carries the strong approval.":
+    "Esta acción tiene efectos; la rutina lleva la aprobación fuerte.",
+  "This action only reads; the routine carries the read approval.":
+    "Esta acción solo lee; la rutina lleva la aprobación de lectura.",
+  Approval: "Aprobación",
   Project: "Proyecto",
   Schedule: "Programación",
   "Every hour": "Cada hora",
