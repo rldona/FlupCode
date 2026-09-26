@@ -363,65 +363,56 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
         }
       >
         <Show
-          when={status() !== undefined}
+          when={status()}
           fallback={
-            <div class="fc-loading-center">
-              <Loader label={t("Loading…")} />
+            <div class="fc-empty-state fc-browser-empty">
+              <span class="fc-empty-title">{t("No browser session")}</span>
+              <span class="fc-empty-hint">{t("The agent's browser appears here while it acts on a site.")}</span>
             </div>
           }
         >
-          <Show
-            when={status()}
-            fallback={
-              <div class="fc-empty-state fc-browser-empty">
-                <span class="fc-empty-title">{t("No browser session")}</span>
-                <span class="fc-empty-hint">{t("The agent's browser appears here while it acts on a site.")}</span>
-              </div>
-            }
-          >
             {(live) => (
-              <>
-                <Show when={frame()} fallback={<div class="fc-agent-browser-frame fc-agent-browser-waiting" />}>
-                  {(src) => <img class="fc-agent-browser-frame" src={src()} alt={live().title || live().url} />}
-                </Show>
-                <div class="fc-agent-browser-meta">
-                  <span class="fc-agent-browser-url" title={live().url}>
-                    {live().title || live().url}
-                  </span>
-                  <span class="fc-agent-browser-state">{live().paused ? t("Paused") : t("Running")}</span>
-                </div>
-                <div class="fc-agent-browser-actions">
-                  <button
-                    class="fc-button"
-                    type="button"
-                    disabled={busy() !== undefined || live().paused}
-                    onClick={() => act("takeover", (id) => client().agentBrowser.takeOver(id))}
-                  >
-                    {busy() === "takeover" ? t("Loading…") : t("Take over")}
-                  </button>
-                  <button
-                    class="fc-button"
-                    type="button"
-                    disabled={busy() !== undefined || !live().paused}
-                    onClick={() => act("resume", (id) => client().agentBrowser.resume(id))}
-                  >
-                    {busy() === "resume" ? t("Loading…") : t("Release")}
-                  </button>
-                  <button
-                    class="fc-button"
-                    type="button"
-                    disabled={busy() !== undefined}
-                    onClick={() => act("stop", (id) => client().agentBrowser.stop(id))}
-                  >
-                    {busy() === "stop" ? t("Loading…") : t("Stop")}
-                  </button>
-                </div>
-                <Show when={notice()}>
-                  <span class="fc-agent-browser-notice">{notice()}</span>
-                </Show>
-              </>
-            )}
-          </Show>
+            <>
+              <Show when={frame()} fallback={<div class="fc-agent-browser-frame fc-agent-browser-waiting" />}>
+                {(src) => <img class="fc-agent-browser-frame" src={src()} alt={live().title || live().url} />}
+              </Show>
+              <div class="fc-agent-browser-meta">
+                <span class="fc-agent-browser-url" title={live().url}>
+                  {live().title || live().url}
+                </span>
+                <span class="fc-agent-browser-state">{live().paused ? t("Paused") : t("Running")}</span>
+              </div>
+              <div class="fc-agent-browser-actions">
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={busy() !== undefined || live().paused}
+                  onClick={() => act("takeover", (id) => client().agentBrowser.takeOver(id))}
+                >
+                  {busy() === "takeover" ? t("Loading…") : t("Take over")}
+                </button>
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={busy() !== undefined || !live().paused}
+                  onClick={() => act("resume", (id) => client().agentBrowser.resume(id))}
+                >
+                  {busy() === "resume" ? t("Loading…") : t("Release")}
+                </button>
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={busy() !== undefined}
+                  onClick={() => act("stop", (id) => client().agentBrowser.stop(id))}
+                >
+                  {busy() === "stop" ? t("Loading…") : t("Stop")}
+                </button>
+              </div>
+              <Show when={notice()}>
+                <span class="fc-agent-browser-notice">{notice()}</span>
+              </Show>
+            </>
+          )}
         </Show>
       </Show>
     </div>
