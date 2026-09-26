@@ -244,17 +244,43 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
     }
   }
 
-  const refreshFrame = async () => {
+  // A poll, an event and a button can all ask for a frame at once; only one fetch runs and the
+  // picture swaps only after the new PNG decoded, so the old frame stays painted instead of flashing.
+  let inflight: Promise<void> | undefined
+  let alive = true
+
+  const refreshFrame = () => {
     const sessionID = props.sessionID
-    if (!sessionID) return
-    try {
-      const next = await client().agentBrowser.frame(sessionID, { store: false })
-      const previous = frame()
-      if (previous) URL.revokeObjectURL(previous)
-      setFrame(URL.createObjectURL(next.blob))
-    } catch {
-      // A frame that is not there yet is not an error: the next poll tries again.
-    }
+    if (!sessionID || inflight) return Promise.resolve()
+    inflight = (async () => {
+      try {
+        const next = await client().agentBrowser.frame(sessionID, { store: false })
+        const url = URL.createObjectURL(next.blob)
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const pending = new Image()
+            pending.onload = () => resolve()
+            pending.onerror = () => reject(new Error("frame"))
+            pending.src = url
+          })
+        } catch {
+          URL.revokeObjectURL(url)
+          return
+        }
+        if (!alive) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        const previous = frame()
+        if (previous) URL.revokeObjectURL(previous)
+        setFrame(url)
+      } catch {
+        // A frame that is not there yet is not an error: the next poll tries again.
+      } finally {
+        inflight = undefined
+      }
+    })()
+    return inflight
   }
 
   const act = (name: string, call: (sessionID: string) => Promise<unknown>) => {
@@ -285,6 +311,7 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
   )
 
   onCleanup(() => {
+    alive = false
     const previous = frame()
     if (previous) URL.revokeObjectURL(previous)
   })
