@@ -395,7 +395,9 @@ export const createHarnessHandler = (
         status: 204,
         headers: {
           "access-control-allow-origin": "*",
-          "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
+          // PUT is the action-profile writer's save (WA-8): without it the preflight refuses the
+          // editor's save from any renderer.
+          "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
           // The live view drives the browser from the desktop renderer, which sends the loopback
           // bearer and the session header with it (WA-6). WA-9 narrows this down again.
           "access-control-allow-headers": "content-type, authorization, x-flupcode-session",

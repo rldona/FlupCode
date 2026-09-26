@@ -3874,6 +3874,21 @@ export const App: Component = () => {
         setStashes((list) => list.filter((entry) => entry.id !== removed))
         return
       }
+      // The agent opened a browser window for this session: reveal the live view, once. A closed
+      // session never opens it, and someone who closed the panel keeps it closed until the next
+      // session opens one. Scheduled runs key their browser by task, never by session, so they
+      // stay out of the way on their own.
+      if (event.type === "browser.status") {
+        const status = event as { sessionID?: unknown; closed?: unknown }
+        if (typeof status.sessionID !== "string" || status.closed === true) return
+        if (status.sessionID !== selected()) return
+        const current = panels()
+        if (current.includes("agent-browser")) return
+        const next = [...current, "agent-browser"]
+        setPanels(next)
+        writeStorage(STORAGE_KEYS.workspacePanels, next)
+        return
+      }
       if (event.type === "routine.changed") {
         const routine = normalizeRoutine(event.routine)
         if (!routine) return

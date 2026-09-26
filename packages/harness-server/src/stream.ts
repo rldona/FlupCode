@@ -1,8 +1,13 @@
 import type { SqliteRoutineRepository } from "./repository"
 import type { StoredEvent } from "./types"
 
-/** Sent often enough that a client watching for silence can tell a quiet server from a dead socket. */
-export const HEARTBEAT_MS = 10_000
+/**
+ * Sent often enough that a client watching for silence can tell a quiet server from a dead socket.
+ *
+ * Well under Bun.serve's 10s idle cutoff: at exactly 10s the heartbeat raced the socket timeout
+ * and long-lived event streams were cut with ERR_INCOMPLETE_CHUNKED_ENCODING.
+ */
+export const HEARTBEAT_MS = 5_000
 
 /**
  * A client that falls this far behind is dropped rather than buffered. A queue that grows without a
