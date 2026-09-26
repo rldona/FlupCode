@@ -188,17 +188,26 @@ automation is a later, separate medium (`flupcode.os`), not a profile inside `ac
 
 | ID | P | Ticket | Status |
 | --- | --- | --- | --- |
-| WA-0 | P0 | Contract and docs (ADR-0015, WEB-ACTIONS) | todo |
-| WA-1 | P0 | Browser runtime and boundary (token, SSRF, screenshots) | todo |
-| WA-2 | P0 | Action engine (recipe, deterministic runner, extract, guards) | todo |
-| WA-3 | P0 | Plugin tools and per-action approval | todo |
-| WA-4 | P0 | Permissions and session UI | todo |
-| WA-5 | P0 | Credentials, isolated profiles, redaction | todo |
-| WA-6 | P1 | Live view and takeover | todo |
-| WA-7 | P0 | Routines integration | todo |
-| WA-8 | P0 | Actions config UI (PoC) | todo |
-| WA-9 | P0 | Packaging and security hardening (release blocker) | todo |
+| WA-0 | P0 | Contract and docs (ADR-0015, WEB-ACTIONS) | done |
+| WA-1 | P0 | Browser runtime and boundary (token, SSRF, screenshots) | done |
+| WA-2 | P0 | Action engine (recipe, deterministic runner, extract, guards) | done |
+| WA-3 | P0 | Plugin tools and per-action approval | done |
+| WA-4 | P0 | Permissions and session UI | done |
+| WA-5 | P0 | Credentials, isolated profiles, redaction | done |
+| WA-6 | P1 | Live view and takeover | done |
+| WA-7 | P0 | Routines integration | done |
+| WA-8 | P0 | Actions config UI (PoC) | done |
+| WA-9 | P0 | Packaging and security hardening (release blocker) | doing |
 | WA-10 | P0 | Validation PoC: publish and read via configuration | todo |
+
+WA-9 status: code hardening done (CORS allowlist, artifact/event bearer, SSE
+sanitizing, Chromium via `executablePath`, prompt-injection fencing; CSRF Origin
+check and PDF sandbox from the security review). Still open: running
+`fetch-browser` + `electron-builder` packaging and signing (needs certificates,
+see F5-4), the clean-account launch test, and the `app.flupcode.com` opt-in
+decision. Manual E2E so far (editor CRUD, validate/preview/save, interactive
+run with approval, auto-open live view, headless default, takeover/release/stop)
+is green; the real-site run (WA-10) and a real scheduled run are pending.
 
 ---
 
@@ -220,7 +229,10 @@ automation is a later, separate medium (`flupcode.os`), not a profile inside `ac
 Current truth (the entries below from the older plan are kept struck for history):
 
 - **F3-16 Console org switch** — no console API in the v2 client.
-- **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo.
+- **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo. WA-9 packaging (Chromium `extraResources` + signature check) waits on this too.
+- **WA-9 leftovers (open, no ticket yet)** — `app.flupcode.com` CORS opt-in undecided; loopback token travels via argv/env (IPC delivery is future work); artifacts fail open when no token is configured (explicit opt-in missing).
+- **WA E2E follow-ups (open, no ticket yet)** — second agent session on a project with a live browser gets `browser_busy`: decide reuse vs. actionable close/takeover; a real scheduled run end-to-end (WA-7 code is done and tested); the real-site publish+read run (WA-10).
+- **`web-actions` branch** — WA-0…WA-9 committed locally, not yet PR'd into `power`.
 - ~~F3-14 MCP manager — vendored client calls removed `/api/mcp`~~ — false: the engine serves `/mcp`; the harness uses it.
 - ~~Share/unshare without endpoint~~ — false: `session.share/unshare` exist; the harness uses them.
 
