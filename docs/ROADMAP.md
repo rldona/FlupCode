@@ -230,7 +230,7 @@ Current truth (the entries below from the older plan are kept struck for history
 
 - **F3-16 Console org switch** — no console API in the v2 client.
 - **F5-4 Signing/notarization** — requires Apple/Windows developer certificates and CI secrets; cannot be completed in-repo. WA-9 packaging (Chromium `extraResources` + signature check) waits on this too.
-- **WA-9 leftovers (open, no ticket yet)** — `app.flupcode.com` CORS opt-in undecided; loopback token travels via argv/env (IPC delivery is future work); artifacts fail open when no token is configured (explicit opt-in missing).
+- **WA-9 leftovers (open, no ticket yet)** — `app.flupcode.com` stays denied for the harness (desktop-only browser use; decided); loopback token travels via argv/env (IPC delivery is future work); artifacts fail open when no token is configured (explicit opt-in missing).
 - **WA E2E follow-ups (open, no ticket yet)** — second agent session on a project with a live browser gets `browser_busy`: decide reuse vs. actionable close/takeover; a real scheduled run end-to-end (WA-7 code is done and tested); the real-site publish+read run (WA-10).
 - **`web-actions` branch** — WA-0…WA-9 committed locally, not yet PR'd into `power`.
 - ~~F3-14 MCP manager — vendored client calls removed `/api/mcp`~~ — false: the engine serves `/mcp`; the harness uses it.
