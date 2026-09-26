@@ -5,6 +5,7 @@ import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { vaultKeyForHarness } from "./vault"
 
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
 export const HARNESS_SERVER_URL = process.env.FLUPCODE_HARNESS_SERVER_URL ?? "http://127.0.0.1:4097"
@@ -26,6 +27,18 @@ let password = process.env.OPENCODE_SERVER_PASSWORD
 /** `base64(user:pass)` for the engine, or nothing when it needs no credentials. */
 export function engineCredentials() {
   return password ? Buffer.from(`${username}:${password}`).toString("base64") : undefined
+}
+
+let browserToken = process.env.FLUPCODE_BROWSER_TOKEN?.trim() || undefined
+
+/**
+ * The loopback token the harness and the engine share so the live view can drive the browser
+ * (WA-6). Generated once per app run and handed to both children; the harness compares it and the
+ * engine's actions plugin sends it, so neither reads a file the other may not see.
+ */
+export function harnessBrowserToken() {
+  browserToken = browserToken || randomBytes(32).toString("hex")
+  return browserToken
 }
 
 function authHeaders() {
@@ -223,7 +236,16 @@ export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "
     cwd: engine.cwd,
     stdio: "inherit",
     shell: process.platform === "win32",
-    env: { ...process.env, PATH: searchPath(), OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: password },
+    // The actions plugin reads its token and profiles from the harness, so the engine is told where
+    // that server answers. It is not the engine's own URL.
+    env: {
+      ...process.env,
+      PATH: searchPath(),
+      OPENCODE_SERVER_USERNAME: username,
+      OPENCODE_SERVER_PASSWORD: password,
+      FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
+      FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
+    },
   })
   child.on("error", () => {
     child = undefined
@@ -245,6 +267,9 @@ export async function ensureHarnessServer() {
   if (!harness) return
 
   const port = new URL(HARNESS_SERVER_URL).port || "4097"
+  // Windows and Linux hand the harness the key their keychain holds, so both processes open the
+  // same vault. macOS gets nothing here and the harness writes its own file instead (WA-5).
+  const vaultKey = vaultKeyForHarness()
   harnessChild = spawn(harness.command, harness.args, {
     cwd: harness.cwd,
     env: {
@@ -252,6 +277,11 @@ export async function ensureHarnessServer() {
       PATH: searchPath(),
       FLUPCODE_ENGINE_URL: SERVER_URL,
       FLUPCODE_HARNESS_PORT: port,
+      FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
+      // The Chromium that ships beside the app, so Playwright finds it without a download of its
+      // own. In development it is not packaged, and the system browser is used instead (WA-9).
+      ...(app.isPackaged ? { PLAYWRIGHT_BROWSERS_PATH: join(process.resourcesPath, "browsers") } : {}),
+      ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
     },
     stdio: "inherit",
     shell: process.platform === "win32",

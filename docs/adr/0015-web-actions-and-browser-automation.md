@@ -93,21 +93,29 @@ The browser runtime — Playwright plus a persistent, isolated Chromium profile 
 component that can call `ctx.ask`. The plugin holds no browser state, no selectors and no
 credentials.
 
-### 5. Per-sensitive-action approval; credentials never cross the transcript
+### 5. Per-action approval; credentials never cross the transcript
 
-Two permissions: **`browser`** (navigate/read) and **`browser_sensitive`** (click/type/submit/
-credential). The resource grammar is `origin` for `browser` and `origin:action` for
-`browser_sensitive`. The plugin calls `ctx.ask` before every side-effecting step. The agent
-references a credential **by name**; the vault resolves and injects it inside the runtime, and the
-value never enters the transcript, a tool result or an artifact. Screenshots and DOM snapshots are
-redacted at capture.
+Two permissions: **`browser`** (navigate/read) and **`browser_sensitive`** (side effects). The
+resource grammar is `origin` for `browser` and `origin:action` for `browser_sensitive`. Approval is
+**one request per action, before it runs**: the plugin calls `ctx.ask` once, showing the steps that
+have effects, and the runner then executes the whole recipe in that one request. A step marked
+`sensitive` is what makes the action count as sensitive, so a pure `extract` action stays under
+`browser` alone. There is no `ctx.ask` between steps. The agent references a credential **by name**;
+the vault resolves and injects it inside the runtime, and the value never enters the transcript, a
+tool result or an artifact. Screenshots and DOM snapshots are redacted at capture.
 
 ### 6. Scheduling is Routines, not a new mechanism
 
-A scheduled action is a Routine (`packages/harness-server/src/scheduler.ts`) whose prompt drives the
-agent and whose agent configuration carries explicit allow rules for the origins it needs. An
-unattended `ask` cannot be answered, so a browser Routine without allow rules is refused at creation
-with an actionable warning instead of hanging silently.
+A scheduled action is a Routine whose `action` names the profile and the values it runs with, and
+whose `allow` carries the consent it needs. Each execution is an ordinary **Run** with one
+deterministic task of kind `action`; the `TaskRunner` calls the action runner **in process**, with no
+model turn and no `ctx.ask`, so nothing has to answer an approval at 2am. The failure that an
+unattended run cannot answer is refused before it can happen: a Routine that drives a browser action
+without an `allow` rule covering the profile's origin (or `origin:action` for a sensitive one) is
+rejected at creation with an actionable warning, and the task re-checks the same rule before the
+browser opens, so a hand-written run fails closed too. Evidence the browser stores — screenshots and
+the text log — is filed under the run and task, so a scheduled action reads back without a
+transcript. Scheduled runs are headless; only an action a person starts from the app is headed.
 
 ### 7. Live view is frame polling; takeover reveals the real window
 

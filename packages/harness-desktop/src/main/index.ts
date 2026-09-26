@@ -5,7 +5,7 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
 import { initRemoteHost } from "./remote"
-import { engineCredentials, ensureHarnessServer, ensureServer, stopServer } from "./server"
+import { engineCredentials, ensureHarnessServer, ensureServer, harnessBrowserToken, stopServer } from "./server"
 import { initSpeech, speechAvailable, stopSpeech } from "./speech"
 import { initAutoUpdate, checkForUpdates } from "./updater"
 import { loadWindowStates, saveWindowState } from "./window-state"
@@ -88,11 +88,13 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: true,
-      // The preload reads both of these: the speech bridge is only exposed when the native helper is
-      // present, and the credentials let the renderer reach the engine this app password-protected.
+      // The preload reads all of these: the speech bridge is only exposed when the native helper
+      // is present, the credentials let the renderer reach the engine this app password-protected,
+      // and the browser token lets its live view drive the harness browser (WA-6).
       additionalArguments: [
         ...(speechAvailable() ? ["--flupcode-speech"] : []),
         ...(credentials ? [`--flupcode-engine-auth=${credentials}`] : []),
+        `--flupcode-browser-token=${harnessBrowserToken()}`,
       ],
     },
   })
@@ -118,10 +120,11 @@ app.whenReady().then(async () => {
   setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
   initAutoUpdate()
   initSpeech()
-  // The engine starts first: it is what decides the password, which both the remote host and the
-  // window need in order to reach it.
-  await ensureServer()
+  // The harness starts first: the actions plugin reads its token and its profiles from it as the
+  // engine loads, and the engine's own startup decides the password both the remote host and the
+  // window need. Starting the engine first would leave that plugin with nothing to register.
   await ensureHarnessServer()
+  await ensureServer()
   remote = initRemoteHost()
   createWindow()
 

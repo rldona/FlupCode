@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
 import type { Artifact, ArtifactKind } from "../types"
 import { viewerFor, viewerNeedsRaw } from "../artifact-view"
@@ -14,8 +14,11 @@ type ArtifactsPanelProps = {
   serverAvailable: boolean
   /** Whether the app can open a local path (the desktop bridge). Web only has Copy. */
   canOpenFiles: boolean
-  /** Where an artifact's bytes are served, for a viewer that draws rather than reads. */
-  rawUrl: (id: string) => string
+  /**
+   * Fetches an artifact's bytes as a blob URL, for a viewer that draws rather than reads. The panel
+   * revokes it when the viewer goes away (WA-9).
+   */
+  rawArtifact: (id: string) => Promise<string>
   onCopy: (path: string) => void
   onRemove: (id: string) => void
   /** Keep one in front, or say when it may be forgotten (H-14). */
@@ -121,6 +124,19 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
 
   const ArtifactBody: Component<{ artifact: Artifact }> = (body) => {
     const viewer = () => viewerFor(body.artifact)
+    // Only what the server did not keep as text needs its bytes fetched: a PDF always, an image
+    // unless it already carries its content. The URL is revoked when this body goes away or the
+    // artifact changes, so opening many does not leak one blob per view (WA-9).
+    const wantsRaw = () => viewer() === "pdf" || (viewer() === "image" && !body.artifact.content)
+    const [raw] = createResource(
+      () => (wantsRaw() ? body.artifact.id : undefined),
+      async (id) => {
+        const url = await props.rawArtifact(id)
+        onCleanup(() => URL.revokeObjectURL(url))
+        return url
+      },
+    )
+    const imageUrl = () => body.artifact.content ?? raw() ?? ""
     return (
       <Show
         when={!viewerNeedsRaw(viewer()) || body.artifact.path || body.artifact.content}
@@ -146,15 +162,13 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
           <button
             class="fc-artifact-image"
             type="button"
-            onClick={() =>
-              openImagePreview({ uri: body.artifact.content ?? props.rawUrl(body.artifact.id), name: body.artifact.title })
-            }
+            onClick={() => openImagePreview({ uri: imageUrl(), name: body.artifact.title })}
           >
-            <img alt={body.artifact.title} src={body.artifact.content ?? props.rawUrl(body.artifact.id)} />
+            <img alt={body.artifact.title} src={imageUrl()} />
           </button>
         </Show>
         <Show when={viewer() === "pdf"}>
-          <iframe class="fc-artifact-frame" title={body.artifact.title} src={props.rawUrl(body.artifact.id)} />
+          <iframe class="fc-artifact-frame" title={body.artifact.title} src={raw()} sandbox="" />
         </Show>
         <Show when={viewer() === "text"}>
           <pre class="fc-artifact-body">{body.artifact.content ?? ""}</pre>

@@ -7,11 +7,12 @@ import {
   createSignal,
   lazy,
   on,
+  onCleanup,
   type Component,
 } from "solid-js"
 import { createResource } from "../resource"
 import type { SessionInfo } from "../engine-types"
-import { createClient } from "../client"
+import { createClient, createHarnessClient, type AgentBrowserSession } from "../client"
 import { browser } from "../browser"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
@@ -24,6 +25,7 @@ const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ defaul
 type WorkspacePanelsProps = {
   panels: string[]
   serverUrl: string
+  harnessServerUrl: string
   session: SessionInfo | undefined
   width: number
   /** Changes whenever messages or VCS status refresh, so the diff panel stays in sync. */
@@ -209,6 +211,226 @@ const BrowserPanel: Component = () => {
   )
 }
 
+/** How often the live view polls the latest frame while a browser session is open. */
+const AGENT_FRAME_POLL_MS = 2000
+
+/**
+ * The live view and its takeover (WA-6): the latest frame of the session's browser run, what it
+ * shows, and Take over / Release / Stop. Take over reveals the headed window and holds the agent;
+ * Release lets it carry on; Stop ends the run. Without the desktop's token the controls are refused
+ * and the panel only watches.
+ */
+const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string | undefined }> = (props) => {
+  // The run's status: `undefined` while it loads, `null` when no browser session is open.
+  const [status, setStatus] = createSignal<AgentBrowserSession | null | undefined>(undefined)
+  const [frame, setFrame] = createSignal<string | undefined>()
+  const [busy, setBusy] = createSignal<string | undefined>()
+  const [notice, setNotice] = createSignal("")
+
+  const client = () => createHarnessClient(props.harnessServerUrl)
+
+  const refreshStatus = async () => {
+    const sessionID = props.sessionID
+    if (!sessionID) {
+      setStatus(null)
+      return
+    }
+    try {
+      setStatus(await client().agentBrowser.session(sessionID))
+    } catch {
+      // Keep the last known status on a transient failure: blanking the whole panel on every
+      // hiccup unmounts the frame, the meta and the buttons, which reads as flicker. A session
+      // that is really gone arrives as a closed status event, which clears below.
+    }
+  }
+
+  const clearStatus = () => {
+    const previous = frame()
+    if (previous) URL.revokeObjectURL(previous)
+    setFrame(undefined)
+    setNotice("")
+    setStatus(null)
+  }
+
+  // A poll, an event and a button can all ask for a frame at once; only one fetch runs and the
+  // picture swaps only after the new PNG decoded, so the old frame stays painted instead of flashing.
+  let inflight: Promise<void> | undefined
+  let alive = true
+
+  const refreshFrame = () => {
+    const sessionID = props.sessionID
+    if (!sessionID || inflight) return Promise.resolve()
+    inflight = (async () => {
+      try {
+        const next = await client().agentBrowser.frame(sessionID, { store: false })
+        const url = URL.createObjectURL(next.blob)
+        try {
+          await new Promise<void>((resolve, reject) => {
+            const pending = new Image()
+            pending.onload = () => resolve()
+            pending.onerror = () => reject(new Error("frame"))
+            pending.src = url
+          })
+        } catch {
+          URL.revokeObjectURL(url)
+          return
+        }
+        if (!alive) {
+          URL.revokeObjectURL(url)
+          return
+        }
+        const previous = frame()
+        if (previous) URL.revokeObjectURL(previous)
+        setFrame(url)
+      } catch {
+        // A frame that is not there yet is not an error: the next poll tries again.
+      } finally {
+        inflight = undefined
+      }
+    })()
+    return inflight
+  }
+
+  const act = (name: string, call: (sessionID: string) => Promise<unknown>) => {
+    const sessionID = props.sessionID
+    if (!sessionID || busy()) return
+    setBusy(name)
+    setNotice("")
+    void call(sessionID)
+      .then(() => refreshStatus())
+      .then(() => refreshFrame())
+      .catch((cause) => setNotice(cause instanceof Error ? cause.message : String(cause)))
+      .finally(() => setBusy(undefined))
+  }
+
+  // A new session starts blank: its frames and its status belong to whoever ran before.
+  // Anything else keeps painting what it has while the new status loads.
+  let knownSession: string | undefined
+  createEffect(
+    on(
+      () => props.sessionID,
+      (id) => {
+        if (id === knownSession) return
+        knownSession = id
+        clearStatus()
+        if (!id) return
+        setStatus(undefined)
+        void refreshStatus().then(() => void refreshFrame())
+      },
+    ),
+  )
+
+  onCleanup(() => {
+    alive = false
+    const previous = frame()
+    if (previous) URL.revokeObjectURL(previous)
+  })
+
+  // Frames arrive as stored artifacts and statuses as lifecycle changes; the poll below is what
+  // moves the picture when the stream is away.
+  createEffect(() => {
+    const sessionID = props.sessionID
+    const url = props.harnessServerUrl
+    if (!sessionID) return
+    const controller = new AbortController()
+    onCleanup(() => controller.abort())
+    void (async () => {
+      for (let attempt = 0; !controller.signal.aborted; attempt++) {
+        try {
+          for await (const event of createHarnessClient(url).events({ signal: controller.signal })) {
+            attempt = 0
+            const type = (event as { type?: string }).type
+            if (type !== "browser.frame" && type !== "browser.status") continue
+            if ((event as { sessionID?: string }).sessionID !== sessionID) continue
+            if (type === "browser.status") {
+              if ((event as { closed?: unknown }).closed === true) clearStatus()
+              else void refreshStatus()
+            } else void refreshFrame()
+          }
+        } catch {
+          if (controller.signal.aborted) return
+        }
+        if (controller.signal.aborted) return
+        await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
+      }
+    })()
+  })
+
+  createEffect(() => {
+    if (!props.sessionID) return
+    const timer = setInterval(() => {
+      void refreshFrame()
+    }, AGENT_FRAME_POLL_MS)
+    onCleanup(() => clearInterval(timer))
+  })
+
+  return (
+    <div class="fc-panel-body fc-agent-browser">
+      <Show
+        when={props.sessionID}
+        fallback={
+          <div class="fc-empty-state">
+            <span class="fc-empty-title">{t("No session")}</span>
+          </div>
+        }
+      >
+        <Show
+          when={status()}
+          fallback={
+            <div class="fc-empty-state fc-browser-empty">
+              <span class="fc-empty-title">{t("No browser session")}</span>
+              <span class="fc-empty-hint">{t("The agent's browser appears here while it acts on a site.")}</span>
+            </div>
+          }
+        >
+            {(live) => (
+            <>
+              <Show when={frame()} fallback={<div class="fc-agent-browser-frame fc-agent-browser-waiting" />}>
+                {(src) => <img class="fc-agent-browser-frame" src={src()} alt={live().title || live().url} />}
+              </Show>
+              <div class="fc-agent-browser-meta">
+                <span class="fc-agent-browser-url" title={live().url}>
+                  {live().title || live().url}
+                </span>
+                <span class="fc-agent-browser-state">{live().paused ? t("Paused") : t("Running")}</span>
+              </div>
+              <div class="fc-agent-browser-actions">
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={busy() !== undefined || live().paused}
+                  onClick={() => act("takeover", (id) => client().agentBrowser.takeOver(id))}
+                >
+                  {busy() === "takeover" ? t("Loading…") : t("Take over")}
+                </button>
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={busy() !== undefined || !live().paused}
+                  onClick={() => act("resume", (id) => client().agentBrowser.resume(id))}
+                >
+                  {busy() === "resume" ? t("Loading…") : t("Release")}
+                </button>
+                <button
+                  class="fc-button"
+                  type="button"
+                  disabled={busy() !== undefined}
+                  onClick={() => act("stop", (id) => client().agentBrowser.stop(id))}
+                >
+                  {busy() === "stop" ? t("Loading…") : t("Stop")}
+                </button>
+              </div>
+              <Show when={notice()}>
+                <span class="fc-agent-browser-notice">{notice()}</span>
+              </Show>
+            </>
+          )}
+        </Show>
+      </Show>
+    </div>
+  )
+}
+
 const DiffPanel: Component<{
   serverUrl: string
   session: SessionInfo | undefined
@@ -294,6 +516,7 @@ const DiffPanel: Component<{
 
 const TITLES: Record<string, string> = {
   browser: "Browser",
+  "agent-browser": "Agent browser",
   diff: "Files changed",
   terminal: "Terminal",
 }
@@ -343,6 +566,9 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
               </div>
               <Show when={kind === "browser"}>
                 <BrowserPanel />
+              </Show>
+              <Show when={kind === "agent-browser"}>
+                <AgentBrowserPanel harnessServerUrl={props.harnessServerUrl} sessionID={props.session?.id} />
               </Show>
               <Show when={kind === "diff"}>
                 <DiffPanel

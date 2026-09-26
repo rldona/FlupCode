@@ -186,8 +186,8 @@ const ES: Record<string, string> = {
   "Always ask before making changes": "Preguntar siempre antes de hacer cambios",
   "Automatically accept all file edits": "Aceptar automáticamente todas las ediciones",
   "Accepts all permissions": "Acepta todos los permisos",
-  "Runs everything without asking, including commands and edits outside the folder":
-    "Ejecuta todo sin preguntar, incluidos comandos y ediciones fuera de la carpeta",
+  "Runs everything without asking, including commands, edits outside the folder and browser actions":
+    "Ejecuta todo sin preguntar, incluidos comandos, ediciones fuera de la carpeta y acciones del navegador",
   "Click again to confirm": "Pulsa otra vez para confirmar",
   "Show thinking": "Mostrar el razonamiento",
   "What the model thought before answering, as a block you can open.":
@@ -200,6 +200,10 @@ const ES: Record<string, string> = {
   "Reject with reason": "Rechazar con motivo",
   "Remembers: {patterns}": "Recuerda: {patterns}",
   "every {action}": "cualquier {action}",
+  Origin: "Origen",
+  Action: "Acción",
+  Sensitive: "Sensible",
+  Screenshot: "Captura",
   "Waiting for permission": "Esperando permiso",
   "Another session is waiting for permission": "Otra sesión está esperando permiso",
   "{count} waiting": "{count} en espera",
@@ -632,6 +636,12 @@ const ES: Record<string, string> = {
   Spent: "Gastado",
   Providers: "Proveedores",
   Browser: "Navegador",
+  "Agent browser": "Navegador del agente",
+  "Take over": "Tomar el control",
+  Release: "Soltar",
+  "No browser session": "Sin sesión de navegador",
+  "The agent's browser appears here while it acts on a site.":
+    "El navegador del agente aparece aquí mientras actúa en un sitio.",
   "Files changed": "Ficheros cambiados",
   "Type a URL": "Escribe una URL",
   Go: "Ir",
@@ -820,6 +830,16 @@ const ES: Record<string, string> = {
   "What this routine does": "Qué hace esta rutina",
   Instructions: "Instrucciones",
   "Tell the agent what to do…": "Indica al agente qué debe hacer…",
+  "A prompt": "Un prompt",
+  "A web action": "Una acción web",
+  Artifact: "Artefacto",
+  "Choose an artifact": "Elige un artefacto",
+  "This action needs no inputs.": "Esta acción no necesita entradas.",
+  "This action has effects; the routine carries the strong approval.":
+    "Esta acción tiene efectos; la rutina lleva la aprobación fuerte.",
+  "This action only reads; the routine carries the read approval.":
+    "Esta acción solo lee; la rutina lleva la aprobación de lectura.",
+  Approval: "Aprobación",
   Project: "Proyecto",
   Schedule: "Programación",
   "Every hour": "Cada hora",
@@ -1306,6 +1326,47 @@ const ES: Record<string, string> = {
   conflicts: "conflictos",
   skipped: "omitidos",
   outside: "fuera",
+  // Web actions editor (WA-8)
+  Actions: "Acciones",
+  "Web actions": "Acciones web",
+  "New action": "Nueva acción",
+  "Not loaded": "No cargadas",
+  "No global actions yet.": "Todavía no hay acciones globales.",
+  "Select an action or create one.": "Selecciona una acción o crea una.",
+  "The harness server is not available, so actions cannot be edited here.":
+    "El servidor del harness no está disponible, así que las acciones no se pueden editar aquí.",
+  "The profile is valid.": "El perfil es válido.",
+  "Saved to {path}": "Guardado en {path}",
+  "Action removed.": "Acción eliminada.",
+  "Moved to the global config at {path}.": "Movida a la configuración global en {path}.",
+  "Open a project folder to preview an action.": "Abre una carpeta de proyecto para previsualizar una acción.",
+  "That project already has a browser open. Close the other run or its window and try again.":
+    "Ese proyecto ya tiene un navegador abierto. Cierra la otra ejecución o su ventana e inténtalo de nuevo.",
+  "Project actions are stored in this project's .opencode. The agent's plugin loads global profiles only, so this action is not available to it.":
+    "Las acciones de proyecto se guardan en el .opencode de este proyecto. El plugin del agente solo carga perfiles globales, así que esta acción no está disponible para él.",
+  "An action needs an id.": "Una acción necesita un id.",
+  "name (never the value)": "nombre (nunca el valor)",
+  "Host": "Host",
+  "Desktop": "Escritorio",
+  "Screenshots": "Capturas",
+  "Each step": "Cada paso",
+  "Only on failure": "Solo si falla",
+  "Keep page text": "Guardar el texto de la página",
+  "Needs approval": "Requiere aprobación",
+  "read only": "solo lectura",
+  "needs approval": "requiere aprobación",
+  "selector or URL": "selector o URL",
+  "text, {{input}} or credential": "texto, {{input}} o credencial",
+  "expected text": "texto esperado",
+  "label": "etiqueta",
+  "lib/guards.ts, another.ts": "lib/guards.ts, otra.ts",
+  "Read steps ran; the first side effect and everything after it were skipped.":
+    "Los pasos de lectura se ejecutaron; el primer efecto secundario y todo lo posterior se omitieron.",
+  "Click the page to pick a selector for the focused field.":
+    "Haz clic en la página para elegir un selector para el campo enfocado.",
+  "Live browser view": "Vista del navegador en vivo",
+  "Nothing selectable at that point.": "No hay nada seleccionable en ese punto.",
+  "Picked": "Elegido",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

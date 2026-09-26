@@ -1,10 +1,14 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
+import { allowedHarnessOrigin } from "./cors"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
+import { ActionRunError } from "./action-runner"
+import type { ActionCatalogProfile, ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
+import type { BrowserAllowRule } from "./types"
 
 /**
  * Waits for a run the request only started.
@@ -42,6 +46,30 @@ const open = () => {
 }
 
 describe("harness routines API", () => {
+  test("a mutating request from a foreign origin is refused before it runs", async () => {
+    const { repository, handler } = open()
+    const post = (origin?: string) =>
+      handler(
+        new Request("http://localhost/harness/routines", {
+          method: "POST",
+          body: JSON.stringify(input),
+          headers: { "content-type": "application/json", ...(origin ? { origin } : {}) },
+        }),
+      )
+
+    // CORS only hides answers; a simple cross-origin POST still runs server-side, so the origin
+    // itself is checked. Callers without one (curl, the plugin) are unaffected.
+    const evil = await post("https://evil.example")
+    expect(evil.status).toBe(403)
+    expect(repository.list()).toEqual([])
+
+    const local = await post("http://localhost:4444")
+    expect(local.status).toBe(201)
+    const plain = await post(undefined)
+    expect(plain.status).toBe(201)
+    repository.close()
+  })
+
   test("creates, updates, toggles, and removes routines", async () => {
     const { repository, handler } = open()
 
@@ -1172,6 +1200,108 @@ describe("health", () => {
   })
 })
 
+describe("the harness CORS boundary (WA-9)", () => {
+  test("echoes an allowed origin and varies on it", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/health", { headers: { origin: "oc://renderer" } }))
+    expect(response.headers.get("access-control-allow-origin")).toBe("oc://renderer")
+    expect(response.headers.get("vary")).toContain("Origin")
+    repository.close()
+  })
+
+  test("allows any loopback port", async () => {
+    const { handler, repository } = open()
+    for (const origin of ["http://localhost:5173", "http://127.0.0.1:9000", "http://[::1]:4097"]) {
+      const response = await handler(new Request("http://x/harness/health", { headers: { origin } }))
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin)
+    }
+    repository.close()
+  })
+
+  test("a hosted page is refused, and no `*` leaks past the boundary", async () => {
+    const { handler, repository } = open()
+    const response = await handler(
+      new Request("http://x/harness/health", { headers: { origin: "https://app.flupcode.com" } }),
+    )
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+    repository.close()
+  })
+
+  test("an origin named exactly is allowed", () => {
+    expect(allowedHarnessOrigin("https://app.flupcode.com")).toBe(false)
+    expect(
+      allowedHarnessOrigin("https://app.flupcode.com", { FLUPCODE_HARNESS_CORS: "https://app.flupcode.com" }),
+    ).toBe(true)
+    expect(allowedHarnessOrigin(undefined)).toBe(true)
+  })
+
+  test("a request with no origin is served as before", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/health"))
+    expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+    repository.close()
+  })
+
+  test("a preflight answers the methods and headers, echoing the origin", async () => {
+    const { handler, repository } = open()
+    const response = await handler(
+      new Request("http://x/harness/artifacts", { method: "OPTIONS", headers: { origin: "oc://renderer" } }),
+    )
+    expect(response.status).toBe(204)
+    expect(response.headers.get("access-control-allow-methods")).toBe("GET,POST,PUT,PATCH,DELETE,OPTIONS")
+    expect(response.headers.get("access-control-allow-headers")).toBe(
+      "content-type, authorization, x-flupcode-session",
+    )
+    expect(response.headers.get("access-control-allow-origin")).toBe("oc://renderer")
+    repository.close()
+  })
+})
+
+describe("the artifact surface's bearer (WA-9)", () => {
+  const guarded = () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    return { repository, handler: createHarnessHandler(repository, scheduler, { token: "secret-token" }) }
+  }
+
+  test("refuses the listing and the bytes with no bearer, and answers with one", async () => {
+    const { handler, repository } = guarded()
+    for (const path of ["/harness/artifacts", "/harness/artifacts/whatever/raw", "/harness/artifacts/whatever/export"]) {
+      const refused = await handler(new Request(`http://x${path}`))
+      expect(refused.status).toBe(403)
+      expect((await refused.json()).code).toBe("invalid_token")
+    }
+
+    const allowed = await handler(
+      new Request("http://x/harness/artifacts", { headers: { authorization: "Bearer secret-token" } }),
+    )
+    expect(allowed.status).toBe(200)
+    repository.close()
+  })
+
+  test("without a configured token the routes answer as before", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/artifacts"))
+    expect(response.status).toBe(200)
+    repository.close()
+  })
+
+  test("the event stream asks for the bearer when one is configured", async () => {
+    const { handler, repository } = guarded()
+    const refused = await handler(new Request("http://x/harness/events"))
+    expect(refused.status).toBe(403)
+    expect((await refused.json()).code).toBe("invalid_token")
+
+    const allowed = await handler(
+      new Request("http://x/harness/events", { headers: { authorization: "Bearer secret-token" } }),
+    )
+    expect(allowed.status).toBe(200)
+    await allowed.body?.cancel().catch(() => undefined)
+    repository.close()
+  })
+})
+
 describe("harness commands API", () => {
   test("writes, lists and removes a command file, and refuses a name that would escape", async () => {
     const { handler, repository } = open()
@@ -1343,6 +1473,23 @@ describe("harness runs API", () => {
     const clean = (await defaulted.json()).data
     expect(clean.shell).toBeUndefined()
     await settled(repository, clean.id)
+    repository.close()
+  })
+
+  // WA-7: an action task needs the allow rule only a routine can carry, and this path has no field
+  // to send one. Refusing it here beats a task that always fails closed with "needs an allow rule".
+  test("an action task is refused, pointing at routines", async () => {
+    const { handler, repository } = open()
+    const response = await handler(
+      new Request("http://x/harness/runs", {
+        method: "POST",
+        body: JSON.stringify({ tasks: [{ name: "publish", kind: "action", action: { id: "publish" } }] }),
+      }),
+    )
+
+    expect(response.status).toBe(400)
+    expect((await response.json()).error).toContain("routine")
+    expect(repository.listRuns()).toEqual([])
     repository.close()
   })
 })
@@ -1550,6 +1697,175 @@ describe("harness config files API", () => {
     )
     expect(refused.status).toBe(400)
     expect((await refused.json()).error).toMatch(/config repository/i)
+    repository.close()
+  })
+})
+
+// WA-7: a routine can drive a web action. Nothing answers an approval unattended, so the consent
+// is declared on the routine and checked at creation — and the run is an ordinary Run.
+describe("scheduling a web action (WA-7)", () => {
+  const engine = new Proxy({} as never, {
+    get(_target, name) {
+      throw new Error(`the runner asked the engine for ${String(name)} during an action run`)
+    },
+  })
+
+  const profile = (): ActionCatalogProfile => ({
+    id: "publish",
+    tool: "do_publish",
+    description: "Publish the piece",
+    kind: "browser",
+    origin: "https://example.com",
+    inputs: { text: "string" },
+    steps: [],
+    guards: [],
+    sensitive: true,
+    availability: "host",
+    evidence: {},
+    scope: "global",
+  })
+
+  const allow: BrowserAllowRule[] = [
+    { permission: "browser_sensitive", pattern: "https://example.com:publish", action: "allow" },
+  ]
+
+  const successResult = {
+    action: "publish",
+    tool: "do_publish",
+    status: "success" as const,
+    origin: "https://example.com",
+    url: "https://example.com/done",
+    title: "Done",
+    startedAt: 0,
+    finishedAt: 1,
+    steps: [],
+    evidence: [],
+  }
+
+  const openActions = (run?: (request: ActionRunRequest) => Promise<ActionRunResult>) => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const calls: ActionRunRequest[] = []
+    const lists: Array<{ directory?: string; project?: string } | undefined> = []
+    const actions: ActionRunner = {
+      list: (input) => {
+        lists.push(input)
+        return { profiles: [profile()], rejected: [] }
+      },
+      run: async (request) => {
+        calls.push(request)
+        return run ? run(request) : successResult
+      },
+    }
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1", actions })
+    Object.assign(scheduler, { engine })
+    const handler = createHarnessHandler(repository, scheduler, { actions })
+    return { repository, handler, calls, lists }
+  }
+
+  const post = (handler: ReturnType<typeof createHarnessHandler>, path: string, body: unknown) =>
+    handler(
+      new Request(`http://x${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      }),
+    )
+
+  test("a project routine resolves the profile from its own folder (WA-8)", async () => {
+    const { repository, handler, lists } = openActions()
+    const directory = "/work/demo"
+    const response = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      projectDirectory: directory,
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow,
+    })
+
+    expect(response.status).toBe(201)
+    // The catalogue is asked for the routine's folder, the same the scheduled run resolves from.
+    expect(lists.some((input) => input?.directory === directory)).toBe(true)
+    repository.close()
+  })
+
+  test("creating one without an allow rule is refused with an actionable message", async () => {
+    const { repository, handler } = openActions()
+    const response = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+    })
+
+    expect(response.status).toBe(422)
+    const body = await response.json()
+    expect(body.error).toContain("https://example.com:publish")
+    // Refused, not saved half-way.
+    expect(repository.list()).toEqual([])
+    repository.close()
+  })
+
+  test("with the allow rule it runs and leaves evidence bound to the run", async () => {
+    const { repository, handler } = openActions(async (request) => {
+      repository.addArtifact({
+        kind: "screenshot",
+        title: "evidence",
+        producer: "harness",
+        path: "frames/x.png",
+        directory: "/tmp",
+        ...(request.runID ? { runID: request.runID } : {}),
+        ...(request.taskID ? { taskID: request.taskID } : {}),
+      })
+      return successResult
+    })
+
+    const created = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow,
+    })
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+
+    const started = await post(handler, `/harness/routines/${routine.id}/runs`, {})
+    expect(started.status).toBe(202)
+    const run = (await started.json()).data
+    await settled(repository, run.id, 10_000)
+    expect(repository.getRun(run.id)?.status).toBe("success")
+
+    const [task] = repository.listTasks(run.id)
+    expect(task).toMatchObject({ kind: "action", status: "success" })
+    const [artifact] = repository.listArtifacts({ runID: run.id }).filter((entry) => entry.taskID === task!.id)
+    expect(artifact).toMatchObject({ kind: "screenshot", runID: run.id, taskID: task!.id })
+    repository.close()
+  })
+
+  test("a recipe that fails ends the run as failed, with the reason", async () => {
+    const { repository, handler } = openActions(async () => {
+      throw new ActionRunError({ code: "step_failed", status: 422, message: "the button was missing", action: "publish" })
+    })
+
+    const created = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow,
+    })
+    const routine = (await created.json()).data
+
+    const started = await post(handler, `/harness/routines/${routine.id}/runs`, {})
+    const run = (await started.json()).data
+    await settled(repository, run.id, 10_000)
+
+    expect(repository.getRun(run.id)).toMatchObject({ status: "failed", error: "the button was missing" })
     repository.close()
   })
 })

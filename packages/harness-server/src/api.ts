@@ -1,8 +1,10 @@
 import { normalizeRoutineSchedule } from "./validation"
 import { ARTIFACT_KINDS } from "./types"
 import type {
+  ActionTaskInput,
   ArtifactInput,
   ArtifactKind,
+  BrowserAllowRule,
   RoutineCreateOptions,
   RoutineInput,
   RunPolicy,
@@ -17,6 +19,16 @@ import { InvalidModelError, MissingInputsError, UnknownWorkflowError, RoutineBus
 import { UnknownTaskError } from "./workflow"
 import { externalActivity } from "./runner"
 import { eventStream, resumeFrom } from "./stream"
+import { handleBrowserRequest } from "./browser-routes"
+import type { BrowserRuntime } from "./browser"
+import { bearerFrom, tokenMatches } from "./browser-token"
+import { allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
+import { handleActionRequest } from "./action-routes"
+import type { ActionRunner } from "./action-runner"
+import { handleActionProfileRequest } from "./action-profile-routes"
+import { actionInputProblem, allowRulesFrom, missingAllowRules } from "./action-allow"
+import { handleCredentialRequest } from "./credential-routes"
+import type { CredentialVault } from "./vault"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -30,11 +42,15 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
   if (!value || typeof value !== "object") return undefined
   const input = value as Record<string, unknown>
   if (typeof input.name !== "string" || !input.name.trim()) return undefined
-  if (typeof input.prompt !== "string" || !input.prompt.trim()) return undefined
+  const action = actionFrom(input.action)
+  const prompt = typeof input.prompt === "string" ? input.prompt.trim() : ""
+  // A routine says something: a prompt for a model turn, or an action for a deterministic run.
+  // An action task has nothing to say to a model, so it is allowed to leave the prompt empty (WA-7).
+  if (!prompt && !action) return undefined
   return {
     name: input.name.trim(),
     description: typeof input.description === "string" ? input.description.trim() : "",
-    prompt: input.prompt.trim(),
+    prompt,
     schedule: normalizeRoutineSchedule(input.schedule),
     projectDirectory: typeof input.projectDirectory === "string" && input.projectDirectory ? input.projectDirectory : undefined,
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
@@ -49,7 +65,27 @@ const inputFrom = (value: unknown): RoutineInput | undefined => {
         : undefined,
     workflow: workflowFrom(input.workflow),
     policy: policyFrom((input as Record<string, unknown>).policy),
+    ...(action ? { action } : {}),
+    allow: allowFrom(input.allow),
   }
+}
+
+/** A web action a routine or task runs (WA-7): the profile id and the values it was given. */
+const actionFrom = (value: unknown): ActionTaskInput | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== "string" || !record.id.trim()) return undefined
+  const inputs =
+    record.inputs && typeof record.inputs === "object" && !Array.isArray(record.inputs)
+      ? (record.inputs as Record<string, unknown>)
+      : undefined
+  return { id: record.id.trim(), ...(inputs ? { inputs } : {}) }
+}
+
+/** The allow rules a caller sent (WA-7), or nothing when there are none worth keeping. */
+const allowFrom = (value: unknown): BrowserAllowRule[] | undefined => {
+  const rules = allowRulesFrom(value)
+  return rules.length > 0 ? rules : undefined
 }
 
 /** A routine's workflow, or nothing when it runs a single prompt (HF-8). */
@@ -86,6 +122,48 @@ const routineWorkflowProblem = async (
   return undefined
 }
 
+/**
+ * A routine that drives a web action it could never run (WA-7).
+ *
+ * The interactive path asks `ctx.ask` for one approval before the recipe runs; a scheduled run has
+ * nobody to answer it, so the consent is written on the routine as allow rules. Without one covering
+ * the profile the routine is refused here, with the resource it is missing, rather than hanging at
+ * 2am on a question nobody can see.
+ */
+const routineActionProblem = (
+  input: RoutineInput,
+  actions?: ActionRunner,
+): { message: string; status: number } | undefined => {
+  if (!input.action) return undefined
+  if (!actions) return { message: "Web actions are not available on this server", status: 409 }
+  // The same folder the scheduled run resolves from, so a routine that names a project profile is
+  // not refused with a 404 at the form while the run itself would have found it (WA-8).
+  const profile = actions
+    .list(input.projectDirectory ? { directory: input.projectDirectory } : {})
+    .profiles.find((entry) => entry.id === input.action!.id)
+  if (!profile) return { message: `No action called "${input.action.id}"`, status: 404 }
+  const missing = missingAllowRules(input.allow ?? [], profile)
+  if (missing.length > 0)
+    return {
+      message: `"${profile.id}" runs unattended, so it cannot ask for approval. Allow ${missing
+        .map((rule) => rule.pattern)
+        .join(", ")} first.`,
+      status: 422,
+    }
+  const problem = actionInputProblem(profile, input.action.inputs)
+  if (problem) return { message: problem, status: 422 }
+  return undefined
+}
+
+/**
+ * Advisory notes on a routine that are not reasons to refuse it (WA-7).
+ *
+ * An action drives the run, so instructions saved beside it are never read; saying so beats a
+ * routine that looks like it prompts and does not.
+ */
+const routineWarnings = (input: RoutineInput): string[] =>
+  input.action && input.prompt.trim() ? ["This routine runs a web action, so its instructions are ignored."] : []
+
 /** A model and an optional variant, or nothing. Used by a manual retry to change model (H-12). */
 const modelFrom = (value: unknown): TaskInput["model"] => {
   if (!value || typeof value !== "object") return undefined
@@ -102,19 +180,30 @@ const taskFrom = (value: unknown): TaskInput | undefined => {
   if (!value || typeof value !== "object") return undefined
   const input = value as Record<string, unknown>
   if (typeof input.name !== "string" || !input.name.trim()) return undefined
-  const kind = input.kind === "verify" ? "verify" : input.kind === "external" ? "external" : "agent"
+  const kind =
+    input.kind === "verify"
+      ? "verify"
+      : input.kind === "external"
+        ? "external"
+        : input.kind === "action"
+          ? "action"
+          : "agent"
   const prompt = typeof input.prompt === "string" ? input.prompt.trim() : ""
   const command = typeof input.command === "string" ? input.command.trim() : ""
-  // A verify task has nothing to say to a model, and an external one runs a command instead. A
-  // prompt or a command requirement for either would only make callers invent one.
+  const action = actionFrom(input.action)
+  // A verify task has nothing to say to a model, an external one runs a command instead, and an
+  // action runs a recipe (WA-7). A prompt requirement for any of them would only make callers
+  // invent one.
   if (kind === "agent" && !prompt) return undefined
   if (kind === "external" && !command) return undefined
+  if (kind === "action" && !action) return undefined
   const model = modelFrom(input.model)
   return {
     name: input.name.trim(),
     prompt,
     kind,
     ...(kind === "external" && command ? { command } : {}),
+    ...(kind === "action" && action ? { action } : {}),
     agent: typeof input.agent === "string" && input.agent ? input.agent : undefined,
     ...(model ? { model } : {}),
     ...(kind === "verify" ? { retries: retriesFrom(input.retries) } : {}),
@@ -289,26 +378,88 @@ import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
-export const createHarnessHandler = (repository: SqliteRoutineRepository, scheduler: RoutineScheduler) =>
-  async (request: Request) => {
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "access-control-allow-origin": "*",
-          "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-          "access-control-allow-headers": "content-type",
-        },
-      })
-    }
+export type HarnessHandlerOptions = {
+  browser?: BrowserRuntime
+  token?: string
+  actions?: ActionRunner
+  credentials?: CredentialVault
+}
 
+export const createHarnessHandler = (
+  repository: SqliteRoutineRepository,
+  scheduler: RoutineScheduler,
+  options: HarnessHandlerOptions = {},
+) => {
+  const handle = async (request: Request) => {
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
+    // CSRF is not stopped by CORS: a simple cross-origin request still runs server-side while only
+    // hiding its answer. So a mutating request that names an origin has to name an allowed one —
+    // callers without an origin (curl, the plugin, node) are unaffected.
+    if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") {
+      const origin = request.headers.get("origin") ?? undefined
+      if (origin !== undefined && !allowedHarnessOrigin(origin)) return error("Forbidden", 403)
+    }
+    // The browser runtime is the one surface a page can reach from outside the process, so it is
+    // behind its own bearer token rather than the loopback address alone (WA-1).
+    if (path[1] === "browser" && options.browser) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleBrowserRequest(request, path.slice(2), options.browser)
+    }
+    // The runner drives the browser on the user's machine, so it sits behind the same bearer as
+    // `/harness/browser/*` (WA-2). Without a runner the path is an ordinary 404.
+    if (path[1] === "actions" && options.actions) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleActionRequest(request, path.slice(2), options.actions)
+    }
+    // What a web action signs in with (WA-5). Stored secrets are the most sensitive thing here, so
+    // the vault is behind the same bearer rather than the loopback address alone, and it is only a
+    // route at all when a key was resolved.
+    if (path[1] === "credentials" && options.credentials) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleCredentialRequest(request, path.slice(2), options.credentials)
+    }
+    // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
+    // needs the profile id and the shape the form wrote.
+    if (path[1] === "action-profiles") {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleActionProfileRequest(request, path.slice(2))
+    }
+    // What the runs left behind is served to any page that reaches the loopback port — its bytes and
+    // its listing. When a token was configured it is the same bearer that guards the browser, so a
+    // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
+    // and the routes answer as before.
+    if (path[1] === "artifacts" && options.token) {
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
-    // does not have and leave a 404 in the console (H-18).
-    if (path[1] === "health" && request.method === "GET") return json({ healthy: true, capabilities: [...CAPABILITIES] })
-    // Everything the server changes, in order, so a client follows along instead of asking.
-    if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
+    // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
+    // was actually built: the kill switch and a missing token leave it out (WA-1).
+    if (path[1] === "health" && request.method === "GET")
+      return json({
+        healthy: true,
+        capabilities: [
+          ...CAPABILITIES,
+          ...(options.browser ? (["browser"] as const) : []),
+          ...(options.actions ? (["web-actions"] as const) : []),
+          ...(options.credentials ? (["credentials"] as const) : []),
+          // The writer shares the browser's bearer, so it is only announced when that secret exists.
+          ...(options.token ? (["action-profiles"] as const) : []),
+        ],
+      })
+    // Everything the server changes, in order, so a client follows along instead of asking. The
+    // stream carries prompts and outputs, so with a token configured it asks for the bearer like
+    // every other sensitive surface; without one it answers as before.
+    if (path[1] === "events" && request.method === "GET") {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return eventStream(repository, resumeFrom(request))
+    }
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
@@ -326,8 +477,15 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         | undefined
       const tasks = Array.isArray(body?.tasks) ? body.tasks.map(taskFrom).filter((task) => !!task) : []
       if (tasks.length === 0) {
-        return error("A run needs at least one task with a name, and a prompt or a command unless it is a verify task", 400)
+        return error("A run needs at least one task with a name, and a prompt or a command unless it is a verify or action task", 400)
       }
+      // An action task runs unattended and needs the allow rule a routine carries, which this path
+      // has no way to accept: starting one here would only fail closed. Point at the routine form.
+      if (tasks.some((task) => task.kind === "action"))
+        return error(
+          "An action task needs the allow rule a routine carries, so start it from a routine instead of /harness/runs",
+          400,
+        )
       const directory = typeof body?.directory === "string" && body.directory ? body.directory : undefined
       // `toolLimit` is written the way a person writes it — "10m" — and read by the same parser the
       // workflow files use, so the two cannot drift (H-47).
@@ -624,7 +782,12 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
         if (!(full === root || full.startsWith(root + sep))) return error("That path is outside the folder", 400)
         try {
           return new Response(readFileSync(full), {
-            headers: { "content-type": artifact.mime, "content-disposition": "inline" },
+            headers: {
+              "content-type": artifact.mime,
+              "content-disposition": "inline",
+              "x-content-type-options": "nosniff",
+              "access-control-expose-headers": "x-flupcode-artifact",
+            },
           })
         } catch {
           return error("No such file", 404)
@@ -1280,7 +1443,9 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       if (!input) return error("Invalid routine", 400)
       const problem = await routineWorkflowProblem(input)
       if (problem) return error(problem.message, problem.status)
-      return json({ data: repository.create(input, createOptionsFrom(body)) }, 201)
+      const actionProblem = routineActionProblem(input, options.actions)
+      if (actionProblem) return error(actionProblem.message, actionProblem.status)
+      return json({ data: repository.create(input, createOptionsFrom(body)), warnings: routineWarnings(input) }, 201)
     }
     if (!routineID) return error("Not found", 404)
 
@@ -1325,7 +1490,9 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
       if (!input) return error("Invalid routine", 400)
       const problem = await routineWorkflowProblem(input)
       if (problem) return error(problem.message, problem.status)
-      return json({ data: repository.update(routineID, input) })
+      const actionProblem = routineActionProblem(input, options.actions)
+      if (actionProblem) return error(actionProblem.message, actionProblem.status)
+      return json({ data: repository.update(routineID, input), warnings: routineWarnings(input) })
     }
     if (request.method === "DELETE") {
       repository.remove(routineID)
@@ -1334,3 +1501,14 @@ export const createHarnessHandler = (repository: SqliteRoutineRepository, schedu
     if (request.method === "GET") return json({ data: routine })
     return error("Not found", 404)
   }
+
+  /**
+   * Every answer passes through here so the origin is decided in one place: the handler no longer
+   * sets `access-control-allow-origin` itself, and a response can never carry the blanket `*` it
+   * used to (WA-9).
+   */
+  return async (request: Request) => {
+    if (request.method === "OPTIONS") return applyHarnessCors(preflightResponse(), request)
+    return applyHarnessCors(await handle(request), request)
+  }
+}

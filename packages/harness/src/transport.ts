@@ -52,6 +52,14 @@ export function engineCredentials() {
 }
 
 /**
+ * The loopback token the harness browser routes compare. The desktop app hands it to the renderer
+ * next to the engine credentials; a browser tab has none and the live view stays read-only there.
+ */
+export function harnessBrowserToken() {
+  return typeof window === "undefined" ? undefined : window.flupcode?.browserToken
+}
+
+/**
  * Ask the browser for local network access, from a user gesture (H-45).
  *
  * The prompt only appears while a connection to a local destination is being made, and only if it

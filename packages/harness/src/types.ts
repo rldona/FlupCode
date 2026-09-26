@@ -208,6 +208,8 @@ export type Run = {
   paused?: "gate" | "budget"
   /** Somebody let it past the budget. */
   budgetApproved?: boolean
+  /** The approval a scheduled web action ran under (WA-7). */
+  allow?: BrowserAllowRule[]
   /** Present when the run was asked for by id; the list leaves them out. */
   tasks?: Task[]
 }
@@ -220,8 +222,21 @@ export type TaskCondition = {
   is: Array<Exclude<TaskStatus, "queued" | "running">>
 }
 
-/** What a task does: a turn of the engine, the project's own checks (H-22), or another vendor's CLI (H-38). */
-export type TaskKind = "agent" | "verify" | "external"
+/** What a task does: a turn of the engine, the project's checks (H-22), another vendor's CLI (H-38), or a web recipe (WA-7). */
+export type TaskKind = "agent" | "verify" | "external" | "action"
+
+/** The approval a scheduled web action runs under (WA-7): the engine's own rule, narrowed to allow. */
+export type BrowserAllowRule = {
+  permission: "browser" | "browser_sensitive"
+  pattern: string
+  action: "allow"
+}
+
+/** A web action a routine or task runs (WA-7): a profile id and the values it was given. */
+export type ActionTaskInput = {
+  id: string
+  inputs?: Record<string, unknown>
+}
 
 export type Task = {
   id: string
@@ -232,6 +247,8 @@ export type Task = {
   kind?: TaskKind
   /** The command an `external` task ran (H-38). */
   command?: string
+  /** The recipe and values an `action` task ran (WA-7). */
+  action?: ActionTaskInput
   /** Which attempt this is, from 1. A retry after a failed check is a new task (H-22). */
   attempt?: number
   /** The task this one attempts again. */
@@ -284,6 +301,10 @@ export type RoutineInput = {
   workflow?: { name: string; inputs?: Record<string, string> }
   /** Model fallback and budget for the runs it starts (HF-8). */
   policy?: RunPolicy
+  /** Drive a deterministic web action instead of a prompt (WA-7). */
+  action?: ActionTaskInput
+  /** The allow rules the action needs to run unattended (WA-7). */
+  allow?: BrowserAllowRule[]
 }
 
 export type Routine = {
@@ -297,10 +318,99 @@ export type Routine = {
   model?: { providerID: string; id: string; variant?: string }
   workflow?: { name: string; inputs?: Record<string, string> }
   policy?: RunPolicy
+  action?: ActionTaskInput
+  allow?: BrowserAllowRule[]
   enabled: boolean
   createdAt: number
   lastRunAt?: number
   runs: RoutineRun[]
+}
+
+/** Where a web action is declared: the global config, or a project's own `.opencode` (WA-8). */
+export type ActionProfileScope = "global" | "project"
+
+export type ActionInputKind = "string" | "image"
+
+export type ActionStepName = "goto" | "waitFor" | "fill" | "click" | "upload" | "submit" | "assert" | "screenshot"
+
+export type ActionStep =
+  | { goto: string; timeoutMs?: number; sensitive?: boolean }
+  | { waitFor: string; timeoutMs?: number; state?: "attached" | "visible"; sensitive?: boolean }
+  | { fill: { selector: string; text?: string; credential?: string }; timeoutMs?: number; sensitive?: boolean }
+  | { click: string; timeoutMs?: number; sensitive?: boolean }
+  | { upload: { selector: string; from: string }; timeoutMs?: number }
+  | { submit: { selector: string }; timeoutMs?: number }
+  | { assert: { selector: string; text?: string }; timeoutMs?: number }
+  | { screenshot: string }
+
+export type ActionExtract = { selector: string; as?: "text" | "html" | "attribute"; attribute?: string }
+
+export type ActionEvidence = { screenshots?: "each" | "failure" | "none"; text?: boolean }
+
+/** A web action as the editor reads it (WA-8): the validated envelope plus where it lives. */
+export type ActionProfileDetail = {
+  id: string
+  scope: ActionProfileScope
+  tool: string
+  description: string
+  kind: "browser"
+  origin: string
+  credential?: string
+  inputs: Record<string, ActionInputKind>
+  steps: ActionStep[]
+  extract?: Record<string, ActionExtract>
+  guards: string[]
+  sensitive: boolean
+  availability: "host" | "desktop"
+  evidence: ActionEvidence
+  /** Where it is written, when the server says (WA-8). */
+  path?: string
+}
+
+/** The catalogue as a routine preselects from (WA-7) and the editor edits (WA-8). */
+export type ActionProfileSummary = ActionProfileDetail
+
+export type ActionCatalog = {
+  profiles: ActionProfileDetail[]
+  rejected: Array<{ id: string; code: string; message: string }>
+}
+
+/** One written profile's file (WA-8), from `GET /harness/action-profiles`. */
+export type ActionProfileFile = { id: string; scope: ActionProfileScope; path: string }
+
+/** One step of a preview (WA-8): `skipped` is at or after the first side effect. */
+export type ActionPreviewStep = {
+  index: number
+  kind: ActionStepName
+  status: "ok" | "failed" | "planned" | "skipped"
+  attempts: number
+  durationMs: number
+  screenshot?: string
+  /** Why a failed preview step failed, so the editor can say more than "failed" (WA-8). */
+  error?: string
+}
+
+export type ActionPreview = {
+  action: string
+  tool: string
+  status: "preview"
+  origin: string
+  url: string
+  title: string
+  startedAt: number
+  finishedAt: number
+  steps: ActionPreviewStep[]
+}
+
+/** What a click-to-pick read from a point on the page (WA-8). */
+export type SelectorCapture = {
+  found: boolean
+  reason?: "none" | "iframe"
+  viewport?: { width: number; height: number }
+  box?: { x: number; y: number; width: number; height: number }
+  tag?: string
+  candidates?: string[]
+  text?: string
 }
 
 export type ProjectItem = {

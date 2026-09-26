@@ -8,8 +8,33 @@ import { parseFindings } from "./findings"
 import { packFiles, packRefs, expandArtifactRefs } from "./packs"
 import { parsePlan } from "./plan"
 import { budgetReason, fallbackModel, modelForTask } from "./policy"
+import { ActionRunError } from "./action-runner"
+import type { ActionRunner } from "./action-runner"
+import { BrowserError } from "./browser"
+import { actionInputProblem, missingAllowRules } from "./action-allow"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
+
+/** The collision two action runs of one project meet at `browser.start` (WA-7). */
+const isBrowserBusy = (cause: unknown): boolean => cause instanceof BrowserError && cause.code === "browser_busy"
+
+/**
+ * Runs an action, waiting out a project whose browser another run still holds (WA-7).
+ *
+ * Only `browser_busy` is retried: any other failure is the recipe's own and waiting does not help.
+ */
+async function withBrowserStartRetry<T>(run: () => Promise<T>): Promise<T> {
+  let attempt = 0
+  while (true) {
+    attempt += 1
+    try {
+      return await run()
+    } catch (cause) {
+      if (!isBrowserBusy(cause) || attempt >= ACTION_START_ATTEMPTS) throw cause
+      await Bun.sleep(ACTION_START_RETRY_DELAY_MS * attempt)
+    }
+  }
+}
 
 /** A task has settled once it will not change again; the graph only moves on settled work. */
 const TERMINAL = new Set<TaskStatus>(["success", "failed", "skipped", "stopped"])
@@ -22,6 +47,16 @@ const TERMINAL = new Set<TaskStatus>(["success", "failed", "skipped", "stopped"]
  * workflows, and it is stated here rather than buried in a workflow file.
  */
 const RUN_CONCURRENCY = 4
+
+/**
+ * How many times an action task waits for a project's browser before giving up (WA-7).
+ *
+ * Two action runs of the same project collide on the one-browser-per-project reservation, and the
+ * loser only has to outlast the winner's run. Three attempts with a growing wait are enough for a
+ * short recipe without letting a stuck reservation hold a task forever.
+ */
+const ACTION_START_ATTEMPTS = 3
+const ACTION_START_RETRY_DELAY_MS = 250
 
 /**
  * What an external worker is doing right now, by task id (H-38).
@@ -100,6 +135,14 @@ type RunContext = {
   directories: Map<string, string | undefined>
   /** The first failure nobody declared they expected; it ends the run. */
   failure?: string
+  /**
+   * A task was stopped for a reason the scheduler did not ask for (WA-7).
+   *
+   * A browser stop reaches the action runner, which reports `stopped`; without recording it here the
+   * run would finish `success` around a task that stopped. Unlike `failure` this does not throw and
+   * does not carry an error: the run was called off, it did not fail.
+   */
+  halted?: boolean
   /** Why the run stopped taking new work: a gate, or a budget. */
   pause?: "gate" | "budget"
 }
@@ -121,6 +164,13 @@ export class TaskRunner {
   constructor(
     private readonly repository: SqliteRoutineRepository,
     private readonly engine: Engine,
+    /**
+     * The web actions a deterministic action task drives (WA-7).
+     *
+     * Absent means this server was built without a browser, and an action task fails closed rather
+     * than pretending it ran. An agent task never touches it.
+     */
+    private readonly actions?: ActionRunner,
   ) {}
 
   /**
@@ -365,7 +415,7 @@ export class TaskRunner {
    * on whichever finishes first. A gate or a budget stops new work but lets what is in flight finish,
    * so a pause is a clean boundary rather than a half-done task.
    */
-  async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}): Promise<"done" | "paused"> {
+  async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}): Promise<"done" | "paused" | "stopped"> {
     const stopped = options.stopped ?? (() => false)
     const all = this.repository.listTasks(run.id)
     if (all.length === 0) return "done"
@@ -409,7 +459,7 @@ export class TaskRunner {
       let started = 0
       let skipped = false
       for (const task of queued) {
-        if (running.size >= RUN_CONCURRENCY || context.failure || context.pause) break
+        if (running.size >= RUN_CONCURRENCY || context.failure || context.pause || context.halted) break
         const decision = this.decide(task, tasks)
         if (decision.action === "skip") {
           this.repository.finishTask(task.id, "skipped", { error: decision.reason }, Date.now())
@@ -428,6 +478,13 @@ export class TaskRunner {
       await Promise.race(running)
     }
     if (context.failure && !stopped()) throw new Error(context.failure)
+    // A task stopped by a browser the person closed is the run being called off: queued work stays
+    // queued no longer, and the run is reported as stopped rather than as a clean success.
+    if (context.halted && !stopped()) {
+      for (const task of this.repository.listTasks(run.id).filter((entry) => entry.status === "queued"))
+        this.repository.finishTask(task.id, "stopped", { error: "The run was stopped" })
+      return "stopped"
+    }
     return context.pause ? "paused" : "done"
   }
 
@@ -489,6 +546,9 @@ export class TaskRunner {
         }
         return this.afterTask(task, context, directory)
       }
+      // A web recipe the harness drives itself (WA-7). No model turn, no `ctx.ask` and no session:
+      // the action runner executes the recipe in process, and the consent was declared on the run.
+      if (task.kind === "action") return this.runActionTask(task, context, directory)
       // Its own tree, when the run asked for it (H-29). Created before the session so everything the
       // task does — its prompt, its answer, its checkpoints, its findings — belongs to it.
       if (run.worktrees && context.options.directory && typeof this.engine.createWorktree === "function") {
@@ -644,6 +704,93 @@ export class TaskRunner {
     } finally {
       externalLive.delete(task.id)
     }
+  }
+
+  /**
+   * A web action, run by the harness itself (WA-7).
+   *
+   * The recipe is deterministic and there is no model turn, so the task costs time and no tokens.
+   * What makes it safe unattended is the allow rule declared on the run: without one covering the
+   * profile, the task fails before any browser opens — an approval nobody can answer must not be
+   * asked. Evidence the browser stores is filed under this run and task, and a failure is kept as a
+   * log artifact so the run reads back without a transcript. A stop is the run being called off, not
+   * a failed recipe, so it does not end the run as a failure.
+   */
+  private async runActionTask(task: Task, context: RunContext, directory: string | undefined) {
+    const spec = task.action
+    if (!spec) return this.failAction(task, context, "An action task needs an action", directory)
+    const actions = this.actions
+    if (!actions) return this.failAction(task, context, "This server has no web actions configured", directory)
+
+    const tree = directory ?? context.options.directory ?? process.cwd()
+    // Scope-aware (WA-8): a routine may drive a profile the project's `.opencode` declares, not only
+    // a global one.
+    const profile = actions.list({ directory: tree }).profiles.find((entry) => entry.id === spec.id)
+    if (!profile) return this.failAction(task, context, `No action called "${spec.id}"`, directory)
+    // Fail closed before the browser opens: an unattended run cannot answer the approval the
+    // interactive path asks, so the consent has to already be on the run (WA-7).
+    const missing = missingAllowRules(context.run.allow ?? [], profile)
+    if (missing.length > 0)
+      return this.failAction(
+        task,
+        context,
+        `This action runs unattended and needs an allow rule for ${missing.map((rule) => rule.pattern).join(", ")}`,
+        directory,
+      )
+    const problem = actionInputProblem(profile, spec.inputs)
+    if (problem) return this.failAction(task, context, problem, directory)
+
+    try {
+      // Two action runs of the same project collide on its one browser, so give the other run time
+      // to finish before the recipe starts rather than failing a task nobody can retry by hand.
+      const result = await withBrowserStartRetry(() =>
+        actions.run({
+          action: profile.id,
+          inputs: spec.inputs,
+          // Keyed by the task, so the browser and its evidence belong to this run and no other.
+          sessionID: task.id,
+          project: tree,
+          directory: tree,
+          runID: context.run.id,
+          taskID: task.id,
+          stopped: context.stopped,
+          closeOnFinish: true,
+        }),
+      )
+      const output = JSON.stringify(result)
+      this.repository.finishTask(task.id, context.stopped() ? "stopped" : "success", { output })
+      context.directories.set(task.id, directory)
+      context.handoffs.set(task.id, output)
+      return this.afterTask(task, context, directory)
+    } catch (cause) {
+      if (isBrowserBusy(cause))
+        return this.failAction(
+          task,
+          context,
+          "This project's browser is busy with another action; retry once that run finishes.",
+          directory,
+        )
+      const stopped = cause instanceof ActionRunError && cause.code === "stopped"
+      return this.failAction(task, context, message(cause), directory, stopped)
+    }
+  }
+
+  /** Files an action task's failure, and the log that says what it was (WA-7). */
+  private failAction(task: Task, context: RunContext, error: string, directory?: string, stopped = false) {
+    this.repository.addArtifact({
+      kind: "log",
+      title: `${task.name} — ${stopped ? "stopped" : "failed"}`,
+      producer: "harness",
+      content: error,
+      directory,
+      runID: context.run.id,
+      taskID: task.id,
+    })
+    this.repository.finishTask(task.id, stopped ? "stopped" : "failed", { error })
+    // A stop is the run being called off, not a failure: it must not be thrown, but the run must
+    // still close as stopped instead of pretending the work finished.
+    if (stopped) context.halted = true
+    else context.failure = error
   }
 
   /**

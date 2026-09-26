@@ -36,8 +36,13 @@ export const PERMISSION_MODES: PermissionMode[] = [
     label: "Auto",
     description: "The agent decides based on its configured permissions",
     // No grant of its own: the agent's configuration decides, and anything reaching outside the
-    // session's folder is confirmed regardless of what that configuration says.
-    rules: [{ permission: "external_directory", pattern: "*", action: "ask" }],
+    // session's folder is confirmed regardless of what that configuration says. Browser effects are
+    // confirmed too, even when the agent's own configuration would let them run: a page acts with
+    // the user's session, so reading is the agent's decision and acting is always the user's.
+    rules: [
+      { permission: "external_directory", pattern: "*", action: "ask" },
+      { permission: "browser_sensitive", pattern: "*", action: "ask" },
+    ],
   },
   {
     id: "manual",
@@ -58,7 +63,7 @@ export const PERMISSION_MODES: PermissionMode[] = [
   {
     id: "bypass",
     label: "Bypass permissions",
-    description: "Runs everything without asking, including commands and edits outside the folder",
+    description: "Runs everything without asking, including commands, edits outside the folder and browser actions",
     rules: [{ permission: "*", pattern: "*", action: "allow" }],
     dangerous: true,
   },

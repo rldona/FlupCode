@@ -10,7 +10,7 @@ import { t } from "../i18n"
 import { errorDetail } from "../error-text"
 import { openImagePreview } from "../image-preview"
 import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
-import { outputLines, parseTodos, taskSessionID, type Todo } from "../tool-render"
+import { actionLink, outputLines, parseActionSummary, parseTodos, taskSessionID, type ActionSummary, type Todo } from "../tool-render"
 import { recoverablePrompt } from "../unsend"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
@@ -265,6 +265,55 @@ const ListCall: Component<{ lines: string[] }> = (props) => {
   )
 }
 
+/** A web action's own summary, drawn as what happened rather than as the text the plugin wrote. */
+const ActionCall: Component<{ summary: ActionSummary }> = (props) => (
+  <div class="fc-tool-action">
+    <div class="fc-tool-action-head">
+      <span class="fc-tool-action-name">{props.summary.action}</span>
+      <span class="fc-tool-action-origin">{props.summary.origin}</span>
+    </div>
+    <Show when={props.summary.url}>
+      {(url) => (
+        <Show when={actionLink(url())} fallback={<span class="fc-tool-action-url">{url()}</span>}>
+          {(link) => (
+            <a class="fc-tool-link" href={link()} target="_blank" rel="noreferrer">
+              {url()}
+            </a>
+          )}
+        </Show>
+      )}
+    </Show>
+    <Show when={props.summary.title}>
+      {(title) => <p class="fc-tool-action-title">{title()}</p>}
+    </Show>
+    <Show when={props.summary.steps.length > 0}>
+      <ul class="fc-tool-list">
+        <For each={props.summary.steps}>
+          {(step) => (
+            <li class="fc-tool-list-item">
+              #{step.index} {step.kind}: {step.status}
+            </li>
+          )}
+        </For>
+      </ul>
+    </Show>
+    <Show when={props.summary.extracted.length > 0}>
+      <ul class="fc-tool-list">
+        <For each={props.summary.extracted}>
+          {(entry) => (
+            <li class="fc-tool-list-item">
+              <span class="fc-tool-action-field">{entry.field}:</span> {entry.value}
+            </li>
+          )}
+        </For>
+      </ul>
+    </Show>
+    <Show when={props.summary.extra.length > 0}>
+      <pre class="fc-tool-output">{props.summary.extra.join("\n")}</pre>
+    </Show>
+  </div>
+)
+
 /** The tools with a body of their own; the rest fall through to the generic output. */
 const RENDERED_TOOLS = new Set(["todowrite", "read", "glob", "grep", "list", "webfetch", "websearch", "task", "skill"])
 
@@ -295,6 +344,11 @@ const ToolCall: Component<{
   const todos = createMemo(() => parseTodos(input()))
   const url = createMemo(() => stringField(input(), "url"))
   const taskChild = createMemo(() => taskSessionID(output()))
+  // A web action writes its result back as a summary text; reading it is what lets the card draw the
+  // action instead of the paragraph. Only a completed call carries one.
+  const summary = createMemo(() =>
+    props.part.state.status === "completed" ? parseActionSummary(output()) : undefined,
+  )
   // Whether a bespoke body below is responsible for this call, so the generic output does not repeat it.
   const rendered = RENDERED_TOOLS.has(props.part.name)
   // A read's file can be long; the renderer highlights it, so it takes the first page and says so.
@@ -328,6 +382,8 @@ const ToolCall: Component<{
           <Show when={command() !== undefined}>
             <pre class="fc-tool-cmd">$ {command()}</pre>
           </Show>
+
+          <Show when={!rendered && summary()}>{(value) => <ActionCall summary={value()} />}</Show>
 
           {/* H-06: a body for the tools whose result is not just text, before the generic fallback. */}
           <Show when={props.part.name === "todowrite"}>
@@ -378,7 +434,7 @@ const ToolCall: Component<{
           </Show>
 
           {/* Everything the bodies above did not claim still shows its output as text. */}
-          <Show when={!rendered && output()}>
+          <Show when={!rendered && !summary() && output()}>
             <ToolOutput text={output()} />
           </Show>
         </div>

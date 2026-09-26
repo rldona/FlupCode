@@ -41,6 +41,8 @@ declare global {
       speech?: SpeechBridge
       /** `base64(user:pass)` for the engine the desktop app started; see transport.ts. */
       engineAuth?: string
+      /** The loopback token the harness browser routes compare; the live view sends it (WA-6). */
+      browserToken?: string
       /** Where the window's controls are: left on darwin, right on win32. */
       platform?: string
       /** True where the window was created without a title bar, so the page draws that strip. */

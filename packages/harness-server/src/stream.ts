@@ -1,8 +1,13 @@
 import type { SqliteRoutineRepository } from "./repository"
-import type { StoredEvent } from "./types"
+import type { Artifact, ServerEvent, StoredEvent } from "./types"
 
-/** Sent often enough that a client watching for silence can tell a quiet server from a dead socket. */
-export const HEARTBEAT_MS = 10_000
+/**
+ * Sent often enough that a client watching for silence can tell a quiet server from a dead socket.
+ *
+ * Well under Bun.serve's 10s idle cutoff: at exactly 10s the heartbeat raced the socket timeout
+ * and long-lived event streams were cut with ERR_INCOMPLETE_CHUNKED_ENCODING.
+ */
+export const HEARTBEAT_MS = 5_000
 
 /**
  * A client that falls this far behind is dropped rather than buffered. A queue that grows without a
@@ -11,7 +16,25 @@ export const HEARTBEAT_MS = 10_000
  */
 export const MAX_PENDING = 500
 
-const frame = (entry: StoredEvent) => `id: ${entry.seq}\ndata: ${JSON.stringify(entry.event)}\n\n`
+/**
+ * The only fields of an artifact that may cross the stream: never its content, its path or its
+ * folder. A reader that needs those asks the artifact route, which is guarded (WA-9).
+ */
+const PUBLIC_ARTIFACT_FIELDS = ["id", "kind", "title", "producer", "createdAt", "mime"] as const
+
+const publicArtifact = (artifact: Artifact): Record<string, unknown> => {
+  const view: Record<string, unknown> = {}
+  for (const field of PUBLIC_ARTIFACT_FIELDS) view[field] = artifact[field]
+  return view
+}
+
+/** A frame's event, with anything an artifact carries beyond what a reader needs stripped out. */
+const safeEvent = (event: ServerEvent): ServerEvent =>
+  event.type === "artifact.created" || event.type === "artifact.changed"
+    ? ({ type: event.type, artifact: publicArtifact(event.artifact) } as ServerEvent)
+    : event
+
+const frame = (entry: StoredEvent) => `id: ${entry.seq}\ndata: ${JSON.stringify(safeEvent(entry.event))}\n\n`
 
 /**
  * The server's event stream.

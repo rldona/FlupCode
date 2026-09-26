@@ -34,6 +34,11 @@ const engineAuth = process.argv
   .find((argument) => argument.startsWith("--flupcode-engine-auth="))
   ?.slice("--flupcode-engine-auth=".length)
 
+// The loopback token the harness browser routes compare; see harness/src/remote.ts.
+const browserToken = process.argv
+  .find((argument) => argument.startsWith("--flupcode-browser-token="))
+  ?.slice("--flupcode-browser-token=".length)
+
 contextBridge.exposeInMainWorld("flupcode", {
   chooseFolder: () => ipcRenderer.invoke("flupcode:choose-folder") as Promise<string | undefined>,
   // The window has no title bar, so the page has to leave room for the controls — and they are on
@@ -50,4 +55,5 @@ contextBridge.exposeInMainWorld("flupcode", {
   remote,
   ...(speech ? { speech } : {}),
   ...(engineAuth ? { engineAuth } : {}),
+  ...(browserToken ? { browserToken } : {}),
 })

@@ -293,6 +293,78 @@ test("configFiles.read names the file it wants to read", async () => {
   ])
 })
 
+test("agentBrowser control sends the loopback token and the session", async () => {
+  const seen: Array<{ method: string; path: string; auth: string | null; session: string | null }> = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      seen.push({
+        method: request.method.toUpperCase(),
+        path: url.pathname,
+        auth: request.headers.get("authorization"),
+        session: request.headers.get("x-flupcode-session"),
+      })
+      return new Response(JSON.stringify({ data: { stopped: true } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+  const globalWindow = globalThis as { window?: unknown }
+  const previous = globalWindow.window
+  globalWindow.window = { flupcode: { browserToken: "tok" } }
+  try {
+    await createHarnessClient("http://harness").agentBrowser.stop("ses_1")
+  } finally {
+    globalWindow.window = previous
+  }
+
+  expect(seen).toEqual([{ method: "POST", path: "/harness/browser/stop", auth: "Bearer tok", session: "ses_1" }])
+})
+
+test("agentBrowser.frame returns the PNG blob and its artifact", async () => {
+  setEngineTransport({
+    fetch: async () =>
+      new Response(new Uint8Array([137, 80, 78, 71]), {
+        status: 200,
+        headers: { "content-type": "image/png", "x-flupcode-artifact": "art1" },
+      }),
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  const frame = await createHarnessClient("http://harness").agentBrowser.frame("ses_1")
+  expect(frame.artifactId).toBe("art1")
+  expect(frame.blob.size).toBe(4)
+})
+
+test("agentBrowser.frame can poll without storing an artifact", async () => {
+  const seen: string[] = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      seen.push(new URL(request.url).search)
+      return new Response(new Uint8Array([137, 80, 78, 71]), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  await createHarnessClient("http://harness").agentBrowser.frame("ses_1")
+  await createHarnessClient("http://harness").agentBrowser.frame("ses_1", { store: false })
+
+  expect(seen).toEqual(["", "?store=0"])
+})
+
 test("configFiles.export posts the chosen paths, and confirm only when asked", async () => {
   const calls: HarnessCall[] = []
   recordingHarness(calls)
@@ -315,4 +387,48 @@ test("configFiles.export posts the chosen paths, and confirm only when asked", a
       body: { directory: "/work/demo", paths: ["/c/tool/hello.js"], confirm: true },
     },
   ])
+})
+
+test("creating a routine keeps the warnings the server sent beside it", async () => {
+  setEngineTransport({
+    fetch: async () =>
+      new Response(JSON.stringify({ data: { id: "r1", name: "Publish" }, warnings: ["Instructions are ignored."] }), {
+        status: 201,
+        headers: { "content-type": "application/json" },
+      }),
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  const result = await createHarnessClient("http://harness").routines.create({
+    name: "Publish",
+    description: "",
+    prompt: "",
+    schedule: { type: "manual" },
+  })
+
+  expect(result.warnings).toEqual(["Instructions are ignored."])
+  expect(result.data).toMatchObject({ id: "r1", name: "Publish" })
+})
+
+test("the action catalogue is asked for under /harness/actions", async () => {
+  const seen: string[] = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      seen.push(new URL(request.url).pathname)
+      return new Response(JSON.stringify({ data: { profiles: [], rejected: [] } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  await createHarnessClient("http://harness").actions.list()
+
+  expect(seen).toEqual(["/harness/actions"])
 })

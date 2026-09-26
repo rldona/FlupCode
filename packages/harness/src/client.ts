@@ -14,11 +14,15 @@ import type {
 } from "./engine-types"
 import type { McpConfig, McpScope } from "./types"
 import type { ConfiguredProvider } from "./custom-provider"
-import { anonymousFetch, engineFetch } from "./transport"
+import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
 import type {
+  ActionCatalog,
+  ActionPreview,
+  ActionProfileFile,
+  ActionProfileScope,
   Artifact,
   ArtifactKind,
   BranchState,
@@ -44,6 +48,7 @@ import type {
   RoutineRun,
   Run,
   RunPolicy,
+  SelectorCapture,
   SessionPrefs,
   StashedPrompt,
   Task,
@@ -135,6 +140,8 @@ export async function* subscribeEvents(
   idleTimeout = STREAM_IDLE_TIMEOUT,
   /** The harness stream: not the engine, so without its credentials (see `anonymousFetch`). */
   anonymous = false,
+  /** Extra headers for the stream request, e.g. the harness loopback bearer. */
+  extraHeaders?: Record<string, string>,
 ) {
   // Own controller so an idle stream can be dropped without touching the caller's signal, which it
   // uses to tell a stream it ended from one it should reopen.
@@ -144,7 +151,7 @@ export async function* subscribeEvents(
   if (signal?.aborted) controller.abort()
   const fetch = anonymous ? anonymousFetch : engineFetch
   const response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
-    headers: { Accept: "text/event-stream" },
+    headers: { Accept: "text/event-stream", ...extraHeaders },
     signal: controller.signal,
   })
   if (!response.ok || !response.body) return
@@ -1119,6 +1126,107 @@ async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestIn
   return body?.data as T
 }
 
+/**
+ * The same request, keeping the warnings the server sent beside the data.
+ *
+ * A routine can be saved and still carry something the reader should know — an edit that is ignored
+ * because an action drives the run, for instance (WA-7). Refusing it would be wrong; staying quiet
+ * would be worse, so the notes travel with the answer.
+ */
+async function harnessRequestEnvelope<T>(
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T; warnings: string[] }> {
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: { "content-type": "application/json", ...init?.headers },
+  })
+  const body = (await response.json().catch(() => undefined)) as
+    | { data?: T; error?: string; warnings?: unknown }
+    | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  const warnings = Array.isArray(body?.warnings)
+    ? body.warnings.filter((entry): entry is string => typeof entry === "string")
+    : []
+  return { data: body?.data as T, warnings }
+}
+
+/**
+ * A call to the action surface (WA-7). Like the browser routes it is behind the desktop's loopback
+ * bearer, but it belongs to the server rather than to a browser session of the user's.
+ */
+async function actionRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
+  const token = harnessBrowserToken()
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  })
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
+/**
+ * A call to the artifact surface (WA-9). It carries the loopback bearer the desktop handed the
+ * renderer, so neither the listing nor the bytes of an image are readable by any page that happens
+ * to reach the port. Without a token — a plain browser tab — the request goes out as it always did.
+ */
+async function harnessAuthorizedRequest(baseUrl: string, path: string, init?: RequestInit) {
+  const token = harnessBrowserToken()
+  return anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  })
+}
+
+/** The same call, unwrapped the way the harness answers every JSON route. */
+async function harnessAuthorizedJson<T>(baseUrl: string, path: string, init?: RequestInit) {
+  const response = await harnessAuthorizedRequest(baseUrl, path, init)
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
+/** What the live view watches (WA-6): the status a session's browser run is in. */
+export type AgentBrowserSession = {
+  id: string
+  project: string
+  headed: boolean
+  paused: boolean
+  stopped: boolean
+  url: string
+  title: string
+}
+
+/**
+ * One browser call: the loopback bearer and the session header the routes compare. Without the
+ * desktop's token the call is refused, and the live view only watches.
+ */
+async function agentBrowserRequest<T>(baseUrl: string, sessionID: string, path: string, init?: RequestInit) {
+  const token = harnessBrowserToken()
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-flupcode-session": sessionID,
+      ...init?.headers,
+    },
+  })
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
 export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
   return {
     health: () => harnessRequest<{ healthy: boolean; capabilities?: string[] }>(baseUrl, "/harness/health"),
@@ -1129,8 +1237,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      * No cursor is sent on purpose: every connection re-reads the lists first, so the server's
      * backlog would only describe runs and routines that have since been deleted.
      */
-    events: (options?: { signal?: AbortSignal }) =>
-      subscribeEvents(baseUrl, options?.signal, "/harness/events", undefined, true),
+    events: (options?: { signal?: AbortSignal }) => {
+      // The stream carries prompts and outputs, so it presents the loopback bearer like every
+      // other sensitive surface; without one (a plain browser tab) the server answers as before.
+      const token = harnessBrowserToken()
+      return subscribeEvents(baseUrl, options?.signal, "/harness/events", undefined, true, {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      })
+    },
     runs: {
       list: () => harnessRequest<Run[]>(baseUrl, "/harness/runs"),
       /**
@@ -1196,21 +1310,67 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const query = new URLSearchParams()
         for (const [name, value] of Object.entries(filter)) if (value) query.set(name, value)
         const search = query.toString()
-        return harnessRequest<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
+        return harnessAuthorizedJson<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
       },
       /** Keep one in front, or say when it may be forgotten (H-14). `expiresAt` null clears it. */
       update: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) =>
-        harnessRequest<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, {
+        harnessAuthorizedJson<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(input),
         }),
-      /** A download link for one artifact as Markdown or JSON (HF-7). */
-      exportUrl: (id: string, format: "md" | "json" = "md") =>
-        `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/export?format=${format}`,
-      /** The bytes as they are, for a viewer that draws rather than reads (H-14). */
-      rawUrl: (id: string) => `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/raw`,
+      /**
+       * The bytes as they are, for a viewer that draws rather than reads (H-14), as a blob URL the
+       * caller revokes when its viewer goes away. A blob keeps the bearer out of the `<img>` and off
+       * the page's own HTML surface.
+       */
+      raw: async (id: string) => {
+        const response = await harnessAuthorizedRequest(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}/raw`)
+        if (!response.ok) throw new Error(`Harness request failed (${response.status})`)
+        return URL.createObjectURL(await response.blob())
+      },
       remove: (id: string) =>
-        harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+        harnessAuthorizedJson<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    /**
+     * The live view and its takeover (WA-6). Every call carries the session the window belongs to;
+     * the frame is the latest PNG as a blob, with the stored artifact id when one was announced.
+     */
+    agentBrowser: {
+      session: (sessionID: string) => agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/session"),
+      pause: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/pause", { method: "POST" }),
+      resume: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/resume", { method: "POST" }),
+      takeOver: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/takeover", { method: "POST" }),
+      stop: (sessionID: string) =>
+        agentBrowserRequest<{ stopped: boolean }>(baseUrl, sessionID, "/harness/browser/stop", { method: "POST" }),
+      /** What is at a point the reader clicked in the live frame, a 0..1 fraction of it (WA-8). */
+      pick: (sessionID: string, point: { x: number; y: number }) =>
+        agentBrowserRequest<SelectorCapture>(baseUrl, sessionID, "/harness/browser/capture", {
+          method: "POST",
+          body: JSON.stringify(point),
+        }),
+      /**
+       * The latest frame as a PNG. `store: false` asks the server not to file it as an artifact,
+       * which is what a polling viewer wants: a PNG per tick would grow the disk for nobody (WA-6,
+       * WA-8). The default still stores one for a caller that asked for the frame itself.
+       */
+      frame: async (sessionID: string, options?: { store?: boolean }) => {
+        const token = harnessBrowserToken()
+        const query = options?.store === false ? "?store=0" : ""
+        const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}/harness/browser/frame${query}`, {
+          headers: {
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+            "x-flupcode-session": sessionID,
+          },
+        })
+        if (!response.ok) throw new Error(`Harness request failed (${response.status})`)
+        return {
+          blob: await response.blob(),
+          artifactId: response.headers.get("x-flupcode-artifact") ?? undefined,
+        }
+      },
     },
     // What a reader keeps about a session (H-18). On the server, so it travels to the phone.
     sessionPrefs: {
@@ -1524,12 +1684,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       list: () => harnessRequest<Routine[]>(baseUrl, "/harness/routines"),
       get: (id: string) => harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`),
       create: (input: RoutineCreateRequest) =>
-        harnessRequest<Routine>(baseUrl, "/harness/routines", {
+        harnessRequestEnvelope<Routine>(baseUrl, "/harness/routines", {
           method: "POST",
           body: JSON.stringify(input),
         }),
       update: (id: string, input: RoutineInput) =>
-        harnessRequest<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, {
+        harnessRequestEnvelope<Routine>(baseUrl, `/harness/routines/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(input),
         }),
@@ -1552,5 +1712,99 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           { method: "POST" },
         ),
     },
+    /**
+     * The web actions this server knows (WA-7). The routine editor lists them, and the chosen
+     * profile decides which inputs to ask for and what consent the routine must carry. The Actions
+     * editor (WA-8) writes them: `list` is scope-aware when a folder is given, and `save`/`remove`
+     * edit `flupcode.actions[id]` in the config file the server derives.
+     */
+    actions: {
+      /** No folder is the plugin's own catalogue: the global config alone (WA-2, WA-7). */
+      list: (input: { directory?: string; project?: string } = {}) =>
+        actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+      /** The same catalogue, named for the editor that shows the scope of each profile (WA-8). */
+      profiles: (input: { directory?: string; project?: string } = {}) =>
+        actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+      /** Where each profile is written, for the editor's scope badges (WA-8). */
+      files: (input: { directory?: string; project?: string } = {}) =>
+        actionRequest<ActionProfileFile[]>(baseUrl, `/harness/action-profiles${actionQuery(input)}`),
+      /** The schema check behind the editor's inline error (WA-8). */
+      validate: (input: { id: string; profile: unknown }) =>
+        actionRequest<{ ok: true }>(baseUrl, "/harness/actions/validate", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      save: (input: {
+        id: string
+        scope: ActionProfileScope
+        profile: unknown
+        directory?: string
+        project?: string
+      }) =>
+        actionRequest<{ path: string; scope: ActionProfileScope; id: string }>(
+          baseUrl,
+          `/harness/action-profiles/${encodeURIComponent(input.id)}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              scope: input.scope,
+              profile: input.profile,
+              ...(input.directory ? { directory: input.directory } : {}),
+              ...(input.project ? { project: input.project } : {}),
+            }),
+          },
+        ),
+      remove: (input: { id: string; scope: ActionProfileScope; directory?: string; project?: string }) => {
+        const search = new URLSearchParams({ scope: input.scope })
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return actionRequest<{ removed: boolean; path: string }>(
+          baseUrl,
+          `/harness/action-profiles/${encodeURIComponent(input.id)}?${search}`,
+          { method: "DELETE" },
+        )
+      },
+      /** Plan a saved profile's steps without opening a browser (WA-8). */
+      dryRun: (input: { action: string; inputs?: Record<string, unknown>; sessionID?: string; project?: string }) =>
+        actionRequest<unknown>(baseUrl, "/harness/actions/run", {
+          method: "POST",
+          body: JSON.stringify({
+            action: input.action,
+            inputs: input.inputs ?? {},
+            sessionID: input.sessionID ?? "editor",
+            project: input.project ?? "editor",
+            dryRun: true,
+          }),
+        }),
+      /** Run the read part of a recipe for real and stop before the first side effect (WA-8). */
+      preview: (input: {
+        action?: string
+        profile?: unknown
+        directory?: string
+        project: string
+        sessionID: string
+        headed?: boolean
+      }) =>
+        actionRequest<ActionPreview>(baseUrl, "/harness/actions/run", {
+          method: "POST",
+          body: JSON.stringify({
+            ...(input.action ? { action: input.action } : {}),
+            ...(input.profile !== undefined ? { profile: input.profile } : {}),
+            ...(input.directory ? { directory: input.directory } : {}),
+            project: input.project,
+            sessionID: input.sessionID,
+            ...(input.headed === true ? { headed: true } : {}),
+            preview: true,
+          }),
+        }),
+    },
   }
+}
+
+/** `?directory=&project=` when either is set, and nothing when neither is (WA-8). */
+function actionQuery(input: { directory?: string; project?: string }): string {
+  const search = new URLSearchParams()
+  if (input.directory) search.set("directory", input.directory)
+  if (input.project) search.set("project", input.project)
+  return search.size ? `?${search}` : ""
 }

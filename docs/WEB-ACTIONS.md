@@ -75,8 +75,8 @@ retries.
 | `screenshot` | `{ "screenshot": "label" }`                                             | Capture evidence at this point.                                    |
 
 A `fill` with `credential` injects the stored value; the value is never returned. A step marked
-`"sensitive": true` triggers an approval request before it runs. An action whose `sensitive` is
-`false` (a pure read) needs no per-step approval beyond navigation.
+`"sensitive": true` makes the action sensitive and is shown in its single approval request. An action
+whose `sensitive` is `false` (a pure read) needs no approval beyond navigation.
 
 ## Extract
 
@@ -112,29 +112,55 @@ the profile runs unconditionally.
 Side-effecting actions are governed by two permissions:
 
 - **`browser`** — navigate and read. Resource: `origin`.
-- **`browser_sensitive`** — click, type, submit, credential. Resource: `origin:action`.
+- **`browser_sensitive`** — side effects: click, type, upload, submit, credential. Resource:
+  `origin:action`.
 
-The agent tool asks for approval before every side-effecting step, showing the origin, the action and
-a screenshot. "Allow always" remembers at most `origin` or `origin:action`, never everything. Modes
-that grant broad access (including bypass) are documented as including the browser; a whole-engine
-kill switch disables every browser tool regardless of mode.
+Approval is **one request per action, before it runs**. The tool shows the origin, the action and the
+steps that have effects, with a screenshot; once you approve, the runner executes the whole recipe in
+that one request. There is no approval between steps. A step marked `sensitive` is what makes the
+action count as sensitive, so a pure `extract` action runs under `browser` alone. "Allow always"
+remembers at most `origin` or `origin:action`, never everything. Modes that grant broad access
+(including bypass) are documented as including the browser; a whole-engine kill switch disables every
+browser tool regardless of mode.
+
+A **scheduled** action never reaches `ctx.ask`: there is nobody to answer it. Its approval is written
+down on the routine as an `allow` list and checked when the routine is saved and again before the
+browser opens (see [Scheduling](#scheduling)).
 
 ## Scheduling
 
-A scheduled action is a **Routine**, not a separate mechanism. Create a routine whose prompt drives
-the agent and whose agent carries explicit allow rules for the origins it needs. Because an
-unattended run cannot answer an approval, a browser routine without allow rules is refused at
-creation with an actionable warning.
+A scheduled action is a **Routine**, not a separate mechanism. Create a routine whose `action`
+names the profile and whose `inputs` fill its declared values; the routine's `allow` list carries the
+consent it needs. Each execution is a normal **Run** with one deterministic task of kind `action`,
+and the harness server drives the action runner in process: no model turn, no engine session, and no
+`ctx.ask`. Because an unattended run cannot answer an approval, a browser routine without an `allow`
+rule covering the profile — `origin` for `browser`, `origin:action` for `browser_sensitive` — is
+refused at creation with an actionable warning, and the task re-checks the same rule before the
+browser opens. Scheduled runs are headless; the window is only shown when a person starts the action
+from the app. The screenshots and text log the run produces are filed under its run and task, so the
+evidence travels with the run.
 
 ## Authoring one
 
 From the app: open **Actions**, add a profile, set its origin and credential, add steps and (for a
-read action) an extract, then run a dry-run against the browser. Profiles are saved to the global
-config or the project's `.opencode`, and can be exported to your own configuration repository.
+read action) an extract. The editor validates the draft against the same schema the runner uses
+before it is saved, and can preview it: the browser runs the recipe's read steps — `goto`, `waitFor`,
+`assert` — and stops before the first side effect, reporting that step and everything after it as
+skipped. No credential is resolved and no evidence is filed by a preview. Clicking the live page
+turns the element under the point into ranked selectors, which the editor drops into the field that
+has focus.
 
-By hand: add the profile to the `flupcode.actions` block of your global `opencode.json` /
-`opencode.jsonc`. The engine carries the settings; FlupCode's plugin reads them and registers the
-tools on the next engine start.
+A profile is written to `flupcode.actions[id]` of a config file, and only that key is touched: the
+rest of the file, comments included, is left as it was. A **global** profile goes to the first of
+`opencode.jsonc`, `opencode.json`, `config.json` that exists, or to the file that already holds the
+id, and a fresh install creates `opencode.jsonc`. A **project** profile goes to
+`<project>/.opencode/opencode.jsonc` (or `.json` when that is what exists) and overrides a global one
+of the same id while the editor or a scheduled run is looking at that project. Profiles can be
+exported to your own configuration repository from **Config files**.
+
+By hand: add the profile to the `flupcode.actions` block of an `opencode.json` / `opencode.jsonc`.
+The engine carries the settings; FlupCode's plugin reads them and registers the tools on the next
+engine start.
 
 ## Example (generic)
 
@@ -188,6 +214,10 @@ names a product.
   your mouse and keyboard into the page.
 - Redaction masks password and card fields and the fields the action filled. It cannot be complete;
   an unredacted capture requires explicit approval.
+- A **project-scoped** profile lives in the project's `.opencode` and is available to the editor and
+  to scheduled runs in that project, but not to the agent's plugin: the plugin registers tools from
+  the global config alone. The editor marks a project profile as not available to the agent and can
+  move it to the global config, where the plugin does read it.
 
 ## What this is not
 

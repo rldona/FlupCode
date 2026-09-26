@@ -14,12 +14,29 @@ afterEach(() => {
   running = undefined
 })
 
-/** A server on its own port, with the scheduler idle: these tests are about the stream. */
+/**
+ * A server on its own port, with the scheduler idle: these tests are about the stream.
+ *
+ * The token is given rather than read, so building a server in a test never writes a secret into the
+ * reader's real config directory.
+ */
 const start = () => {
-  const app = createHarnessServer({ port: 0, databasePath: ":memory:", intervalMs: 3_600_000 })
+  const app = createHarnessServer({
+    port: 0,
+    databasePath: ":memory:",
+    intervalMs: 3_600_000,
+    browserToken: "stream-test-token",
+  })
   running = app
   return app
 }
+
+/** The stream asks for the bearer when the server was built with a token (WA-9). */
+const events = (app: { server: { url: URL } }, path: string, init?: RequestInit) =>
+  fetch(`${app.server.url}${path}`, {
+    ...init,
+    headers: { ...init?.headers, authorization: "Bearer stream-test-token" },
+  })
 
 /** Read frames until `enough` of them have arrived, or give up. */
 async function read(response: Response, enough: number, timeoutMs = 4000) {
@@ -55,9 +72,16 @@ async function read(response: Response, enough: number, timeoutMs = 4000) {
 }
 
 describe("the server's event stream", () => {
+  test("without the bearer the stream is refused when the server has a token", async () => {
+    const app = start()
+    const refused = await fetch(`${app.server.url}harness/events`)
+    expect(refused.status).toBe(403)
+    expect((await refused.json()).code).toBe("invalid_token")
+  })
+
   test("a change reaches a client that is already listening", async () => {
     const app = start()
-    const response = await fetch(`${app.server.url}harness/events`)
+    const response = await events(app, 'harness/events')
     expect(response.headers.get("content-type")).toContain("text/event-stream")
 
     const frames = read(response, 1)
@@ -78,7 +102,7 @@ describe("the server's event stream", () => {
     app.repository.setEnabled(routine.id, false) // seq 2
     app.repository.setEnabled(routine.id, true) // seq 3
 
-    const response = await fetch(`${app.server.url}harness/events?after=2`)
+    const response = await events(app, 'harness/events?after=2')
     const received = await read(response, 1)
     expect(received.map((frame) => frame.id)).toEqual(["3"])
   })
@@ -88,7 +112,7 @@ describe("the server's event stream", () => {
     const routine = app.repository.create(input)
     app.repository.setEnabled(routine.id, false)
 
-    const response = await fetch(`${app.server.url}harness/events`, { headers: { "last-event-id": "1" } })
+    const response = await events(app, "harness/events", { headers: { "last-event-id": "1" } })
     const received = await read(response, 1)
     expect(received.map((frame) => frame.id)).toEqual(["2"])
   })
@@ -100,7 +124,7 @@ describe("the server's event stream", () => {
     const routine = app.repository.create(input) // seq 1
     app.repository.setEnabled(routine.id, false) // seq 2
 
-    const response = await fetch(`${app.server.url}harness/events`)
+    const response = await events(app, 'harness/events')
     const frames = read(response, 1)
     app.repository.setEnabled(routine.id, true) // seq 3
     const received = await frames
@@ -108,9 +132,53 @@ describe("the server's event stream", () => {
     expect(received.map((frame) => frame.id)).toEqual(["3"])
   })
 
+  // What an artifact is may travel; its bytes, its path and its folder may not (WA-9). A reader
+  // that needs those asks the guarded artifact route.
+  test("an artifact frame carries no content, path or folder", async () => {
+    const app = start()
+    const response = await events(app, 'harness/events')
+    const frames = read(response, 1)
+    app.repository.addArtifact({
+      kind: "document",
+      title: "Report",
+      producer: "agent",
+      content: "# secret",
+      path: ".flupcode/artifacts/report.md",
+      directory: "/work/demo",
+      mime: "text/markdown",
+    })
+    const received = await frames
+    const event = JSON.parse(received[0]!.data!)
+
+    expect(event.type).toBe("artifact.created")
+    expect(Object.keys(event.artifact).sort()).toEqual(["createdAt", "id", "kind", "mime", "producer", "title"])
+    expect(event.artifact.content).toBeUndefined()
+    expect(event.artifact.path).toBeUndefined()
+    expect(event.artifact.directory).toBeUndefined()
+  })
+
+  test("a replayed artifact frame is sanitised too", async () => {
+    const app = start()
+    app.repository.create(input) // seq 1
+    app.repository.addArtifact({
+      kind: "log",
+      title: "Noisy",
+      producer: "harness",
+      content: "bytes nobody needs on the stream",
+      directory: "/work/demo",
+    }) // seq 2
+
+    const response = await events(app, 'harness/events?after=1')
+    const received = await read(response, 1)
+    const event = JSON.parse(received[0]!.data!)
+    expect(event.type).toBe("artifact.created")
+    expect(event.artifact.content).toBeUndefined()
+    expect(event.artifact.directory).toBeUndefined()
+  })
+
   test("a run is on the stream whatever asked for it", async () => {
     const app = start()
-    const response = await fetch(`${app.server.url}harness/events`)
+    const response = await events(app, 'harness/events')
     const frames = read(response, 2)
     const run = app.repository.startRun({ type: "manual" }, 1000)
     app.repository.finishRun(run.id, "success", undefined, 2000)

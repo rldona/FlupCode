@@ -97,8 +97,10 @@ sensitive, availability, evidence`; `kind` no soportado se rechaza al cargar.
 
 - `WEB_ACTIONS_PLUGIN` (plain-JS, sin imports de terceros, fichero generado `flupcode-actions.js`) registra **una tool por perfil**, como
   `DELIVERY_PLUGIN`; lee perfiles de `flupcode.actions` y el token del fichero de loopback.
-- Antes de cada paso con efectos llama `ctx.ask({permission, patterns, always, metadata})`; el
-  `always` recuerda como máximo `origin` o `origin:action`.
+- Aprobación **pre-flight única por acción**, no un `ctx.ask` antes de cada paso: `ctx.ask({permission:
+  "browser_sensitive", patterns, always, metadata})` con recurso `origin:action` y los pasos con
+  efectos a la vista; `browser` cubre navegar y leer. El `always` recuerda como máximo `origin` o
+  `origin:action`.
 - Devuelve resumen de texto, screenshot y artefacto de evidencia.
 - Con `FLUPCODE_BROWSER_DISABLED=1` no registra tools de navegador (kill switch).
 
@@ -206,6 +208,8 @@ distribuir.
   `extraResources`; los binarios anidados se firman (verificar `after-pack.cjs`); sin entitlement
   nuevo de macOS (Playwright no usa accessibility/captura).
 - Auth y **CORS restringido** en `/harness/browser/*`; el token no se filtra.
+- `/harness/artifacts*` (y en particular los `screenshot` que produce el runtime WA-1) detrás de
+  auth/token y CORS restringido; un `screenshot` es dato sensible para la redacción (WA-5).
 - Contenido de página = **no confiable** (anti prompt-injection): un texto de página nunca autoriza
   una acción.
 

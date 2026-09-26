@@ -7,4 +7,5 @@
  */
 export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares", "memory", "config-files"] as const
 
-export type Capability = (typeof CAPABILITIES)[number]
+/** `browser`, `web-actions`, `credentials` and `action-profiles` are not in the static list: each depends on whether its runtime, key or bearer was built (WA-1, WA-2, WA-5, WA-8). */
+export type Capability = (typeof CAPABILITIES)[number] | "browser" | "web-actions" | "credentials" | "action-profiles"

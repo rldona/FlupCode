@@ -65,8 +65,12 @@ import { recoverablePrompt } from "./unsend"
 import { browser, isLocalPreview } from "./browser"
 import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
+  ActionCatalog,
+  ActionProfileSummary,
+  ActionTaskInput,
   Artifact,
   Attachment,
+  BrowserAllowRule,
   CommandOption,
   McpConfig,
   McpScope,
@@ -119,6 +123,7 @@ import { permissionMode } from "./permission-modes"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
+import { ActionsPanel } from "./components/ActionsPanel"
 import { RunsPanel } from "./components/RunsPanel"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
@@ -202,6 +207,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
   { name: "routines", descriptionKey: "Scheduled tasks" },
+  { name: "actions", descriptionKey: "Web actions" },
   { name: "remote", descriptionKey: "Remote control / mobile" },
   { name: "artifacts", descriptionKey: "Artifacts" },
   { name: "files", descriptionKey: "Files" },
@@ -216,6 +222,30 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "toggle-sidebar", descriptionKey: "Toggle sidebar" },
   { name: "providers", descriptionKey: "Providers & API keys" },
 ]
+
+const normalizeAction = (value: unknown): ActionTaskInput | undefined => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  if (typeof record.id !== "string" || !record.id.trim()) return undefined
+  const inputs =
+    record.inputs && typeof record.inputs === "object" && !Array.isArray(record.inputs)
+      ? (record.inputs as Record<string, unknown>)
+      : undefined
+  return { id: record.id.trim(), ...(inputs ? { inputs } : {}) }
+}
+
+const normalizeAllow = (value: unknown): BrowserAllowRule[] | undefined => {
+  if (!Array.isArray(value)) return undefined
+  const rules = value.flatMap((entry): BrowserAllowRule[] => {
+    if (!entry || typeof entry !== "object") return []
+    const rule = entry as { permission?: unknown; pattern?: unknown; action?: unknown }
+    if (rule.action !== "allow") return []
+    if (rule.permission !== "browser" && rule.permission !== "browser_sensitive") return []
+    if (typeof rule.pattern !== "string" || !rule.pattern) return []
+    return [{ permission: rule.permission, pattern: rule.pattern, action: "allow" }]
+  })
+  return rules.length > 0 ? rules : undefined
+}
 
 const normalizeRoutine = (value: unknown): Routine | undefined => {
   if (!value || typeof value !== "object") return undefined
@@ -281,6 +311,8 @@ const normalizeRoutine = (value: unknown): Routine | undefined => {
           }
         : undefined,
     policy: (item.policy ?? undefined) as Routine["policy"],
+    action: normalizeAction(item.action),
+    allow: normalizeAllow(item.allow),
     enabled: item.enabled !== false,
     createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
     lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
@@ -560,6 +592,7 @@ export const App: Component = () => {
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
+  const actionsOpen = () => screen() === "actions"
   const replayOpen = () => screen() === "replay"
   const compareOpen = () => screen() === "compare"
   /**
@@ -575,6 +608,7 @@ export const App: Component = () => {
       current === "changes" ||
       current === "artifacts" ||
       current === "routines" ||
+      current === "actions" ||
       current === "context" ||
       current === "agents" ||
       current === "skills" ||
@@ -633,6 +667,8 @@ export const App: Component = () => {
   const [runs, setRuns] = createSignal<Run[]>([])
   const [routinesServerAvailable, setRoutinesServerAvailable] = createSignal(false)
   const [routinesServerLoading, setRoutinesServerLoading] = createSignal(false)
+  /** The web actions the server knows (WA-7), for the routine editor's action preset. */
+  const [actionProfiles, setActionProfiles] = createSignal<ActionProfileSummary[]>([])
   createEffect(() => writeStorage(STORAGE_KEYS.routines, routines()))
   const [onboarded, setOnboarded] = createSignal(readStorage(STORAGE_KEYS.onboarded, false))
   const [theme, setTheme] = createSignal(readStorage(STORAGE_KEYS.theme, "system"))
@@ -2298,6 +2334,10 @@ export const App: Component = () => {
         showScreen("routines")
         return
       }
+      if (name === "actions") {
+        showScreen("actions")
+        return
+      }
       if (name === "remote") {
         setRemoteOpen(true)
         return
@@ -3773,12 +3813,15 @@ export const App: Component = () => {
       setRoutinesServerLoading(true)
       try {
         const current = createHarnessClient(harnessServerUrl())
+        // The action catalogue is only there when a browser runtime was built; without it the
+        // editor simply offers no actions. A missing catalogue is not the server being down.
+        const catalog = await current.actions.list().catch(() => undefined)
+        setActionProfiles(catalog?.profiles ?? [])
         const remote = normalizeRoutines(await current.routines.list())
         const migrated = readStorage(STORAGE_KEYS.routinesMigration, false)
         if (!migrated && remote.length === 0 && routines().length > 0) {
           const created = await Promise.all(
-            routines().map((routine) => current.routines.create(routine)),
-
+            routines().map((routine) => current.routines.create(routine).then((saved) => saved.data)),
           )
           writeStorage(STORAGE_KEYS.routinesMigration, true)
           setRoutineState(normalizeRoutines(created))
@@ -3829,6 +3872,21 @@ export const App: Component = () => {
       if (event.type === "stash.removed" && typeof event.promptID === "string") {
         const removed = event.promptID
         setStashes((list) => list.filter((entry) => entry.id !== removed))
+        return
+      }
+      // The agent opened a browser window for this session: reveal the live view, once. A closed
+      // session never opens it, and someone who closed the panel keeps it closed until the next
+      // session opens one. Scheduled runs key their browser by task, never by session, so they
+      // stay out of the way on their own.
+      if (event.type === "browser.status") {
+        const status = event as { sessionID?: unknown; closed?: unknown }
+        if (typeof status.sessionID !== "string" || status.closed === true) return
+        if (status.sessionID !== selected()) return
+        const current = panels()
+        if (current.includes("agent-browser")) return
+        const next = [...current, "agent-browser"]
+        setPanels(next)
+        writeStorage(STORAGE_KEYS.workspacePanels, next)
         return
       }
       if (event.type === "routine.changed") {
@@ -3953,8 +4011,9 @@ export const App: Component = () => {
   const addRoutine = (input: RoutineInput) => {
     void createHarnessClient(harnessServerUrl())
       .routines.create(input)
-      .then((routine) => {
+      .then(({ data: routine, warnings }) => {
         setRoutineState([routine, ...routines()])
+        showRoutineWarnings(warnings)
         toast(t("Routine created"), "success")
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
@@ -3963,11 +4022,17 @@ export const App: Component = () => {
   const updateRoutine = (id: string, input: RoutineInput) => {
     void createHarnessClient(harnessServerUrl())
       .routines.update(id, input)
-      .then((routine) => {
+      .then(({ data: routine, warnings }) => {
         setRoutineState(routines().map((entry) => (entry.id === id ? routine : entry)))
+        showRoutineWarnings(warnings)
         toast(t("Routine saved"), "success")
       })
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
+  }
+
+  /** What the server said beside a saved routine, without pretending it failed (WA-7). */
+  const showRoutineWarnings = (warnings: string[]) => {
+    for (const warning of warnings) toast(warning, "info")
   }
 
   const toggleRoutine = (id: string) => {
@@ -5385,6 +5450,7 @@ export const App: Component = () => {
             onAgents={() => showScreen("agents")}
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
+            onActions={() => showScreen("actions")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => openSettings("providers")}
             onConfig={() => setConfigOpen(true)}
@@ -5534,7 +5600,7 @@ export const App: Component = () => {
             sessionFiles={artifacts()}
             serverAvailable={artifactsAvailable()}
             canOpenFiles={canOpenLocalFiles()}
-            rawUrl={(id) => createHarnessClient(harnessServerUrl()).artifacts.rawUrl(id)}
+            rawArtifact={(id) => createHarnessClient(harnessServerUrl()).artifacts.raw(id)}
             onCopy={copyPath}
             onRemove={removeArtifact}
             onUpdate={updateArtifact}
@@ -5561,6 +5627,8 @@ export const App: Component = () => {
             projects={routineProjects()}
             models={modelList()}
             agents={agents()?.data ?? []}
+            actions={actionProfiles()}
+            artifacts={artifactList()}
             onAdd={addRoutine}
             onUpdate={updateRoutine}
             onToggle={toggleRoutine}
@@ -5571,6 +5639,14 @@ export const App: Component = () => {
               leaveScreen()
               selectSession(id)
             }}
+            onClose={() => leaveScreen()}
+          />
+          <ActionsPanel
+            open={actionsOpen()}
+            directory={modelLocation()}
+            project={vcsDirectory()}
+            serverUrl={harnessServerUrl()}
+            serverAvailable={routinesServerAvailable()}
             onClose={() => leaveScreen()}
           />
           <ContextPanel
@@ -5906,6 +5982,7 @@ export const App: Component = () => {
           <WorkspacePanels
             panels={panels()}
             serverUrl={serverUrl()}
+            harnessServerUrl={harnessServerUrl()}
             session={selectedSession()}
             revision={[messages(), vcsStatus()]}
             changedFiles={changedFiles()}
