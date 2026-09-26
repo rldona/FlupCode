@@ -36,6 +36,7 @@ const NON_RETRYABLE = new Set([
   "invalid_input",
   "credential_unavailable",
   "navigation_blocked",
+  "stopped",
 ])
 
 export type ActionRunRequest = {
@@ -261,6 +262,9 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       while (attempt < allowed) {
         attempt += 1
         try {
+          // The stop/pause seam (WA-6): a person may hold or stop the run between steps, and the
+          // check is inside the attempt so a retry does not slip past a pause.
+          await browser.waitIfPaused(sessionID)
           explicit = await runStep(browser, profile, step, context)
           failure = undefined
           break
@@ -568,6 +572,18 @@ const stepFailure = (
       evidence,
       ...(cause.url !== undefined ? { url: cause.url } : {}),
     })
+  // A person stopping the run is not a step that failed: it is the run being called off, so it must
+  // read as `stopped` and never be retried.
+  if (cause instanceof BrowserError && cause.code === "stopped")
+    return new ActionRunError({
+      code: "stopped",
+      status: 409,
+      message: "The browser session was stopped",
+      action: profile.id,
+      step: stepKind(step),
+      index,
+      evidence,
+    })
   return new ActionRunError({
     code: "step_failed",
     status: 422,
@@ -584,8 +600,14 @@ const inputFailure = (cause: unknown, profile: ActionProfile): unknown =>
     ? new ActionRunError({ code: cause.code, status: 422, message: cause.message, action: profile.id })
     : cause
 
+const stoppedError = (profile: ActionProfile): ActionRunError =>
+  new ActionRunError({ code: "stopped", status: 409, message: "The run was stopped", action: profile.id })
+
 const isRetryable = (cause: unknown): boolean => {
-  if (cause instanceof NavigationBlockedError || cause instanceof BrowserError) return true
+  if (cause instanceof NavigationBlockedError) return true
+  // A stop is never retried: the abort already closed the session, so a second attempt would only
+  // meet `no_session` and bury the `stopped` code under a `step_failed`.
+  if (cause instanceof BrowserError) return cause.code !== "stopped"
   if (cause instanceof ActionRunError) return !NON_RETRYABLE.has(cause.code)
   return true
 }

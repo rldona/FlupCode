@@ -42,6 +42,7 @@ afterEach(async () => {
   delete process.env.FLUPCODE_HARNESS_SERVER_URL
   delete process.env.FLUPCODE_HARNESS_PORT
   delete process.env.FLUPCODE_BROWSER_DISABLED
+  delete process.env.FLUPCODE_BROWSER_TOKEN
 })
 
 describe("engineConfigDir", () => {
@@ -548,6 +549,17 @@ describe("WEB_ACTIONS_PLUGIN", () => {
     expect(listed[0]!.auth).toBe("Bearer token-abc")
   })
 
+  test("the desktop's token wins over the file", async () => {
+    const fixture = startFixture()
+    process.env.FLUPCODE_BROWSER_TOKEN = "token-env"
+    const { hooks } = await open({ fixture, token: "token-file" })
+
+    expect(Object.keys(hooks.tool).sort()).toEqual(["do_demo", "read_demo"])
+    const listed = fixture.requests.filter((entry) => entry.method === "GET" && entry.path === "/harness/actions")
+    expect(listed).toHaveLength(1)
+    expect(listed[0]!.auth).toBe("Bearer token-env")
+  })
+
   test("a denied approval rejects and makes no run request", async () => {
     const fixture = startFixture()
     const { hooks } = await open({ fixture })
@@ -598,6 +610,7 @@ describe("WEB_ACTIONS_PLUGIN", () => {
     expect(fixture.runs[0]!.action).toBe("do_demo")
     expect(fixture.runs[0]!.sessionID).toBe("ses_abc")
     expect(fixture.runs[0]!.project).toBe("/tmp/project")
+    expect(fixture.runs[0]!.headed).toBe(true)
     expect(fixture.runs[0]!.inputs).toEqual({ text: "hola", image: { dataUrl: "data:image/png;base64,AAAA" } })
     expect(result.output).toContain("do_demo")
     expect(result.attachments).toHaveLength(1)

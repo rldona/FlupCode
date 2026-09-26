@@ -329,6 +329,10 @@ export type ServerEvent =
   | { type: "session.changed"; prefs: SessionPrefs }
   | { type: "stash.added"; prompt: StashedPrompt }
   | { type: "stash.removed"; promptID: string }
+  /** A frame was stored: the live view refreshes from the artifact, not from a polled byte stream. */
+  | { type: "browser.frame"; sessionID: string; artifactId: string; url: string; title: string }
+  /** A browser session started, paused, resumed, taken over, stopped or closed (WA-6). */
+  | { type: "browser.status"; sessionID: string; headed: boolean; paused: boolean; closed?: boolean }
 
 /** A way back to how a folder looked (H-15). The commit lives in the reader's own repository. */
 export type Checkpoint = {

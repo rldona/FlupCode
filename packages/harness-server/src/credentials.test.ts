@@ -365,6 +365,19 @@ describe("the runner's credential prefetch", () => {
     frame: async () => {
       throw new Error("browser.frame was called")
     },
+    pause: () => {
+      throw new Error("browser.pause was called")
+    },
+    resume: () => {
+      throw new Error("browser.resume was called")
+    },
+    takeOver: async () => {
+      throw new Error("browser.takeOver was called")
+    },
+    abort: async () => {
+      throw new Error("browser.abort was called")
+    },
+    waitIfPaused: async () => {},
     stop: async () => {},
   })
 
@@ -380,6 +393,8 @@ describe("the runner's credential prefetch", () => {
       idleTimeoutMs: 0,
       url: "https://example.com/",
       title: "",
+      paused: false,
+      stopped: false,
     }
     const browser: BrowserRuntime = {
       start: async (input) => ({ ...view, id: input.id, project: input.project }),
@@ -398,6 +413,11 @@ describe("the runner's credential prefetch", () => {
       text: async () => ({ value: null, url: view.url, title: view.title }),
       screenshot: async () => ({ artifactId: "artifact" }),
       frame: async () => ({ bytes: new Uint8Array() }),
+      pause: () => view,
+      resume: () => view,
+      takeOver: async () => view,
+      abort: async () => true,
+      waitIfPaused: async () => {},
       stop: async () => {},
     }
     return { browser, calls }

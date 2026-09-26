@@ -116,6 +116,10 @@ const browserFrom = (
 }
 
 const createBrowserToken = (): string | undefined => {
+  // The desktop that also shows the live view generates the token and sends it, so both sides
+  // compare the same secret; on its own the harness creates one as before (WA-6).
+  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN?.trim()
+  if (fromEnv) return fromEnv
   try {
     return readOrCreateBrowserToken(browserTokenFile())
   } catch (cause) {

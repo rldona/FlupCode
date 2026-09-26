@@ -12,6 +12,7 @@ import { ActionRunError, createActionRunner, toActionErrorBody } from "./action-
 import { createHarnessHandler } from "./api"
 import { createBrowserRuntime } from "./browser"
 import type { BrowserRuntime } from "./browser"
+import { BrowserError } from "./browser"
 import { createEgressGuard } from "./browser-egress"
 import { loadActionProfiles } from "./config-files"
 import { SqliteRoutineRepository } from "./repository"
@@ -782,6 +783,105 @@ describe("running action recipes", () => {
     expect(runtime.get("s1")).toBeUndefined()
   })
 
+  test("a stopped browser fails the run as stopped, not as a failed step", async () => {
+    const { repository } = open()
+    const session = {
+      id: "s1",
+      project: "proj",
+      headed: false,
+      createdAt: 0,
+      lastUsedAt: 0,
+      idleTimeoutMs: 0,
+      url: "https://example.com/",
+      title: "",
+      paused: true,
+      stopped: true,
+    }
+    const view = { url: session.url, title: session.title }
+    const browser: BrowserRuntime = {
+      start: async () => session,
+      openLogin: async () => session,
+      protect: () => {},
+      clearData: async () => true,
+      get: () => session,
+      close: async () => true,
+      pause: () => session,
+      resume: () => session,
+      takeOver: async () => session,
+      abort: async () => true,
+      waitIfPaused: async () => {
+        throw new BrowserError("stopped", 409, "stopped")
+      },
+      navigate: async () => view,
+      snapshot: async () => ({ ...view, text: "" }),
+      click: async () => view,
+      type: async () => view,
+      submit: async () => view,
+      waitFor: async () => view,
+      upload: async () => view,
+      text: async () => ({ value: null, ...view }),
+      screenshot: async () => ({ artifactId: "artifact" }),
+      frame: async () => ({ bytes: new Uint8Array() }),
+      stop: async () => {},
+    }
+    const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
+
+    const error = await failureOf(runner.run({ action: "publish", sessionID: "s1", project: "proj" }))
+    expect(error).toMatchObject({ code: "stopped", status: 409 })
+  })
+
+  test("a stop is not retried into a missing session", async () => {
+    const { repository } = open()
+    const session = {
+      id: "s1",
+      project: "proj",
+      headed: false,
+      createdAt: 0,
+      lastUsedAt: 0,
+      idleTimeoutMs: 0,
+      url: "https://example.com/",
+      title: "",
+      paused: true,
+      stopped: true,
+    }
+    const view = { url: session.url, title: session.title }
+    let pauses = 0
+    const browser: BrowserRuntime = {
+      start: async () => session,
+      openLogin: async () => session,
+      protect: () => {},
+      clearData: async () => true,
+      get: () => session,
+      close: async () => true,
+      pause: () => session,
+      resume: () => session,
+      takeOver: async () => session,
+      abort: async () => true,
+      waitIfPaused: async () => {
+        pauses += 1
+        // The abort already closed the session: a retry would only meet `no_session` and bury the
+        // `stopped` code under a `step_failed`.
+        if (pauses > 1) throw new BrowserError("no_session", 404, "No browser session is open")
+        throw new BrowserError("stopped", 409, "stopped")
+      },
+      navigate: async () => view,
+      snapshot: async () => ({ ...view, text: "" }),
+      click: async () => view,
+      type: async () => view,
+      submit: async () => view,
+      waitFor: async () => view,
+      upload: async () => view,
+      text: async () => ({ value: null, ...view }),
+      screenshot: async () => ({ artifactId: "artifact" }),
+      frame: async () => ({ bytes: new Uint8Array() }),
+      stop: async () => {},
+    }
+    const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
+
+    const error = await failureOf(runner.run({ action: "publish", sessionID: "s1", project: "proj" }))
+    expect(error).toMatchObject({ code: "stopped", status: 409 })
+    expect(pauses).toBe(1)
+  })
   test.skipIf(!existsSync(chromiumPath))(
     "runs a recipe end to end and keeps a recoverable screenshot",
     async () => {

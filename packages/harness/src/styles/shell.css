@@ -5135,6 +5135,65 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+.fc-agent-browser {
+  gap: 8px;
+  padding: 8px;
+}
+
+.fc-agent-browser-frame {
+  flex: 1;
+  min-height: 120px;
+  width: 100%;
+  object-fit: contain;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+  background: #fff;
+}
+
+.fc-agent-browser-waiting {
+  border-style: dashed;
+  background: transparent;
+}
+
+.fc-agent-browser-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+}
+
+.fc-agent-browser-url {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fc-text);
+}
+
+.fc-agent-browser-state {
+  flex-shrink: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fc-text-muted);
+}
+
+.fc-agent-browser-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.fc-agent-browser-actions .fc-button {
+  flex: 1;
+  min-width: 0;
+}
+
+.fc-agent-browser-notice {
+  font-size: 12px;
+  color: var(--fc-text-muted);
+}
+
 .fc-files {
   min-height: 0;
 }

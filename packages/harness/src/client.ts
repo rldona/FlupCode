@@ -14,7 +14,7 @@ import type {
 } from "./engine-types"
 import type { McpConfig, McpScope } from "./types"
 import type { ConfiguredProvider } from "./custom-provider"
-import { anonymousFetch, engineFetch } from "./transport"
+import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
 import { SUGGESTION_SESSION_TITLE } from "./reply-suggestion"
 import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
@@ -1119,6 +1119,37 @@ async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestIn
   return body?.data as T
 }
 
+/** What the live view watches (WA-6): the status a session's browser run is in. */
+export type AgentBrowserSession = {
+  id: string
+  project: string
+  headed: boolean
+  paused: boolean
+  stopped: boolean
+  url: string
+  title: string
+}
+
+/**
+ * One browser call: the loopback bearer and the session header the routes compare. Without the
+ * desktop's token the call is refused, and the live view only watches.
+ */
+async function agentBrowserRequest<T>(baseUrl: string, sessionID: string, path: string, init?: RequestInit) {
+  const token = harnessBrowserToken()
+  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      "content-type": "application/json",
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      "x-flupcode-session": sessionID,
+      ...init?.headers,
+    },
+  })
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
 export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
   return {
     health: () => harnessRequest<{ healthy: boolean; capabilities?: string[] }>(baseUrl, "/harness/health"),
@@ -1211,6 +1242,35 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       rawUrl: (id: string) => `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/raw`,
       remove: (id: string) =>
         harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+    },
+    /**
+     * The live view and its takeover (WA-6). Every call carries the session the window belongs to;
+     * the frame is the latest PNG as a blob, with the stored artifact id when one was announced.
+     */
+    agentBrowser: {
+      session: (sessionID: string) => agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/session"),
+      pause: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/pause", { method: "POST" }),
+      resume: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/resume", { method: "POST" }),
+      takeOver: (sessionID: string) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/takeover", { method: "POST" }),
+      stop: (sessionID: string) =>
+        agentBrowserRequest<{ stopped: boolean }>(baseUrl, sessionID, "/harness/browser/stop", { method: "POST" }),
+      frame: async (sessionID: string) => {
+        const token = harnessBrowserToken()
+        const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}/harness/browser/frame`, {
+          headers: {
+            ...(token ? { authorization: `Bearer ${token}` } : {}),
+            "x-flupcode-session": sessionID,
+          },
+        })
+        if (!response.ok) throw new Error(`Harness request failed (${response.status})`)
+        return {
+          blob: await response.blob(),
+          artifactId: response.headers.get("x-flupcode-artifact") ?? undefined,
+        }
+      },
     },
     // What a reader keeps about a session (H-18). On the server, so it travels to the phone.
     sessionPrefs: {

@@ -734,6 +734,10 @@ function harnessBaseURL() {
 }
 
 async function readToken() {
+  // The desktop hands the engine it starts the token both sides compare (WA-6); a file only exists
+  // when the harness wrote one on its own, so the environment wins and the file is the fallback.
+  const fromEnv = typeof process !== "undefined" && process.env ? process.env.FLUPCODE_BROWSER_TOKEN : undefined
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
   const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
   if (text === undefined) return undefined
   const token = text.trim()
@@ -1021,7 +1025,16 @@ function definition(profile, composeTools) {
         response = await fetch(base + "/harness/actions/run", {
           method: "POST",
           headers: { "content-type": "application/json", authorization: "Bearer " + token },
-          body: JSON.stringify({ action: profile.id, sessionID: sessionID, project: project, inputs: inputs }),
+          body: JSON.stringify({
+            action: profile.id,
+            sessionID: sessionID,
+            project: project,
+            // An action the app runs is shown in a real window so a person can watch and take over
+            // (WA-6); unattended scheduling will pass its own headed flag in WA-7.
+            // (WA-6). Scheduled actions never come through this tool: the harness server drives
+            headed: true,
+            inputs: inputs,
+          }),
           signal: requestSignal(RUN_TIMEOUT_MS, propertyAt(ctx, "abort")),
         })
       } catch {

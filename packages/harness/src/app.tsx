@@ -5906,6 +5906,7 @@ export const App: Component = () => {
           <WorkspacePanels
             panels={panels()}
             serverUrl={serverUrl()}
+            harnessServerUrl={harnessServerUrl()}
             session={selectedSession()}
             revision={[messages(), vcsStatus()]}
             changedFiles={changedFiles()}

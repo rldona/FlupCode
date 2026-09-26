@@ -315,7 +315,9 @@ export const createHarnessHandler = (
         headers: {
           "access-control-allow-origin": "*",
           "access-control-allow-methods": "GET,POST,PATCH,DELETE,OPTIONS",
-          "access-control-allow-headers": "content-type",
+          // The live view drives the browser from the desktop renderer, which sends the loopback
+          // bearer and the session header with it (WA-6). WA-9 narrows this down again.
+          "access-control-allow-headers": "content-type, authorization, x-flupcode-session",
         },
       })
     }

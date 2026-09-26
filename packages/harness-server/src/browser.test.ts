@@ -10,6 +10,7 @@ import { createEgressGuard, NavigationBlockedError } from "./browser-egress"
 import { redactSecrets } from "./redact"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
+import type { ServerEvent } from "./types"
 
 // Deferred, and only here: `@playwright/test` is the harness's own browser runner and must not
 // enter the server at all. This import exists to ask where the binary is, nothing more.
@@ -621,6 +622,71 @@ describe("driving a real browser", () => {
       expect(cleared.status).toBe(200)
       expect((await cleared.json()).data.cleared).toBe(true)
       expect(existsSync(profile)).toBe(false)
+    },
+    30_000,
+  )
+})
+
+describe("the live view's control (WA-6)", () => {
+  test("a control request with no session says so", async () => {
+    const { handler } = open()
+    for (const route of ["pause", "resume", "takeover", "stop"]) {
+      const response = await browserRequest(handler, route, "missing", { body: {} })
+      expect(response.status).toBe(404)
+      expect((await response.json()).code).toBe("no_session")
+    }
+  })
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "pauses, resumes and stops a run, refuses a headless takeover, and announces it",
+    async () => {
+      const server = fixture()
+      const { handler, repository } = open(server)
+      const events: ServerEvent[] = []
+      const unsubscribe = repository.subscribe((entry) => events.push(entry.event))
+
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+
+      const paused = await browserRequest(handler, "pause", "s1", { body: {} })
+      expect((await paused.json()).data.paused).toBe(true)
+      const resumed = await browserRequest(handler, "resume", "s1", { body: {} })
+      expect((await resumed.json()).data.paused).toBe(false)
+
+      // A headless session has no window to hand over.
+      const takeover = await browserRequest(handler, "takeover", "s1", { body: {} })
+      expect(takeover.status).toBe(409)
+      expect((await takeover.json()).code).toBe("browser_headless")
+
+      const stopped = await browserRequest(handler, "stop", "s1", { body: {} })
+      expect((await stopped.json()).data.stopped).toBe(true)
+      unsubscribe()
+
+      const statuses = events.filter((event) => event.type === "browser.status")
+      expect(statuses.some((event) => event.type === "browser.status" && event.paused)).toBe(true)
+      expect(
+        statuses.some((event) => event.type === "browser.status" && event.closed === true),
+      ).toBe(true)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "stores a frame and announces it, but a polled frame is not announced",
+    async () => {
+      const server = fixture()
+      const { handler, repository } = open(server)
+      const frames: string[] = []
+      const unsubscribe = repository.subscribe((entry) => {
+        if (entry.event.type === "browser.frame") frames.push(entry.event.artifactId)
+      })
+
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      await browserRequest(handler, "screenshot", "s1", { body: { label: "step" } })
+      const polled = await browserRequest(handler, "frame", "s1", { method: "GET", query: "?store=0" })
+      expect(polled.headers.get("content-type")).toBe("image/png")
+      unsubscribe()
+
+      expect(frames).toHaveLength(1)
     },
     30_000,
   )

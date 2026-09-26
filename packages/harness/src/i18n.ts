@@ -636,6 +636,12 @@ const ES: Record<string, string> = {
   Spent: "Gastado",
   Providers: "Proveedores",
   Browser: "Navegador",
+  "Agent browser": "Navegador del agente",
+  "Take over": "Tomar el control",
+  Release: "Soltar",
+  "No browser session": "Sin sesión de navegador",
+  "The agent's browser appears here while it acts on a site.":
+    "El navegador del agente aparece aquí mientras actúa en un sitio.",
   "Files changed": "Ficheros cambiados",
   "Type a URL": "Escribe una URL",
   Go: "Ir",

@@ -173,6 +173,14 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     return json({ data: { closed: await browser.close(id) } })
   }
 
+  if (route === "pause" && method === "POST") return json({ data: browser.pause(id) })
+  if (route === "resume" && method === "POST") return json({ data: browser.resume(id) })
+  if (route === "takeover" && method === "POST") return json({ data: await browser.takeOver(id) })
+  if (route === "stop" && method === "POST") {
+    const stopped = await browser.abort(id)
+    return stopped ? json({ data: { stopped } }) : error("No browser session is open", "no_session", 404)
+  }
+
   return error("Not found", "not_found", 404)
 }
 

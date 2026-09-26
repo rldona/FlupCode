@@ -35,10 +35,14 @@ export type BrowserSession = {
   idleTimeoutMs: number
   url: string
   title: string
+  /** The agent is held at the next step boundary; a person may be driving the window (WA-6). */
+  paused: boolean
+  /** The run was stopped: the runner must fail with `stopped`, not retry, and never resume. */
+  stopped: boolean
 }
 
 export type BrowserRuntimeOptions = {
-  repository: Pick<SqliteRoutineRepository, "addArtifact">
+  repository: Pick<SqliteRoutineRepository, "addArtifact" | "append">
   dataDir?: string
   executablePath?: string
   idleTimeoutMs?: number
@@ -63,6 +67,16 @@ export type BrowserRuntime = {
   clearData(project: string): Promise<boolean>
   get(id: string): BrowserSession | undefined
   close(id: string): Promise<boolean>
+  /** Hold the agent at the next step boundary so a person can drive the window (WA-6). */
+  pause(id: string): BrowserSession
+  /** Let the agent carry on after a pause. */
+  resume(id: string): BrowserSession
+  /** Reveal a headed window and pause the agent on it. A headless session cannot be taken over. */
+  takeOver(id: string): Promise<BrowserSession>
+  /** Stop a run for good: the runner fails with `stopped`, and the session is closed. */
+  abort(id: string): Promise<boolean>
+  /** Block the caller while the session is paused; throw `stopped` if it was aborted meanwhile. */
+  waitIfPaused(id: string): Promise<void>
   navigate(id: string, url: string, waitUntil?: WaitUntil): Promise<{ url: string; title: string }>
   snapshot(
     id: string,
@@ -110,6 +124,8 @@ export type BrowserErrorCode =
   | "action_failed"
   | "navigation_blocked"
   | "project_required"
+  | "stopped"
+  | "browser_headless"
 
 /**
  * The session id the runtime keys everything by, read from the header.
@@ -132,10 +148,32 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   const sessions = new Map<string, ActiveSession>()
   const projects = new Map<string, string>()
 
+  /** Releases whoever is held by `waitIfPaused`, so a resume or an abort is not swallowed. */
+  const wake = (session: ActiveSession): void => {
+    session.wake?.()
+    session.wake = undefined
+  }
+
+  /** The status a viewer watches (WA-6): every lifecycle change goes through here and is persisted. */
+  const emitStatus = (session: ActiveSession, closed = false): void => {
+    repository.append({
+      type: "browser.status",
+      sessionID: session.view.id,
+      headed: session.view.headed,
+      paused: session.paused,
+      ...(closed ? { closed: true } : {}),
+    })
+  }
+
   const closeSession = async (id: string): Promise<boolean> => {
     const session = sessions.get(id)
     if (!session) return false
     if (session.timer) clearTimeout(session.timer)
+    // Wake before the context goes: a `waitIfPaused` must not be left holding a session that is gone.
+    wake(session)
+    emitStatus(session, true)
+    session.paused = false
+    session.stopped = false
     // The values live only for as long as the browser that saw them.
     session.secrets.clear()
     session.maskSelectors.clear()
@@ -166,6 +204,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   /** The view with every protected value stripped, since a URL or title can carry one. */
   const redactedView = (session: ActiveSession): BrowserSession => ({
     ...session.view,
+    paused: session.paused,
+    stopped: session.stopped,
     url: redactSecrets(session.view.url, [...session.secrets]),
     title: redactSecrets(session.view.title, [...session.secrets]),
   })
@@ -232,11 +272,16 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
         idleTimeoutMs: input.idleTimeoutMs ?? idleTimeoutMs,
         url: page.url(),
         title: "",
+        paused: false,
+        stopped: false,
       },
       context,
       page,
       timer: undefined,
       aborted: undefined,
+      paused: false,
+      stopped: false,
+      wake: undefined,
       secrets: new Set(),
       maskSelectors: new Set(),
     }
@@ -257,6 +302,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     await context.routeWebSocket("**/*", (ws) => ws.close())
     sessions.set(id, session)
     touch(session)
+    emitStatus(session)
     return syncView(session)
   }
 
@@ -275,6 +321,55 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
 
   const openLogin = (input: BrowserStartInput): Promise<BrowserSession> =>
     start({ ...input, headed: input.headed ?? true })
+
+  const pause = (id: string): BrowserSession => {
+    const session = requireSession(id)
+    session.paused = true
+    emitStatus(session)
+    return redactedView(session)
+  }
+
+  const resume = (id: string): BrowserSession => {
+    const session = requireSession(id)
+    session.paused = false
+    wake(session)
+    emitStatus(session)
+    return redactedView(session)
+  }
+
+  const takeOver = async (id: string): Promise<BrowserSession> => {
+    const session = requireSession(id)
+    // A headless window is not there to be handed over; saying so beats a silent no-op. A takeover
+    // never relaunches: the persistent profile and the agent's own page stay where they are.
+    if (!session.view.headed)
+      throw new BrowserError("browser_headless", 409, "That browser session is headless")
+    await session.page.bringToFront()
+    return pause(id)
+  }
+
+  const abort = async (id: string): Promise<boolean> => {
+    const session = sessions.get(id)
+    if (!session) return false
+    session.stopped = true
+    session.paused = false
+    wake(session)
+    // Closing the context is what makes a Playwright call in flight reject instead of hanging.
+    return closeSession(id)
+  }
+
+  const waitIfPaused = async (id: string): Promise<void> => {
+    const session = requireSession(id)
+    if (session.stopped) throw new BrowserError("stopped", 409, "That browser session was stopped")
+    while (session.paused) {
+      await new Promise<void>((resolve) => {
+        session.wake = resolve
+      })
+      // The object outlives the map entry, so a closed session is told apart from a resumed one.
+      if (session.stopped || !sessions.has(session.view.id))
+        throw new BrowserError("stopped", 409, "That browser session was stopped")
+    }
+    touch(session)
+  }
 
   const clearData = async (project: string): Promise<boolean> => {
     const name = project.trim()
@@ -433,6 +528,16 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       path: relative,
       directory: dataDir,
     })
+    // Only a stored frame changes what a viewer can see, so only here does the stream carry it; a
+    // `store: false` poll is served and forgotten and must not announce an artifact nobody has.
+    const view = redactedView(session)
+    repository.append({
+      type: "browser.frame",
+      sessionID: session.view.id,
+      artifactId: artifact.id,
+      url: view.url,
+      title: view.title,
+    })
     return { bytes, artifactId: artifact.id }
   }
 
@@ -464,6 +569,11 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     clearData,
     get,
     close: closeSession,
+    pause,
+    resume,
+    takeOver,
+    abort,
+    waitIfPaused,
     navigate,
     snapshot,
     click,
@@ -487,6 +597,12 @@ type ActiveSession = {
   /** Values to replace in anything read back, and selectors to black out in later captures. */
   secrets: Set<string>
   maskSelectors: Set<string>
+  /** Held at the next step boundary so a person can drive the window (WA-6). */
+  paused: boolean
+  /** Stopped for good: the runner must fail with `stopped` and never resume. */
+  stopped: boolean
+  /** Resolves `waitIfPaused` so a resume or an abort is noticed. */
+  wake: (() => void) | undefined
 }
 
 const launch = async (

@@ -293,6 +293,56 @@ test("configFiles.read names the file it wants to read", async () => {
   ])
 })
 
+test("agentBrowser control sends the loopback token and the session", async () => {
+  const seen: Array<{ method: string; path: string; auth: string | null; session: string | null }> = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      seen.push({
+        method: request.method.toUpperCase(),
+        path: url.pathname,
+        auth: request.headers.get("authorization"),
+        session: request.headers.get("x-flupcode-session"),
+      })
+      return new Response(JSON.stringify({ data: { stopped: true } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+  const globalWindow = globalThis as { window?: unknown }
+  const previous = globalWindow.window
+  globalWindow.window = { flupcode: { browserToken: "tok" } }
+  try {
+    await createHarnessClient("http://harness").agentBrowser.stop("ses_1")
+  } finally {
+    globalWindow.window = previous
+  }
+
+  expect(seen).toEqual([{ method: "POST", path: "/harness/browser/stop", auth: "Bearer tok", session: "ses_1" }])
+})
+
+test("agentBrowser.frame returns the PNG blob and its artifact", async () => {
+  setEngineTransport({
+    fetch: async () =>
+      new Response(new Uint8Array([137, 80, 78, 71]), {
+        status: 200,
+        headers: { "content-type": "image/png", "x-flupcode-artifact": "art1" },
+      }),
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  const frame = await createHarnessClient("http://harness").agentBrowser.frame("ses_1")
+  expect(frame.artifactId).toBe("art1")
+  expect(frame.blob.size).toBe(4)
+})
+
 test("configFiles.export posts the chosen paths, and confirm only when asked", async () => {
   const calls: HarnessCall[] = []
   recordingHarness(calls)

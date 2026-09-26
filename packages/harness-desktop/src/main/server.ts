@@ -29,6 +29,18 @@ export function engineCredentials() {
   return password ? Buffer.from(`${username}:${password}`).toString("base64") : undefined
 }
 
+let browserToken = process.env.FLUPCODE_BROWSER_TOKEN?.trim() || undefined
+
+/**
+ * The loopback token the harness and the engine share so the live view can drive the browser
+ * (WA-6). Generated once per app run and handed to both children; the harness compares it and the
+ * engine's actions plugin sends it, so neither reads a file the other may not see.
+ */
+export function harnessBrowserToken() {
+  browserToken = browserToken || randomBytes(32).toString("hex")
+  return browserToken
+}
+
 function authHeaders() {
   const credentials = engineCredentials()
   return credentials ? { authorization: `Basic ${credentials}` } : undefined
@@ -232,6 +244,7 @@ export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "
       OPENCODE_SERVER_USERNAME: username,
       OPENCODE_SERVER_PASSWORD: password,
       FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
+      FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
     },
   })
   child.on("error", () => {
@@ -264,6 +277,7 @@ export async function ensureHarnessServer() {
       PATH: searchPath(),
       FLUPCODE_ENGINE_URL: SERVER_URL,
       FLUPCODE_HARNESS_PORT: port,
+      FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
       ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
     },
     stdio: "inherit",
