@@ -75,9 +75,9 @@ test("a document is drawn by what it is, and the arrow comes back to the list", 
   await expect(page.locator(".fc-artifact-markdown")).toContainText("Title")
   await page.locator(".fc-artifact-viewer-bar").getByRole("button", { name: /Back|Atrás/ }).click()
 
-  // An image is drawn from the raw route.
+  // An image is drawn from the raw route, fetched as a blob so the request can carry the bearer (WA-9).
   await page.locator(".fc-artifact-card", { hasText: "Shot" }).locator(".fc-artifact-card-main").click()
-  await expect(page.locator(".fc-artifact-image img")).toHaveAttribute("src", /\/harness\/artifacts\/d3\/raw/)
+  await expect(page.locator(".fc-artifact-image img")).toHaveAttribute("src", /^blob:/)
 })
 
 test("a file the session wrote opens in VS Code, in the system, or is copied", async ({ page }) => {

@@ -7,18 +7,19 @@
   "license": "MIT",
   "scripts": {
     "dev": "bun src/index.ts",
-    "build": "bun build src/index.ts --compile --external playwright --external playwright-core --outfile dist/flupcode-harness",
+    "build": "bun build src/index.ts --compile --external playwright-core --external chromium-bidi --outfile dist/flupcode-harness",
     "test": "bun test src",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
     "@opencode-ai/sdk": "workspace:*",
     "jsonc-parser": "3.3.1",
-    "playwright": "catalog:"
+    "playwright-core": "catalog:"
   },
   "devDependencies": {
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",
+    "playwright": "catalog:",
     "typescript": "catalog:"
   }
 }

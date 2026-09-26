@@ -5600,7 +5600,7 @@ export const App: Component = () => {
             sessionFiles={artifacts()}
             serverAvailable={artifactsAvailable()}
             canOpenFiles={canOpenLocalFiles()}
-            rawUrl={(id) => createHarnessClient(harnessServerUrl()).artifacts.rawUrl(id)}
+            rawArtifact={(id) => createHarnessClient(harnessServerUrl()).artifacts.raw(id)}
             onCopy={copyPath}
             onRemove={removeArtifact}
             onUpdate={updateArtifact}

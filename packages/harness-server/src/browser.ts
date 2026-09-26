@@ -8,9 +8,9 @@
  */
 
 import { createHash, randomUUID } from "node:crypto"
-import { mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import type { BrowserContext, Page } from "playwright"
+import type { BrowserContext, Page } from "playwright-core"
 import type { EgressGuard } from "./browser-egress"
 import { NavigationBlockedError, createEgressGuard } from "./browser-egress"
 import { flupcodeConfigDir } from "./browser-token"
@@ -757,19 +757,37 @@ type ActiveSession = {
   taskID?: string
 }
 
+/**
+ * Which browser to launch (WA-9), in the order that decides it: an explicit option first, then the
+ * environment, then the Chromium Playwright manages, and finally nothing — the system's Chrome.
+ *
+ * Kept pure so the precedence is testable without launching anything.
+ */
+export function resolveBrowserExecutable(input: {
+  option?: string
+  env?: string
+  managed?: string
+}): string | undefined {
+  return input.option ?? input.env ?? input.managed
+}
+
 const launch = async (
   options: BrowserRuntimeOptions,
   headed: boolean,
   userDataDir: string,
 ): Promise<BrowserContext> => {
-  const { chromium } = await import("playwright")
+  const { chromium } = await import("playwright-core")
   const headless = !headed
   mkdirSync(userDataDir, { recursive: true, mode: 0o700 })
-  if (options.executablePath)
+  // The Chromium Playwright installed, when it is really on disk: a machine without it is exactly
+  // the one the system Chrome is for.
+  const managed = chromium.executablePath()
+  const executablePath = options.executablePath ?? (existsSync(managed) ? managed : undefined)
+  if (executablePath)
     return chromium
       .launchPersistentContext(userDataDir, {
         headless,
-        executablePath: options.executablePath,
+        executablePath,
         serviceWorkers: "block",
       })
       .catch((cause) => {

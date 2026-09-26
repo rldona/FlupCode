@@ -863,19 +863,28 @@ async function loadProfiles(base, token) {
 // forge a line of the summary (an extra "URL:" line, say). Everything the page controls is folded
 // onto a single line before it is written.
 function oneLine(value) {
-  return String(value).replace(/\s*[\r\n]+\s*/g, " ")
+  // U+2028/U+2029 count as line breaks for consumers even though they are not \r or \n.
+  return String(value).replace(/\s*[\r\n\u2028\u2029]+\s*/g, " ")
 }
 
 function summarise(profile, data) {
   const result = isPlainObject(data) ? data : {}
   const lines = ['Acción "' + (result.action || profile.id) + '" completada.']
   lines.push("Origen: " + (result.origin || profile.origin))
-  if (typeof result.url === "string" && result.url) lines.push("URL: " + oneLine(result.url))
-  if (typeof result.title === "string" && result.title) lines.push("Título: " + oneLine(result.title))
+  // Everything read off the page is text somebody else wrote, so it is grouped and named as
+  // untrusted: a value that happens to say "URL: ..." must not look like one of this summary's own
+  // lines, and one that says the heading itself must not start a real section.
+  const page = []
+  if (typeof result.url === "string" && result.url) page.push("URL: " + oneLine(result.url))
+  if (typeof result.title === "string" && result.title) page.push("Título: " + oneLine(result.title))
   if (isPlainObject(result.extract)) {
     for (const field of Object.keys(result.extract)) {
-      lines.push("Extraído " + field + ": " + oneLine(result.extract[field]))
+      page.push("Extraído " + field + ": " + oneLine(result.extract[field]))
     }
+  }
+  if (page.length > 0) {
+    lines.push("Datos no confiables (tomados de la página):")
+    for (const line of page) lines.push(line)
   }
   const steps = Array.isArray(result.steps) ? result.steps : []
   if (steps.length > 0) {

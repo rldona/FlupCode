@@ -167,11 +167,13 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
   if (route === "frame" && method === "GET") {
     const store = new URL(request.url).searchParams.get("store") !== "0"
     const result = await browser.frame(id, store ? undefined : { store: false })
-    // A copy, so the bytes are backed by a plain `ArrayBuffer` a `Response` can take.
+    // A copy, so the bytes are backed by a plain `ArrayBuffer` a `Response` can take. The
+    // artifact id is exposed so a polling viewer can tell a new frame from the one it paints.
     return new Response(new Uint8Array(result.bytes).buffer, {
       headers: {
         "content-type": "image/png",
         "access-control-allow-origin": "*",
+        "access-control-expose-headers": "x-flupcode-artifact",
         ...(result.artifactId ? { "x-flupcode-artifact": result.artifactId } : {}),
       },
     })

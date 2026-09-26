@@ -278,6 +278,9 @@ export async function ensureHarnessServer() {
       FLUPCODE_ENGINE_URL: SERVER_URL,
       FLUPCODE_HARNESS_PORT: port,
       FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
+      // The Chromium that ships beside the app, so Playwright finds it without a download of its
+      // own. In development it is not packaged, and the system browser is used instead (WA-9).
+      ...(app.isPackaged ? { PLAYWRIGHT_BROWSERS_PATH: join(process.resourcesPath, "browsers") } : {}),
       ...(vaultKey ? { FLUPCODE_VAULT_KEY: vaultKey } : {}),
     },
     stdio: "inherit",

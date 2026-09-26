@@ -22,6 +22,7 @@ import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
 import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
+import { allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
 import { handleActionProfileRequest } from "./action-profile-routes"
@@ -388,25 +389,17 @@ export const createHarnessHandler = (
   repository: SqliteRoutineRepository,
   scheduler: RoutineScheduler,
   options: HarnessHandlerOptions = {},
-) =>
-  async (request: Request) => {
-    if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: {
-          "access-control-allow-origin": "*",
-          // PUT is the action-profile writer's save (WA-8): without it the preflight refuses the
-          // editor's save from any renderer.
-          "access-control-allow-methods": "GET,POST,PUT,PATCH,DELETE,OPTIONS",
-          // The live view drives the browser from the desktop renderer, which sends the loopback
-          // bearer and the session header with it (WA-6). WA-9 narrows this down again.
-          "access-control-allow-headers": "content-type, authorization, x-flupcode-session",
-        },
-      })
-    }
-
+) => {
+  const handle = async (request: Request) => {
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
+    // CSRF is not stopped by CORS: a simple cross-origin request still runs server-side while only
+    // hiding its answer. So a mutating request that names an origin has to name an allowed one —
+    // callers without an origin (curl, the plugin, node) are unaffected.
+    if (request.method !== "GET" && request.method !== "HEAD" && request.method !== "OPTIONS") {
+      const origin = request.headers.get("origin") ?? undefined
+      if (origin !== undefined && !allowedHarnessOrigin(origin)) return error("Forbidden", 403)
+    }
     // The browser runtime is the one surface a page can reach from outside the process, so it is
     // behind its own bearer token rather than the loopback address alone (WA-1).
     if (path[1] === "browser" && options.browser) {
@@ -436,6 +429,14 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleActionProfileRequest(request, path.slice(2))
     }
+    // What the runs left behind is served to any page that reaches the loopback port — its bytes and
+    // its listing. When a token was configured it is the same bearer that guards the browser, so a
+    // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
+    // and the routes answer as before.
+    if (path[1] === "artifacts" && options.token) {
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
     // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
     // was actually built: the kill switch and a missing token leave it out (WA-1).
@@ -451,8 +452,14 @@ export const createHarnessHandler = (
           ...(options.token ? (["action-profiles"] as const) : []),
         ],
       })
-    // Everything the server changes, in order, so a client follows along instead of asking.
-    if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
+    // Everything the server changes, in order, so a client follows along instead of asking. The
+    // stream carries prompts and outputs, so with a token configured it asks for the bearer like
+    // every other sensitive surface; without one it answers as before.
+    if (path[1] === "events" && request.method === "GET") {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return eventStream(repository, resumeFrom(request))
+    }
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
@@ -775,7 +782,12 @@ export const createHarnessHandler = (
         if (!(full === root || full.startsWith(root + sep))) return error("That path is outside the folder", 400)
         try {
           return new Response(readFileSync(full), {
-            headers: { "content-type": artifact.mime, "content-disposition": "inline" },
+            headers: {
+              "content-type": artifact.mime,
+              "content-disposition": "inline",
+              "x-content-type-options": "nosniff",
+              "access-control-expose-headers": "x-flupcode-artifact",
+            },
           })
         } catch {
           return error("No such file", 404)
@@ -1489,3 +1501,14 @@ export const createHarnessHandler = (
     if (request.method === "GET") return json({ data: routine })
     return error("Not found", 404)
   }
+
+  /**
+   * Every answer passes through here so the origin is decided in one place: the handler no longer
+   * sets `access-control-allow-origin` itself, and a response can never carry the blanket `*` it
+   * used to (WA-9).
+   */
+  return async (request: Request) => {
+    if (request.method === "OPTIONS") return applyHarnessCors(preflightResponse(), request)
+    return applyHarnessCors(await handle(request), request)
+  }
+}

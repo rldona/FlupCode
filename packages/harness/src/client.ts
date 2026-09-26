@@ -140,6 +140,8 @@ export async function* subscribeEvents(
   idleTimeout = STREAM_IDLE_TIMEOUT,
   /** The harness stream: not the engine, so without its credentials (see `anonymousFetch`). */
   anonymous = false,
+  /** Extra headers for the stream request, e.g. the harness loopback bearer. */
+  extraHeaders?: Record<string, string>,
 ) {
   // Own controller so an idle stream can be dropped without touching the caller's signal, which it
   // uses to tell a stream it ended from one it should reopen.
@@ -149,7 +151,7 @@ export async function* subscribeEvents(
   if (signal?.aborted) controller.abort()
   const fetch = anonymous ? anonymousFetch : engineFetch
   const response = await fetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
-    headers: { Accept: "text/event-stream" },
+    headers: { Accept: "text/event-stream", ...extraHeaders },
     signal: controller.signal,
   })
   if (!response.ok || !response.body) return
@@ -1169,6 +1171,31 @@ async function actionRequest<T>(baseUrl: string, path: string, init?: RequestIni
   return body?.data as T
 }
 
+/**
+ * A call to the artifact surface (WA-9). It carries the loopback bearer the desktop handed the
+ * renderer, so neither the listing nor the bytes of an image are readable by any page that happens
+ * to reach the port. Without a token — a plain browser tab — the request goes out as it always did.
+ */
+async function harnessAuthorizedRequest(baseUrl: string, path: string, init?: RequestInit) {
+  const token = harnessBrowserToken()
+  return anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body === undefined ? {} : { "content-type": "application/json" }),
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
+  })
+}
+
+/** The same call, unwrapped the way the harness answers every JSON route. */
+async function harnessAuthorizedJson<T>(baseUrl: string, path: string, init?: RequestInit) {
+  const response = await harnessAuthorizedRequest(baseUrl, path, init)
+  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
+  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+  return body?.data as T
+}
+
 /** What the live view watches (WA-6): the status a session's browser run is in. */
 export type AgentBrowserSession = {
   id: string
@@ -1210,8 +1237,14 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
      * No cursor is sent on purpose: every connection re-reads the lists first, so the server's
      * backlog would only describe runs and routines that have since been deleted.
      */
-    events: (options?: { signal?: AbortSignal }) =>
-      subscribeEvents(baseUrl, options?.signal, "/harness/events", undefined, true),
+    events: (options?: { signal?: AbortSignal }) => {
+      // The stream carries prompts and outputs, so it presents the loopback bearer like every
+      // other sensitive surface; without one (a plain browser tab) the server answers as before.
+      const token = harnessBrowserToken()
+      return subscribeEvents(baseUrl, options?.signal, "/harness/events", undefined, true, {
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      })
+    },
     runs: {
       list: () => harnessRequest<Run[]>(baseUrl, "/harness/runs"),
       /**
@@ -1277,21 +1310,26 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const query = new URLSearchParams()
         for (const [name, value] of Object.entries(filter)) if (value) query.set(name, value)
         const search = query.toString()
-        return harnessRequest<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
+        return harnessAuthorizedJson<Artifact[]>(baseUrl, `/harness/artifacts${search ? `?${search}` : ""}`)
       },
       /** Keep one in front, or say when it may be forgotten (H-14). `expiresAt` null clears it. */
       update: (id: string, input: { pinned?: boolean; expiresAt?: number | null }) =>
-        harnessRequest<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, {
+        harnessAuthorizedJson<Artifact>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, {
           method: "PATCH",
           body: JSON.stringify(input),
         }),
-      /** A download link for one artifact as Markdown or JSON (HF-7). */
-      exportUrl: (id: string, format: "md" | "json" = "md") =>
-        `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/export?format=${format}`,
-      /** The bytes as they are, for a viewer that draws rather than reads (H-14). */
-      rawUrl: (id: string) => `${baseUrl}/harness/artifacts/${encodeURIComponent(id)}/raw`,
+      /**
+       * The bytes as they are, for a viewer that draws rather than reads (H-14), as a blob URL the
+       * caller revokes when its viewer goes away. A blob keeps the bearer out of the `<img>` and off
+       * the page's own HTML surface.
+       */
+      raw: async (id: string) => {
+        const response = await harnessAuthorizedRequest(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}/raw`)
+        if (!response.ok) throw new Error(`Harness request failed (${response.status})`)
+        return URL.createObjectURL(await response.blob())
+      },
       remove: (id: string) =>
-        harnessRequest<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
+        harnessAuthorizedJson<boolean>(baseUrl, `/harness/artifacts/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     /**
      * The live view and its takeover (WA-6). Every call carries the session the window belongs to;

@@ -1,5 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
+import { allowedHarnessOrigin } from "./cors"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -45,6 +46,30 @@ const open = () => {
 }
 
 describe("harness routines API", () => {
+  test("a mutating request from a foreign origin is refused before it runs", async () => {
+    const { repository, handler } = open()
+    const post = (origin?: string) =>
+      handler(
+        new Request("http://localhost/harness/routines", {
+          method: "POST",
+          body: JSON.stringify(input),
+          headers: { "content-type": "application/json", ...(origin ? { origin } : {}) },
+        }),
+      )
+
+    // CORS only hides answers; a simple cross-origin POST still runs server-side, so the origin
+    // itself is checked. Callers without one (curl, the plugin) are unaffected.
+    const evil = await post("https://evil.example")
+    expect(evil.status).toBe(403)
+    expect(repository.list()).toEqual([])
+
+    const local = await post("http://localhost:4444")
+    expect(local.status).toBe(201)
+    const plain = await post(undefined)
+    expect(plain.status).toBe(201)
+    repository.close()
+  })
+
   test("creates, updates, toggles, and removes routines", async () => {
     const { repository, handler } = open()
 
@@ -1171,6 +1196,108 @@ describe("health", () => {
       healthy: true,
       capabilities: expect.arrayContaining(["session-prefs", "stash"]),
     })
+    repository.close()
+  })
+})
+
+describe("the harness CORS boundary (WA-9)", () => {
+  test("echoes an allowed origin and varies on it", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/health", { headers: { origin: "oc://renderer" } }))
+    expect(response.headers.get("access-control-allow-origin")).toBe("oc://renderer")
+    expect(response.headers.get("vary")).toContain("Origin")
+    repository.close()
+  })
+
+  test("allows any loopback port", async () => {
+    const { handler, repository } = open()
+    for (const origin of ["http://localhost:5173", "http://127.0.0.1:9000", "http://[::1]:4097"]) {
+      const response = await handler(new Request("http://x/harness/health", { headers: { origin } }))
+      expect(response.headers.get("access-control-allow-origin")).toBe(origin)
+    }
+    repository.close()
+  })
+
+  test("a hosted page is refused, and no `*` leaks past the boundary", async () => {
+    const { handler, repository } = open()
+    const response = await handler(
+      new Request("http://x/harness/health", { headers: { origin: "https://app.flupcode.com" } }),
+    )
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+    repository.close()
+  })
+
+  test("an origin named exactly is allowed", () => {
+    expect(allowedHarnessOrigin("https://app.flupcode.com")).toBe(false)
+    expect(
+      allowedHarnessOrigin("https://app.flupcode.com", { FLUPCODE_HARNESS_CORS: "https://app.flupcode.com" }),
+    ).toBe(true)
+    expect(allowedHarnessOrigin(undefined)).toBe(true)
+  })
+
+  test("a request with no origin is served as before", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/health"))
+    expect(response.status).toBe(200)
+    expect(response.headers.get("access-control-allow-origin")).toBeNull()
+    repository.close()
+  })
+
+  test("a preflight answers the methods and headers, echoing the origin", async () => {
+    const { handler, repository } = open()
+    const response = await handler(
+      new Request("http://x/harness/artifacts", { method: "OPTIONS", headers: { origin: "oc://renderer" } }),
+    )
+    expect(response.status).toBe(204)
+    expect(response.headers.get("access-control-allow-methods")).toBe("GET,POST,PUT,PATCH,DELETE,OPTIONS")
+    expect(response.headers.get("access-control-allow-headers")).toBe(
+      "content-type, authorization, x-flupcode-session",
+    )
+    expect(response.headers.get("access-control-allow-origin")).toBe("oc://renderer")
+    repository.close()
+  })
+})
+
+describe("the artifact surface's bearer (WA-9)", () => {
+  const guarded = () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    return { repository, handler: createHarnessHandler(repository, scheduler, { token: "secret-token" }) }
+  }
+
+  test("refuses the listing and the bytes with no bearer, and answers with one", async () => {
+    const { handler, repository } = guarded()
+    for (const path of ["/harness/artifacts", "/harness/artifacts/whatever/raw", "/harness/artifacts/whatever/export"]) {
+      const refused = await handler(new Request(`http://x${path}`))
+      expect(refused.status).toBe(403)
+      expect((await refused.json()).code).toBe("invalid_token")
+    }
+
+    const allowed = await handler(
+      new Request("http://x/harness/artifacts", { headers: { authorization: "Bearer secret-token" } }),
+    )
+    expect(allowed.status).toBe(200)
+    repository.close()
+  })
+
+  test("without a configured token the routes answer as before", async () => {
+    const { handler, repository } = open()
+    const response = await handler(new Request("http://x/harness/artifacts"))
+    expect(response.status).toBe(200)
+    repository.close()
+  })
+
+  test("the event stream asks for the bearer when one is configured", async () => {
+    const { handler, repository } = guarded()
+    const refused = await handler(new Request("http://x/harness/events"))
+    expect(refused.status).toBe(403)
+    expect((await refused.json()).code).toBe("invalid_token")
+
+    const allowed = await handler(
+      new Request("http://x/harness/events", { headers: { authorization: "Bearer secret-token" } }),
+    )
+    expect(allowed.status).toBe(200)
+    await allowed.body?.cancel().catch(() => undefined)
     repository.close()
   })
 })

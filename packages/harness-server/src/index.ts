@@ -2,7 +2,7 @@ import { createHarnessHandler } from "./api"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { seedTemplates } from "./workflow"
-import { createBrowserRuntime } from "./browser"
+import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
 import type { BrowserRuntime } from "./browser"
 import { browserTokenFile, readBrowserToken, readOrCreateBrowserToken } from "./browser-token"
 import { createEgressGuard } from "./browser-egress"
@@ -37,6 +37,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   repository.removeExpiredArtifacts()
   const sweep = setInterval(() => repository.removeExpiredArtifacts(), 60 * 60 * 1000)
   const browser = browserFrom(options, repository)
+  // Read apart from the runtime: the same bearer guards the artifact routes (WA-9), and it is worth
+  // passing even when there is no browser to guard, so the token is not lost with the runtime.
+  const browserToken = options.browserToken ?? readBrowserToken(options.browserTokenFile ?? browserTokenFile())
   // A vault exists only when there is a key to open it: without one, a profile that names a
   // credential fails closed rather than running with an empty field, and `/harness/credentials/*`
   // is an ordinary 404 (WA-5).
@@ -48,9 +51,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const credentials = vault ?? options.actionCredentials ?? unavailableActionCredentialResolver
   // The runner needs a browser to drive, so it exists only when the runtime does. Without it
   // `/harness/actions/*` is an ordinary 404, and credentials fail closed (WA-2).
-  const actions: ActionRunner | undefined = browser.runtime
+  const actions: ActionRunner | undefined = browser
     ? createActionRunner({
-        browser: browser.runtime,
+        browser,
         repository,
         credentials,
         loadProfiles: loadActionProfiles,
@@ -69,8 +72,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",
     fetch: createHarnessHandler(repository, scheduler, {
-      ...(browser.runtime ? { browser: browser.runtime } : {}),
-      ...(browser.token ? { token: browser.token } : {}),
+      ...(browser ? { browser } : {}),
+      ...(browserToken ? { token: browserToken } : {}),
       ...(actions ? { actions } : {}),
       ...(vault ? { credentials: vault } : {}),
     }),
@@ -79,13 +82,13 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     server,
     repository,
     scheduler,
-    ...(browser.runtime ? { browser: browser.runtime } : {}),
+    ...(browser ? { browser } : {}),
     ...(actions ? { actions } : {}),
     ...(vault ? { vault } : {}),
     stop: async () => {
       clearInterval(sweep)
       scheduler.stop()
-      await browser.runtime?.stop().catch(() => undefined)
+      await browser?.stop().catch(() => undefined)
       repository.close()
       server.stop()
     },
@@ -93,29 +96,33 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
 }
 
 /**
- * The runtime and the token a browser needs, or neither.
+ * The browser runtime, or none.
  *
  * `FLUPCODE_BROWSER_DISABLED=1` is the kill switch WA-3 relies on: with it, no runtime is built and
  * `/harness/browser/*` falls through to the ordinary 404. Without a token the same is true: the
- * surface is only open when there is a secret to guard it, and this only reads one (WA-1).
+ * surface is only open when there is a secret to guard it (WA-1). The token itself is read apart, so
+ * it still guards the artifact routes even when there is no runtime to guard (WA-9).
  */
 const browserFrom = (
   options: HarnessServerOptions,
   repository: SqliteRoutineRepository,
-): { runtime?: BrowserRuntime; token?: string } => {
-  if (process.env.FLUPCODE_BROWSER_DISABLED === "1") return {}
+): BrowserRuntime | undefined => {
+  if (process.env.FLUPCODE_BROWSER_DISABLED === "1") return undefined
   const token = options.browserToken ?? readBrowserToken(options.browserTokenFile ?? browserTokenFile())
-  if (!token) return {}
-  return {
-    runtime: createBrowserRuntime({
-      repository,
-      ...(options.browserDataDir ? { dataDir: options.browserDataDir } : {}),
-      ...(options.browserExecutablePath ? { executablePath: options.browserExecutablePath } : {}),
-      ...(options.browserIdleTimeoutMs ? { idleTimeoutMs: options.browserIdleTimeoutMs } : {}),
-      egress: createEgressGuard(),
-    }),
-    token,
-  }
+  if (!token) return undefined
+  // Which browser to drive (WA-9): an explicit path, then the environment, then the Chromium that
+  // ships with the app, and finally the system's Chrome.
+  const executablePath = resolveBrowserExecutable({
+    option: options.browserExecutablePath,
+    env: process.env.FLUPCODE_BROWSER_EXECUTABLE_PATH,
+  })
+  return createBrowserRuntime({
+    repository,
+    ...(options.browserDataDir ? { dataDir: options.browserDataDir } : {}),
+    ...(executablePath ? { executablePath } : {}),
+    ...(options.browserIdleTimeoutMs ? { idleTimeoutMs: options.browserIdleTimeoutMs } : {}),
+    egress: createEgressGuard(),
+  })
 }
 
 const createBrowserToken = (): string | undefined => {

@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHarnessHandler } from "./api"
-import { createBrowserRuntime } from "./browser"
+import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
 import type { BrowserRuntime } from "./browser"
 import { createEgressGuard, NavigationBlockedError } from "./browser-egress"
 import { redactSecrets } from "./redact"
@@ -163,9 +163,23 @@ const browserRequest = (
 const screenshotBytes = async (handler: Handler, id: string, label: string) => {
   const response = await browserRequest(handler, "screenshot", id, { body: { label } })
   const artifactId = (await response.json()).data.artifactId
-  const raw = await handler(new Request(`http://x/harness/artifacts/${artifactId}/raw`))
+  const raw = await handler(
+    new Request(`http://x/harness/artifacts/${artifactId}/raw`, { headers: { authorization: `Bearer ${TOKEN}` } }),
+  )
   return Buffer.from(await raw.arrayBuffer())
 }
+
+describe("which browser is launched (WA-9)", () => {
+  test("an explicit path beats the environment, then the managed Chromium, then the system browser", () => {
+    expect(
+      resolveBrowserExecutable({ option: "/opt/chrome", env: "/env/chrome", managed: "/managed/chromium" }),
+    ).toBe("/opt/chrome")
+    expect(resolveBrowserExecutable({ env: "/env/chrome", managed: "/managed/chromium" })).toBe("/env/chrome")
+    expect(resolveBrowserExecutable({ managed: "/managed/chromium" })).toBe("/managed/chromium")
+    // Nothing named: the system's Chrome is the fallback, chosen at launch.
+    expect(resolveBrowserExecutable({})).toBeUndefined()
+  })
+})
 
 describe("the browser boundary", () => {
   test("a request without the right token is refused", async () => {
@@ -313,7 +327,9 @@ describe("driving a real browser", () => {
       const bytes = Buffer.from(await framed.arrayBuffer())
       expect(bytes.subarray(0, 8).toString("hex")).toBe("89504e470d0a1a0a")
 
-      const raw = await handler(new Request(`http://x/harness/artifacts/${artifactID}/raw`))
+      const raw = await handler(
+        new Request(`http://x/harness/artifacts/${artifactID}/raw`, { headers: { authorization: `Bearer ${TOKEN}` } }),
+      )
       expect(raw.status).toBe(200)
       expect(Buffer.from(await raw.arrayBuffer()).equals(bytes)).toBe(true)
     },

@@ -32,6 +32,8 @@ target
 opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
+# Downloaded Chromium for the packaged desktop app (WA-9); never commit binaries.
+packages/harness-desktop/browsers/
 *.bun-build
 tsconfig.tsbuildinfo
 playwright-report
