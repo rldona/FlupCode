@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { createHarnessHandler } from "./api"
-import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
+import { createBrowserRuntime, managedExecutableFromDir, resolveBrowserExecutable } from "./browser"
 import type { BrowserRuntime } from "./browser"
 import { createEgressGuard, NavigationBlockedError } from "./browser-egress"
 import { redactSecrets } from "./redact"
@@ -178,6 +178,28 @@ describe("which browser is launched (WA-9)", () => {
     expect(resolveBrowserExecutable({ managed: "/managed/chromium" })).toBe("/managed/chromium")
     // Nothing named: the system's Chrome is the fallback, chosen at launch.
     expect(resolveBrowserExecutable({})).toBeUndefined()
+  })
+
+  test("a browsers folder is read by layout, never by asking the package", () => {
+    expect(managedExecutableFromDir(undefined)).toBeUndefined()
+    expect(managedExecutableFromDir(join(tmpdir(), "flupcode-no-such-dir"))).toBeUndefined()
+    const root = mkdtempSync(join(tmpdir(), "flupcode-browsers-"))
+    try {
+      const relative =
+        process.platform === "darwin"
+          ? join("chromium-9999", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium")
+          : process.platform === "win32"
+            ? join("chromium-9999", "chrome-win", "chrome.exe")
+            : join("chromium-9999", "chrome-linux", "chrome")
+      mkdirSync(join(root, "chromium-9999"), { recursive: true })
+      mkdirSync(join(root, relative, ".."), { recursive: true })
+      writeFileSync(join(root, relative), "fake")
+      expect(managedExecutableFromDir(root)).toBe(join(root, relative))
+      // A folder without a chromium-* download has no browser, whatever else is in it.
+      expect(managedExecutableFromDir(tmpdir())).toBeUndefined()
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })
 

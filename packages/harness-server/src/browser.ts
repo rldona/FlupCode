@@ -8,7 +8,8 @@
  */
 
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import type { Dirent } from "node:fs"
 import { dirname, join } from "node:path"
 import type { BrowserContext, Page } from "playwright-core"
 import type { EgressGuard } from "./browser-egress"
@@ -771,6 +772,42 @@ export function resolveBrowserExecutable(input: {
   return input.option ?? input.env ?? input.managed
 }
 
+/**
+ * The Chromium inside a browsers folder, without asking the package where it lives.
+ *
+ * `chromium.executablePath()` resolves its own `package.json`, which does not exist inside the
+ * compiled harness — so the packaged app finds its browser by layout instead: one `chromium-*`
+ * folder per download, with the binary in its platform spot. Returns nothing when there is no
+ * folder or no binary, and never throws.
+ */
+export function managedExecutableFromDir(directory: string | undefined): string | undefined {
+  if (!directory) return undefined
+  let entries: Dirent[]
+  try {
+    entries = readdirSync(directory, { withFileTypes: true })
+  } catch {
+    return undefined
+  }
+  const candidates =
+    process.platform === "darwin"
+      ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium"]
+      : process.platform === "win32"
+        ? ["chrome-win/chrome.exe"]
+        : ["chrome-linux/chrome"]
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !entry.name.startsWith("chromium-")) continue
+    for (const relative of candidates) {
+      const full = join(directory, entry.name, relative)
+      try {
+        if (existsSync(full)) return full
+      } catch {
+        continue
+      }
+    }
+  }
+  return undefined
+}
+
 const launch = async (
   options: BrowserRuntimeOptions,
   headed: boolean,
@@ -780,9 +817,17 @@ const launch = async (
   const headless = !headed
   mkdirSync(userDataDir, { recursive: true, mode: 0o700 })
   // The Chromium Playwright installed, when it is really on disk: a machine without it is exactly
-  // the one the system Chrome is for.
-  const managed = chromium.executablePath()
-  const executablePath = options.executablePath ?? (existsSync(managed) ? managed : undefined)
+  // the one the system Chrome is for. `executablePath()` looks up its own package, which is absent
+  // from the compiled harness, so it is tried last and never allowed to throw past this point.
+  const fromDir = managedExecutableFromDir(process.env.PLAYWRIGHT_BROWSERS_PATH)
+  let fromPackage: string | undefined
+  try {
+    const candidate = chromium.executablePath()
+    if (existsSync(candidate)) fromPackage = candidate
+  } catch {
+    fromPackage = undefined
+  }
+  const executablePath = options.executablePath ?? fromDir ?? fromPackage
   if (executablePath)
     return chromium
       .launchPersistentContext(userDataDir, {
