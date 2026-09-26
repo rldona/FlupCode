@@ -16,6 +16,7 @@ export type Screen =
   | "skills"
   | "files"
   | "workflows"
+  | "actions"
   | "replay"
   | "compare"
 
@@ -30,6 +31,7 @@ const SCREENS: readonly Screen[] = [
   "skills",
   "files",
   "workflows",
+  "actions",
   "replay",
   "compare",
 ]

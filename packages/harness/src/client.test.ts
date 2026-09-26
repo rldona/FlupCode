@@ -343,6 +343,28 @@ test("agentBrowser.frame returns the PNG blob and its artifact", async () => {
   expect(frame.blob.size).toBe(4)
 })
 
+test("agentBrowser.frame can poll without storing an artifact", async () => {
+  const seen: string[] = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      seen.push(new URL(request.url).search)
+      return new Response(new Uint8Array([137, 80, 78, 71]), {
+        status: 200,
+        headers: { "content-type": "image/png" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+
+  await createHarnessClient("http://harness").agentBrowser.frame("ses_1")
+  await createHarnessClient("http://harness").agentBrowser.frame("ses_1", { store: false })
+
+  expect(seen).toEqual(["", "?store=0"])
+})
+
 test("configFiles.export posts the chosen paths, and confirm only when asked", async () => {
   const calls: HarnessCall[] = []
   recordingHarness(calls)

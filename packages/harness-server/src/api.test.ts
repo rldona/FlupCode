@@ -6,8 +6,7 @@ import { join } from "node:path"
 import { SqliteRoutineRepository } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { ActionRunError } from "./action-runner"
-import type { ActionProfile } from "./actions"
-import type { ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
+import type { ActionCatalogProfile, ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
 import type { BrowserAllowRule } from "./types"
 
 /**
@@ -1584,7 +1583,7 @@ describe("scheduling a web action (WA-7)", () => {
     },
   })
 
-  const profile = (): ActionProfile => ({
+  const profile = (): ActionCatalogProfile => ({
     id: "publish",
     tool: "do_publish",
     description: "Publish the piece",
@@ -1596,6 +1595,7 @@ describe("scheduling a web action (WA-7)", () => {
     sensitive: true,
     availability: "host",
     evidence: {},
+    scope: "global",
   })
 
   const allow: BrowserAllowRule[] = [
@@ -1644,6 +1644,24 @@ describe("scheduling a web action (WA-7)", () => {
       }),
     )
 
+  test("a project routine resolves the profile from its own folder (WA-8)", async () => {
+    const { repository, handler, lists } = openActions()
+    const directory = "/work/demo"
+    const response = await post(handler, "/harness/routines", {
+      name: "Publish",
+      description: "",
+      prompt: "",
+      schedule: { type: "manual" },
+      projectDirectory: directory,
+      action: { id: "publish", inputs: { text: "hola" } },
+      allow,
+    })
+
+    expect(response.status).toBe(201)
+    // The catalogue is asked for the routine's folder, the same the scheduled run resolves from.
+    expect(lists.some((input) => input?.directory === directory)).toBe(true)
+    repository.close()
+  })
 
   test("creating one without an allow rule is refused with an actionable message", async () => {
     const { repository, handler } = openActions()

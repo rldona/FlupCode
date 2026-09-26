@@ -156,6 +156,14 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
     return json({ data: await browser.screenshot(id, label) })
   }
 
+  if (route === "capture" && method === "POST") {
+    const body = await bodyFrom(request)
+    const x = typeof body.x === "number" && Number.isFinite(body.x) ? body.x : undefined
+    const y = typeof body.y === "number" && Number.isFinite(body.y) ? body.y : undefined
+    if (x === undefined || y === undefined) return error("A point is required", "point_required", 400)
+    return json({ data: await browser.capture(id, { x, y }) })
+  }
+
   if (route === "frame" && method === "GET") {
     const store = new URL(request.url).searchParams.get("store") !== "0"
     const result = await browser.frame(id, store ? undefined : { store: false })

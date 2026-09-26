@@ -48,6 +48,14 @@ export async function resolveActionInputs(input: {
   profile: ActionProfile
   provided: Record<string, unknown>
   repository: ArtifactRepository
+  /**
+   * A preview only materializes what it was given (WA-8).
+   *
+   * The editor previews a recipe before its inputs are filled; requiring them all would turn every
+   * profile with an input into a 422. A missing one is left unset, so the step that would use it is
+   * the one that reports, which is where the cut already is for a fill or an upload.
+   */
+  partial?: boolean
 }): Promise<ResolvedActionInputs> {
   const values: Record<string, string> = {}
   const images: Record<string, string> = {}
@@ -63,8 +71,10 @@ export async function resolveActionInputs(input: {
   try {
     for (const [index, [name, kind]] of Object.entries(input.profile.inputs).entries()) {
       const value = input.provided[name]
-      if (value === undefined || value === null)
+      if (value === undefined || value === null) {
+        if (input.partial === true) continue
         throw new ActionInputError("missing_input", `Input "${name}" is required`)
+      }
       if (kind === "image") {
         // The temp file is named by position, never by the caller-facing name, so a name cannot shape
         // a path. `images[name]` still carries the path the runner uploads.

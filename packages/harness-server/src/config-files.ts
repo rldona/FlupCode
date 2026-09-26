@@ -78,10 +78,22 @@ export type ExportResult = {
   entries: ExportEntry[]
 }
 
-/** The raw `flupcode.actions` block, with the directory its guards resolve against (WA-2). */
+/** Where a profile was declared: the global config, or a project's own `.opencode` (WA-8). */
+export type ActionProfileScope = "global" | "project"
+
+/**
+ * The raw `flupcode.actions` block, with the directory its guards resolve against (WA-2).
+ *
+ * WA-8 adds the scope and the guard directory per id: a project profile overrides a global one by
+ * id, and its guards belong to the `.opencode` that declared it rather than to the global config.
+ */
 export type ActionProfilesSource = {
   configDir: string
   profiles: Record<string, unknown>
+  /** Which layer declared each profile (WA-8). */
+  scopes: Record<string, ActionProfileScope>
+  /** The directory each profile's guards resolve against (WA-8). */
+  guardDirs: Record<string, string>
 }
 
 export class ConfigFileError extends Error {
@@ -100,6 +112,14 @@ const TOOL_EXTENSIONS = [".js", ".ts"] as const
 
 /** The global config files the delivery plugin merges, in the order it merges them. */
 const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"] as const
+
+/**
+ * The files a project's `.opencode` is read from (WA-8).
+ *
+ * The engine's own project config is `opencode.json(c)`; `config.json` belongs to the global folder
+ * only, so a project layer never picks it up.
+ */
+const PROJECT_CONFIG_FILES = ["opencode.json", "opencode.jsonc"] as const
 
 type Layer = { path: string; scope: ConfigFileScope }
 
@@ -206,10 +226,10 @@ function mergeConfig(target: Record<string, unknown>, source: Record<string, unk
   return merged
 }
 
-/** One global folder's config files merged, later files winning, as the delivery plugin loads them. */
-function loadConfigDirectory(configDir: string): Record<string, unknown> {
+/** One folder's named config files merged, later files winning, as the delivery plugin loads them. */
+function loadConfigDirectory(configDir: string, names: readonly string[] = CONFIG_FILES): Record<string, unknown> {
   let merged: Record<string, unknown> = {}
-  for (const name of CONFIG_FILES) {
+  for (const name of names) {
     const path = join(configDir, name)
     if (!existsSync(path)) continue
     let parsed: unknown
@@ -223,6 +243,13 @@ function loadConfigDirectory(configDir: string): Record<string, unknown> {
   return merged
 }
 
+/** The `flupcode.actions` map out of a merged config, or nothing when it is not a plain object. */
+function actionsFrom(config: Record<string, unknown>): Record<string, unknown> {
+  const flupcode = config.flupcode
+  const actions = isPlainObject(flupcode) ? flupcode.actions : undefined
+  return isPlainObject(actions) ? actions : {}
+}
+
 /** The merged global config across every folder read, so the repo and guards are found wherever set. */
 function loadGlobalConfig(): Record<string, unknown> {
   let merged: Record<string, unknown> = {}
@@ -234,13 +261,37 @@ function loadGlobalConfig(): Record<string, unknown> {
  * The `flupcode.actions` profiles as written, and the directory their guards resolve against.
  *
  * Nothing is validated here: `validateActionProfile` owns the schema and a caller may want to show
- * the raw block, an unsupported `kind` included. The config directory is the one the engine's own
- * config rules pick, so a guard path means the same thing to the action runner as to this screen.
+ * the raw block, an unsupported `kind` included. Without a folder this is the global config alone,
+ * which is what the plugin and the scheduled runner load; with one it merges every `.opencode` from
+ * that folder up to the project, nearest last, and a project profile wins over a global one by id
+ * (WA-8). Each profile keeps the scope it came from and the directory its guards belong to.
  */
-export function loadActionProfiles(): ActionProfilesSource {
-  const flupcode = loadGlobalConfig().flupcode
-  const actions = isPlainObject(flupcode) ? flupcode.actions : undefined
-  return { configDir: configDirectory(), profiles: isPlainObject(actions) ? actions : {} }
+export function loadActionProfiles(input: { directory?: string; project?: string } = {}): ActionProfilesSource {
+  const configDir = configDirectory()
+  const profiles: Record<string, unknown> = {}
+  const scopes: Record<string, ActionProfileScope> = {}
+  const guardDirs: Record<string, string> = {}
+
+  for (const [id, raw] of Object.entries(actionsFrom(loadGlobalConfig()))) {
+    profiles[id] = raw
+    scopes[id] = "global"
+    guardDirs[id] = configDir
+  }
+
+  if (input.directory && !process.env.OPENCODE_DISABLE_PROJECT_CONFIG) {
+    const stop = input.project ?? input.directory
+    const folders = isInside(input.directory, stop) ? walkUp(input.directory, stop) : [input.directory]
+    for (const folder of folders) {
+      const opencodeDir = join(folder, ".opencode")
+      for (const [id, raw] of Object.entries(actionsFrom(loadConfigDirectory(opencodeDir, PROJECT_CONFIG_FILES)))) {
+        profiles[id] = raw
+        scopes[id] = "project"
+        guardDirs[id] = opencodeDir
+      }
+    }
+  }
+
+  return { configDir, profiles, scopes, guardDirs }
 }
 
 /** Every guard every delivery profile names, resolved against the config directory. */

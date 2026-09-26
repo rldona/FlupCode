@@ -123,6 +123,7 @@ import { permissionMode } from "./permission-modes"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
 import { RoutinesPanel } from "./components/RoutinesPanel"
+import { ActionsPanel } from "./components/ActionsPanel"
 import { RunsPanel } from "./components/RunsPanel"
 import { Onboarding } from "./components/Onboarding"
 import { RemotePanel } from "./components/RemotePanel"
@@ -206,6 +207,7 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "config", descriptionKey: "Config (advanced)" },
   { name: "settings", descriptionKey: "Customize FlupCode" },
   { name: "routines", descriptionKey: "Scheduled tasks" },
+  { name: "actions", descriptionKey: "Web actions" },
   { name: "remote", descriptionKey: "Remote control / mobile" },
   { name: "artifacts", descriptionKey: "Artifacts" },
   { name: "files", descriptionKey: "Files" },
@@ -590,6 +592,7 @@ export const App: Component = () => {
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
+  const actionsOpen = () => screen() === "actions"
   const replayOpen = () => screen() === "replay"
   const compareOpen = () => screen() === "compare"
   /**
@@ -605,6 +608,7 @@ export const App: Component = () => {
       current === "changes" ||
       current === "artifacts" ||
       current === "routines" ||
+      current === "actions" ||
       current === "context" ||
       current === "agents" ||
       current === "skills" ||
@@ -2328,6 +2332,10 @@ export const App: Component = () => {
       }
       if (name === "routines") {
         showScreen("routines")
+        return
+      }
+      if (name === "actions") {
+        showScreen("actions")
         return
       }
       if (name === "remote") {
@@ -5427,6 +5435,7 @@ export const App: Component = () => {
             onAgents={() => showScreen("agents")}
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
+            onActions={() => showScreen("actions")}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => openSettings("providers")}
             onConfig={() => setConfigOpen(true)}
@@ -5615,6 +5624,14 @@ export const App: Component = () => {
               leaveScreen()
               selectSession(id)
             }}
+            onClose={() => leaveScreen()}
+          />
+          <ActionsPanel
+            open={actionsOpen()}
+            directory={modelLocation()}
+            project={vcsDirectory()}
+            serverUrl={harnessServerUrl()}
+            serverAvailable={routinesServerAvailable()}
             onClose={() => leaveScreen()}
           />
           <ContextPanel

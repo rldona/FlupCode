@@ -723,7 +723,7 @@ export class TaskRunner {
     if (!actions) return this.failAction(task, context, "This server has no web actions configured", directory)
 
     const tree = directory ?? context.options.directory ?? process.cwd()
-    // Scope-aware (WA-7): a routine may drive a profile the project's `.opencode` declares, not only
+    // Scope-aware (WA-8): a routine may drive a profile the project's `.opencode` declares, not only
     // a global one.
     const profile = actions.list({ directory: tree }).profiles.find((entry) => entry.id === spec.id)
     if (!profile) return this.failAction(task, context, `No action called "${spec.id}"`, directory)

@@ -248,7 +248,7 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
     const sessionID = props.sessionID
     if (!sessionID) return
     try {
-      const next = await client().agentBrowser.frame(sessionID)
+      const next = await client().agentBrowser.frame(sessionID, { store: false })
       const previous = frame()
       if (previous) URL.revokeObjectURL(previous)
       setFrame(URL.createObjectURL(next.blob))

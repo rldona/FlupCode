@@ -577,6 +577,7 @@
       "version": "1.21.0",
       "dependencies": {
         "@opencode-ai/sdk": "workspace:*",
+        "jsonc-parser": "3.3.1",
         "playwright": "catalog:",
       },
       "devDependencies": {

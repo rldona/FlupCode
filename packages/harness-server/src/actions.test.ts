@@ -381,6 +381,18 @@ describe("resolving action inputs", () => {
     expect(error.code).toBe("missing_input")
   })
 
+  test("a partial resolution leaves a missing input for the step that would use it", async () => {
+    const resolved = await resolveActionInputs({
+      profile: profile({ text: "string" }),
+      provided: {},
+      repository: repository(),
+      partial: true,
+    })
+    expect(resolved.values).toEqual({})
+    expect(resolved.images).toEqual({})
+    resolved.cleanup()
+  })
+
   test("a value the profile did not declare is unknown", async () => {
     const error = await failure(
       resolveActionInputs({
@@ -665,7 +677,7 @@ describe("running action recipes", () => {
       browser: runtime,
       repository,
       credentials,
-      loadProfiles: () => ({ configDir: root, profiles }),
+      loadProfiles: () => ({ configDir: root, profiles, scopes: {}, guardDirs: {} }),
     })
 
   const failureOf = async (work: Promise<unknown>): Promise<ActionRunError> => {
@@ -726,6 +738,7 @@ describe("running action recipes", () => {
       text: async () => ({ value: null, ...view }),
       screenshot: async () => (calls.push("screenshot"), { artifactId: "artifact" }),
       frame: async () => (calls.push("frame"), { bytes: new Uint8Array() }),
+      capture: async () => ({ found: false, reason: "none" }),
       stop: async () => {},
     }
     return { browser, starts, closed, calls }
@@ -764,6 +777,102 @@ describe("running action recipes", () => {
     expect(result).toMatchObject({ action: "publish", tool: "do_publish", status: "dry-run", origin: "https://example.com" })
     expect(result.steps).toMatchObject([{ index: 0, kind: "goto", status: "planned", attempts: 0 }])
     expect(runtime.get("s1")).toBeUndefined()
+  })
+
+  test("a preview runs the read steps and cuts before the first effect", async () => {
+    const { repository } = open()
+    const { browser, calls } = recordingBrowser()
+    const runner = runnerFor(browser, repository, {
+      publish: profile("https://example.com", {
+        inputs: { text: "string" },
+        steps: [
+          { goto: "{{origin}}/" },
+          { waitFor: "#editor" },
+          { fill: { selector: "#body", text: "{{text}}" } },
+          { screenshot: "before-submit" },
+          { submit: { selector: "#publish" } },
+        ],
+      }),
+    })
+
+    const result = await runner.run({
+      action: "publish",
+      sessionID: "s1",
+      project: "proj",
+      preview: true,
+      inputs: { text: "hi" },
+    })
+
+    expect(result).toMatchObject({ status: "preview", action: "publish", origin: "https://example.com" })
+    expect(result.steps).toMatchObject([
+      { kind: "goto", status: "ok" },
+      { kind: "waitFor", status: "ok" },
+      { kind: "fill", status: "skipped" },
+      { kind: "screenshot", status: "skipped" },
+      { kind: "submit", status: "skipped" },
+    ])
+    // The effects were never asked for, and no evidence was filed.
+    expect(calls).toEqual(["navigate", "waitFor"])
+    expect(repository.listArtifacts({ kind: "screenshot" })).toEqual([])
+  })
+
+  test("a preview reports a failure before the cut in the step and does not throw", async () => {
+    const { repository } = open()
+    const { browser } = recordingBrowser()
+    const runner = runnerFor(browser, repository, {
+      publish: profile("https://example.com", {
+        steps: [{ goto: "{{origin}}/" }, { assert: { selector: "#missing", text: "never" } }],
+      }),
+    })
+
+    // The recording browser answers `text` with a null value, which the assert refuses.
+    const result = await runner.run({ action: "publish", sessionID: "s1", project: "proj", preview: true })
+    expect(result.status).toBe("preview")
+    expect(result.steps).toMatchObject([
+      { kind: "goto", status: "ok" },
+      { kind: "assert", status: "failed" },
+    ])
+    // The step carries why, so the editor can say more than "failed".
+    expect(result.steps[1]).toMatchObject({ status: "failed", error: expect.stringContaining("Expected") })
+  })
+
+  test("a preview of a profile with inputs runs without any values (WA-8)", async () => {
+    const { repository } = open()
+    const { browser, calls } = recordingBrowser()
+    const runner = runnerFor(browser, repository, {
+      publish: profile("https://example.com", {
+        inputs: { text: "string" },
+        steps: [
+          { goto: "{{origin}}/" },
+          { fill: { selector: "#body", text: "{{text}}" } },
+          { submit: { selector: "#publish" } },
+        ],
+      }),
+    })
+
+    // The editor previews before the inputs are filled: the cut lands on the fill, so nothing needs
+    // a value and the preview must not be refused for the ones nobody supplied.
+    const result = await runner.run({ action: "publish", sessionID: "s1", project: "proj", preview: true })
+    expect(result).toMatchObject({ status: "preview", action: "publish" })
+    expect(result.steps).toMatchObject([
+      { kind: "goto", status: "ok" },
+      { kind: "fill", status: "skipped" },
+      { kind: "submit", status: "skipped" },
+    ])
+    expect(calls).toEqual(["navigate"])
+  })
+
+  test("a preview accepts a raw, unsaved profile", async () => {
+    const { repository } = open()
+    const { browser } = recordingBrowser()
+    const runner = runnerFor(browser, repository, {})
+    const result = await runner.run({
+      profile: profile("https://example.com"),
+      sessionID: "s1",
+      project: "proj",
+      preview: true,
+    })
+    expect(result).toMatchObject({ status: "preview" })
   })
 
   test("an unknown action and a raw profile without a dry run are refused", async () => {
@@ -875,6 +984,7 @@ describe("running action recipes", () => {
       text: async () => ({ value: null, ...view }),
       screenshot: async () => ({ artifactId: "artifact" }),
       frame: async () => ({ bytes: new Uint8Array() }),
+      capture: async () => ({ found: false, reason: "none" }),
       stop: async () => {},
     }
     const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
@@ -927,6 +1037,7 @@ describe("running action recipes", () => {
       text: async () => ({ value: null, ...view }),
       screenshot: async () => ({ artifactId: "artifact" }),
       frame: async () => ({ bytes: new Uint8Array() }),
+      capture: async () => ({ found: false, reason: "none" }),
       stop: async () => {},
     }
     const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
@@ -1313,7 +1424,7 @@ describe("the action HTTP routes", () => {
       browser: runtime,
       repository,
       credentials: unavailableActionCredentialResolver,
-      loadProfiles: () => ({ configDir: root, profiles }),
+      loadProfiles: () => ({ configDir: root, profiles, scopes: {}, guardDirs: {} }),
     })
     const handler = createHarnessHandler(
       repository,
@@ -1381,5 +1492,39 @@ describe("the action HTTP routes", () => {
       ),
     )
     expect(response.status).toBe(400)
+  })
+
+  test("a listed profile carries the scope it came from", async () => {
+    const { handler } = handlerWith({
+      good: { tool: "read_status", kind: "browser", origin: "https://example.com", steps: [{ goto: "{{origin}}/" }] },
+    })
+    const body = await (await handler(new Request("http://x/harness/actions", authed()))).json()
+    expect(body.data.profiles[0]).toMatchObject({ id: "good", scope: "global" })
+  })
+
+  test("the validate route checks a draft and refuses a broken one (WA-8)", async () => {
+    const { handler } = handlerWith({})
+    const valid = await handler(
+      new Request(
+        "http://x/harness/actions/validate",
+        authed({
+          method: "POST",
+          body: JSON.stringify({
+            id: "publish",
+            profile: { tool: "do_publish", kind: "browser", origin: "https://example.com", steps: [{ goto: "{{origin}}/" }] },
+          }),
+        }),
+      ),
+    )
+    expect(valid.status).toBe(200)
+
+    const broken = await handler(
+      new Request(
+        "http://x/harness/actions/validate",
+        authed({ method: "POST", body: JSON.stringify({ id: "publish", profile: { tool: "do_x", kind: "api" } }) }),
+      ),
+    )
+    expect(broken.status).toBe(422)
+    expect((await broken.json()).code).toBe("unsupported_kind")
   })
 })

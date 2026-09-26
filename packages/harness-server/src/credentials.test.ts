@@ -365,6 +365,9 @@ describe("the runner's credential prefetch", () => {
     frame: async () => {
       throw new Error("browser.frame was called")
     },
+    capture: async () => {
+      throw new Error("browser.capture was called")
+    },
     pause: () => {
       throw new Error("browser.pause was called")
     },
@@ -413,6 +416,7 @@ describe("the runner's credential prefetch", () => {
       text: async () => ({ value: null, url: view.url, title: view.title }),
       screenshot: async () => ({ artifactId: "artifact" }),
       frame: async () => ({ bytes: new Uint8Array() }),
+      capture: async () => ({ found: false, reason: "none" }),
       pause: () => view,
       resume: () => view,
       takeOver: async () => view,
@@ -437,7 +441,12 @@ describe("the runner's credential prefetch", () => {
       browser,
       repository,
       credentials: vault,
-      loadProfiles: () => ({ configDir: "/nonexistent", profiles: { signin: signin("https://example.com") } }),
+      loadProfiles: () => ({
+        configDir: "/nonexistent",
+        profiles: { signin: signin("https://example.com") },
+        scopes: {},
+        guardDirs: {},
+      }),
     })
 
   const thrownBy = async (work: Promise<unknown>): Promise<Error> => {

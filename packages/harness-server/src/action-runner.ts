@@ -18,7 +18,7 @@ import { redactSecrets } from "./redact"
 import { runActionGuards } from "./action-guards"
 import { substituteActionTemplate, validateActionProfile } from "./actions"
 import type { ActionInputKind, ActionProfile, ActionStep, ActionStepName } from "./actions"
-import type { ActionProfilesSource } from "./config-files"
+import type { ActionProfilesSource, ActionProfileScope } from "./config-files"
 import type { SqliteRoutineRepository } from "./repository"
 
 export const MAX_STEP_ATTEMPTS = 2
@@ -45,10 +45,22 @@ export type ActionRunRequest = {
   inputs?: Record<string, unknown>
   sessionID: string
   project: string
-  /** The folder a project profile is resolved from (WA-7). */
+  /**
+   * The folder a project-scoped profile is resolved from (WA-8).
+   *
+   * `project` is the browser's own identity and stays the profile reservation key; `directory` is
+   * the editor's folder, which is what decides whether a `.opencode` profile overrides a global one.
+   */
   directory?: string
   headed?: boolean
   dryRun?: boolean
+  /**
+   * Drive the recipe for real, but stop before the first side effect (WA-8).
+   *
+   * The editor's preview: read-only steps run, the step that would change the page and everything
+   * after it are reported as skipped, no credential is resolved and no evidence is filed.
+   */
+  preview?: boolean
   /**
    * The run and task this action belongs to (WA-7).
    *
@@ -71,10 +83,13 @@ export type ActionRunRequest = {
 export type ActionStepReport = {
   index: number
   kind: ActionStepName
-  status: "ok" | "failed" | "planned"
+  /** `skipped` is a preview step at or after the first side effect (WA-8). */
+  status: "ok" | "failed" | "planned" | "skipped"
   attempts: number
   durationMs: number
   screenshot?: string
+  /** Why a preview step failed, kept on the report so the editor can show it (WA-8). */
+  error?: string
 }
 
 export type ActionRunResult = {
@@ -99,11 +114,35 @@ export type ActionDryRunResult = {
   steps: ActionStepReport[]
 }
 
+/**
+ * What a preview run answers (WA-8).
+ *
+ * The steps that ran for real, the step the cut landed on and everything after it. No evidence, no
+ * extract and no credential: a preview is what the recipe would do, not a run of it.
+ */
+export type ActionPreviewResult = {
+  action: string
+  tool: string
+  status: "preview"
+  origin: string
+  url: string
+  title: string
+  startedAt: number
+  finishedAt: number
+  steps: ActionStepReport[]
+}
+
+/** A profile as the catalogue lists it, with the layer that declared it (WA-8). */
+export type ActionCatalogProfile = ActionProfile & { scope: ActionProfileScope }
+
 export type ActionListInput = { directory?: string; project?: string }
 
 export type ActionRunner = {
-  list(input?: ActionListInput): { profiles: ActionProfile[]; rejected: Array<{ id: string; code: string; message: string }> }
-  run(input: ActionRunRequest): Promise<ActionRunResult | ActionDryRunResult>
+  list(input?: ActionListInput): {
+    profiles: ActionCatalogProfile[]
+    rejected: Array<{ id: string; code: string; message: string }>
+  }
+  run(input: ActionRunRequest): Promise<ActionRunResult | ActionDryRunResult | ActionPreviewResult>
 }
 
 export type ActionRunnerOptions = {
@@ -171,7 +210,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
 
   const list = (input?: ActionListInput) => {
     const source = loadProfiles(input)
-    const profiles: ActionProfile[] = []
+    const profiles: ActionCatalogProfile[] = []
     const rejected: Array<{ id: string; code: string; message: string }> = []
     const tools = new Set<string>()
     for (const [id, raw] of Object.entries(source.profiles)) {
@@ -185,23 +224,32 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         continue
       }
       tools.add(result.profile.tool)
-      profiles.push(result.profile)
+      profiles.push({ ...result.profile, scope: source.scopes[id] ?? "global" })
     }
     return { profiles, rejected }
   }
 
-  const run = async (input: ActionRunRequest): Promise<ActionRunResult | ActionDryRunResult> => {
+  const run = async (
+    input: ActionRunRequest,
+  ): Promise<ActionRunResult | ActionDryRunResult | ActionPreviewResult> => {
     const source = loadProfiles({ directory: input.directory, project: input.project })
     const profile = resolveProfile(source, input)
     const provided = isPlainObject(input.inputs) ? input.inputs : {}
-    const resolved = await resolveActionInputs({ profile, provided, repository }).catch((cause) => {
+    // A preview is read before the form is filled, so only what it was given is materialized: a
+    // missing input is left for the step that would use it, past the cut, rather than refused here.
+    const resolved = await resolveActionInputs({
+      profile,
+      provided,
+      repository,
+      ...(input.preview === true ? { partial: true } : {}),
+    }).catch((cause) => {
       throw inputFailure(cause, profile)
     })
     const secrets: string[] = []
     try {
       const verdict = await runActionGuards({
         guards: profile.guards,
-        configDir: source.configDir,
+        configDir: source.guardDirs[profile.id] ?? source.configDir,
         input: { action: profile.id, tool: profile.tool, origin: profile.origin, inputs: resolved.values },
       })
       if (!verdict.allow)
@@ -221,6 +269,8 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
           origin: profile.origin,
           steps: profile.steps.map((step, index) => plannedReport(step, index)),
         }
+
+      if (input.preview === true) return await previewDrive(profile, resolved, input)
 
       return await drive(profile, resolved, input, secrets)
     } finally {
@@ -397,8 +447,84 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
     }
   }
 
+  /**
+   * The editor's preview (WA-8): the read-only part of the recipe, for real.
+   *
+   * `goto`, `waitFor` and `assert` drive the browser so the page is actually reached; the first step
+   * that would change it — `fill`, `click`, `upload`, `submit` — is where it stops, and that step and
+   * every one after it are reported as skipped. A `screenshot` captures a frame without keeping it,
+   * because a preview files no evidence. A failure before the cut is reported in its step instead of
+   * thrown: there is no run to fail, only a form to tell what went wrong.
+   */
+  const previewDrive = async (
+    profile: ActionProfile,
+    resolved: ResolvedActionInputs,
+    input: ActionRunRequest,
+  ): Promise<ActionPreviewResult> => {
+    const sessionID = input.sessionID
+    await browser.start({
+      id: sessionID,
+      project: input.project,
+      ...(input.headed === true ? { headed: true } : {}),
+    })
+    const context: StepContext = {
+      sessionID,
+      values: resolved.values,
+      images: resolved.images,
+      // A preview never resolves a credential: the step that would use one is an effect, and the cut
+      // lands before it.
+      credentials: {},
+    }
+    const startedAt = Date.now()
+    const steps: ActionStepReport[] = []
+    let cut = false
+    let broke = false
+
+    for (const [index, step] of profile.steps.entries()) {
+      const kind = stepKind(step)
+      if (cut || broke || isEffectStep(step)) {
+        steps.push({ index, kind, status: "skipped", attempts: 0, durationMs: 0 })
+        cut = true
+        continue
+      }
+      const stepStartedAt = Date.now()
+      try {
+        if ("screenshot" in step) await browser.frame(sessionID, { store: false })
+        else await runStep(browser, profile, step, context)
+        steps.push({ index, kind, status: "ok", attempts: 1, durationMs: Date.now() - stepStartedAt })
+      } catch (cause) {
+        steps.push({
+          index,
+          kind,
+          status: "failed",
+          attempts: 1,
+          durationMs: Date.now() - stepStartedAt,
+          error: messageOf(cause),
+        })
+        broke = true
+      }
+    }
+
+    const view = browser.get(sessionID)
+    return {
+      action: profile.id,
+      tool: profile.tool,
+      status: "preview",
+      origin: profile.origin,
+      url: view?.url ?? "",
+      title: view?.title ?? "",
+      startedAt,
+      finishedAt: Date.now(),
+      steps,
+    }
+  }
+
   return { list, run }
 }
+
+/** The steps that change the page: where a preview stops before it runs one (WA-8). */
+const isEffectStep = (step: ActionStep): boolean =>
+  "fill" in step || "click" in step || "upload" in step || "submit" in step
 
 type StepContext = {
   sessionID: string
@@ -420,11 +546,12 @@ const resolveProfile = (source: ActionProfilesSource, input: ActionRunRequest): 
       throw new ActionRunError({ code: "unknown_action", status: 404, message: `No action profile "${input.action}"` })
     return validatedProfile(input.action!, raw)
   }
-  if (input.dryRun !== true)
+  // A raw profile is an editor's unsaved draft: a dry run or a preview may show it, nothing else.
+  if (input.dryRun !== true && input.preview !== true)
     throw new ActionRunError({
       code: "invalid_request",
       status: 400,
-      message: "A raw profile is only accepted for a dry run",
+      message: "A raw profile is only accepted for a dry run or a preview",
     })
   const raw = input.profile
   const id = isPlainObject(raw) && typeof raw.tool === "string" && raw.tool !== "" ? raw.tool : "action"

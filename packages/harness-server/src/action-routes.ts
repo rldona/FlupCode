@@ -7,6 +7,7 @@
 
 import { toActionErrorBody, ActionRunError } from "./action-runner"
 import type { ActionRunner, ActionRunRequest } from "./action-runner"
+import { validateActionProfile } from "./actions"
 import { BrowserError } from "./browser"
 import { NavigationBlockedError } from "./browser-egress"
 
@@ -40,7 +41,25 @@ export async function handleActionRequest(
 
 const dispatch = async (request: Request, segments: string[], actions: ActionRunner): Promise<Response> => {
   const route = segments[0]
-  if (route === undefined && request.method === "GET") return json({ data: actions.list() })
+  if (route === undefined && request.method === "GET") {
+    // No query is the plugin's own catalog: the global config alone. A folder makes it scope-aware,
+    // which is what the editor lists so a project profile appears beside the global ones (WA-8).
+    const params = new URL(request.url).searchParams
+    return json({
+      data: actions.list({
+        ...(params.get("directory") ? { directory: params.get("directory")! } : {}),
+        ...(params.get("project") ? { project: params.get("project")! } : {}),
+      }),
+    })
+  }
+  // The editor's inline check (WA-8): the schema alone, before a profile is saved. It reports what is
+  // wrong with the draft, which the write itself would refuse with a 422 anyway.
+  if (route === "validate" && request.method === "POST") {
+    const body = await bodyFrom(request)
+    const id = typeof body.id === "string" && body.id.trim() ? body.id.trim() : "action"
+    const result = validateActionProfile(id, body.profile)
+    return result.ok ? json({ data: { ok: true, profile: result.profile } }) : json({ error: result.message, code: result.code }, 422)
+  }
   if (route !== "run" || request.method !== "POST") return error("Not found", "not_found", 404)
 
   const body = await bodyFrom(request)
@@ -54,9 +73,11 @@ const dispatch = async (request: Request, segments: string[], actions: ActionRun
     sessionID,
     project,
     ...(typeof body.action === "string" && body.action !== "" ? { action: body.action } : {}),
+    ...(typeof body.directory === "string" && body.directory !== "" ? { directory: body.directory } : {}),
     ...(body.profile !== undefined ? { profile: body.profile } : {}),
     ...(body.headed === true ? { headed: true } : {}),
     ...(body.dryRun === true ? { dryRun: true } : {}),
+    ...(body.preview === true ? { preview: true } : {}),
   }
   return json({ data: await actions.run(run) })
 }

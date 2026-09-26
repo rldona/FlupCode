@@ -92,6 +92,18 @@ const fixture = () => {
           { headers: { "content-type": "text/html" } },
         )
       }
+      if (path === "/pick")
+        return new Response(
+          `<!doctype html><html><head><title>Pick</title><style>
+             body { margin: 0 }
+             .target { position: fixed; left: 20px; top: 30px; width: 120px; height: 40px }
+             iframe { position: fixed; left: 0; top: 200px; width: 200px; height: 100px; border: 0 }
+           </style></head><body>
+             <div><button class="target" id="save" name="save" data-testid="save-btn">Save it</button></div>
+             <iframe></iframe>
+           </body></html>`,
+          { headers: { "content-type": "text/html" } },
+        )
       if (path === "/manual")
         return new Response(
           `<!doctype html><html><head><title>Manual</title></head><body>
@@ -304,6 +316,43 @@ describe("driving a real browser", () => {
       const raw = await handler(new Request(`http://x/harness/artifacts/${artifactID}/raw`))
       expect(raw.status).toBe(200)
       expect(Buffer.from(await raw.arrayBuffer()).equals(bytes)).toBe(true)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "pick reads the element under a point and ranks selectors",
+    async () => {
+      const server = fixture()
+      const { handler } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      await browserRequest(handler, "navigate", "s1", { body: { url: `http://127.0.0.1:${server.port}/pick` } })
+
+      const session = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
+      const viewport = session.viewport as { width: number; height: number }
+      expect(viewport.width).toBeGreaterThan(0)
+      expect(viewport.height).toBeGreaterThan(0)
+      // The editor sends a 0..1 fraction of the frame, and the server turns it back into the CSS
+      // pixels `elementFromPoint` measures in; these are the points the old pixel form named.
+      const at = (x: number, y: number) => ({ x: x / viewport.width, y: y / viewport.height })
+
+      const picked = (await (await browserRequest(handler, "capture", "s1", { body: at(40, 45) })).json()).data
+      expect(picked).toMatchObject({ found: true, tag: "button" })
+      expect(picked.box).toMatchObject({ x: 20, y: 30, width: 120, height: 40 })
+      expect(picked.candidates?.[0]).toBe('[data-testid="save-btn"]')
+      expect(picked.candidates).toContain("#save")
+      expect(picked.text).toBe("Save it")
+
+      const frame = (await (await browserRequest(handler, "capture", "s1", { body: at(50, 250) })).json()).data
+      expect(frame).toMatchObject({ found: true, reason: "iframe" })
+      expect(frame.candidates).toBeUndefined()
+
+      const none = (await (await browserRequest(handler, "capture", "s1", { body: at(-5, -5) })).json()).data
+      expect(none).toMatchObject({ found: false, reason: "none" })
+
+      const missing = await browserRequest(handler, "capture", "s1", { body: {} })
+      expect(missing.status).toBe(400)
+      expect((await missing.json()).code).toBe("point_required")
     },
     30_000,
   )

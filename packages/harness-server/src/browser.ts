@@ -26,6 +26,8 @@ const BASE_MASK = 'input[type="password"], [autocomplete^="cc-"]'
 
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | "commit"
 
+export type BrowserViewport = { width: number; height: number }
+
 export type BrowserSession = {
   id: string
   project: string
@@ -35,10 +37,30 @@ export type BrowserSession = {
   idleTimeoutMs: number
   url: string
   title: string
+  /** The page's viewport, so a click-to-pick knows what its coordinates are relative to (WA-8). */
+  viewport?: BrowserViewport
   /** The agent is held at the next step boundary; a person may be driving the window (WA-6). */
   paused: boolean
   /** The run was stopped: the runner must fail with `stopped`, not retry, and never resume. */
   stopped: boolean
+}
+
+/**
+ * What a click-to-pick read back from a point in the page (WA-8).
+ *
+ * `candidates` are ranked selectors for the element under the point, up to three; the editor picks
+ * one for a step. An element inside a frame is named as such rather than guessed at from the frame's
+ * own document, because Playwright's frame selectors are a different thing.
+ */
+export type SelectorCapture = {
+  found: boolean
+  reason?: "none" | "iframe"
+  viewport?: BrowserViewport
+  box?: { x: number; y: number; width: number; height: number }
+  tag?: string
+  candidates?: string[]
+  /** A little of the element's text, redacted, so the editor can say what was picked. */
+  text?: string
 }
 
 export type BrowserRuntimeOptions = {
@@ -107,6 +129,13 @@ export type BrowserRuntime = {
   ): Promise<{ value: string | null; url: string; title: string }>
   screenshot(id: string, label?: string): Promise<{ artifactId: string }>
   frame(id: string, options?: { store?: boolean }): Promise<{ bytes: Uint8Array; artifactId?: string }>
+  /**
+   * What is at a point in the page, turned into selectors for the editor (WA-8).
+   *
+   * The point is a `0..1` fraction of the viewport, not a pixel: the editor reads it off a frame
+   * whose resolution is the device's, while the page is measured in CSS pixels.
+   */
+  capture(id: string, point: { x: number; y: number }): Promise<SelectorCapture>
   stop(): Promise<void>
 }
 
@@ -242,6 +271,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     await collectSecrets(session)
     session.view.url = session.page.url()
     session.view.title = await session.page.title().catch(() => "")
+    session.view.viewport = session.page.viewportSize() ?? undefined
     return redactedView(session)
   }
 
@@ -570,6 +600,90 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     return storeScreenshot(session)
   }
 
+  /**
+   * What is at a point on the page, and how to select it (WA-8).
+   *
+   * The read happens in the page, because only there is the rendered element knowable. The
+   * candidates are ranked — a test attribute, a unique id, a name, then a structural path — and
+   * capped at three so the editor offers a short list. An element inside a frame is reported as
+   * `iframe` rather than reached into: a selector for the outer frame is not one a step can use.
+   *
+   * The point arrives as a `0..1` fraction of the viewport: the editor measured it against a frame
+   * whose pixels are the device's, and only here, in the page, are the CSS pixels it must be
+   * compared with known. A device pixel ratio other than one would otherwise land the click twice
+   * as far from the corner as it was.
+   */
+  const capture = async (id: string, point: { x: number; y: number }): Promise<SelectorCapture> => {
+    const session = requireSession(id)
+    try {
+      const result = (await session.page.evaluate(({ x, y }: { x: number; y: number }) => {
+        const viewport = { width: window.innerWidth, height: window.innerHeight }
+        const element = document.elementFromPoint(x * viewport.width, y * viewport.height)
+        if (!element) return { found: false as const, reason: "none" as const, viewport }
+        if (element.tagName === "IFRAME" || element.tagName === "FRAME")
+          return { found: true as const, reason: "iframe" as const, viewport }
+        const unique = (selector: string) => {
+          try {
+            return document.querySelectorAll(selector).length === 1
+          } catch {
+            return false
+          }
+        }
+        const candidates: string[] = []
+        for (const attribute of ["data-testid", "data-test", "data-cy", "data-qa"]) {
+          const value = element.getAttribute(attribute)
+          if (!value) continue
+          const selector = `[${attribute}="${CSS.escape(value)}"]`
+          if (unique(selector)) {
+            candidates.push(selector)
+            break
+          }
+        }
+        if (element.id) candidates.push(`#${CSS.escape(element.id)}`)
+        const name = element.getAttribute("name")
+        if (name) {
+          const selector = `[name="${CSS.escape(name)}"]`
+          if (unique(selector)) candidates.push(selector)
+        }
+        const segments: string[] = []
+        let node: Element | null = element
+        for (let depth = 0; depth < 6 && node; depth++) {
+          if (depth > 0 && node.id) {
+            segments.unshift(`#${CSS.escape(node.id)}`)
+            break
+          }
+          const tag = node.tagName.toLowerCase()
+          let index = 1
+          const parent: Element | null = node.parentElement
+          if (parent)
+            for (const child of parent.children) {
+              if (child === node) break
+              if (child.tagName === node.tagName) index++
+            }
+          segments.unshift(`${tag}:nth-of-type(${index})`)
+          node = parent
+          if (!node || node === document.body) break
+        }
+        const path = segments.join(" > ")
+        if (path) candidates.push(path)
+        const box = element.getBoundingClientRect()
+        return {
+          found: true as const,
+          viewport,
+          box: { x: box.x, y: box.y, width: box.width, height: box.height },
+          tag: element.tagName.toLowerCase(),
+          candidates: candidates.slice(0, 3),
+          text: ((element as HTMLElement).innerText || element.textContent || "").slice(0, 500),
+        }
+      }, point)) as SelectorCapture
+      return result.text === undefined
+        ? result
+        : { ...result, text: redactSecrets(result.text, await collectSecrets(session)) }
+    } catch (cause) {
+      throw new BrowserError("action_failed", 422, messageOf(cause))
+    }
+  }
+
   const stop = async (): Promise<void> => {
     await Promise.all([...sessions.keys()].map((id) => closeSession(id)))
   }
@@ -596,6 +710,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     text,
     screenshot,
     frame,
+    capture,
     stop,
   }
 }

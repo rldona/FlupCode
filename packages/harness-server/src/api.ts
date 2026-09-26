@@ -24,6 +24,7 @@ import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
+import { handleActionProfileRequest } from "./action-profile-routes"
 import { actionInputProblem, allowRulesFrom, missingAllowRules } from "./action-allow"
 import { handleCredentialRequest } from "./credential-routes"
 import type { CredentialVault } from "./vault"
@@ -134,7 +135,11 @@ const routineActionProblem = (
 ): { message: string; status: number } | undefined => {
   if (!input.action) return undefined
   if (!actions) return { message: "Web actions are not available on this server", status: 409 }
-  const profile = actions.list().profiles.find((entry) => entry.id === input.action!.id)
+  // The same folder the scheduled run resolves from, so a routine that names a project profile is
+  // not refused with a 404 at the form while the run itself would have found it (WA-8).
+  const profile = actions
+    .list(input.projectDirectory ? { directory: input.projectDirectory } : {})
+    .profiles.find((entry) => entry.id === input.action!.id)
   if (!profile) return { message: `No action called "${input.action.id}"`, status: 404 }
   const missing = missingAllowRules(input.allow ?? [], profile)
   if (missing.length > 0)
@@ -422,6 +427,13 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleCredentialRequest(request, path.slice(2), options.credentials)
     }
+    // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
+    // needs the profile id and the shape the form wrote.
+    if (path[1] === "action-profiles") {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleActionProfileRequest(request, path.slice(2))
+    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
     // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
     // was actually built: the kill switch and a missing token leave it out (WA-1).
@@ -433,6 +445,8 @@ export const createHarnessHandler = (
           ...(options.browser ? (["browser"] as const) : []),
           ...(options.actions ? (["web-actions"] as const) : []),
           ...(options.credentials ? (["credentials"] as const) : []),
+          // The writer shares the browser's bearer, so it is only announced when that secret exists.
+          ...(options.token ? (["action-profiles"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking.

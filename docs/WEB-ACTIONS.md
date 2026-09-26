@@ -143,13 +143,24 @@ evidence travels with the run.
 ## Authoring one
 
 From the app: open **Actions**, add a profile, set its origin and credential, add steps and (for a
-read action) an extract, then run a dry-run against the browser. Profiles are saved to the global
-config and can be exported to your own configuration repository; the project-scoped `.opencode` is
-read only once the WA-8 editor lands.
+read action) an extract. The editor validates the draft against the same schema the runner uses
+before it is saved, and can preview it: the browser runs the recipe's read steps — `goto`, `waitFor`,
+`assert` — and stops before the first side effect, reporting that step and everything after it as
+skipped. No credential is resolved and no evidence is filed by a preview. Clicking the live page
+turns the element under the point into ranked selectors, which the editor drops into the field that
+has focus.
 
-By hand: add the profile to the `flupcode.actions` block of your global `opencode.json` /
-`opencode.jsonc`. The engine carries the settings; FlupCode's plugin reads them and registers the
-tools on the next engine start.
+A profile is written to `flupcode.actions[id]` of a config file, and only that key is touched: the
+rest of the file, comments included, is left as it was. A **global** profile goes to the first of
+`opencode.jsonc`, `opencode.json`, `config.json` that exists, or to the file that already holds the
+id, and a fresh install creates `opencode.jsonc`. A **project** profile goes to
+`<project>/.opencode/opencode.jsonc` (or `.json` when that is what exists) and overrides a global one
+of the same id while the editor or a scheduled run is looking at that project. Profiles can be
+exported to your own configuration repository from **Config files**.
+
+By hand: add the profile to the `flupcode.actions` block of an `opencode.json` / `opencode.jsonc`.
+The engine carries the settings; FlupCode's plugin reads them and registers the tools on the next
+engine start.
 
 ## Example (generic)
 
@@ -203,6 +214,10 @@ names a product.
   your mouse and keyboard into the page.
 - Redaction masks password and card fields and the fields the action filled. It cannot be complete;
   an unredacted capture requires explicit approval.
+- A **project-scoped** profile lives in the project's `.opencode` and is available to the editor and
+  to scheduled runs in that project, but not to the agent's plugin: the plugin registers tools from
+  the global config alone. The editor marks a project profile as not available to the agent and can
+  move it to the global config, where the plugin does read it.
 
 ## What this is not
 

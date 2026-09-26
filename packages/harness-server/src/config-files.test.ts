@@ -118,6 +118,25 @@ describe("exporting", () => {
     expect(readFileSync(join(repo, "tool", "hello.js"), "utf8")).toBe("export const hello = 1\n")
   })
 
+  test("a global config carrying action profiles is exported to the repository", async () => {
+    write(join(config, "tool", "hello.js"), "export const hello = 1\n")
+    write(
+      join(config, "opencode.json"),
+      JSON.stringify({
+        flupcode: {
+          configRepo: repo,
+          actions: { publish: { tool: "do_publish", kind: "browser", origin: "https://example.com", steps: [{ goto: "{{origin}}/" }] } },
+        },
+      }),
+    )
+
+    const file = listConfigFiles().find((entry) => entry.name === "opencode.json")!
+    const result = await exportConfigFiles({ paths: [file.path], confirm: true })
+    expect(result.written).toEqual([file.path])
+    const exported = JSON.parse(readFileSync(join(repo, "opencode.json"), "utf8"))
+    expect(exported.flupcode.actions.publish).toMatchObject({ tool: "do_publish", kind: "browser" })
+  })
+
   test("exporting the same file again is unchanged", async () => {
     const file = tool()
     await exportConfigFiles({ paths: [file.path], confirm: true })

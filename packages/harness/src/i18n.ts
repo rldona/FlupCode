@@ -1326,6 +1326,47 @@ const ES: Record<string, string> = {
   conflicts: "conflictos",
   skipped: "omitidos",
   outside: "fuera",
+  // Web actions editor (WA-8)
+  Actions: "Acciones",
+  "Web actions": "Acciones web",
+  "New action": "Nueva acción",
+  "Not loaded": "No cargadas",
+  "No global actions yet.": "Todavía no hay acciones globales.",
+  "Select an action or create one.": "Selecciona una acción o crea una.",
+  "The harness server is not available, so actions cannot be edited here.":
+    "El servidor del harness no está disponible, así que las acciones no se pueden editar aquí.",
+  "The profile is valid.": "El perfil es válido.",
+  "Saved to {path}": "Guardado en {path}",
+  "Action removed.": "Acción eliminada.",
+  "Moved to the global config at {path}.": "Movida a la configuración global en {path}.",
+  "Open a project folder to preview an action.": "Abre una carpeta de proyecto para previsualizar una acción.",
+  "That project already has a browser open. Close the other run or its window and try again.":
+    "Ese proyecto ya tiene un navegador abierto. Cierra la otra ejecución o su ventana e inténtalo de nuevo.",
+  "Project actions are stored in this project's .opencode. The agent's plugin loads global profiles only, so this action is not available to it.":
+    "Las acciones de proyecto se guardan en el .opencode de este proyecto. El plugin del agente solo carga perfiles globales, así que esta acción no está disponible para él.",
+  "An action needs an id.": "Una acción necesita un id.",
+  "name (never the value)": "nombre (nunca el valor)",
+  "Host": "Host",
+  "Desktop": "Escritorio",
+  "Screenshots": "Capturas",
+  "Each step": "Cada paso",
+  "Only on failure": "Solo si falla",
+  "Keep page text": "Guardar el texto de la página",
+  "Needs approval": "Requiere aprobación",
+  "read only": "solo lectura",
+  "needs approval": "requiere aprobación",
+  "selector or URL": "selector o URL",
+  "text, {{input}} or credential": "texto, {{input}} o credencial",
+  "expected text": "texto esperado",
+  "label": "etiqueta",
+  "lib/guards.ts, another.ts": "lib/guards.ts, otra.ts",
+  "Read steps ran; the first side effect and everything after it were skipped.":
+    "Los pasos de lectura se ejecutaron; el primer efecto secundario y todo lo posterior se omitieron.",
+  "Click the page to pick a selector for the focused field.":
+    "Haz clic en la página para elegir un selector para el campo enfocado.",
+  "Live browser view": "Vista del navegador en vivo",
+  "Nothing selectable at that point.": "No hay nada seleccionable en ese punto.",
+  "Picked": "Elegido",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

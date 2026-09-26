@@ -20,6 +20,9 @@ import { chatFileParts } from "./chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "./transcript"
 import type {
   ActionCatalog,
+  ActionPreview,
+  ActionProfileFile,
+  ActionProfileScope,
   Artifact,
   ArtifactKind,
   BranchState,
@@ -45,6 +48,7 @@ import type {
   RoutineRun,
   Run,
   RunPolicy,
+  SelectorCapture,
   SessionPrefs,
   StashedPrompt,
   Task,
@@ -1303,9 +1307,21 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/takeover", { method: "POST" }),
       stop: (sessionID: string) =>
         agentBrowserRequest<{ stopped: boolean }>(baseUrl, sessionID, "/harness/browser/stop", { method: "POST" }),
-      frame: async (sessionID: string) => {
+      /** What is at a point the reader clicked in the live frame, a 0..1 fraction of it (WA-8). */
+      pick: (sessionID: string, point: { x: number; y: number }) =>
+        agentBrowserRequest<SelectorCapture>(baseUrl, sessionID, "/harness/browser/capture", {
+          method: "POST",
+          body: JSON.stringify(point),
+        }),
+      /**
+       * The latest frame as a PNG. `store: false` asks the server not to file it as an artifact,
+       * which is what a polling viewer wants: a PNG per tick would grow the disk for nobody (WA-6,
+       * WA-8). The default still stores one for a caller that asked for the frame itself.
+       */
+      frame: async (sessionID: string, options?: { store?: boolean }) => {
         const token = harnessBrowserToken()
-        const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}/harness/browser/frame`, {
+        const query = options?.store === false ? "?store=0" : ""
+        const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}/harness/browser/frame${query}`, {
           headers: {
             ...(token ? { authorization: `Bearer ${token}` } : {}),
             "x-flupcode-session": sessionID,
@@ -1660,17 +1676,94 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     },
     /**
      * The web actions this server knows (WA-7). The routine editor lists them, and the chosen
-     * profile decides which inputs to ask for and what consent the routine must carry.
+     * profile decides which inputs to ask for and what consent the routine must carry. The Actions
+     * editor (WA-8) writes them: `list` is scope-aware when a folder is given, and `save`/`remove`
+     * edit `flupcode.actions[id]` in the config file the server derives.
      */
     actions: {
       /** No folder is the plugin's own catalogue: the global config alone (WA-2, WA-7). */
       list: (input: { directory?: string; project?: string } = {}) =>
         actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+      /** The same catalogue, named for the editor that shows the scope of each profile (WA-8). */
+      profiles: (input: { directory?: string; project?: string } = {}) =>
+        actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+      /** Where each profile is written, for the editor's scope badges (WA-8). */
+      files: (input: { directory?: string; project?: string } = {}) =>
+        actionRequest<ActionProfileFile[]>(baseUrl, `/harness/action-profiles${actionQuery(input)}`),
+      /** The schema check behind the editor's inline error (WA-8). */
+      validate: (input: { id: string; profile: unknown }) =>
+        actionRequest<{ ok: true }>(baseUrl, "/harness/actions/validate", {
+          method: "POST",
+          body: JSON.stringify(input),
+        }),
+      save: (input: {
+        id: string
+        scope: ActionProfileScope
+        profile: unknown
+        directory?: string
+        project?: string
+      }) =>
+        actionRequest<{ path: string; scope: ActionProfileScope; id: string }>(
+          baseUrl,
+          `/harness/action-profiles/${encodeURIComponent(input.id)}`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              scope: input.scope,
+              profile: input.profile,
+              ...(input.directory ? { directory: input.directory } : {}),
+              ...(input.project ? { project: input.project } : {}),
+            }),
+          },
+        ),
+      remove: (input: { id: string; scope: ActionProfileScope; directory?: string; project?: string }) => {
+        const search = new URLSearchParams({ scope: input.scope })
+        if (input.directory) search.set("directory", input.directory)
+        if (input.project) search.set("project", input.project)
+        return actionRequest<{ removed: boolean; path: string }>(
+          baseUrl,
+          `/harness/action-profiles/${encodeURIComponent(input.id)}?${search}`,
+          { method: "DELETE" },
+        )
+      },
+      /** Plan a saved profile's steps without opening a browser (WA-8). */
+      dryRun: (input: { action: string; inputs?: Record<string, unknown>; sessionID?: string; project?: string }) =>
+        actionRequest<unknown>(baseUrl, "/harness/actions/run", {
+          method: "POST",
+          body: JSON.stringify({
+            action: input.action,
+            inputs: input.inputs ?? {},
+            sessionID: input.sessionID ?? "editor",
+            project: input.project ?? "editor",
+            dryRun: true,
+          }),
+        }),
+      /** Run the read part of a recipe for real and stop before the first side effect (WA-8). */
+      preview: (input: {
+        action?: string
+        profile?: unknown
+        directory?: string
+        project: string
+        sessionID: string
+        headed?: boolean
+      }) =>
+        actionRequest<ActionPreview>(baseUrl, "/harness/actions/run", {
+          method: "POST",
+          body: JSON.stringify({
+            ...(input.action ? { action: input.action } : {}),
+            ...(input.profile !== undefined ? { profile: input.profile } : {}),
+            ...(input.directory ? { directory: input.directory } : {}),
+            project: input.project,
+            sessionID: input.sessionID,
+            ...(input.headed === true ? { headed: true } : {}),
+            preview: true,
+          }),
+        }),
     },
   }
 }
 
-/** `?directory=&project=` when either is set, and nothing when neither is (WA-7). */
+/** `?directory=&project=` when either is set, and nothing when neither is (WA-8). */
 function actionQuery(input: { directory?: string; project?: string }): string {
   const search = new URLSearchParams()
   if (input.directory) search.set("directory", input.directory)

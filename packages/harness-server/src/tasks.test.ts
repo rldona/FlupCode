@@ -6,8 +6,7 @@ import { SqliteRoutineRepository } from "./repository"
 import { TaskRunner } from "./runner"
 import { RoutineScheduler } from "./scheduler"
 import { ActionRunError } from "./action-runner"
-import type { ActionProfile } from "./actions"
-import type { ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
+import type { ActionCatalogProfile, ActionRunResult, ActionRunner, ActionRunRequest } from "./action-runner"
 import { BrowserError } from "./browser"
 import type { BrowserAllowRule, RunSource, RunStatus } from "./types"
 
@@ -1164,7 +1163,7 @@ describe("a web action task (WA-7)", () => {
     },
   })
 
-  const publishProfile = (): ActionProfile => ({
+  const publishProfile = (): ActionCatalogProfile => ({
     id: "publish",
     tool: "do_publish",
     description: "Publish the piece",
@@ -1176,6 +1175,7 @@ describe("a web action task (WA-7)", () => {
     sensitive: true,
     availability: "host",
     evidence: {},
+    scope: "global",
   })
 
   const allowed: BrowserAllowRule[] = [

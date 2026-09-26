@@ -102,6 +102,8 @@ type SidebarProps = {
   onAgents: () => void
   onSkills: () => void
   onWorkflows: () => void
+  /** The Actions editor: the web action profiles (WA-8). */
+  onActions: () => void
   onArtifacts: () => void
   onProviders: () => void
   onConfig: () => void
@@ -481,6 +483,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 <Show when={UNAVAILABLE_FEATURES.has("routines")}>
                   <span class="fc-nav-soon">{t("Soon")}</span>
                 </Show>
+              </button>
+              <button
+                class="fc-nav-item"
+                classList={{ "fc-nav-item-active": props.activeScreen === "actions" }}
+                type="button"
+                onClick={props.onActions}
+              >
+                <span class="fc-nav-icon">⌘</span>
+                {t("Actions")}
               </button>
             </Show>
             <button class="fc-nav-item" type="button" onClick={props.onSettings}>
