@@ -702,10 +702,10 @@ describe("the live view's control (WA-6)", () => {
   })
 
   test.skipIf(!existsSync(chromiumPath))(
-    "pauses, resumes and stops a run, refuses a headless takeover, and announces it",
+    "pauses, resumes and stops a run, reveals a headless takeover on the boundary, and announces it",
     async () => {
       const server = fixture()
-      const { handler, repository } = open(server)
+      const { handler, repository, runtime } = open(server)
       const events: ServerEvent[] = []
       const unsubscribe = repository.subscribe((entry) => events.push(entry.event))
 
@@ -716,10 +716,16 @@ describe("the live view's control (WA-6)", () => {
       const resumed = await browserRequest(handler, "resume", "s1", { body: {} })
       expect((await resumed.json()).data.paused).toBe(false)
 
-      // A headless session has no window to hand over.
+      // No window is open yet: the takeover holds the agent, and the runner's pause check opens
+      // the headed window at the next step boundary, on the same persistent profile.
       const takeover = await browserRequest(handler, "takeover", "s1", { body: {} })
-      expect(takeover.status).toBe(409)
-      expect((await takeover.json()).code).toBe("browser_headless")
+      expect(takeover.status).toBe(200)
+      expect((await takeover.json()).data.paused).toBe(true)
+      const waiting = runtime.waitIfPaused("s1")
+      for (let i = 0; i < 100 && runtime.get("s1")?.headed !== true; i++) await Bun.sleep(100)
+      expect(runtime.get("s1")?.headed).toBe(true)
+      await runtime.resume("s1")
+      await waiting
 
       const stopped = await browserRequest(handler, "stop", "s1", { body: {} })
       expect((await stopped.json()).data.stopped).toBe(true)

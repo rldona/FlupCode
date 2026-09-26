@@ -610,7 +610,8 @@ describe("WEB_ACTIONS_PLUGIN", () => {
     expect(fixture.runs[0]!.action).toBe("do_demo")
     expect(fixture.runs[0]!.sessionID).toBe("ses_abc")
     expect(fixture.runs[0]!.project).toBe("/tmp/project")
-    expect(fixture.runs[0]!.headed).toBe(true)
+    // Headless unless a person takes over: no window pops up on its own.
+    expect(fixture.runs[0]!.headed).toBeUndefined()
     expect(fixture.runs[0]!.inputs).toEqual({ text: "hola", image: { dataUrl: "data:image/png;base64,AAAA" } })
     expect(result.output).toContain("do_demo")
     expect(result.attachments).toHaveLength(1)

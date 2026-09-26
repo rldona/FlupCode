@@ -162,7 +162,6 @@ export type BrowserErrorCode =
   | "navigation_blocked"
   | "project_required"
   | "stopped"
-  | "browser_headless"
 
 /**
  * The session id the runtime keys everything by, read from the header.
@@ -320,6 +319,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       paused: false,
       stopped: false,
       wake: undefined,
+      takeoverRequested: false,
       secrets: new Set(),
       maskSelectors: new Set(),
       runID: input.runID,
@@ -372,6 +372,7 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   const resume = (id: string): BrowserSession => {
     const session = requireSession(id)
     session.paused = false
+    session.takeoverRequested = false
     wake(session)
     emitStatus(session)
     return redactedView(session)
@@ -379,11 +380,14 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
 
   const takeOver = async (id: string): Promise<BrowserSession> => {
     const session = requireSession(id)
-    // A headless window is not there to be handed over; saying so beats a silent no-op. A takeover
-    // never relaunches: the persistent profile and the agent's own page stay where they are.
-    if (!session.view.headed)
-      throw new BrowserError("browser_headless", 409, "That browser session is headless")
-    await session.page.bringToFront()
+    if (session.view.headed) {
+      await session.page.bringToFront()
+      return pause(id)
+    }
+    // No window to hand over yet: the agent runs headless and only the live view is shown. Mark it
+    // and hold the agent; the window opens at the next step boundary, where no Playwright call is
+    // in flight to kill, with the same persistent profile (and login) as the headless session.
+    session.takeoverRequested = true
     return pause(id)
   }
 
@@ -398,9 +402,26 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   }
 
   const waitIfPaused = async (id: string): Promise<void> => {
-    const session = requireSession(id)
-    if (session.stopped) throw new BrowserError("stopped", 409, "That browser session was stopped")
-    while (session.paused) {
+    for (;;) {
+      const session = requireSession(id)
+      if (session.stopped) throw new BrowserError("stopped", 409, "That browser session was stopped")
+      // A takeover asked for while headless opens the window here, at a step boundary: relaunching
+      // anywhere else would kill the Playwright call in flight. The persistent profile (and login)
+      // survives the relaunch; the agent stays held throughout.
+      if (session.takeoverRequested && !session.view.headed) {
+        session.takeoverRequested = false
+        const project = session.view.project
+        const idleTimeoutMs = session.view.idleTimeoutMs
+        await closeSession(id)
+        await start({ id, project, headed: true, idleTimeoutMs })
+        pause(id)
+        await sessions.get(id)?.page.bringToFront()
+        continue
+      }
+      if (!session.paused) {
+        touch(session)
+        return
+      }
       await new Promise<void>((resolve) => {
         session.wake = resolve
       })
@@ -408,7 +429,6 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       if (session.stopped || !sessions.has(session.view.id))
         throw new BrowserError("stopped", 409, "That browser session was stopped")
     }
-    touch(session)
   }
 
   const clearData = async (project: string): Promise<boolean> => {
@@ -730,6 +750,8 @@ type ActiveSession = {
   stopped: boolean
   /** Resolves `waitIfPaused` so a resume or an abort is noticed. */
   wake: (() => void) | undefined
+  /** A person asked for the window while headless: it opens at the next step boundary. */
+  takeoverRequested: boolean
   /** The run and task this browser works for (WA-7), so its screenshots are filed under them. */
   runID?: string
   taskID?: string

@@ -1029,10 +1029,9 @@ function definition(profile, composeTools) {
             action: profile.id,
             sessionID: sessionID,
             project: project,
-            // An action the app runs is shown in a real window so a person can watch and take over
-            // (WA-6). Scheduled actions never come through this tool: the harness server drives
-            // them in process and headless (WA-7).
-            headed: true,
+            // Headless, so no window pops up: the live view shows the run, and Take over reveals
+            // the headed window on demand. Scheduled actions never come through this tool: the
+            // harness server drives them in process and headless (WA-7).
             inputs: inputs,
           }),
           signal: requestSignal(RUN_TIMEOUT_MS, propertyAt(ctx, "abort")),
