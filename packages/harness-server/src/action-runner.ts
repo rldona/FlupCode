@@ -467,55 +467,61 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       project: input.project,
       ...(input.headed === true ? { headed: true } : {}),
     })
-    const context: StepContext = {
-      sessionID,
-      values: resolved.values,
-      images: resolved.images,
-      // A preview never resolves a credential: the step that would use one is an effect, and the cut
-      // lands before it.
-      credentials: {},
-    }
-    const startedAt = Date.now()
-    const steps: ActionStepReport[] = []
-    let cut = false
-    let broke = false
-
-    for (const [index, step] of profile.steps.entries()) {
-      const kind = stepKind(step)
-      if (cut || broke || isEffectStep(step)) {
-        steps.push({ index, kind, status: "skipped", attempts: 0, durationMs: 0 })
-        cut = true
-        continue
+    try {
+      const context: StepContext = {
+        sessionID,
+        values: resolved.values,
+        images: resolved.images,
+        // A preview never resolves a credential: the step that would use one is an effect, and the cut
+        // lands before it.
+        credentials: {},
       }
-      const stepStartedAt = Date.now()
-      try {
-        if ("screenshot" in step) await browser.frame(sessionID, { store: false })
-        else await runStep(browser, profile, step, context)
-        steps.push({ index, kind, status: "ok", attempts: 1, durationMs: Date.now() - stepStartedAt })
-      } catch (cause) {
-        steps.push({
-          index,
-          kind,
-          status: "failed",
-          attempts: 1,
-          durationMs: Date.now() - stepStartedAt,
-          error: messageOf(cause),
-        })
-        broke = true
-      }
-    }
+      const startedAt = Date.now()
+      const steps: ActionStepReport[] = []
+      let cut = false
+      let broke = false
 
-    const view = browser.get(sessionID)
-    return {
-      action: profile.id,
-      tool: profile.tool,
-      status: "preview",
-      origin: profile.origin,
-      url: view?.url ?? "",
-      title: view?.title ?? "",
-      startedAt,
-      finishedAt: Date.now(),
-      steps,
+      for (const [index, step] of profile.steps.entries()) {
+        const kind = stepKind(step)
+        if (cut || broke || isEffectStep(step)) {
+          steps.push({ index, kind, status: "skipped", attempts: 0, durationMs: 0 })
+          cut = true
+          continue
+        }
+        const stepStartedAt = Date.now()
+        try {
+          if ("screenshot" in step) await browser.frame(sessionID, { store: false })
+          else await runStep(browser, profile, step, context)
+          steps.push({ index, kind, status: "ok", attempts: 1, durationMs: Date.now() - stepStartedAt })
+        } catch (cause) {
+          steps.push({
+            index,
+            kind,
+            status: "failed",
+            attempts: 1,
+            durationMs: Date.now() - stepStartedAt,
+            error: messageOf(cause),
+          })
+          broke = true
+        }
+      }
+
+      const view = browser.get(sessionID)
+      return {
+        action: profile.id,
+        tool: profile.tool,
+        status: "preview",
+        origin: profile.origin,
+        url: view?.url ?? "",
+        title: view?.title ?? "",
+        startedAt,
+        finishedAt: Date.now(),
+        steps,
+      }
+    } finally {
+      // A preview is one shot: leaving it open holds the project's reservation, and the agent's
+      // next run on the same project would only meet `browser_busy` instead of the page.
+      await browser.close(sessionID).catch(() => undefined)
     }
   }
 

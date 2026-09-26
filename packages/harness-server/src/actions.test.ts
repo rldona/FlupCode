@@ -300,6 +300,9 @@ describe("loading action profiles", () => {
 
   test("no block is an empty map", () => {
     process.env.OPENCODE_CONFIG_DIR = join(root, "empty")
+    // The global config merges the XDG folder too: without this, a real profile saved on the
+    // machine (like an E2E one) leaks into the test.
+    process.env.XDG_CONFIG_HOME = join(root, "empty-xdg")
     expect(loadActionProfiles().profiles).toEqual({})
   })
 })
@@ -781,7 +784,7 @@ describe("running action recipes", () => {
 
   test("a preview runs the read steps and cuts before the first effect", async () => {
     const { repository } = open()
-    const { browser, calls } = recordingBrowser()
+    const { browser, calls, closed } = recordingBrowser()
     const runner = runnerFor(browser, repository, {
       publish: profile("https://example.com", {
         inputs: { text: "string" },
@@ -814,6 +817,9 @@ describe("running action recipes", () => {
     // The effects were never asked for, and no evidence was filed.
     expect(calls).toEqual(["navigate", "waitFor"])
     expect(repository.listArtifacts({ kind: "screenshot" })).toEqual([])
+    // One shot: the preview closes its browser, so the agent's next run on the project does not
+    // meet `browser_busy`.
+    expect(closed).toEqual(["s1"])
   })
 
   test("a preview reports a failure before the cut in the step and does not throw", async () => {
