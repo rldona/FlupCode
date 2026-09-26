@@ -717,7 +717,8 @@ describe("the live view's control (WA-6)", () => {
     }
   })
 
-  test.skipIf(!existsSync(chromiumPath))(
+  // A headed relaunch needs a display: headless Linux CI has Chromium but no X server.
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
     "pauses, resumes and stops a run, reveals a headless takeover on the boundary, and announces it",
     async () => {
       const server = fixture()
