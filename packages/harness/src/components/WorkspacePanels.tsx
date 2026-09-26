@@ -238,10 +238,18 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
     try {
       setStatus(await client().agentBrowser.session(sessionID))
     } catch {
-      // No session on the runtime, or it went away: the empty state covers it and the next poll
-      // or event tries again.
-      setStatus(null)
+      // Keep the last known status on a transient failure: blanking the whole panel on every
+      // hiccup unmounts the frame, the meta and the buttons, which reads as flicker. A session
+      // that is really gone arrives as a closed status event, which clears below.
     }
+  }
+
+  const clearStatus = () => {
+    const previous = frame()
+    if (previous) URL.revokeObjectURL(previous)
+    setFrame(undefined)
+    setNotice("")
+    setStatus(null)
   }
 
   // A poll, an event and a button can all ask for a frame at once; only one fetch runs and the
@@ -296,14 +304,16 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
   }
 
   // A new session starts blank: its frames and its status belong to whoever ran before.
+  // Anything else keeps painting what it has while the new status loads.
+  let knownSession: string | undefined
   createEffect(
     on(
       () => props.sessionID,
-      () => {
-        const previous = frame()
-        if (previous) URL.revokeObjectURL(previous)
-        setFrame(undefined)
-        setNotice("")
+      (id) => {
+        if (id === knownSession) return
+        knownSession = id
+        clearStatus()
+        if (!id) return
         setStatus(undefined)
         void refreshStatus().then(() => void refreshFrame())
       },
@@ -332,8 +342,10 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
             const type = (event as { type?: string }).type
             if (type !== "browser.frame" && type !== "browser.status") continue
             if ((event as { sessionID?: string }).sessionID !== sessionID) continue
-            if (type === "browser.status") void refreshStatus()
-            else void refreshFrame()
+            if (type === "browser.status") {
+              if ((event as { closed?: unknown }).closed === true) clearStatus()
+              else void refreshStatus()
+            } else void refreshFrame()
           }
         } catch {
           if (controller.signal.aborted) return
