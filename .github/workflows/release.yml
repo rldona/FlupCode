@@ -176,6 +176,11 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: sudo apt-get update && sudo apt-get install -y rpm
 
+      # The harness browser ships inside the app: fetch it before packaging, or the
+      # browser check in `dist` aborts the release (lesson of 1.8.0 is now enforced).
+      - name: Fetch Chromium for the harness browser
+        run: bun run --cwd packages/harness-desktop fetch-browser
+
       - name: Package desktop
         run: bun run --cwd packages/harness-desktop dist
         env:
