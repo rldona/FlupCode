@@ -283,7 +283,7 @@ export type RoutineRun = {
   id: string
   source?: RunSource
   sessionID?: string
-  status: "running" | "success" | "failed" | "stopped"
+  status: RunStatus
   startedAt: number
   finishedAt?: number
   error?: string
