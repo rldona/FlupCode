@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test"
+import { expect, test, type Page } from "@playwright/test"
 
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => {
@@ -470,8 +470,10 @@ test("the slash menu walks with the arrow keys and Enter runs the chosen command
   await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
 })
 
-test("a local preview linked from the transcript opens in the browser panel", async ({ page }) => {
+test("transcript links open in the browser panel instead of a popup", async ({ page }) => {
   const now = Date.now()
+  const popups: Page[] = []
+  page.on("popup", (popup) => popups.push(popup))
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_preview"))
@@ -503,7 +505,7 @@ test("a local preview linked from the transcript opens in the browser panel", as
             {
               id: "msg_preview",
               type: "user",
-              text: "Servidor levantado en http://localhost:4444",
+              text: "Servidor levantado en [http://localhost:4444](http://localhost:4444), la guía está en [la guía](https://example.com/docs), escríbeme a [correo](mailto:hola@example.com) o salta a [sección](#section)",
               time: { created: now },
             },
           ],
@@ -516,12 +518,30 @@ test("a local preview linked from the transcript opens in the browser panel", as
       return route.fulfill({ json: { data: [], cursor: {} } })
     return route.fulfill({ status: 404, json: {} })
   })
+  // The external link is routed too, so the test never reaches the real network.
+  await page.route("https://example.com/**", (route) =>
+    route.fulfill({ contentType: "text/html", body: "<!doctype html><title>External</title>" }),
+  )
   await page.goto("/")
-  const link = page.getByRole("link", { name: "http://localhost:4444" })
-  await expect(link).toBeVisible()
-  await link.click()
-  // The integrated browser opens on the linked URL instead of a new tab.
-  await expect(page.locator(".fc-browser-url")).toHaveValue(/localhost:4444/)
+  const browserUrl = page.locator(".fc-browser-url")
+
+  // A local preview opens in the panel and never spawns a window.
+  const local = page.getByRole("link", { name: "http://localhost:4444" })
+  await expect(local).toBeVisible()
+  await local.click()
+  await expect(browserUrl).toHaveValue("http://localhost:4444/")
+  expect(popups).toHaveLength(0)
+
+  // An external https link does the same instead of falling through to `target="_blank"`.
+  await page.getByRole("link", { name: "la guía" }).click()
+  await expect(browserUrl).toHaveValue("https://example.com/docs")
+  expect(popups).toHaveLength(0)
+
+  // A mailto: link and a bare anchor have no page to embed, so the panel stays where it was.
+  await page.getByRole("link", { name: "correo" }).click()
+  await expect(browserUrl).toHaveValue("https://example.com/docs")
+  await page.getByRole("link", { name: "sección" }).click()
+  await expect(browserUrl).toHaveValue("https://example.com/docs")
 })
 
 test("a prompt keeps its attached image in the transcript", async ({ page }) => {

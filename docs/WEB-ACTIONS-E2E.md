@@ -15,6 +15,23 @@
    (`window.flupcode.browserToken`). En pestaña, las rutas con bearer dan 403
    por diseño.
 
+## 0b. Engine manual emparejado con el escritorio
+
+El escritorio persiste su token en el fichero `browser-token`
+(`~/.config/flupcode/`, `0600`; o `FLUPCODE_CONFIG_DIR` si está definido) y lo
+reutiliza en cada arranque. Un engine levantado a mano lee ese mismo fichero,
+así que emparejan sin hacer nada **siempre que el engine arranque después de
+que el fichero exista**: abre primero el escritorio una vez y luego levanta el
+engine. `FLUPCODE_BROWSER_TOKEN` en el entorno sigue ganando al fichero en
+ambos procesos.
+
+Si el token no coincide, el plugin no registra ninguna tool y el agente falla
+con un "Request failed" pelado. El engine lo dice en su log:
+
+`[flupcode] el harness rechazó el token del navegador (HTTP 403): ...`
+
+¿Lo ves? Reinicia el engine (ya con el fichero al día) y las actions vuelven.
+
 ## E2E-1 — Editor: crear, validar, previsualizar, guardar
 
 1. Abre **Actions → New action** y rellena un perfil de lectura contra un sitio
@@ -106,6 +123,7 @@ Sin código: solo configuración fuera del repo. `P` = carpeta del proyecto
 |---|---|---|
 | 404 en `/harness/actions*` | harness viejo sin runtime | usar el de la rama (capabilities) |
 | 403 `invalid_token` en pestaña web | sin token fuera de desktop | usar la ventana desktop |
+| Actions desactivadas / "Request failed" con engine manual | token del engine ≠ token del harness | ver 0b: abrir el escritorio y reiniciar el engine; el log avisa con `[flupcode]` |
 | PUT bloqueado por CORS | faltaba en `allow-methods` | corregido; reiniciar harness |
 | `browser_busy` en un run | sesión de otro chat/editor en el proyecto | Stop/close o reiniciar harness |
 | En Plan no hace nada | modo solo lectura | pasar a Agent/Auto |

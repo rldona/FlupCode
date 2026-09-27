@@ -62,7 +62,7 @@ import {
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
 import { recoverablePrompt } from "./unsend"
-import { browser, isLocalPreview } from "./browser"
+import { browser, isBrowsableUrl } from "./browser"
 import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
   ActionCatalog,
@@ -3469,8 +3469,9 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.workspacePanels, next)
     })
 
-    // Local previews open in that panel instead of a new tab. Chats and phones keep the plain link,
-    // where the panel is unavailable and a real tab is the only sensible target.
+    // http(s) links inside the transcript open in that panel instead of a new tab. Links elsewhere,
+    // relative paths and same-origin targets keep their plain target; chats and phones do too, where
+    // the panel is unavailable and a real tab is the only sensible one.
     createEffect(() => {
       const handler = (event: MouseEvent) => {
         if (event.defaultPrevented || event.button !== 0) return
@@ -3480,8 +3481,11 @@ export const App: Component = () => {
         if (!(target instanceof Element)) return
         const anchor = target.closest("a")
         if (!(anchor instanceof HTMLAnchorElement)) return
+        if (!anchor.closest(".fc-transcript")) return
+        if (anchor.download) return
         const href = anchor.href
-        if (!isLocalPreview(href)) return
+        if (!isBrowsableUrl(href)) return
+        if (new URL(href).origin === window.location.origin) return
         event.preventDefault()
         browser.open(href)
       }

@@ -851,7 +851,18 @@ async function loadProfiles(base, token) {
       if (attempt + 1 < PROFILE_ATTEMPTS) await sleep(PROFILE_DELAY_MS)
       continue
     }
-    if (response.status !== 200) return undefined
+    if (response.status !== 200) {
+      // A 401/403 means the engine's token is not the harness's (a stale file token against a
+      // desktop that rotates its own, say): every action tool would fail, so saying it here is the
+      // only trace. Anything else (a 404 says the harness has no runner) keeps the plugin off.
+      if (response.status === 401 || response.status === 403)
+        console.warn(
+          "[flupcode] el harness rechazó el token del navegador (HTTP " +
+            response.status +
+            "): las web-actions están desactivadas. Reinicia el engine con el FLUPCODE_BROWSER_TOKEN del escritorio.",
+        )
+      return undefined
+    }
     const body = await response.json().catch(() => undefined)
     const profiles = propertyAt(propertyAt(body, "data"), "profiles")
     return Array.isArray(profiles) ? profiles : undefined

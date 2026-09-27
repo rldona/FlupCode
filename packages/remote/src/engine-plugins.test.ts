@@ -455,6 +455,7 @@ describe("WEB_ACTIONS_PLUGIN", () => {
   const startFixture = (
     options: {
       serveProfiles?: boolean
+      catalogStatus?: number
       run?: (body: Record<string, unknown>) => Response
       artifact?: (id: string) => Response | undefined
     } = {},
@@ -468,6 +469,8 @@ describe("WEB_ACTIONS_PLUGIN", () => {
         requests.push({ method: request.method, path: url.pathname, auth: request.headers.get("authorization") })
         if (url.pathname === "/harness/actions" && request.method === "GET") {
           if (options.serveProfiles === false) return new Response("Not found", { status: 404 })
+          if (options.catalogStatus !== undefined && options.catalogStatus !== 200)
+            return new Response("Forbidden", { status: options.catalogStatus })
           return Response.json({
             data: { profiles, rejected: [{ id: "broken", code: "unsupported_kind", message: "Only browser" }] },
           })
@@ -861,6 +864,23 @@ describe("WEB_ACTIONS_PLUGIN", () => {
     const fixture = startFixture()
     expect((await open({ fixture, token: false })).hooks).toEqual({})
     expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("a rejected token registers nothing and warns without leaking it", async () => {
+    const fixture = startFixture({ catalogStatus: 403 })
+    const warnings: string[] = []
+    const original = console.warn
+    console.warn = (...args: unknown[]) => {
+      warnings.push(args.map(String).join(" "))
+    }
+    try {
+      expect((await open({ fixture, token: "token-secret-xyz" })).hooks).toEqual({})
+    } finally {
+      console.warn = original
+    }
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain("403")
+    expect(warnings[0]).not.toContain("token-secret-xyz")
   })
 
   test("a non-loopback harness URL is refused before any token is sent", async () => {
