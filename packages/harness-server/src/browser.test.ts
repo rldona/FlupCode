@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { createBrowserRuntime, managedExecutableFromDir, resolveBrowserExecutable } from "./browser"
 import type { BrowserRuntime } from "./browser"
@@ -184,21 +184,44 @@ describe("which browser is launched (WA-9)", () => {
     expect(managedExecutableFromDir(undefined)).toBeUndefined()
     expect(managedExecutableFromDir(join(tmpdir(), "flupcode-no-such-dir"))).toBeUndefined()
     const root = mkdtempSync(join(tmpdir(), "flupcode-browsers-"))
+    const legacyRoot = mkdtempSync(join(tmpdir(), "flupcode-browsers-legacy-"))
     try {
-      const relative =
+      // The layout Playwright 1.59+ downloads: Chrome for Testing under an arch-suffixed folder.
+      const current =
         process.platform === "darwin"
-          ? join("chromium-9999", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium")
+          ? join(
+              "chromium-9999",
+              `chrome-mac-${process.arch === "arm64" ? "arm64" : "x64"}`,
+              "Google Chrome for Testing.app",
+              "Contents",
+              "MacOS",
+              "Google Chrome for Testing",
+            )
           : process.platform === "win32"
-            ? join("chromium-9999", "chrome-win", "chrome.exe")
-            : join("chromium-9999", "chrome-linux", "chrome")
-      mkdirSync(join(root, "chromium-9999"), { recursive: true })
-      mkdirSync(join(root, relative, ".."), { recursive: true })
-      writeFileSync(join(root, relative), "fake")
-      expect(managedExecutableFromDir(root)).toBe(join(root, relative))
+            ? join("chromium-9999", "chrome-win64", "chrome.exe")
+            : join("chromium-9999", "chrome-linux64", "chrome")
+      const currentPath = join(root, current)
+      mkdirSync(dirname(currentPath), { recursive: true })
+      writeFileSync(currentPath, "fake")
+      expect(managedExecutableFromDir(root)).toBe(currentPath)
+
+      // An older download using the previous layout is still found.
+      const legacy =
+        process.platform === "darwin"
+          ? join("chromium-8888", "chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium")
+          : process.platform === "win32"
+            ? join("chromium-8888", "chrome-win", "chrome.exe")
+            : join("chromium-8888", "chrome-linux", "chrome")
+      const legacyPath = join(legacyRoot, legacy)
+      mkdirSync(dirname(legacyPath), { recursive: true })
+      writeFileSync(legacyPath, "fake")
+      expect(managedExecutableFromDir(legacyRoot)).toBe(legacyPath)
+
       // A folder without a chromium-* download has no browser, whatever else is in it.
       expect(managedExecutableFromDir(tmpdir())).toBeUndefined()
     } finally {
       rmSync(root, { recursive: true, force: true })
+      rmSync(legacyRoot, { recursive: true, force: true })
     }
   })
 })

@@ -779,6 +779,13 @@ export function resolveBrowserExecutable(input: {
  * compiled harness — so the packaged app finds its browser by layout instead: one `chromium-*`
  * folder per download, with the binary in its platform spot. Returns nothing when there is no
  * folder or no binary, and never throws.
+ *
+ * The relative paths follow Playwright's own `EXECUTABLE_PATHS` (Chrome for Testing), which moved
+ * to arch-suffixed folders (`chrome-mac-arm64`, `chrome-linux64`, `chrome-win64`); the old
+ * `chrome-mac/Chromium.app` paths stay as a last resort so a folder from an older download is not
+ * lost. A bundled revision can differ from the one the harness's `playwright-core` expects — the
+ * desktop fetches the browser separately — which is exactly why the folder is scanned by layout
+ * rather than named by revision.
  */
 export function managedExecutableFromDir(directory: string | undefined): string | undefined {
   if (!directory) return undefined
@@ -788,12 +795,22 @@ export function managedExecutableFromDir(directory: string | undefined): string 
   } catch {
     return undefined
   }
+  const arm64 = process.arch === "arm64"
   const candidates =
     process.platform === "darwin"
-      ? ["chrome-mac/Chromium.app/Contents/MacOS/Chromium"]
+      ? [
+          join(
+            "chrome-mac-" + (arm64 ? "arm64" : "x64"),
+            "Google Chrome for Testing.app",
+            "Contents",
+            "MacOS",
+            "Google Chrome for Testing",
+          ),
+          join("chrome-mac", "Chromium.app", "Contents", "MacOS", "Chromium"),
+        ]
       : process.platform === "win32"
-        ? ["chrome-win/chrome.exe"]
-        : ["chrome-linux/chrome"]
+        ? [join("chrome-win64", "chrome.exe"), join("chrome-win", "chrome.exe")]
+        : [join("chrome-linux64", "chrome"), join("chrome-linux", "chrome")]
   for (const entry of entries) {
     if (!entry.isDirectory() || !entry.name.startsWith("chromium-")) continue
     for (const relative of candidates) {

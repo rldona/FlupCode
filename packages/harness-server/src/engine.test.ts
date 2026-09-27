@@ -1,5 +1,15 @@
 import { describe, expect, test } from "bun:test"
-import { CONFINED, Engine, NO_SHELL, ToolLimitReached, sessionPermission, type Activity } from "./engine"
+import {
+  CONFINED,
+  Engine,
+  McpNotConnectedError,
+  NO_SHELL,
+  ToolLimitReached,
+  engineAuthorization,
+  sessionPermission,
+  unwrap,
+  type Activity,
+} from "./engine"
 
 /**
  * The waiting itself (H-47).
@@ -125,5 +135,117 @@ describe("the confinement rules", () => {
     expect(sessionPermission({ shell: false })).toEqual([...CONFINED, ...NO_SHELL])
     // Both at once: the shell is still refused inside a project the run may otherwise leave.
     expect(sessionPermission({ outside: true, shell: false })).toEqual(NO_SHELL)
+  })
+})
+
+describe("signing in to the engine", () => {
+  test("the desktop's base64 credential is used as the Basic header", () => {
+    expect(engineAuthorization({ FLUPCODE_ENGINE_AUTH: "b3BlbmNvZGU6c2VjcmV0" })).toBe("Basic b3BlbmNvZGU6c2VjcmV0")
+  })
+
+  test("an engine's own username and password are encoded when no credential was handed over", () => {
+    expect(engineAuthorization({ OPENCODE_SERVER_PASSWORD: "secret" })).toBe(
+      `Basic ${Buffer.from("opencode:secret").toString("base64")}`,
+    )
+    expect(engineAuthorization({ OPENCODE_SERVER_USERNAME: "alice", OPENCODE_SERVER_PASSWORD: "secret" })).toBe(
+      `Basic ${Buffer.from("alice:secret").toString("base64")}`,
+    )
+  })
+
+  test("an engine with no password needs no header", () => {
+    expect(engineAuthorization({})).toBeUndefined()
+  })
+})
+
+describe("what a refused engine request says", () => {
+  test("a NamedError body surfaces its nested message instead of a generic one", async () => {
+    await expect(
+      unwrap(Promise.resolve({ error: { name: "BadRequest", data: { message: "That session is gone" } } })),
+    ).rejects.toThrow("That session is gone")
+  })
+
+  test("a bare string body is kept", async () => {
+    await expect(unwrap(Promise.resolve({ error: "Forbidden" }))).rejects.toThrow("Forbidden")
+  })
+
+  test("an empty body still names the failure rather than hiding it", async () => {
+    await expect(unwrap(Promise.resolve({ error: {} }))).rejects.toThrow("Engine request failed")
+    await expect(unwrap(Promise.resolve({}))).rejects.toThrow("Engine returned no data")
+  })
+})
+
+/**
+ * Bringing a project's MCP servers up.
+ *
+ * `Engine` builds its own client from a URL, so the client is replaced here with one that answers
+ * the two endpoints this concerns — status and connect — and what is exercised is the real
+ * decision: who is connected, who is left alone, and who makes the run refuse to start.
+ */
+const mcpEngine = (script: {
+  status?: () => Record<string, { status?: string }>
+  connect?: (name: string) => void
+  unavailable?: boolean
+}) => {
+  const connects: string[] = []
+  const engine = new Engine("http://127.0.0.1:1")
+  Object.assign(engine, {
+    client: {
+      mcp: {
+        status: async () => {
+          // An engine that predates `/mcp` answers with an error, not a status map.
+          if (script.unavailable) throw new Error("404 Not Found")
+          return { data: script.status?.() ?? {} }
+        },
+        connect: async (input: { name: string }) => {
+          connects.push(input.name)
+          script.connect?.(input.name)
+          return { data: true }
+        },
+      },
+    },
+  })
+  return { engine, connects }
+}
+
+describe("bringing a project's MCP servers up", () => {
+  test("connects what needs it and leaves the connected and disabled alone", async () => {
+    const servers: Record<string, { status?: string }> = {
+      up: { status: "connected" },
+      off: { status: "disabled" },
+      auth: { status: "needs_auth" },
+      broken: { status: "failed" },
+    }
+    const { engine, connects } = mcpEngine({
+      status: () => servers,
+      connect: (name) => {
+        servers[name] = { status: "connected" }
+      },
+    })
+
+    await engine.ensureMcp("/tmp/project")
+
+    expect(connects).toEqual(["auth", "broken"])
+    // Disabled means disabled: the run may not be started with a server somebody turned off.
+    expect(servers.off).toEqual({ status: "disabled" })
+  })
+
+  test("a server that stays unauthenticated after connect refuses the run by name", async () => {
+    // `mcp.connect` answers true even when the OAuth flow was never finished, so the second read is
+    // what decides — and the run must not start with a reduced toolset.
+    const { engine } = mcpEngine({ status: () => ({ solo: { status: "needs_auth" } }) })
+
+    const failure = await engine.ensureMcp("/tmp/project").catch((cause) => cause)
+
+    expect(failure).toBeInstanceOf(McpNotConnectedError)
+    expect((failure as Error).message).toContain("solo")
+    expect((failure as Error).message).toContain("/tmp/project")
+  })
+
+  test("an engine without /mcp does not break the run", async () => {
+    const { engine, connects } = mcpEngine({ unavailable: true })
+
+    await engine.ensureMcp("/tmp/project")
+
+    expect(connects).toEqual([])
   })
 })

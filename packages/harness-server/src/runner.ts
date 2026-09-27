@@ -575,6 +575,11 @@ export class TaskRunner {
       // What this session is allowed to do (H-47): confined to the project unless the run opened the
       // boundary, and with no shell at all if the run refused it. Both are stated on the run.
       const permission = sessionPermission(run)
+      // A session created while a project's MCP server is still connecting starts without that
+      // server's tools, and the run would work against a smaller project than the one configured.
+      // An engine too old to expose `ensureMcp` is left alone rather than failing over a capability
+      // it lacks, the same way `createWorktree` is guarded above.
+      if (directory && typeof this.engine.ensureMcp === "function") await this.engine.ensureMcp(directory)
       const session = await this.engine.createSession({
         directory,
         parentID: context.parentID,
