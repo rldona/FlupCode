@@ -31,14 +31,15 @@ const local = { ...publish, id: "local", scope: "project", tool: "do_local", des
 
 type Calls = { saves: Array<Record<string, unknown>>; previews: Array<Record<string, unknown>>; validates: number }
 
-async function open(page: Page) {
+async function setup(page: Page, desktop: boolean) {
   const calls: Calls = { saves: [], previews: [], validates: 0 }
-  await page.addInitScript(() => {
+  await page.addInitScript((isDesktop) => {
+    if (isDesktop) window.flupcode = { ownsTitleBar: true }
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.harnessServerUrl", JSON.stringify("http://127.0.0.1:9097"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_actions"))
-  })
+  }, desktop)
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const request = route.request()
     const url = new URL(request.url())
@@ -98,6 +99,12 @@ async function open(page: Page) {
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
+  return { calls }
+}
+
+async function open(page: Page) {
+  // The editor is desktop-only: the e2e browser fakes the desktop bridge so the nav item renders.
+  const { calls } = await setup(page, true)
   // The nav item, not a session that happens to be called "Actions".
   await page.locator(".fc-nav").getByRole("button", { name: /Actions|Acciones/ }).click()
   const screen = page.locator(".fc-actions-screen")
@@ -140,4 +147,12 @@ test("previews a recipe and shows the skipped side effect", async ({ page }) => 
   const steps = screen.locator(".fc-actions-preview li")
   await expect(steps.filter({ hasText: "fill" })).toContainText("skipped")
   await expect(steps.filter({ hasText: "goto" })).toContainText("ok")
+})
+
+test("hides the Actions nav and the agent browser toggle outside the desktop app", async ({ page }) => {
+  await setup(page, false)
+  // The Code nav rendered, so absence below is the web build hiding entries, not a loading page.
+  await expect(page.locator(".fc-nav").getByRole("button", { name: /Runs/ })).toBeVisible()
+  await expect(page.locator(".fc-nav").getByRole("button", { name: /Actions|Acciones/ })).toHaveCount(0)
+  await expect(page.getByRole("button", { name: /Agent browser|Navegador del agente/ })).toHaveCount(0)
 })
