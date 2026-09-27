@@ -5,6 +5,7 @@ import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
 
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
@@ -46,11 +47,13 @@ let browserToken = process.env.FLUPCODE_BROWSER_TOKEN?.trim() || undefined
 
 /**
  * The loopback token the harness and the engine share so the live view can drive the browser
- * (WA-6). Generated once per app run and handed to both children; the harness compares it and the
- * engine's actions plugin sends it, so neither reads a file the other may not see.
+ * (WA-6). `FLUPCODE_BROWSER_TOKEN` still wins when set; otherwise the first launch persists a
+ * token beside the harness's own files (`0600`) and later launches reuse it — as does an engine
+ * the user started by hand, which reads the same file. A desktop restart must not silently
+ * disable every web-action by rotating a token nobody else was told about.
  */
 export function harnessBrowserToken() {
-  browserToken = browserToken || randomBytes(32).toString("hex")
+  browserToken = browserToken || readOrCreateFileToken() || randomBytes(32).toString("hex")
   return browserToken
 }
 

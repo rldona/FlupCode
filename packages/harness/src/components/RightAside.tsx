@@ -2,6 +2,7 @@ import { For, Show, type Component } from "solid-js"
 import type { TodoItem } from "./TodoDock"
 import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
+import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
 import type { SessionInfo } from "../engine-types"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
@@ -26,7 +27,8 @@ type RightAsideProps = {
   sessionID?: string
 }
 
-export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: 340 }
+/** Same width as the left sidebar, so both panels read as a pair. */
+export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: SIDEBAR_WIDTH_DEFAULT }
 
 const mark = (status: string) => {
   if (status === "completed") return "✓"
