@@ -33,6 +33,11 @@ type TopbarProps = {
   showEngineStatus: boolean
   /** The session's right-hand context panel, when a session is open. */
   contextPanel?: { open: boolean; onToggle: () => void }
+  /**
+   * The agent-browser panel toggle. Only the desktop app shows it: the live browser view it opens
+   * is not operative in the browser build.
+   */
+  showAgentBrowser: boolean
   onTogglePanel: (kind: string) => void
   /** The workspace panels open right now, so their buttons can show it. */
   openPanels: string[]
@@ -170,26 +175,28 @@ export const Topbar: Component<TopbarProps> = (props) => {
           >
             <TopIcon d={TopbarIcons.browser} />
           </button>
-          <button
-            class="fc-nav-arrow"
-            classList={{ "fc-nav-arrow-active": props.openPanels.includes("agent-browser") }}
-            type="button"
-            title={t("Agent browser")}
-            aria-label={t("Agent browser")}
-            aria-pressed={props.openPanels.includes("agent-browser")}
-            onClick={() => props.onTogglePanel("agent-browser")}
-          >
-            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
-              <path
-                d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linejoin="round"
-              />
-              <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
-            </svg>
-          </button>
+          <Show when={props.showAgentBrowser}>
+            <button
+              class="fc-nav-arrow"
+              classList={{ "fc-nav-arrow-active": props.openPanels.includes("agent-browser") }}
+              type="button"
+              title={t("Agent browser")}
+              aria-label={t("Agent browser")}
+              aria-pressed={props.openPanels.includes("agent-browser")}
+              onClick={() => props.onTogglePanel("agent-browser")}
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true">
+                <path
+                  d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linejoin="round"
+                />
+                <circle cx="12" cy="12" r="2.5" fill="none" stroke="currentColor" stroke-width="2" />
+              </svg>
+            </button>
+          </Show>
           <button
             class="fc-nav-arrow"
             classList={{ "fc-nav-arrow-active": props.openPanels.includes("terminal") }}

@@ -8,7 +8,7 @@ import { cssPx } from "../text-size"
 import { UNAVAILABLE_FEATURES } from "../features"
 import type { Routine } from "../types"
 import type { Screen } from "../screen"
-import { ContextMenu, type MenuItem } from "./ContextMenu"
+import { ContextMenu, separator, type MenuItem } from "./ContextMenu"
 import { Loader } from "./Loader"
 import logo from "../assets/flupcode-logo.png"
 
@@ -16,7 +16,7 @@ import logo from "../assets/flupcode-logo.png"
 export const SIDEBAR_WIDTH_DEFAULT = 280
 
 /** Sessions with no folder of their own are listed under this bucket, last. */
-const NO_FOLDER_GROUP = "__none__"
+export const NO_FOLDER_GROUP = "__none__"
 
 /**
  * The group a session is listed under: its project folder, or the no-folder bucket. The app keeps a
@@ -83,12 +83,11 @@ type SidebarProps = {
   splitSessions: string[]
   onDeleteSession: (id: string) => void
   onRenameSession: (id: string) => void
-  onDeleteProject: (directory: string) => void
+  onDeleteProject: (groupId: string) => void
   onResize: (width: number) => void
   onCollapse: () => void
   onCopyPath: (path: string) => void
   onRefresh: () => void
-  onAbout: () => void
   onSettings: () => void
   onRoutines: (focus?: string) => void
   /** The routines there are, for the section at the top. Empty means no section at all. */
@@ -104,6 +103,8 @@ type SidebarProps = {
   onWorkflows: () => void
   /** The Actions editor: the web action profiles (WA-8). */
   onActions: () => void
+  /** False in the browser build, where Actions are not operative: the nav item is hidden. */
+  showActions: boolean
   onArtifacts: () => void
   onProviders: () => void
   onConfig: () => void
@@ -293,7 +294,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           label: t("Delete"),
           icon: "×",
           danger: true,
-          onSelect: () => props.onDeleteProject(group.directory ?? ""),
+          onSelect: () => props.onDeleteProject(group.id),
         },
       ],
     })
@@ -484,15 +485,17 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   <span class="fc-nav-soon">{t("Soon")}</span>
                 </Show>
               </button>
-              <button
-                class="fc-nav-item"
-                classList={{ "fc-nav-item-active": props.activeScreen === "actions" }}
-                type="button"
-                onClick={props.onActions}
-              >
-                <span class="fc-nav-icon">⌘</span>
-                {t("Actions")}
-              </button>
+              <Show when={props.showActions}>
+                <button
+                  class="fc-nav-item"
+                  classList={{ "fc-nav-item-active": props.activeScreen === "actions" }}
+                  type="button"
+                  onClick={props.onActions}
+                >
+                  <span class="fc-nav-icon">⌘</span>
+                  {t("Actions")}
+                </button>
+              </Show>
             </Show>
             <button class="fc-nav-item" type="button" onClick={props.onSettings}>
               <span class="fc-nav-icon">⚙</span>
@@ -683,13 +686,15 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                 width: rect.width,
                 items: [
                   { label: t("Settings"), icon: "⚙", shortcut: "⌘,", onSelect: props.onSettings },
+                  separator,
                   { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
                   { label: t("Context"), icon: "◫", onSelect: props.onContext },
                   { label: t("Agents"), icon: "◍", onSelect: props.onAgents },
                   { label: t("Skills"), icon: "✦", onSelect: props.onSkills },
+                  separator,
                   { label: t("Cost"), icon: "▦", onSelect: props.onUsage },
+                  separator,
                   { label: t("Remote control"), icon: "◉", onSelect: props.onRemote },
-                  { label: t("About FlupCode"), icon: "i", onSelect: props.onAbout },
                 ],
               })
             }}

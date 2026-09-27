@@ -169,6 +169,13 @@ select:focus-visible,
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
 }
 
+/* Hairline between menu groups, like Claude Code's profile menu. */
+.fc-menu-separator {
+  height: 1px;
+  margin: 5px 8px;
+  background: var(--fc-border);
+}
+
 .fc-menu-icon {
   width: 16px;
   flex-shrink: 0;
@@ -200,6 +207,8 @@ select:focus-visible,
   width: 16px;
   margin-right: 6px;
   color: var(--fc-text-muted);
+  font-size: 17px;
+  line-height: 1;
   text-align: center;
 }
 
@@ -772,6 +781,12 @@ button.fc-status {
   padding: var(--fc-space-3);
   border-radius: var(--fc-radius-md);
   background: color-mix(in srgb, var(--fc-border) 35%, transparent);
+}
+
+/* The favorite model name is the longest value: it takes two columns so it is not squeezed
+   into broken lines while a slot sits empty. */
+.fc-stat-wide {
+  grid-column: span 2;
 }
 
 .fc-stat-value {
@@ -1857,7 +1872,8 @@ button.fc-status {
 .fc-message-text {
   white-space: normal;
   line-height: 1.55;
-  font-size: var(--fc-text-md);
+  font-family: var(--fc-font-chat);
+  font-size: var(--fc-text-chat);
 }
 
 /* Prompt attachments stay with the prompt in the transcript, like Claude Code's. */
@@ -4523,8 +4539,10 @@ button.fc-status {
   text-align: left;
 }
 
-.fc-project-toggle:hover {
-  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+/* The project name highlights with tone only, no background: the background hover is
+   reserved for the sessions underneath it. */
+.fc-project-toggle:hover .fc-project-name {
+  color: var(--fc-accent);
 }
 
 .fc-chevron {
@@ -4597,7 +4615,7 @@ button.fc-status {
 }
 
 .fc-session-row-active {
-  background: var(--fc-accent-soft);
+  background: color-mix(in srgb, var(--fc-border) 60%, transparent);
   border-radius: var(--fc-radius-sm);
 }
 
@@ -4612,6 +4630,13 @@ button.fc-status {
   border-radius: var(--fc-radius-sm);
   background: transparent;
   text-align: left;
+}
+
+/* The hover covers the whole row, including the trailing action button, like the
+   active background does. The active row keeps its own background on hover. */
+.fc-session-row:hover:not(.fc-session-row-active) {
+  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
+  border-radius: var(--fc-radius-sm);
 }
 
 .fc-session-title {
@@ -5273,6 +5298,12 @@ button.fc-status {
 
 .fc-files {
   min-height: 0;
+}
+
+/* The empty states sit at the same inset as the agent browser's: 8px of body padding plus the
+   empty state's own, while the diff list itself stays full-bleed. */
+.fc-files .fc-empty-state {
+  padding: 16px 10px;
 }
 
 .fc-file-list {

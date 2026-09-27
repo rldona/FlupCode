@@ -1,14 +1,19 @@
 import { For, Show, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { cssPx } from "../text-size"
 
-export type MenuItem = {
-  label: string
-  icon?: string
-  shortcut?: string
-  danger?: boolean
-  disabled?: boolean
-  onSelect: () => void
-}
+export type MenuItem =
+  | {
+      label: string
+      icon?: string
+      shortcut?: string
+      danger?: boolean
+      disabled?: boolean
+      onSelect: () => void
+    }
+  /** A hairline between groups, like Claude Code's profile menu. Not focusable. */
+  | { separator: true }
+
+export const separator: MenuItem = { separator: true }
 
 type ContextMenuProps = {
   /** Viewport pixels, as from pointer events or getBoundingClientRect(). */
@@ -126,25 +131,29 @@ export const ContextMenu: Component<ContextMenuProps> = (props) => {
       onContextMenu={(event) => event.preventDefault()}
     >
       <For each={props.items}>
-        {(item) => (
-          <button
-            class="fc-menu-item"
-            classList={{ "fc-menu-item-danger": item.danger }}
-            type="button"
-            role="menuitem"
-            disabled={item.disabled}
-            onClick={() => {
-              item.onSelect()
-              close()
-            }}
-          >
-            <span class="fc-menu-icon">{item.icon ?? ""}</span>
-            <span class="fc-menu-label">{item.label}</span>
-            <Show when={item.shortcut}>
-              <span class="fc-menu-shortcut">{item.shortcut}</span>
-            </Show>
-          </button>
-        )}
+        {(item) =>
+          "separator" in item ? (
+            <div class="fc-menu-separator" role="separator" />
+          ) : (
+            <button
+              class="fc-menu-item"
+              classList={{ "fc-menu-item-danger": item.danger }}
+              type="button"
+              role="menuitem"
+              disabled={item.disabled}
+              onClick={() => {
+                item.onSelect()
+                close()
+              }}
+            >
+              <span class="fc-menu-icon">{item.icon ?? ""}</span>
+              <span class="fc-menu-label">{item.label}</span>
+              <Show when={item.shortcut}>
+                <span class="fc-menu-shortcut">{item.shortcut}</span>
+              </Show>
+            </button>
+          )
+        }
       </For>
     </div>
   )

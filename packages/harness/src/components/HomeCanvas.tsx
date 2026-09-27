@@ -78,14 +78,14 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
   const greeting = () =>
     props.displayName.trim() ? t("What's next, {name}?", { name: props.displayName.trim() }) : t("What's next?")
 
-  const stats = () => [
+  const stats = (): Array<{ label: string; value: string; wide?: boolean }> => [
     { label: t("Sessions"), value: String(props.metrics.sessions) },
     { label: t("Total tokens"), value: formatTokens(props.metrics.tokens) },
     { label: t("Active days"), value: String(props.metrics.activeDays) },
     { label: t("Current streak"), value: `${props.metrics.currentStreak}d` },
     { label: t("Longest streak"), value: `${props.metrics.longestStreak}d` },
     { label: t("Peak hour"), value: props.metrics.peakHour },
-    { label: t("Favorite model"), value: props.metrics.favoriteModel },
+    { label: t("Favorite model"), value: props.metrics.favoriteModel, wide: true },
   ]
 
   return (
@@ -151,7 +151,7 @@ export const HomeCanvas: Component<HomeCanvasProps> = (props) => {
           <div class="fc-stat-grid">
             <For each={stats()}>
               {(stat) => (
-                <div class="fc-stat">
+                <div class="fc-stat" classList={{ "fc-stat-wide": stat.wide }}>
                   <span class="fc-stat-value">{stat.value}</span>
                   <span class="fc-stat-label">{stat.label}</span>
                 </div>

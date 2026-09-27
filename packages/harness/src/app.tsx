@@ -97,7 +97,7 @@ import {
 import { getLocale, setLocale, t, type Locale } from "./i18n"
 import { ImagePreview } from "./image-preview"
 import { Toaster, clearToast, toast } from "./toast"
-import { SIDEBAR_WIDTH_DEFAULT, Sidebar, sessionGroupKey } from "./components/Sidebar"
+import { SIDEBAR_WIDTH_DEFAULT, NO_FOLDER_GROUP, Sidebar, sessionGroupKey } from "./components/Sidebar"
 import { About } from "./components/About"
 import { Topbar } from "./components/Topbar"
 import { HomeCanvas } from "./components/HomeCanvas"
@@ -2162,7 +2162,7 @@ export const App: Component = () => {
     }
 
     const commandOptions = (): CommandOption[] => [
-      ...BUILTIN_COMMANDS.map((command) => ({
+      ...BUILTIN_COMMANDS.filter((command) => desktopWindow() || command.name !== "actions").map((command) => ({
         name: command.name,
         description: t(command.descriptionKey),
         // An action that acts on the open session is not offered when there is none.
@@ -3375,7 +3375,12 @@ export const App: Component = () => {
     }
 
     const toggleProject = (id: string) => {
-      const next = { ...expanded(), [id]: !(expanded()[id] ?? false) }
+      // Negate the effective state, not just the stored one: a group holding the selected session
+      // reads as open without stored state, and toggling from the stored default would keep it open.
+      const stored = expanded()[id]
+      const selected = selectedSession()
+      const effective = stored ?? (selected ? sessionGroupKey(selected, noFolderSessions()) === id : false)
+      const next = { ...expanded(), [id]: !effective }
       setExpanded(next)
       writeStorage(STORAGE_KEYS.expandedProjects, next)
     }
@@ -4449,9 +4454,11 @@ export const App: Component = () => {
       .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
   }
 
-  const deleteProject = (directory: string) => {
-    const sessions = (sessionList() ?? []).filter((session) => (session.location?.directory ?? "") === directory)
+  const deleteProject = (groupId: string) => {
+    const sessions = (sessionList() ?? []).filter((session) => sessionGroupKey(session, noFolderSessions()) === groupId)
     if (sessions.length === 0) return
+    const name =
+      groupId === NO_FOLDER_GROUP ? t("No folder") : (groupId.split("/").filter(Boolean).at(-1) ?? groupId)
     setConfirmTarget({
       title: t("Delete this project and its sessions?"),
       message: t("{n} sessions will be removed. This cannot be undone.", { n: sessions.length }),
@@ -4465,7 +4472,7 @@ export const App: Component = () => {
             if (sessions.some((session) => session.id === selected())) setSelected(undefined)
             void refetchSessions()
             toast(t("Project deleted"), "success", {
-              description: t("{name} and its sessions were removed", { name: directory.split("/").filter(Boolean).at(-1) ?? directory }),
+              description: t("{name} and its sessions were removed", { name }),
             })
           } catch (cause) {
             toast(cause instanceof Error ? cause.message : String(cause), "error")
@@ -5236,6 +5243,7 @@ export const App: Component = () => {
             <Topbar
             showTabs={desktopWindow() || collapsed()}
               showEngineStatus={desktopWindow()}
+              showAgentBrowser={desktopWindow()}
               streamState={streamState()}
               blockedElsewhere={blockedElsewhere()}
               onOpenBlocked={selectSession}
@@ -5356,7 +5364,6 @@ export const App: Component = () => {
             onCollapse={toggleSidebar}
             onCopyPath={copyPath}
             onRefresh={refresh}
-            onAbout={() => setAboutOpen(true)}
             onSettings={() => setSettingsOpen(true)}
             onRoutines={(focus) => {
               setRoutineFocus(focus)
@@ -5372,6 +5379,7 @@ export const App: Component = () => {
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
             onActions={() => showScreen("actions")}
+            showActions={desktopWindow()}
             onArtifacts={() => showScreen("artifacts")}
             onProviders={() => openSettings("providers")}
             onConfig={() => setConfigOpen(true)}

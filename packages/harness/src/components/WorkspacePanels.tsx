@@ -18,6 +18,7 @@ import { t } from "../i18n"
 import { cssPx } from "../text-size"
 import { FileDiff } from "./FileDiff"
 import { Loader } from "./Loader"
+import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
 import { TopIcon, TopbarIcons } from "./Topbar"
 
 const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
@@ -468,15 +469,15 @@ const DiffPanel: Component<{
   )
 
   return (
-    <Show
-      when={props.session}
-      fallback={
-        <div class="fc-empty-state">
-          <span class="fc-empty-title">{t("No session")}</span>
-        </div>
-      }
-    >
-      <div class="fc-panel-body fc-files">
+    <div class="fc-panel-body fc-files">
+      <Show
+        when={props.session}
+        fallback={
+          <div class="fc-empty-state">
+            <span class="fc-empty-title">{t("No session")}</span>
+          </div>
+        }
+      >
         <Show
           when={ordered().length > 0}
           fallback={
@@ -509,8 +510,8 @@ const DiffPanel: Component<{
             </For>
           </div>
         </Show>
-      </div>
-    </Show>
+      </Show>
+    </div>
   )
 }
 
@@ -521,8 +522,9 @@ const TITLES: Record<string, string> = {
   terminal: "Terminal",
 }
 
-/** The panels' width until the reader drags it; double-clicking their edge goes back to it. */
-export const WORKSPACE_WIDTH_DEFAULT = 420
+/** The panels' width until the reader drags it; double-clicking their edge goes back to it. Same as
+    the left sidebar by design, so both rails match. */
+export const WORKSPACE_WIDTH_DEFAULT = SIDEBAR_WIDTH_DEFAULT
 
 export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
   const [container, setContainer] = createSignal<HTMLElement>()

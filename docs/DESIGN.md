@@ -86,6 +86,8 @@ palette change re-skins the whole app. The `--fc-*` names below are the historic
 | Token | Value |
 | --- | --- |
 | `--fc-font-ui` | system UI stack |
+| `--fc-font-chat` | Source Serif 4 (bundled), chat transcript bodies |
+| `--fc-text-chat` | `17px`, chat transcript body size |
 | `--fc-font-mono` | inherits upstream code font, user-configurable |
 | `--fc-text-xs..xl` | `11 / 12 / 13 / 14 / 16 / 20px` |
 | Weight | `400` body, `500` labels, `600` headings |
