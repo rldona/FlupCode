@@ -67,10 +67,8 @@ import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
   ActionCatalog,
   ActionProfileSummary,
-  ActionTaskInput,
   Artifact,
   Attachment,
-  BrowserAllowRule,
   CommandOption,
   McpConfig,
   McpScope,
@@ -122,6 +120,8 @@ import { ConfirmDialog } from "./components/ConfirmDialog"
 import { permissionMode } from "./permission-modes"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
+import { McpAuthNotice } from "./components/McpAuthNotice"
+import { needsOAuth } from "./components/McpManager"
 import { RoutinesPanel } from "./components/RoutinesPanel"
 import { ActionsPanel } from "./components/ActionsPanel"
 import { RunsPanel } from "./components/RunsPanel"
@@ -155,7 +155,7 @@ import {
   queryLocalNetworkPermission,
   type LocalNetworkState,
 } from "./local-network"
-import { normalizeRoutineSchedule } from "./routine-schedule"
+import { normalizeRoutine, normalizeRoutines } from "./routine-normalize"
 import { skillifyPrompt } from "./skillify"
 import { resumePrompt } from "./resume"
 
@@ -222,111 +222,6 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "toggle-sidebar", descriptionKey: "Toggle sidebar" },
   { name: "providers", descriptionKey: "Providers & API keys" },
 ]
-
-const normalizeAction = (value: unknown): ActionTaskInput | undefined => {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined
-  const record = value as Record<string, unknown>
-  if (typeof record.id !== "string" || !record.id.trim()) return undefined
-  const inputs =
-    record.inputs && typeof record.inputs === "object" && !Array.isArray(record.inputs)
-      ? (record.inputs as Record<string, unknown>)
-      : undefined
-  return { id: record.id.trim(), ...(inputs ? { inputs } : {}) }
-}
-
-const normalizeAllow = (value: unknown): BrowserAllowRule[] | undefined => {
-  if (!Array.isArray(value)) return undefined
-  const rules = value.flatMap((entry): BrowserAllowRule[] => {
-    if (!entry || typeof entry !== "object") return []
-    const rule = entry as { permission?: unknown; pattern?: unknown; action?: unknown }
-    if (rule.action !== "allow") return []
-    if (rule.permission !== "browser" && rule.permission !== "browser_sensitive") return []
-    if (typeof rule.pattern !== "string" || !rule.pattern) return []
-    return [{ permission: rule.permission, pattern: rule.pattern, action: "allow" }]
-  })
-  return rules.length > 0 ? rules : undefined
-}
-
-const normalizeRoutine = (value: unknown): Routine | undefined => {
-  if (!value || typeof value !== "object") return undefined
-  const item = value as Record<string, unknown>
-  if (typeof item.id !== "string" || typeof item.name !== "string" || typeof item.prompt !== "string") return undefined
-  const legacyInterval =
-    typeof item.intervalMinutes === "number" && Number.isFinite(item.intervalMinutes) && item.intervalMinutes > 0
-      ? Math.max(1, Math.round(item.intervalMinutes))
-      : 60
-  const schedule = normalizeRoutineSchedule(item.schedule, legacyInterval)
-  const rawModel = item.model
-  const model =
-    rawModel && typeof rawModel === "object" && "providerID" in rawModel && "id" in rawModel &&
-    typeof rawModel.providerID === "string" && typeof rawModel.id === "string"
-      ? {
-          providerID: rawModel.providerID,
-          id: rawModel.id,
-          variant: "variant" in rawModel && typeof rawModel.variant === "string" ? rawModel.variant : undefined,
-        }
-      : undefined
-  const runs = Array.isArray(item.runs)
-    ? item.runs.flatMap((run) => {
-        if (!run || typeof run !== "object") return []
-        const entry = run as Record<string, unknown>
-        if (typeof entry.id !== "string" || typeof entry.startedAt !== "number") return []
-        const status =
-          entry.status === "success" || entry.status === "failed" || entry.status === "stopped"
-            ? entry.status
-            : "failed"
-        return [
-          {
-            id: entry.id,
-            sessionID: typeof entry.sessionID === "string" ? entry.sessionID : undefined,
-            status,
-            startedAt: entry.startedAt,
-            finishedAt: typeof entry.finishedAt === "number" ? entry.finishedAt : undefined,
-            error:
-              typeof entry.error === "string"
-                ? entry.error
-                : status === "failed"
-                  ? t("Run interrupted")
-                  : undefined,
-          } satisfies RoutineRun,
-        ]
-      })
-    : []
-  return {
-    id: item.id,
-    name: item.name,
-    description: typeof item.description === "string" ? item.description : "",
-    prompt: item.prompt,
-    schedule,
-    projectDirectory: typeof item.projectDirectory === "string" ? item.projectDirectory : undefined,
-    agent: typeof item.agent === "string" ? item.agent : undefined,
-    model,
-    workflow:
-      item.workflow && typeof item.workflow === "object" && "name" in item.workflow &&
-      typeof (item.workflow as { name: unknown }).name === "string" &&
-      (item.workflow as { name: string }).name.trim()
-        ? {
-            name: (item.workflow as { name: string }).name.trim(),
-            inputs: (item.workflow as { inputs?: unknown }).inputs as Record<string, string> | undefined,
-          }
-        : undefined,
-    policy: (item.policy ?? undefined) as Routine["policy"],
-    action: normalizeAction(item.action),
-    allow: normalizeAllow(item.allow),
-    enabled: item.enabled !== false,
-    createdAt: typeof item.createdAt === "number" ? item.createdAt : Date.now(),
-    lastRunAt: typeof item.lastRunAt === "number" ? item.lastRunAt : undefined,
-    runs,
-  }
-}
-
-const normalizeRoutines = (value: unknown) =>
-  Array.isArray(value)
-    ? value.flatMap((item) => {
-        const routine = normalizeRoutine(item)
-        return routine ? [routine] : []
-      })
-    : []
 
 export const App: Component = () => {
   const [localServerUrl, setLocalServerUrl] = createSignal(readStorage(STORAGE_KEYS.serverUrl, resolveServerUrl()))
@@ -553,6 +448,8 @@ export const App: Component = () => {
     setSessionTabsEnabled(next)
     writeStorage(STORAGE_KEYS.sessionTabsEnabled, next)
   }
+  // Dismissed in this session only: a server left needing auth is worth offering again next launch.
+  const [mcpAuthNoticeDismissed, setMcpAuthNoticeDismissed] = createSignal(false)
   const [settingsOpen, setSettingsOpen] = createSignal(false)
   /** The settings section to show when the panel opens (CU-1). */
   const [settingsSection, setSettingsSection] = createSignal<SettingsSection | undefined>(undefined)
@@ -1308,15 +1205,36 @@ export const App: Component = () => {
       return createClient(url).skill.list(directory ? { location: { directory } } : undefined)
     },
   )
+  // The engine answers `/mcp` with a directory and refuses without one when it serves a repository,
+  // while a stock CLI instance answers either way. Prefer the selected session's folder, then the
+  // engine's own working directory, then its state folder, so the list is the reader's, not a 499.
+  const mcpDirectory = () => vcsDirectory() ?? enginePaths()?.directory ?? enginePaths()?.state
   const [mcp, { refetch: refetchMcp }] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).mcp.list(),
+    () => (ready() ? `${serverUrl()}\n${mcpDirectory() ?? ""}` : undefined),
+    async (key) => {
+      const [url = "", directory = ""] = key.split("\n")
+      return createClient(url).mcp.list(directory ? { directory } : undefined)
+    },
   )
   // What the connected MCP servers expose (H-34). The engine reports resources, not tools.
   const [mcpResources, { refetch: refetchMcpResources }] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).mcp.resources().catch(() => []),
+    () => (ready() ? `${serverUrl()}\n${mcpDirectory() ?? ""}` : undefined),
+    async (key) => {
+      const [url = "", directory = ""] = key.split("\n")
+      return createClient(url)
+        .mcp.resources(directory ? { directory } : undefined)
+        .catch(() => [])
+    },
   )
+  // An MCP server waiting on OAuth cannot be used until the reader signs in; the home screen offers
+  // to do it there instead of burying it in Settings. A failed status read means "not known yet".
+  const mcpNeedingAuth = () => {
+    try {
+      return (mcp()?.data ?? []).filter(needsOAuth)
+    } catch {
+      return []
+    }
+  }
   const [providerDirectory, { refetch: refetchProviderDirectory }] = createResource(
     () => (ready() ? serverUrl() : undefined),
     async (url) => createClient(url).provider.directory(),
@@ -1672,8 +1590,11 @@ export const App: Component = () => {
   }
   // The configured MCP servers (H-25): so the form can open one for editing, not just add a new one.
   const [mcpConfigs, { refetch: refetchMcpConfigs }] = createResource(
-    () => (settingsOpen() && ready() ? serverUrl() : undefined),
-    async (url) => createClient(url).mcp.config(),
+    () => (settingsOpen() && ready() ? `${serverUrl()}\n${mcpDirectory() ?? ""}` : undefined),
+    async (key) => {
+      const [url = "", directory = ""] = key.split("\n")
+      return createClient(url).mcp.config(directory ? { directory } : undefined)
+    },
   )
   // The engine's permission policy (H-25), edited in Settings. Runtime grants ("Allow always") are
   // a different thing and are read from the engine on their own.
@@ -4677,15 +4598,15 @@ export const App: Component = () => {
     }, t("MCP server disconnected"))
 
   /**
-   * OAuth for a server that needs it (SE-2): the engine hands over the authorization URL, the
-   * reader approves it in a tab, and `authenticate` waits for the engine's callback before the
-   * list is read again. Opening the tab first matters: `authenticate` blocks until it completes.
+   * OAuth for a server that needs it (SE-2): the engine opens the authorization URL in the
+   * reader's own browser — the only place carrying their session — and `authenticate` waits
+   * for the engine's callback before the list is read again. No in-app window on top: it
+   * would load the provider with no user context and only duplicate the browser tab.
    */
   const oauthMcp = (server: string) =>
     run(async (current) => {
       const started = (await current.mcp.authStart({ server })) as { authorizationUrl?: string }
       if (!started?.authorizationUrl) throw new Error(t("This server did not offer OAuth"))
-      window.open(started.authorizationUrl, "_blank", "noopener,noreferrer")
       await current.mcp.authenticate({ server })
       void refetchMcp()
       void refetchMcpResources()
@@ -6375,6 +6296,20 @@ export const App: Component = () => {
           applyModel(pending.next.providerID, pending.next.id)
         }}
       />
+      {/* A nudge on the home screen only, and only for servers the engine says need OAuth. */}
+      <Show
+        when={
+          onboarded() && !mobileRemote() && !selected() && !mcpAuthNoticeDismissed() && mcpNeedingAuth().length > 0
+        }
+      >
+        <McpAuthNotice
+          servers={mcpNeedingAuth()}
+          busy={busy()}
+          onAuthenticate={oauthMcp}
+          onOpenSettings={() => openSettings("mcp")}
+          onDismiss={() => setMcpAuthNoticeDismissed(true)}
+        />
+      </Show>
       <Toaster />
     </div>
   )

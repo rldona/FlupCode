@@ -29,6 +29,19 @@ export function engineCredentials() {
   return password ? Buffer.from(`${username}:${password}`).toString("base64") : undefined
 }
 
+/**
+ * Decide the password the engine will be started under, before either child is spawned.
+ *
+ * The harness starts first — its actions plugin has to exist when the engine loads — yet it is the
+ * process that talks to the engine on the scheduler's behalf, so it needs the same credential. It
+ * cannot be generated lazily when the engine starts any more; an engine the user started keeps
+ * whatever they configured through the environment, which `password` already holds.
+ */
+export function ensureEngineCredentials() {
+  password = password || randomBytes(24).toString("hex")
+  return password
+}
+
 let browserToken = process.env.FLUPCODE_BROWSER_TOKEN?.trim() || undefined
 
 /**
@@ -231,7 +244,7 @@ export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "
     return
   }
 
-  password = password || randomBytes(24).toString("hex")
+  ensureEngineCredentials()
   child = spawn(engine.command, engine.args, {
     cwd: engine.cwd,
     stdio: "inherit",
@@ -270,6 +283,10 @@ export async function ensureHarnessServer() {
   // Windows and Linux hand the harness the key their keychain holds, so both processes open the
   // same vault. macOS gets nothing here and the harness writes its own file instead (WA-5).
   const vaultKey = vaultKeyForHarness()
+  // The harness talks to the engine on the scheduler's behalf, so it gets the same Basic credential
+  // the renderer uses. It starts before the engine, which is why the password is decided here.
+  ensureEngineCredentials()
+  const authorization = engineCredentials()
   harnessChild = spawn(harness.command, harness.args, {
     cwd: harness.cwd,
     env: {
@@ -278,6 +295,7 @@ export async function ensureHarnessServer() {
       FLUPCODE_ENGINE_URL: SERVER_URL,
       FLUPCODE_HARNESS_PORT: port,
       FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
+      ...(authorization ? { FLUPCODE_ENGINE_AUTH: authorization } : {}),
       // The Chromium that ships beside the app, so Playwright finds it without a download of its
       // own. In development it is not packaged, and the system browser is used instead (WA-9).
       ...(app.isPackaged ? { PLAYWRIGHT_BROWSERS_PATH: join(process.resourcesPath, "browsers") } : {}),

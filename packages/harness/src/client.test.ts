@@ -220,6 +220,60 @@ test("reloadConfig reports a response that is not ok", async () => {
   await expect(createClient("http://engine").reloadConfig()).rejects.toThrow()
 })
 
+/** Records method, path and query, and answers with an empty object the MCP calls can unwrap. */
+function recordingEngineQueries(calls: Array<{ method: string; path: string; search: string }>) {
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      calls.push({ method: request.method.toUpperCase(), path: url.pathname, search: url.search })
+      return new Response("{}", { status: 200, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+}
+
+test("mcp.list asks for the directory it is given, and omits it when there is none", async () => {
+  const calls: Array<{ method: string; path: string; search: string }> = []
+  recordingEngineQueries(calls)
+
+  await createClient("http://engine").mcp.list({ directory: "/work/demo" })
+  await createClient("http://engine").mcp.list()
+
+  expect(calls).toEqual([
+    { method: "GET", path: "/mcp", search: "?directory=%2Fwork%2Fdemo" },
+    { method: "GET", path: "/mcp", search: "" },
+  ])
+})
+
+test("mcp.config asks for the directory it is given, and omits it when there is none", async () => {
+  const calls: Array<{ method: string; path: string; search: string }> = []
+  recordingEngineQueries(calls)
+
+  await createClient("http://engine").mcp.config({ directory: "/work/demo" })
+  await createClient("http://engine").mcp.config()
+
+  expect(calls).toEqual([
+    { method: "GET", path: "/config", search: "?directory=%2Fwork%2Fdemo" },
+    { method: "GET", path: "/config", search: "" },
+  ])
+})
+
+test("mcp.resources asks for the directory it is given, and omits it when there is none", async () => {
+  const calls: Array<{ method: string; path: string; search: string }> = []
+  recordingEngineQueries(calls)
+
+  await createClient("http://engine").mcp.resources({ directory: "/work/demo" })
+  await createClient("http://engine").mcp.resources()
+
+  expect(calls).toEqual([
+    { method: "GET", path: "/experimental/resource", search: "?directory=%2Fwork%2Fdemo" },
+    { method: "GET", path: "/experimental/resource", search: "" },
+  ])
+})
+
 test("removing an MCP server clears it from both configurations and disconnects it", async () => {
   const calls: Array<{ method: string; path: string }> = []
   recordingEngine(calls)

@@ -18,6 +18,10 @@ const answer = [
   "1. Read `src/app.tsx`",
   "2. Patch the reducer",
   "",
+  "The **reducer** drives it and the *store* follows.",
+  "",
+  "## Next steps",
+  "",
   "```ts",
   "export function applyDelta(data: Message[]) {",
   "  return data.map((message) => message)",
@@ -69,6 +73,36 @@ test("the transcript renders markdown with real syntax highlighting", async ({ p
     .locator("pre span[style*='color']")
     .evaluateAll((nodes) => [...new Set(nodes.map((node) => getComputedStyle(node).color))])
   expect(colours.length).toBeGreaterThan(2)
+
+  // Prose markdown carries the TUI's semantic colours: inline code green, bold/italic warm,
+  // headings accent — all resolved from the harness palette, in light and dark.
+  const resolved = (token: string) =>
+    page.evaluate((name) => {
+      const probe = document.createElement("span")
+      probe.style.color = `var(${name})`
+      document.body.appendChild(probe)
+      const colour = getComputedStyle(probe).color
+      probe.remove()
+      return colour
+    }, token)
+  const proseColours = async () => ({
+    inlineCode: await markdown.locator(":not(pre) > code").first().evaluate((node) => getComputedStyle(node).color),
+    strong: await markdown.locator("strong").first().evaluate((node) => getComputedStyle(node).color),
+    emphasis: await markdown.locator("em").first().evaluate((node) => getComputedStyle(node).color),
+    heading: await markdown.locator("h2").first().evaluate((node) => getComputedStyle(node).color),
+  })
+  const light = await proseColours()
+  expect(light.inlineCode).toBe(await resolved("--fc-syn-string"))
+  expect(light.strong).toBe(await resolved("--fc-warning"))
+  expect(light.emphasis).toBe(await resolved("--fc-warning"))
+  expect(light.heading).toBe(await resolved("--fc-accent"))
+
+  await page.evaluate(() => document.documentElement.classList.add("fc-dark"))
+  const dark = await proseColours()
+  expect(dark.inlineCode).toBe(await resolved("--fc-syn-string"))
+  expect(dark.strong).toBe(await resolved("--fc-warning"))
+  expect(dark.emphasis).toBe(await resolved("--fc-warning"))
+  expect(dark.heading).toBe(await resolved("--fc-accent"))
 })
 
 const thinking = "First I check the reducer, then the store."

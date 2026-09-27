@@ -5,14 +5,48 @@ import type { BrowserAllowRule } from "./types"
 
 type Result<T> = { data?: T; error?: unknown }
 
+/**
+ * The message inside whatever the engine returned as an error.
+ *
+ * A non-2xx body is a NamedError-shaped POJO (`{ name, data: { message } }`), not `{ message }`, so
+ * reading `.message` alone turned every refusal into the same opaque "Engine request failed" —
+ * including a plain 401 with an empty body, which is how this server met an engine it could not
+ * sign in to. The nested shapes are tried in order and the raw body is the last resort.
+ */
+const errorMessage = (error: unknown): string | undefined => {
+  if (typeof error === "string" && error) return error
+  if (typeof error !== "object" || error === null) return undefined
+  const record = error as { data?: { message?: unknown }; message?: unknown; error?: unknown }
+  if (typeof record.message === "string" && record.message) return record.message
+  if (typeof record.data?.message === "string" && record.data.message) return record.data.message
+  if (typeof record.error === "string" && record.error) return record.error
+  return undefined
+}
+
 export const unwrap = async <T>(call: Promise<Result<T>>) => {
   const result = await call
   if (result.error !== undefined && result.error !== null) {
-    const error = result.error as { message?: string }
-    throw new Error(error.message ?? "Engine request failed")
+    throw new Error(errorMessage(result.error) ?? "Engine request failed")
   }
   if (result.data === undefined) throw new Error("Engine returned no data")
   return result.data
+}
+
+/**
+ * The `authorization` header the engine requires, when it was started password-protected.
+ *
+ * The desktop generates the engine password itself and signs its own renderer in, so it hands the
+ * harness the same base64 credentials in `FLUPCODE_ENGINE_AUTH`; without it every request from this
+ * server met a 401. A harness started on its own, with the engine's own environment, is covered by
+ * the username/password pair instead.
+ */
+export function engineAuthorization(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  const preset = env.FLUPCODE_ENGINE_AUTH?.trim()
+  if (preset) return `Basic ${preset}`
+  const password = env.OPENCODE_SERVER_PASSWORD
+  if (!password) return undefined
+  const username = env.OPENCODE_SERVER_USERNAME ?? "opencode"
+  return `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}`
 }
 
 /**
@@ -129,11 +163,33 @@ export function detailOf(input: Record<string, unknown> | undefined) {
   return undefined
 }
 
+/**
+ * A run's project has an MCP server that is neither connected nor disabled, after trying.
+ *
+ * The run fails on this rather than starting a session that quietly lacks the server's tools: a
+ * reduced toolset is a different project than the one that was configured, and the run would report
+ * a success it did not earn.
+ */
+export class McpNotConnectedError extends Error {
+  constructor(
+    readonly server: string,
+    readonly status: string,
+    readonly directory: string,
+  ) {
+    super(`MCP server "${server}" is not connected (${status}) for ${directory}, so this run would start without its tools`)
+    this.name = "McpNotConnectedError"
+  }
+}
+
 export class Engine {
   private readonly client: ReturnType<typeof createOpencodeClient>
 
   constructor(readonly url: string) {
-    this.client = createOpencodeClient({ baseUrl: url })
+    const authorization = engineAuthorization()
+    this.client = createOpencodeClient({
+      baseUrl: url,
+      ...(authorization ? { headers: { authorization } } : {}),
+    })
   }
 
   /**
@@ -196,6 +252,38 @@ export class Engine {
         worktreeRemoveInput: { directory: input.directory },
       }),
     )
+  }
+
+  /**
+   * Bring up every MCP server of a project before a run creates its session.
+   *
+   * A session created while a server is still connecting starts without that server's tools, and the
+   * run then works against a project smaller than the one that was configured. `mcp.connect` answers
+   * `true` even when the server stays unauthenticated, so the status is read again afterwards and a
+   * non-disabled server that is still not connected fails the run by name.
+   *
+   * An engine that does not expose `/mcp` (an older one, or a shape this code does not know) must not
+   * break the run: every connectivity error is swallowed and the run proceeds as it did before this
+   * existed. The one thing never swallowed is this method's own refusal, thrown after the second read.
+   */
+  async ensureMcp(directory: string) {
+    try {
+      const before = (await unwrap(this.client.mcp.status({ directory }))) as Record<string, { status?: string }>
+      const pending = Object.entries(before)
+        .filter(([, server]) => server.status !== "connected" && server.status !== "disabled")
+        .map(([name]) => name)
+      for (const name of pending) {
+        await unwrap(this.client.mcp.connect({ name, directory })).catch(() => undefined)
+      }
+      const after = (await unwrap(this.client.mcp.status({ directory }))) as Record<string, { status?: string }>
+      const [stranded] = Object.entries(after).filter(
+        ([, server]) => server.status !== "connected" && server.status !== "disabled",
+      )
+      if (stranded) throw new McpNotConnectedError(stranded[0], stranded[1].status ?? "unknown", directory)
+    } catch (cause) {
+      if (cause instanceof McpNotConnectedError) throw cause
+      // An engine without /mcp, or a read that failed: the run continues without this guarantee.
+    }
   }
 
   /**

@@ -1055,15 +1055,19 @@ export function createClient(baseUrl = resolveServerUrl()) {
      * here used to be a no-op behind a working-looking panel.
      */
     mcp: {
-      list: async () => {
-        const status = (await unwrap(client.mcp.status())) as unknown as Record<string, { status?: string }>
+      list: async (input?: { directory?: string }) => {
+        const status = (await unwrap(
+          client.mcp.status(input?.directory ? { directory: input.directory } : undefined),
+        )) as unknown as Record<string, { status?: string }>
         return {
           data: Object.entries(status ?? {}).map(([name, value]) => ({ name, status: value })) as McpServer[],
         }
       },
       /** The configured servers themselves, so the form can open one for editing instead of guessing. */
-      config: async () => {
-        const config = (await unwrap(client.config.get())) as { mcp?: Record<string, unknown> }
+      config: async (input?: { directory?: string }) => {
+        const config = (await unwrap(
+          client.config.get(input?.directory ? { directory: input.directory } : undefined),
+        )) as { mcp?: Record<string, unknown> }
         return { data: (config?.mcp ?? {}) as Record<string, McpConfig> }
       },
       add: async (input: { server: string; config: McpConfig; scope?: McpScope }) => {
@@ -1100,8 +1104,10 @@ export function createClient(baseUrl = resolveServerUrl()) {
        * The engine never lists an MCP server's **tools** — they bypass its registry, so only the
        * calls it makes are known, which is what the context panel reads. Resources it does report.
        */
-      resources: async () => {
-        const resources = (await unwrap(client.experimental.resource.list())) as unknown as Record<string, McpResource>
+      resources: async (input?: { directory?: string }) => {
+        const resources = (await unwrap(
+          client.experimental.resource.list(input?.directory ? { directory: input.directory } : undefined),
+        )) as unknown as Record<string, McpResource>
         return Object.values(resources ?? {})
       },
     },

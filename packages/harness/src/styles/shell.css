@@ -1148,6 +1148,68 @@ button.fc-status {
   max-width: 400px;
 }
 
+/* A nudge in the corner while the reader is on the home screen, above the content but under the
+   modal overlays so Settings still opens over it. */
+.fc-mcp-auth-notice {
+  position: fixed;
+  top: var(--fc-space-4);
+  inset-inline-end: var(--fc-space-4);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  width: min(400px, calc(100vw - 32px));
+  max-width: 400px;
+  padding: 12px 14px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  background: var(--fc-bg-elevated);
+  color: var(--fc-text);
+  font-size: 13px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.18);
+  animation: fc-toast-in var(--fc-motion-panel);
+}
+
+.fc-mcp-auth-notice-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-2);
+}
+
+.fc-mcp-auth-notice-title {
+  font-weight: 600;
+}
+
+.fc-mcp-auth-notice-close {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--fc-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.fc-mcp-auth-notice-body {
+  margin: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-mcp-auth-notice-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-2);
+}
+
+.fc-mcp-auth-notice-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* A notification, not a strip: the disc says what kind, the title says what happened, and the
    sentence under it says what it was. Colours come from the palette the reader has chosen. */
 .fc-toast {
@@ -1898,10 +1960,13 @@ button.fc-status {
 .fc-markdown h1,
 .fc-markdown h2,
 .fc-markdown h3,
-.fc-markdown h4 {
+.fc-markdown h4,
+.fc-markdown h5,
+.fc-markdown h6 {
   margin: 16px 0 8px;
   font-weight: 600;
   line-height: 1.3;
+  color: var(--fc-accent);
 }
 
 .fc-markdown h1 {
@@ -1930,13 +1995,24 @@ button.fc-status {
   color: var(--fc-accent);
 }
 
-.fc-markdown code {
+.fc-markdown :not(pre) > code {
   font-family: var(--fc-font-mono);
   font-size: 0.9em;
   padding: 1px 5px;
   border-radius: 5px;
   background: color-mix(in srgb, var(--fc-border) 45%, transparent);
-  color: var(--fc-code-inline);
+  color: var(--fc-syn-string);
+}
+
+.fc-markdown strong,
+.fc-markdown b {
+  color: var(--fc-warning);
+  font-weight: 600;
+}
+
+.fc-markdown em,
+.fc-markdown i {
+  color: var(--fc-warning);
 }
 
 .fc-code-block {
@@ -3887,6 +3963,7 @@ button.fc-status {
 
 .fc-routine-run-dot-failed { background: var(--fc-danger); }
 .fc-routine-run-dot-running { background: var(--fc-accent); }
+.fc-routine-run-dot-awaiting { background: var(--fc-warning); }
 .fc-routine-run-dot-stopped { background: var(--fc-text-muted); }
 
 .fc-routine-editor {
@@ -8334,7 +8411,7 @@ button.fc-status {
 }
 
 .fc-reasoning .fc-toolgroup-label {
-  color: var(--fc-text-muted);
+  color: var(--fc-warning);
   font-style: italic;
 }
 
