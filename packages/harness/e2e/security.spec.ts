@@ -104,22 +104,6 @@ test("a provider key in the engine's configuration is never copied on its own", 
   expect(await page.content()).not.toContain("sk-ant-super-secret")
 })
 
-test("the browser panel keeps untrusted pages inside a sandbox", async ({ page }) => {
-  await openApp(page)
-  await page.evaluate(() => window.localStorage.setItem("flupcode.workspacePanels", JSON.stringify(["browser"])))
-  await page.reload()
-
-  const input = page.locator(".fc-browser-url")
-  await input.fill("http://127.0.0.1:9/preview")
-  await input.press("Enter")
-
-  const frame = page.locator("iframe.fc-browser-frame")
-  await expect(frame).toHaveAttribute("sandbox", /allow-scripts/)
-  const sandbox = (await frame.getAttribute("sandbox")) ?? ""
-  expect(sandbox).not.toContain("allow-top-navigation")
-  await expect(frame).toHaveAttribute("referrerpolicy", "no-referrer")
-})
-
 test("the engine started by the desktop app is reached with its password", async ({ page }) => {
   const seen: Array<string | undefined> = []
   await page.addInitScript(() => {

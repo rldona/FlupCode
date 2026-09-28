@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { formatDateTime } from "../dates"
 import { formatTokens } from "../metrics"
 import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
 import { mcpLatency, mcpToolUses } from "../mcp"
@@ -41,7 +42,7 @@ type ContextPanelProps = {
 
 const bytes = (value: number) => (value < 1024 ? `${value} B` : `${Math.round(value / 102.4) / 10} kB`)
 
-const when = (at: number) => new Date(at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })
+const when = (at: number) => formatDateTime(at)
 
 const name = (path: string) => {
   const parts = path.split("/").filter(Boolean)

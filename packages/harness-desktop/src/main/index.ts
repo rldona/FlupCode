@@ -53,6 +53,17 @@ function registerRendererProtocol() {
   })
 }
 
+/** An http(s) URL as a string, or undefined for anything the OS browser should not be handed. */
+const externalHttpUrl = (value: string): string | undefined => {
+  let parsed: URL
+  try {
+    parsed = new URL(value)
+  } catch {
+    return undefined
+  }
+  return parsed.protocol === "http:" || parsed.protocol === "https:" ? parsed.toString() : undefined
+}
+
 /** How many windows have been opened, which is also where each one's bounds are remembered. */
 let windowsOpened = 0
 
@@ -100,6 +111,22 @@ function createWindow() {
   })
 
   window.on("close", () => saveWindowState(index, window.getBounds()))
+
+  // Nothing opens inside the app: the renderer shows its own prompt for a link the reader clicks,
+  // and anything the page starts on its own — a middle-click, a `target`, a redirect — is handed to
+  // the reader's browser instead of an Electron window. A same-origin navigation is the app itself.
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    const external = externalHttpUrl(url)
+    if (external) void shell.openExternal(external)
+    return { action: "deny" }
+  })
+  window.webContents.on("will-navigate", (event, url) => {
+    const current = externalHttpUrl(window.webContents.getURL())
+    const target = externalHttpUrl(url)
+    if (current && target && new URL(current).origin === new URL(target).origin) return
+    event.preventDefault()
+    if (target) void shell.openExternal(target)
+  })
 
   const devUrl = process.env.FLUPCODE_DEV_URL
   if (devUrl || !app.isPackaged) {
@@ -174,6 +201,22 @@ ipcMain.handle("flupcode:open-path", async (_event, path: unknown, app?: unknown
           : ([app, [path]] as const)
     execFile(command, args, (error) => resolve(!error))
   })
+})
+
+/**
+ * Open an http(s) link in the reader's default browser.
+ *
+ * Only those two schemes reach the shell: anything else (`file:`, `javascript:`, a custom protocol)
+ * is refused here rather than trusted from the renderer. A failure is reported, not thrown.
+ */
+ipcMain.handle("flupcode:open-external", async (_event, url: unknown) => {
+  if (typeof url !== "string") return false
+  const external = externalHttpUrl(url)
+  if (!external) return false
+  return shell.openExternal(external).then(
+    () => true,
+    () => false,
+  )
 })
 
 app.on("before-quit", () => {

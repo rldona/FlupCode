@@ -13,13 +13,11 @@ import {
 import { createResource } from "../resource"
 import type { SessionInfo } from "../engine-types"
 import { createClient, createHarnessClient, type AgentBrowserSession } from "../client"
-import { browser } from "../browser"
 import { t } from "../i18n"
 import { cssPx } from "../text-size"
 import { FileDiff } from "./FileDiff"
 import { Loader } from "./Loader"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
-import { TopIcon, TopbarIcons } from "./Topbar"
 
 const TerminalPanel = lazy(() => import("./Terminal").then((module) => ({ default: module.TerminalPanel })))
 
@@ -39,178 +37,6 @@ type WorkspacePanelsProps = {
   onClose: (kind: string) => void
 }
 
-/** Local dev servers people actually run, tried in order when detecting a preview. */
-const DEV_SERVER_PORTS = [3000, 5173, 4200, 4321, 8000, 8080]
-
-const BrowserIcons = {
-  reload: "M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7",
-  external: "M14 5h5v5M19 5l-9 9M18 13v5a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5",
-}
-
-const BrowserPanel: Component = () => {
-  const [history, setHistory] = createSignal<string[]>([])
-  const [position, setPosition] = createSignal(-1)
-  const [input, setInput] = createSignal("")
-  const [reloadKey, setReloadKey] = createSignal(1)
-  const [detecting, setDetecting] = createSignal(false)
-  const [notice, setNotice] = createSignal("")
-
-  const url = () => history()[position()] ?? ""
-  const canBack = () => position() > 0
-  const canForward = () => position() >= 0 && position() < history().length - 1
-
-  const open = (target: string) => {
-    const value = target.trim()
-    if (!value) return
-    const next = value.startsWith("http") ? value : `https://${value}`
-    const list = history().slice(0, position() + 1)
-    list.push(next)
-    setHistory(list)
-    setPosition(list.length - 1)
-    setInput(next)
-    setNotice("")
-  }
-
-  const jump = (offset: number) => {
-    setPosition(position() + offset)
-    setInput(url())
-  }
-
-  // A local preview linked from the transcript navigates this panel (see browser.ts).
-  createEffect(
-    on(browser.request, (pending) => {
-      if (pending) open(pending.url)
-    }),
-  )
-
-  // A no-cors request resolves once the server answers and rejects on connection refused, which is
-  // enough to tell a running dev server apart from a closed port.
-  const reachable = async (target: string) => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), 900)
-    try {
-      await fetch(target, { mode: "no-cors", signal: controller.signal })
-      return true
-    } catch {
-      return false
-    } finally {
-      clearTimeout(timer)
-    }
-  }
-
-  const detect = async () => {
-    setDetecting(true)
-    setNotice("")
-    for (const port of DEV_SERVER_PORTS) {
-      const candidate = `http://localhost:${port}`
-      if (!(await reachable(candidate))) continue
-      open(candidate)
-      setDetecting(false)
-      return
-    }
-    setDetecting(false)
-    setNotice(t("No dev server found"))
-  }
-
-  return (
-    <div class="fc-panel-body fc-browser">
-      <div class="fc-browser-bar">
-        <button
-          class="fc-browser-nav"
-          type="button"
-          title={t("Back")}
-          aria-label={t("Back")}
-          disabled={!canBack()}
-          onClick={() => jump(-1)}
-        >
-          <TopIcon d={TopbarIcons.back} />
-        </button>
-        <button
-          class="fc-browser-nav"
-          type="button"
-          title={t("Forward")}
-          aria-label={t("Forward")}
-          disabled={!canForward()}
-          onClick={() => jump(1)}
-        >
-          <TopIcon d={TopbarIcons.forward} />
-        </button>
-        <button
-          class="fc-browser-nav"
-          type="button"
-          title={t("Reload")}
-          aria-label={t("Reload")}
-          disabled={!url()}
-          onClick={() => setReloadKey((key) => key + 1)}
-        >
-          <TopIcon d={BrowserIcons.reload} />
-        </button>
-        <input
-          class="fc-browser-url"
-          placeholder={t("Type a URL")}
-          value={input()}
-          spellcheck={false}
-          onInput={(event) => setInput(event.currentTarget.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") open(input())
-          }}
-        />
-        <button
-          class="fc-browser-nav"
-          type="button"
-          title={t("Open in new tab")}
-          aria-label={t("Open in new tab")}
-          disabled={!url()}
-          onClick={() => window.open(url(), "_blank", "noopener,noreferrer")}
-        >
-          <TopIcon d={BrowserIcons.external} />
-        </button>
-      </div>
-      <Show
-        when={url()}
-        fallback={
-          <div class="fc-empty-state fc-browser-empty">
-            <svg class="fc-browser-globe" viewBox="0 0 24 24" aria-hidden="true">
-              <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.5" />
-              <path
-                d="M3 12h18M12 3c2.5 2.7 2.5 15.3 0 18M12 3c-2.5 2.7-2.5 15.3 0 18"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="1.5"
-              />
-            </svg>
-            <span class="fc-empty-title">{t("Browse with FlupCode")}</span>
-            <span class="fc-empty-hint">
-              {t("Type a URL or ask FlupCode to open a site. Some sites don't allow embedding.")}
-            </span>
-            <button class="fc-button" type="button" disabled={detecting()} onClick={() => void detect()}>
-              {detecting() ? t("Detecting…") : t("Detect dev server")}
-            </button>
-            <Show when={notice()}>
-              <span class="fc-empty-hint">{notice()}</span>
-            </Show>
-          </div>
-        }
-      >
-        <Show when={reloadKey()} keyed>
-          {(_key) => (
-            // The panel shows whatever the agent or the reader typed, so the page is untrusted: the
-            // sandbox keeps it from navigating this window, opening dialogs or reaching the top
-            // frame. `allow-same-origin` only keeps the page in its own origin (which is never the
-            // harness's), so it still cannot touch anything here.
-            <iframe
-              class="fc-browser-frame"
-              src={url()}
-              title={t("Browser")}
-              sandbox="allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin"
-              referrerpolicy="no-referrer"
-            />
-          )}
-        </Show>
-      </Show>
-    </div>
-  )
-}
 
 /** How often the live view polls the latest frame while a browser session is open. */
 const AGENT_FRAME_POLL_MS = 2000
@@ -464,7 +290,7 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
         <Show
           when={status()}
           fallback={
-            <div class="fc-empty-state fc-browser-empty">
+            <div class="fc-empty-state fc-agent-browser-empty">
               <span class="fc-empty-title">{t("No browser session")}</span>
               <span class="fc-empty-hint">{t("The agent's browser appears here while it acts on a site.")}</span>
             </div>
@@ -604,7 +430,6 @@ const DiffPanel: Component<{
 }
 
 const TITLES: Record<string, string> = {
-  browser: "Browser",
   "agent-browser": "Agent browser",
   diff: "Files changed",
   terminal: "Terminal",
@@ -654,9 +479,6 @@ export const WorkspacePanels: Component<WorkspacePanelsProps> = (props) => {
                   ×
                 </button>
               </div>
-              <Show when={kind === "browser"}>
-                <BrowserPanel />
-              </Show>
               <Show when={kind === "agent-browser"}>
                 <AgentBrowserPanel harnessServerUrl={props.harnessServerUrl} sessionID={props.session?.id} />
               </Show>

@@ -52,6 +52,8 @@ contextBridge.exposeInMainWorld("flupcode", {
   // useful in the editor it was written for (H-14).
   openPath: (path: string, app?: string) =>
     ipcRenderer.invoke("flupcode:open-path", path, app) as Promise<boolean>,
+  // A link in the transcript opens the reader's real browser, never the sandboxed renderer.
+  openExternal: (url: string) => ipcRenderer.invoke("flupcode:open-external", url) as Promise<boolean>,
   remote,
   ...(speech ? { speech } : {}),
   ...(engineAuth ? { engineAuth } : {}),

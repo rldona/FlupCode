@@ -16,6 +16,7 @@ import type { AgentFile, CommandFile, McpConfig, McpScope } from "../types"
 import type { ConfiguredProvider, CustomProviderResult } from "../custom-provider"
 import { engineTargetVersion, type EngineProfile } from "../client"
 import { t, type Locale } from "../i18n"
+import { formatDateTime } from "../dates"
 import { effortLabel } from "../effort"
 import { KeyCapture } from "./KeyCapture"
 import { Toggle } from "./Toggle"
@@ -539,7 +540,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       <span>{t("Summary counters")}</span>
                       <span class="fc-settings-hint">
                         {usageResetAt()
-                          ? t("Counting sessions since {date}", { date: new Date(usageResetAt()).toLocaleString() })
+                          ? t("Counting sessions since {date}", { date: formatDateTime(usageResetAt()) })
                           : t("Counting every session")}
                       </span>
                     </span>

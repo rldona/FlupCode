@@ -64,4 +64,6 @@ export const STORAGE_KEYS = {
   selectedModel: "flupcode.selectedModel",
   confirmModelSwitch: "flupcode.confirmModelSwitch",
   noFolderSessions: "flupcode.noFolderSessions",
+  /** Hosts whose external links the reader asked never to be prompted about again. */
+  externalLinkHosts: "flupcode.externalLinkHosts",
 } as const
