@@ -73,7 +73,8 @@ jobs:
           fi
 
   add-contributor-label:
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026.
+    runs-on: ubuntu-24.04
     permissions:
       pull-requests: write
       issues: write

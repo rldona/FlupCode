@@ -13,7 +13,8 @@ permissions:
 
 jobs:
   close-non-compliant:
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026.
+    runs-on: ubuntu-24.04
     steps:
       - name: Close non-compliant issues and PRs after 2 hours
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v7.1.0

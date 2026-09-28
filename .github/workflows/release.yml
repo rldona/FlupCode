@@ -40,11 +40,14 @@ env:
 # fails about a quarter of attempts with HTTP 500/504 and crawls at ~100 KB/s when it does, which is
 # what left 1.12.0's draft missing its largest installers. Each job uploads its own files and the
 # retries are per file, so one slow installer no longer holds the whole release.
+#
+# Runners are pinned to `ubuntu-24.04`, not `ubuntu-latest`: the label migrates to Ubuntu 26 in
+# October 2026 and a build that changes its own OS on a calendar date is a build that breaks on one.
 
 jobs:
   # The release exists before anything is uploaded to it, and stays a draft until it is complete.
   open:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       # `gh release create --verify-tag` reads the local tag, and the notes are generated from the
       # history behind it: without a checkout this fails before it creates anything (which is how the
@@ -82,7 +85,7 @@ jobs:
 
   web:
     needs: [open]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -116,7 +119,7 @@ jobs:
 
   cli:
     needs: [open]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09
@@ -154,7 +157,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-latest, windows-latest, ubuntu-latest]
+        os: [macos-latest, windows-latest, ubuntu-24.04]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -173,7 +176,7 @@ jobs:
 
       # electron-builder's rpm target shells out to fpm, which needs the rpm binary on the runner.
       - name: Install rpm tooling
-        if: matrix.os == 'ubuntu-latest'
+        if: matrix.os == 'ubuntu-24.04'
         run: sudo apt-get update && sudo apt-get install -y rpm
 
       # The harness browser ships inside the app: fetch it before packaging, or the
@@ -207,7 +210,7 @@ jobs:
   # the manifests name has to be an asset, or the app would download a 404 on its next check.
   verify:
     needs: [web, cli, desktop]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Read the update manifests off the draft
         env:
@@ -242,7 +245,7 @@ jobs:
     # A dry-run dispatch stops before this: the release stays a draft, so nothing reaches
     # `releases/latest`. A tag push always publishes.
     if: github.event_name == 'push' || github.event.inputs.publish == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Publish the release
         env:

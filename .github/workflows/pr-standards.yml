@@ -6,7 +6,8 @@ on:
 
 jobs:
   check-standards:
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
@@ -153,7 +154,8 @@ jobs:
             console.log('PR meets all standards');
 
   check-compliance:
-    runs-on: ubuntu-latest
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026.
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: write
