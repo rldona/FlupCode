@@ -912,4 +912,53 @@ describe("WEB_ACTIONS_PLUGIN", () => {
     expect(result).toContain("NOPE")
     expect(fixture.runs).toHaveLength(1)
   })
+
+  test("a vanished action is reported as not found, not as a raw runner message", async () => {
+    // The engine started with the profile and the model still calls it, but the runner no longer
+    // knows it: the 404 is the answer to the chat, so it must read as a sentence.
+    for (const code of ["unknown_action", "not_found"]) {
+      const fixture = startFixture({
+        run: () => Response.json({ error: 'No action profile "do_demo"', code, evidence: [] }, { status: 404 }),
+      })
+      const { hooks } = await open({ fixture })
+      const ctx = {
+        messages: composedMessages(),
+        sessionID: "ses_abc",
+        messageID: "msg_1",
+        directory: "/tmp/project",
+        ask: async () => {},
+      }
+
+      const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+      expect(result).toContain("No se encontró la acción")
+      expect(result).not.toContain("No action profile")
+    }
+  })
+
+  test("an internal runner error never leaks the build machine's paths", async () => {
+    const fixture = startFixture({
+      run: () =>
+        Response.json(
+          {
+            error: "Cannot find module '/Users/runner/work/FlupCode/FlupCode/node_modules/.bun/playwright-core@1.59.1/package.json'",
+            code: "internal_error",
+            evidence: [],
+          },
+          { status: 500 },
+        ),
+    })
+    const { hooks } = await open({ fixture })
+    const ctx = {
+      messages: composedMessages(),
+      sessionID: "ses_abc",
+      messageID: "msg_1",
+      directory: "/tmp/project",
+      ask: async () => {},
+    }
+
+    const result = await hooks.tool.do_demo.execute({ text: "hola" }, ctx)
+    expect(result).toContain("fallo del servidor del navegador")
+    expect(result).not.toContain("/Users/runner")
+    expect(result).not.toContain("playwright-core")
+  })
 })

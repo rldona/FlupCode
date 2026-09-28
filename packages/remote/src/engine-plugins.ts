@@ -930,7 +930,10 @@ function failureText(profile, body) {
   if (code === "missing_input" || code === "unknown_input" || code === "invalid_input")
     return "Falta o no es válido el input " + (error.field || "?") + "."
   if (code === "extract_failed") return "No se pudo leer " + (error.field || "?") + "."
-  if (code === "unknown_action") return "Esa acción ya no existe; reinicia el motor."
+  if (code === "unknown_action" || code === "not_found")
+    return "No se encontró la acción; puede que ya no exista. Reinicia el motor y vuelve a intentarlo."
+  if (code === "internal_error")
+    return "La acción no se pudo completar por un fallo del servidor del navegador. Vuelve a intentarlo; si persiste, reinicia el motor."
   return typeof error.error === "string" && error.error ? error.error : "La acción no se pudo completar."
 }
 

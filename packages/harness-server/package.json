@@ -7,7 +7,7 @@
   "license": "MIT",
   "scripts": {
     "dev": "bun src/index.ts",
-    "build": "bun build src/index.ts --compile --external chromium-bidi --outfile dist/flupcode-harness",
+    "build": "bun script/build.ts",
     "test": "bun test src",
     "typecheck": "tsgo --noEmit"
   },
