@@ -4,7 +4,15 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
-import { createBrowserRuntime, managedExecutableFromDir, resolveBrowserExecutable } from "./browser"
+import {
+  BrowserError,
+  MAX_VIEWPORT,
+  MIN_VIEWPORT,
+  createBrowserRuntime,
+  managedExecutableFromDir,
+  parseViewport,
+  resolveBrowserExecutable,
+} from "./browser"
 import type { BrowserRuntime } from "./browser"
 import { createEgressGuard, NavigationBlockedError } from "./browser-egress"
 import { redactSecrets } from "./redact"
@@ -102,6 +110,16 @@ const fixture = () => {
              <div><button class="target" id="save" name="save" data-testid="save-btn">Save it</button></div>
              <iframe></iframe>
            </body></html>`,
+          { headers: { "content-type": "text/html" } },
+        )
+      if (path === "/guarded")
+        return new Response(
+          `<!doctype html><html><head><title>Guarded</title></head><body><p id="out">pending</p><script>
+             fetch("http://169.254.169.254/latest/meta-data/").then(
+               () => { document.getElementById("out").textContent = "reached" },
+               () => { document.getElementById("out").textContent = "blocked" },
+             )
+           </script></body></html>`,
           { headers: { "content-type": "text/html" } },
         )
       if (path === "/manual")
@@ -320,6 +338,39 @@ describe("the browser boundary", () => {
     const attributeSecret = "line\nbreak\ttab\rreturn\u00a0nbsp"
     const serialized = "line&#10;break&#9;tab&#13;return&nbsp;nbsp"
     expect(redactSecrets(`before ${serialized} after`, [attributeSecret])).toBe("before [redacted] after")
+  })
+})
+
+describe("the live view's viewport (WA-6)", () => {
+  test("parseViewport refuses a missing, non-finite or non-positive side", () => {
+    for (const [width, height] of [
+      [undefined, 600],
+      [800, undefined],
+      [Number.NaN, 600],
+      [800, Number.POSITIVE_INFINITY],
+      [0, 600],
+      [-1, 600],
+      ["800", 600],
+    ] as const) {
+      expect(() => parseViewport(width, height)).toThrow(BrowserError)
+    }
+  })
+
+  test("parseViewport rounds and clamps into the page bounds", () => {
+    expect(parseViewport(800.4, 600.6)).toEqual({ width: 800, height: 601 })
+    expect(parseViewport(99_999, 99_999)).toEqual({ width: MAX_VIEWPORT, height: MAX_VIEWPORT })
+    expect(parseViewport(0.4, 0.4)).toEqual({ width: MIN_VIEWPORT, height: MIN_VIEWPORT })
+  })
+
+  test("a bad size is refused and a valid one without a session says so", async () => {
+    const { handler } = open()
+    const bad = await browserRequest(handler, "viewport", "s1", { body: { width: 0, height: 600 } })
+    expect(bad.status).toBe(400)
+    expect((await bad.json()).code).toBe("invalid_viewport")
+
+    const missing = await browserRequest(handler, "viewport", "s1", { body: { width: 800, height: 600 } })
+    expect(missing.status).toBe(404)
+    expect((await missing.json()).code).toBe("no_session")
   })
 })
 
@@ -750,6 +801,27 @@ describe("driving a real browser", () => {
     },
     30_000,
   )
+
+  test.skipIf(!existsSync(chromiumPath))(
+    "starts headless at the default viewport and resizes the page to the panel",
+    async () => {
+      const server = fixture()
+      const { handler } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+
+      const before = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
+      expect(before.viewport).toEqual({ width: 1280, height: 720 })
+
+      const resized = (
+        await (await browserRequest(handler, "viewport", "s1", { body: { width: 800.4, height: 601 } })).json()
+      ).data
+      expect(resized.viewport).toEqual({ width: 800, height: 601 })
+
+      const after = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
+      expect(after.viewport).toEqual({ width: 800, height: 601 })
+    },
+    30_000,
+  )
 })
 
 describe("the live view's control (WA-6)", () => {
@@ -761,6 +833,58 @@ describe("the live view's control (WA-6)", () => {
       expect((await response.json()).code).toBe("no_session")
     }
   })
+
+  // A headed relaunch needs a display: headless Linux CI has Chromium but no X server.
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
+    "an idle takeover opens the window at once and keeps the session",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      const resized = (
+        await (await browserRequest(handler, "viewport", "s1", { body: { width: 500, height: 400 } })).json()
+      ).data
+      expect(resized.viewport).toEqual({ width: 500, height: 400 })
+
+      // No run is active, so the takeover reveals the headed window now, without waiting for the
+      // runner to reach a step boundary.
+      const takeover = await browserRequest(handler, "takeover", "s1", { body: {} })
+      expect(takeover.status).toBe(200)
+      const body = (await takeover.json()).data
+      expect(body.headed).toBe(true)
+      expect(body.paused).toBe(true)
+      expect(runtime.get("s1")?.headed).toBe(true)
+
+      // The in-place reveal keeps the same session and reports the truth of the headed page it
+      // swapped in, not the size the headless one happened to have.
+      const after = (await (await browserRequest(handler, "session", "s1", { method: "GET" })).json()).data
+      expect(after.id).toBe("s1")
+      expect(after.headed).toBe(true)
+      expect(after.viewport).toBeDefined()
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
+    "a takeover during a run waits for the run to end",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+
+      runtime.beginRun("s1")
+      const takeover = await browserRequest(handler, "takeover", "s1", { body: {} })
+      const body = (await takeover.json()).data
+      expect(body.headed).toBe(false)
+      expect(body.paused).toBe(true)
+      expect(runtime.get("s1")?.headed).toBe(false)
+
+      await runtime.endRun("s1")
+      for (let i = 0; i < 100 && runtime.get("s1")?.headed !== true; i++) await Bun.sleep(100)
+      expect(runtime.get("s1")?.headed).toBe(true)
+    },
+    30_000,
+  )
 
   // A headed relaunch needs a display: headless Linux CI has Chromium but no X server.
   test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
@@ -778,16 +902,22 @@ describe("the live view's control (WA-6)", () => {
       const resumed = await browserRequest(handler, "resume", "s1", { body: {} })
       expect((await resumed.json()).data.paused).toBe(false)
 
-      // No window is open yet: the takeover holds the agent, and the runner's pause check opens
-      // the headed window at the next step boundary, on the same persistent profile.
+      // A run is active, so the takeover must NOT open the window yet: it holds the agent and waits
+      // for a step boundary, where no Playwright call is in flight to kill.
+      runtime.beginRun("s1")
       const takeover = await browserRequest(handler, "takeover", "s1", { body: {} })
       expect(takeover.status).toBe(200)
       expect((await takeover.json()).data.paused).toBe(true)
+      expect(runtime.get("s1")?.headed).toBe(false)
+
+      // The runner's step-boundary check is what opens it, with the same persistent profile.
       const waiting = runtime.waitIfPaused("s1")
       for (let i = 0; i < 100 && runtime.get("s1")?.headed !== true; i++) await Bun.sleep(100)
       expect(runtime.get("s1")?.headed).toBe(true)
+      // Still mid-run: `endRun` has not been called, so the boundary was the trigger.
       await runtime.resume("s1")
       await waiting
+      await runtime.endRun("s1")
 
       const stopped = await browserRequest(handler, "stop", "s1", { body: {} })
       expect((await stopped.json()).data.stopped).toBe(true)
@@ -798,6 +928,94 @@ describe("the live view's control (WA-6)", () => {
       expect(
         statuses.some((event) => event.type === "browser.status" && event.closed === true),
       ).toBe(true)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
+    "a reveal waits for an in-flight frame operation to drain",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+
+      // A click that never finds its selector keeps a page call in flight for the duration of its
+      // timeout; the takeover must defer until it drains.
+      const click = runtime.click("s1", "#missing", 600).catch(() => undefined)
+      await Bun.sleep(50)
+      await runtime.takeOver("s1")
+      expect(runtime.get("s1")?.headed).toBe(false)
+
+      await click
+      for (let i = 0; i < 100 && runtime.get("s1")?.headed !== true; i++) await Bun.sleep(100)
+      expect(runtime.get("s1")?.headed).toBe(true)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
+    "a resize racing a reveal never resizes the headed window",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      await browserRequest(handler, "viewport", "s1", { body: { width: 500, height: 400 } })
+
+      // The resize and the reveal are started together; whichever order they land in, the resize
+      // must not touch the headed page.
+      const reveal = runtime.takeOver("s1")
+      const resize = runtime.setViewport("s1", { width: 900, height: 700 })
+      await Promise.all([reveal, resize])
+
+      expect(runtime.get("s1")?.headed).toBe(true)
+      // The reported viewport is the headed page's own, not the size the racing resize asked for.
+      expect(runtime.get("s1")?.viewport?.width).not.toBe(900)
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
+    "aborting during a reveal leaves no session and frees the profile",
+    async () => {
+      const server = fixture()
+      const { runtime } = open(server)
+      await runtime.start({ id: "s1", project: "proj" })
+
+      // Start a reveal and abort while the headed launch is still yielding.
+      const takeover = runtime.takeOver("s1").catch(() => undefined)
+      await Bun.sleep(100)
+      expect(await runtime.abort("s1")).toBe(true)
+      await takeover
+
+      expect(runtime.get("s1")).toBeUndefined()
+      // The profile is not locked by an orphan window: the same project can open a new browser.
+      await runtime.start({ id: "s2", project: "proj" })
+      expect(runtime.get("s2")?.id).toBe("s2")
+      await runtime.close("s2")
+    },
+    30_000,
+  )
+
+  test.skipIf(!existsSync(chromiumPath) || (process.platform === "linux" && !process.env.DISPLAY))(
+    "the egress guard is rebound on the window a takeover revealed",
+    async () => {
+      const server = fixture()
+      const { handler, runtime } = open(server)
+      await browserRequest(handler, "start", "s1", { body: { project: "proj" } })
+      await browserRequest(handler, "takeover", "s1", { body: {} })
+      expect(runtime.get("s1")?.headed).toBe(true)
+
+      // The revealed page itself is allowed (the fixture's loopback port is open), so the only way
+      // its subresource can be stopped is the route guard that `bindContext` bound on the new
+      // context before publishing it.
+      await runtime.navigate("s1", `http://127.0.0.1:${server.port}/guarded`)
+      let value = ""
+      for (let i = 0; i < 100 && value !== "blocked"; i++) {
+        const read = await runtime.text("s1", "#out").catch(() => ({ value: "" as string | null }))
+        value = read.value ?? ""
+        if (value !== "blocked") await Bun.sleep(50)
+      }
+      expect(value).toBe("blocked")
     },
     30_000,
   )

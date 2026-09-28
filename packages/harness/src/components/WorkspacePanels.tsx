@@ -214,6 +214,10 @@ const BrowserPanel: Component = () => {
 
 /** How often the live view polls the latest frame while a browser session is open. */
 const AGENT_FRAME_POLL_MS = 2000
+/** How long the live view waits after a resize settles before asking the page to match it. */
+const VIEWPORT_DEBOUNCE_MS = 200
+/** The same ceiling the server clamps to, so the echoed size matches the one that was asked for. */
+const MAX_VIEWPORT = 4096
 
 /**
  * The live view and its takeover (WA-6): the latest frame of the session's browser run, what it
@@ -230,6 +234,51 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
 
   const client = () => createHarnessClient(props.harnessServerUrl)
 
+  // The headless page is asked to match the panel exactly, or the live view shows grey bars where
+  // the page is smaller than its frame. `reported` caches the measured size and `requested` the
+  // size already sent, so a resize storm and a duplicate refresh cost nothing.
+  const [viewportHost, setViewportHost] = createSignal<HTMLDivElement>()
+  let reported: { width: number; height: number } | undefined
+  let requested: { width: number; height: number } | undefined
+  let debounce: ReturnType<typeof setTimeout> | undefined
+
+  const askViewport = (size: { width: number; height: number } | undefined, force = false) => {
+    const sessionID = props.sessionID
+    if (!sessionID || !size || size.width < 1 || size.height < 1) return
+    // A real window is sized by its user and stays headed: the page is not resized, so asking again
+    // would only be a request the server ignores.
+    if (status()?.headed === true) return
+    if (!force && requested?.width === size.width && requested?.height === size.height) return
+    requested = size
+    // A session that closed between the measurement and the call is not worth a notice: the next
+    // status refresh clears the panel anyway.
+    void client()
+      .agentBrowser.setViewport(sessionID, size)
+      .catch(() => undefined)
+  }
+
+  const measure = (size: { width: number; height: number }) => {
+    // Clamped here, against the server's ceiling: a frame larger than that is stored clamped, so
+    // caching the raw measurement would make `refreshStatus` ask forever for a size it never gets.
+    const next = {
+      width: Math.min(MAX_VIEWPORT, Math.floor(size.width)),
+      height: Math.min(MAX_VIEWPORT, Math.floor(size.height)),
+    }
+    if (next.width < 1 || next.height < 1) return
+    if (reported?.width === next.width && reported?.height === next.height) return
+    reported = next
+    if (debounce) clearTimeout(debounce)
+    debounce = setTimeout(() => {
+      debounce = undefined
+      askViewport(next)
+    }, VIEWPORT_DEBOUNCE_MS)
+  }
+
+  const measureHost = () => {
+    const rect = viewportHost()?.getBoundingClientRect()
+    if (rect) measure({ width: Math.floor(rect.width), height: Math.floor(rect.height) })
+  }
+
   const refreshStatus = async () => {
     const sessionID = props.sessionID
     if (!sessionID) {
@@ -237,7 +286,17 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
       return
     }
     try {
-      setStatus(await client().agentBrowser.session(sessionID))
+      const session = await client().agentBrowser.session(sessionID)
+      setStatus(session)
+      // A page started before the panel was measured (or resized while the status was away) is
+      // told again when its viewport does not match the frame it is shown in. A headed window is
+      // never resized, so it is left alone.
+      if (
+        !session.headed &&
+        reported &&
+        (session.viewport?.width !== reported.width || session.viewport?.height !== reported.height)
+      )
+        askViewport(reported, true)
     } catch {
       // Keep the last known status on a transient failure: blanking the whole panel on every
       // hiccup unmounts the frame, the meta and the buttons, which reads as flicker. A session
@@ -314,6 +373,12 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
         if (id === knownSession) return
         knownSession = id
         clearStatus()
+        // The next session has its own page and its own size, so what was measured for the last one
+        // is forgotten; the observer re-reads the frame when it mounts again.
+        reported = undefined
+        requested = undefined
+        if (debounce) clearTimeout(debounce)
+        debounce = undefined
         if (!id) return
         setStatus(undefined)
         void refreshStatus().then(() => void refreshFrame())
@@ -321,8 +386,29 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
     ),
   )
 
+  // The frame's own box decides the page size: every resize is measured, floored to whole pixels
+  // and, once it settles, sent so the headless page fills the panel with no letterbox.
+  createEffect(() => {
+    const host = viewportHost()
+    if (!host) return
+    const observer = new ResizeObserver((entries) => {
+      const rect = entries[0]?.contentRect
+      if (rect) measure({ width: Math.floor(rect.width), height: Math.floor(rect.height) })
+    })
+    observer.observe(host)
+    onCleanup(() => {
+      observer.disconnect()
+      if (debounce) clearTimeout(debounce)
+      debounce = undefined
+    })
+    // The observer only fires on a change, so an initial read covers a frame that was already the
+    // right size when a new session took it over.
+    measureHost()
+  })
+
   onCleanup(() => {
     alive = false
+    if (debounce) clearTimeout(debounce)
     const previous = frame()
     if (previous) URL.revokeObjectURL(previous)
   })
@@ -384,11 +470,13 @@ const AgentBrowserPanel: Component<{ harnessServerUrl: string; sessionID: string
             </div>
           }
         >
-            {(live) => (
+          {(live) => (
             <>
-              <Show when={frame()} fallback={<div class="fc-agent-browser-frame fc-agent-browser-waiting" />}>
-                {(src) => <img class="fc-agent-browser-frame" src={src()} alt={live().title || live().url} />}
-              </Show>
+              <div class="fc-agent-browser-viewport" ref={(element) => setViewportHost(element)}>
+                <Show when={frame()} fallback={<div class="fc-agent-browser-frame fc-agent-browser-waiting" />}>
+                  {(src) => <img class="fc-agent-browser-frame" src={src()} alt={live().title || live().url} />}
+                </Show>
+              </div>
               <div class="fc-agent-browser-meta">
                 <span class="fc-agent-browser-url" title={live().url}>
                   {live().title || live().url}

@@ -125,6 +125,14 @@ binary WebSocket to the renderer and no input forwarding: the PTY WebSocket live
 is reached through `engineSocket`, whereas `harness-server` is reached through `anonymousFetch` and
 is not tunnel-capable (`packages/harness/src/transport.ts`).
 
+The live view is WYSIWYG: the panel measures its own frame and posts the size to
+`POST .../viewport`, so the headless page is resized to match it and no grey letterbox appears. A
+headed window is never constrained — it is sized by its user, and the panel stops asking once the
+session is headed. Taking over an idle run opens the window at once instead of waiting for a step
+boundary; mid-run it still waits for one, so no Playwright call is relaunched out from under it.
+The revealed context is bound with the same egress guard as the headless one before it is
+published. Input forwarding remains out of scope.
+
 ### 8. Security is a precondition, not a phase
 
 The loopback bearer token for `/harness/browser/*` and the SSRF/egress guard land in the first

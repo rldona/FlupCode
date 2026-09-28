@@ -24,6 +24,9 @@ const MAX_PAGE_TEXT = 200_000
 const SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/
 /** Credential-shaped fields the browser always blacks out, whatever the profile declared. */
 const BASE_MASK = 'input[type="password"], [autocomplete^="cc-"]'
+/** The bounds a live-view resize is clamped to (WA-6). */
+export const MIN_VIEWPORT = 1
+export const MAX_VIEWPORT = 4096
 
 export type WaitUntil = "load" | "domcontentloaded" | "networkidle" | "commit"
 
@@ -102,10 +105,26 @@ export type BrowserRuntime = {
   pause(id: string): BrowserSession
   /** Let the agent carry on after a pause. */
   resume(id: string): BrowserSession
-  /** Reveal a headed window and pause the agent on it. A headless session cannot be taken over. */
+  /** Reveal a headed window and pause the agent on it (WA-6). */
   takeOver(id: string): Promise<BrowserSession>
   /** Stop a run for good: the runner fails with `stopped`, and the session is closed. */
   abort(id: string): Promise<boolean>
+  /**
+   * Marks this session as running (WA-6).
+   *
+   * A wanted reveal waits for the run to reach a step boundary; counting active runs here is what
+   * lets an idle takeover open the window at once and a busy one wait for the boundary.
+   */
+  beginRun(id: string): void
+  /** Ends one active run; the last one opens a wanted window and resolves when it has (WA-6). */
+  endRun(id: string): Promise<void>
+  /**
+   * Resizes the headless page to match the live view's panel (WA-6).
+   *
+   * The size is validated and clamped at the HTTP boundary (`parseViewport`), which also fixes the
+   * error precedence: a bad size is `invalid_viewport` before a missing session can be `no_session`.
+   */
+  setViewport(id: string, viewport: BrowserViewport): Promise<BrowserSession>
   /** Block the caller while the session is paused; throw `stopped` if it was aborted meanwhile. */
   waitIfPaused(id: string): Promise<void>
   navigate(id: string, url: string, waitUntil?: WaitUntil): Promise<{ url: string; title: string }>
@@ -163,6 +182,7 @@ export type BrowserErrorCode =
   | "navigation_blocked"
   | "project_required"
   | "stopped"
+  | "invalid_viewport"
 
 /**
  * The session id the runtime keys everything by, read from the header.
@@ -176,6 +196,24 @@ export const readSessionID = (value: string | undefined): string => {
   if (!SESSION_ID.test(value)) throw new BrowserError("invalid_session", 400, "That browser session id is not valid")
   return value
 }
+
+/**
+ * The size a live-view resize asks for, refused or clamped (WA-6).
+ *
+ * The number comes from a renderer that measured a panel: a missing, non-finite or non-positive
+ * side is a caller's bug, not a size to guess at, so it is refused. A real size outside what a page
+ * can be told is clamped instead, because a panel taller than the cap is still a panel to fill.
+ */
+export function parseViewport(width: unknown, height: unknown): BrowserViewport {
+  if (!isPositiveFinite(width) || !isPositiveFinite(height))
+    throw new BrowserError("invalid_viewport", 400, "A viewport needs a positive width and height")
+  return { width: clampViewport(width), height: clampViewport(height) }
+}
+
+const isPositiveFinite = (value: unknown): value is number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0
+
+const clampViewport = (value: number): number => Math.min(MAX_VIEWPORT, Math.max(MIN_VIEWPORT, Math.round(value)))
 
 export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRuntime {
   const dataDir = options.dataDir ?? join(flupcodeConfigDir(), "browser")
@@ -227,7 +265,15 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   const touch = (session: ActiveSession): void => {
     session.view.lastUsedAt = Date.now()
     if (session.timer) clearTimeout(session.timer)
-    session.timer = setTimeout(() => void closeSession(session.view.id), session.view.idleTimeoutMs)
+    session.timer = setTimeout(() => {
+      // A page call or a reveal in flight is the session being used, so the idle clock restarts
+      // instead of closing the browser out from under it.
+      if (session.inflight > 0 || session.revealTask) {
+        touch(session)
+        return
+      }
+      void closeSession(session.view.id)
+    }, session.view.idleTimeoutMs)
   }
 
   const requireSession = (id: string): ActiveSession => {
@@ -246,6 +292,145 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     url: redactSecrets(session.view.url, [...session.secrets]),
     title: redactSecrets(session.view.title, [...session.secrets]),
   })
+
+  /** One lifecycle change at a time per session, so two reveals can never overlap. */
+  const lifecycle = <T>(session: ActiveSession, work: () => Promise<T>): Promise<T> => {
+    const run = session.queue.then(work, work)
+    session.queue = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  /** Whether this exact session object is still the one registered under its id. */
+  const isLive = (session: ActiveSession): boolean => sessions.get(session.view.id) === session
+
+  /**
+   * Wires the egress guard and the WebSocket close onto a context (WA-1, WA-6).
+   *
+   * The route guard only sees http(s): a WebSocket is a separate transport that could reach
+   * loopback or RFC1918 without ever passing it, so every page's WebSockets are closed. The target
+   * context is a parameter, not `session.context`, because a headed reveal binds the new context
+   * **before** publishing it: the guard must be in place before the restored profile can navigate.
+   */
+  const bindContext = async (session: ActiveSession, context: BrowserContext): Promise<void> => {
+    await context.route("**/*", (route) => {
+      const url = route.request().url()
+      return egress.assertNavigable(url).then(
+        () => route.continue(),
+        (cause) => {
+          // Only a navigation the guard refused is remembered: a blocked subresource is not what a
+          // failed `goto` means, and treating it as one would turn a broken page into a 403.
+          if (route.request().isNavigationRequest()) session.aborted = { reason: reasonOf(cause), url }
+          return route.abort()
+        },
+      )
+    })
+    // The route guard only sees http(s): a WebSocket is a separate transport that could reach
+    // loopback or RFC1918 without ever passing it, so in WA-1 every page's WebSockets are closed.
+    await context.routeWebSocket("**/*", (ws) => ws.close())
+  }
+
+  /**
+   * Runs a page call with any wanted reveal deferred until it is done (WA-6).
+   *
+   * A page call awaits a reveal already running, and counts as in flight while it runs so a
+   * takeover asked for mid-call waits for the call instead of killing the Playwright request.
+   */
+  const pageOp = async <T>(session: ActiveSession, work: () => Promise<T>): Promise<T> => {
+    const reveal = session.revealTask
+    if (reveal) await reveal
+    session.inflight += 1
+    try {
+      return await work()
+    } finally {
+      session.inflight -= 1
+      void maybeReveal(session)?.catch(() => undefined)
+    }
+  }
+
+  /**
+   * Opens the headed window for a session that was asked to be taken over (WA-6).
+   *
+   * The headless page is a different Chromium process, so the window is a relaunch on the same
+   * persistent profile: the login survives, and the id, project, secrets, run and task are kept,
+   * with no closed status and no release of the project's reservation. The new context is built and
+   * its guards bound **before** it is published, so the restored profile can never navigate before
+   * the egress boundary is in place. A real window is sized by its user, so no viewport is applied;
+   * the reported viewport is refreshed from the new page instead.
+   */
+  const revealHeaded = async (session: ActiveSession): Promise<void> => {
+    if (session.view.headed || session.stopped || !isLive(session)) return
+    // The persistent profile is locked by the running Chromium, so the old context has to go before
+    // the headed one can start on it. If the relaunch then fails, the session is closed below rather
+    // than left registered with a dead context.
+    const previous = session.context
+    await previous.close().catch(() => undefined)
+    const context = await launch(options, true, join(dataDir, "profiles", profileName(session.view.project))).catch(
+      async (cause) => {
+        if (isLive(session)) await closeSession(session.view.id)
+        throw cause
+      },
+    )
+    try {
+      const page = context.pages()[0] ?? (await context.newPage())
+      // Adopt nothing until the guards are on the new context: a restored page that navigates while
+      // we are still binding must not be reached without the egress boundary.
+      await bindContext(session, context)
+      // The session can be stopped, closed, or have its id reused while launch/bind yield: the new
+      // window is then a browser nobody owns, so it is closed instead of published.
+      if (session.stopped || !isLive(session)) {
+        await context.close().catch(() => undefined)
+        return
+      }
+      session.context = context
+      session.page = page
+      session.view.headed = true
+      // The headed page is not the one the panel measured, so the reported size must be the truth of
+      // the new page, not the size the headless one had.
+      session.view.viewport = page.viewportSize() ?? undefined
+      await page.bringToFront().catch(() => undefined)
+      // Abort or close can land during `bringToFront`, which closes the context we just published;
+      // a status for a session that is gone would only restart a viewer that should stay cleared.
+      if (session.stopped || !isLive(session)) return
+      emitStatus(session)
+    } catch (cause) {
+      await context.close().catch(() => undefined)
+      // The previous context is already gone and the new one just failed, so a session left
+      // registered would only hold a dead context: close it and surface the failure. Identity is
+      // checked so a reused id is never closed in this session's name.
+      if (isLive(session)) await closeSession(session.view.id)
+      throw cause
+    }
+  }
+
+  /**
+   * Starts a wanted reveal if the moment allows it (WA-6).
+   *
+   * A reveal must not race a page call, so it defers while anything is in flight. It also waits for
+   * a run to reach a step boundary unless the caller is that boundary (`force`): relaunching under
+   * a Playwright call would kill it. An idle session, with no run and nothing in flight, reveals
+   * at once. The wish is cleared only once the reveal really opened a window, so a failed launch
+   * does not lose the request.
+   */
+  const maybeReveal = (session: ActiveSession, force = false): Promise<void> | undefined => {
+    if (force) session.revealForced = true
+    if (!session.revealWanted) return undefined
+    if (session.revealTask) return session.revealTask
+    if (session.inflight > 0) return undefined
+    if (session.runActive > 0 && !session.revealForced) return undefined
+    session.revealTask = lifecycle(session, async () => {
+      try {
+        await revealHeaded(session)
+        session.revealWanted = false
+        session.revealForced = false
+      } finally {
+        session.revealTask = undefined
+      }
+    })
+    return session.revealTask
+  }
 
   /** The values the fields BASE_MASK always blacks out currently hold, however they were typed. */
   const maskedFieldValues = (session: ActiveSession): Promise<string[]> =>
@@ -320,27 +505,18 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       paused: false,
       stopped: false,
       wake: undefined,
-      takeoverRequested: false,
+      runActive: 0,
+      inflight: 0,
+      revealWanted: false,
+      revealForced: false,
+      revealTask: undefined,
+      queue: Promise.resolve(),
       secrets: new Set(),
       maskSelectors: new Set(),
       runID: input.runID,
       taskID: input.taskID,
     }
-    await context.route("**/*", (route) => {
-      const url = route.request().url()
-      return egress.assertNavigable(url).then(
-        () => route.continue(),
-        (cause) => {
-          // Only a navigation the guard refused is remembered: a blocked subresource is not what a
-          // failed `goto` means, and treating it as one would turn a broken page into a 403.
-          if (route.request().isNavigationRequest()) session.aborted = { reason: reasonOf(cause), url }
-          return route.abort()
-        },
-      )
-    })
-    // The route guard only sees http(s): a WebSocket is a separate transport that could reach
-    // loopback or RFC1918 without ever passing it, so in WA-1 every page's WebSockets are closed.
-    await context.routeWebSocket("**/*", (ws) => ws.close())
+    await bindContext(session, context)
     sessions.set(id, session)
     touch(session)
     emitStatus(session)
@@ -373,7 +549,9 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   const resume = (id: string): BrowserSession => {
     const session = requireSession(id)
     session.paused = false
-    session.takeoverRequested = false
+    // A reveal already running is not cancelled; only a wish still waiting is dropped.
+    session.revealWanted = false
+    session.revealForced = false
     wake(session)
     emitStatus(session)
     return redactedView(session)
@@ -381,15 +559,38 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
 
   const takeOver = async (id: string): Promise<BrowserSession> => {
     const session = requireSession(id)
+    session.paused = true
     if (session.view.headed) {
-      await session.page.bringToFront()
-      return pause(id)
+      await session.page.bringToFront().catch(() => undefined)
+      emitStatus(session)
+      return redactedView(session)
     }
-    // No window to hand over yet: the agent runs headless and only the live view is shown. Mark it
-    // and hold the agent; the window opens at the next step boundary, where no Playwright call is
-    // in flight to kill, with the same persistent profile (and login) as the headless session.
-    session.takeoverRequested = true
-    return pause(id)
+    // No window yet: mark the wish and let `maybeReveal` decide. With no run and nothing in flight
+    // it opens the window now; mid-run it waits for the next step boundary, where no Playwright
+    // call is in flight to kill. Either way the agent stays held.
+    session.revealWanted = true
+    await (maybeReveal(session) ?? Promise.resolve())
+    // Abort or close during the reveal removes the session; a status for one that is gone would only
+    // restart a viewer that should stay cleared.
+    if (!isLive(session)) return redactedView(session)
+    emitStatus(session)
+    return redactedView(session)
+  }
+
+  const beginRun = (id: string): void => {
+    // Advisory: after a close or an abort there is no session to count a run on, and that is fine.
+    const session = sessions.get(id)
+    if (session) session.runActive += 1
+  }
+
+  const endRun = (id: string): Promise<void> => {
+    const session = sessions.get(id)
+    if (!session) return Promise.resolve()
+    session.runActive = Math.max(0, session.runActive - 1)
+    // The run is over, so a window somebody asked for no longer has a boundary to wait for. Awaiting
+    // the reveal lets the caller's `finally` order before a `closeOnFinish` close.
+    if (session.runActive > 0) return Promise.resolve()
+    return maybeReveal(session) ?? Promise.resolve()
   }
 
   const abort = async (id: string): Promise<boolean> => {
@@ -399,6 +600,8 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     session.paused = false
     wake(session)
     // Closing the context is what makes a Playwright call in flight reject instead of hanging.
+    // Deliberately not queued behind a reveal: a stopped session must die now, and the reveal's
+    // identity/`stopped` re-checks are what close any window it had started to launch.
     return closeSession(id)
   }
 
@@ -406,18 +609,14 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     for (;;) {
       const session = requireSession(id)
       if (session.stopped) throw new BrowserError("stopped", 409, "That browser session was stopped")
-      // A takeover asked for while headless opens the window here, at a step boundary: relaunching
-      // anywhere else would kill the Playwright call in flight. The persistent profile (and login)
-      // survives the relaunch; the agent stays held throughout.
-      if (session.takeoverRequested && !session.view.headed) {
-        session.takeoverRequested = false
-        const project = session.view.project
-        const idleTimeoutMs = session.view.idleTimeoutMs
-        await closeSession(id)
-        await start({ id, project, headed: true, idleTimeoutMs })
-        pause(id)
-        await sessions.get(id)?.page.bringToFront()
-        continue
+      // This is a step boundary, so a takeover asked for mid-run may open the window here even
+      // though the run is still active; the persistent profile (and login) survives the relaunch.
+      if (session.revealWanted) {
+        const reveal = maybeReveal(session, true)
+        if (reveal) {
+          await reveal
+          continue
+        }
       }
       if (!session.paused) {
         touch(session)
@@ -426,10 +625,23 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
       await new Promise<void>((resolve) => {
         session.wake = resolve
       })
-      // The object outlives the map entry, so a closed session is told apart from a resumed one.
-      if (session.stopped || !sessions.has(session.view.id))
-        throw new BrowserError("stopped", 409, "That browser session was stopped")
+      // The object outlives the map entry, so identity — not mere presence of the id — is what tells
+      // a closed or reused session from the one that was resumed.
+      if (session.stopped || !isLive(session)) throw new BrowserError("stopped", 409, "That browser session was stopped")
     }
+  }
+
+  const setViewport = async (id: string, viewport: BrowserViewport): Promise<BrowserSession> => {
+    const session = requireSession(id)
+    // The size is already parsed and clamped at the HTTP boundary; the re-check below is the one
+    // that matters here, because `pageOp` can run after a reveal swapped in the headed window.
+    await pageOp(session, async () => {
+      if (session.view.headed) return
+      await session.page.setViewportSize(viewport)
+      session.view.viewport = session.page.viewportSize() ?? viewport
+    })
+    touch(session)
+    return redactedView(session)
   }
 
   const clearData = async (project: string): Promise<boolean> => {
@@ -444,93 +656,107 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
 
   const navigate = async (id: string, url: string, waitUntil?: WaitUntil) => {
     const session = requireSession(id)
-    clearAborted(session)
-    await egress.assertNavigable(url)
-    try {
-      await session.page.goto(url, { waitUntil: waitUntil ?? "domcontentloaded" })
-    } catch (cause) {
-      const aborted = session.aborted
-      if (aborted) throw new NavigationBlockedError(aborted.reason, aborted.url)
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
-    // A redirect is a new request the guard sees on its own, but the URL it lands on is worth
-    // checking too: a page can end somewhere the first one did not name.
-    const landed = session.page.url()
-    if (URL.canParse(landed)) await egress.assertNavigable(landed)
-    return pick(await syncView(session))
+    return pageOp(session, async () => {
+      clearAborted(session)
+      await egress.assertNavigable(url)
+      try {
+        await session.page.goto(url, { waitUntil: waitUntil ?? "domcontentloaded" })
+      } catch (cause) {
+        const aborted = session.aborted
+        if (aborted) throw new NavigationBlockedError(aborted.reason, aborted.url)
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+      // A redirect is a new request the guard sees on its own, but the URL it lands on is worth
+      // checking too: a page can end somewhere the first one did not name.
+      const landed = session.page.url()
+      if (URL.canParse(landed)) await egress.assertNavigable(landed)
+      return pick(await syncView(session))
+    })
   }
 
   const snapshot = async (id: string, options?: { html?: boolean }) => {
     const session = requireSession(id)
-    const secrets = await collectSecrets(session)
-    const text = redactSecrets(
-      (await session.page.evaluate(() => document.body?.innerText ?? "")).slice(0, MAX_PAGE_TEXT),
-      secrets,
-    )
-    const view = await syncView(session)
-    const html = options?.html
-      ? redactSecrets(
-          (await session.page.evaluate(() => document.documentElement.outerHTML)).slice(0, MAX_PAGE_TEXT),
-          secrets,
-        )
-      : undefined
-    return { ...pick(view), text, ...(html !== undefined ? { html } : {}) }
+    return pageOp(session, async () => {
+      const secrets = await collectSecrets(session)
+      const text = redactSecrets(
+        (await session.page.evaluate(() => document.body?.innerText ?? "")).slice(0, MAX_PAGE_TEXT),
+        secrets,
+      )
+      const view = await syncView(session)
+      const html = options?.html
+        ? redactSecrets(
+            (await session.page.evaluate(() => document.documentElement.outerHTML)).slice(0, MAX_PAGE_TEXT),
+            secrets,
+          )
+        : undefined
+      return { ...pick(view), text, ...(html !== undefined ? { html } : {}) }
+    })
   }
 
   const click = async (id: string, selector: string, timeoutMs?: number) => {
     const session = requireSession(id)
-    try {
-      await session.page.click(selector, timeoutOptions(timeoutMs))
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
-    return pick(await syncView(session))
+    return pageOp(session, async () => {
+      try {
+        await session.page.click(selector, timeoutOptions(timeoutMs))
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+      return pick(await syncView(session))
+    })
   }
 
   const type = async (id: string, selector: string, text: string, timeoutMs?: number) => {
     const session = requireSession(id)
-    try {
-      await session.page.fill(selector, text, timeoutOptions(timeoutMs))
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
-    return pick(await syncView(session))
+    return pageOp(session, async () => {
+      try {
+        await session.page.fill(selector, text, timeoutOptions(timeoutMs))
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+      return pick(await syncView(session))
+    })
   }
 
   const submit = async (id: string, selector: string, timeoutMs?: number) => {
     const session = requireSession(id)
-    try {
-      await session.page.click(selector, timeoutOptions(timeoutMs))
-      // A submit that did not navigate is not a failure; the click is the action, and this only
-      // waits for the page if one is coming.
-      await session.page.waitForLoadState("domcontentloaded", timeoutOptions(timeoutMs)).then(
-        () => undefined,
-        () => undefined,
-      )
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
-    return pick(await syncView(session))
+    return pageOp(session, async () => {
+      try {
+        await session.page.click(selector, timeoutOptions(timeoutMs))
+        // A submit that did not navigate is not a failure; the click is the action, and this only
+        // waits for the page if one is coming.
+        await session.page.waitForLoadState("domcontentloaded", timeoutOptions(timeoutMs)).then(
+          () => undefined,
+          () => undefined,
+        )
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+      return pick(await syncView(session))
+    })
   }
 
   const waitFor = async (id: string, selector: string, timeoutMs?: number, state?: "attached" | "visible") => {
     const session = requireSession(id)
-    try {
-      await session.page.waitForSelector(selector, { ...timeoutOptions(timeoutMs), state: state ?? "visible" })
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
-    return pick(await syncView(session))
+    return pageOp(session, async () => {
+      try {
+        await session.page.waitForSelector(selector, { ...timeoutOptions(timeoutMs), state: state ?? "visible" })
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+      return pick(await syncView(session))
+    })
   }
 
   const upload = async (id: string, selector: string, filePath: string, timeoutMs?: number) => {
     const session = requireSession(id)
-    try {
-      await session.page.setInputFiles(selector, filePath, timeoutOptions(timeoutMs))
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
-    return pick(await syncView(session))
+    return pageOp(session, async () => {
+      try {
+        await session.page.setInputFiles(selector, filePath, timeoutOptions(timeoutMs))
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+      return pick(await syncView(session))
+    })
   }
 
   const text = async (
@@ -540,25 +766,27 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
   ) => {
     const session = requireSession(id)
     const as = options?.as ?? "text"
-    const secrets = await collectSecrets(session)
-    try {
-      const locator = session.page.locator(selector).first()
-      // A hidden node still has attributes and inner HTML; only text needs it on screen.
-      await locator.waitFor({ state: as === "text" ? "visible" : "attached", ...timeoutOptions(options?.timeoutMs) })
-      const value =
-        as === "html"
-          ? await locator.innerHTML()
-          : as === "attribute"
-            ? await locator.getAttribute(options?.attribute ?? "")
-            : await locator.innerText()
-      return {
-        // `null` stays `null`: a missing attribute is not a value that could leak.
-        value: typeof value === "string" ? redactSecrets(value.slice(0, MAX_PAGE_TEXT), secrets) : value,
-        ...pick(await syncView(session)),
+    return pageOp(session, async () => {
+      const secrets = await collectSecrets(session)
+      try {
+        const locator = session.page.locator(selector).first()
+        // A hidden node still has attributes and inner HTML; only text needs it on screen.
+        await locator.waitFor({ state: as === "text" ? "visible" : "attached", ...timeoutOptions(options?.timeoutMs) })
+        const value =
+          as === "html"
+            ? await locator.innerHTML()
+            : as === "attribute"
+              ? await locator.getAttribute(options?.attribute ?? "")
+              : await locator.innerText()
+        return {
+          // `null` stays `null`: a missing attribute is not a value that could leak.
+          value: typeof value === "string" ? redactSecrets(value.slice(0, MAX_PAGE_TEXT), secrets) : value,
+          ...pick(await syncView(session)),
+        }
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
       }
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
+    })
   }
 
   // Playwright applies the mask for the shot and lifts it again, so the profile on disk never learns
@@ -606,8 +834,10 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
 
   const screenshot = async (id: string, label?: string) => {
     const session = requireSession(id)
-    const { artifactId } = await storeScreenshot(session, label)
-    return { artifactId }
+    return pageOp(session, async () => {
+      const { artifactId } = await storeScreenshot(session, label)
+      return { artifactId }
+    })
   }
 
   const frame = async (
@@ -615,10 +845,12 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     options?: { store?: boolean },
   ): Promise<{ bytes: Uint8Array; artifactId?: string }> => {
     const session = requireSession(id)
-    // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
-    // the disk without anybody ever asking for it back.
-    if (options?.store === false) return { bytes: await session.page.screenshot(captureOptions(session)) }
-    return storeScreenshot(session)
+    return pageOp(session, async () => {
+      // A polled frame with `store: false` is served and forgotten: writing a PNG per poll would grow
+      // the disk without anybody ever asking for it back.
+      if (options?.store === false) return { bytes: await session.page.screenshot(captureOptions(session)) }
+      return storeScreenshot(session)
+    })
   }
 
   /**
@@ -636,73 +868,75 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
    */
   const capture = async (id: string, point: { x: number; y: number }): Promise<SelectorCapture> => {
     const session = requireSession(id)
-    try {
-      const result = (await session.page.evaluate(({ x, y }: { x: number; y: number }) => {
-        const viewport = { width: window.innerWidth, height: window.innerHeight }
-        const element = document.elementFromPoint(x * viewport.width, y * viewport.height)
-        if (!element) return { found: false as const, reason: "none" as const, viewport }
-        if (element.tagName === "IFRAME" || element.tagName === "FRAME")
-          return { found: true as const, reason: "iframe" as const, viewport }
-        const unique = (selector: string) => {
-          try {
-            return document.querySelectorAll(selector).length === 1
-          } catch {
-            return false
-          }
-        }
-        const candidates: string[] = []
-        for (const attribute of ["data-testid", "data-test", "data-cy", "data-qa"]) {
-          const value = element.getAttribute(attribute)
-          if (!value) continue
-          const selector = `[${attribute}="${CSS.escape(value)}"]`
-          if (unique(selector)) {
-            candidates.push(selector)
-            break
-          }
-        }
-        if (element.id) candidates.push(`#${CSS.escape(element.id)}`)
-        const name = element.getAttribute("name")
-        if (name) {
-          const selector = `[name="${CSS.escape(name)}"]`
-          if (unique(selector)) candidates.push(selector)
-        }
-        const segments: string[] = []
-        let node: Element | null = element
-        for (let depth = 0; depth < 6 && node; depth++) {
-          if (depth > 0 && node.id) {
-            segments.unshift(`#${CSS.escape(node.id)}`)
-            break
-          }
-          const tag = node.tagName.toLowerCase()
-          let index = 1
-          const parent: Element | null = node.parentElement
-          if (parent)
-            for (const child of parent.children) {
-              if (child === node) break
-              if (child.tagName === node.tagName) index++
+    return pageOp(session, async () => {
+      try {
+        const result = (await session.page.evaluate(({ x, y }: { x: number; y: number }) => {
+          const viewport = { width: window.innerWidth, height: window.innerHeight }
+          const element = document.elementFromPoint(x * viewport.width, y * viewport.height)
+          if (!element) return { found: false as const, reason: "none" as const, viewport }
+          if (element.tagName === "IFRAME" || element.tagName === "FRAME")
+            return { found: true as const, reason: "iframe" as const, viewport }
+          const unique = (selector: string) => {
+            try {
+              return document.querySelectorAll(selector).length === 1
+            } catch {
+              return false
             }
-          segments.unshift(`${tag}:nth-of-type(${index})`)
-          node = parent
-          if (!node || node === document.body) break
-        }
-        const path = segments.join(" > ")
-        if (path) candidates.push(path)
-        const box = element.getBoundingClientRect()
-        return {
-          found: true as const,
-          viewport,
-          box: { x: box.x, y: box.y, width: box.width, height: box.height },
-          tag: element.tagName.toLowerCase(),
-          candidates: candidates.slice(0, 3),
-          text: ((element as HTMLElement).innerText || element.textContent || "").slice(0, 500),
-        }
-      }, point)) as SelectorCapture
-      return result.text === undefined
-        ? result
-        : { ...result, text: redactSecrets(result.text, await collectSecrets(session)) }
-    } catch (cause) {
-      throw new BrowserError("action_failed", 422, messageOf(cause))
-    }
+          }
+          const candidates: string[] = []
+          for (const attribute of ["data-testid", "data-test", "data-cy", "data-qa"]) {
+            const value = element.getAttribute(attribute)
+            if (!value) continue
+            const selector = `[${attribute}="${CSS.escape(value)}"]`
+            if (unique(selector)) {
+              candidates.push(selector)
+              break
+            }
+          }
+          if (element.id) candidates.push(`#${CSS.escape(element.id)}`)
+          const name = element.getAttribute("name")
+          if (name) {
+            const selector = `[name="${CSS.escape(name)}"]`
+            if (unique(selector)) candidates.push(selector)
+          }
+          const segments: string[] = []
+          let node: Element | null = element
+          for (let depth = 0; depth < 6 && node; depth++) {
+            if (depth > 0 && node.id) {
+              segments.unshift(`#${CSS.escape(node.id)}`)
+              break
+            }
+            const tag = node.tagName.toLowerCase()
+            let index = 1
+            const parent: Element | null = node.parentElement
+            if (parent)
+              for (const child of parent.children) {
+                if (child === node) break
+                if (child.tagName === node.tagName) index++
+              }
+            segments.unshift(`${tag}:nth-of-type(${index})`)
+            node = parent
+            if (!node || node === document.body) break
+          }
+          const path = segments.join(" > ")
+          if (path) candidates.push(path)
+          const box = element.getBoundingClientRect()
+          return {
+            found: true as const,
+            viewport,
+            box: { x: box.x, y: box.y, width: box.width, height: box.height },
+            tag: element.tagName.toLowerCase(),
+            candidates: candidates.slice(0, 3),
+            text: ((element as HTMLElement).innerText || element.textContent || "").slice(0, 500),
+          }
+        }, point)) as SelectorCapture
+        return result.text === undefined
+          ? result
+          : { ...result, text: redactSecrets(result.text, await collectSecrets(session)) }
+      } catch (cause) {
+        throw new BrowserError("action_failed", 422, messageOf(cause))
+      }
+    })
   }
 
   const stop = async (): Promise<void> => {
@@ -720,6 +954,9 @@ export function createBrowserRuntime(options: BrowserRuntimeOptions): BrowserRun
     resume,
     takeOver,
     abort,
+    beginRun,
+    endRun,
+    setViewport,
     waitIfPaused,
     navigate,
     snapshot,
@@ -751,8 +988,18 @@ type ActiveSession = {
   stopped: boolean
   /** Resolves `waitIfPaused` so a resume or an abort is noticed. */
   wake: (() => void) | undefined
-  /** A person asked for the window while headless: it opens at the next step boundary. */
-  takeoverRequested: boolean
+  /** How many runs currently drive this session (WA-6); a wanted reveal waits for them. */
+  runActive: number
+  /** Page calls in flight; a reveal is deferred until this is zero (WA-6). */
+  inflight: number
+  /** Somebody asked for the headed window and it is not open yet (WA-6). */
+  revealWanted: boolean
+  /** The reveal was asked for at a step boundary, so it need not wait for the run (WA-6). */
+  revealForced: boolean
+  /** The reveal in progress, so a second one does not start and page calls can wait for it. */
+  revealTask: Promise<void> | undefined
+  /** The tail of this session's lifecycle changes: reveals run one at a time (WA-6). */
+  queue: Promise<unknown>
   /** The run and task this browser works for (WA-7), so its screenshots are filed under them. */
   runID?: string
   taskID?: string
@@ -833,6 +1080,8 @@ const launch = async (
   const { chromium } = await import("playwright-core")
   const headless = !headed
   mkdirSync(userDataDir, { recursive: true, mode: 0o700 })
+  // The page size is not set at launch: the live view measures its panel and posts it to
+  // `/harness/browser/viewport`, which is also the only place a headless page is resized.
   // The import above is safe without node_modules: `script/build.ts` drops the package.json lookup
   // playwright's nodePlatform runs at load, which is otherwise baked to the build machine's path.
   // The Chromium Playwright installed, when it is really on disk: a machine without it is exactly
@@ -861,7 +1110,13 @@ const launch = async (
   // browser by another name, not a different policy.
   return chromium
     .launchPersistentContext(userDataDir, { headless, serviceWorkers: "block" })
-    .catch(() => chromium.launchPersistentContext(userDataDir, { headless, channel: "chrome", serviceWorkers: "block" }))
+    .catch(() =>
+      chromium.launchPersistentContext(userDataDir, {
+        headless,
+        channel: "chrome",
+        serviceWorkers: "block",
+      }),
+    )
     .catch((cause) => {
       throw launchFailed(cause)
     })

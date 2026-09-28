@@ -29,10 +29,27 @@ const publish = {
 
 const local = { ...publish, id: "local", scope: "project", tool: "do_local", description: "Only in this project." }
 
-type Calls = { saves: Array<Record<string, unknown>>; previews: Array<Record<string, unknown>>; validates: number }
+const browserSession = {
+  id: "ses_actions",
+  project: "p",
+  headed: false,
+  paused: false,
+  stopped: false,
+  url: "https://example.com/compose",
+  title: "Compose",
+  viewport: { width: 1280, height: 720 },
+}
+
+type Calls = {
+  saves: Array<Record<string, unknown>>
+  previews: Array<Record<string, unknown>>
+  validates: number
+  viewports: Array<Record<string, unknown>>
+  takeovers: number
+}
 
 async function setup(page: Page, desktop: boolean) {
-  const calls: Calls = { saves: [], previews: [], validates: 0 }
+  const calls: Calls = { saves: [], previews: [], validates: 0, viewports: [], takeovers: 0 }
   await page.addInitScript((isDesktop) => {
     if (isDesktop) window.flupcode = { ownsTitleBar: true }
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
@@ -84,6 +101,16 @@ async function setup(page: Page, desktop: boolean) {
       })
     }
     if (url.pathname === "/harness/browser/frame") return route.fulfill({ status: 404, json: {} })
+    if (url.pathname === "/harness/browser/session" && request.method() === "GET")
+      return route.fulfill({ json: { data: browserSession } })
+    if (url.pathname === "/harness/browser/viewport" && request.method() === "POST") {
+      calls.viewports.push(request.postDataJSON() as Record<string, unknown>)
+      return route.fulfill({ json: { data: browserSession } })
+    }
+    if (url.pathname === "/harness/browser/takeover" && request.method() === "POST") {
+      calls.takeovers += 1
+      return route.fulfill({ json: { data: { ...browserSession, headed: true, paused: true } } })
+    }
     return route.fulfill({ json: { data: [] } })
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
@@ -155,4 +182,22 @@ test("hides the Actions nav and the agent browser toggle outside the desktop app
   await expect(page.locator(".fc-nav").getByRole("button", { name: /Runs/ })).toBeVisible()
   await expect(page.locator(".fc-nav").getByRole("button", { name: /Actions|Acciones/ })).toHaveCount(0)
   await expect(page.getByRole("button", { name: /Agent browser|Navegador del agente/ })).toHaveCount(0)
+})
+
+test("sizes the live agent browser to its panel and takes over an idle session", async ({ page }) => {
+  const { calls } = await setup(page, true)
+  await page.getByRole("button", { name: /Agent browser|Navegador del agente/ }).click()
+  const panel = page.locator(".fc-agent-browser")
+  await expect(panel.locator(".fc-agent-browser-viewport")).toBeVisible()
+
+  // The panel measures its own frame and asks the headless page to match it, so the view fills the
+  // panel instead of showing the page at a smaller default with grey bars.
+  await expect.poll(() => calls.viewports.length).toBeGreaterThan(0)
+  const [first] = calls.viewports
+  expect(first).toMatchObject({ width: expect.any(Number), height: expect.any(Number) })
+  expect(Number(first?.width)).toBeGreaterThan(0)
+  expect(Number(first?.height)).toBeGreaterThan(0)
+
+  await panel.getByRole("button", { name: /Take over|Tomar el control/ }).click()
+  await expect.poll(() => calls.takeovers).toBe(1)
 })

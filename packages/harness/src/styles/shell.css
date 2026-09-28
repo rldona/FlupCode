@@ -5242,10 +5242,16 @@ button.fc-status {
   padding: 8px;
 }
 
-.fc-agent-browser-frame {
+.fc-agent-browser-viewport {
   flex: 1;
   min-height: 120px;
   width: 100%;
+  display: flex;
+}
+
+.fc-agent-browser-frame {
+  width: 100%;
+  height: 100%;
   object-fit: contain;
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-sm);
