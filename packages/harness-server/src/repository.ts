@@ -3,6 +3,14 @@ import type { UsageRow } from "./usage"
 import { mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, sep } from "node:path"
+import {
+  normalizeEpisodeLimit,
+  normalizeOutcome,
+  parseFailures,
+  parseStringList,
+  parseVerifications,
+  RUN_EPISODE_PREFIX,
+} from "./adaptive/episode"
 import type {
   ActionTaskInput,
   BrowserAllowRule,
@@ -30,6 +38,9 @@ import type {
   ContextPack,
   SharedConversation,
   ProjectMemory,
+  EpisodeFilter,
+  EpisodeInput,
+  SessionEpisode,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -215,6 +226,27 @@ CREATE TABLE IF NOT EXISTS events (
   created_at INTEGER NOT NULL,
   payload_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS session_episodes (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  run_id TEXT,
+  objective TEXT NOT NULL,
+  tool_calls INTEGER NOT NULL DEFAULT 0,
+  files_json TEXT NOT NULL DEFAULT '[]',
+  commands_json TEXT NOT NULL DEFAULT '[]',
+  failures_json TEXT NOT NULL DEFAULT '[]',
+  verifications_json TEXT NOT NULL DEFAULT '[]',
+  outcome TEXT NOT NULL DEFAULT 'unknown',
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_episodes_project ON session_episodes(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS session_episodes_session ON session_episodes(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS session_episodes_run ON session_episodes(run_id, created_at DESC);
 `
 
 /**
@@ -454,6 +486,62 @@ const decodeMemory = (row: ProjectMemoryRow): ProjectMemory => ({
   text: row.text,
   createdAt: row.created_at,
 })
+
+type EpisodeRow = {
+  id: string
+  session_id: string
+  project_id: string
+  run_id: string | null
+  objective: string
+  tool_calls: number
+  files_json: string | null
+  commands_json: string | null
+  failures_json: string | null
+  verifications_json: string | null
+  outcome: string | null
+  started_at: number
+  ended_at: number | null
+  evidence_refs_json: string | null
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * A stored episode, read defensively.
+ *
+ * Structured fields are JSON text, an outcome is a string and every scalar SQLite is free to hand
+ * back with the wrong type, so a hand-edited row or one written by a different build must degrade
+ * to `[]`/`unknown`/its default rather than take a read down (FH-001).
+ */
+const decodeEpisode = (row: EpisodeRow): SessionEpisode => {
+  const endedAt = readOptionalNumber(row.ended_at)
+  return {
+    id: readString(row.id),
+    sessionID: readString(row.session_id),
+    projectID: readString(row.project_id),
+    ...(typeof row.run_id === "string" && row.run_id ? { runID: row.run_id } : {}),
+    objective: readString(row.objective),
+    toolCalls: readNumber(row.tool_calls),
+    files: parseStringList(row.files_json),
+    commands: parseStringList(row.commands_json),
+    failures: parseFailures(row.failures_json),
+    verifications: parseVerifications(row.verifications_json),
+    outcome: normalizeOutcome(row.outcome),
+    startedAt: readNumber(row.started_at),
+    ...(endedAt !== undefined ? { endedAt } : {}),
+    evidenceRefs: parseStringList(row.evidence_refs_json),
+    timeCreated: readNumber(row.created_at),
+    timeUpdated: readNumber(row.updated_at),
+  }
+}
+
+/** A stored scalar read as its type or a default, so a row SQLite let through cannot lie to a caller. */
+const readNumber = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0)
+
+const readOptionalNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined
+
+const readString = (value: unknown): string => (typeof value === "string" ? value : "")
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
   id: row.id,
@@ -941,6 +1029,39 @@ export class SqliteRoutineRepository implements RoutineRepository {
           .query("SELECT * FROM runs WHERE source_type = ?1 AND source_id IS ?2 ORDER BY started_at DESC LIMIT ?3")
           .all(source.type, sourceKey(source), limit) as RunRow[])
       : (this.db.query("SELECT * FROM runs ORDER BY started_at DESC LIMIT ?1").all(limit) as RunRow[])
+    return rows.map(decodeRun)
+  }
+
+  /**
+   * Terminal runs finished inside the window that still have no terminal episode, newest first
+   * (FH-002).
+   *
+   * A live capture writes the run's episode id with no `ended_at`, so a run excluded on "a row
+   * exists" would never be revisited after a restart marked it failed: its checkpoint would stay
+   * `unknown` forever. Only a terminal episode settles a run, so the `NOT EXISTS` requires
+   * `ended_at IS NOT NULL`; a terminal run always has `finished_at`, and `captureRun` writes its
+   * `endedAt`, so one sweep converges.
+   *
+   * The sweep's limit has to choose among the runs that actually need a backfill. `listRuns` pages
+   * the newest runs whatever their capture state, so filtering afterwards lets already-captured
+   * ones exhaust the limit and leaves older ones unswept; the `NOT EXISTS` against the deterministic
+   * episode id is what keeps the page filled with runs that need one.
+   */
+  listRunsWithoutTerminalEpisode(input: { since: number; limit: number }) {
+    const rows = this.db
+      .query(
+        `SELECT * FROM runs
+         WHERE status IN ('success', 'failed', 'stopped')
+           AND finished_at IS NOT NULL
+           AND finished_at >= ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM session_episodes
+             WHERE session_episodes.id = ?2 || runs.id AND session_episodes.ended_at IS NOT NULL
+           )
+         ORDER BY finished_at DESC
+         LIMIT ?3`,
+      )
+      .all(input.since, RUN_EPISODE_PREFIX, input.limit) as RunRow[]
     return rows.map(decodeRun)
   }
 
@@ -1633,6 +1754,114 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const task = this.getTask(taskID)
     if (task) this.append({ type: "task.changed", task })
     return task
+  }
+
+  // ---- session episodes (FH-001) --------------------------------------------------------------
+
+  /**
+   * Keep one session that did something, by id.
+   *
+   * A second write with the same id is the same episode seen again — a capture that was retried, or
+   * an outcome added later — so it replaces the row rather than doubling it, keeps `timeCreated` and
+   * moves `timeUpdated`.
+   */
+  createEpisode(input: EpisodeInput, now = Date.now()) {
+    const id = input.id ?? crypto.randomUUID()
+    const existing = this.db.query("SELECT created_at FROM session_episodes WHERE id = ?1").get(id) as
+      | { created_at: number }
+      | null
+    const episode: SessionEpisode = {
+      id,
+      sessionID: input.sessionID,
+      projectID: input.projectID,
+      ...(input.runID ? { runID: input.runID } : {}),
+      objective: input.objective,
+      toolCalls: input.toolCalls,
+      files: input.files,
+      commands: input.commands,
+      failures: input.failures,
+      verifications: input.verifications,
+      outcome: normalizeOutcome(input.outcome),
+      startedAt: input.startedAt,
+      ...(input.endedAt !== undefined ? { endedAt: input.endedAt } : {}),
+      evidenceRefs: input.evidenceRefs,
+      timeCreated: existing?.created_at ?? now,
+      timeUpdated: now,
+    }
+    this.db
+      .query(
+        `INSERT INTO session_episodes
+           (id, session_id, project_id, run_id, objective, tool_calls, files_json, commands_json,
+            failures_json, verifications_json, outcome, started_at, ended_at, evidence_refs_json,
+            created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+         ON CONFLICT(id) DO UPDATE SET
+           session_id = excluded.session_id,
+           project_id = excluded.project_id,
+           run_id = excluded.run_id,
+           objective = excluded.objective,
+           tool_calls = excluded.tool_calls,
+           files_json = excluded.files_json,
+           commands_json = excluded.commands_json,
+           failures_json = excluded.failures_json,
+           verifications_json = excluded.verifications_json,
+           outcome = excluded.outcome,
+           started_at = excluded.started_at,
+           ended_at = excluded.ended_at,
+           evidence_refs_json = excluded.evidence_refs_json,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        episode.id,
+        episode.sessionID,
+        episode.projectID,
+        episode.runID ?? null,
+        episode.objective,
+        episode.toolCalls,
+        JSON.stringify(episode.files),
+        JSON.stringify(episode.commands),
+        JSON.stringify(episode.failures),
+        JSON.stringify(episode.verifications),
+        episode.outcome,
+        episode.startedAt,
+        episode.endedAt ?? null,
+        JSON.stringify(episode.evidenceRefs),
+        episode.timeCreated,
+        episode.timeUpdated,
+      )
+    return episode
+  }
+
+  getEpisode(id: string) {
+    const row = this.db.query("SELECT * FROM session_episodes WHERE id = ?1").get(id) as EpisodeRow | null
+    return row ? decodeEpisode(row) : undefined
+  }
+
+  listEpisodes(filter: EpisodeFilter = {}) {
+    const limit = normalizeEpisodeLimit(filter.limit)
+    if (limit === 0) return []
+    const where: string[] = []
+    const values: unknown[] = []
+    if (filter.projectID) {
+      values.push(filter.projectID)
+      where.push(`project_id = ?${values.length}`)
+    }
+    if (filter.sessionID) {
+      values.push(filter.sessionID)
+      where.push(`session_id = ?${values.length}`)
+    }
+    if (filter.runID) {
+      values.push(filter.runID)
+      where.push(`run_id = ?${values.length}`)
+    }
+    const select = `SELECT * FROM session_episodes ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY created_at DESC, rowid ASC`
+    const rows = (
+      limit === undefined
+        ? this.db.query(select).all(...(values as never[]))
+        : this.db.query(`${select} LIMIT ?${values.length + 1}`).all(...(values as never[]), limit)
+    ) as EpisodeRow[]
+    return rows.map(decodeEpisode)
   }
 
   // ---- action credentials (WA-5) ---------------------------------------------------------------

@@ -294,6 +294,18 @@ export function loadActionProfiles(input: { directory?: string; project?: string
   return { configDir, profiles, scopes, guardDirs }
 }
 
+/**
+ * The `flupcode.adaptive` block as written in the global config, or nothing.
+ *
+ * The runtime probe is configured here so a machine can pin a runtime without an environment
+ * variable; `resolveRuntimeConfig` owns the shape and the precedence.
+ */
+export function globalAdaptiveBlock(): Record<string, unknown> {
+  const flupcode = loadGlobalConfig().flupcode
+  const adaptive = isPlainObject(flupcode) ? flupcode.adaptive : undefined
+  return isPlainObject(adaptive) ? adaptive : {}
+}
+
 /** Every guard every delivery profile names, resolved against the config directory. */
 function guardEntries(config: Record<string, unknown>, configDir: string) {
   const flupcode = config.flupcode

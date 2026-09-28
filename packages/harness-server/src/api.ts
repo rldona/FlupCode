@@ -29,6 +29,7 @@ import { handleActionProfileRequest } from "./action-profile-routes"
 import { actionInputProblem, allowRulesFrom, missingAllowRules } from "./action-allow"
 import { handleCredentialRequest } from "./credential-routes"
 import type { CredentialVault } from "./vault"
+import type { RuntimeProbe } from "./adaptive/runtime"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -383,6 +384,7 @@ export type HarnessHandlerOptions = {
   token?: string
   actions?: ActionRunner
   credentials?: CredentialVault
+  runtimeProbe?: RuntimeProbe
 }
 
 export const createHarnessHandler = (
@@ -429,6 +431,13 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleActionProfileRequest(request, path.slice(2))
     }
+    // Which runtime the engine is on, so a gate never assumes the legacy hooks (FH-000). Only a
+    // route when a probe was built; without one it falls through to the ordinary 404. The probe
+    // refreshes within its own TTL, so a reader that asks twice does not double the engine calls.
+    if (path[1] === "adaptive" && path[2] === "capabilities" && request.method === "GET" && options.runtimeProbe) {
+      const state = await options.runtimeProbe.refresh()
+      return json({ data: { ...state, capabilities: options.runtimeProbe.capabilities() } })
+    }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a
     // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
@@ -450,6 +459,8 @@ export const createHarnessHandler = (
           ...(options.credentials ? (["credentials"] as const) : []),
           // The writer shares the browser's bearer, so it is only announced when that secret exists.
           ...(options.token ? (["action-profiles"] as const) : []),
+          // The probe is built with the server, so it is announced whenever the route is (FH-000).
+          ...(options.runtimeProbe ? (["adaptive"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

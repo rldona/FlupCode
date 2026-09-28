@@ -7,6 +7,7 @@ import { restore } from "./checkpoint"
 import type { BrowserAllowRule, Run, RunPolicy, RunSource, TaskInput } from "./types"
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
+import type { EpisodeCoordinator } from "./adaptive/coordinator"
 
 type Result<T> = { data?: T; error?: unknown }
 
@@ -17,6 +18,8 @@ type SchedulerOptions = {
   lockTtlMs?: number
   /** The web actions a scheduled action drives (WA-7). Absent means action routines fail closed. */
   actions?: ActionRunner
+  /** Where a run's episode is captured at its terminal boundaries (FH-002). Absent records none. */
+  episodes?: EpisodeCoordinator
 }
 
 const unwrap = async <T>(call: Promise<Result<T>>) => {
@@ -72,6 +75,7 @@ export class RoutineScheduler {
   readonly intervalMs: number
   readonly lockTtlMs: number
   readonly actions?: ActionRunner
+  readonly episodes?: EpisodeCoordinator
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
   private timer: ReturnType<typeof setInterval> | undefined
@@ -84,6 +88,7 @@ export class RoutineScheduler {
     this.intervalMs = options.intervalMs ?? 30_000
     this.lockTtlMs = options.lockTtlMs ?? 24 * 60 * 60 * 1000
     this.actions = options.actions
+    this.episodes = options.episodes
   }
 
   start() {
@@ -251,7 +256,7 @@ export class RoutineScheduler {
   private async drive(runID: string, directory?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return
-    const runner = new TaskRunner(this.repository, this.engine, this.actions)
+    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes)
     try {
       const outcome = await runner.execute(run, { directory, stopped: () => this.stopping.has(runID) })
       if (outcome === "paused" && !this.stopping.has(runID)) return this.repository.awaitRun(runID)
@@ -355,6 +360,8 @@ export class RoutineScheduler {
   private finishRun(runID: string, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(runID, status, error)
     this.writeReport(runID, status, error)
+    // The run's boundary (FH-002). After the report, so the episode can name it as evidence.
+    this.episodes?.captureRun(runID)
     this.stopping.delete(runID)
   }
 
@@ -504,6 +511,7 @@ export class RoutineScheduler {
       // The file was valid when the routine was saved and is gone now. The failed run stays in
       // history saying so, instead of the schedule silently skipping a beat.
       this.repository.finishRun(run.id, "failed", cause instanceof Error ? cause.message : String(cause), now)
+      this.episodes?.captureRun(run.id)
       this.repository.release(key, this.owner)
     }
     return run
@@ -519,7 +527,7 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const runner = new TaskRunner(this.repository, this.engine, this.actions)
+      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes)
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),
@@ -552,6 +560,7 @@ export class RoutineScheduler {
   private finish(run: Run, status: "success" | "failed" | "stopped", error?: string) {
     this.repository.finishRun(run.id, status, error)
     this.writeReport(run.id, status, error)
+    this.episodes?.captureRun(run.id)
     if (run.source.type === "routine") this.repository.release(routineLockKey(run.source.routineID), this.owner)
     this.stopping.delete(run.id)
   }

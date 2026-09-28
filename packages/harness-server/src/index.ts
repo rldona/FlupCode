@@ -12,7 +12,12 @@ import { unavailableActionCredentialResolver } from "./action-credentials"
 import type { ActionCredentialResolver } from "./action-credentials"
 import { createVault, parseVaultKey, readOrCreateVaultKeyFile, readVaultKeyFile, vaultKeyFile } from "./vault"
 import type { CredentialVault } from "./vault"
-import { loadActionProfiles } from "./config-files"
+import { globalAdaptiveBlock, loadActionProfiles } from "./config-files"
+import { resolveRuntimeConfig } from "./adaptive/runtime-config"
+import { createRuntimeProbe } from "./adaptive/runtime"
+import type { RuntimeProbe } from "./adaptive/runtime"
+import { createEpisodeCoordinator } from "./adaptive/coordinator"
+import { resolveEpisodeBoundaryConfig } from "./adaptive/episode"
 
 export type HarnessServerOptions = {
   port?: number
@@ -28,6 +33,7 @@ export type HarnessServerOptions = {
   actionCredentials?: ActionCredentialResolver
   vaultKey?: string
   vaultKeyFile?: string
+  runtimeProbe?: RuntimeProbe
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -61,13 +67,32 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     : undefined
   // Built after the actions so a scheduled action is driven in process by the same runner the
   // interactive path uses (WA-7), never by a second copy that would drift.
+  const engineURL = options.engineURL ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096"
+  // Episodes (FH-002): the scheduler hands it to every runner, and it sweeps for terminal runs a
+  // restart or a lost hook left behind.
+  const episodes = createEpisodeCoordinator({
+    repository,
+    config: resolveEpisodeBoundaryConfig({ block: globalAdaptiveBlock(), env: process.env }),
+    onError: (cause) =>
+      console.error(`Could not record a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
+  })
   const scheduler = new RoutineScheduler({
     repository,
-    engineURL: options.engineURL ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096",
+    engineURL,
     intervalMs: options.intervalMs,
     ...(actions ? { actions } : {}),
+    episodes,
   })
   scheduler.start()
+  // After the scheduler started, so a run it recovered as failed is swept and backfilled.
+  episodes.start()
+  // The runtime probe (FH-000): which runtime the engine is on, so a gate never assumes the legacy
+  // hooks. It refreshes off the critical path at startup and on its own interval; a caller asking
+  // for the route refreshes within the same TTL.
+  const runtimeConfig = resolveRuntimeConfig({ block: globalAdaptiveBlock(), env: process.env })
+  const runtimeProbe = options.runtimeProbe ?? createRuntimeProbe({ engineURL, config: runtimeConfig })
+  void runtimeProbe.refresh()
+  const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",
@@ -76,6 +101,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(browserToken ? { token: browserToken } : {}),
       ...(actions ? { actions } : {}),
       ...(vault ? { credentials: vault } : {}),
+      runtimeProbe,
     }),
   })
   return {
@@ -85,8 +111,11 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     ...(browser ? { browser } : {}),
     ...(actions ? { actions } : {}),
     ...(vault ? { vault } : {}),
+    runtimeProbe,
     stop: async () => {
       clearInterval(sweep)
+      clearInterval(probeInterval)
+      episodes.stop()
       scheduler.stop()
       await browser?.stop().catch(() => undefined)
       repository.close()

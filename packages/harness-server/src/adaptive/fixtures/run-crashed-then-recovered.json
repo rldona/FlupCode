@@ -1,0 +1,50 @@
+{
+  "name": "run-crashed-then-recovered",
+  "capture": "sweep",
+  "directory": "/work/proj",
+  "now": 1700000000000,
+  "run": {
+    "source": { "type": "manual" },
+    "startedAt": 1699999000000,
+    "sessionID": "ses_crash"
+  },
+  "tasks": [{ "name": "build", "prompt": "implement the sum", "kind": "agent" }],
+  "toolUses": {
+    "ses_crash": {
+      "tools": {
+        "bash": { "count": 3, "last": 1699999990000 },
+        "read": { "count": 1, "last": 1699999995000 }
+      },
+      "calls": []
+    }
+  },
+  "signals": {
+    "ses_crash": {
+      "calls": [
+        {
+          "tool": "bash",
+          "start": 1,
+          "ms": 400,
+          "ok": true,
+          "exit": 0,
+          "command": "bun test",
+          "out": "Ran 3 tests across 1 file. [23.00ms]",
+          "paths": []
+        },
+        { "tool": "edit", "start": 2, "ms": 9, "ok": true, "paths": ["/work/proj/src/math.ts"] }
+      ]
+    }
+  },
+  "expectCheckpoint": { "outcome": "unknown", "toolCalls": 4 },
+  "expect": {
+    "outcome": "failed",
+    "toolCalls": 4,
+    "files": ["src/math.ts"],
+    "commands": ["bun test"],
+    "failures": [],
+    "verifications": [],
+    "evidenceRefsContains": ["session:ses_crash"],
+    "evidenceRefsPrefixes": ["run:", "task:"],
+    "rows": 1
+  }
+}

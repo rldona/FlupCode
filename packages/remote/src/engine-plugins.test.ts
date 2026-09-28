@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
+import { statSync } from "node:fs"
 import { mkdtemp, readdir, readFile, rm, writeFile, mkdir, symlink } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -7,6 +8,7 @@ import {
   ARTIFACT_WRITE_PLUGIN,
   DELIVERY_PLUGIN,
   REASONING_VARIANTS_PLUGIN,
+  RUNTIME_PROBE_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
   TOOL_USES_PLUGIN,
   WEB_ACTIONS_PLUGIN,
@@ -37,6 +39,8 @@ afterEach(async () => {
   delete process.env.OPENCODE_MODELS_PATH
   delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
   delete process.env.FLUPCODE_TOOL_USES_DIR
+  delete process.env.FLUPCODE_EPISODE_SIGNALS_DIR
+  delete process.env.FLUPCODE_RUNTIME_PROBE_FILE
   delete process.env.OPENCODE_CONFIG_DIR
   delete process.env.FLUPCODE_CONFIG_DIR
   delete process.env.FLUPCODE_HARNESS_SERVER_URL
@@ -61,11 +65,12 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(6)
+    expect(first.paths).toHaveLength(7)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
       TOOL_USES_PLUGIN,
+      RUNTIME_PROBE_PLUGIN,
       ARTIFACT_WRITE_PLUGIN,
       DELIVERY_PLUGIN,
       WEB_ACTIONS_PLUGIN,
@@ -164,6 +169,297 @@ describe("installEnginePlugins", () => {
     await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_abc", callID: "never_started" })
     const after = JSON.parse(await readFile(path.join(uses, "ses_abc.json"), "utf8"))
     expect(after.calls).toHaveLength(1)
+  })
+
+  test("the installed plugin records a shell's exit and output as episode evidence", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.before"]({ tool: "bash", sessionID: "ses_abc", callID: "c1" })
+    await hooks["tool.execute.after"](
+      { tool: "bash", sessionID: "ses_abc", callID: "c1", args: { command: "bun test" } },
+      { metadata: { exit: 1 }, output: "line one\n(fail) adds [3.67ms]" },
+    )
+
+    const written = JSON.parse(await readFile(path.join(signals, "ses_abc.json"), "utf8"))
+    expect(written.calls).toHaveLength(1)
+    expect(written.calls[0]).toMatchObject({ tool: "bash", ok: true, exit: 1, command: "bun test" })
+    expect(written.calls[0].out).toContain("(fail) adds")
+    expect(written.calls[0].truncated).toBeUndefined()
+    expect(written.calls[0].ms).toBeGreaterThanOrEqual(0)
+  })
+
+  test("the signal file and its folder are private to the user", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"](
+      { tool: "bash", sessionID: "ses_abc", callID: "c1", args: { command: "bun test" } },
+      { metadata: { exit: 1 }, output: "boom" },
+    )
+
+    // A signal carries a shell's command and output, so it is user-only on disk. Mode bits are only
+    // meaningful on POSIX.
+    if (process.platform !== "win32") {
+      expect(statSync(signals).mode & 0o777).toBe(0o700)
+      expect(statSync(path.join(signals, "ses_abc.json")).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  test("a shell's output is truncated to its limit and marked", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"](
+      { tool: "bash", sessionID: "ses_abc", callID: "c1", args: { command: "bun test" } },
+      { metadata: { exit: 1 }, output: "x".repeat(5000) + "TAIL" },
+    )
+
+    const written = JSON.parse(await readFile(path.join(signals, "ses_abc.json"), "utf8"))
+    expect(written.calls[0].out).toHaveLength(4096)
+    expect(written.calls[0].out.endsWith("TAIL")).toBe(true)
+    expect(written.calls[0].truncated).toBe(true)
+  })
+
+  test("edits leave their paths and apply_patch leaves one per changed file", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"](
+      { tool: "edit", sessionID: "ses_abc", callID: "e1", args: { filePath: "/work/proj/src/add.ts" } },
+      { output: "ok" },
+    )
+    await hooks["tool.execute.after"](
+      { tool: "write", sessionID: "ses_abc", callID: "w1", args: { filePath: "/work/proj/src/new.ts" } },
+      { output: "ok" },
+    )
+    await hooks["tool.execute.after"](
+      { tool: "apply_patch", sessionID: "ses_abc", callID: "p1", args: { patchText: "…" } },
+      { metadata: { files: [{ relativePath: "src/a.ts" }, { relativePath: "src/b.ts" }, { relativePath: 7 }] } },
+    )
+
+    const paths = JSON.parse(await readFile(path.join(signals, "ses_abc.json"), "utf8")).calls.map((call: { paths: string[] }) => call.paths)
+    expect(paths).toEqual([["/work/proj/src/add.ts"], ["/work/proj/src/new.ts"], ["src/a.ts", "src/b.ts"]])
+  })
+
+  test("a command, a path and a patch's file list are each bounded before they are stored", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"](
+      { tool: "bash", sessionID: "ses_abc", callID: "c1", args: { command: "x".repeat(800) } },
+      { metadata: { exit: 0 }, output: "ok" },
+    )
+    await hooks["tool.execute.after"](
+      { tool: "edit", sessionID: "ses_abc", callID: "e1", args: { filePath: "/work/" + "p".repeat(1500) } },
+      { output: "ok" },
+    )
+    await hooks["tool.execute.after"](
+      { tool: "apply_patch", sessionID: "ses_abc", callID: "p1", args: {} },
+      { metadata: { files: Array.from({ length: 25 }, (_, index) => ({ relativePath: `src/${index}.ts` })) } },
+    )
+
+    const calls = JSON.parse(await readFile(path.join(signals, "ses_abc.json"), "utf8")).calls
+    // Kept in step with COMMAND_LIMIT, PATH_LIMIT and PATHS_PER_CALL in the plugin.
+    expect(calls[0].command).toHaveLength(500)
+    expect(calls[1].paths).toEqual(["/work/" + "p".repeat(994)])
+    expect(calls[2].paths).toHaveLength(20)
+  })
+
+  test("a task with no output is the one evidence of a failed call", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"]({ tool: "task", sessionID: "ses_abc", callID: "t1" }, undefined)
+
+    const written = JSON.parse(await readFile(path.join(signals, "ses_abc.json"), "utf8"))
+    expect(written.calls).toEqual([{ tool: "task", ok: false, paths: [] }])
+  })
+
+  test("a call with no evidence and an invalid session id write nothing", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"]({ tool: "read", sessionID: "ses_abc", callID: "r1" }, { output: "text" })
+    await hooks["tool.execute.after"](
+      { tool: "bash", sessionID: "../../escape", callID: "c1", args: { command: "pwd" } },
+      { metadata: { exit: 0 }, output: "here" },
+    )
+    expect(await readdir(signals)).toEqual([])
+  })
+
+  test("the signal ring keeps the newest two hundred calls", async () => {
+    const config = await temp()
+    const signals = await temp()
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signals
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    for (let index = 0; index < 201; index++) {
+      await hooks["tool.execute.after"](
+        { tool: "bash", sessionID: "ses_abc", callID: `c${index}`, args: { command: `cmd-${index}` } },
+        { metadata: { exit: 1 }, output: "x" },
+      )
+    }
+
+    const calls = JSON.parse(await readFile(path.join(signals, "ses_abc.json"), "utf8")).calls
+    expect(calls).toHaveLength(200)
+    expect(calls[0].command).toBe("cmd-1")
+    expect(calls[199].command).toBe("cmd-200")
+  })
+
+  test("a signal whose write cannot land leaves no temp file and never throws", async () => {
+    const config = await temp()
+    const dir = await temp()
+    // The target is a directory, so the temp file cannot be renamed into place.
+    await mkdir(path.join(dir, "ses_block.json"))
+    process.env.FLUPCODE_EPISODE_SIGNALS_DIR = dir
+    const plugin = await installed(config, TOOL_USES_PLUGIN.file, "flupcodeToolUses")
+    const hooks = await plugin()
+
+    await hooks["tool.execute.after"](
+      { tool: "bash", sessionID: "ses_block", callID: "c1", args: { command: "pwd" } },
+      { metadata: { exit: 0 }, output: "here" },
+    )
+    expect((await readdir(dir)).sort()).toEqual(["ses_block.json"])
+  })
+
+  test("the installed canary stamps the engine process and marks its hooks", async () => {
+    const config = await temp()
+    const probeFile = path.join(await temp(), "runtime-probe.json")
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = probeFile
+    const plugin = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    const hooks = await plugin()
+
+    const stamped = JSON.parse(await readFile(probeFile, "utf8"))
+    expect(stamped.pid).toBe(process.pid)
+    expect(stamped.token.split(":")[0]).toBe(String(process.pid))
+    expect(stamped.loadedAt).toBeGreaterThan(0)
+    expect(stamped.hookAt).toBe(0)
+
+    await hooks["experimental.chat.system.transform"]({}, { system: ["x"] })
+    const hooked = JSON.parse(await readFile(probeFile, "utf8"))
+    expect(hooked.hook).toBe("experimental.chat.system.transform")
+    expect(hooked.hookAt).toBeGreaterThanOrEqual(hooked.loadedAt)
+
+    // A turn event of the V2 runner is the other positive signal; other events are not evidence.
+    await hooks.event({ event: { type: "session.next.tool.called" } })
+    expect(JSON.parse(await readFile(probeFile, "utf8")).v2At).toBe(0)
+    await hooks.event({ event: { type: "session.next.prompted" } })
+    const observed = JSON.parse(await readFile(probeFile, "utf8"))
+    expect(observed.event).toBe("session.next.prompted")
+    expect(observed.v2At).toBeGreaterThanOrEqual(observed.loadedAt)
+  })
+
+  test("the canary rewrites the boot mark when the same pid belongs to a new process", async () => {
+    const config = await temp()
+    const probeFile = path.join(await temp(), "runtime-probe.json")
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = probeFile
+    const plugin = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    const hooks = await plugin()
+    await hooks["experimental.chat.system.transform"]({}, { system: ["x"] })
+    const first = JSON.parse(await readFile(probeFile, "utf8"))
+
+    // The OS reuses pids: this file carries the current pid but a boot token of an earlier process,
+    // so it is not this process's evidence. The stamp rewrites it and clears the stale marks.
+    await writeFile(probeFile, JSON.stringify({ token: "stale-boot", pid: first.pid, loadedAt: 1, hookAt: 5, v2At: 6 }))
+    const restamped = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    await restamped()
+    const written = JSON.parse(await readFile(probeFile, "utf8"))
+    expect(written.pid).toBe(process.pid)
+    expect(written.token).toBe(first.token)
+    expect(written.loadedAt).toBeGreaterThan(1)
+    expect(written.hookAt).toBe(0)
+    expect(written.v2At).toBe(0)
+  })
+
+  test("the canary never marks another process's token", async () => {
+    const config = await temp()
+    const probeFile = path.join(await temp(), "runtime-probe.json")
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = probeFile
+    const plugin = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    const hooks = await plugin()
+
+    // A canary written by another engine process: a hook or a turn event of this one must not touch
+    // it, or the other process's evidence would be attributed to this one.
+    const foreign = { token: "other-boot", pid: 999_999, loadedAt: 10, hookAt: 0, v2At: 0 }
+    await writeFile(probeFile, JSON.stringify(foreign))
+    await hooks["experimental.chat.system.transform"]({}, { system: ["x"] })
+    await hooks.event({ event: { type: "session.next.prompted" } })
+    expect(JSON.parse(await readFile(probeFile, "utf8"))).toEqual(foreign)
+  })
+
+  test("the canary keeps its boot mark and marks when the engine process is the same", async () => {
+    const config = await temp()
+    const probeFile = path.join(await temp(), "runtime-probe.json")
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = probeFile
+    const plugin = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    const hooks = await plugin()
+    await hooks["experimental.chat.system.transform"]({}, { system: ["x"] })
+    const marked = JSON.parse(await readFile(probeFile, "utf8"))
+
+    // The engine loading the plugin again in the same process is a heartbeat, not a new boot: the
+    // boot mark and the marks already made survive instead of being reset.
+    await plugin()
+    const restamped = JSON.parse(await readFile(probeFile, "utf8"))
+    expect(restamped.loadedAt).toBe(marked.loadedAt)
+    expect(restamped.hookAt).toBe(marked.hookAt)
+    expect(restamped.hook).toBe("experimental.chat.system.transform")
+  })
+
+  test("the canary writes atomically and never throws when it cannot write", async () => {
+    const config = await temp()
+    const dir = await temp()
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = path.join(dir, "runtime-probe.json")
+    const plugin = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    const hooks = await plugin()
+    await hooks["experimental.chat.system.transform"]({}, { system: ["x"] })
+    await hooks.event({ event: { type: "session.next.prompted" } })
+
+    // The temp file is renamed into place, so a reader only ever sees the finished canary.
+    expect((await readdir(dir)).sort()).toEqual(["runtime-probe.json"])
+
+    // A target whose directory cannot exist leaves no canary and no error reaches the engine.
+    await writeFile(path.join(dir, "blocker"), "x")
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = path.join(dir, "blocker", "nested", "runtime-probe.json")
+    const failing = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    const failingHooks = await failing()
+    await failingHooks["experimental.chat.system.transform"]({}, { system: ["x"] })
+    await failingHooks.event({ event: { type: "session.next.prompted" } })
+  })
+
+  test("a canary whose write cannot land keeps no temp file behind", async () => {
+    const config = await temp()
+    const dir = await temp()
+    // The target is a directory, so the temp file cannot be renamed into place.
+    await mkdir(path.join(dir, "runtime-probe.json"))
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = path.join(dir, "runtime-probe.json")
+    const plugin = await installed(config, RUNTIME_PROBE_PLUGIN.file, "flupcodeRuntimeProbe")
+    await plugin()
+
+    // The failed rename cleans up its temp rather than collecting one per call.
+    expect((await readdir(dir)).sort()).toEqual(["runtime-probe.json"])
   })
 
   test("the installed plugin adds effort levels from the models.dev cache", async () => {
