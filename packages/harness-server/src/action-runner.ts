@@ -309,71 +309,86 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       ...(input.runID ? { runID: input.runID } : {}),
       ...(input.taskID ? { taskID: input.taskID } : {}),
     })
-    // Registered the moment the browser exists, not when a `fill` happens: a run that fails before
-    // the credential is typed still must not echo it from a snapshot or a capture.
-    for (const value of Object.values(credentialValues)) browser.protect(sessionID, { value })
-    const mode = profile.evidence.screenshots ?? fallbackEvidence
-    const context: StepContext = {
-      sessionID,
-      values: resolved.values,
-      images: resolved.images,
-      credentials: credentialValues,
-    }
-    const capture = async (index: number, kind: ActionStepName): Promise<string | undefined> => {
-      try {
-        const { artifactId } = await browser.screenshot(sessionID, `${profile.id}:${index}:${kind}`)
-        return artifactId
-      } catch {
-        return undefined
+    // The run is active from the moment the browser exists: a takeover asked for now waits for a
+    // step boundary instead of relaunching under a Playwright call (WA-6).
+    browser.beginRun(sessionID)
+    try {
+      // Registered the moment the browser exists, not when a `fill` happens: a run that fails before
+      // the credential is typed still must not echo it from a snapshot or a capture.
+      for (const value of Object.values(credentialValues)) browser.protect(sessionID, { value })
+      const mode = profile.evidence.screenshots ?? fallbackEvidence
+      const context: StepContext = {
+        sessionID,
+        values: resolved.values,
+        images: resolved.images,
+        credentials: credentialValues,
       }
-    }
-
-    const evidence: string[] = []
-    const steps: ActionStepReport[] = []
-    const startedAt = Date.now()
-
-    for (const [index, step] of profile.steps.entries()) {
-      // A scheduled run can be stopped with nothing driving the browser: the flag is checked
-      // between steps, so the recipe does not carry on opening windows nobody asked for (WA-7).
-      if (input.stopped?.() === true) throw stoppedError(profile)
-      const kind = stepKind(step)
-      const stepStartedAt = Date.now()
-      const allowed = canRetry(kind) ? MAX_STEP_ATTEMPTS : 1
-      let attempt = 0
-      let explicit: string | undefined
-      let failure: unknown
-      while (attempt < allowed) {
-        attempt += 1
+      const capture = async (index: number, kind: ActionStepName): Promise<string | undefined> => {
         try {
-          // The stop/pause seam (WA-6): a person may hold or stop the run between steps, and the
-          // check is inside the attempt so a retry does not slip past a pause.
-          await browser.waitIfPaused(sessionID)
-          explicit = await runStep(browser, profile, step, context)
-          failure = undefined
-          break
-        } catch (cause) {
-          failure = cause
-          if (!canRetry(kind) || !isRetryable(cause) || attempt >= allowed) break
-          await sleep(RETRY_DELAY_MS)
+          const { artifactId } = await browser.screenshot(sessionID, `${profile.id}:${index}:${kind}`)
+          return artifactId
+        } catch {
+          return undefined
         }
       }
 
-      const report: ActionStepReport = {
-        index,
-        kind,
-        status: failure === undefined ? "ok" : "failed",
-        attempts: attempt,
-        durationMs: Date.now() - stepStartedAt,
-      }
-      if (explicit !== undefined) {
-        evidence.push(explicit)
-        report.screenshot = explicit
-      }
+      const evidence: string[] = []
+      const steps: ActionStepReport[] = []
+      const startedAt = Date.now()
 
-      if (failure === undefined) {
-        // A step that produced its own evidence (a `screenshot` action) must not also trigger the
-        // automatic capture: that would store the same frame twice under the same step.
-        if (mode === "each" && explicit === undefined) {
+      for (const [index, step] of profile.steps.entries()) {
+        // A scheduled run can be stopped with nothing driving the browser: the flag is checked
+        // between steps, so the recipe does not carry on opening windows nobody asked for (WA-7).
+        if (input.stopped?.() === true) throw stoppedError(profile)
+        const kind = stepKind(step)
+        const stepStartedAt = Date.now()
+        const allowed = canRetry(kind) ? MAX_STEP_ATTEMPTS : 1
+        let attempt = 0
+        let explicit: string | undefined
+        let failure: unknown
+        while (attempt < allowed) {
+          attempt += 1
+          try {
+            // The stop/pause seam (WA-6): a person may hold or stop the run between steps, and the
+            // check is inside the attempt so a retry does not slip past a pause.
+            await browser.waitIfPaused(sessionID)
+            explicit = await runStep(browser, profile, step, context)
+            failure = undefined
+            break
+          } catch (cause) {
+            failure = cause
+            if (!canRetry(kind) || !isRetryable(cause) || attempt >= allowed) break
+            await sleep(RETRY_DELAY_MS)
+          }
+        }
+
+        const report: ActionStepReport = {
+          index,
+          kind,
+          status: failure === undefined ? "ok" : "failed",
+          attempts: attempt,
+          durationMs: Date.now() - stepStartedAt,
+        }
+        if (explicit !== undefined) {
+          evidence.push(explicit)
+          report.screenshot = explicit
+        }
+
+        if (failure === undefined) {
+          // A step that produced its own evidence (a `screenshot` action) must not also trigger the
+          // automatic capture: that would store the same frame twice under the same step.
+          if (mode === "each" && explicit === undefined) {
+            const auto = await capture(index, kind)
+            if (auto !== undefined) {
+              evidence.push(auto)
+              report.screenshot ??= auto
+            }
+          }
+          steps.push(report)
+          continue
+        }
+
+        if (mode === "each" || mode === "failure") {
           const auto = await capture(index, kind)
           if (auto !== undefined) {
             evidence.push(auto)
@@ -381,69 +396,65 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
           }
         }
         steps.push(report)
-        continue
+        throw stepFailure(profile, step, index, failure, evidence, secrets)
       }
 
-      if (mode === "each" || mode === "failure") {
-        const auto = await capture(index, kind)
-        if (auto !== undefined) {
-          evidence.push(auto)
-          report.screenshot ??= auto
+      let extract: Record<string, string> | undefined
+      if (profile.extract !== undefined) {
+        extract = {}
+        for (const [field, spec] of Object.entries(profile.extract)) {
+          const found = await browser
+            .text(sessionID, spec.selector, {
+              ...(spec.as !== undefined ? { as: spec.as } : {}),
+              ...(spec.attribute !== undefined ? { attribute: spec.attribute } : {}),
+            })
+            .catch((cause) => {
+              throw new ActionRunError({
+                code: "extract_failed",
+                status: 422,
+                message: redactSecrets(messageOf(cause), secrets),
+                action: profile.id,
+                field,
+                evidence,
+              })
+            })
+          extract[field] = redactSecrets(found.value ?? "", secrets)
         }
       }
-      steps.push(report)
-      throw stepFailure(profile, step, index, failure, evidence, secrets)
-    }
 
-    let extract: Record<string, string> | undefined
-    if (profile.extract !== undefined) {
-      extract = {}
-      for (const [field, spec] of Object.entries(profile.extract)) {
-        const found = await browser
-          .text(sessionID, spec.selector, {
-            ...(spec.as !== undefined ? { as: spec.as } : {}),
-            ...(spec.attribute !== undefined ? { attribute: spec.attribute } : {}),
-          })
-          .catch((cause) => {
-            throw new ActionRunError({
-              code: "extract_failed",
-              status: 422,
-              message: redactSecrets(messageOf(cause), secrets),
-              action: profile.id,
-              field,
-              evidence,
-            })
-          })
-        extract[field] = redactSecrets(found.value ?? "", secrets)
+      if (profile.evidence.text === true) {
+        const snapshot = await browser.snapshot(sessionID)
+        const artifact = repository.addArtifact({
+          kind: "log",
+          title: `${profile.id}:text`,
+          producer: "harness",
+          content: redactSecrets(snapshot.text, secrets),
+          ...(input.runID ? { runID: input.runID } : {}),
+          ...(input.taskID ? { taskID: input.taskID } : {}),
+        })
+        evidence.push(artifact.id)
       }
-    }
 
-    if (profile.evidence.text === true) {
-      const snapshot = await browser.snapshot(sessionID)
-      const artifact = repository.addArtifact({
-        kind: "log",
-        title: `${profile.id}:text`,
-        producer: "harness",
-        content: redactSecrets(snapshot.text, secrets),
-        ...(input.runID ? { runID: input.runID } : {}),
-        ...(input.taskID ? { taskID: input.taskID } : {}),
-      })
-      evidence.push(artifact.id)
-    }
-
-    const view = browser.get(sessionID)
-    return {
-      action: profile.id,
-      tool: profile.tool,
-      status: "success",
-      origin: profile.origin,
-      url: redactSecrets(view?.url ?? "", secrets),
-      title: redactSecrets(view?.title ?? "", secrets),
-      startedAt,
-      finishedAt: Date.now(),
-      steps,
-      evidence,
-      ...(extract !== undefined ? { extract } : {}),
+      const view = browser.get(sessionID)
+      return {
+        action: profile.id,
+        tool: profile.tool,
+        status: "success",
+        origin: profile.origin,
+        url: redactSecrets(view?.url ?? "", secrets),
+        title: redactSecrets(view?.title ?? "", secrets),
+        startedAt,
+        finishedAt: Date.now(),
+        steps,
+        evidence,
+        ...(extract !== undefined ? { extract } : {}),
+      }
+    } finally {
+      // The run is over, whichever way it ended: a window somebody asked for no longer has a step
+      // boundary to wait for. This runs before `run`'s finally closes the browser on finish. A
+      // failed reveal must not mask the run's own result: the error is already surfaced by the
+      // takeover call that asked for the window.
+      await browser.endRun(sessionID).catch(() => undefined)
     }
   }
 
@@ -467,6 +478,7 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
       project: input.project,
       ...(input.headed === true ? { headed: true } : {}),
     })
+    browser.beginRun(sessionID)
     try {
       const context: StepContext = {
         sessionID,
@@ -519,6 +531,8 @@ export function createActionRunner(options: ActionRunnerOptions): ActionRunner {
         steps,
       }
     } finally {
+      // A failed reveal must not skip the close below, which is what frees the project's reservation.
+      await browser.endRun(sessionID).catch(() => undefined)
       // A preview is one shot: leaving it open holds the project's reservation, and the agent's
       // next run on the same project would only meet `browser_busy` instead of the page.
       await browser.close(sessionID).catch(() => undefined)

@@ -694,10 +694,11 @@ describe("running action recipes", () => {
   }
 
   /** A browser that records how it was asked to start, and when it was closed (WA-7). */
-  const recordingBrowser = (options: { stopped?: boolean } = {}) => {
+  const recordingBrowser = (options: { stopped?: boolean; onEndRun?: (id: string) => void } = {}) => {
     const starts: BrowserStartInput[] = []
     const closed: string[] = []
     const calls: string[] = []
+    const runs: string[] = []
     const session = {
       id: "s1",
       project: "proj",
@@ -727,6 +728,14 @@ describe("running action recipes", () => {
       pause: () => session,
       resume: () => session,
       takeOver: async () => session,
+      beginRun: (id) => {
+        runs.push(`begin:${id}`)
+      },
+      endRun: async (id) => {
+        runs.push(`end:${id}`)
+        options.onEndRun?.(id)
+      },
+      setViewport: async () => session,
       abort: async () => true,
       waitIfPaused: async () => {
         if (options.stopped) throw new BrowserError("stopped", 409, "stopped")
@@ -744,7 +753,7 @@ describe("running action recipes", () => {
       capture: async () => ({ found: false, reason: "none" }),
       stop: async () => {},
     }
-    return { browser, starts, closed, calls }
+    return { browser, starts, closed, calls, runs }
   }
 
   const profile = (origin: string, overrides: Record<string, unknown> = {}) => ({
@@ -976,6 +985,9 @@ describe("running action recipes", () => {
       pause: () => session,
       resume: () => session,
       takeOver: async () => session,
+      beginRun: () => {},
+      endRun: async () => {},
+      setViewport: async () => session,
       abort: async () => true,
       waitIfPaused: async () => {
         throw new BrowserError("stopped", 409, "stopped")
@@ -1025,6 +1037,9 @@ describe("running action recipes", () => {
       pause: () => session,
       resume: () => session,
       takeOver: async () => session,
+      beginRun: () => {},
+      endRun: async () => {},
+      setViewport: async () => session,
       abort: async () => true,
       waitIfPaused: async () => {
         pauses += 1
@@ -1071,6 +1086,29 @@ describe("running action recipes", () => {
     expect(starts[0]).toMatchObject({ id: "task_1", project: "proj", runID: "run_1", taskID: "task_1" })
     expect(starts[0]!.headed).toBeUndefined()
     expect(closed).toEqual(["task_1"])
+  })
+
+  test("a run is bracketed by beginRun and endRun, so a takeover lands when it ends (WA-6)", async () => {
+    const { repository } = open()
+    const revealed: string[] = []
+    const { browser, runs } = recordingBrowser({ onEndRun: (id) => revealed.push(id) })
+    const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
+
+    await runner.run({ action: "publish", sessionID: "s1", project: "proj" })
+
+    expect(runs).toEqual(["begin:s1", "end:s1"])
+    // The last run ending is what lets a window somebody asked for open.
+    expect(revealed).toEqual(["s1"])
+  })
+
+  test("a preview brackets its run too (WA-6)", async () => {
+    const { repository } = open()
+    const { browser, runs } = recordingBrowser()
+    const runner = runnerFor(browser, repository, { publish: profile("https://example.com") })
+
+    await runner.run({ action: "publish", sessionID: "s1", project: "proj", preview: true })
+
+    expect(runs).toEqual(["begin:s1", "end:s1"])
   })
 
   test("a stopped run refuses before the next step instead of driving on (WA-7)", async () => {

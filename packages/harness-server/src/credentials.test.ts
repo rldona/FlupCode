@@ -377,6 +377,15 @@ describe("the runner's credential prefetch", () => {
     takeOver: async () => {
       throw new Error("browser.takeOver was called")
     },
+    beginRun: () => {
+      throw new Error("browser.beginRun was called")
+    },
+    endRun: async () => {
+      throw new Error("browser.endRun was called")
+    },
+    setViewport: async () => {
+      throw new Error("browser.setViewport was called")
+    },
     abort: async () => {
       throw new Error("browser.abort was called")
     },
@@ -420,6 +429,9 @@ describe("the runner's credential prefetch", () => {
       pause: () => view,
       resume: () => view,
       takeOver: async () => view,
+      beginRun: () => {},
+      endRun: async () => {},
+      setViewport: async () => view,
       abort: async () => true,
       waitIfPaused: async () => {},
       stop: async () => {},

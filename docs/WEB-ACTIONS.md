@@ -210,8 +210,9 @@ names a product.
 - Only `http(s)`. Loopback, link-local, private addresses and cloud-metadata endpoints are refused.
 - Page content is **untrusted input**: text on a page never authorises an action. The agent acts on
   the recipe and your instructions, not on what a page tells it to do.
-- The live view is a streamed screenshot; takeover reveals the real window. Wave 1 does not forward
-  your mouse and keyboard into the page.
+- The live view is a streamed screenshot sized to its panel, so the headless page fills the frame;
+  takeover reveals the real window and opens it at once when the run is idle. A headed window keeps
+  its own size, and Wave 1 does not forward your mouse and keyboard into the page.
 - Redaction masks password and card fields and the fields the action filled. It cannot be complete;
   an unredacted capture requires explicit approval.
 - A **project-scoped** profile lives in the project's `.opencode` and is available to the editor and

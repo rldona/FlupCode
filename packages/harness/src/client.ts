@@ -1211,6 +1211,8 @@ export type AgentBrowserSession = {
   stopped: boolean
   url: string
   title: string
+  /** The page's current viewport, so the panel knows whether its own size was applied. */
+  viewport?: { width: number; height: number }
 }
 
 /**
@@ -1349,6 +1351,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/resume", { method: "POST" }),
       takeOver: (sessionID: string) =>
         agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/takeover", { method: "POST" }),
+      /** Resizes the headless page to the panel the live view measured (WA-6). */
+      setViewport: (sessionID: string, viewport: { width: number; height: number }) =>
+        agentBrowserRequest<AgentBrowserSession>(baseUrl, sessionID, "/harness/browser/viewport", {
+          method: "POST",
+          body: JSON.stringify(viewport),
+        }),
       stop: (sessionID: string) =>
         agentBrowserRequest<{ stopped: boolean }>(baseUrl, sessionID, "/harness/browser/stop", { method: "POST" }),
       /** What is at a point the reader clicked in the live frame, a 0..1 fraction of it (WA-8). */

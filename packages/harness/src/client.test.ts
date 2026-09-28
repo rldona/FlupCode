@@ -380,6 +380,48 @@ test("agentBrowser control sends the loopback token and the session", async () =
   expect(seen).toEqual([{ method: "POST", path: "/harness/browser/stop", auth: "Bearer tok", session: "ses_1" }])
 })
 
+test("agentBrowser.setViewport posts the measured size with the token and the session", async () => {
+  const seen: Array<{ method: string; path: string; auth: string | null; session: string | null; body: unknown }> = []
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      seen.push({
+        method: request.method.toUpperCase(),
+        path: url.pathname,
+        auth: request.headers.get("authorization"),
+        session: request.headers.get("x-flupcode-session"),
+        body: await request.json().catch(() => undefined),
+      })
+      return new Response(JSON.stringify({ data: { id: "ses_1" } }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+  const globalWindow = globalThis as { window?: unknown }
+  const previous = globalWindow.window
+  globalWindow.window = { flupcode: { browserToken: "tok" } }
+  try {
+    await createHarnessClient("http://harness").agentBrowser.setViewport("ses_1", { width: 800, height: 600 })
+  } finally {
+    globalWindow.window = previous
+  }
+
+  expect(seen).toEqual([
+    {
+      method: "POST",
+      path: "/harness/browser/viewport",
+      auth: "Bearer tok",
+      session: "ses_1",
+      body: { width: 800, height: 600 },
+    },
+  ])
+})
+
 test("agentBrowser.frame returns the PNG blob and its artifact", async () => {
   setEngineTransport({
     fetch: async () =>

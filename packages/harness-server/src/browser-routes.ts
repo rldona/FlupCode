@@ -5,7 +5,7 @@
  * are reached, and here they are only the shape of the request and the shape of the answer.
  */
 
-import { BrowserError, readSessionID } from "./browser"
+import { BrowserError, parseViewport, readSessionID } from "./browser"
 import type { BrowserRuntime, WaitUntil } from "./browser"
 import { NavigationBlockedError } from "./browser-egress"
 
@@ -90,6 +90,12 @@ const dispatch = async (request: Request, segments: string[], browser: BrowserRu
   if (route === "session" && method === "GET") {
     const session = browser.get(id)
     return session ? json({ data: session }) : error("No browser session is open", "no_session", 404)
+  }
+
+  if (route === "viewport" && method === "POST") {
+    const body = await bodyFrom(request)
+    const viewport = parseViewport(body.width, body.height)
+    return json({ data: await browser.setViewport(id, viewport) })
   }
 
   if (route === "navigate" && method === "POST") {
