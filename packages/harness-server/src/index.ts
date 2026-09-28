@@ -41,6 +41,10 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // Forget what was told to expire (H-14). At startup, so a server that was away for a while acts
   // on it, and hourly after that. Pinned ones are never touched, and nothing expires by default.
   repository.removeExpiredArtifacts()
+  // Evidence beyond the total is evicted as it is written; a restart closes the gap a store carried
+  // over from a build that did not (FH-006).
+  const evicted = repository.evictEvidence()
+  if (evicted > 0) console.warn(`[flupcode] evicted ${evicted} evidence slice(s) past the total limit`)
   const sweep = setInterval(() => repository.removeExpiredArtifacts(), 60 * 60 * 1000)
   const browser = browserFrom(options, repository)
   // Read apart from the runtime: the same bearer guards the artifact routes (WA-9), and it is worth

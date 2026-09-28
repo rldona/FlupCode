@@ -4,7 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository } from "../repository"
 import { createEpisodeCoordinator } from "./coordinator"
-import type { EpisodeCoordinatorDeps } from "./coordinator"
+import type { EpisodeCoordinatorDeps, EpisodeEvidenceStore } from "./coordinator"
+import { EVIDENCE_EPISODE_SLICE_LIMIT, EVIDENCE_OVERFLOW_CONTENT } from "./evidence"
 import { runEpisodeID, sessionEpisodeID } from "./episode"
 import { OUTCOME_REF_LIMIT } from "./outcome"
 
@@ -725,6 +726,159 @@ describe("outcome extraction (FH-005)", () => {
     expect(episode.evidenceRefs).toContain("verify:s0")
     expect(episode.evidenceRefs).toContain(`verify:s${OUTCOME_REF_LIMIT - 1}`)
     expect(episode.evidenceRefs).not.toContain(`verify:s${OUTCOME_REF_LIMIT}`)
+    repository.close()
+  })
+})
+
+describe("episode evidence store (FH-006)", () => {
+  const linkCount = (repository: SqliteRoutineRepository) =>
+    (repository.db.query("SELECT COUNT(*) AS n FROM episode_evidence").get() as { n: number }).n
+
+  const redShell = { tool: "bash" as const, ok: true, exit: 1, command: "bun test", out: BUN_TEST_SAMPLE, paths: [] }
+
+  test("a red shell's output is kept and read back from the episode", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, NOW, "/work/proj")
+    const [task] = repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    repository.attachSession(run.id, "ses_1")
+    repository.finishTask(task!.id, "success", {}, NOW)
+    repository.finishRun(run.id, "success", undefined, NOW)
+
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeSignals: (sessionID) => (sessionID === "ses_1" ? { calls: [redShell] } : { calls: [] }),
+    })
+    const episode = coordinator.captureRun(run.id)!
+
+    expect(repository.evidenceFor(episode, NOW)).toEqual([
+      expect.objectContaining({ kind: "signal", source: "bun test", content: BUN_TEST_SAMPLE }),
+    ])
+    // The store keeps the association; the episode's own refs are not touched.
+    expect(episode.evidenceRefs.some((ref) => ref.startsWith("evidence:"))).toBe(false)
+    repository.close()
+  })
+
+  test("a tool error is kept as an event slice", () => {
+    const repository = open()
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeEvents: () => ({
+        events: [{ kind: "tool.error", seq: 1, at: NOW, tool: "edit", callID: "call_1", message: "permission denied" }],
+      }),
+    })
+
+    const episode = coordinator.captureSession({ sessionID: "ses_free", directory: "/work/proj" })!
+
+    expect(repository.evidenceFor(episode, NOW)).toEqual([
+      expect.objectContaining({ kind: "event", source: "tool:edit", content: "permission denied" }),
+    ])
+    repository.close()
+  })
+
+  test("a shell that succeeded leaves no evidence", () => {
+    const repository = open()
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeSignals: () => ({ calls: [{ ...redShell, exit: 0, out: "all green" }] }),
+    })
+
+    const episode = coordinator.captureSession({ sessionID: "ses_free", directory: "/work/proj" })!
+
+    expect(repository.evidenceFor(episode, NOW)).toEqual([])
+    expect(linkCount(repository)).toBe(0)
+    repository.close()
+  })
+
+  test("capturing twice keeps the same associations without growing the store", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, NOW, "/work/proj")
+    const [task] = repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    repository.attachSession(run.id, "ses_1")
+    repository.finishTask(task!.id, "success", {}, NOW)
+    repository.finishRun(run.id, "success", undefined, NOW)
+
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeSignals: () => ({ calls: [redShell] }),
+    })
+    const first = coordinator.captureRun(run.id)!
+    const links = repository.evidenceFor(first, NOW).map((slice) => slice.hash)
+    const count = linkCount(repository)
+
+    const second = coordinator.captureRun(run.id)!
+
+    expect(second.id).toBe(first.id)
+    expect(repository.evidenceFor(second, NOW).map((slice) => slice.hash)).toEqual(links)
+    expect(linkCount(repository)).toBe(count)
+    repository.close()
+  })
+
+  test("more candidates than the episode keeps become an explicit overflow slice", () => {
+    const repository = open()
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeSignals: () => ({
+        calls: Array.from({ length: EVIDENCE_EPISODE_SLICE_LIMIT + 5 }, (_, index) => ({
+          ...redShell,
+          command: `cmd-${index}`,
+          out: `error-${index}`,
+        })),
+      }),
+    })
+
+    const episode = coordinator.captureSession({ sessionID: "ses_free", directory: "/work/proj" })!
+    const slices = repository.evidenceFor(episode, NOW)
+
+    expect(slices).toHaveLength(EVIDENCE_EPISODE_SLICE_LIMIT + 1)
+    expect(slices.filter((slice) => slice.kind === "overflow")).toHaveLength(1)
+    expect(slices[slices.length - 1]!.content).toBe(EVIDENCE_OVERFLOW_CONTENT)
+    repository.close()
+  })
+
+  test("a store that refuses loses evidence, never the episode", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, NOW, "/work/proj")
+    const [task] = repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    repository.attachSession(run.id, "ses_1")
+    repository.finishTask(task!.id, "success", {}, NOW)
+    repository.finishRun(run.id, "success", undefined, NOW)
+
+    const seen: unknown[] = []
+    const throwing: EpisodeEvidenceStore = {
+      putEvidence() {
+        throw new Error("store refused")
+      },
+      setEpisodeEvidence() {},
+    }
+    const refusing = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      evidence: throwing,
+      onError: (cause) => seen.push(cause),
+      readEpisodeSignals: () => ({ calls: [redShell] }),
+    })
+
+    const episode = refusing.captureRun(run.id)
+    expect(episode).toBeDefined()
+    expect(repository.evidenceFor(episode!, NOW)).toEqual([])
+    expect(seen).toHaveLength(1)
+
+    // A store that answers with nothing stores no associations, and the episode still lands.
+    const dropping: EpisodeEvidenceStore = { putEvidence: () => undefined, setEpisodeEvidence: () => {} }
+    const droppingCoordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      evidence: dropping,
+      readEpisodeSignals: () => ({ calls: [redShell] }),
+    })
+
+    expect(droppingCoordinator.captureRun(run.id)).toBeDefined()
+    expect(repository.evidenceFor(repository.getEpisode(runEpisodeID(run.id))!, NOW)).toEqual([])
     repository.close()
   })
 })

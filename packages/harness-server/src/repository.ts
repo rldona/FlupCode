@@ -11,6 +11,18 @@ import {
   parseVerifications,
   RUN_EPISODE_PREFIX,
 } from "./adaptive/episode"
+import {
+  EVIDENCE_TOTAL_LIMIT,
+  evidenceHash,
+  isEvidenceHash,
+  sliceEvidence,
+} from "./adaptive/evidence"
+import type {
+  EvidenceInput,
+  EvidenceKind,
+  EvidenceLink,
+  EvidenceSlice,
+} from "./adaptive/evidence"
 import type {
   ActionTaskInput,
   BrowserAllowRule,
@@ -247,6 +259,25 @@ CREATE TABLE IF NOT EXISTS session_episodes (
 CREATE INDEX IF NOT EXISTS session_episodes_project ON session_episodes(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS session_episodes_session ON session_episodes(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS session_episodes_run ON session_episodes(run_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS evidence (
+  hash TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  bytes INTEGER,
+  truncated INTEGER,
+  created_at INTEGER NOT NULL,
+  last_read_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS evidence_last_read_at ON evidence(last_read_at, created_at);
+CREATE TABLE IF NOT EXISTS episode_evidence (
+  episode_id TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  source TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (episode_id, hash)
+);
+CREATE INDEX IF NOT EXISTS episode_evidence_episode ON episode_evidence(episode_id, position);
 `
 
 /**
@@ -542,6 +573,27 @@ const readOptionalNumber = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) ? value : undefined
 
 const readString = (value: unknown): string => (typeof value === "string" ? value : "")
+
+type EvidenceRow = {
+  hash: string
+  content: string
+  bytes: number | null
+  truncated: number | null
+  created_at: number
+  last_read_at: number | null
+}
+
+const decodeEvidence = (row: EvidenceRow): EvidenceSlice => ({
+  hash: row.hash,
+  content: row.content,
+  createdAt: row.created_at,
+  ...(row.bytes !== null ? { bytes: row.bytes } : {}),
+  ...(row.truncated ? { truncated: true } : {}),
+})
+
+/** A link's kind read back as one of ours; a hand-edited row with anything else is skipped. */
+const evidenceKind = (value: string): EvidenceKind | undefined =>
+  value === "signal" || value === "event" || value === "overflow" ? value : undefined
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
   id: row.id,
@@ -1862,6 +1914,148 @@ export class SqliteRoutineRepository implements RoutineRepository {
         : this.db.query(`${select} LIMIT ?${values.length + 1}`).all(...(values as never[]), limit)
     ) as EpisodeRow[]
     return rows.map(decodeEpisode)
+  }
+
+  // ---- evidence (FH-006) ----------------------------------------------------------------------
+
+  /**
+   * Keep one slice, addressed by the sha256 of the text that is stored (FH-006).
+   *
+   * The same text put twice is one row, so a recapture does not grow the store; a slice past the
+   * limit is cut and says how much it was, because losing evidence is worse than marking it. The
+   * total is enforced after every write, and nothing here throws: no capture may fail because its
+   * evidence could not be kept.
+   */
+  putEvidence(input: EvidenceInput, now = Date.now()): EvidenceSlice | undefined {
+    try {
+      if (!input.content) return undefined
+      const sliced = sliceEvidence(input)
+      const hash = evidenceHash(sliced.content)
+      this.db
+        .query(
+          `INSERT INTO evidence (hash, content, bytes, truncated, created_at, last_read_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+           ON CONFLICT(hash) DO UPDATE SET
+             truncated = CASE WHEN excluded.truncated = 1 THEN 1 ELSE evidence.truncated END,
+             bytes = CASE
+               WHEN excluded.bytes IS NOT NULL AND (evidence.bytes IS NULL OR excluded.bytes > evidence.bytes)
+               THEN excluded.bytes ELSE evidence.bytes END`,
+        )
+        .run(hash, sliced.content, sliced.bytes ?? null, sliced.truncated ? 1 : null, now)
+      const evicted = this.evictEvidence()
+      if (evicted > 0) console.warn(`[flupcode] evicted ${evicted} evidence slice(s) past the total limit`)
+      const row = this.db.query("SELECT * FROM evidence WHERE hash = ?1").get(hash) as EvidenceRow | null
+      return row ? decodeEvidence(row) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * A slice by its address, verified rather than trusted (FH-006).
+   *
+   * The hash is recomputed over the stored text, so a row edited by hand reads as `undefined`
+   * instead of handing a caller text that is not what its address claims. Reading marks it used.
+   */
+  getEvidence(hash: string, now = Date.now()): EvidenceSlice | undefined {
+    try {
+      if (!isEvidenceHash(hash)) return undefined
+      const row = this.db.query("SELECT * FROM evidence WHERE hash = ?1").get(hash) as EvidenceRow | null
+      if (!row) return undefined
+      if (evidenceHash(row.content) !== row.hash) return undefined
+      // Recency is bookkeeping: a read that found its slice is not lost because marking it failed.
+      try {
+        this.db.query("UPDATE evidence SET last_read_at = ?1 WHERE hash = ?2").run(now, hash)
+      } catch {}
+      return decodeEvidence(row)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Replace an episode's evidence associations in one transaction; a recapture converges (FH-006).
+   *
+   * Two candidates with the same text share an address and collapse into one row on `(episode_id,
+   * hash)`, which is intended: the same slice is the same evidence, not two.
+   */
+  setEpisodeEvidence(episodeID: string, links: EvidenceLink[], now = Date.now()): void {
+    try {
+      this.db.transaction(() => {
+        this.db.query("DELETE FROM episode_evidence WHERE episode_id = ?1").run(episodeID)
+        for (const link of links) {
+          this.db
+            .query(
+              `INSERT OR REPLACE INTO episode_evidence (episode_id, hash, position, kind, source, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+            )
+            .run(episodeID, link.hash, link.position, link.kind, link.source ?? null, now)
+        }
+      })()
+    } catch {
+      // Evidence is a record of what happened, never a reason a capture fails.
+    }
+  }
+
+  /**
+   * The slices an episode kept, in the order they were captured (FH-006).
+   *
+   * Read through `getEvidence`, so a slice that was evicted or edited is skipped rather than
+   * returned as something it is not.
+   */
+  evidenceFor(episode: SessionEpisode, now = Date.now()): EvidenceSlice[] {
+    try {
+      const links = this.db
+        .query(
+          "SELECT hash, kind, source FROM episode_evidence WHERE episode_id = ?1 ORDER BY position ASC, rowid ASC",
+        )
+        .all(episode.id) as Array<{ hash: string; kind: string; source: string | null }>
+      return links.flatMap((link): EvidenceSlice[] => {
+        const slice = this.getEvidence(link.hash, now)
+        if (!slice) return []
+        const kind = evidenceKind(link.kind)
+        return [{ ...slice, ...(kind ? { kind } : {}), ...(link.source ? { source: link.source } : {}) }]
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Forget the least recently used slices until the store is back under its total in UTF-8 bytes
+   * (FH-006).
+   *
+   * The content and the associations go together. Reading a slice moves it up the order, so what
+   * goes first is what has not been looked at; the count says how many were dropped.
+   */
+  evictEvidence(input: { maxBytes?: number } = {}): number {
+    try {
+      const maxBytes = input.maxBytes ?? EVIDENCE_TOTAL_LIMIT
+      const rows = this.db
+        .query(
+          `SELECT hash, LENGTH(CAST(content AS BLOB)) AS size FROM evidence
+           ORDER BY COALESCE(last_read_at, created_at) ASC, hash ASC`,
+        )
+        .all() as Array<{ hash: string; size: number }>
+      let total = rows.reduce((sum, row) => sum + row.size, 0)
+      if (total <= maxBytes) return 0
+      const doomed: string[] = []
+      for (const row of rows) {
+        if (total <= maxBytes) break
+        doomed.push(row.hash)
+        total -= row.size
+      }
+      if (doomed.length === 0) return 0
+      return this.db.transaction(() => {
+        for (const hash of doomed) {
+          this.db.query("DELETE FROM episode_evidence WHERE hash = ?1").run(hash)
+          this.db.query("DELETE FROM evidence WHERE hash = ?1").run(hash)
+        }
+        return doomed.length
+      })()
+    } catch {
+      return 0
+    }
   }
 
   // ---- action credentials (WA-5) ---------------------------------------------------------------

@@ -19,6 +19,8 @@ import {
   shouldCheckpoint,
 } from "./episode"
 import type { EpisodeBoundaryConfig, EpisodeFailure, EpisodeVerification } from "./episode"
+import { EVIDENCE_EPISODE_SLICE_LIMIT, EVIDENCE_OVERFLOW_CONTENT, evidenceCandidates } from "./evidence"
+import type { EvidenceCandidate, EvidenceInput, EvidenceLink, EvidenceSlice } from "./evidence"
 import { episodeEvents, failuresFromEvents } from "./events"
 import type { EpisodeEvents } from "./events"
 import { deriveOutcome } from "./outcome"
@@ -34,6 +36,17 @@ export type EpisodeSignalReader = (sessionID: string) => EpisodeSignals
 /** How a session's engine events are read; injectable so a test touches no filesystem. */
 export type EpisodeEventReader = (sessionID: string) => EpisodeEvents
 
+/**
+ * Where an episode's evidence goes (FH-006); injectable so a test never touches the real store.
+ *
+ * The members mirror the repository's own method names, so the repository is this store without an
+ * adapter.
+ */
+export type EpisodeEvidenceStore = {
+  putEvidence(input: EvidenceInput, now: number): EvidenceSlice | undefined
+  setEpisodeEvidence(episodeID: string, links: EvidenceLink[], now: number): void
+}
+
 export type EpisodeCoordinatorDeps = {
   repository: SqliteRoutineRepository
   config?: Partial<EpisodeBoundaryConfig>
@@ -41,6 +54,7 @@ export type EpisodeCoordinatorDeps = {
   readToolUses?: EpisodeToolUses
   readEpisodeSignals?: EpisodeSignalReader
   readEpisodeEvents?: EpisodeEventReader
+  evidence?: EpisodeEvidenceStore
   onError?: (cause: unknown) => void
   sweepLimit?: number
 }
@@ -143,17 +157,55 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
   const readToolUses = deps.readToolUses ?? usedTools
   const readEpisodeSignals = deps.readEpisodeSignals ?? episodeSignals
   const readEpisodeEvents = deps.readEpisodeEvents ?? episodeEvents
+  const store = deps.evidence ?? repository
   const onError = deps.onError ?? (() => {})
   const sweepLimit = deps.sweepLimit ?? 50
 
-  /** The evidence the run's sessions left, relative to the run's directory. */
+  /**
+   * The evidence the run's sessions left, relative to the run's directory.
+   *
+   * The raw signals and events come back beside the reading so the slices FH-006 keeps are the very
+   * ones the failures were derived from, without reading the files a second time.
+   */
   const evidenceFor = (sessionIDs: string[], directory: string) => {
-    const evidence = episodeEvidence(
-      sessionIDs.flatMap((sessionID) => readEpisodeSignals(sessionID).calls),
-      directory,
-    )
-    const fromEvents = failuresFromEvents(sessionIDs.flatMap((sessionID) => readEpisodeEvents(sessionID).events))
-    return { ...evidence, failures: mergeFailures(evidence.failures, fromEvents) }
+    const signals = sessionIDs.flatMap((sessionID) => readEpisodeSignals(sessionID).calls)
+    const events = sessionIDs.flatMap((sessionID) => readEpisodeEvents(sessionID).events)
+    const evidence = episodeEvidence(signals, directory)
+    const fromEvents = failuresFromEvents(events)
+    return { ...evidence, failures: mergeFailures(evidence.failures, fromEvents), signals, events }
+  }
+
+  /**
+   * Keep the slices an episode offered, after the episode itself is stored (FH-006).
+   *
+   * The cap is stated: past the limit the episode gets an explicit overflow marker instead of
+   * silently dropping the rest. A store that fails loses evidence, never the episode.
+   */
+  const recordEvidence = (episodeID: string, candidates: EvidenceCandidate[]): void => {
+    try {
+      const at = now()
+      const links: EvidenceLink[] = candidates
+        .slice(0, EVIDENCE_EPISODE_SLICE_LIMIT)
+        .flatMap((candidate, position) => {
+          const slice = store.putEvidence(candidate, at)
+          if (!slice) return []
+          return [
+            {
+              hash: slice.hash,
+              kind: candidate.kind,
+              ...(candidate.source ? { source: candidate.source } : {}),
+              position,
+            },
+          ]
+        })
+      if (candidates.length > EVIDENCE_EPISODE_SLICE_LIMIT) {
+        const overflow = store.putEvidence({ content: EVIDENCE_OVERFLOW_CONTENT }, at)
+        if (overflow) links.push({ hash: overflow.hash, kind: "overflow", position: EVIDENCE_EPISODE_SLICE_LIMIT })
+      }
+      store.setEpisodeEvidence(episodeID, links, at)
+    } catch (cause) {
+      onError(cause)
+    }
   }
 
   let timer: ReturnType<typeof setInterval> | undefined
@@ -179,7 +231,7 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
       files: evidence.files,
       commands: evidence.commands,
     })
-    return repository.createEpisode(
+    const episode = repository.createEpisode(
       {
         id,
         sessionID: primarySessionID(run, tasks),
@@ -206,6 +258,8 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
       },
       now(),
     )
+    recordEvidence(episode.id, evidenceCandidates(evidence.signals, evidence.events))
+    return episode
   }
 
   const captureRun = (runID: string): SessionEpisode | undefined => {
@@ -235,7 +289,7 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
       files: evidence.files,
       commands: evidence.commands,
     })
-    return repository.createEpisode(
+    const episode = repository.createEpisode(
       {
         id,
         sessionID: input.sessionID,
@@ -253,6 +307,8 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
       },
       now(),
     )
+    recordEvidence(episode.id, evidenceCandidates(evidence.signals, evidence.events))
+    return episode
   }
 
   const captureSession = (input: {
