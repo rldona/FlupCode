@@ -6,10 +6,11 @@ the shell output are invented to look like what the plugin and the harness actua
 real path or secret in them.
 
 `episode-fixtures.test.ts` loads each file, seeds `SqliteRoutineRepository(":memory:")`, points
-`FLUPCODE_EPISODE_SIGNALS_DIR` and `FLUPCODE_TOOL_USES_DIR` at temporary directories built from the
-fixture, and drives the operation `capture` names with a fixed `now` — offline, with no engine and
-no network. On load it checks the required keys, that `name` matches the file's own name and that
-`capture` carries the blocks it needs; a fixture that fails any of these is not used at all.
+`FLUPCODE_EPISODE_SIGNALS_DIR`, `FLUPCODE_TOOL_USES_DIR` and `FLUPCODE_EPISODE_EVENTS_DIR` at
+temporary directories built from the fixture, and drives the operation `capture` names with a fixed
+`now` — offline, with no engine and no network. On load it checks the required keys, that `name`
+matches the file's own name and that `capture` carries the blocks it needs; a fixture that fails any
+of these is not used at all.
 
 ## Shape
 
@@ -53,6 +54,15 @@ and `"sweep"` marks the run terminal like restart recovery would and calls `swee
     }
   },
 
+  // The engine events (FH-004) the plugin records; keys are session ids.
+  "events": {
+    "ses_tool_error": {
+      "events": [
+        { "kind": "tool.error", "seq": 1, "at": 1, "tool": "edit", "message": "permission denied" }
+      ]
+    }
+  },
+
   // What the episode must read as. `evidenceRefs` is exact; `evidenceRefsContains` requires each
   // ref exactly once; `evidenceRefsPrefixes` requires at least one ref with each prefix.
   "expect": {
@@ -81,5 +91,7 @@ and `"sweep"` marks the run terminal like restart recovery would and calls `swee
   `partial` and cites `verify:check`.
 - `session-fail-and-fix.json` — a session with no run whose signals carry a red `bash` (`exit: 1`)
   and an `edit`. Reads `partial`, anchors `failure:src/math.test.ts:3` and lists the edited file.
+- `session-tool-error.json` — a session with no run whose only evidence is an engine `tool.error`
+  (FH-004). Reads `partial` and cites `failure:unknown:0`, since the event names no file or line.
 - `run-crashed-then-recovered.json` — a live checkpoint, then restart recovery marks the run failed.
   The sweep settles the same row (`failed`) instead of leaving the checkpoint `unknown`.

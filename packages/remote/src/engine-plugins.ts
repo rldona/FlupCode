@@ -1310,6 +1310,157 @@ export const flupcodeActions = async () => {
 `,
 }
 
+/**
+ * episode-events: the engine signals an episode cannot derive from a tool's own success or failure
+ * (FH-004). The `tool.execute.after` hook sees a call end but not why: a tool that errored — a denied
+ * permission, a failed edit — only shows up as the engine's `message.part.updated` event with the
+ * part in `error`, and a provider failure only as `session.error`. This plugin records both into a
+ * per-session ring the coordinator reads back (`adaptive/events.ts`), plain JavaScript with no
+ * imports, like the other plugins.
+ *
+ * Only non-recoverable errors are recorded. A user cancellation (`MessageAbortedError`) and a
+ * context overflow the engine compacts past and continues from (`ContextOverflowError`) are not
+ * failures of the work, so they are filtered out; the list can grow as the engine adds recoverable
+ * errors. A `session.error` with no session id has no file to land in.
+ */
+export const EPISODE_EVENTS_PLUGIN = {
+  file: "flupcode-episode-events.js",
+  source: `// Installed by FlupCode. Records the engine signals a tool's own hooks cannot see: a tool that
+// ended in error and a session-level error. The adaptive coordinator reads them back to fill an
+// episode's failures. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with episodeEventsDirectory() in packages/harness-server/src/adaptive/events.ts,
+// which reads it back.
+function directory() {
+  if (process.env.FLUPCODE_EPISODE_EVENTS_DIR) return process.env.FLUPCODE_EPISODE_EVENTS_DIR
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "events")
+}
+
+// An event carries no tool input, so two events can fire at once and lose one another: the queue
+// keeps each file's read-modify-write serial.
+const queues = new Map()
+
+// The newest events are what a reader wants; the ring is small enough to read whole.
+const MOST = 200
+// A provider's error body can be long, and the file is user-only; anything past this is dropped.
+const MESSAGE_LIMIT = 1000
+
+// A clock that never goes back orders events written in the same millisecond. The array order is
+// authoritative; this only keeps the stamps readable.
+let last = 0
+function stamp() {
+  const now = Date.now()
+  last = now > last ? now : last + 1
+  return last
+}
+
+function serial(file, work) {
+  const tail = queues.get(file) || Promise.resolve()
+  const next = tail.then(work, work)
+  queues.set(file, next.catch(() => {}))
+  return next
+}
+
+function load(file) {
+  return readFile(file, "utf8").then(JSON.parse).catch(() => ({}))
+}
+
+function bounded(value, limit) {
+  return value.length > limit ? value.slice(0, limit) : value
+}
+
+// Only what an episode can cite, and only the fields it needs: a tool error with its message, and a
+// session error that is not recoverable. Anything else returns nothing.
+function selection(event) {
+  const type = event && event.type
+  const properties = event && event.properties
+  if (type === "message.part.updated") {
+    const part = properties && properties.part
+    if (!part || part.type !== "tool") return
+    const state = part.state
+    if (!state || state.status !== "error") return
+    // An abort marks every in-flight tool with a synthetic error; that is not a failure of the work.
+    if (state.metadata && state.metadata.interrupted === true) return
+    if (state.error === "Tool execution aborted" || state.error === "Cancelled") return
+    if (typeof part.tool !== "string" || !part.tool) return
+    return {
+      sessionID: properties.sessionID,
+      entry: {
+        kind: "tool.error",
+        tool: part.tool,
+        ...(typeof part.callID === "string" && part.callID ? { callID: part.callID } : {}),
+        message: typeof state.error === "string" ? state.error : "",
+      },
+    }
+  }
+  if (type === "session.error") {
+    const error = properties && properties.error
+    const name = error && error.name
+    // A cancellation and a context overflow the engine recovers from are not failures of the work.
+    if (name === "MessageAbortedError" || name === "ContextOverflowError") return
+    if (typeof name !== "string" || !name) return
+    const data = error && error.data
+    return {
+      sessionID: properties.sessionID,
+      entry: {
+        kind: "session.error",
+        error: name,
+        message: data && typeof data.message === "string" ? data.message : "",
+      },
+    }
+  }
+}
+
+async function record(event) {
+  const selected = selection(event)
+  if (!selected) return
+  // The id names a file, so anything that is not an engine-shaped id is refused rather than written.
+  const sessionID = selected.sessionID
+  if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
+  const folder = directory()
+  const file = path.join(folder, sessionID + ".json")
+  await serial(file, async () => {
+    const previous = await load(file)
+    const events = previous && Array.isArray(previous.events) ? previous.events.slice(-MOST) : []
+    events.push({
+      seq: stamp(),
+      at: Date.now(),
+      ...selected.entry,
+      message: bounded(selected.entry.message, MESSAGE_LIMIT),
+    })
+    // The file carries provider error bodies, so it stays user-only. mkdir does not change the mode
+    // of an existing folder, hence the best-effort chmod.
+    await mkdir(folder, { recursive: true, mode: 0o700 })
+    await chmod(folder, 0o700).catch(() => {})
+    await store(file, { at: Date.now(), events: events.slice(-MOST) })
+  })
+}
+
+// Atomic: a reader never sees half the file. A failed rename must not leave the temp behind.
+async function store(target, data) {
+  const temp = target + ".tmp-" + process.pid + "-" + Date.now()
+  await writeFile(temp, JSON.stringify(data), { mode: 0o600 })
+  try {
+    await rename(temp, target)
+  } catch (cause) {
+    await rm(temp, { force: true }).catch(() => {})
+    throw cause
+  }
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeEpisodeEvents = async () => ({
+  event: async ({ event }) => {
+    await record(event).catch(() => {})
+  },
+})
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
@@ -1319,6 +1470,7 @@ const PLUGINS = [
   ARTIFACT_WRITE_PLUGIN,
   DELIVERY_PLUGIN,
   WEB_ACTIONS_PLUGIN,
+  EPISODE_EVENTS_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

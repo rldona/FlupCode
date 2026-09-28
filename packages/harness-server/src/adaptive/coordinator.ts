@@ -19,6 +19,8 @@ import {
   shouldCheckpoint,
 } from "./episode"
 import type { EpisodeBoundaryConfig, EpisodeFailure, EpisodeVerification } from "./episode"
+import { episodeEvents, failuresFromEvents } from "./events"
+import type { EpisodeEvents } from "./events"
 import { deriveOutcome } from "./outcome"
 import { episodeEvidence, episodeSignals } from "./signals"
 import type { EpisodeSignals } from "./signals"
@@ -29,12 +31,16 @@ export type EpisodeToolUses = (sessionID: string) => ToolUses
 /** How a session's captured evidence is read; injectable so a test touches no filesystem. */
 export type EpisodeSignalReader = (sessionID: string) => EpisodeSignals
 
+/** How a session's engine events are read; injectable so a test touches no filesystem. */
+export type EpisodeEventReader = (sessionID: string) => EpisodeEvents
+
 export type EpisodeCoordinatorDeps = {
   repository: SqliteRoutineRepository
   config?: Partial<EpisodeBoundaryConfig>
   now?: () => number
   readToolUses?: EpisodeToolUses
   readEpisodeSignals?: EpisodeSignalReader
+  readEpisodeEvents?: EpisodeEventReader
   onError?: (cause: unknown) => void
   sweepLimit?: number
 }
@@ -136,15 +142,19 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
   const now = deps.now ?? Date.now
   const readToolUses = deps.readToolUses ?? usedTools
   const readEpisodeSignals = deps.readEpisodeSignals ?? episodeSignals
+  const readEpisodeEvents = deps.readEpisodeEvents ?? episodeEvents
   const onError = deps.onError ?? (() => {})
   const sweepLimit = deps.sweepLimit ?? 50
 
   /** The evidence the run's sessions left, relative to the run's directory. */
-  const evidenceFor = (sessionIDs: string[], directory: string) =>
-    episodeEvidence(
+  const evidenceFor = (sessionIDs: string[], directory: string) => {
+    const evidence = episodeEvidence(
       sessionIDs.flatMap((sessionID) => readEpisodeSignals(sessionID).calls),
       directory,
     )
+    const fromEvents = failuresFromEvents(sessionIDs.flatMap((sessionID) => readEpisodeEvents(sessionID).events))
+    return { ...evidence, failures: mergeFailures(evidence.failures, fromEvents) }
+  }
 
   let timer: ReturnType<typeof setInterval> | undefined
   let sweeping = false

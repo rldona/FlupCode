@@ -7,6 +7,7 @@ import { pathToFileURL } from "node:url"
 import {
   ARTIFACT_WRITE_PLUGIN,
   DELIVERY_PLUGIN,
+  EPISODE_EVENTS_PLUGIN,
   REASONING_VARIANTS_PLUGIN,
   RUNTIME_PROBE_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
@@ -40,6 +41,7 @@ afterEach(async () => {
   delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
   delete process.env.FLUPCODE_TOOL_USES_DIR
   delete process.env.FLUPCODE_EPISODE_SIGNALS_DIR
+  delete process.env.FLUPCODE_EPISODE_EVENTS_DIR
   delete process.env.FLUPCODE_RUNTIME_PROBE_FILE
   delete process.env.OPENCODE_CONFIG_DIR
   delete process.env.FLUPCODE_CONFIG_DIR
@@ -65,7 +67,7 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(7)
+    expect(first.paths).toHaveLength(8)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
@@ -74,6 +76,7 @@ describe("installEnginePlugins", () => {
       ARTIFACT_WRITE_PLUGIN,
       DELIVERY_PLUGIN,
       WEB_ACTIONS_PLUGIN,
+      EPISODE_EVENTS_PLUGIN,
     ]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }
@@ -343,6 +346,365 @@ describe("installEnginePlugins", () => {
       { metadata: { exit: 0 }, output: "here" },
     )
     expect((await readdir(dir)).sort()).toEqual(["ses_block.json"])
+  })
+
+  test("the installed plugin records a tool error and a session error", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_abc",
+          part: { type: "tool", tool: "edit", callID: "call_1", state: { status: "error", error: "permission denied" } },
+        },
+      },
+    })
+    await hooks.event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "ses_abc", error: { name: "APIError", data: { message: "rate limited" } } },
+      },
+    })
+
+    const written = JSON.parse(await readFile(path.join(events, "ses_abc.json"), "utf8"))
+    expect(written.events).toHaveLength(2)
+    expect(written.events[0]).toMatchObject({
+      kind: "tool.error",
+      tool: "edit",
+      callID: "call_1",
+      message: "permission denied",
+    })
+    expect(written.events[1]).toMatchObject({ kind: "session.error", error: "APIError", message: "rate limited" })
+    // The stamps are readable and ordered, and the array order is the authoritative one.
+    expect(written.events[1].seq).toBeGreaterThan(written.events[0].seq)
+  })
+
+  test("only an errored tool part and a real session error are written", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    // A tool part that succeeded, a non-tool part, and unrelated events all say nothing an episode
+    // can act on.
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: { sessionID: "ses_abc", part: { type: "tool", tool: "edit", callID: "c", state: { status: "completed" } } },
+      },
+    })
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: { sessionID: "ses_abc", part: { type: "text", text: "hi" } },
+      },
+    })
+    await hooks.event({ event: { type: "message.updated", properties: { sessionID: "ses_abc" } } })
+    await hooks.event({ event: { type: "session.diff", properties: { sessionID: "ses_abc" } } })
+    await hooks.event({ event: { type: "message.part.delta", properties: { sessionID: "ses_abc" } } })
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("a tool part that is still pending or running is not written", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    // Only an errored call ends as a failure; one that has not finished yet says nothing.
+    for (const status of ["pending", "running"]) {
+      await hooks.event({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_abc",
+            part: { type: "tool", tool: "edit", callID: "c", state: { status, input: {} } },
+          },
+        },
+      })
+    }
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("a cancellation and a session error with no session id are not written", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    // A user cancellation is not a failure of the work.
+    await hooks.event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "ses_abc", error: { name: "MessageAbortedError", data: { message: "aborted" } } },
+      },
+    })
+    // A session error with no session id has no file to land in.
+    await hooks.event({
+      event: { type: "session.error", properties: { error: { name: "APIError", data: { message: "x" } } } },
+    })
+    // A tool error whose id is not engine-shaped is refused rather than written outside the folder.
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "../../escape",
+          part: { type: "tool", tool: "edit", callID: "c", state: { status: "error", error: "boom" } },
+        },
+      },
+    })
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("an aborted tool is not written as a failure", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    // Esc marks every in-flight tool with a synthetic error and an interrupted flag.
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_abc",
+          part: {
+            type: "tool",
+            tool: "edit",
+            callID: "c1",
+            state: { status: "error", error: "Tool execution aborted", metadata: { interrupted: true } },
+          },
+        },
+      },
+    })
+    // The task tool is cancelled with its own message.
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_abc",
+          part: { type: "tool", tool: "task", callID: "c2", state: { status: "error", error: "Cancelled" } },
+        },
+      },
+    })
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("recoverable session errors are not written", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    // The engine compacts past a context overflow and keeps going: the turn did not fail.
+    await hooks.event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "ses_abc", error: { name: "ContextOverflowError", data: { message: "too long" } } },
+      },
+    })
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("a session error whose name is not a non-empty string is not written", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    for (const error of [{ data: { message: "no name" } }, { name: 42, data: { message: "numeric" } }, { name: "" }]) {
+      await hooks.event({ event: { type: "session.error", properties: { sessionID: "ses_abc", error } } })
+    }
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("a session error whose id is not engine-shaped is refused", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    await hooks.event({
+      event: {
+        type: "session.error",
+        properties: { sessionID: "../escape", error: { name: "APIError", data: { message: "x" } } },
+      },
+    })
+
+    expect(await readdir(events)).toEqual([])
+  })
+
+  test("events of one session keep their order and none is lost", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    const count = 30
+    await Promise.all(
+      Array.from({ length: count }, (_, index) =>
+        hooks.event({
+          event: {
+            type: "message.part.updated",
+            properties: {
+              sessionID: "ses_abc",
+              part: { type: "tool", tool: "bash", callID: `c${index}`, state: { status: "error", error: `boom-${index}` } },
+            },
+          },
+        }),
+      ),
+    )
+
+    const written = JSON.parse(await readFile(path.join(events, "ses_abc.json"), "utf8"))
+    expect(written.events).toHaveLength(count)
+    const seqs = written.events.map((entry: { seq: number }) => entry.seq)
+    // No loss and no duplicate: the serial queue keeps every event, and the stamps never go back.
+    expect(new Set(seqs).size).toBe(count)
+    expect(seqs).toEqual([...seqs].sort((a: number, b: number) => a - b))
+  })
+
+  test("events of different sessions do not interfere", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    const toolError = (sessionID: string, index: number) => ({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID,
+          part: { type: "tool", tool: "bash", callID: `c${index}`, state: { status: "error", error: `boom-${index}` } },
+        },
+      },
+    })
+
+    await Promise.all([
+      ...Array.from({ length: 20 }, (_, index) => hooks.event(toolError("ses_one", index))),
+      ...Array.from({ length: 20 }, (_, index) => hooks.event(toolError("ses_two", index))),
+    ])
+
+    // Each session's own file holds its whole run, in its own order; nothing crossed over.
+    const one = JSON.parse(await readFile(path.join(events, "ses_one.json"), "utf8"))
+    const two = JSON.parse(await readFile(path.join(events, "ses_two.json"), "utf8"))
+    const messages = (written: { events: Array<{ message: string }> }) =>
+      written.events.map((entry) => entry.message)
+    expect(messages(one)).toEqual(Array.from({ length: 20 }, (_, index) => `boom-${index}`))
+    expect(messages(two)).toEqual(Array.from({ length: 20 }, (_, index) => `boom-${index}`))
+  })
+
+  test("the event ring keeps the newest two hundred", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    for (let index = 0; index < 201; index++) {
+      await hooks.event({
+        event: {
+          type: "message.part.updated",
+          properties: {
+            sessionID: "ses_abc",
+            part: { type: "tool", tool: "bash", callID: `c${index}`, state: { status: "error", error: `boom-${index}` } },
+          },
+        },
+      })
+    }
+
+    const written = JSON.parse(await readFile(path.join(events, "ses_abc.json"), "utf8"))
+    expect(written.events).toHaveLength(200)
+    expect(written.events[0].message).toBe("boom-1")
+    expect(written.events[199].message).toBe("boom-200")
+  })
+
+  test("an event message past its limit is truncated", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_abc",
+          part: { type: "tool", tool: "edit", callID: "c", state: { status: "error", error: "x".repeat(2000) } },
+        },
+      },
+    })
+
+    const written = JSON.parse(await readFile(path.join(events, "ses_abc.json"), "utf8"))
+    expect(written.events[0].message).toHaveLength(1000)
+  })
+
+  test("the event file and its folder are private to the user", async () => {
+    const config = await temp()
+    const events = await temp()
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = events
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_abc",
+          part: { type: "tool", tool: "edit", callID: "c", state: { status: "error", error: "boom" } },
+        },
+      },
+    })
+
+    if (process.platform !== "win32") {
+      expect(statSync(events).mode & 0o777).toBe(0o700)
+      expect(statSync(path.join(events, "ses_abc.json")).mode & 0o777).toBe(0o600)
+    }
+  })
+
+  test("an event whose write cannot land leaves no temp file and never throws", async () => {
+    const config = await temp()
+    const dir = await temp()
+    // The target is a directory, so the temp file cannot be renamed into place.
+    await mkdir(path.join(dir, "ses_block.json"))
+    process.env.FLUPCODE_EPISODE_EVENTS_DIR = dir
+    const plugin = await installed(config, EPISODE_EVENTS_PLUGIN.file, "flupcodeEpisodeEvents")
+    const hooks = await plugin()
+
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_block",
+          part: { type: "tool", tool: "edit", callID: "c", state: { status: "error", error: "boom" } },
+        },
+      },
+    })
+    expect((await readdir(dir)).sort()).toEqual(["ses_block.json"])
+
+    // A malformed event never reaches the engine as an error either.
+    await hooks.event({ event: { type: "session.error", properties: { error: null } } })
+    await hooks.event({ event: {} })
   })
 
   test("the installed canary stamps the engine process and marks its hooks", async () => {

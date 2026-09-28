@@ -10,10 +10,14 @@ import { OUTCOME_REF_LIMIT } from "./outcome"
 
 const open = (path = ":memory:") => new SqliteRoutineRepository(path)
 
-// Signals default to none so a test never reads whatever the machine's real signals folder holds; a
-// test that wants evidence injects its own reader and overrides the default.
+// Signals and events default to none so a test never reads whatever the machine's real folders hold;
+// a test that wants evidence injects its own reader and overrides the default.
 const episodeCoordinator = (deps: EpisodeCoordinatorDeps) =>
-  createEpisodeCoordinator({ readEpisodeSignals: () => ({ calls: [] }), ...deps })
+  createEpisodeCoordinator({
+    readEpisodeSignals: () => ({ calls: [] }),
+    readEpisodeEvents: () => ({ events: [] }),
+    ...deps,
+  })
 
 const NOW = 1_000_000
 
@@ -280,6 +284,58 @@ describe("the episode coordinator (FH-002)", () => {
     const episode = coordinator.captureRun(run.id)!
 
     expect(episode).toMatchObject({ files: [], commands: [], failures: [] })
+    repository.close()
+  })
+
+  test("a tool error event fills an episode's failures", () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, NOW, "/work/proj")
+    const [task] = repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    repository.attachSession(run.id, "ses_1")
+    repository.finishTask(task!.id, "success", {}, NOW)
+    repository.finishRun(run.id, "success", undefined, NOW)
+
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeEvents: (sessionID) =>
+        sessionID === "ses_1"
+          ? {
+              events: [
+                {
+                  kind: "tool.error",
+                  seq: 1,
+                  at: NOW,
+                  tool: "edit",
+                  callID: "call_1",
+                  message: "permission denied",
+                },
+              ],
+            }
+          : { events: [] },
+    })
+
+    const episode = coordinator.captureRun(run.id)!
+
+    expect(episode.failures).toEqual([{ summary: "edit failed: permission denied" }])
+    repository.close()
+  })
+
+  test("a session with only a session error reads partial, not unknown", () => {
+    const repository = open()
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => NOW,
+      readEpisodeEvents: () => ({
+        events: [{ kind: "session.error", seq: 1, at: NOW, error: "APIError", message: "rate limited" }],
+      }),
+    })
+
+    const episode = coordinator.captureSession({ sessionID: "ses_free", directory: "/work/proj" })!
+
+    expect(episode.failures).toEqual([{ summary: "APIError: rate limited" }])
+    expect(episode.outcome).toBe("partial")
+    expect(episode.evidenceRefs).toContain("failure:unknown:0")
     repository.close()
   })
 

@@ -20,6 +20,7 @@ import { createEpisodeCoordinator } from "./coordinator"
 import type { EpisodeCoordinator } from "./coordinator"
 import type { EpisodeFailure, EpisodeOutcome, EpisodeVerification, SessionEpisode } from "./episode"
 import { runEpisodeID, sessionEpisodeID } from "./episode"
+import type { EpisodeEvents } from "./events"
 import type { EpisodeSignals } from "./signals"
 
 type TerminalRunStatus = Exclude<RunStatus, "running" | "awaiting">
@@ -72,6 +73,7 @@ type Fixture = {
   session?: { sessionID: string; directory?: string }
   toolUses?: Record<string, ToolUses>
   signals?: Record<string, EpisodeSignals>
+  events?: Record<string, EpisodeEvents>
   expectCheckpoint?: { outcome: EpisodeOutcome; toolCalls: number }
   expect: FixtureExpect
 }
@@ -83,12 +85,14 @@ const repositories: SqliteRoutineRepository[] = []
 const tempDirectories: string[] = []
 let signalsDirectoryBefore: string | undefined
 let toolUsesDirectoryBefore: string | undefined
+let eventsDirectoryBefore: string | undefined
 
 // The env seams are process-global, so remember what they were and put them back rather than
 // assuming the test owns them; a seam that was unset stays unset.
 beforeEach(() => {
   signalsDirectoryBefore = process.env.FLUPCODE_EPISODE_SIGNALS_DIR
   toolUsesDirectoryBefore = process.env.FLUPCODE_TOOL_USES_DIR
+  eventsDirectoryBefore = process.env.FLUPCODE_EPISODE_EVENTS_DIR
 })
 
 const restoreEnv = (key: string, previous: string | undefined) => {
@@ -99,6 +103,7 @@ const restoreEnv = (key: string, previous: string | undefined) => {
 afterEach(() => {
   restoreEnv("FLUPCODE_EPISODE_SIGNALS_DIR", signalsDirectoryBefore)
   restoreEnv("FLUPCODE_TOOL_USES_DIR", toolUsesDirectoryBefore)
+  restoreEnv("FLUPCODE_EPISODE_EVENTS_DIR", eventsDirectoryBefore)
   for (const repository of repositories.splice(0)) repository.close()
   for (const directory of tempDirectories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
@@ -144,16 +149,22 @@ const seedSignalFiles = (source: Fixture) => {
   tempDirectories.push(root)
   const signalsDirectory = join(root, "episode-signals")
   const toolUsesDirectory = join(root, "tool-uses")
+  const eventsDirectory = join(root, "events")
   mkdirSync(signalsDirectory, { recursive: true })
   mkdirSync(toolUsesDirectory, { recursive: true })
+  mkdirSync(eventsDirectory, { recursive: true })
   Object.entries(source.signals ?? {}).forEach(([sessionID, data]) =>
     writeFileSync(join(signalsDirectory, `${sessionID}.json`), JSON.stringify(data)),
   )
   Object.entries(source.toolUses ?? {}).forEach(([sessionID, data]) =>
     writeFileSync(join(toolUsesDirectory, `${sessionID}.json`), JSON.stringify(data)),
   )
+  Object.entries(source.events ?? {}).forEach(([sessionID, data]) =>
+    writeFileSync(join(eventsDirectory, `${sessionID}.json`), JSON.stringify(data)),
+  )
   process.env.FLUPCODE_EPISODE_SIGNALS_DIR = signalsDirectory
   process.env.FLUPCODE_TOOL_USES_DIR = toolUsesDirectory
+  process.env.FLUPCODE_EPISODE_EVENTS_DIR = eventsDirectory
 }
 
 /** Seeds the run, its tasks and its files exactly as the fixture states them. */
@@ -310,6 +321,24 @@ describe("episode replay fixtures (FH-007)", () => {
     expect(retried.timeCreated).toBe(episode!.timeCreated)
     expect(retried.timeUpdated).toBe(episode!.timeUpdated)
     expect(repository.listEpisodes()).toHaveLength(1)
+
+    // Determinism: same fixture, fresh store, identical episode.
+    const replay = seedFixture(source)
+    const replayed = captureFixture(coordinatorFor(replay.repository, source), source, replay).episode!
+    expect(replayed).toEqual(episode!)
+  })
+
+  test("session-tool-error: a session with no run and a failed tool reads partial", () => {
+    const source = loadFixture("session-tool-error")
+    const seeded = seedFixture(source)
+    const { repository } = seeded
+    const session = source.session!
+    const coordinator = coordinatorFor(repository, source)
+    const { episode } = captureFixture(coordinator, source, seeded)
+
+    expectEpisode(episode, source.expect)
+    expect(episode!.id).toBe(sessionEpisodeID(session.sessionID))
+    expect(repository.listEpisodes()).toHaveLength(source.expect.rows)
 
     // Determinism: same fixture, fresh store, identical episode.
     const replay = seedFixture(source)
