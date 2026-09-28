@@ -5075,12 +5075,20 @@ export const App: Component = () => {
         showScreen("routines")
         return
       }
-      // A built-in in the palette is a built-in in the composer: without this branch `/actions`
-      // fell through to the engine, which has no such command and answered "Command not found".
+      // `/actions` with no arguments opens the Web actions screen. With anything after it the reader
+      // is asking for an action to run, so the text goes to the agent, which owns the tool and its
+      // approval — opening a session when there is none, exactly like any other message.
       if (name === "actions") {
         setPrompt("")
-        showScreen("actions")
-        return
+        if (!args) {
+          showScreen("actions")
+          return
+        }
+        return chatView()
+          ? composerChatClass() === "cowork"
+            ? sendCowork(args, files)
+            : sendChat(args, files)
+          : submitPrompt(args, files)
       }
       if (name === "remote") {
         setPrompt("")

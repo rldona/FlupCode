@@ -46,10 +46,11 @@ type Calls = {
   validates: number
   viewports: Array<Record<string, unknown>>
   takeovers: number
+  sent: Array<Record<string, unknown>>
 }
 
 async function setup(page: Page, desktop: boolean) {
-  const calls: Calls = { saves: [], previews: [], validates: 0, viewports: [], takeovers: 0 }
+  const calls: Calls = { saves: [], previews: [], validates: 0, viewports: [], takeovers: 0, sent: [] }
   await page.addInitScript((isDesktop) => {
     if (isDesktop) window.flupcode = { ownsTitleBar: true }
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
@@ -114,7 +115,8 @@ async function setup(page: Page, desktop: boolean) {
     return route.fulfill({ json: { data: [] } })
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
-    const url = new URL(route.request().url())
+    const request = route.request()
+    const url = new URL(request.url())
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
@@ -122,6 +124,14 @@ async function setup(page: Page, desktop: boolean) {
     if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
     if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    // The prompt path behind `/actions <texto>`: a PATCH to set the session's permission, then the
+    // async prompt. Captured so a test can prove the text reached the agent.
+    if (url.pathname === `/session/${session.id}` && request.method() === "PATCH")
+      return route.fulfill({ json: { id: session.id } })
+    if (url.pathname === `/session/${session.id}/prompt_async` && request.method() === "POST") {
+      calls.sent.push(request.postDataJSON() as Record<string, unknown>)
+      return route.fulfill({ json: {} })
+    }
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
@@ -176,14 +186,26 @@ test("previews a recipe and shows the skipped side effect", async ({ page }) => 
   await expect(steps.filter({ hasText: "goto" })).toContainText("ok")
 })
 
-test("typing /actions in the composer opens the screen instead of failing in the engine", async ({ page }) => {
+test("/actions alone opens the screen instead of failing in the engine", async ({ page }) => {
   await setup(page, true)
   // Regression: `/actions` was only handled by the palette. Typed in the composer it fell through to
   // the engine, which has no such command, and every attempt answered `Command not found: "actions"`.
   const composer = page.locator(".fc-composer textarea.fc-input").first()
-  await composer.fill("/actions lanza la action read_example")
+  await composer.fill("/actions")
   await composer.press("Enter")
   await expect(page.locator(".fc-actions-screen")).toBeVisible()
+})
+
+test("/actions with a request sends it to the agent instead of opening the screen", async ({ page }) => {
+  const { calls } = await setup(page, true)
+  const composer = page.locator(".fc-composer textarea.fc-input").first()
+  await composer.fill("/actions lanza la action read_example")
+  await composer.press("Enter")
+  // The prefix is dropped: the agent receives the request and runs the action with its approval,
+  // rather than being navigated to the profiles screen.
+  await expect.poll(() => calls.sent.length).toBe(1)
+  expect(JSON.stringify(calls.sent[0])).toContain("lanza la action read_example")
+  await expect(page.locator(".fc-actions-screen")).toHaveCount(0)
 })
 
 test("hides the Actions nav and the agent browser toggle outside the desktop app", async ({ page }) => {
