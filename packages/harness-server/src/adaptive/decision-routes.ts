@@ -1,0 +1,48 @@
+/**
+ * The HTTP contract of the decision audit (FH-015).
+ *
+ * `api.ts` guards these routes with the artifacts bearer, and here they are only the shape of the
+ * request and the answer. There is no route that decides: in this phase the shadow makes decisions,
+ * and a client only lists them and asks why.
+ */
+
+import { isDecisionKind } from "./decision"
+import type { DecisionService } from "./decision-service"
+import { normalizeEpisodeLimit } from "./episode"
+
+const json = (value: unknown, status = 200) =>
+  new Response(JSON.stringify(value), {
+    status,
+    headers: { "content-type": "application/json", "access-control-allow-origin": "*" },
+  })
+
+const error = (message: string, code: string, status: number) => json({ error: message, code }, status)
+
+export async function handleDecisionRequest(
+  request: Request,
+  segments: string[],
+  service: DecisionService,
+): Promise<Response> {
+  if (request.method !== "GET") return error("Not found", "not_found", 404)
+  const id = segments[1]
+  if (segments[0] === "decisions" && id === undefined) {
+    const params = new URL(request.url).searchParams
+    const kind = params.get("kind")
+    const rawLimit = params.get("limit")
+    const limit = rawLimit === null ? undefined : normalizeEpisodeLimit(Number(rawLimit))
+    return json({
+      data: service.decisions({
+        ...(params.get("sessionID") ? { sessionID: params.get("sessionID")! } : {}),
+        ...(params.get("episodeID") ? { episodeID: params.get("episodeID")! } : {}),
+        ...(kind !== null && isDecisionKind(kind) ? { kind } : {}),
+        ...(limit !== undefined ? { limit } : {}),
+      }),
+    })
+  }
+  if (segments[0] === "decisions" && id !== undefined) {
+    const explanation = service.explain(id)
+    if (!explanation) return error("Not found", "not_found", 404)
+    return json({ data: explanation })
+  }
+  return error("Not found", "not_found", 404)
+}

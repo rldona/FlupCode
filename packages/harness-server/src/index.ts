@@ -13,11 +13,19 @@ import type { ActionCredentialResolver } from "./action-credentials"
 import { createVault, parseVaultKey, readOrCreateVaultKeyFile, readVaultKeyFile, vaultKeyFile } from "./vault"
 import type { CredentialVault } from "./vault"
 import { globalAdaptiveBlock, loadActionProfiles } from "./config-files"
-import { resolveRuntimeConfig } from "./adaptive/runtime-config"
+import { createAdaptiveConfig } from "./adaptive/config"
+import { createAdaptiveEgressGuard } from "./adaptive/egress"
+import { resolveInstallationKey } from "./adaptive/installation-key"
 import { createRuntimeProbe } from "./adaptive/runtime"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
-import { resolveEpisodeBoundaryConfig } from "./adaptive/episode"
+import { createGovernor } from "./adaptive/providers/governor"
+import { createFallbackProvider } from "./adaptive/providers/fallback"
+import { createJevClient, createJevProvider, defaultJevFetch } from "./adaptive/providers/jev"
+import { createDecisionService } from "./adaptive/decision-service"
+import { createShadowRunner } from "./adaptive/shadow"
+import { skillReport } from "./skills"
+import type { SessionEpisode } from "./types"
 
 export type HarnessServerOptions = {
   port?: number
@@ -72,11 +80,58 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // Built after the actions so a scheduled action is driven in process by the same runner the
   // interactive path uses (WA-7), never by a second copy that would drift.
   const engineURL = options.engineURL ?? process.env.FLUPCODE_ENGINE_URL ?? "http://127.0.0.1:4096"
+  // The adaptive layer's settings (FH-016), read through a TTL getter so the kill switch takes
+  // effect without a restart. Jev is off by default: without an explicit opt-in, the deterministic
+  // provider answers and nothing leaves the process.
+  const adaptive = createAdaptiveConfig({ read: globalAdaptiveBlock, env: process.env })
+  const startup = adaptive.current()
+  const egress = createAdaptiveEgressGuard({ config: () => adaptive.current() })
+  const governor = createGovernor({ config: startup.governor, store: repository })
+  // The key comes from the environment, never from the config block (ADR-0017). The client is built
+  // always; the service only reaches it when Jev is enabled, the project is allowlisted and the kind
+  // is allowlisted, so an off install makes no call.
+  const apiKey = process.env.TYPESAFE_API_KEY
+  const jev = createJevProvider({
+    client: createJevClient({
+      fetch: defaultJevFetch,
+      egress,
+      config: () => adaptive.current().jev,
+      ...(apiKey ? { apiKey } : {}),
+    }),
+  })
+  // FH-013: the external slot is the fallback provider, so the strict per-kind timeout, bounded
+  // retries and `Retry-After` are on the live path and not only in tests. The service honors the
+  // fallback's `degraded`/`source`, so a degraded attempt stays degraded in the audit.
+  const external = createFallbackProvider({
+    external: jev,
+    timeoutMsFor: (request) => request.policy.timeoutMs,
+  })
+  const decisions = createDecisionService({
+    repository,
+    config: () => adaptive.current(),
+    egress,
+    external,
+    governor,
+  })
+  // The shadow (FH-017) records decisions on episode close and acts on nothing; it is the only
+  // writer to `adaptive_decision`.
+  const shadow = createShadowRunner({
+    service: decisions,
+    repository,
+    config: () => adaptive.current(),
+    // Reuse the vault key the server already holds; without one, resolve (and, on first use, create)
+    // a restricted per-installation key. Lazy so building a server never writes a key on its own.
+    opaqueKey: () => key ?? resolveInstallationKey(),
+    readSkills: skillCandidates,
+    onError: (cause) =>
+      console.error(`Could not record an adaptive decision: ${cause instanceof Error ? cause.message : String(cause)}`),
+  })
   // Episodes (FH-002): the scheduler hands it to every runner, and it sweeps for terminal runs a
   // restart or a lost hook left behind.
   const episodes = createEpisodeCoordinator({
     repository,
-    config: resolveEpisodeBoundaryConfig({ block: globalAdaptiveBlock(), env: process.env }),
+    config: startup.episode,
+    onEpisodeClosed: (episode) => shadow.onEpisodeClosed(episode),
     onError: (cause) =>
       console.error(`Could not record a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
@@ -90,10 +145,13 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   scheduler.start()
   // After the scheduler started, so a run it recovered as failed is swept and backfilled.
   episodes.start()
+  // The shadow's backstop: a restart cannot see the close callbacks it missed, so terminal episodes
+  // without a decision are swept on the same boundary cadence as the episodes themselves.
+  shadow.start()
   // The runtime probe (FH-000): which runtime the engine is on, so a gate never assumes the legacy
   // hooks. It refreshes off the critical path at startup and on its own interval; a caller asking
   // for the route refreshes within the same TTL.
-  const runtimeConfig = resolveRuntimeConfig({ block: globalAdaptiveBlock(), env: process.env })
+  const runtimeConfig = startup.runtime
   const runtimeProbe = options.runtimeProbe ?? createRuntimeProbe({ engineURL, config: runtimeConfig })
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
@@ -106,6 +164,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(actions ? { actions } : {}),
       ...(vault ? { credentials: vault } : {}),
       runtimeProbe,
+      decisions,
     }),
   })
   return {
@@ -116,9 +175,11 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     ...(actions ? { actions } : {}),
     ...(vault ? { vault } : {}),
     runtimeProbe,
+    decisions,
     stop: async () => {
       clearInterval(sweep)
       clearInterval(probeInterval)
+      shadow.stop()
       episodes.stop()
       scheduler.stop()
       await browser?.stop().catch(() => undefined)
@@ -127,6 +188,16 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     },
   }
 }
+
+/**
+ * The skill catalogue the shadow evaluates relevance against, read from the same `skills.ts` report
+ * the UI shows. Only skills the engine would actually load are candidates; `learned` is false until
+ * the learning loop exists, which is Phase 3b.
+ */
+const skillCandidates = (episode: SessionEpisode): Array<{ name: string; description: string; learned: boolean }> =>
+  skillReport(episode.projectID)
+    .filter((file): file is typeof file & { name: string } => file.loaded && typeof file.name === "string")
+    .map((file) => ({ name: file.name, description: file.description ?? "", learned: false }))
 
 /**
  * The browser runtime, or none.

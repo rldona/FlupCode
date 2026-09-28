@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository, routineLockKey } from "./repository"
-import type { RunSource } from "./types"
+import type { RunSource, StoredDecisionInput } from "./types"
 
 const input = {
   name: "Dependency audit",
@@ -487,6 +487,78 @@ describe("a scheduled web action (WA-7)", () => {
     const routine = repository.create(input)
     expect(repository.get(routine.id)?.action).toBeUndefined()
     expect(repository.get(routine.id)?.allow).toBeUndefined()
+    repository.close()
+  })
+})
+
+describe("the adaptive usage ledger (FH-013)", () => {
+  test("a month starts empty and accumulates without replacing", () => {
+    const repository = open()
+    expect(repository.adaptiveUsage("2026-09")).toEqual({ tokens: 0, calls: 0 })
+
+    repository.addAdaptiveUsage("2026-09", 120, 1, 1_000)
+    repository.addAdaptiveUsage("2026-09", 80, 1, 2_000)
+    expect(repository.adaptiveUsage("2026-09")).toEqual({ tokens: 200, calls: 2 })
+    // Another month is a different row; the cap is per UTC month.
+    expect(repository.adaptiveUsage("2026-10")).toEqual({ tokens: 0, calls: 0 })
+    repository.close()
+  })
+})
+
+describe("the decision audit (FH-015)", () => {
+  const decision = (overrides: Partial<StoredDecisionInput> = {}): StoredDecisionInput => ({
+    id: "completion:episode:run:1",
+    kind: "completion",
+    sessionID: "ses_1",
+    episodeID: "episode:run:1",
+    projectID: "/work/project",
+    inputsHash: "a".repeat(64),
+    stateSummary: { kind: "completion", bytes: 42 },
+    answer: { verdict: "complete" },
+    baselineAnswer: { verdict: "complete" },
+    baselineRule: "episode-outcome",
+    confidence: 0.9,
+    probabilities: { complete: 0.9, not_complete: 0.1 },
+    provider: "jev",
+    modelVersion: "jev-1.13.0",
+    source: "jev",
+    degraded: false,
+    latencyMs: 12,
+    policy: { allowJev: true, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
+    shadow: true,
+    ...overrides,
+  })
+
+  test("writes and reads a row, and upserts on the deterministic id", () => {
+    const repository = open()
+    const created = repository.createDecision(decision(), 1_000)
+    expect(created.createdAt).toBe(1_000)
+    expect(repository.getDecision("completion:episode:run:1")).toMatchObject({
+      answer: { verdict: "complete" },
+      baselineRule: "episode-outcome",
+      confidence: 0.9,
+      source: "jev",
+      shadow: true,
+    })
+
+    const updated = repository.createDecision(decision({ answer: { verdict: "not_complete" }, degraded: true }), 2_000)
+    expect(updated.createdAt).toBe(1_000)
+    expect(updated.updatedAt).toBe(2_000)
+    expect(repository.getDecision("completion:episode:run:1")?.answer).toEqual({ verdict: "not_complete" })
+    expect(repository.listDecisions()).toHaveLength(1)
+    repository.close()
+  })
+
+  test("lists by episode and kind, and counts for one episode", () => {
+    const repository = open()
+    repository.createDecision(decision(), 1_000)
+    repository.createDecision(decision({ id: "skillRelevance:episode:run:1", kind: "skillRelevance" }), 1_001)
+    repository.createDecision(decision({ id: "completion:episode:run:2", episodeID: "episode:run:2" }), 1_002)
+
+    expect(repository.listDecisions({ episodeID: "episode:run:1" })).toHaveLength(2)
+    expect(repository.listDecisions({ kind: "skillRelevance" })).toHaveLength(1)
+    expect(repository.countDecisionsForEpisode("episode:run:1", "completion")).toBe(1)
+    expect(repository.countDecisionsForEpisode("episode:run:1", "contextItem")).toBe(0)
     repository.close()
   })
 })

@@ -31,6 +31,7 @@ import type {
   Artifact,
   ArtifactInput,
   ArtifactKind,
+  AdaptiveUsage,
   RoutineInput,
   RoutineRepository,
   Run,
@@ -53,7 +54,13 @@ import type {
   EpisodeFilter,
   EpisodeInput,
   SessionEpisode,
+  StoredDecision,
+  StoredDecisionInput,
+  DecisionFilter,
 } from "./types"
+import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
+import type { DecisionRow } from "./adaptive/decision-record"
+import type { DecisionKind } from "./adaptive/decision"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
 export const ARTIFACT_LIMIT = 1_000_000
@@ -278,6 +285,41 @@ CREATE TABLE IF NOT EXISTS episode_evidence (
   PRIMARY KEY (episode_id, hash)
 );
 CREATE INDEX IF NOT EXISTS episode_evidence_episode ON episode_evidence(episode_id, position);
+CREATE TABLE IF NOT EXISTS adaptive_usage (
+  month TEXT PRIMARY KEY,
+  tokens INTEGER NOT NULL DEFAULT 0,
+  calls INTEGER NOT NULL DEFAULT 0,
+  updated_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS adaptive_decision (
+  id TEXT PRIMARY KEY,
+  session_id TEXT,
+  episode_id TEXT,
+  project_id TEXT,
+  kind TEXT NOT NULL,
+  inputs_hash TEXT NOT NULL,
+  state_summary_json TEXT NOT NULL DEFAULT '{}',
+  answer_json TEXT NOT NULL,
+  baseline_answer_json TEXT NOT NULL,
+  baseline_rule TEXT NOT NULL,
+  confidence REAL,
+  probabilities_json TEXT,
+  provider TEXT NOT NULL,
+  attempted_provider TEXT,
+  model_version TEXT,
+  source TEXT NOT NULL,
+  degraded INTEGER NOT NULL DEFAULT 0,
+  degraded_reason TEXT,
+  latency_ms INTEGER NOT NULL DEFAULT 0,
+  policy_json TEXT NOT NULL DEFAULT '{}',
+  shadow INTEGER NOT NULL DEFAULT 1,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS adaptive_decision_episode ON adaptive_decision(episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_decision_session ON adaptive_decision(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_decision_kind ON adaptive_decision(kind, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_decision_hash ON adaptive_decision(inputs_hash);
 `
 
 /**
@@ -884,6 +926,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("checkpoints", "summary", "TEXT")
     this.addColumn("artifacts", "pinned", "INTEGER")
     this.addColumn("artifacts", "expires_at", "INTEGER")
+    this.addColumn("adaptive_decision", "attempted_provider", "TEXT")
     this.migrateDocumentPaths()
   }
 
@@ -2053,6 +2096,169 @@ export class SqliteRoutineRepository implements RoutineRepository {
         }
         return doomed.length
       })()
+    } catch {
+      return 0
+    }
+  }
+
+  // ---- adaptive usage (FH-013) -----------------------------------------------------------------
+
+  /**
+   * What the Jev budget spent in a UTC month, or zero when the month has no row yet.
+   *
+   * A missing month is not an error: the ledger starts empty, and the governor treats zero as
+   * "nothing spent", which is exactly right the first time.
+   */
+  adaptiveUsage(month: string): AdaptiveUsage {
+    try {
+      const row = this.db.query("SELECT tokens, calls FROM adaptive_usage WHERE month = ?1").get(month) as
+        | { tokens: number; calls: number }
+        | null
+      return row ?? { tokens: 0, calls: 0 }
+    } catch {
+      return { tokens: 0, calls: 0 }
+    }
+  }
+
+  /** Adds to the month's spend; a call that never reached Jev is not written at all. */
+  addAdaptiveUsage(month: string, tokens: number, calls: number, now: number): void {
+    try {
+      this.db
+        .query(
+          `INSERT INTO adaptive_usage (month, tokens, calls, updated_at)
+           VALUES (?1, ?2, ?3, ?4)
+           ON CONFLICT(month) DO UPDATE SET tokens = tokens + ?2, calls = calls + ?3, updated_at = ?4`,
+        )
+        .run(month, tokens, calls, now)
+    } catch {
+      // A budget write that fails must not fail the decision it belonged to.
+    }
+  }
+
+  // ---- adaptive decisions (FH-015) -------------------------------------------------------------
+
+  /**
+   * Writes the decision, or replaces the one already under this id.
+   *
+   * The id is deterministic, so a re-capture converges: the row keeps its `created_at` and only
+   * moves `updated_at`. A failure to write is swallowed, because an audit row must never fail the
+   * decision it belongs to.
+   */
+  createDecision(input: StoredDecisionInput, now = Date.now()): StoredDecision {
+    const row = decisionRowFrom(input, now)
+    try {
+      this.db
+        .query(
+          `INSERT INTO adaptive_decision (
+             id, session_id, episode_id, project_id, kind, inputs_hash, state_summary_json, answer_json,
+             baseline_answer_json, baseline_rule, confidence, probabilities_json, provider, attempted_provider,
+             model_version, source, degraded, degraded_reason, latency_ms, policy_json, shadow, created_at, updated_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+           ON CONFLICT(id) DO UPDATE SET
+             session_id = excluded.session_id,
+             episode_id = excluded.episode_id,
+             project_id = excluded.project_id,
+             kind = excluded.kind,
+             inputs_hash = excluded.inputs_hash,
+             state_summary_json = excluded.state_summary_json,
+             answer_json = excluded.answer_json,
+             baseline_answer_json = excluded.baseline_answer_json,
+             baseline_rule = excluded.baseline_rule,
+             confidence = excluded.confidence,
+             probabilities_json = excluded.probabilities_json,
+             provider = excluded.provider,
+             attempted_provider = excluded.attempted_provider,
+             model_version = excluded.model_version,
+             source = excluded.source,
+             degraded = excluded.degraded,
+             degraded_reason = excluded.degraded_reason,
+             latency_ms = excluded.latency_ms,
+             policy_json = excluded.policy_json,
+             shadow = excluded.shadow,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          row.id,
+          row.session_id,
+          row.episode_id,
+          row.project_id,
+          row.kind,
+          row.inputs_hash,
+          row.state_summary_json,
+          row.answer_json,
+          row.baseline_answer_json,
+          row.baseline_rule,
+          row.confidence,
+          row.probabilities_json,
+          row.provider,
+          row.attempted_provider,
+          row.model_version,
+          row.source,
+          row.degraded,
+          row.degraded_reason,
+          row.latency_ms,
+          row.policy_json,
+          row.shadow,
+          row.created_at,
+          row.updated_at,
+        )
+    } catch {
+      // An audit that cannot be written is dropped, never raised into the decision.
+    }
+    return this.getDecision(row.id) ?? { ...input, createdAt: now, updatedAt: now }
+  }
+
+  getDecision(id: string): StoredDecision | undefined {
+    try {
+      const row = this.db.query("SELECT * FROM adaptive_decision WHERE id = ?1").get(id) as DecisionRow | null
+      return row ? decisionFromRow(row) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Newest first, filtered by whichever of session, episode or kind is given. */
+  listDecisions(filter: DecisionFilter = {}): StoredDecision[] {
+    const clauses: string[] = []
+    const values: Array<string | number> = []
+    if (filter.sessionID) {
+      clauses.push(`session_id = ?${values.length + 1}`)
+      values.push(filter.sessionID)
+    }
+    if (filter.episodeID) {
+      clauses.push(`episode_id = ?${values.length + 1}`)
+      values.push(filter.episodeID)
+    }
+    if (filter.kind) {
+      clauses.push(`kind = ?${values.length + 1}`)
+      values.push(filter.kind)
+    }
+    const limit = normalizeEpisodeLimit(filter.limit)
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : ""
+    const tail = limit !== undefined ? ` LIMIT ?${values.length + 1}` : ""
+    if (limit !== undefined) values.push(limit)
+    try {
+      const rows = this.db
+        .query(`SELECT * FROM adaptive_decision${where} ORDER BY created_at DESC, id DESC${tail}`)
+        .all(...values) as DecisionRow[]
+      // A row whose JSON is corrupt is decoded defensively by `decisionFromRow`, never thrown.
+      return rows.flatMap((row) => {
+        const decision = decisionFromRow(row)
+        return decision ? [decision] : []
+      })
+    } catch {
+      // An unreadable audit page answers empty rather than taking the endpoint down.
+      return []
+    }
+  }
+
+  /** How many decisions of a kind this episode already has; the shadow uses it to skip a re-close. */
+  countDecisionsForEpisode(episodeID: string, kind: DecisionKind): number {
+    try {
+      const row = this.db
+        .query("SELECT COUNT(*) AS count FROM adaptive_decision WHERE episode_id = ?1 AND kind = ?2")
+        .get(episodeID, kind) as { count: number } | null
+      return row?.count ?? 0
     } catch {
       return 0
     }
