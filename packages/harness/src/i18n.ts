@@ -562,6 +562,10 @@ const ES: Record<string, string> = {
   "Type the absolute path of a project folder to start a new project.":
     "Escribe la ruta absoluta de una carpeta de proyecto para empezar uno nuevo.",
   Cancel: "Cancelar",
+  "Open external link": "Abrir enlace externo",
+  "You're leaving FlupCode to visit an external link:": "Vas a salir de FlupCode para visitar un enlace externo:",
+  "Don't ask again for links to {host}": "No volver a preguntar por los enlaces a {host}",
+  "Open link": "Abrir enlace",
   "Choose folder…": "Elegir carpeta…",
   "Recent projects": "Proyectos recientes",
   Up: "Subir",
@@ -639,7 +643,6 @@ const ES: Record<string, string> = {
   "% used": "% usado",
   Spent: "Gastado",
   Providers: "Proveedores",
-  Browser: "Navegador",
   "Agent browser": "Navegador del agente",
   "Take over": "Tomar el control",
   Release: "Soltar",
@@ -647,17 +650,9 @@ const ES: Record<string, string> = {
   "The agent's browser appears here while it acts on a site.":
     "El navegador del agente aparece aquí mientras actúa en un sitio.",
   "Files changed": "Ficheros cambiados",
-  "Type a URL": "Escribe una URL",
   Go: "Ir",
   "No session": "Sin sesión",
   "No changes": "Sin cambios",
-  "Browse with FlupCode": "Navega con FlupCode",
-  "Type a URL or ask FlupCode to open a site. Some sites don't allow embedding.":
-    "Escribe una URL o pídele a FlupCode que abra un sitio. Algunos sitios no permiten incrustarse.",
-  "Detect dev server": "Detectar servidor",
-  "Detecting…": "Detectando…",
-  "No dev server found": "No se encontró ningún servidor de desarrollo",
-  "Open in new tab": "Abrir en pestaña",
   "No diff available": "Sin diff disponible",
   "Providers & API keys": "Proveedores y API keys",
   "Add an API key for a provider. It is stored by the OpenCode server.":

@@ -70,7 +70,6 @@ export const TopbarIcons = {
   back: "M19 12H5M11 6l-6 6 6 6",
   forward: "M5 12h14M13 6l6 6-6 6",
   files: "M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8ZM14 3v5h5M9 13h6M9 17h4",
-  browser: "M5 4h14a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2ZM3 9h18",
   menu: "M5 12h.01M12 12h.01M19 12h.01",
   chat: "M7 17.5 3.5 20V6a2 2 0 0 1 2-2h13a2 2 0 0 1 2 2v9.5a2 2 0 0 1-2 2Z",
   code: "m9 8-4 4 4 4M15 8l4 4-4 4",
@@ -163,17 +162,6 @@ export const Topbar: Component<TopbarProps> = (props) => {
             onClick={() => props.onTogglePanel("diff")}
           >
             <TopIcon d={TopbarIcons.files} />
-          </button>
-          <button
-            class="fc-nav-arrow"
-            classList={{ "fc-nav-arrow-active": props.openPanels.includes("browser") }}
-            type="button"
-            title={t("Browser")}
-            aria-label={t("Browser")}
-            aria-pressed={props.openPanels.includes("browser")}
-            onClick={() => props.onTogglePanel("browser")}
-          >
-            <TopIcon d={TopbarIcons.browser} />
           </button>
           <Show when={props.showAgentBrowser}>
             <button

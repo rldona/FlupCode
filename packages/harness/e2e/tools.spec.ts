@@ -114,6 +114,11 @@ test("a task call offers a way into the child session it ran in", async ({ page 
   await task.locator(".fc-tool-header").click()
   await task.locator(".fc-tool-open").click()
 
-  // Opening it selects the child, so the top bar now names it.
-  await expect(page.locator(".fc-session-heading-title")).toContainText("Analizar common-lib")
+  // Opening it selects the child, so the bar now names the session it came from — a link back to
+  // the parent — instead of its own title.
+  const lineage = page.locator(".fc-session-lineage")
+  await expect(lineage).toContainText("Tools")
+  await lineage.getByRole("button", { name: "Tools" }).click()
+  await expect(page.locator(".fc-session-lineage")).toHaveCount(0)
+  await expect(page.locator(".fc-session-heading-title")).toContainText("Tools")
 })

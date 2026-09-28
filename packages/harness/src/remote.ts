@@ -51,6 +51,8 @@ declare global {
       setTitleBar?: (overlay: { color: string; symbolColor: string }) => Promise<void>
       /** Open a local path in the system's app, or in `app` when one is named (H-14). Desktop only. */
       openPath?: (path: string, app?: string) => Promise<void>
+      /** Open an http(s) URL in the system browser. Desktop only; the web build uses `window.open`. */
+      openExternal?: (url: string) => Promise<boolean>
     }
   }
 }

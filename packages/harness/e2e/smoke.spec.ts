@@ -470,7 +470,8 @@ test("the slash menu walks with the arrow keys and Enter runs the chosen command
   await expect(page.getByRole("dialog", { name: "Customize" })).toBeVisible()
 })
 
-test("transcript links open in the browser panel instead of a popup", async ({ page }) => {
+
+test("a transcript link asks before opening in the reader's browser", async ({ page }) => {
   const now = Date.now()
   const popups: Page[] = []
   page.on("popup", (popup) => popups.push(popup))
@@ -505,7 +506,7 @@ test("transcript links open in the browser panel instead of a popup", async ({ p
             {
               id: "msg_preview",
               type: "user",
-              text: "Servidor levantado en [http://localhost:4444](http://localhost:4444), la guía está en [la guía](https://example.com/docs), escríbeme a [correo](mailto:hola@example.com) o salta a [sección](#section)",
+              text: "La guía está en [la guía](https://example.com/docs), otra en [otra](https://other.example.org/x), escríbeme a [correo](mailto:hola@example.com) o salta a [sección](#section)",
               time: { created: now },
             },
           ],
@@ -518,30 +519,48 @@ test("transcript links open in the browser panel instead of a popup", async ({ p
       return route.fulfill({ json: { data: [], cursor: {} } })
     return route.fulfill({ status: 404, json: {} })
   })
-  // The external link is routed too, so the test never reaches the real network.
-  await page.route("https://example.com/**", (route) =>
+  // The popup's own requests, so the test never reaches the real network.
+  await page.context().route(/https:\/\/(www\.)?example\.(com|org)\/\*\*/, (route) =>
     route.fulfill({ contentType: "text/html", body: "<!doctype html><title>External</title>" }),
   )
   await page.goto("/")
-  const browserUrl = page.locator(".fc-browser-url")
 
-  // A local preview opens in the panel and never spawns a window.
-  const local = page.getByRole("link", { name: "http://localhost:4444" })
-  await expect(local).toBeVisible()
-  await local.click()
-  await expect(browserUrl).toHaveValue("http://localhost:4444/")
-  expect(popups).toHaveLength(0)
+  const dialog = page.getByRole("dialog", { name: "Open external link" })
 
-  // An external https link does the same instead of falling through to `target="_blank"`.
+  // An external link asks first, and Enter on the focused Cancel cancels instead of opening.
   await page.getByRole("link", { name: "la guía" }).click()
-  await expect(browserUrl).toHaveValue("https://example.com/docs")
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText("https://example.com/docs")
+  await dialog.getByRole("button", { name: "Cancel" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(dialog).toHaveCount(0)
   expect(popups).toHaveLength(0)
 
-  // A mailto: link and a bare anchor have no page to embed, so the panel stays where it was.
+  // Opening it, with "don't ask again", sends the link to the browser and remembers the host.
+  await page.getByRole("link", { name: "la guía" }).click()
+  await dialog.getByRole("checkbox").check()
+  await dialog.getByRole("button", { name: "Open link" }).click()
+  await expect.poll(() => popups.length).toBe(1)
+  expect(popups[0]!.url()).toContain("example.com/docs")
+
+  // The second time the same host opens straight out, with no prompt.
+  await page.getByRole("link", { name: "la guía" }).click()
+  await expect(dialog).toHaveCount(0)
+  await expect.poll(() => popups.length).toBe(2)
+
+  // Another host is a fresh question: the remembered one must not pre-check the box or skip it.
+  await page.getByRole("link", { name: "otra" }).click()
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText("https://other.example.org")
+  await expect(dialog.getByRole("checkbox")).not.toBeChecked()
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await expect(dialog).toHaveCount(0)
+
+  // A mailto: link and a bare anchor are not pages to open, so they never ask. (A `mailto:` may
+  // still spawn a window of the OS's own, which is why this is checked last and only for the modal.)
   await page.getByRole("link", { name: "correo" }).click()
-  await expect(browserUrl).toHaveValue("https://example.com/docs")
   await page.getByRole("link", { name: "sección" }).click()
-  await expect(browserUrl).toHaveValue("https://example.com/docs")
+  await expect(dialog).toHaveCount(0)
 })
 
 test("a prompt keeps its attached image in the transcript", async ({ page }) => {

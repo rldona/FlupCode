@@ -1,11 +1,12 @@
 import type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+import { formatDateTime } from "./dates"
 
 /** User-facing scope name: global memory belongs to the user, not a project. */
 export const memoryScopeLabel = (scope: MemoryInfo["scope"]) => (scope === "global" ? "user" : scope)
 
 export const memoryConfidenceLabel = (value: number) => `${Math.round(value * 100)}%`
 
-export const formatMemoryTime = (value?: number) => (value === undefined ? "-" : new Date(value).toLocaleString())
+export const formatMemoryTime = (value?: number) => (value === undefined ? "-" : formatDateTime(value))
 
 export type MemoryFilters = {
   text?: string

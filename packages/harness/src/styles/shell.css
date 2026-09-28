@@ -572,6 +572,28 @@ button.fc-row-main {
   color: var(--fc-text-muted);
 }
 
+/* A subagent session's tab: a back arrow and `project · parent session · agent`, so a child is one
+   click from the session that spawned it instead of only reachable from the sidebar (H-18). */
+.fc-session-subagent {
+  gap: 6px;
+  /* The tab is the session's own name in the bar, so it reads at the same size, not the tiny
+     breadcrumb size it used to. */
+  font-size: var(--fc-text-sm);
+}
+
+.fc-session-subagent-arrow {
+  flex-shrink: 0;
+  color: var(--fc-text);
+}
+
+.fc-session-subagent-part {
+  min-width: 0;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* The sidebar's "there is another page" button (H-18). */
 .fc-load-more {
   display: block;
@@ -3730,7 +3752,8 @@ button.fc-status {
 .fc-routines-toolbar,
 .fc-routines-layout,
 .fc-routine-editor,
-.fc-confirm-inline {
+.fc-confirm-inline,
+.fc-artifacts-body {
   max-width: 1120px;
   margin-inline: auto;
 }
@@ -5172,74 +5195,29 @@ button.fc-status {
   overflow: hidden;
 }
 
-.fc-browser-bar {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 8px;
-  border-bottom: 1px solid var(--fc-border);
-}
-
-.fc-browser-nav {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--fc-border);
-  border-radius: var(--fc-radius-sm);
-  background: transparent;
-  color: var(--fc-text-muted);
-  cursor: pointer;
-}
-
-.fc-browser-nav:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--fc-border) 40%, transparent);
-  color: var(--fc-text);
-}
-
-.fc-browser-nav:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-
-.fc-browser-url {
-  flex: 1;
-  min-width: 0;
-  height: 28px;
-  padding: 0 10px;
+.fc-external-link-url {
+  display: block;
+  max-width: 100%;
+  padding: 8px 10px;
   border: 1px solid var(--fc-border);
   border-radius: var(--fc-radius-sm);
   background: var(--fc-bg-elevated);
   color: var(--fc-text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 12px;
-}
-
-.fc-browser-frame {
-  flex: 1;
-  min-height: 0;
-  width: 100%;
-  border: none;
-  background: #fff;
-}
-
-.fc-browser-empty {
-  align-items: center;
-  gap: 8px;
-  padding: 32px 20px;
-  text-align: center;
-}
-
-.fc-browser-globe {
-  width: 30px;
-  height: 30px;
-  color: var(--fc-text-muted);
+  word-break: break-all;
 }
 
 .fc-agent-browser {
   gap: 8px;
   padding: 8px;
+}
+
+.fc-agent-browser-empty {
+  align-items: center;
+  gap: 8px;
+  padding: 32px 20px;
+  text-align: center;
 }
 
 .fc-agent-browser-viewport {

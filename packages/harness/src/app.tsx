@@ -62,7 +62,13 @@ import {
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
 import { recoverablePrompt } from "./unsend"
-import { browser, isBrowsableUrl } from "./browser"
+import {
+  externalLinkOrigin,
+  isBrowsableUrl,
+  isExternalLinkAllowed,
+  openExternalUrl,
+  rememberExternalLinkOrigin,
+} from "./external-links"
 import type { ModelInfo, SessionInfo, ConsoleOrg } from "./engine-types"
 import type {
   ActionCatalog,
@@ -117,6 +123,7 @@ import { FolderDialog } from "./components/FolderDialog"
 import { RenameDialog } from "./components/RenameDialog"
 import { TagsDialog } from "./components/TagsDialog"
 import { ConfirmDialog } from "./components/ConfirmDialog"
+import { ExternalLinkDialog } from "./components/ExternalLinkDialog"
 import { permissionMode } from "./permission-modes"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
@@ -397,7 +404,12 @@ export const App: Component = () => {
     setDelivery(value)
     writeStorage(STORAGE_KEYS.delivery, value)
   }
-  const [panels, setPanels] = createSignal<string[]>(readStorage<string[]>(STORAGE_KEYS.workspacePanels, []))
+  // The integrated browser panel is gone: a stored kind would open a panel with nothing in it.
+  const [panels, setPanels] = createSignal<string[]>(
+    readStorage<string[]>(STORAGE_KEYS.workspacePanels, []).filter((kind) => kind !== "browser"),
+  )
+  /** The external link the reader clicked, waiting to be confirmed and opened in their browser. */
+  const [externalLink, setExternalLink] = createSignal<string>()
   const [workspaceWidth, setWorkspaceWidth] = createSignal(
     readStorage(STORAGE_KEYS.workspaceWidth, WORKSPACE_WIDTH_DEFAULT),
   )
@@ -3459,24 +3471,16 @@ export const App: Component = () => {
       writeStorage(STORAGE_KEYS.workspacePanels, next)
     }
 
-    // A local preview linked from the transcript opens the browser panel it navigates.
-    createEffect(() => {
-      if (!browser.request()) return
-      const current = untrack(panels)
-      if (current.includes("browser")) return
-      const next = [...current, "browser"]
-      setPanels(next)
-      writeStorage(STORAGE_KEYS.workspacePanels, next)
-    })
-
-    // http(s) links inside the transcript open in that panel instead of a new tab. Links elsewhere,
-    // relative paths and same-origin targets keep their plain target; chats and phones do too, where
-    // the panel is unavailable and a real tab is the only sensible one.
+    // An http(s) link in the transcript belongs to the reader's own browser: the integrated panel
+    // cannot render another origin (sandboxed iframe, X-Frame-Options), and the system browser can.
+    // Ask first — with a "don't ask again for this host" — unless the host was already allowed.
+    // Modified clicks, relative paths, same-origin targets and non-http(s) schemes keep their own
+    // behaviour, and phones never get the prompt.
     createEffect(() => {
       const handler = (event: MouseEvent) => {
         if (event.defaultPrevented || event.button !== 0) return
         if (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
-        if (chatView() || mobileRemote()) return
+        if (mobileRemote()) return
         const target = event.target
         if (!(target instanceof Element)) return
         const anchor = target.closest("a")
@@ -3487,7 +3491,8 @@ export const App: Component = () => {
         if (!isBrowsableUrl(href)) return
         if (new URL(href).origin === window.location.origin) return
         event.preventDefault()
-        browser.open(href)
+        if (isExternalLinkAllowed(href)) openExternalUrl(href)
+        else setExternalLink(href)
       }
       document.addEventListener("click", handler)
       onCleanup(() => document.removeEventListener("click", handler))
@@ -6068,6 +6073,20 @@ export const App: Component = () => {
           setTagsTarget(undefined)
         }}
         onClose={() => setTagsTarget(undefined)}
+      />
+      <ExternalLinkDialog
+        url={externalLink()}
+        onCancel={() => setExternalLink(undefined)}
+        onOpen={(remember) => {
+          const url = externalLink()
+          if (!url) return
+          if (remember) {
+            const origin = externalLinkOrigin(url)
+            if (origin) rememberExternalLinkOrigin(origin)
+          }
+          setExternalLink(undefined)
+          openExternalUrl(url)
+        }}
       />
       <ConfirmDialog
         open={!!confirmTarget()}

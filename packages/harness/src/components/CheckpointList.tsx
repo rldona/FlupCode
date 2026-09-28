@@ -1,5 +1,6 @@
 import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { formatDateTime } from "../dates"
 import type { Checkpoint, RestorePlan } from "../types"
 
 type CheckpointListProps = {
@@ -12,7 +13,7 @@ type CheckpointListProps = {
   onRemove: (id: string) => void
 }
 
-const when = (at: number) => new Date(at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })
+const when = (at: number) => formatDateTime(at)
 
 /** Nothing to do, said once, rather than a confirmation for a restore that would change nothing. */
 const empty = (plan: RestorePlan) => plan.write.length === 0 && plan.remove.length === 0
