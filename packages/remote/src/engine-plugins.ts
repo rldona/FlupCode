@@ -95,8 +95,10 @@ export const TOOL_USES_PLUGIN = {
   file: "flupcode-tool-uses.js",
   source: `// Installed by FlupCode. Records which tools each session ran and how long each took, so the Context
 // screen can say which of an MCP server's tools a session used and the supervisor can draw a
-// timeline. Regenerated when FlupCode starts the engine; edits here are overwritten.
-import { mkdir, readFile, writeFile } from "node:fs/promises"
+// timeline. It also keeps the evidence a call left — a shell's command, exit code and a bounded tail
+// of its output, and the paths an edit touched — for an episode to say what changed and what failed.
+// Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 
@@ -105,6 +107,13 @@ function directory() {
   if (process.env.FLUPCODE_TOOL_USES_DIR) return process.env.FLUPCODE_TOOL_USES_DIR
   const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
   return path.join(base, "flupcode", "tool-uses")
+}
+
+// Kept in step with episodeSignalsDirectory() in packages/harness-server/src/adaptive/signals.ts.
+function signalsDirectory() {
+  if (process.env.FLUPCODE_EPISODE_SIGNALS_DIR) return process.env.FLUPCODE_EPISODE_SIGNALS_DIR
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "episode-signals")
 }
 
 // A step can run several tools at once, and two of them read-modify-writing the same file lose one
@@ -118,6 +127,13 @@ const MOST = 200
 // A timeline, not a full history: enough to see where a session spent its time without growing
 // without bound on a long one.
 const MOST_CALLS = 500
+
+// Evidence is a smaller history than the timeline, and the newest calls are what a reader wants.
+const MOST_SIGNALS = 200
+const OUT_LIMIT = 4096
+const COMMAND_LIMIT = 500
+const PATHS_PER_CALL = 20
+const PATH_LIMIT = 1000
 
 // When each running call started, by the id the engine gave it. Removed when it finishes.
 const running = new Map()
@@ -167,12 +183,89 @@ async function began(sessionID, tool, callID) {
   })
 }
 
-async function finished(sessionID, tool, callID) {
+// What one finished call left behind, or nothing when it left no evidence. A read or a grep says
+// nothing an episode can act on, so they do not grow the ring.
+function signalEntry(tool, input, output, start) {
+  const args = input && input.args && typeof input.args === "object" ? input.args : {}
+  const metadata = output && output.metadata && typeof output.metadata === "object" ? output.metadata : {}
+  const entry = { tool: tool, ok: true, paths: [] }
+  if (start !== undefined) entry.start = start
+  if (start !== undefined) entry.ms = Math.max(0, Date.now() - start)
+  const text = output && typeof output.output === "string" ? output.output : undefined
+
+  if (tool === "bash") {
+    if (typeof args.command === "string" && args.command) entry.command = args.command.slice(0, COMMAND_LIMIT)
+    if (typeof metadata.exit === "number") entry.exit = metadata.exit
+    if (text) {
+      entry.out = text.length > OUT_LIMIT ? text.slice(-OUT_LIMIT) : text
+      if (text.length > OUT_LIMIT) entry.truncated = true
+    }
+  } else if (tool === "edit" || tool === "write") {
+    if (typeof args.filePath === "string" && args.filePath) entry.paths = [args.filePath.slice(0, PATH_LIMIT)]
+  } else if (tool === "apply_patch") {
+    const files = Array.isArray(metadata.files) ? metadata.files : []
+    entry.paths = files
+      .map((file) => (file && typeof file.relativePath === "string" ? file.relativePath.slice(0, PATH_LIMIT) : undefined))
+      .filter((file) => file)
+      .slice(0, PATHS_PER_CALL)
+  }
+
+  // The task tool is the one hook that fires even on failure, and it does so with no output: the only
+  // observable sign that a call did not succeed. A real error event is FH-004.
+  if (tool === "task" && output === undefined) entry.ok = false
+
+  const hasEvidence =
+    entry.command !== undefined ||
+    entry.exit !== undefined ||
+    entry.out !== undefined ||
+    entry.paths.length > 0 ||
+    entry.ok === false
+  return hasEvidence ? entry : undefined
+}
+
+// Atomic: a reader never sees half the file. The temp suffix keeps it out of the reader's path. The
+// signal carries a shell's output and command, so it is written user-only (0600) and the rename
+// keeps that mode.
+async function storeSignals(target, data) {
+  const temp = target + ".tmp-" + process.pid + "-" + Date.now()
+  await writeFile(temp, JSON.stringify(data), { mode: 0o600 })
+  try {
+    await rename(temp, target)
+  } catch (cause) {
+    // A failed rename must not leave the temp behind: an unwritable target would otherwise collect
+    // one .tmp file per call.
+    await rm(temp, { force: true }).catch(() => {})
+    throw cause
+  }
+}
+
+async function recordSignal(sessionID, entry) {
+  const folder = signalsDirectory()
+  const file = path.join(folder, sessionID + ".json")
+  await serial(file, async () => {
+    const previous = await load(file)
+    const calls = previous && Array.isArray(previous.calls) ? previous.calls.slice(-MOST_SIGNALS) : []
+    calls.push(entry)
+    // The signals folder holds shell output and commands, so it stays user-only. mkdir does not
+    // change the mode of an existing folder, hence the best-effort chmod.
+    await mkdir(folder, { recursive: true, mode: 0o700 })
+    await chmod(folder, 0o700).catch(() => {})
+    await storeSignals(file, { at: Date.now(), calls: calls.slice(-MOST_SIGNALS) })
+  })
+}
+
+async function finished(sessionID, tool, callID, input, output) {
   if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
   if (typeof tool !== "string" || !tool) return
   const key = timedKey(sessionID, callID, tool)
   const start = running.get(key)
   running.delete(key)
+
+  // Evidence is its own file, tied to the same call: a failed write must not stop the timeline, and
+  // an after with no matching before still records what it saw, only with no times.
+  const entry = signalEntry(tool, input, output, start)
+  if (entry) await recordSignal(sessionID, entry).catch(() => {})
+
   // Without a start there is nothing to time; the call was already counted by before.
   if (start === undefined) return
   const folder = directory()
@@ -192,10 +285,119 @@ export const flupcodeToolUses = async () => ({
   "tool.execute.before": async ({ tool, sessionID, callID }) => {
     await began(sessionID, tool, callID).catch(() => {})
   },
-  "tool.execute.after": async ({ tool, sessionID, callID }) => {
-    await finished(sessionID, tool, callID).catch(() => {})
+  "tool.execute.after": async (input, output) => {
+    await finished(input && input.sessionID, input && input.tool, input && input.callID, input, output).catch(() => {})
   },
 })
+`,
+}
+
+/**
+ * runtime-probe: a canary the harness reads to tell which runtime the engine is on, with positive
+ * evidence rather than a version guess (FH-000). It stamps a boot token, `pid` and `loadedAt` once
+ * per engine process, records `hookAt` when the legacy `experimental.chat.system.transform` hook
+ * fires, and `v2At` when a turn event of the V2 runner is observed. A restart changes the token,
+ * resets `loadedAt` and clears the marks, so a migration to V2 is never read as residual `legacy`,
+ * and a pid the OS reused cannot pass as the current process.
+ *
+ * Every write is serialized and atomic (temp file plus rename), and nothing here throws: a canary
+ * that cannot be written simply leaves no evidence, which the probe degrades to `unknown`.
+ */
+export const RUNTIME_PROBE_PLUGIN = {
+  file: "flupcode-runtime-probe.js",
+  source: `// Installed by FlupCode. Writes the runtime probe canary the harness reads to tell which runtime
+// the engine is on. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with runtimeProbeFilePath() in packages/harness-server/src/adaptive/runtime.ts.
+function filePath() {
+  if (process.env.FLUPCODE_RUNTIME_PROBE_FILE) return process.env.FLUPCODE_RUNTIME_PROBE_FILE
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "runtime-probe.json")
+}
+
+// A hook and an event can fire at once; two read-modify-writes of the same file would lose one.
+let tail = Promise.resolve()
+
+function serial(work) {
+  const next = tail.then(work, work)
+  tail = next.catch(() => {})
+  return next
+}
+
+function load(target) {
+  return readFile(target, "utf8").then(JSON.parse).catch(() => ({}))
+}
+
+// Atomic: a reader never sees half a canary. The temp suffix keeps it out of the reader's path.
+async function store(data) {
+  const target = filePath()
+  await mkdir(path.dirname(target), { recursive: true })
+  const temp = target + ".tmp-" + process.pid + "-" + Date.now()
+  await writeFile(temp, JSON.stringify(data))
+  try {
+    await rename(temp, target)
+  } catch (cause) {
+    // A failed rename must not leave the temp behind: an unwritable target would otherwise collect
+    // one .tmp file per call. Nothing here throws toward the engine; the caller swallows it.
+    await rm(temp, { force: true }).catch(() => {})
+    throw cause
+  }
+}
+
+// A pid alone is not proof of a new process: the operating system reuses them, so a reused pid would
+// find the previous boot's mark already in place and keep its loadedAt and its hook evidence. The
+// token carries the process start too, so only the process that wrote the canary ever rewrites it.
+function stamp(boot) {
+  return serial(async () => {
+    const previous = await load(filePath())
+    if (previous && previous.token === boot) return
+    await store({ token: boot, pid: process.pid, loadedAt: Date.now(), hookAt: 0, v2At: 0, event: null })
+  })
+}
+
+function markHook(boot) {
+  return serial(async () => {
+    const previous = await load(filePath())
+    // A token from another process means the canary is not this process's to mark: writing would mix
+    // one engine's evidence into another's. The probe reads it as unreadable rather than legacy.
+    if (!previous || previous.token !== boot) return
+    await store({ ...previous, hookAt: Date.now(), hook: "experimental.chat.system.transform" })
+  })
+}
+
+// A turn event is the V2 runner's own signal; anything else is not evidence about the runtime.
+const TURN_EVENTS = ["session.next.prompted", "session.next.step.started", "session.next.text.started"]
+
+function markEvent(event, boot) {
+  const type = event && event.type
+  if (!TURN_EVENTS.includes(type)) return Promise.resolve()
+  return serial(async () => {
+    const previous = await load(filePath())
+    if (!previous || previous.token !== boot) return
+    await store({ ...previous, v2At: Date.now(), event: type })
+  })
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+// The boot token is the process identity the classifier demands; a pid is reused by the OS, so it is
+// not proof by itself. It is computed on the first factory call and kept, so every call and every
+// reload of this module in the same process keeps the same token.
+let boot
+export const flupcodeRuntimeProbe = async () => {
+  boot = boot || process.pid + ":" + Math.round(Date.now() - process.uptime() * 1000)
+  await stamp(boot).catch(() => {})
+  return {
+    "experimental.chat.system.transform": async () => {
+      await markHook(boot).catch(() => {})
+    },
+    event: async ({ event }) => {
+      await markEvent(event, boot).catch(() => {})
+    },
+  }
+}
 `,
 }
 
@@ -1108,14 +1310,167 @@ export const flupcodeActions = async () => {
 `,
 }
 
+/**
+ * episode-events: the engine signals an episode cannot derive from a tool's own success or failure
+ * (FH-004). The `tool.execute.after` hook sees a call end but not why: a tool that errored — a denied
+ * permission, a failed edit — only shows up as the engine's `message.part.updated` event with the
+ * part in `error`, and a provider failure only as `session.error`. This plugin records both into a
+ * per-session ring the coordinator reads back (`adaptive/events.ts`), plain JavaScript with no
+ * imports, like the other plugins.
+ *
+ * Only non-recoverable errors are recorded. A user cancellation (`MessageAbortedError`) and a
+ * context overflow the engine compacts past and continues from (`ContextOverflowError`) are not
+ * failures of the work, so they are filtered out; the list can grow as the engine adds recoverable
+ * errors. A `session.error` with no session id has no file to land in.
+ */
+export const EPISODE_EVENTS_PLUGIN = {
+  file: "flupcode-episode-events.js",
+  source: `// Installed by FlupCode. Records the engine signals a tool's own hooks cannot see: a tool that
+// ended in error and a session-level error. The adaptive coordinator reads them back to fill an
+// episode's failures. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { chmod, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with episodeEventsDirectory() in packages/harness-server/src/adaptive/events.ts,
+// which reads it back.
+function directory() {
+  if (process.env.FLUPCODE_EPISODE_EVENTS_DIR) return process.env.FLUPCODE_EPISODE_EVENTS_DIR
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "events")
+}
+
+// An event carries no tool input, so two events can fire at once and lose one another: the queue
+// keeps each file's read-modify-write serial.
+const queues = new Map()
+
+// The newest events are what a reader wants; the ring is small enough to read whole.
+const MOST = 200
+// A provider's error body can be long, and the file is user-only; anything past this is dropped.
+const MESSAGE_LIMIT = 1000
+
+// A clock that never goes back orders events written in the same millisecond. The array order is
+// authoritative; this only keeps the stamps readable.
+let last = 0
+function stamp() {
+  const now = Date.now()
+  last = now > last ? now : last + 1
+  return last
+}
+
+function serial(file, work) {
+  const tail = queues.get(file) || Promise.resolve()
+  const next = tail.then(work, work)
+  queues.set(file, next.catch(() => {}))
+  return next
+}
+
+function load(file) {
+  return readFile(file, "utf8").then(JSON.parse).catch(() => ({}))
+}
+
+function bounded(value, limit) {
+  return value.length > limit ? value.slice(0, limit) : value
+}
+
+// Only what an episode can cite, and only the fields it needs: a tool error with its message, and a
+// session error that is not recoverable. Anything else returns nothing.
+function selection(event) {
+  const type = event && event.type
+  const properties = event && event.properties
+  if (type === "message.part.updated") {
+    const part = properties && properties.part
+    if (!part || part.type !== "tool") return
+    const state = part.state
+    if (!state || state.status !== "error") return
+    // An abort marks every in-flight tool with a synthetic error; that is not a failure of the work.
+    if (state.metadata && state.metadata.interrupted === true) return
+    if (state.error === "Tool execution aborted" || state.error === "Cancelled") return
+    if (typeof part.tool !== "string" || !part.tool) return
+    return {
+      sessionID: properties.sessionID,
+      entry: {
+        kind: "tool.error",
+        tool: part.tool,
+        ...(typeof part.callID === "string" && part.callID ? { callID: part.callID } : {}),
+        message: typeof state.error === "string" ? state.error : "",
+      },
+    }
+  }
+  if (type === "session.error") {
+    const error = properties && properties.error
+    const name = error && error.name
+    // A cancellation and a context overflow the engine recovers from are not failures of the work.
+    if (name === "MessageAbortedError" || name === "ContextOverflowError") return
+    if (typeof name !== "string" || !name) return
+    const data = error && error.data
+    return {
+      sessionID: properties.sessionID,
+      entry: {
+        kind: "session.error",
+        error: name,
+        message: data && typeof data.message === "string" ? data.message : "",
+      },
+    }
+  }
+}
+
+async function record(event) {
+  const selected = selection(event)
+  if (!selected) return
+  // The id names a file, so anything that is not an engine-shaped id is refused rather than written.
+  const sessionID = selected.sessionID
+  if (!sessionID || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
+  const folder = directory()
+  const file = path.join(folder, sessionID + ".json")
+  await serial(file, async () => {
+    const previous = await load(file)
+    const events = previous && Array.isArray(previous.events) ? previous.events.slice(-MOST) : []
+    events.push({
+      seq: stamp(),
+      at: Date.now(),
+      ...selected.entry,
+      message: bounded(selected.entry.message, MESSAGE_LIMIT),
+    })
+    // The file carries provider error bodies, so it stays user-only. mkdir does not change the mode
+    // of an existing folder, hence the best-effort chmod.
+    await mkdir(folder, { recursive: true, mode: 0o700 })
+    await chmod(folder, 0o700).catch(() => {})
+    await store(file, { at: Date.now(), events: events.slice(-MOST) })
+  })
+}
+
+// Atomic: a reader never sees half the file. A failed rename must not leave the temp behind.
+async function store(target, data) {
+  const temp = target + ".tmp-" + process.pid + "-" + Date.now()
+  await writeFile(temp, JSON.stringify(data), { mode: 0o600 })
+  try {
+    await rename(temp, target)
+  } catch (cause) {
+    await rm(temp, { force: true }).catch(() => {})
+    throw cause
+  }
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeEpisodeEvents = async () => ({
+  event: async ({ event }) => {
+    await record(event).catch(() => {})
+  },
+})
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
   TOOL_USES_PLUGIN,
+  RUNTIME_PROBE_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
   ARTIFACT_WRITE_PLUGIN,
   DELIVERY_PLUGIN,
   WEB_ACTIONS_PLUGIN,
+  EPISODE_EVENTS_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

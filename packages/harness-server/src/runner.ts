@@ -1,6 +1,7 @@
 import { sessionPermission, type Engine } from "./engine"
 import type { SqliteRoutineRepository } from "./repository"
 import type { Run, Task, TaskStatus, Artifact } from "./types"
+import type { EpisodeCoordinator } from "./adaptive/coordinator"
 import { evidenceText, focusedEvidence, runVerify, type VerifyReport } from "./verify"
 import { externalCommand, runExternal } from "./external"
 import { take } from "./checkpoint"
@@ -171,6 +172,13 @@ export class TaskRunner {
      * than pretending it ran. An agent task never touches it.
      */
     private readonly actions?: ActionRunner,
+    /**
+     * Where a run's episode is captured (FH-002).
+     *
+     * Absent means this runner records none, which is what its own tests and a build without the
+     * adaptive layer want: the detection must never change how a run behaves.
+     */
+    private readonly episodes?: EpisodeCoordinator,
   ) {}
 
   /**
@@ -415,7 +423,23 @@ export class TaskRunner {
    * on whichever finishes first. A gate or a budget stops new work but lets what is in flight finish,
    * so a pause is a clean boundary rather than a half-done task.
    */
-  async execute(run: Run, options: { directory?: string; stopped?: () => boolean } = {}): Promise<"done" | "paused" | "stopped"> {
+  async execute(
+    run: Run,
+    options: { directory?: string; stopped?: () => boolean } = {},
+  ): Promise<"done" | "paused" | "stopped"> {
+    try {
+      return await this.runGraph(run, options)
+    } finally {
+      // The run's boundary, wherever `execute` returned from: the caller (the scheduler) also
+      // captures after `finishRun`, and both converge on the same row.
+      this.episodes?.captureRun(run.id)
+    }
+  }
+
+  private async runGraph(
+    run: Run,
+    options: { directory?: string; stopped?: () => boolean } = {},
+  ): Promise<"done" | "paused" | "stopped"> {
     const stopped = options.stopped ?? (() => false)
     const all = this.repository.listTasks(run.id)
     if (all.length === 0) return "done"
@@ -601,6 +625,9 @@ export class TaskRunner {
         stopped,
         ...(run.toolLimitMs ? { toolLimitMs: run.toolLimitMs } : {}),
       })
+      // The session went quiet: that is the boundary FH-002 captures. It carries the run's id, so a
+      // task's session never becomes an episode of its own.
+      this.episodes?.captureSession({ sessionID: session.id, runID: run.id, directory })
       const answer = await this.engine.lastAnswer(session.id, directory)
       this.repository.finishTask(task.id, stopped() ? "stopped" : "success", {
         output: answer?.text,

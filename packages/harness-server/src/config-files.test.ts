@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { ConfigFileError, exportConfigFiles, listConfigFiles, readConfigFile } from "./config-files"
+import { ConfigFileError, exportConfigFiles, globalAdaptiveBlock, listConfigFiles, readConfigFile } from "./config-files"
 
 let root = ""
 let config = ""
@@ -93,6 +93,15 @@ describe("reading one", () => {
     expect(readConfigFile(join(config, "tool", "known.js")).text).toBe("export const x = 1\n")
     write(join(root, "secret.txt"), "not yours")
     expect(() => readConfigFile(join(root, "secret.txt"))).toThrow(ConfigFileError)
+  })
+})
+
+describe("the adaptive block", () => {
+  test("reads flupcode.adaptive from the global config, and nothing when it is absent", () => {
+    expect(globalAdaptiveBlock()).toEqual({})
+
+    write(join(config, "opencode.json"), JSON.stringify({ flupcode: { adaptive: { runtime: "legacy", probe: { enabled: false } } } }))
+    expect(globalAdaptiveBlock()).toEqual({ runtime: "legacy", probe: { enabled: false } })
   })
 })
 

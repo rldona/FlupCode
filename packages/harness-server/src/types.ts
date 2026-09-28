@@ -12,6 +12,24 @@
  * consume them, and an empty table now would only be a guess.
  */
 
+import type {
+  EpisodeFailure,
+  EpisodeFilter,
+  EpisodeInput,
+  EpisodeOutcome,
+  EpisodeVerification,
+  SessionEpisode,
+} from "./adaptive/episode"
+
+export type {
+  EpisodeFailure,
+  EpisodeFilter,
+  EpisodeInput,
+  EpisodeOutcome,
+  EpisodeVerification,
+  SessionEpisode,
+}
+
 export type RoutineSchedule =
   | { type: "manual"; timezone?: string }
   | { type: "hourly"; timezone?: string }
@@ -552,8 +570,32 @@ export type RunRepository = {
   removeProjectMemory(id: string): boolean
 }
 
+/**
+ * Session episodes (FH-001): one session that did something, with what it left behind.
+ *
+ * Capture and outcome extraction are separate tickets; this is only the store they write to, so an
+ * episode is one row and every reader agrees on its shape.
+ */
+export type EpisodeRepository = {
+  /** Insert, or replace the episode with this id. `timeCreated` survives an update; `timeUpdated` moves. */
+  createEpisode(input: EpisodeInput, now?: number): SessionEpisode
+  getEpisode(id: string): SessionEpisode | undefined
+  /** Newest first, filtered by whichever of project, session or run is given. */
+  listEpisodes(filter?: EpisodeFilter): SessionEpisode[]
+}
+
 /** Routines, and the lock that keeps one from running twice at once. */
-export type RoutineRepository = RunRepository & {
+export type RoutineRepository = RunRepository & EpisodeRepository & {
+  /**
+   * Terminal runs finished inside the window that still have no terminal episode, newest first
+   * (FH-002).
+   *
+   * A live capture writes the run's episode id before the outcome exists, with no `ended_at`, so a
+   * run is only settled once its episode is terminal too. `listRuns` pages the newest runs whatever
+   * their capture state, so a backfill that filtered the page afterwards would let already-captured
+   * runs fill the limit and starve older ones. The filter has to happen where the limit does.
+   */
+  listRunsWithoutTerminalEpisode(input: { since: number; limit: number }): Run[]
   list(): Routine[]
   get(id: string): Routine | undefined
   create(input: RoutineInput, options?: RoutineCreateOptions): Routine

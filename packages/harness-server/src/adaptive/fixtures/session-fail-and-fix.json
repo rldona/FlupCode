@@ -1,0 +1,43 @@
+{
+  "name": "session-fail-and-fix",
+  "capture": "session",
+  "directory": "/work/proj",
+  "now": 1700000000000,
+  "session": { "sessionID": "ses_fail_fix", "directory": "/work/proj" },
+  "toolUses": {
+    "ses_fail_fix": {
+      "tools": {
+        "bash": { "count": 2, "last": 1699999990000 },
+        "edit": { "count": 1, "last": 1699999995000 }
+      },
+      "calls": []
+    }
+  },
+  "signals": {
+    "ses_fail_fix": {
+      "calls": [
+        {
+          "tool": "bash",
+          "start": 1,
+          "ms": 640,
+          "ok": true,
+          "exit": 1,
+          "command": "bun test",
+          "out": "bun test v1.4.2 (744846f84)\n\nsrc/math.test.ts:\nerror: expect(received).toBe(expected)\n\nExpected: 3\nReceived: 2\n\n      at <anonymous> (/work/proj/src/math.test.ts:3:17)\n(fail) adds [3.67ms]\n\n 1 fail\nRan 1 test across 1 file. [23.00ms]",
+          "paths": []
+        },
+        { "tool": "edit", "start": 2, "ms": 12, "ok": true, "paths": ["/work/proj/src/math.ts"] }
+      ]
+    }
+  },
+  "expect": {
+    "outcome": "partial",
+    "toolCalls": 3,
+    "files": ["src/math.ts"],
+    "commands": ["bun test"],
+    "failures": [{ "summary": "expect(received).toBe(expected)", "file": "src/math.test.ts", "line": 3 }],
+    "verifications": [],
+    "evidenceRefs": ["session:ses_fail_fix", "failure:src/math.test.ts:3"],
+    "rows": 1
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "name": "session-tool-error",
+  "capture": "session",
+  "directory": "/work/proj",
+  "now": 1700000000000,
+  "session": { "sessionID": "ses_tool_error", "directory": "/work/proj" },
+  "toolUses": {
+    "ses_tool_error": {
+      "tools": {
+        "edit": { "count": 1, "last": 1699999990000 }
+      },
+      "calls": []
+    }
+  },
+  "events": {
+    "ses_tool_error": {
+      "at": 1699999990000,
+      "events": [
+        {
+          "kind": "tool.error",
+          "seq": 1699999990000,
+          "at": 1699999990000,
+          "tool": "edit",
+          "callID": "call_1",
+          "message": "permission denied"
+        }
+      ]
+    }
+  },
+  "expect": {
+    "outcome": "partial",
+    "toolCalls": 1,
+    "files": [],
+    "commands": [],
+    "failures": [{ "summary": "edit failed: permission denied" }],
+    "verifications": [],
+    "evidenceRefs": ["session:ses_tool_error", "failure:unknown:0"],
+    "rows": 1
+  }
+}

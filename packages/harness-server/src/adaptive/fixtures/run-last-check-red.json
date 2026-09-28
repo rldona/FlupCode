@@ -1,0 +1,39 @@
+{
+  "name": "run-last-check-red",
+  "capture": "run",
+  "directory": "/work/proj",
+  "now": 1700000000000,
+  "run": {
+    "source": { "type": "manual" },
+    "startedAt": 1699999000000,
+    "sessionID": "ses_last_red",
+    "finish": { "status": "success", "at": 1700000000000 }
+  },
+  "tasks": [
+    { "name": "build", "prompt": "implement the sum", "kind": "agent", "status": "success", "output": "done" },
+    { "name": "check", "prompt": "", "kind": "verify", "attempt": 1, "status": "success" },
+    { "name": "check", "prompt": "", "kind": "verify", "attempt": 2, "status": "failed", "error": "the last check is red" }
+  ],
+  "toolUses": {
+    "ses_last_red": {
+      "tools": {
+        "bash": { "count": 3, "last": 1699999990000 },
+        "edit": { "count": 2, "last": 1699999980000 }
+      },
+      "calls": []
+    }
+  },
+  "expect": {
+    "outcome": "partial",
+    "toolCalls": 5,
+    "files": [],
+    "commands": [],
+    "failures": [{ "summary": "the last check is red" }],
+    "verifications": [
+      { "step": "check", "ok": true },
+      { "step": "check", "ok": false }
+    ],
+    "evidenceRefsContains": ["verify:check", "session:ses_last_red"],
+    "rows": 1
+  }
+}

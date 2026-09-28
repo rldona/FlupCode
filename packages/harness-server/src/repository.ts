@@ -3,6 +3,26 @@ import type { UsageRow } from "./usage"
 import { mkdirSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, isAbsolute, join, sep } from "node:path"
+import {
+  normalizeEpisodeLimit,
+  normalizeOutcome,
+  parseFailures,
+  parseStringList,
+  parseVerifications,
+  RUN_EPISODE_PREFIX,
+} from "./adaptive/episode"
+import {
+  EVIDENCE_TOTAL_LIMIT,
+  evidenceHash,
+  isEvidenceHash,
+  sliceEvidence,
+} from "./adaptive/evidence"
+import type {
+  EvidenceInput,
+  EvidenceKind,
+  EvidenceLink,
+  EvidenceSlice,
+} from "./adaptive/evidence"
 import type {
   ActionTaskInput,
   BrowserAllowRule,
@@ -30,6 +50,9 @@ import type {
   ContextPack,
   SharedConversation,
   ProjectMemory,
+  EpisodeFilter,
+  EpisodeInput,
+  SessionEpisode,
 } from "./types"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -215,6 +238,46 @@ CREATE TABLE IF NOT EXISTS events (
   created_at INTEGER NOT NULL,
   payload_json TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS session_episodes (
+  id TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  project_id TEXT NOT NULL,
+  run_id TEXT,
+  objective TEXT NOT NULL,
+  tool_calls INTEGER NOT NULL DEFAULT 0,
+  files_json TEXT NOT NULL DEFAULT '[]',
+  commands_json TEXT NOT NULL DEFAULT '[]',
+  failures_json TEXT NOT NULL DEFAULT '[]',
+  verifications_json TEXT NOT NULL DEFAULT '[]',
+  outcome TEXT NOT NULL DEFAULT 'unknown',
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_episodes_project ON session_episodes(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS session_episodes_session ON session_episodes(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS session_episodes_run ON session_episodes(run_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS evidence (
+  hash TEXT PRIMARY KEY,
+  content TEXT NOT NULL,
+  bytes INTEGER,
+  truncated INTEGER,
+  created_at INTEGER NOT NULL,
+  last_read_at INTEGER
+);
+CREATE INDEX IF NOT EXISTS evidence_last_read_at ON evidence(last_read_at, created_at);
+CREATE TABLE IF NOT EXISTS episode_evidence (
+  episode_id TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  position INTEGER NOT NULL,
+  kind TEXT NOT NULL,
+  source TEXT,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (episode_id, hash)
+);
+CREATE INDEX IF NOT EXISTS episode_evidence_episode ON episode_evidence(episode_id, position);
 `
 
 /**
@@ -454,6 +517,83 @@ const decodeMemory = (row: ProjectMemoryRow): ProjectMemory => ({
   text: row.text,
   createdAt: row.created_at,
 })
+
+type EpisodeRow = {
+  id: string
+  session_id: string
+  project_id: string
+  run_id: string | null
+  objective: string
+  tool_calls: number
+  files_json: string | null
+  commands_json: string | null
+  failures_json: string | null
+  verifications_json: string | null
+  outcome: string | null
+  started_at: number
+  ended_at: number | null
+  evidence_refs_json: string | null
+  created_at: number
+  updated_at: number
+}
+
+/**
+ * A stored episode, read defensively.
+ *
+ * Structured fields are JSON text, an outcome is a string and every scalar SQLite is free to hand
+ * back with the wrong type, so a hand-edited row or one written by a different build must degrade
+ * to `[]`/`unknown`/its default rather than take a read down (FH-001).
+ */
+const decodeEpisode = (row: EpisodeRow): SessionEpisode => {
+  const endedAt = readOptionalNumber(row.ended_at)
+  return {
+    id: readString(row.id),
+    sessionID: readString(row.session_id),
+    projectID: readString(row.project_id),
+    ...(typeof row.run_id === "string" && row.run_id ? { runID: row.run_id } : {}),
+    objective: readString(row.objective),
+    toolCalls: readNumber(row.tool_calls),
+    files: parseStringList(row.files_json),
+    commands: parseStringList(row.commands_json),
+    failures: parseFailures(row.failures_json),
+    verifications: parseVerifications(row.verifications_json),
+    outcome: normalizeOutcome(row.outcome),
+    startedAt: readNumber(row.started_at),
+    ...(endedAt !== undefined ? { endedAt } : {}),
+    evidenceRefs: parseStringList(row.evidence_refs_json),
+    timeCreated: readNumber(row.created_at),
+    timeUpdated: readNumber(row.updated_at),
+  }
+}
+
+/** A stored scalar read as its type or a default, so a row SQLite let through cannot lie to a caller. */
+const readNumber = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0)
+
+const readOptionalNumber = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) ? value : undefined
+
+const readString = (value: unknown): string => (typeof value === "string" ? value : "")
+
+type EvidenceRow = {
+  hash: string
+  content: string
+  bytes: number | null
+  truncated: number | null
+  created_at: number
+  last_read_at: number | null
+}
+
+const decodeEvidence = (row: EvidenceRow): EvidenceSlice => ({
+  hash: row.hash,
+  content: row.content,
+  createdAt: row.created_at,
+  ...(row.bytes !== null ? { bytes: row.bytes } : {}),
+  ...(row.truncated ? { truncated: true } : {}),
+})
+
+/** A link's kind read back as one of ours; a hand-edited row with anything else is skipped. */
+const evidenceKind = (value: string): EvidenceKind | undefined =>
+  value === "signal" || value === "event" || value === "overflow" ? value : undefined
 
 const decodeArtifact = (row: ArtifactRow): Artifact => ({
   id: row.id,
@@ -941,6 +1081,39 @@ export class SqliteRoutineRepository implements RoutineRepository {
           .query("SELECT * FROM runs WHERE source_type = ?1 AND source_id IS ?2 ORDER BY started_at DESC LIMIT ?3")
           .all(source.type, sourceKey(source), limit) as RunRow[])
       : (this.db.query("SELECT * FROM runs ORDER BY started_at DESC LIMIT ?1").all(limit) as RunRow[])
+    return rows.map(decodeRun)
+  }
+
+  /**
+   * Terminal runs finished inside the window that still have no terminal episode, newest first
+   * (FH-002).
+   *
+   * A live capture writes the run's episode id with no `ended_at`, so a run excluded on "a row
+   * exists" would never be revisited after a restart marked it failed: its checkpoint would stay
+   * `unknown` forever. Only a terminal episode settles a run, so the `NOT EXISTS` requires
+   * `ended_at IS NOT NULL`; a terminal run always has `finished_at`, and `captureRun` writes its
+   * `endedAt`, so one sweep converges.
+   *
+   * The sweep's limit has to choose among the runs that actually need a backfill. `listRuns` pages
+   * the newest runs whatever their capture state, so filtering afterwards lets already-captured
+   * ones exhaust the limit and leaves older ones unswept; the `NOT EXISTS` against the deterministic
+   * episode id is what keeps the page filled with runs that need one.
+   */
+  listRunsWithoutTerminalEpisode(input: { since: number; limit: number }) {
+    const rows = this.db
+      .query(
+        `SELECT * FROM runs
+         WHERE status IN ('success', 'failed', 'stopped')
+           AND finished_at IS NOT NULL
+           AND finished_at >= ?1
+           AND NOT EXISTS (
+             SELECT 1 FROM session_episodes
+             WHERE session_episodes.id = ?2 || runs.id AND session_episodes.ended_at IS NOT NULL
+           )
+         ORDER BY finished_at DESC
+         LIMIT ?3`,
+      )
+      .all(input.since, RUN_EPISODE_PREFIX, input.limit) as RunRow[]
     return rows.map(decodeRun)
   }
 
@@ -1633,6 +1806,256 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const task = this.getTask(taskID)
     if (task) this.append({ type: "task.changed", task })
     return task
+  }
+
+  // ---- session episodes (FH-001) --------------------------------------------------------------
+
+  /**
+   * Keep one session that did something, by id.
+   *
+   * A second write with the same id is the same episode seen again — a capture that was retried, or
+   * an outcome added later — so it replaces the row rather than doubling it, keeps `timeCreated` and
+   * moves `timeUpdated`.
+   */
+  createEpisode(input: EpisodeInput, now = Date.now()) {
+    const id = input.id ?? crypto.randomUUID()
+    const existing = this.db.query("SELECT created_at FROM session_episodes WHERE id = ?1").get(id) as
+      | { created_at: number }
+      | null
+    const episode: SessionEpisode = {
+      id,
+      sessionID: input.sessionID,
+      projectID: input.projectID,
+      ...(input.runID ? { runID: input.runID } : {}),
+      objective: input.objective,
+      toolCalls: input.toolCalls,
+      files: input.files,
+      commands: input.commands,
+      failures: input.failures,
+      verifications: input.verifications,
+      outcome: normalizeOutcome(input.outcome),
+      startedAt: input.startedAt,
+      ...(input.endedAt !== undefined ? { endedAt: input.endedAt } : {}),
+      evidenceRefs: input.evidenceRefs,
+      timeCreated: existing?.created_at ?? now,
+      timeUpdated: now,
+    }
+    this.db
+      .query(
+        `INSERT INTO session_episodes
+           (id, session_id, project_id, run_id, objective, tool_calls, files_json, commands_json,
+            failures_json, verifications_json, outcome, started_at, ended_at, evidence_refs_json,
+            created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
+         ON CONFLICT(id) DO UPDATE SET
+           session_id = excluded.session_id,
+           project_id = excluded.project_id,
+           run_id = excluded.run_id,
+           objective = excluded.objective,
+           tool_calls = excluded.tool_calls,
+           files_json = excluded.files_json,
+           commands_json = excluded.commands_json,
+           failures_json = excluded.failures_json,
+           verifications_json = excluded.verifications_json,
+           outcome = excluded.outcome,
+           started_at = excluded.started_at,
+           ended_at = excluded.ended_at,
+           evidence_refs_json = excluded.evidence_refs_json,
+           updated_at = excluded.updated_at`,
+      )
+      .run(
+        episode.id,
+        episode.sessionID,
+        episode.projectID,
+        episode.runID ?? null,
+        episode.objective,
+        episode.toolCalls,
+        JSON.stringify(episode.files),
+        JSON.stringify(episode.commands),
+        JSON.stringify(episode.failures),
+        JSON.stringify(episode.verifications),
+        episode.outcome,
+        episode.startedAt,
+        episode.endedAt ?? null,
+        JSON.stringify(episode.evidenceRefs),
+        episode.timeCreated,
+        episode.timeUpdated,
+      )
+    return episode
+  }
+
+  getEpisode(id: string) {
+    const row = this.db.query("SELECT * FROM session_episodes WHERE id = ?1").get(id) as EpisodeRow | null
+    return row ? decodeEpisode(row) : undefined
+  }
+
+  listEpisodes(filter: EpisodeFilter = {}) {
+    const limit = normalizeEpisodeLimit(filter.limit)
+    if (limit === 0) return []
+    const where: string[] = []
+    const values: unknown[] = []
+    if (filter.projectID) {
+      values.push(filter.projectID)
+      where.push(`project_id = ?${values.length}`)
+    }
+    if (filter.sessionID) {
+      values.push(filter.sessionID)
+      where.push(`session_id = ?${values.length}`)
+    }
+    if (filter.runID) {
+      values.push(filter.runID)
+      where.push(`run_id = ?${values.length}`)
+    }
+    const select = `SELECT * FROM session_episodes ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+         ORDER BY created_at DESC, rowid ASC`
+    const rows = (
+      limit === undefined
+        ? this.db.query(select).all(...(values as never[]))
+        : this.db.query(`${select} LIMIT ?${values.length + 1}`).all(...(values as never[]), limit)
+    ) as EpisodeRow[]
+    return rows.map(decodeEpisode)
+  }
+
+  // ---- evidence (FH-006) ----------------------------------------------------------------------
+
+  /**
+   * Keep one slice, addressed by the sha256 of the text that is stored (FH-006).
+   *
+   * The same text put twice is one row, so a recapture does not grow the store; a slice past the
+   * limit is cut and says how much it was, because losing evidence is worse than marking it. The
+   * total is enforced after every write, and nothing here throws: no capture may fail because its
+   * evidence could not be kept.
+   */
+  putEvidence(input: EvidenceInput, now = Date.now()): EvidenceSlice | undefined {
+    try {
+      if (!input.content) return undefined
+      const sliced = sliceEvidence(input)
+      const hash = evidenceHash(sliced.content)
+      this.db
+        .query(
+          `INSERT INTO evidence (hash, content, bytes, truncated, created_at, last_read_at)
+           VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+           ON CONFLICT(hash) DO UPDATE SET
+             truncated = CASE WHEN excluded.truncated = 1 THEN 1 ELSE evidence.truncated END,
+             bytes = CASE
+               WHEN excluded.bytes IS NOT NULL AND (evidence.bytes IS NULL OR excluded.bytes > evidence.bytes)
+               THEN excluded.bytes ELSE evidence.bytes END`,
+        )
+        .run(hash, sliced.content, sliced.bytes ?? null, sliced.truncated ? 1 : null, now)
+      const evicted = this.evictEvidence()
+      if (evicted > 0) console.warn(`[flupcode] evicted ${evicted} evidence slice(s) past the total limit`)
+      const row = this.db.query("SELECT * FROM evidence WHERE hash = ?1").get(hash) as EvidenceRow | null
+      return row ? decodeEvidence(row) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * A slice by its address, verified rather than trusted (FH-006).
+   *
+   * The hash is recomputed over the stored text, so a row edited by hand reads as `undefined`
+   * instead of handing a caller text that is not what its address claims. Reading marks it used.
+   */
+  getEvidence(hash: string, now = Date.now()): EvidenceSlice | undefined {
+    try {
+      if (!isEvidenceHash(hash)) return undefined
+      const row = this.db.query("SELECT * FROM evidence WHERE hash = ?1").get(hash) as EvidenceRow | null
+      if (!row) return undefined
+      if (evidenceHash(row.content) !== row.hash) return undefined
+      // Recency is bookkeeping: a read that found its slice is not lost because marking it failed.
+      try {
+        this.db.query("UPDATE evidence SET last_read_at = ?1 WHERE hash = ?2").run(now, hash)
+      } catch {}
+      return decodeEvidence(row)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Replace an episode's evidence associations in one transaction; a recapture converges (FH-006).
+   *
+   * Two candidates with the same text share an address and collapse into one row on `(episode_id,
+   * hash)`, which is intended: the same slice is the same evidence, not two.
+   */
+  setEpisodeEvidence(episodeID: string, links: EvidenceLink[], now = Date.now()): void {
+    try {
+      this.db.transaction(() => {
+        this.db.query("DELETE FROM episode_evidence WHERE episode_id = ?1").run(episodeID)
+        for (const link of links) {
+          this.db
+            .query(
+              `INSERT OR REPLACE INTO episode_evidence (episode_id, hash, position, kind, source, created_at)
+               VALUES (?1, ?2, ?3, ?4, ?5, ?6)`,
+            )
+            .run(episodeID, link.hash, link.position, link.kind, link.source ?? null, now)
+        }
+      })()
+    } catch {
+      // Evidence is a record of what happened, never a reason a capture fails.
+    }
+  }
+
+  /**
+   * The slices an episode kept, in the order they were captured (FH-006).
+   *
+   * Read through `getEvidence`, so a slice that was evicted or edited is skipped rather than
+   * returned as something it is not.
+   */
+  evidenceFor(episode: SessionEpisode, now = Date.now()): EvidenceSlice[] {
+    try {
+      const links = this.db
+        .query(
+          "SELECT hash, kind, source FROM episode_evidence WHERE episode_id = ?1 ORDER BY position ASC, rowid ASC",
+        )
+        .all(episode.id) as Array<{ hash: string; kind: string; source: string | null }>
+      return links.flatMap((link): EvidenceSlice[] => {
+        const slice = this.getEvidence(link.hash, now)
+        if (!slice) return []
+        const kind = evidenceKind(link.kind)
+        return [{ ...slice, ...(kind ? { kind } : {}), ...(link.source ? { source: link.source } : {}) }]
+      })
+    } catch {
+      return []
+    }
+  }
+
+  /**
+   * Forget the least recently used slices until the store is back under its total in UTF-8 bytes
+   * (FH-006).
+   *
+   * The content and the associations go together. Reading a slice moves it up the order, so what
+   * goes first is what has not been looked at; the count says how many were dropped.
+   */
+  evictEvidence(input: { maxBytes?: number } = {}): number {
+    try {
+      const maxBytes = input.maxBytes ?? EVIDENCE_TOTAL_LIMIT
+      const rows = this.db
+        .query(
+          `SELECT hash, LENGTH(CAST(content AS BLOB)) AS size FROM evidence
+           ORDER BY COALESCE(last_read_at, created_at) ASC, hash ASC`,
+        )
+        .all() as Array<{ hash: string; size: number }>
+      let total = rows.reduce((sum, row) => sum + row.size, 0)
+      if (total <= maxBytes) return 0
+      const doomed: string[] = []
+      for (const row of rows) {
+        if (total <= maxBytes) break
+        doomed.push(row.hash)
+        total -= row.size
+      }
+      if (doomed.length === 0) return 0
+      return this.db.transaction(() => {
+        for (const hash of doomed) {
+          this.db.query("DELETE FROM episode_evidence WHERE hash = ?1").run(hash)
+          this.db.query("DELETE FROM evidence WHERE hash = ?1").run(hash)
+        }
+        return doomed.length
+      })()
+    } catch {
+      return 0
+    }
   }
 
   // ---- action credentials (WA-5) ---------------------------------------------------------------
