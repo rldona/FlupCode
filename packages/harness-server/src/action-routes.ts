@@ -88,5 +88,15 @@ const failure = (cause: unknown): Response => {
     return json({ error: cause.reason, code: "navigation_blocked", evidence: [] }, 403)
   if (cause instanceof BrowserError)
     return json({ error: cause.message, code: cause.code, evidence: [] }, cause.status)
-  return json({ error: cause instanceof Error ? cause.message : String(cause), code: "internal_error", evidence: [] }, 500)
+  // A crash can name the machine the binary was built on; the log keeps that detail, the answer to
+  // the chat does not, and says what to do instead.
+  console.error("[flupcode] la acción falló con un error interno:", cause)
+  return json(
+    {
+      error: "The action runner failed. Try again; if it keeps failing, restart the harness.",
+      code: "internal_error",
+      evidence: [],
+    },
+    500,
+  )
 }

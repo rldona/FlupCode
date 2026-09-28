@@ -1500,6 +1500,52 @@ describe("the action HTTP routes", () => {
     expect(response.status).toBe(400)
   })
 
+  test("an unexpected runner crash answers with an actionable 500 and keeps the path in the log", async () => {
+    // A build-machine absolute path is the shape a compiled-binary crash takes; the chat gets the
+    // sentence and the log keeps the detail.
+    const leaked = "Cannot find module '/Users/runner/work/FlupCode/FlupCode/node_modules/.bun/playwright-core@1.59.1/package.json'"
+    const repository = new SqliteRoutineRepository(":memory:")
+    repositories.push(repository)
+    const handler = createHarnessHandler(
+      repository,
+      new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" }),
+      {
+        token: ACTION_TOKEN,
+        actions: {
+          list: () => ({ profiles: [], rejected: [] }),
+          run: async () => {
+            throw new Error(leaked)
+          },
+        },
+      },
+    )
+
+    const logged: string[] = []
+    const original = console.error
+    console.error = (...args: unknown[]) => {
+      logged.push(args.map(String).join(" "))
+    }
+    let response: Response
+    try {
+      response = await handler(
+        new Request(
+          "http://x/harness/actions/run",
+          authed({ method: "POST", body: JSON.stringify({ action: "good", sessionID: "s1", project: "proj" }) }),
+        ),
+      )
+    } finally {
+      console.error = original
+    }
+
+    expect(response.status).toBe(500)
+    const body = await response.json()
+    expect(body.code).toBe("internal_error")
+    expect(body.error).toContain("Try again")
+    expect(body.error).not.toContain("/Users/runner")
+    expect(body.error).not.toContain("playwright-core")
+    expect(logged.join("\n")).toContain("/Users/runner")
+  })
+
   test("a listed profile carries the scope it came from", async () => {
     const { handler } = handlerWith({
       good: { tool: "read_status", kind: "browser", origin: "https://example.com", steps: [{ goto: "{{origin}}/" }] },

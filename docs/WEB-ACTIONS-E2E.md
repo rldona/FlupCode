@@ -126,6 +126,8 @@ Sin código: solo configuración fuera del repo. `P` = carpeta del proyecto
 | Actions desactivadas / "Request failed" con engine manual | token del engine ≠ token del harness | ver 0b: abrir el escritorio y reiniciar el engine; el log avisa con `[flupcode]` |
 | PUT bloqueado por CORS | faltaba en `allow-methods` | corregido; reiniciar harness |
 | `browser_busy` en un run | sesión de otro chat/editor en el proyecto | Stop/close o reiniciar harness |
+| "No se encontró la acción" al invocar una action | la tool seguía registrada tras desaparecer el perfil | reiniciar el engine; el plugin vuelve a listar el catálogo |
+| "La acción no se pudo completar por un fallo del servidor del navegador" | crash del runner (p. ej. binario compilado sin el browser) | reintentar; si persiste, reiniciar el harness. El detalle queda en el log del harness, no en el chat |
 | En Plan no hace nada | modo solo lectura | pasar a Agent/Auto |
 | Stream `ERR_INCOMPLETE_CHUNKED_ENCODING` | heartbeat empatado con Bun (10s) | heartbeat a 5s; reiniciar harness |
 | Ventana externa al actuar | runs antiguos eran headed | headless por defecto desde el fix; takeover la revela |

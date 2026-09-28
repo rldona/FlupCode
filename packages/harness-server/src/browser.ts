@@ -833,6 +833,8 @@ const launch = async (
   const { chromium } = await import("playwright-core")
   const headless = !headed
   mkdirSync(userDataDir, { recursive: true, mode: 0o700 })
+  // The import above is safe without node_modules: `script/build.ts` drops the package.json lookup
+  // playwright's nodePlatform runs at load, which is otherwise baked to the build machine's path.
   // The Chromium Playwright installed, when it is really on disk: a machine without it is exactly
   // the one the system Chrome is for. `executablePath()` looks up its own package, which is absent
   // from the compiled harness, so it is tried last and never allowed to throw past this point.
