@@ -149,6 +149,16 @@ test("previews a recipe and shows the skipped side effect", async ({ page }) => 
   await expect(steps.filter({ hasText: "goto" })).toContainText("ok")
 })
 
+test("typing /actions in the composer opens the screen instead of failing in the engine", async ({ page }) => {
+  await setup(page, true)
+  // Regression: `/actions` was only handled by the palette. Typed in the composer it fell through to
+  // the engine, which has no such command, and every attempt answered `Command not found: "actions"`.
+  const composer = page.locator(".fc-composer textarea.fc-input").first()
+  await composer.fill("/actions lanza la action read_example")
+  await composer.press("Enter")
+  await expect(page.locator(".fc-actions-screen")).toBeVisible()
+})
+
 test("hides the Actions nav and the agent browser toggle outside the desktop app", async ({ page }) => {
   await setup(page, false)
   // The Code nav rendered, so absence below is the web build hiding entries, not a loading page.

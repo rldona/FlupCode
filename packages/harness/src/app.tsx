@@ -5075,6 +5075,13 @@ export const App: Component = () => {
         showScreen("routines")
         return
       }
+      // A built-in in the palette is a built-in in the composer: without this branch `/actions`
+      // fell through to the engine, which has no such command and answered "Command not found".
+      if (name === "actions") {
+        setPrompt("")
+        showScreen("actions")
+        return
+      }
       if (name === "remote") {
         setPrompt("")
         setRemoteOpen(true)
