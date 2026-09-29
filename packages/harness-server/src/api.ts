@@ -36,6 +36,8 @@ import { handleContextPlanRequest } from "./adaptive/context-routes"
 import type { ContextManager } from "./adaptive/context-manager"
 import { handleLearnedSkillRequest, handleProposalRequest } from "./adaptive/learning-routes"
 import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
+import { handleRelevanceRequest } from "./adaptive/relevance-routes"
+import type { RelevanceService } from "./adaptive/relevance"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -396,6 +398,8 @@ export type HarnessHandlerOptions = {
   /** The learning audit (FH-034): the drafted proposals and the learned-skill roster. */
   proposals?: ProposalReader
   learnedSkills?: LearnedSkillReader
+  /** The acting relevance line (FH-04): the only adaptive route a live turn calls. */
+  relevance?: RelevanceService
 }
 
 export const createHarnessHandler = (
@@ -476,6 +480,21 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLearnedSkillRequest(request, path.slice(2), options.learnedSkills)
     }
+    // The acting line (FH-04): a live turn's plugin calls it on the loopback with the same bearer as
+    // the other adaptive surfaces. It is a POST because it decides; the service is the policy point.
+    // The exact path and method are required before delegating: a POST to a deeper path is not this
+    // route and must not answer through it.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "relevance" &&
+      path.length === 3 &&
+      request.method === "POST" &&
+      options.relevance
+    ) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleRelevanceRequest(request, options.relevance)
+    }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a
     // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
@@ -507,6 +526,8 @@ export const createHarnessHandler = (
           // The learning audit is two surfaces: proposals and learned skills (FH-034).
           ...(options.proposals ? (["adaptive-proposals"] as const) : []),
           ...(options.learnedSkills ? (["adaptive-skills"] as const) : []),
+          // The acting relevance line (FH-04): announced only when the service was built.
+          ...(options.relevance ? (["adaptive-relevance"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

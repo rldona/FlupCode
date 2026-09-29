@@ -50,6 +50,18 @@ export type ContextConfig = {
   budget: ContextBudget
 }
 
+/**
+ * The acting slice (FH-04, ADR-0021 §6): off by default, like learning, because acting without a
+ * measured evaluation is not allowed. `rosterTtlMs` bounds both the roster cache and the per-turn
+ * decision cache; `timeoutMs` is the hot deadline the relevance path passes as the request policy.
+ */
+export type RelevanceConfig = {
+  enabled: boolean
+  maxSkills: number
+  rosterTtlMs: number
+  timeoutMs: number
+}
+
 export type LearningConfig = {
   /** Off by default: it gates reflection, the `skillReflection` classification, the draft and writes. */
   enabled: boolean
@@ -84,6 +96,7 @@ export type AdaptiveConfig = {
   governor: GovernorConfig
   context: ContextConfig
   learning: LearningConfig
+  relevance: RelevanceConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -144,6 +157,34 @@ export const DEFAULT_LEARNING_CONFIG: LearningConfig = {
   staleAfter: 10,
   archiveAfter: 20,
 }
+
+/**
+ * The relevance slice defaults: opt-in (ADR-0021 §6), top-3, a 5 s cache and a 400 ms hot deadline
+ * (the same budget the decision policy uses, so the Jev deadline fires before the plugin's).
+ */
+export const DEFAULT_RELEVANCE_CONFIG: RelevanceConfig = {
+  enabled: false,
+  maxSkills: 3,
+  rosterTtlMs: 5_000,
+  timeoutMs: 400,
+}
+
+/**
+ * The most the server-side relevance deadline may reach. The installed plugin bounds its own fetch at
+ * 500 ms by default (`FETCH_TIMEOUT_MS` in `packages/remote/src/engine-plugins.ts`), so the server's
+ * deadline has to stay strictly below it for the server to answer first; a larger configured value is
+ * clamped here rather than letting the plugin abort and the line vanish without a trace. Raising the
+ * plugin's timeout means raising this constant in step.
+ */
+export const RELEVANCE_TIMEOUT_MS_CEILING = 450
+
+/**
+ * The most names the line may carry. The installed plugin refuses anything but the fixed box with at
+ * most three `NAME` tokens (`MAX_LINE_SKILLS` in `packages/remote/src/engine-plugins.ts`), so a larger
+ * `maxSkills` would render a line the plugin drops and the feature would go silent. The cap keeps the
+ * writer and the reader in step; a smaller value is still honored.
+ */
+export const RELEVANCE_MAX_SKILLS_CEILING = 3
 
 /** How long the composed config is trusted before the global block is read again. */
 export const DEFAULT_ADAPTIVE_TTL_MS = 5_000
@@ -277,6 +318,27 @@ function resolveLearningConfig(block: Record<string, unknown>): LearningConfig {
   }
 }
 
+/**
+ * The relevance slice: off unless the block says `true`, with every number falling back to its own
+ * default. A malformed value is ignored rather than guessed, so a bad `maxSkills` cannot open the
+ * line to more names than the writer allows.
+ */
+function resolveRelevanceConfig(block: Record<string, unknown>): RelevanceConfig {
+  const relevance = isPlainObject(block.relevance) ? block.relevance : {}
+  return {
+    enabled: relevance.enabled === true,
+    maxSkills: Math.min(
+      positiveNumberFrom(relevance.maxSkills) ?? DEFAULT_RELEVANCE_CONFIG.maxSkills,
+      RELEVANCE_MAX_SKILLS_CEILING,
+    ),
+    rosterTtlMs: positiveNumberFrom(relevance.rosterTtlMs) ?? DEFAULT_RELEVANCE_CONFIG.rosterTtlMs,
+    timeoutMs: Math.min(
+      positiveNumberFrom(relevance.timeoutMs) ?? DEFAULT_RELEVANCE_CONFIG.timeoutMs,
+      RELEVANCE_TIMEOUT_MS_CEILING,
+    ),
+  }
+}
+
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
@@ -352,6 +414,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     governor: resolveGovernorConfig(block),
     context,
     learning: resolveLearningConfig(block),
+    relevance: resolveRelevanceConfig(block),
   }
 }
 

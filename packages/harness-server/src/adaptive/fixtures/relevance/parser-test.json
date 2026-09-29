@@ -1,0 +1,18 @@
+{
+  "objective": "Fix failing parser test",
+  "roster": [
+    { "name": "testing", "description": "Write a focused test", "learned": false },
+    { "name": "parser", "description": "Debug parser failures", "learned": false },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "testing": { "type": "noul", "probability": 0.9 },
+      "parser": { "type": "noul", "probability": 0.8 },
+      "release": { "type": "noul", "probability": 0.15 }
+    }
+  },
+  "good": ["testing", "parser"],
+  "wrong": ["release"]
+}

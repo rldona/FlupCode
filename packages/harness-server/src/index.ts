@@ -18,6 +18,7 @@ import { createAdaptiveEgressGuard } from "./adaptive/egress"
 import { resolveInstallationKey } from "./adaptive/installation-key"
 import { createRuntimeProbe } from "./adaptive/runtime"
 import type { RuntimeProbe } from "./adaptive/runtime"
+import { createRelevanceService } from "./adaptive/relevance"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
 import { createFallbackProvider } from "./adaptive/providers/fallback"
@@ -237,6 +238,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const runtimeProbe = options.runtimeProbe ?? createRuntimeProbe({ engineURL, config: runtimeConfig })
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
+  // The acting relevance line (FH-04): the one policy point a live turn reaches. It reuses the same
+  // decision service, roster and runtime probe; with the feature off it returns a null line and the
+  // turn is byte-identical. The probe is built just above because the service reads its capabilities.
+  const relevance = createRelevanceService({
+    service: decisions,
+    curator,
+    runtimeProbe,
+    config: () => adaptive.current(),
+  })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",
@@ -250,6 +260,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       context,
       proposals: repository,
       learnedSkills: curator,
+      relevance,
     }),
   })
   return {
