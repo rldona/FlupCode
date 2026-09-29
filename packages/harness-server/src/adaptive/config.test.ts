@@ -4,6 +4,7 @@ import {
   DEFAULT_BUDGET_CONFIG,
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
+  DEFAULT_GUARDRAILS_CONFIG,
   DEFAULT_LEARNING_CONFIG,
   DEFAULT_RELEVANCE_CONFIG,
   DEFAULT_RETENTION_CONFIG,
@@ -29,7 +30,11 @@ const allPolicies = (): Record<DecisionKind, DecisionPolicy> => ({
   modelRoute: DEFAULT_DECISION_POLICY,
   agentRoute: DEFAULT_DECISION_POLICY,
   toolRisk: DEFAULT_DECISION_POLICY,
-  failure: DEFAULT_DECISION_POLICY,
+  failure: {
+    ...DEFAULT_DECISION_POLICY,
+    repeatedCalls: DEFAULT_GUARDRAILS_CONFIG.repeatedCalls,
+    repeatedErrors: DEFAULT_GUARDRAILS_CONFIG.repeatedErrors,
+  },
   skillReflection: DEFAULT_DECISION_POLICY,
 })
 
@@ -61,11 +66,13 @@ describe("resolveAdaptiveConfig", () => {
       learning: DEFAULT_LEARNING_CONFIG,
       relevance: DEFAULT_RELEVANCE_CONFIG,
       retention: DEFAULT_RETENTION_CONFIG,
+      guardrails: DEFAULT_GUARDRAILS_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)
     expect(config.relevance.enabled).toBe(false)
     expect(config.retention.enabled).toBe(false)
+    expect(config.guardrails.enabled).toBe(false)
   })
 
   test("reads the flupcode.adaptive block", () => {
@@ -270,6 +277,40 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(malformed.retention).toEqual(DEFAULT_RETENTION_CONFIG)
+  })
+
+  test("the guardrails slice is off by default, reads its block and feeds the failure policy", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} })
+    expect(defaults.guardrails).toEqual(DEFAULT_GUARDRAILS_CONFIG)
+    expect(defaults.guardrails.enabled).toBe(false)
+    // The failure policy carries the detector thresholds, so baseline and audit agree on them.
+    expect(defaults.decisions.failure.repeatedCalls).toBe(DEFAULT_GUARDRAILS_CONFIG.repeatedCalls)
+    expect(defaults.decisions.failure.repeatedErrors).toBe(DEFAULT_GUARDRAILS_CONFIG.repeatedErrors)
+
+    const config = resolveAdaptiveConfig({
+      block: {
+        guardrails: { enabled: true, repeatedCalls: 5, repeatedErrors: 2, windowMs: 1000, maxObservations: 10, maxSessions: 3, timeoutMs: 250 },
+      },
+      env: {},
+    })
+    expect(config.guardrails).toEqual({
+      enabled: true,
+      repeatedCalls: 5,
+      repeatedErrors: 2,
+      windowMs: 1000,
+      maxObservations: 10,
+      maxSessions: 3,
+      timeoutMs: 250,
+    })
+    expect(config.decisions.failure.repeatedCalls).toBe(5)
+    expect(config.decisions.failure.repeatedErrors).toBe(2)
+
+    // A malformed value is ignored rather than guessed, and `enabled` is explicit.
+    const malformed = resolveAdaptiveConfig({
+      block: { guardrails: { enabled: "yes", repeatedCalls: -1, windowMs: "many" } },
+      env: {},
+    })
+    expect(malformed.guardrails).toEqual(DEFAULT_GUARDRAILS_CONFIG)
   })
 
   test("composes the Phase 1 resolvers unchanged", () => {

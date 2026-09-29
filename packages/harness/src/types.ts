@@ -760,6 +760,20 @@ export type StoredDecision = {
   updatedAt: number
 }
 
+/**
+ * The live advisory of the failure/loop guardrails (FH-062). Mirrors `harness-server`'s own type:
+ * opaque — a reason, the counts, the tool, the deterministic decision id, the cached risk and when.
+ */
+export type GuardrailStatus = {
+  reason: "loop" | "error"
+  repeatedCalls: number
+  repeatedErrors: number
+  tool?: string
+  decisionID: string
+  risk?: "ALLOW" | "CONFIRM" | "REVIEW" | "DENY"
+  at: number
+}
+
 /** What the decision audit explains about one row (FH-015). Mirrors the server's own type. */
 export type DecisionExplanation = {
   id: string

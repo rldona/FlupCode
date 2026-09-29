@@ -1463,6 +1463,12 @@ const ES: Record<string, string> = {
   Mature: "Madura",
   Stale: "Obsoleta",
   Archived: "Archivada",
+  "Guardrail warning": "Aviso de guardrail",
+  "View decisions": "Ver decisiones",
+  "a tool": "una herramienta",
+  "{count} identical calls to {tool} in a row": "{count} llamadas idénticas a {tool} seguidas",
+  "{count} identical errors from {tool} in a row": "{count} errores idénticos de {tool} seguidos",
+  "Only a warning — nothing has been paused.": "Solo es un aviso: no se ha pausado nada.",
 }
 
 const STORAGE_DEFAULT: Locale = "en"

@@ -82,6 +82,9 @@ const parsePolicy = (value: string): DecisionPolicy => {
     minProbability:
       typeof parsed.minProbability === "number" ? parsed.minProbability : DEFAULT_DECISION_POLICY.minProbability,
     timeoutMs: typeof parsed.timeoutMs === "number" ? parsed.timeoutMs : DEFAULT_DECISION_POLICY.timeoutMs,
+    // The failure/loop thresholds travel on the policy; a malformed one is dropped rather than guessed.
+    ...(typeof parsed.repeatedCalls === "number" ? { repeatedCalls: parsed.repeatedCalls } : {}),
+    ...(typeof parsed.repeatedErrors === "number" ? { repeatedErrors: parsed.repeatedErrors } : {}),
   }
 }
 

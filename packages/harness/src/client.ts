@@ -60,6 +60,7 @@ import type {
   WorkflowFile,
   AdaptiveConfigView,
   DecisionExplanation,
+  GuardrailStatus,
   LearnedSkill,
   SkillProposal,
   StoredDecision,
@@ -1262,6 +1263,7 @@ export type AdaptiveSurfaces = {
   plans: boolean
   proposals: boolean
   learnedSkills: boolean
+  guardrails: boolean
 }
 
 export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
@@ -1271,6 +1273,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     plans: capabilities.includes("adaptive-context"),
     proposals: capabilities.includes("adaptive-proposals"),
     learnedSkills: capabilities.includes("adaptive-skills"),
+    guardrails: capabilities.includes("adaptive-guardrails"),
   }
 }
 
@@ -1926,6 +1929,13 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           harnessAuthorizedJson<LearnedSkill>(
             baseUrl,
             `/harness/adaptive/learned-skills/${encodeURIComponent(name)}${adaptiveQuery(filter)}`,
+          ),
+      },
+      guardrails: {
+        status: (sessionID: string) =>
+          harnessAuthorizedJson<GuardrailStatus | null>(
+            baseUrl,
+            `/harness/adaptive/guardrails/status?sessionID=${encodeURIComponent(sessionID)}`,
           ),
       },
     },

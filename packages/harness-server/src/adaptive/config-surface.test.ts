@@ -63,6 +63,7 @@ describe("the writable allowlist", () => {
       "context.apply",
       "learning.enabled",
       "relevance.enabled",
+      "guardrails.enabled",
       "jev.enabled",
       "egress.projects",
       "egress.kinds",
@@ -138,6 +139,12 @@ describe("guards", () => {
     const error = rejection({ patch: { relevance: { enabled: true } }, adaptiveTokenPresent: false })
     expect(error).toMatchObject({ code: "guard:no-adaptive-token", fields: ["relevance.enabled"] })
     expect(plan({ patch: { relevance: { enabled: true } } }).leaves).toHaveLength(1)
+  })
+
+  test("enabling guardrails needs a resolved adaptive token", () => {
+    const error = rejection({ patch: { guardrails: { enabled: true } }, adaptiveTokenPresent: false })
+    expect(error).toMatchObject({ code: "guard:no-adaptive-token", fields: ["guardrails.enabled"] })
+    expect(plan({ patch: { guardrails: { enabled: true } } }).leaves).toHaveLength(1)
   })
 
   test("enabling learning needs a project and skillReflection in egress", () => {
@@ -272,6 +279,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       context: { enabled: false, apply: false },
       learning: { enabled: false },
       relevance: { enabled: false },
+      guardrails: { enabled: false },
       jev: { enabled: false },
       retention: { enabled: false },
       egress: { projects: [], kinds: {} },
@@ -288,6 +296,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       context: { enabled: 1, apply: "sure" },
       learning: { enabled: 1 },
       relevance: { enabled: "true" },
+      guardrails: { enabled: "true" },
       jev: { enabled: 1 },
       retention: { enabled: 1 },
       egress: { projects: "nope", kinds: [] },
@@ -301,6 +310,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
     expect(effective.context.apply).toBe(false)
     expect(effective.learning.enabled).toBe(false)
     expect(effective.relevance.enabled).toBe(false)
+    expect(effective.guardrails.enabled).toBe(false)
     expect(effective.jev.enabled).toBe(false)
     expect(effective.retention.enabled).toBe(false)
     expect(effective.egress.projects).toEqual([])

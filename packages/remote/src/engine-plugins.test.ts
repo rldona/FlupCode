@@ -8,6 +8,7 @@ import {
   ARTIFACT_WRITE_PLUGIN,
   DELIVERY_PLUGIN,
   EPISODE_EVENTS_PLUGIN,
+  GUARDRAILS_PLUGIN,
   REASONING_VARIANTS_PLUGIN,
   RELEVANCE_PLUGIN,
   RUNTIME_PROBE_PLUGIN,
@@ -53,6 +54,7 @@ afterEach(async () => {
   delete process.env.FLUPCODE_BROWSER_TOKEN
   delete process.env.FLUPCODE_ADAPTIVE_TOKEN
   delete process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS
+  delete process.env.FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS
 })
 
 describe("engineConfigDir", () => {
@@ -71,7 +73,7 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(9)
+    expect(first.paths).toHaveLength(10)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
@@ -82,6 +84,7 @@ describe("installEnginePlugins", () => {
       WEB_ACTIONS_PLUGIN,
       EPISODE_EVENTS_PLUGIN,
       RELEVANCE_PLUGIN,
+      GUARDRAILS_PLUGIN,
     ]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }
@@ -2039,6 +2042,204 @@ describe("RELEVANCE_PLUGIN", () => {
 
     process.env.FLUPCODE_HARNESS_SERVER_URL = "https://evil.example"
     expect((await open({})).hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+  })
+})
+
+describe("GUARDRAILS_PLUGIN", () => {
+  const servers: Array<() => void> = []
+  afterEach(() => {
+    for (const stop of servers.splice(0)) stop()
+  })
+
+  const startFixture = (options: { status?: number; hangMs?: number } = {}) => {
+    const requests: Array<{ path: string; auth: string | null; body: Record<string, unknown> }> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        if (options.hangMs !== undefined) await new Promise((resolve) => setTimeout(resolve, options.hangMs))
+        const url = new URL(request.url)
+        const parsed: unknown = await request.json().catch(() => ({}))
+        requests.push({
+          path: url.pathname,
+          auth: request.headers.get("authorization"),
+          body: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed } : {},
+        })
+        if (options.status !== undefined && options.status !== 200) return new Response("nope", { status: options.status })
+        return Response.json({ data: { verdict: "continue" } })
+      },
+    })
+    const stop = () => {
+      void server.stop(true)
+    }
+    servers.push(stop)
+    return { url: server.url.origin, requests }
+  }
+
+  const open = async (
+    options: { fixture?: { url: string } | string; token?: string | false; directory?: string; timeoutMs?: number } = {},
+  ) => {
+    const config = await temp()
+    const tokenDir = await temp()
+    if (options.token !== false) await writeFile(path.join(tokenDir, "adaptive-token"), options.token ?? "token-abc")
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.FLUPCODE_CONFIG_DIR = tokenDir
+    if (options.timeoutMs !== undefined)
+      process.env.FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS = String(options.timeoutMs)
+    if (options.fixture) {
+      process.env.FLUPCODE_HARNESS_SERVER_URL =
+        typeof options.fixture === "string" ? options.fixture : options.fixture.url
+    }
+    const plugin = await installed(config, GUARDRAILS_PLUGIN.file, "flupcodeGuardrails")
+    const hooks = await plugin({ directory: options.directory ?? "/work/project" })
+    return { plugin, hooks }
+  }
+
+  /** Waits for a fire-and-forget request to land; the hook itself never waits. */
+  const settle = async (fixture: { requests: unknown[] }, count = 1) => {
+    for (let attempt = 0; attempt < 100 && fixture.requests.length < count; attempt++) await Bun.sleep(5)
+    expect(fixture.requests.length).toBe(count)
+  }
+
+  const toolError = (sessionID: string, error: string, extra: Record<string, unknown> = {}) => ({
+    event: {
+      type: "message.part.updated",
+      properties: {
+        sessionID,
+        part: { type: "tool", tool: "edit", callID: "call_1", state: { status: "error", error, ...extra } },
+      },
+    },
+  })
+
+  test("registers the two hooks and posts a call's digest fire-and-forget", async () => {
+    const fixture = startFixture()
+    const { plugin, hooks } = await open({ fixture })
+
+    expect(typeof plugin).toBe("function")
+    expect(Object.keys(hooks).sort()).toEqual(["event", "tool.execute.before"])
+
+    const output = { args: { filePath: "/w/a.ts", content: "hi" } }
+    await hooks["tool.execute.before"]({ tool: "edit", sessionID: "ses_1", callID: "call_1" }, output)
+    await settle(fixture)
+
+    const request = fixture.requests[0]!
+    expect(request.path).toBe("/harness/adaptive/guardrails")
+    expect(request.auth).toBe("Bearer token-abc")
+    expect(request.body.projectID).toBe("/work/project")
+    expect(request.body.sessionID).toBe("ses_1")
+    expect(request.body.observation).toMatchObject({ kind: "call", tool: "edit", callID: "call_1" })
+    // Only an opaque digest travels: no argument or content is present.
+    expect((request.body.observation as { argsDigest: string }).argsDigest).toMatch(/^[a-f0-9]{64}$/)
+    expect(JSON.stringify(request.body)).not.toContain("/w/a.ts")
+    // The hook never mutates the output it was handed.
+    expect(output).toEqual({ args: { filePath: "/w/a.ts", content: "hi" } })
+  })
+
+  test("the digest is stable under key order and changes with the values", async () => {
+    const first = startFixture()
+    const { hooks: a } = await open({ fixture: first })
+    await a["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 1, b: { c: 2, d: 3 } } })
+    await settle(first)
+    const second = startFixture()
+    const { hooks: b } = await open({ fixture: second })
+    await b["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { b: { d: 3, c: 2 }, a: 1 } })
+    await settle(second)
+    await b["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 1, b: { c: 2, d: 4 } } })
+    await settle(second, 2)
+
+    const digestOf = (request: { body: Record<string, unknown> }) =>
+      (request.body.observation as { argsDigest: string }).argsDigest
+    expect(digestOf(first.requests[0]!)).toBe(digestOf(second.requests[0]!))
+    expect(digestOf(second.requests[1]!)).not.toBe(digestOf(second.requests[0]!))
+  })
+
+  test("the event hook posts an error's digest and ignores aborts, cancellations and successes", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+
+    await hooks.event(toolError("ses_1", "permission denied"))
+    await settle(fixture)
+    expect(fixture.requests[0]!.body.observation).toMatchObject({ kind: "error", tool: "edit", callID: "call_1" })
+    expect((fixture.requests[0]!.body.observation as { errorDigest: string }).errorDigest).toMatch(/^[a-f0-9]{64}$/)
+
+    // A success, a cancellation and an Esc interrupt say nothing.
+    await hooks.event({
+      event: {
+        type: "message.part.updated",
+        properties: { sessionID: "ses_1", part: { type: "tool", tool: "edit", state: { status: "completed" } } },
+      },
+    })
+    await hooks.event(toolError("ses_1", "Tool execution aborted", { interrupted: true }))
+    await hooks.event(toolError("ses_1", "Cancelled"))
+    await hooks.event({ event: { type: "session.error", properties: { sessionID: "ses_1" } } })
+    await Bun.sleep(30)
+    expect(fixture.requests).toHaveLength(1)
+  })
+
+  test("is fire-and-forget: a hung server neither blocks nor throws", async () => {
+    const fixture = startFixture({ hangMs: 500 })
+    const { hooks } = await open({ fixture })
+
+    const startedAt = performance.now()
+    await hooks["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 1 } })
+    const elapsed = performance.now() - startedAt
+    expect(elapsed).toBeLessThan(200)
+  })
+
+  test("swallows an aborted fetch deadline and stays usable", async () => {
+    const fixture = startFixture({ hangMs: 150 })
+    const { hooks } = await open({ fixture, timeoutMs: 10 })
+
+    // The hook returns before the deadline fires; the aborted fire-and-forget request is swallowed.
+    await hooks["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 1 } })
+    await Bun.sleep(60)
+    // An unhandled rejection from the aborted fetch would fail the run here.
+    await expect(
+      hooks["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 2 } }),
+    ).resolves.toBeUndefined()
+  })
+
+  test("is inert on a non-200 and never throws", async () => {
+    const fixture = startFixture({ status: 503 })
+    const { hooks } = await open({ fixture })
+    await hooks["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 1 } })
+    await settle(fixture)
+  })
+
+  test("registers nothing without a token or a loopback base, and sends nothing", async () => {
+    const fixture = startFixture()
+    expect((await open({ fixture, token: false })).hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+
+    process.env.FLUPCODE_HARNESS_SERVER_URL = "https://evil.example"
+    expect((await open({})).hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("reads only the adaptive-token file, never an env var", async () => {
+    const fixture = startFixture()
+    process.env.FLUPCODE_ADAPTIVE_TOKEN = "env-adaptive-token"
+    const { hooks } = await open({ fixture, token: "file-adaptive-token" })
+
+    await hooks["tool.execute.before"]({ tool: "edit", sessionID: "ses_1" }, { args: { a: 1 } })
+    await settle(fixture)
+    expect(fixture.requests[0]!.auth).toBe("Bearer file-adaptive-token")
+  })
+
+  test("its fetch deadline is strictly longer than the server's hot deadline", () => {
+    const fallback = /Number\.isFinite\(raw\) && raw > 0 \? raw : (\d+)/.exec(GUARDRAILS_PLUGIN.source)
+    expect(fallback).not.toBeNull()
+    expect(Number(fallback![1])).toBeGreaterThan(300)
+  })
+
+  test("a malformed hook payload never throws", async () => {
+    const fixture = startFixture()
+    const { hooks } = await open({ fixture })
+    await hooks["tool.execute.before"]({}, {})
+    await hooks["tool.execute.before"]({ tool: "", sessionID: "ses_1" }, undefined)
+    await hooks.event({})
+    await hooks.event({ event: { type: "message.part.updated", properties: {} } })
+    await Bun.sleep(20)
     expect(fixture.requests).toHaveLength(0)
   })
 })

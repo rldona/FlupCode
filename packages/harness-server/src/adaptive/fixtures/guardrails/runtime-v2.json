@@ -1,0 +1,12 @@
+{
+  "id": "runtime-v2",
+  "description": "A non-legacy runtime: the plugin hooks do not fire, so the guardrail is inert.",
+  "loop": true,
+  "runtime": "v2",
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "55ee" },
+    { "kind": "call", "tool": "bash", "argsDigest": "55ee" },
+    { "kind": "call", "tool": "bash", "argsDigest": "55ee" }
+  ],
+  "expect": { "verdict": "continue", "reason": "runtime-not-legacy", "decision": false }
+}

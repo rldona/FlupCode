@@ -84,6 +84,23 @@ export type RetentionConfig = {
   rejectedProposalsDays: number
 }
 
+/**
+ * The failure/loop guardrails slice (FH-060–063, ADR-0023): **off by default**, like every acting
+ * feature. `repeatedCalls`/`repeatedErrors` are the detector thresholds, `windowMs` and
+ * `maxObservations` bound the per-session ring, `maxSessions` bounds the number of rings, and
+ * `timeoutMs` is the hot deadline the service passes as the request policy. The threshold value `3`
+ * is aligned to the engine's own `DOOM_LOOP_THRESHOLD`, but it is an independent configured number.
+ */
+export type GuardrailsConfig = {
+  enabled: boolean
+  repeatedCalls: number
+  repeatedErrors: number
+  windowMs: number
+  maxObservations: number
+  maxSessions: number
+  timeoutMs: number
+}
+
 export type LearningConfig = {
   /** Off by default: it gates reflection, the `skillReflection` classification, the draft and writes. */
   enabled: boolean
@@ -120,6 +137,7 @@ export type AdaptiveConfig = {
   learning: LearningConfig
   relevance: RelevanceConfig
   retention: RetentionConfig
+  guardrails: GuardrailsConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -204,6 +222,21 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
 }
 
 /**
+ * The guardrails defaults: opt-in (ADR-0023 §6), a 10-minute window with the newest 200 observations
+ * per session and at most 500 sessions, and a 300 ms hot deadline. `repeatedCalls`/`repeatedErrors`
+ * mirror the engine's `DOOM_LOOP_THRESHOLD` by value; they are not a shared constant.
+ */
+export const DEFAULT_GUARDRAILS_CONFIG: GuardrailsConfig = {
+  enabled: false,
+  repeatedCalls: 3,
+  repeatedErrors: 3,
+  windowMs: 600_000,
+  maxObservations: 200,
+  maxSessions: 500,
+  timeoutMs: 300,
+}
+
+/**
  * The most the server-side relevance deadline may reach. The installed plugin bounds its own fetch at
  * 500 ms by default (`FETCH_TIMEOUT_MS` in `packages/remote/src/engine-plugins.ts`), so the server's
  * deadline has to stay strictly below it for the server to answer first; a larger configured value is
@@ -256,7 +289,11 @@ const policyFrom = (base: DecisionPolicy, value: unknown): DecisionPolicy => {
  * The per-kind policies. The `contextItem` policy also carries the resolved scorer thresholds, so the
  * decision baseline and the manager's plan are scored against one source instead of two defaults.
  */
-function resolveDecisionPolicies(block: Record<string, unknown>, context: ContextConfig): Record<DecisionKind, DecisionPolicy> {
+function resolveDecisionPolicies(
+  block: Record<string, unknown>,
+  context: ContextConfig,
+  guardrails: GuardrailsConfig,
+): Record<DecisionKind, DecisionPolicy> {
   const decisions = isPlainObject(block.decisions) ? block.decisions : {}
   return {
     completion: policyFrom(DEFAULT_DECISION_POLICY, decisions.completion),
@@ -269,7 +306,12 @@ function resolveDecisionPolicies(block: Record<string, unknown>, context: Contex
     modelRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.modelRoute),
     agentRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.agentRoute),
     toolRisk: policyFrom(DEFAULT_DECISION_POLICY, decisions.toolRisk),
-    failure: policyFrom(DEFAULT_DECISION_POLICY, decisions.failure),
+    // The failure thresholds are the guardrails slice, so the detector and its decision policy agree.
+    failure: {
+      ...policyFrom(DEFAULT_DECISION_POLICY, decisions.failure),
+      repeatedCalls: guardrails.repeatedCalls,
+      repeatedErrors: guardrails.repeatedErrors,
+    },
     skillReflection: policyFrom(DEFAULT_DECISION_POLICY, decisions.skillReflection),
   }
 }
@@ -392,6 +434,24 @@ function resolveRetentionConfig(block: Record<string, unknown>): RetentionConfig
   }
 }
 
+/**
+ * The guardrails slice: off unless the block says `true`, every number falling back to its own
+ * default. A malformed value is ignored rather than guessed, so a bad threshold cannot arm the
+ * detector with a nonsensical bound.
+ */
+function resolveGuardrailsConfig(block: Record<string, unknown>): GuardrailsConfig {
+  const guardrails = isPlainObject(block.guardrails) ? block.guardrails : {}
+  return {
+    enabled: guardrails.enabled === true,
+    repeatedCalls: positiveNumberFrom(guardrails.repeatedCalls) ?? DEFAULT_GUARDRAILS_CONFIG.repeatedCalls,
+    repeatedErrors: positiveNumberFrom(guardrails.repeatedErrors) ?? DEFAULT_GUARDRAILS_CONFIG.repeatedErrors,
+    windowMs: positiveNumberFrom(guardrails.windowMs) ?? DEFAULT_GUARDRAILS_CONFIG.windowMs,
+    maxObservations: positiveNumberFrom(guardrails.maxObservations) ?? DEFAULT_GUARDRAILS_CONFIG.maxObservations,
+    maxSessions: positiveNumberFrom(guardrails.maxSessions) ?? DEFAULT_GUARDRAILS_CONFIG.maxSessions,
+    timeoutMs: positiveNumberFrom(guardrails.timeoutMs) ?? DEFAULT_GUARDRAILS_CONFIG.timeoutMs,
+  }
+}
+
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
@@ -455,12 +515,13 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
   const env = input.env ?? process.env
   const block = isPlainObject(input.block) ? input.block : {}
   const context = resolveContextConfig(block)
+  const guardrails = resolveGuardrailsConfig(block)
   return {
     enabled: resolveEnabled(block, env),
     shadow: block.shadow !== false,
     runtime: resolveRuntimeConfig({ block, env }),
     episode: resolveEpisodeBoundaryConfig({ block, env }),
-    decisions: resolveDecisionPolicies(block, context),
+    decisions: resolveDecisionPolicies(block, context, guardrails),
     jev: resolveJevConfig(block),
     budget: resolveBudgetConfig(block),
     egress: resolveEgressConfig(block),
@@ -469,6 +530,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     learning: resolveLearningConfig(block),
     relevance: resolveRelevanceConfig(block),
     retention: resolveRetentionConfig(block),
+    guardrails,
   }
 }
 

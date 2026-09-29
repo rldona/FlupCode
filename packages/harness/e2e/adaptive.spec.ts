@@ -75,6 +75,8 @@ const view = (over: Partial<View> = {}): View => ({
 type Calls = {
   asked: string[]
   patches: Array<{ path: string; body: unknown }>
+  /** The query of every read of the live guardrail advisory, to pin the session it names. */
+  guardrailQueries: string[]
 }
 
 type Options = {
@@ -92,6 +94,8 @@ type Options = {
   plans?: unknown[]
   proposals?: unknown[]
   learnedSkills?: unknown[]
+  /** What `GET /harness/adaptive/guardrails/status` answers; read on every tick, so a thunk. */
+  guardrailsStatus?: () => unknown
 }
 
 /**
@@ -100,7 +104,7 @@ type Options = {
  * "capability absent" tests lean on.
  */
 async function openApp(page: Page, options: Options = {}) {
-  const calls: Calls = { asked: [], patches: [] }
+  const calls: Calls = { asked: [], patches: [], guardrailQueries: [] }
   const capabilities = options.capabilities ?? []
   // The settings panel re-reads the view after every write, so the mock has to remember what the
   // last answer left behind; otherwise the panel would snap back to the pre-write state.
@@ -151,6 +155,11 @@ async function openApp(page: Page, options: Options = {}) {
     if (url.pathname === "/harness/adaptive/learned-skills") {
       calls.asked.push("learned")
       return route.fulfill({ json: { data: options.learnedSkills ?? [] } })
+    }
+    if (url.pathname === "/harness/adaptive/guardrails/status") {
+      calls.asked.push("guardrails")
+      calls.guardrailQueries.push(url.search)
+      return route.fulfill({ json: { data: options.guardrailsStatus?.() ?? null } })
     }
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ json: { data: [] } })
@@ -450,4 +459,65 @@ test("a server without adaptive-decisions shows no audit and is never asked for 
 
   await expect(page.getByText("This server does not have the decision audit.")).toBeVisible()
   expect(calls.asked).not.toContain("decisions")
+})
+
+// ── FH-062: the advisory guardrail banner ─────────────────────────────────────────────────────
+
+const loopStatus = () => ({
+  reason: "loop",
+  repeatedCalls: 3,
+  repeatedErrors: 0,
+  tool: "bash",
+  decisionID: "failure:ses_ad:bash:a",
+  risk: "ALLOW",
+  at: now,
+})
+
+test("a server without adaptive-guardrails shows no banner and is never asked", async ({ page }) => {
+  const calls = await openApp(page, { capabilities: [] })
+  await page.goto("/")
+
+  await expect(page.locator(".fc-guardrail-banner")).toHaveCount(0)
+  expect(calls.asked).not.toContain("guardrails")
+})
+
+test("a live loop paints the advisory banner, and dismissing it hides it", async ({ page }) => {
+  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: loopStatus })
+  await page.goto("/")
+
+  const banner = page.locator(".fc-guardrail-banner")
+  await expect(banner).toBeVisible()
+  await expect(banner).toContainText("Guardrail warning")
+  await expect(banner).toContainText("3 identical calls to bash in a row")
+
+  // The read names the session the panel has selected, not some other one.
+  expect(calls.guardrailQueries[0]).toBe("?sessionID=ses_ad")
+
+  await banner.getByRole("button", { name: "Dismiss" }).click()
+  await expect(banner).toHaveCount(0)
+})
+
+test("the surface with no live loop is read but paints no banner", async ({ page }) => {
+  // With the feature off or the runtime off-legacy the server keeps the surface but projects null,
+  // so the panel keeps asking and shows nothing.
+  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: () => null })
+  await page.goto("/")
+
+  await expect.poll(() => calls.asked).toContain("guardrails")
+  await expect(page.locator(".fc-guardrail-banner")).toHaveCount(0)
+})
+
+test("a new loop with a new decisionID arms the banner again", async ({ page }) => {
+  let current = loopStatus()
+  await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: () => current })
+  await page.goto("/")
+
+  const banner = page.locator(".fc-guardrail-banner")
+  await expect(banner).toBeVisible()
+  await banner.getByRole("button", { name: "Dismiss" }).click()
+  await expect(banner).toHaveCount(0)
+
+  // The next read names a different loop, so the dismissal no longer applies.
+  current = { ...loopStatus(), decisionID: "failure:ses_ad:bash:b" }
+  await expect(banner).toBeVisible({ timeout: 10_000 })
 })

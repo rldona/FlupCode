@@ -79,8 +79,23 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
   // The kinds below are typed but not implemented in this phase: each answers its safe default.
   modelRoute: () => ({ answer: { tier: "BALANCED" }, rule: "declared-policy" }),
   agentRoute: () => ({ answer: { agent: "CONTINUE" }, rule: "safe-default" }),
-  toolRisk: () => ({ answer: { risk: "ALLOW" }, rule: "permission-floor" }),
-  failure: () => ({ answer: { verdict: "continue" }, rule: "safe-default" }),
+  // The native floor is the answer: the baseline never elevates a tool call on its own, and with no
+  // floor it is the safe `ALLOW` (FH-063, ADR-0023 §5).
+  toolRisk: (request) => ({ answer: { risk: request.state.native ?? "ALLOW" }, rule: "permission-floor" }),
+  // A repeated identical call or error is an intervention; anything below the policy threshold is a
+  // plain continue. Calls are checked first, mirroring the run that ends the observation ring
+  // (FH-060/061, ADR-0023 §6).
+  failure: (request) => {
+    const repeatedCalls = request.state.repeatedCalls
+    const repeatedErrors = request.state.repeatedErrors
+    if (repeatedCalls >= (request.policy.repeatedCalls ?? 3)) {
+      return { answer: { verdict: "intervene" }, rule: "repeated-calls" }
+    }
+    if (repeatedErrors >= (request.policy.repeatedErrors ?? 3)) {
+      return { answer: { verdict: "intervene" }, rule: "repeated-errors" }
+    }
+    return { answer: { verdict: "continue" }, rule: "safe-default" }
+  },
   // Inert on purpose: without a classifier nothing is reusable, so an idle project learns nothing.
   skillReflection: () => ({ answer: { reusable: false, intent: "add" }, rule: "no-reflection" }),
 }

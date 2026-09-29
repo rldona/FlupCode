@@ -1,0 +1,10 @@
+{
+  "id": "normal-retry",
+  "description": "A failed call and its corrected retry: two observations, no streak.",
+  "loop": false,
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "cc33" },
+    { "kind": "call", "tool": "bash", "argsDigest": "dd44" }
+  ],
+  "expect": { "verdict": "continue", "reason": "below-threshold", "decision": false, "repeatedCalls": 1, "repeatedErrors": 0 }
+}

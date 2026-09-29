@@ -259,19 +259,28 @@ describe("JevProvider interpretation", () => {
     expect(answer.confidence).toBe(0.7)
   })
 
-  test("a score answer lands on the tool risk it indexes", async () => {
-    const provider = createJevProvider({
-      client: clientWith({
-        modelVersion: "jev-1.13.0",
-        answers: {
-          risk: { type: "score", score: 3, legend: ["ALLOW", "CONFIRM", "REVIEW", "DENY"], probabilities: { DENY: 0.8 }, confidence: 0.8 },
-        },
-      }),
-    })
-    const answer = await provider.answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)
+  test("a score answer is capped at the learned ceiling, raise-only", async () => {
+    const score = (value: number) =>
+      createJevProvider({
+        client: clientWith({
+          modelVersion: "jev-1.13.0",
+          answers: {
+            risk: { type: "score", score: value, legend: ["ALLOW", "CONFIRM", "REVIEW", "DENY"], probabilities: { DENY: 0.8 }, confidence: 0.8 },
+          },
+        }),
+      })
+    const answer = await score(3).answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)
 
-    expect(answer.answer).toEqual({ risk: "DENY" })
+    // DENY and REVIEW are capped to CONFIRM: a learned policy can never exceed the ceiling (FH-063).
+    expect(answer.answer).toEqual({ risk: "CONFIRM" })
     expect(answer.confidence).toBe(0.8)
+    expect((await score(2).answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)).answer).toEqual({
+      risk: "CONFIRM",
+    })
+    // A low score is not lifted by the cap.
+    expect((await score(0).answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)).answer).toEqual({
+      risk: "ALLOW",
+    })
   })
 
   test("an answer of the wrong type, or no question to ask, is malformed", async () => {

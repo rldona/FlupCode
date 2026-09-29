@@ -28,6 +28,7 @@ import { resolveInstallationKey } from "./adaptive/installation-key"
 import { createRuntimeProbe } from "./adaptive/runtime"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { createRelevanceService } from "./adaptive/relevance"
+import { createGuardrailService } from "./adaptive/guardrails"
 import { createAdaptiveConfigSurface } from "./adaptive/config-surface"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
@@ -278,6 +279,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     runtimeProbe,
     config: () => adaptive.current(),
   })
+  // The failure/loop guardrails (FH-060–063, ADR-0023): an advisory loopback service fed by opaque
+  // digests from the installed plugin. It reuses the same decision service and runtime probe; with
+  // the feature off it touches no ring and writes nothing. The route is built below with the same
+  // dedicated bearer as the relevance line.
+  const guardrails = createGuardrailService({
+    service: decisions,
+    runtimeProbe,
+    config: () => adaptive.current(),
+  })
   const hostname = options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1"
   // The acting line's own secret (FH-04, ADR-0022). It is only resolved on a loopback host: off the
   // loopback no token, no route and no capability are built, so the feature is inert rather than
@@ -313,7 +323,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       proposals: repository,
       learnedSkills: curator,
       adaptiveConfig,
-      ...(relevance && adaptiveToken ? { relevance, adaptiveToken } : {}),
+      ...(adaptiveToken ? { adaptiveToken, relevance, guardrails } : {}),
     }),
   })
   return {

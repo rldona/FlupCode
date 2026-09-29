@@ -1673,6 +1673,152 @@ export const flupcodeRelevance = async (input) => {
 `,
 }
 
+/**
+ * guardrails: feeds the harness's failure/loop detector with opaque digests of tool calls and tool
+ * errors (FH-060–063, ADR-0023). It is a thin proxy: it hashes the call's arguments (or the error
+ * message) with a canonical `sha256`, `POST`s the digest to the loopback harness, and ignores the
+ * answer. It decides nothing, holds no product state, never pauses a turn, never reads the verdict
+ * and never mutates `output`.
+ *
+ * The server is the only policy point, so the plugin registers whenever base and token resolve, even
+ * with the feature off; every failure — absent server, timeout, non-200, malformed JSON — is inert.
+ * The `POST` is fire-and-forget: it never blocks the tool path.
+ */
+export const GUARDRAILS_PLUGIN = {
+  file: "flupcode-guardrails.js",
+  source: String.raw`// Installed by FlupCode. Feeds the harness's failure/loop detector with opaque digests of tool calls
+// and tool errors. It sends no arguments, messages or output, decides nothing and never blocks the
+// tool path. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// The server's own hot deadline is 300 ms (DEFAULT_GUARDRAILS_CONFIG.timeoutMs in
+// packages/harness-server/src/adaptive/config.ts), so this stays above it. It is a defence against a
+// hung server, not product policy.
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 500
+})()
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  // The adaptive line has its own secret (FH-04, ADR-0022): the browser bearer is a different
+  // credential and must not open this route. The harness-owned file is the only source.
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+// A stable digest: JSON with sorted object keys, so a reordered argument map hashes the same, then
+// sha256 hex. Only this digest travels; the arguments themselves never leave the process.
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === "object") {
+    const sorted = {}
+    for (const key of Object.keys(value).sort()) sorted[key] = canonical(value[key])
+    return sorted
+  }
+  return value
+}
+
+function digest(value) {
+  return createHash("sha256").update(JSON.stringify(canonical(value === undefined ? null : value))).digest("hex")
+}
+
+function send(base, token, payload) {
+  return fetch(base + "/harness/adaptive/guardrails", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+}
+
+// Only an errored tool part that is not an abort or a cancellation says the work failed. Kept in
+// step with EPISODE_EVENTS_PLUGIN's selection.
+function erroredTool(properties) {
+  const part = properties && properties.part
+  if (!part || part.type !== "tool") return undefined
+  const state = part.state
+  if (!state || state.status !== "error") return undefined
+  if (state.metadata && state.metadata.interrupted === true) return undefined
+  if (state.error === "Tool execution aborted" || state.error === "Cancelled") return undefined
+  if (typeof part.tool !== "string" || !part.tool) return undefined
+  return {
+    tool: part.tool,
+    callID: typeof part.callID === "string" && part.callID ? part.callID : undefined,
+    error: typeof state.error === "string" ? state.error : "",
+  }
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeGuardrails = async (input) => {
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+  // The harness's adaptive project id is the project directory, which the plugin factory is handed.
+  const projectID = input && typeof input.directory === "string" ? input.directory : undefined
+
+  function observe(sessionID, observation) {
+    if (typeof sessionID !== "string" || !sessionID) return
+    if (typeof projectID !== "string" || !projectID) return
+    // Fire-and-forget: the tool path never waits and any failure is swallowed.
+    void send(base, token, { projectID: projectID, sessionID: sessionID, observation: observation }).catch(() => {})
+  }
+
+  return {
+    "tool.execute.before": async (hookInput, output) => {
+      const tool = hookInput && hookInput.tool
+      if (typeof tool !== "string" || !tool) return
+      const callID = hookInput && typeof hookInput.callID === "string" && hookInput.callID ? hookInput.callID : undefined
+      observe(hookInput && hookInput.sessionID, {
+        kind: "call",
+        tool: tool,
+        argsDigest: digest(output && output.args),
+        ...(callID ? { callID: callID } : {}),
+      })
+    },
+    event: async ({ event }) => {
+      if (!event || event.type !== "message.part.updated") return
+      const properties = event.properties
+      const failed = erroredTool(properties)
+      if (!failed) return
+      observe(properties && properties.sessionID, {
+        kind: "error",
+        tool: failed.tool,
+        errorDigest: digest(failed.error),
+        ...(failed.callID ? { callID: failed.callID } : {}),
+      })
+    },
+  }
+}
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
@@ -1684,6 +1830,7 @@ const PLUGINS = [
   WEB_ACTIONS_PLUGIN,
   EPISODE_EVENTS_PLUGIN,
   RELEVANCE_PLUGIN,
+  GUARDRAILS_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

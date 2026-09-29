@@ -1,0 +1,35 @@
+{
+  "id": "failure-jev-recorded",
+  "description": "A recorded Jev answer: the loop is decided by Jev and the learned tool risk is capped at CONFIRM.",
+  "loop": true,
+  "config": {
+    "guardrails": { "enabled": true },
+    "jev": { "enabled": true },
+    "egress": { "projects": ["/work/project"], "kinds": { "failure": true, "toolRisk": true } }
+  },
+  "jev": {
+    "model": "jev-1.13.0",
+    "failure": { "type": "noul", "probability": 0.9 },
+    "toolRisk": {
+      "type": "score",
+      "score": 3,
+      "legend": ["ALLOW", "CONFIRM", "REVIEW", "DENY"],
+      "probabilities": { "DENY": 0.8 },
+      "confidence": 0.8
+    }
+  },
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "66ff" },
+    { "kind": "call", "tool": "bash", "argsDigest": "66ff" },
+    { "kind": "call", "tool": "bash", "argsDigest": "66ff" }
+  ],
+  "expect": {
+    "verdict": "intervene",
+    "reason": "loop",
+    "decision": true,
+    "repeatedCalls": 3,
+    "repeatedErrors": 0,
+    "source": "jev",
+    "risk": "CONFIRM"
+  }
+}
