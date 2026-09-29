@@ -7,7 +7,7 @@
  */
 export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares", "memory", "config-files"] as const
 
-/** `browser`, `web-actions`, `credentials`, `action-profiles`, `adaptive`, `adaptive-decisions`, `adaptive-context`, `adaptive-proposals`, `adaptive-skills` and `adaptive-relevance` are not in the static list: each depends on whether its runtime, key, bearer or probe was built (WA-1, WA-2, WA-5, WA-8, FH-000, FH-015, FH-022, FH-034, FH-04). */
+/** `browser`, `web-actions`, `credentials`, `action-profiles`, `adaptive`, `adaptive-config`, `adaptive-decisions`, `adaptive-context`, `adaptive-proposals`, `adaptive-skills` and `adaptive-relevance` are not in the static list: each depends on whether its runtime, key, bearer or probe was built (WA-1, WA-2, WA-5, WA-8, FH-000, FH-070, FH-015, FH-022, FH-034, FH-04). */
 export type Capability =
   | (typeof CAPABILITIES)[number]
   | "browser"
@@ -15,6 +15,7 @@ export type Capability =
   | "credentials"
   | "action-profiles"
   | "adaptive"
+  | "adaptive-config"
   | "adaptive-decisions"
   | "adaptive-context"
   | "adaptive-proposals"

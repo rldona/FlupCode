@@ -8,7 +8,7 @@
  * capture the broader browser/artifacts/actions bearer.
  */
 
-import { randomBytes, timingSafeEqual } from "node:crypto"
+import { createHash, randomBytes, timingSafeEqual } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join } from "node:path"
@@ -91,10 +91,13 @@ export function bearerFrom(request: Request): string | undefined {
   return /^Bearer (.+)$/.exec(header)?.[1]
 }
 
+/**
+ * A fixed-size digest of a token, so two tokens of any length are compared as equal-size buffers:
+ * the earlier length check returned before `timingSafeEqual` and leaked the expected length.
+ */
+const tokenDigest = (token: string): Buffer => createHash("sha256").update(token).digest()
+
 export function tokenMatches(expected: string, given: string | undefined): boolean {
   if (given === undefined) return false
-  const expectedBytes = Buffer.from(expected)
-  const givenBytes = Buffer.from(given)
-  if (expectedBytes.length !== givenBytes.length) return false
-  return timingSafeEqual(expectedBytes, givenBytes)
+  return timingSafeEqual(tokenDigest(expected), tokenDigest(given))
 }

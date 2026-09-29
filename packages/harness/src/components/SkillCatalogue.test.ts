@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { ignored, notPickedUp, withoutFiles } from "./SkillCatalogue"
+import { ignored, learnedStateLabel, notPickedUp, proposalStatusLabel, withoutFiles } from "./SkillCatalogue"
 import type { SkillFile } from "../types"
 
 const file = (over: Partial<SkillFile>): SkillFile => ({
@@ -48,5 +48,19 @@ describe("written and not picked up", () => {
     // It belongs under the mistake, which says what to fix.
     const broken = file({ name: "added-later", loaded: false, reason: "It has no `name`" })
     expect(notPickedUp([] as never, [broken])).toEqual([])
+  })
+})
+
+describe("the read-only learning labels (FH-073)", () => {
+  test("a learned skill's state is titled, and one without a state is on probation", () => {
+    expect(learnedStateLabel("mature")).toBe("Mature")
+    expect(learnedStateLabel("archived")).toBe("Archived")
+    expect(learnedStateLabel(undefined)).toBe("Probation")
+  })
+
+  test("a proposal's status is titled", () => {
+    expect(proposalStatusLabel("proposed")).toBe("Proposed")
+    expect(proposalStatusLabel("promoted")).toBe("Promoted")
+    expect(proposalStatusLabel("rejected")).toBe("Rejected")
   })
 })

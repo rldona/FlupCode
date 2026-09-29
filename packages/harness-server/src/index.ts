@@ -28,6 +28,7 @@ import { resolveInstallationKey } from "./adaptive/installation-key"
 import { createRuntimeProbe } from "./adaptive/runtime"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { createRelevanceService } from "./adaptive/relevance"
+import { createAdaptiveConfigSurface } from "./adaptive/config-surface"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
 import { createFallbackProvider } from "./adaptive/providers/fallback"
@@ -284,6 +285,20 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const adaptiveToken = isLoopbackHostname(hostname)
     ? options.adaptiveToken ?? readAdaptiveToken(options.adaptiveTokenFile ?? adaptiveTokenFile())
     : undefined
+  // The settings surface (FH-070): reads the composed config and writes the switches back into the
+  // global file. It reuses the config reader (raw + current + invalidate), the runtime probe and the
+  // usage ledger; `canWrite` is the artifacts bearer, and enabling relevance also needs the acting
+  // line's own token, so both are reported here.
+  const adaptiveConfig = createAdaptiveConfigSurface({
+    config: adaptive,
+    runtime: () => runtimeProbe.state(),
+    capabilities: () => runtimeProbe.capabilities(),
+    repository,
+    canWrite: Boolean(browserToken),
+    adaptiveTokenPresent: Boolean(adaptiveToken),
+    env: process.env,
+    smallModel: globalSmallModel,
+  })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname,
@@ -297,6 +312,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       context,
       proposals: repository,
       learnedSkills: curator,
+      adaptiveConfig,
       ...(relevance && adaptiveToken ? { relevance, adaptiveToken } : {}),
     }),
   })

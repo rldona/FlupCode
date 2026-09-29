@@ -21,6 +21,8 @@ import type {
   SessionMessageInfo,
 } from "./engine-types"
 import {
+  AdaptiveConfigError,
+  adaptiveSurfaces,
   createClient,
   createHarnessClient,
   engineTargetVersion,
@@ -141,6 +143,7 @@ import { WorkflowLaunchDialog, type WorkflowLaunch } from "./components/Workflow
 import { BestOfNDialog, type BestOfNLaunch } from "./components/BestOfNDialog"
 import { ReplayPanel } from "./components/ReplayPanel"
 import { ComparePanel } from "./components/ComparePanel"
+import { DecisionsPanel } from "./components/DecisionsPanel"
 import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
@@ -498,6 +501,7 @@ export const App: Component = () => {
   const changesOpen = () => screen() === "changes"
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
+  const decisionsOpen = () => screen() === "decisions"
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
@@ -519,6 +523,7 @@ export const App: Component = () => {
       current === "routines" ||
       current === "actions" ||
       current === "context" ||
+      current === "decisions" ||
       current === "agents" ||
       current === "skills" ||
       current === "usage" ||
@@ -1014,6 +1019,38 @@ export const App: Component = () => {
   const supports = (capability: string) => harnessCapabilities().includes(capability)
   /** The config-files listing is the harness server's own, and only a recent one advertises it. */
   const configFilesAvailable = () => !!harnessServerUrl() && supports("config-files")
+
+  // The adaptive settings (FH-070). Read while the settings panel is open and re-read after every
+  // write, so the panel draws the server's own resulting view rather than guessing it. An older
+  // server that does not announce the surface is not asked, so there is no 404 in the console.
+  const [adaptiveRevision, setAdaptiveRevision] = createSignal(0)
+  const [adaptiveSettings] = createResource(
+    () => (settingsOpen() && adaptiveSurfaces(harnessCapabilities()).config ? adaptiveRevision() : undefined),
+    () => createHarnessClient(harnessServerUrl()).adaptive.config.get(),
+  )
+  const [adaptiveSaving, setAdaptiveSaving] = createSignal(false)
+  const [adaptiveWarnings, setAdaptiveWarnings] = createSignal<string[]>([])
+  const [adaptiveError, setAdaptiveError] = createSignal<AdaptiveConfigError>()
+  const patchAdaptive = (patch: Record<string, unknown>, confirm: boolean) => {
+    setAdaptiveSaving(true)
+    setAdaptiveError(undefined)
+    void createHarnessClient(harnessServerUrl())
+      .adaptive.config.patch({ patch, confirm })
+      .then((answer) => {
+        setAdaptiveWarnings(answer.warnings)
+        setAdaptiveError(undefined)
+        setAdaptiveRevision((value) => value + 1)
+      })
+      .catch((cause: unknown) => {
+        setAdaptiveWarnings([])
+        setAdaptiveError(
+          cause instanceof AdaptiveConfigError
+            ? cause
+            : new AdaptiveConfigError(cause instanceof Error ? cause.message : String(cause), "internal_error"),
+        )
+      })
+      .finally(() => setAdaptiveSaving(false))
+  }
 
   const [packs, setPacks] = createSignal<ContextPack[]>([])
 
@@ -5399,6 +5436,7 @@ export const App: Component = () => {
             onRuns={() => showScreen("runs")}
             onUsage={() => showScreen("usage")}
             onContext={() => showScreen("context")}
+            onDecisions={() => showScreen("decisions")}
             onAgents={() => showScreen("agents")}
             onSkills={() => showScreen("skills")}
             onWorkflows={() => showScreen("workflows")}
@@ -5620,6 +5658,17 @@ export const App: Component = () => {
             toolUses={toolUses()?.tools}
             toolCalls={toolUses()?.calls}
             onRead={readInstruction}
+            serverUrl={harnessServerUrl()}
+            sessionID={selected()}
+            projectID={vcsDirectory()}
+            capabilities={harnessCapabilities()}
+          />
+          <DecisionsPanel
+            open={decisionsOpen()}
+            serverUrl={harnessServerUrl()}
+            sessionID={selected()}
+            capabilities={harnessCapabilities()}
+            onClose={() => leaveScreen()}
           />
           <AgentsPanel
             open={agentsOpen()}
@@ -5644,6 +5693,9 @@ export const App: Component = () => {
             skillsLoading={skills.loading}
             serverAvailable={routinesServerAvailable()}
             hasProject={!!vcsDirectory()}
+            serverUrl={harnessServerUrl()}
+            projectID={vcsDirectory()}
+            capabilities={harnessCapabilities()}
             sources={skillSources()}
             agents={agentFiles() ?? []}
             onAddSource={addSkillSource}
@@ -6220,6 +6272,16 @@ export const App: Component = () => {
           setSettingsOpen(false)
           setAboutOpen(true)
         }}
+        adaptive={{
+          view: adaptiveSettings(),
+          loading: adaptiveSettings.loading,
+          failure: adaptiveSettings.failure(),
+          capabilities: harnessCapabilities(),
+          saving: adaptiveSaving(),
+          warnings: adaptiveWarnings(),
+          error: adaptiveError(),
+        }}
+        onAdaptivePatch={patchAdaptive}
         onClose={() => setSettingsOpen(false)}
       />
       <FilesPanel

@@ -12,14 +12,14 @@
  * profile, and this decides the file.
  */
 
-import { mkdirSync, readFileSync, renameSync, rmSync, statSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { join } from "node:path"
 import { applyEdits, modify, parse } from "jsonc-parser"
 import type { ParseError } from "jsonc-parser"
 import { validateActionProfile } from "./actions"
 import { configDirectory } from "./context"
 import { loadActionProfiles } from "./config-files"
 import type { ActionProfileScope } from "./config-files"
+import { ConfigWriteError, isFile, readConfigText, requireReadable, serial, writeAtomic } from "./config-write"
 
 /** The global config files a profile may be written to, the preferred one first. */
 const GLOBAL_CANDIDATES = ["opencode.jsonc", "opencode.json", "config.json"] as const
@@ -28,13 +28,13 @@ const PROJECT_CANDIDATES = ["opencode.jsonc", "opencode.json"] as const
 
 const FORMAT = { insertSpaces: true, tabSize: 2 } as const
 
-export class ActionConfigError extends Error {
+export class ActionConfigError extends ConfigWriteError {
   constructor(
     message: string,
-    readonly status = 400,
-    readonly code = "invalid_action",
+    status = 400,
+    code = "invalid_action",
   ) {
-    super(message)
+    super(message, status, code)
     this.name = "ActionConfigError"
   }
 }
@@ -46,25 +46,6 @@ export type RemovedActionProfile = { removed: true; path: string }
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-/** The text of a config file, or an empty document when it does not exist yet. */
-function readConfigText(path: string): string {
-  try {
-    return readFileSync(path, "utf8")
-  } catch (cause) {
-    // Only a missing file is a fresh config to create. A permission error means the file is there
-    // but this cannot read it, and renaming a new document over it would lose what it held.
-    if (errorCodeOf(cause) === "ENOENT") return ""
-    throw new ActionConfigError(`The config file could not be read: ${path}`, 500, "config_unreadable")
-  }
-}
-
-/** The `code` a Node filesystem error carries, when it carries one. */
-function errorCodeOf(cause: unknown): string | undefined {
-  if (typeof cause !== "object" || cause === null || !("code" in cause)) return undefined
-  const code = (cause as { code?: unknown }).code
-  return typeof code === "string" ? code : undefined
-}
-
 /** Whether a document already declares this profile id, read with the same JSONC rules as writing. */
 function declaresAction(text: string, id: string): boolean {
   if (!text.trim()) return false
@@ -74,15 +55,6 @@ function declaresAction(text: string, id: string): boolean {
   const flupcode = parsed.flupcode
   if (!isPlainObject(flupcode) || !isPlainObject(flupcode.actions)) return false
   return Object.hasOwn(flupcode.actions, id)
-}
-
-/** Whether the path is an existing file, rather than a missing one or a directory. */
-function isFile(path: string): boolean {
-  try {
-    return statSync(path).isFile()
-  } catch {
-    return false
-  }
 }
 
 /**
@@ -176,14 +148,6 @@ function actionId(explicit: string | undefined, profile: unknown): string {
   throw new ActionConfigError("A profile needs an id or a tool name", 400, "invalid_id")
 }
 
-/** Refuses to edit a file this cannot read: rewriting a malformed config would only make it worse. */
-function requireReadable(text: string, path: string): void {
-  if (!text.trim()) return
-  const errors: ParseError[] = []
-  parse(text, errors, { allowTrailingComma: true })
-  if (errors.length > 0) throw new ActionConfigError(`The config file is not valid JSONC: ${path}`, 422, "invalid_config")
-}
-
 /** Removes one profile from its file, leaving every other key as it was (WA-8). */
 export async function removeActionProfile(input: {
   id: string
@@ -201,29 +165,4 @@ export async function removeActionProfile(input: {
     await writeAtomic(path, applyEdits(text, edits))
     return { removed: true, path }
   })
-}
-
-// One write at a time, so two windows cannot read the same file and each write the other's work away.
-// Module-global like the export queue in `config-files.ts`.
-let writeQueue: Promise<unknown> = Promise.resolve()
-function serial<T>(work: () => Promise<T>): Promise<T> {
-  const run = writeQueue.then(work, work)
-  writeQueue = run.then(
-    () => undefined,
-    () => undefined,
-  )
-  return run
-}
-
-/** Writes through a temp file renamed in place, so a crash never leaves a half-written config. */
-async function writeAtomic(path: string, text: string): Promise<void> {
-  mkdirSync(dirname(path), { recursive: true })
-  const temp = join(dirname(path), `.${path.split(/[\\/]/).pop()}.${process.pid}.tmp`)
-  try {
-    await Bun.write(temp, text)
-    renameSync(temp, path)
-  } catch (cause) {
-    rmSync(temp, { force: true })
-    throw cause
-  }
 }

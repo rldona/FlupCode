@@ -5,6 +5,7 @@ describe("the screen in the URL", () => {
   test("reads the screens it knows, with or without a trailing slash", () => {
     expect(screenFromPath("/runs")).toBe("runs")
     expect(screenFromPath("/routines/")).toBe("routines")
+    expect(screenFromPath("/decisions")).toBe("decisions")
   })
 
   test("claims nothing else", () => {

@@ -38,6 +38,8 @@ import { handleLearnedSkillRequest, handleProposalRequest } from "./adaptive/lea
 import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
 import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
+import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
+import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -402,6 +404,8 @@ export type HarnessHandlerOptions = {
   relevance?: RelevanceService
   /** The dedicated loopback bearer of the acting line; the route is closed without it (ADR-0022). */
   adaptiveToken?: string
+  /** The adaptive settings surface (FH-070): reads the settings and writes the switches. */
+  adaptiveConfig?: AdaptiveConfigSurface
 }
 
 export const createHarnessHandler = (
@@ -482,6 +486,16 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLearnedSkillRequest(request, path.slice(2), options.learnedSkills)
     }
+    // The adaptive settings surface (FH-070). Reading is as sensitive as the other adaptive audits,
+    // so it takes the artifacts bearer when one is configured. Writing edits the user's own config
+    // file, so it requires that bearer: with none configured the route is an ordinary 404, never an
+    // open loopback writer.
+    if (path[1] === "adaptive" && path[2] === "config" && path.length === 3 && options.adaptiveConfig) {
+      if (request.method === "PATCH" && !options.token) return json({ error: "Not found", code: "not_found" }, 404)
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleAdaptiveConfigRequest(request, options.adaptiveConfig)
+    }
     // The acting line (FH-04): a live turn's plugin calls it on the loopback with its own bearer,
     // never the browser/artifacts/actions one (ADR-0022). It is a POST because it decides, and the
     // route exists only when both the service and the dedicated token were resolved: without a token
@@ -523,6 +537,9 @@ export const createHarnessHandler = (
           ...(options.token ? (["action-profiles"] as const) : []),
           // The probe is built with the server, so it is announced whenever the route is (FH-000).
           ...(options.runtimeProbe ? (["adaptive"] as const) : []),
+          // The settings surface is its own capability: a client must not read it as the runtime
+          // probe's (FH-070). It is announced whenever the service was built, token or not.
+          ...(options.adaptiveConfig ? (["adaptive-config"] as const) : []),
           // The decision audit is announced apart from the probe: a client must not read it as the
           // runtime probe's own capability (FH-015).
           ...(options.decisions ? (["adaptive-decisions"] as const) : []),

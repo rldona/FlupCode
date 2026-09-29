@@ -107,6 +107,44 @@ describe("rollback: a kill switch leaves the prompt and the store as they were",
     repository.close()
   })
 
+  test("context.enabled=false computes no plan and leaves the run prompt byte-identical", async () => {
+    const { repository, config, egress, service } = harness({ context: { enabled: false } })
+    const manager = createContextManager({
+      repository,
+      service,
+      config: () => config,
+      egress,
+      opaqueKey: () => KEY,
+      now: () => NOW,
+    })
+    const parts = runPromptParts({ objective: "fix the bug", artifacts: ["@artifact:report"], memory: "- remember" })
+    const plan = await manager.plan({ parts, objective: "fix the bug", runID: "run-1", taskID: "task-1", now: NOW })
+    expect(plan).toBeUndefined()
+    expect(repository.listPlans()).toHaveLength(0)
+
+    const untouched = renderRunPrompt(parts)
+    const applied = renderRunPrompt(manager.apply({ parts, plan }))
+    expect(applied.text).toBe(untouched.text)
+    expect(applied.files).toEqual(untouched.files)
+    repository.close()
+  })
+
+  test("the master switch off makes relevance inert even when its own flag is on", async () => {
+    const { repository, config, service } = harness({ enabled: false, relevance: { enabled: true } })
+    const relevance = createRelevanceService({
+      service,
+      curator: { roster: () => [{ name: "testing", description: "d", learned: false }] },
+      runtimeProbe: { capabilities: () => legacyCapabilities },
+      config: () => config,
+      now: () => NOW,
+    })
+    const result = await relevance.suggest({ projectID: PROJECT, sessionID: "ses_1", messageID: "msg_1", objective: "fix it" })
+    expect(result.line).toBeNull()
+    expect(result.reason).toBe("disabled")
+    expect(repository.listDecisions()).toHaveLength(0)
+    repository.close()
+  })
+
   test("relevance off returns a null line, adds nothing to the system array and writes no decision", async () => {
     const { repository, config, service } = harness()
     const relevance = createRelevanceService({

@@ -300,4 +300,22 @@ describe("createAdaptiveConfig", () => {
   test("has a default TTL shorter than the runtime probe", () => {
     expect(DEFAULT_ADAPTIVE_TTL_MS).toBeLessThan(DEFAULT_RUNTIME_PROBE_CONFIG.ttlMs)
   })
+
+  test("exposes the raw block and invalidate() forces a re-read inside the TTL", () => {
+    let block: Record<string, unknown> = { enabled: true, shadow: true }
+    let clock = 0
+    const adaptive = createAdaptiveConfig({ read: () => block, env: {}, ttlMs: 100, now: () => clock })
+
+    expect(adaptive.current().enabled).toBe(true)
+    expect(adaptive.raw()).toEqual({ enabled: true, shadow: true })
+
+    // Within the TTL the cache holds, even though the block changed.
+    block = { enabled: false }
+    expect(adaptive.current().enabled).toBe(true)
+
+    // invalidate() drops the cache, so the very next read sees the new bytes.
+    adaptive.invalidate()
+    expect(adaptive.raw()).toEqual({ enabled: false })
+    expect(adaptive.current().enabled).toBe(false)
+  })
 })

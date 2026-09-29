@@ -1,10 +1,11 @@
-import { For, Show, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createResource, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
 import { formatTokens } from "../metrics"
+import { adaptiveSurfaces, createHarnessClient } from "../client"
 import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
 import { mcpLatency, mcpToolUses } from "../mcp"
-import type { CapturedPrompt, ContextReport, ToolCall } from "../types"
+import type { CapturedPrompt, ContextReport, ItemDisposition, ToolCall } from "../types"
 import { duration } from "./UsagePanel"
 
 export type ContextTokens = {
@@ -38,6 +39,11 @@ type ContextPanelProps = {
   /** The completed calls, timed, so an MCP server's latency can be shown (H-16). */
   toolCalls?: ToolCall[]
   onRead: (path: string) => Promise<string>
+  /** The harness server, the selected session and the project, for the context plan (FH-072). */
+  serverUrl: string
+  sessionID?: string
+  projectID?: string
+  capabilities: string[]
 }
 
 const bytes = (value: number) => (value < 1024 ? `${value} B` : `${Math.round(value / 102.4) / 10} kB`)
@@ -103,6 +109,23 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
   )
   const mcpUses = createMemo(() => mcpToolUses(props.mcp, props.toolUses ?? {}))
   const mcpTimes = createMemo(() => mcpLatency(props.mcp, props.toolCalls ?? []))
+
+  // The context plan the shadow decided for this session, or for the project when no session is
+  // picked (FH-072). Asked for only when the server announced the plan audit; an older one is not
+  // poked at, so there is no 404 in the console.
+  const planAvailable = () => adaptiveSurfaces(props.capabilities).plans
+  const [plans] = createResource(
+    () => {
+      if (!props.open || !planAvailable()) return undefined
+      if (props.sessionID) return { sessionID: props.sessionID }
+      if (props.projectID) return { projectID: props.projectID }
+      return undefined
+    },
+    (filter) => createHarnessClient(props.serverUrl).adaptive.plans.list(filter),
+  )
+  const plan = createMemo(() => plans()?.[0])
+  const disposition = (value: ItemDisposition) =>
+    value === "archive" ? t("Archive") : value === "drop" ? t("Drop") : t("Keep")
 
   return (
     <Show when={props.open}>
@@ -292,6 +315,59 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
               </Show>
             </Show>
           </section>
+
+          {/* What the shadow planned for this session's context (FH-072): the dispositions it chose,
+              the reason each carries, and whether it actually filtered anything. */}
+          <Show when={planAvailable()}>
+            <section class="fc-usage-block fc-context-plan">
+              <h2>
+                {t("Context plan")}
+                <Show when={plan()}>
+                  {(entry) => (
+                    <span class="fc-context-aside">
+                      {formatTokens(entry().tokensBefore)} → {formatTokens(entry().tokensAfter)}
+                    </span>
+                  )}
+                </Show>
+              </h2>
+              <Show
+                when={plan()}
+                fallback={<p class="fc-usage-note">{plans.loading ? t("Reading…") : t("No plan recorded for this session.")}</p>}
+              >
+                {(entry) => (
+                  <>
+                    <p class="fc-usage-note">
+                      {entry().applied ? t("Applied: this plan filtered the prompt.") : t("Shadow only: nothing was filtered.")}
+                      {" · "}
+                      {entry().scoreSource === "jev" ? t("Refined by Jev") : t("Deterministic")}
+                      {entry().degraded ? ` · ${t("Degraded")}` : ""}
+                      {" · "}
+                      {formatDateTime(entry().createdAt)}
+                    </p>
+                    <For each={entry().entries}>
+                      {(item) => (
+                        <div class="fc-usage-row">
+                          <span class="fc-diff-status" dir="ltr">
+                            {item.kind}
+                          </span>
+                          <span class="fc-usage-key" dir="auto" title={item.id}>
+                            {item.id}
+                          </span>
+                          <span class="fc-context-excerpt" dir="auto">
+                            {disposition(item.disposition)} · {item.reason}
+                          </span>
+                          <Show when={item.protected}>
+                            <span class="fc-artifact-kind">{t("Protected")}</span>
+                          </Show>
+                          <span class="fc-usage-cost">{formatTokens(item.tokens)}</span>
+                        </div>
+                      )}
+                    </For>
+                  </>
+                )}
+              </Show>
+            </section>
+          </Show>
 
           <Show when={window().length > 0}>
             <section class="fc-usage-block">
