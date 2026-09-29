@@ -10,6 +10,7 @@ import { SessionV1 } from "../v1/session"
 import { MemoryTable, MemoryUseTable } from "../memory/sql"
 import { WorkspaceTable } from "../control-plane/workspace.sql"
 import { SessionMessage } from "./message"
+import { SessionMessageCompat } from "./message-compat"
 import { SessionMessageUpdater } from "./message-updater"
 import { SessionInput } from "./input"
 import { WorkspaceV2 } from "../workspace"
@@ -18,7 +19,6 @@ import type { DeepMutable } from "../schema"
 
 type DatabaseService = Database.Interface["db"]
 
-const decodeMessage = Schema.decodeUnknownSync(SessionMessage.Message)
 const encodeMessage = Schema.encodeSync(SessionMessage.Message)
 
 export class SessionAlreadyProjected extends Error {}
@@ -111,8 +111,7 @@ function applyUsage(
 
 function run(db: DatabaseService, event: SessionEvent.Event) {
   return Effect.gen(function* () {
-    const decodeRow = (row: typeof SessionMessageTable.$inferSelect) =>
-      decodeMessage({ ...row.data, id: row.id, type: row.type })
+    const decodeRow = (row: typeof SessionMessageTable.$inferSelect) => SessionMessageCompat.decodeRowSync(row)
     const updateMessage = (message: SessionMessage.Message) => {
       if (event.durable === undefined) return Effect.die("Durable Session event is missing aggregate sequence")
       const encoded = encodeMessage(message)
