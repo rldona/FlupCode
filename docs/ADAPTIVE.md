@@ -10,7 +10,11 @@
 > [ADR-0021](adr/0021-skill-relevance-acting.md), and the **promotion of the acting line** —
 > loopback auth, retention, hot/batch isolation, reverse-collision and rollback, with PoC-3 as its
 > offline gate — is in progress under [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md).
-> The learning UI (FH-035/FH-046) is deferred; the
+> The **cockpit** (E8, FH-070–074) is landed: the settings switches and the read-only
+> decisions/plan/learned inspectors live in `packages/harness`, and the write contract is
+> `PATCH /harness/adaptive/config` — see [The cockpit (E8)](#the-cockpit-e8). The learning UI
+> (FH-035/FH-046) stays deferred: E8 shows learned skills and proposals but never
+> approves/edits/archives them; the
 > read surfaces exist as `GET /harness/adaptive/proposals` and `/harness/adaptive/learned-skills`.
 > This is a skeleton: the sections below are filled
 > in as each phase lands, not a complete manual. The full plan and the phase designs live in the
@@ -290,6 +294,74 @@ what the promotion fixes and, where it is not landed yet, what stands today.
   measured latency/cost) is **blocked on `TYPESAFE_API_KEY`** and environment; its procedure is
   documented and it is a prerequisite before the feature is ever recommended as default-on. The
   threshold gates the offline set, not the default: relevance stays opt-in.
+
+## The cockpit (E8)
+
+E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting
+behaviour: the switches it exposes are the ones the engine already reads, and turning a switch off is
+always safe.
+
+- **Where it is.** A dedicated **Adaptive** group in Settings (`AdaptiveSettingsPanel`), a
+  **Context plan** block in the Context screen (FH-072), a **Decisions** screen (FH-071) and a
+  read-only **Learned** section in the Skills screen (FH-073). None of them changes the engine.
+- **What the app may write.** Only the switches in the allowlist below; every other field of
+  `flupcode.adaptive` is read-only in E8. The server's `writable` list is the whole contract, and the
+  UI draws a control only from it, so a field the server does not list is never offered.
+
+  | Writable leaf | Type | Guard before it can be set | Confirmation |
+  | --- | --- | --- | --- |
+  | `enabled` | boolean | `env-disabled` when `FLUPCODE_ADAPTIVE_DISABLED=1` | — |
+  | `shadow` | boolean | — | — |
+  | `context.enabled` | boolean | — | — |
+  | `context.apply` | boolean | warning `evaluation-gated` ([ADR-0018](adr/0018-context-selection-seam.md)) | — |
+  | `learning.enabled` | boolean | egress allowlist: a project **and** `egress.kinds.skillReflection` ([ADR-0020](adr/0020-learning-persistence-and-egress.md)) | — |
+  | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
+  | `jev.enabled` | boolean | egress allowlist: a project and a kind | **yes** |
+  | `egress.projects` | string[] | — | **yes** when it widens |
+  | `egress.kinds` | boolean-map | validated against `isDecisionKind` | **yes** when it widens |
+  | `retention.enabled` | boolean | — | **yes** ([ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)) |
+  | `budget.monthlyTokens` | number > 0 | — | — |
+
+  Read-only in E8: `runtime.*`, `episode.*`, `decisions.*`,
+  `jev.{endpoint,model,timeoutMs,maxInputTokens}`, `budget.hotReserveFraction`,
+  `context.{keepThreshold,dropThreshold,budget}`, `learning.{minToolCalls,snapshotKeep,maxInputChars,
+  maxBodyChars,probationSample,staleAfter,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
+  timeoutMs}` and `retention.*Days`. `TYPESAFE_API_KEY` stays **environment-only**; the panel reports
+  whether it is present and never edits it ([ADR-0017](adr/0017-jev-egress-and-governance.md)).
+- **Provenance and precedence.** The panel shows each switch's effective value and where it comes
+  from — `env > block > default`, the same precedence the resolver applies
+  ([ADR-0017](adr/0017-jev-egress-and-governance.md)) — so a value forced by the environment looks
+  forced, not editable. When `FLUPCODE_ADAPTIVE_DISABLED=1`, the master switch is drawn **off and
+  disabled** with the reason, and a direct `enabled=true` is rejected with `env-disabled`; the API is
+  honest even when someone skips the UI.
+- **The kill switch, said honestly.** `adaptive.enabled=false` (and
+  `FLUPCODE_ADAPTIVE_DISABLED=1`) stops decisions, shadow, Jev, relevance, learning and the context
+  plan, per the [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md) table. It **does not**
+  unload learned skills: they are ordinary files on disk and the engine keeps loading them, because
+  there is no seam in the engine to stop that. The panel says so and never promises a total stop. The
+  same is true of a successful write to `enabled`: it travels the warning `skills-still-load`.
+- **Write contract.** `PATCH /harness/adaptive/config` with `{ "patch": { … }, "confirm": false }`.
+  The patch is **nested**, mirroring `flupcode.adaptive`, and carries only allowlisted leaves; a key
+  whose segment carries a dot is refused with `unsupported-field`, because it would be written as one
+  literal key the resolver never reads. `null` on a leaf deletes it (back to default); `confirm: true`
+  is required by the confirmation rows above. It answers `200` with the resulting `GET` view plus
+  `warnings`, or an error with a closed `code` (`unsupported-field`, `invalid-value`,
+  `confirmation-required`, `env-disabled`, `guard:no-adaptive-token`,
+  `guard:egress-allowlist-required`, `invalid-config`, `config-unreadable`) and, where useful,
+  `fields`/`missing`. A body that is not JSON or lacks a `patch` object is a `400 bad_request`; an
+  unreadable target file is a `500 config-unreadable`. A patch with no leaves is a read: it answers
+  the view and neither creates nor rewrites the file. The writer only ever touches the
+  `flupcode.adaptive` leaf and shares the config write queue with the rest of the harness, so comments
+  and neighbouring keys are preserved.
+- **Deleting is local to the writer's file.** A `null` leaf is removed from the file the writer chose
+  (`OPENCODE_CONFIG_DIR`, or XDG), so a value present in **another** layer (XDG when the writer
+  targets `OPENCODE_CONFIG_DIR`, or the reverse) survives and the effective value is not necessarily
+  the default again. The panel says so and does not present deletion as an absolute guarantee of
+  restoring the default.
+- **Open decision, non-blocking.** The egress allowlist UI offers only the **four kinds the server
+  ships** — `completion`, `skillRelevance`, `contextItem`, `skillReflection`. A kind the writer would
+  accept but the product does not implement yet is not rendered, so the panel never promises an
+  allowlist entry that would do nothing. Widening the set is additive when a kind lands.
 
 ## Decisions
 

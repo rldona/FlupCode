@@ -121,14 +121,26 @@ delivers unconditionally.
 
 The Adaptive Harness is FlupCode's own bounded service, and its settings live in the global
 `flupcode.adaptive` block — read through the same OpenCode layering as the rest of the global config,
-not a product profile. The acting promotion
-([ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)) adds one slice, **retention**:
+not a product profile. The block is read with the precedence **`env > block > default`**: an
+environment variable always wins, a well-typed value in the block comes next, and a missing or
+malformed value falls back to the conservative default rather than being guessed.
 
 ```jsonc
 {
   "flupcode": {
     "adaptive": {
-      "retention": {
+      "enabled": true,            // kill switch; false (or FLUPCODE_ADAPTIVE_DISABLED=1) stops decisions, shadow, Jev, relevance, learning and the context plan
+      "shadow": true,             // record decisions without acting on them
+      "context": { "enabled": true, "apply": false },   // apply is off until the offline evaluation promotes it
+      "learning": { "enabled": false },
+      "relevance": { "enabled": false },
+      "jev": { "enabled": false, "endpoint": "…", "model": "…", "timeoutMs": 0, "maxInputTokens": 0 },
+      "egress": {
+        "projects": [],           // project paths allowed to leave the machine; empty ⇒ no egress
+        "kinds": {}               // per-kind opt-in map (the four shipped kinds)
+      },
+      "budget": { "monthlyTokens": 100000, "hotReserveFraction": 0.2 },
+      "retention": {              // ADR-0022; off by default
         "enabled": false,
         "decisionsDays": 30,
         "actingDays": 90,
@@ -141,6 +153,42 @@ not a product profile. The acting promotion
   }
 }
 ```
+
+From the app's **Adaptive** settings section you may move the **switches** only:
+
+`enabled`, `shadow`, `context.enabled`, `context.apply`, `learning.enabled`, `relevance.enabled`,
+`jev.enabled`, `egress.projects`, `egress.kinds`, `retention.enabled` and `budget.monthlyTokens`.
+Everything else above is read-only there — the thresholds, timeouts, models and retention windows are
+edited in the file, not from the panel. `TYPESAFE_API_KEY` is **environment-only**; the panel reports
+whether it is set and never writes it.
+
+The switches keep their guards, so the panel cannot promise more than the engine does:
+
+- `learning.enabled` and `jev.enabled` need an **egress allowlist** first: a project in
+  `egress.projects` and the relevant kind (`skillReflection` for learning; any kind for Jev). With
+  neither, the toggle is drawn disabled with the reason.
+- `relevance.enabled` needs the harness's resolved `adaptive-token`; without it the toggle is
+  disabled.
+- `retention.enabled`, `jev.enabled` and **widening** `egress.projects`/`egress.kinds` ask for a
+  confirmation before the write.
+- With `FLUPCODE_ADAPTIVE_DISABLED=1`, the master switch is off and disabled and `enabled=true` is
+  refused with `env-disabled`.
+- The egress kind list shows only the **four kinds the server ships** — `completion`,
+  `skillRelevance`, `contextItem`, `skillReflection`; a kind that does not exist yet is not offered,
+  so the panel never promises an entry that would do nothing.
+
+The panel writes through **`PATCH /harness/adaptive/config`** with a partial body:
+
+```jsonc
+{ "patch": { "egress": { "projects": ["/home/me/project"] }, "confirm": true } }
+```
+
+`patch` mirrors the block and may carry only allowlisted leaves; `null` on a leaf deletes it (back to
+default). The route answers with the resulting read view plus any `warnings`, or `422` with a closed
+code. It requires the loopback bearer, and the settings section is read-only when the server has no
+writer token. See [`docs/ADAPTIVE.md`](ADAPTIVE.md#the-cockpit-e8) for the full posture.
+
+### Retention
 
 - `enabled` is **off by default**: nothing expires until you opt in. The numbers above are the
   conservative defaults — ADR-0022 fixes the policy, not the numbers; a malformed
