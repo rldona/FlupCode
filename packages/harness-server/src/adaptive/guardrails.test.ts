@@ -226,3 +226,110 @@ describe("the decision cache", () => {
     repository.close()
   })
 })
+
+describe("the read-only status projection", () => {
+  test("with the feature off there is nothing live to read", () => {
+    const { repository, guardrails } = stack({ block: { guardrails: { enabled: false } } })
+    expect(guardrails.status("ses_1")).toBeNull()
+    repository.close()
+  })
+
+  test("off-legacy there is nothing live to read", () => {
+    const { repository, guardrails } = stack({ capabilities: v2 })
+    expect(guardrails.status("ses_1")).toBeNull()
+    repository.close()
+  })
+
+  test("below the threshold it projects nothing", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"))
+    expect(guardrails.status("ses_1")).toBeNull()
+    repository.close()
+  })
+
+  test("a loop projects its counts, tool, id, cached risk and the last observation", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    expect(guardrails.status("ses_1")).toEqual({
+      reason: "loop",
+      repeatedCalls: 3,
+      repeatedErrors: 0,
+      tool: "bash",
+      decisionID: "failure:ses_1:bash:a",
+      risk: "ALLOW",
+      at: NOW,
+    })
+    repository.close()
+  })
+
+  test("a repeated error projects the error reason and its own id", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, error("bash", "x"))
+    await observe(guardrails, error("bash", "x"))
+    await observe(guardrails, error("bash", "x"))
+    expect(guardrails.status("ses_1")).toMatchObject({
+      reason: "error",
+      repeatedCalls: 0,
+      repeatedErrors: 3,
+      decisionID: "failure:ses_1:bash:x",
+    })
+    repository.close()
+  })
+
+  test("a broken streak stops projecting, without a new row", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "b"))
+    expect(guardrails.status("ses_1")).toBeNull()
+    repository.close()
+  })
+
+  test("an expired window stops projecting", async () => {
+    let clock = NOW
+    const { repository, guardrails } = stack({ clock: () => clock })
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    clock = NOW + 600_001
+    expect(guardrails.status("ses_1")).toBeNull()
+    repository.close()
+  })
+
+  test("another session is not projected from this session's ring", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    expect(guardrails.status("ses_2")).toBeNull()
+    repository.close()
+  })
+
+  test("a loop in another session is not projected for this one", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"), "ses_2")
+    await observe(guardrails, call("bash", "a"), "ses_2")
+    await observe(guardrails, call("bash", "a"), "ses_2")
+    expect(guardrails.status("ses_1")).toBeNull()
+    // The loop is still live for the session that owns it: isolation, not suppression.
+    expect(guardrails.status("ses_2")).toMatchObject({
+      reason: "loop",
+      decisionID: "failure:ses_2:bash:a",
+    })
+    repository.close()
+  })
+
+  test("an empty or unknown session id projects nothing", async () => {
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    await observe(guardrails, call("bash", "a"))
+    // Neither an empty id nor one that never fed the ring has a loop to project.
+    expect(guardrails.status("")).toBeNull()
+    expect(guardrails.status("ses_never_seen")).toBeNull()
+    repository.close()
+  })
+})

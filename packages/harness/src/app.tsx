@@ -144,6 +144,7 @@ import { BestOfNDialog, type BestOfNLaunch } from "./components/BestOfNDialog"
 import { ReplayPanel } from "./components/ReplayPanel"
 import { ComparePanel } from "./components/ComparePanel"
 import { DecisionsPanel } from "./components/DecisionsPanel"
+import { GuardrailBanner } from "./components/GuardrailBanner"
 import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
@@ -1041,6 +1042,38 @@ export const App: Component = () => {
       })
       .finally(() => setAdaptiveSaving(false))
   }
+
+  // The live guardrail advisory (FH-062, ADR-0023). It reads the read-only `status` route while a
+  // session is selected and the server announced the surface; the tick re-reads it so a loop appears
+  // and clears on its own. The dismissal is per `decisionID` and in memory only, and a new loop —
+  // a new id — arms it again; switching sessions forgets it.
+  const [guardrailTick, setGuardrailTick] = createSignal(0)
+  const [guardrailDismissed, setGuardrailDismissed] = createSignal<string>()
+  const [guardrailStatus] = createResource(
+    () => {
+      const url = harnessServerUrl()
+      const sessionID = selected()
+      if (!url || !sessionID || !adaptiveSurfaces(harnessCapabilities()).guardrails) return undefined
+      return { url, sessionID, tick: guardrailTick() }
+    },
+    (input) => createHarnessClient(input.url).adaptive.guardrails.status(input.sessionID),
+  )
+  const liveGuardrail = () => {
+    const status = guardrailStatus()
+    if (!status || guardrailDismissed() === status.decisionID) return undefined
+    return status
+  }
+  createEffect(() => {
+    selected()
+    setGuardrailDismissed(undefined)
+  })
+  createEffect(() => {
+    const url = harnessServerUrl()
+    const sessionID = selected()
+    if (!url || !sessionID || !adaptiveSurfaces(harnessCapabilities()).guardrails) return
+    const timer = setInterval(() => setGuardrailTick((value) => value + 1), 5000)
+    onCleanup(() => clearInterval(timer))
+  })
 
   const [packs, setPacks] = createSignal<ContextPack[]>([])
 
@@ -5812,6 +5845,15 @@ export const App: Component = () => {
             }
           >
             <PanelBoundary name={t("The conversation")}>
+              <Show when={liveGuardrail()}>
+                {(status) => (
+                  <GuardrailBanner
+                    status={status()}
+                    onViewDecisions={() => showScreen("decisions")}
+                    onDismiss={() => setGuardrailDismissed(status().decisionID)}
+                  />
+                )}
+              </Show>
               <SessionView
                 messages={activeMessages()}
                 sessionKey={selected()}

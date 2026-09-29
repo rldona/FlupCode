@@ -637,6 +637,7 @@ test("the audits are asked for under their own paths, with the filter and the be
     await client.adaptive.plans.explain("plan_1")
     await client.adaptive.proposals.list({ projectID: "/work/demo" })
     await client.adaptive.learnedSkills.list({ projectID: "/work/demo" })
+    await client.adaptive.guardrails.status("ses_1")
   })
 
   expect(calls.map((call) => `${call.method} ${call.path}${call.search}`)).toEqual([
@@ -646,8 +647,29 @@ test("the audits are asked for under their own paths, with the filter and the be
     "GET /harness/adaptive/plans/plan_1",
     "GET /harness/adaptive/proposals?projectID=%2Fwork%2Fdemo",
     "GET /harness/adaptive/learned-skills?projectID=%2Fwork%2Fdemo",
+    "GET /harness/adaptive/guardrails/status?sessionID=ses_1",
   ])
   expect(calls.every((call) => call.auth === "Bearer tok")).toBe(true)
+})
+
+test("a guardrail status of null is a live answer, not a failure", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls, { data: null })
+
+  const answer = await withLoopbackToken(() =>
+    createHarnessClient("http://harness").adaptive.guardrails.status("ses_1"),
+  )
+
+  expect(answer).toBeNull()
+  expect(calls).toEqual([
+    {
+      method: "GET",
+      path: "/harness/adaptive/guardrails/status",
+      search: "?sessionID=ses_1",
+      auth: "Bearer tok",
+      body: undefined,
+    },
+  ])
 })
 
 test("an adaptive surface the server did not announce is not asked for", () => {
@@ -659,6 +681,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     plans: false,
     proposals: false,
     learnedSkills: false,
+    guardrails: false,
   })
   expect(
     adaptiveSurfaces([
@@ -667,8 +690,9 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-context",
       "adaptive-proposals",
       "adaptive-skills",
+      "adaptive-guardrails",
     ]),
-  ).toEqual({ config: true, decisions: true, plans: true, proposals: true, learnedSkills: true })
+  ).toEqual({ config: true, decisions: true, plans: true, proposals: true, learnedSkills: true, guardrails: true })
 })
 
 test("each adaptive surface is offered only for its own capability", () => {
@@ -678,17 +702,21 @@ test("each adaptive surface is offered only for its own capability", () => {
     plans: false,
     proposals: false,
     learnedSkills: false,
+    guardrails: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
   expect(adaptiveSurfaces(["adaptive-context"]).plans).toBe(true)
   expect(adaptiveSurfaces(["adaptive-proposals"]).proposals).toBe(true)
   expect(adaptiveSurfaces(["adaptive-skills"]).learnedSkills).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-guardrails"]).guardrails).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-guardrails"]).decisions).toBe(false)
   expect(adaptiveSurfaces(["something-else"])).toEqual({
     config: false,
     decisions: false,
     plans: false,
     proposals: false,
     learnedSkills: false,
+    guardrails: false,
   })
 })

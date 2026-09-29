@@ -38,7 +38,7 @@ import { handleLearnedSkillRequest, handleProposalRequest } from "./adaptive/lea
 import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
 import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
-import { handleGuardrailsRequest } from "./adaptive/guardrails-routes"
+import { handleGuardrailsRequest, handleGuardrailsStatusRequest } from "./adaptive/guardrails-routes"
 import type { GuardrailService } from "./adaptive/guardrails"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
@@ -533,6 +533,21 @@ export const createHarnessHandler = (
       if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleGuardrailsRequest(request, options.guardrails)
+    }
+    // The read side of the guardrails (FH-062): only a browser reads the live advisory, so it takes
+    // the artifacts bearer like `/harness/adaptive/decisions`, never the acting token. Reading only —
+    // there is no route that makes a guardrail act.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "guardrails" &&
+      path[3] === "status" &&
+      path.length === 4 &&
+      request.method === "GET" &&
+      options.guardrails
+    ) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleGuardrailsStatusRequest(request, options.guardrails)
     }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a

@@ -36,12 +36,26 @@ export type GuardrailResult = {
   latencyMs: number
 }
 
-export type GuardrailService = {
-  observe(input: { projectID: string; sessionID: string; observation: LoopObservation }): Promise<GuardrailResult>
+/**
+ * The live advisory a browser reads (FH-062, ADR-0023 §2). It is opaque: a reason, the counts, the
+ * tool name and the deterministic `decisionID`, plus the cached `risk`. It carries no argument, no
+ * message and no tool output, and it is derived from the same ring the detector writes.
+ */
+export type GuardrailStatus = {
+  reason: "loop" | "error"
+  repeatedCalls: number
+  repeatedErrors: number
+  tool?: string
+  decisionID: string
+  risk?: ToolRisk
+  at: number
 }
 
-/** A bound on the per-session rings and the decision cache; the newest session wins. */
-export const MAX_GUARDRAIL_SESSIONS = 500
+export type GuardrailService = {
+  observe(input: { projectID: string; sessionID: string; observation: LoopObservation }): Promise<GuardrailResult>
+  /** The read-only projection of the session's ring; `null` when no threshold is crossed. */
+  status(sessionID: string): GuardrailStatus | null
+}
 
 /** Writes into a bounded LRU: the newest key is last, the oldest is evicted past the cap. */
 function remember<T>(cache: Map<string, T>, key: string, value: T, limit: number): void {
@@ -155,5 +169,35 @@ export function createGuardrailService(deps: {
     return result
   }
 
-  return { observe }
+  // The read-only projection of the same ring (FH-062, ADR-0023 §6): the same gate, the same window
+  // and the same thresholds, the deterministic id and the cached risk. It never mutates the ring or
+  // writes a row, so when the streak breaks or the window drops the entries it projects nothing.
+  const status = (sessionID: string): GuardrailStatus | null => {
+    const config = deps.config()
+    if (!config.enabled || !config.guardrails.enabled) return null
+    if (!deps.runtimeProbe.capabilities().canObserveToolCalls) return null
+    const ring = rings.get(sessionID)
+    if (ring === undefined) return null
+    const current = now()
+    const fresh = ring.filter((entry) => current - entry.at < config.guardrails.windowMs)
+    const signal = detectLoop(fresh)
+    const callsCrossed = signal.repeatedCalls >= config.guardrails.repeatedCalls
+    const errorsCrossed = signal.repeatedErrors >= config.guardrails.repeatedErrors
+    if (!callsCrossed && !errorsCrossed) return null
+    const digest = signal.argsDigest ?? signal.errorDigest ?? "none"
+    const id = decisionID("failure", `${sessionID}:${signal.tool ?? "tool"}:${digest}`)
+    const cached = decisions.get(id)
+    const risk = cached && current - cached.at < config.guardrails.windowMs ? cached.result.risk?.risk : undefined
+    return {
+      reason: callsCrossed ? "loop" : "error",
+      repeatedCalls: signal.repeatedCalls,
+      repeatedErrors: signal.repeatedErrors,
+      ...(signal.tool !== undefined ? { tool: signal.tool } : {}),
+      decisionID: id,
+      ...(risk !== undefined ? { risk } : {}),
+      at: fresh[fresh.length - 1]?.at ?? current,
+    }
+  }
+
+  return { observe, status }
 }

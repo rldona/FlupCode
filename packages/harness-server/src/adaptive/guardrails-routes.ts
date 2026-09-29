@@ -43,8 +43,8 @@ const nonEmptyString = (body: Record<string, unknown>, key: string): string | un
 /** Engine-shaped ids and tool names are short; the caps keep a caller from handing the caches a key. */
 const ID_LIMIT = 200
 const TOOL_LIMIT = 200
-/** A `sha256` hex digest is 64 chars; anything wider is not a digest this route produced. */
-const DIGEST_LIMIT = 128
+/** A `sha256` hex digest is exactly 64 lowercase hex chars; anything else is not a digest we produced. */
+const DIGEST_PATTERN = /^[a-f0-9]{64}$/
 
 /** The project a guardrail may name: an absolute, normalised, existing real directory, or nothing. */
 function usableProject(projectID: string): string | undefined {
@@ -68,12 +68,12 @@ function observationFrom(value: unknown): LoopObservation | undefined {
       : undefined
   if (value.kind === "call") {
     const argsDigest = nonEmptyString(value, "argsDigest")
-    if (argsDigest === undefined || argsDigest.length > DIGEST_LIMIT) return undefined
+    if (argsDigest === undefined || !DIGEST_PATTERN.test(argsDigest)) return undefined
     return { kind: "call", tool, argsDigest, ...(callID ? { callID } : {}) }
   }
   if (value.kind === "error") {
     const errorDigest = nonEmptyString(value, "errorDigest")
-    if (errorDigest === undefined || errorDigest.length > DIGEST_LIMIT) return undefined
+    if (errorDigest === undefined || !DIGEST_PATTERN.test(errorDigest)) return undefined
     return { kind: "error", tool, errorDigest, ...(callID ? { callID } : {}) }
   }
   return undefined
@@ -99,4 +99,19 @@ export async function handleGuardrailsRequest(request: Request, guardrails: Guar
   if (project === undefined) return error("The guardrails project is not an existing directory", "bad_request", 400)
   const result = await guardrails.observe({ projectID: project, sessionID, observation })
   return json({ data: result })
+}
+
+/**
+ * The read-only advisory a browser reads (FH-062): it only names the session, so the session id is
+ * the only thing to validate. `null` is a valid answer — no loop is crossing the threshold right
+ * now — and is not an error.
+ */
+export function handleGuardrailsStatusRequest(request: Request, guardrails: GuardrailService): Response {
+  if (request.method !== "GET") return error("Not found", "not_found", 404)
+  const sessionID = new URL(request.url).searchParams.get("sessionID")
+  if (sessionID === null || sessionID.length === 0) {
+    return error("A guardrails status request needs a sessionID", "bad_request", 400)
+  }
+  if (sessionID.length > ID_LIMIT) return error("A guardrails status request carries an id past its limit", "bad_request", 400)
+  return json({ data: guardrails.status(sessionID) })
 }

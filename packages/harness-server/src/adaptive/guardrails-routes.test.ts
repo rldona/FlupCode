@@ -14,7 +14,7 @@ import { createHarnessHandler } from "../api"
 import type { HarnessHandlerOptions } from "../api"
 import { SqliteRoutineRepository } from "../repository"
 import { RoutineScheduler } from "../scheduler"
-import type { GuardrailResult, GuardrailService } from "./guardrails"
+import type { GuardrailResult, GuardrailService, GuardrailStatus } from "./guardrails"
 import type { LoopObservation } from "./guardrails-detector"
 
 const PROJECT = tmpdir()
@@ -33,7 +33,10 @@ const result: GuardrailResult = {
   latencyMs: 1,
 }
 
-const service = (answer: GuardrailResult = result): GuardrailService => ({ observe: async () => answer })
+const service = (answer: GuardrailResult = result): GuardrailService => ({
+  observe: async () => answer,
+  status: () => null,
+})
 
 const open = (options: HarnessHandlerOptions = {}) => {
   const repository = new SqliteRoutineRepository(":memory:")
@@ -48,10 +51,12 @@ const post = (body: unknown, token?: string, path = "/harness/adaptive/guardrail
     body: JSON.stringify(body),
   })
 
+const DIGEST = "a".repeat(64)
+
 const body = {
   projectID: PROJECT,
   sessionID: "ses_1",
-  observation: { kind: "call", tool: "bash", argsDigest: "abc" },
+  observation: { kind: "call", tool: "bash", argsDigest: DIGEST },
 }
 
 describe("the guardrails route (FH-060–063)", () => {
@@ -70,6 +75,7 @@ describe("the guardrails route (FH-060–063)", () => {
         seen.push(input.observation)
         return result
       },
+      status: () => null,
     }
     const { repository, handler } = open({ guardrails: capturing, adaptiveToken: ADAPTIVE })
     const observation = { kind: "error", tool: "bash", errorDigest: "e".repeat(64), callID: "call_9" }
@@ -131,7 +137,7 @@ describe("the guardrails route (FH-060–063)", () => {
     repository.close()
   })
 
-  test("refuses a malformed observation", async () => {
+  test("refuses a malformed observation or a digest that is not a sha256", async () => {
     const { repository, handler } = open({ guardrails: service(), adaptiveToken: ADAPTIVE })
     const bad = [
       undefined,
@@ -139,9 +145,13 @@ describe("the guardrails route (FH-060–063)", () => {
       { kind: "call", tool: "bash" },
       { kind: "call", tool: "bash", argsDigest: "" },
       { kind: "error", tool: "bash", errorDigest: 7 },
-      { kind: "other", tool: "bash", argsDigest: "a" },
-      { kind: "call", tool: "", argsDigest: "a" },
+      { kind: "other", tool: "bash", argsDigest: DIGEST },
+      { kind: "call", tool: "", argsDigest: DIGEST },
+      // Too short, too long, uppercase and non-hex are all not the sha256 the plugin sends.
+      { kind: "call", tool: "bash", argsDigest: "a" },
       { kind: "call", tool: "bash", argsDigest: "d".repeat(129) },
+      { kind: "call", tool: "bash", argsDigest: "A".repeat(64) },
+      { kind: "call", tool: "bash", argsDigest: "g".repeat(64) },
     ]
     for (const observation of bad) {
       expect((await handler(post({ ...body, observation }, ADAPTIVE))).status, JSON.stringify(observation)).toBe(400)
@@ -160,6 +170,88 @@ describe("the guardrails route (FH-060–063)", () => {
     const { repository, handler } = open({ guardrails: service(), adaptiveToken: ADAPTIVE })
     expect((await handler(post({ ...body, sessionID: "s".repeat(201) }, ADAPTIVE))).status).toBe(400)
     repository.close()
+  })
+
+  describe("the read-only status route", () => {
+    const status: GuardrailStatus = {
+      reason: "loop",
+      repeatedCalls: 3,
+      repeatedErrors: 0,
+      tool: "bash",
+      decisionID: "failure:ses_1:bash:abc",
+      risk: "ALLOW",
+      at: 1,
+    }
+
+    const get = (token?: string, sessionID = "ses_1") =>
+      new Request(`http://x/harness/adaptive/guardrails/status?sessionID=${sessionID}`, {
+        headers: token ? { authorization: `Bearer ${token}` } : {},
+      })
+
+    test("answers a GET with the service status, behind the artifacts bearer", async () => {
+      const { repository, handler } = open({
+        token: "browser-secret",
+        guardrails: { observe: async () => result, status: () => status },
+      })
+      // No token configured in the request: refused, never the acting token's job.
+      expect((await handler(get())).status).toBe(403)
+      const response = await handler(get("browser-secret"))
+      expect(response.status).toBe(200)
+      expect((await response.json()).data).toEqual(status)
+      repository.close()
+    })
+
+    test("null is a valid answer: no loop right now is not an error", async () => {
+      const { repository, handler } = open({ guardrails: service() })
+      const response = await handler(get())
+      expect(response.status).toBe(200)
+      expect((await response.json()).data).toBeNull()
+      repository.close()
+    })
+
+    test("the acting token never opens the status route", async () => {
+      const { repository, handler } = open({
+        token: "browser-secret",
+        guardrails: { observe: async () => result, status: () => status },
+        adaptiveToken: ADAPTIVE,
+      })
+      // The dedicated acting bearer is for the POST that decides; the read-only side speaks the
+      // artifacts bearer only.
+      expect((await handler(get(ADAPTIVE))).status).toBe(403)
+      expect((await handler(get("browser-secret"))).status).toBe(200)
+      repository.close()
+    })
+
+    test("forwards the requested session id to the service", async () => {
+      const seen: string[] = []
+      const { repository, handler } = open({
+        guardrails: {
+          observe: async () => result,
+          status: (sessionID) => {
+            seen.push(sessionID)
+            return null
+          },
+        },
+      })
+      const response = await handler(get(undefined, "ses_other"))
+      expect(response.status).toBe(200)
+      expect((await response.json()).data).toBeNull()
+      expect(seen).toEqual(["ses_other"])
+      repository.close()
+    })
+
+    test("refuses a missing sessionID and one past its limit", async () => {
+      const { repository, handler } = open({ guardrails: service() })
+      expect((await handler(new Request("http://x/harness/adaptive/guardrails/status"))).status).toBe(400)
+      expect((await handler(get(undefined, "s".repeat(201)))).status).toBe(400)
+      repository.close()
+    })
+
+    test("is an ordinary 404 without the service", async () => {
+      const { repository, handler } = open({ adaptiveToken: ADAPTIVE })
+      expect((await handler(get())).status).toBe(404)
+      repository.close()
+    })
   })
 
   test("health announces adaptive-guardrails only when the service and its token exist", async () => {

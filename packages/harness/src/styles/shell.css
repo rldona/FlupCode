@@ -4233,6 +4233,55 @@ button.fc-status {
   flex-shrink: 0;
 }
 
+/* The advisory guardrail banner (FH-062): a live loop is called out above the conversation, and the
+   reader may open the decisions or dismiss it. It warns; it never stops the turn. */
+.fc-guardrail-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-3);
+  margin: var(--fc-space-2) var(--fc-space-4) 0;
+  padding: 8px 12px;
+  border: 1px solid color-mix(in srgb, var(--fc-warning) 40%, var(--fc-border));
+  border-radius: var(--fc-radius-md);
+  background: color-mix(in srgb, var(--fc-warning) 12%, transparent);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-guardrail-banner-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.fc-guardrail-banner-title {
+  font-weight: 600;
+}
+
+.fc-guardrail-banner-body {
+  margin: 0;
+  color: var(--fc-text-muted);
+}
+
+.fc-guardrail-banner-note {
+  margin: 2px 0 0;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+}
+
+.fc-guardrail-banner .fc-button {
+  flex: none;
+}
+
+.fc-guardrail-banner-close {
+  flex: none;
+  border: none;
+  background: none;
+  color: var(--fc-text-muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
 /* Prompt actions stay out of the way until the reader hovers the message or focuses a button. */
 .fc-message-actions {
   display: flex;
