@@ -295,6 +295,48 @@ what the promotion fixes and, where it is not landed yet, what stands today.
   documented and it is a prerequisite before the feature is ever recommended as default-on. The
   threshold gates the offline set, not the default: relevance stays opt-in.
 
+## Guardrails
+
+E7 (FH-060–063, [ADR-0023](adr/0023-failure-loop-guardrails.md)) detects a **failing or looping**
+session and records an **advisory** intervention. It never pauses, blocks or mutates a turn: the
+engine plugin only reports, the server decides, and a person reads the audit. The original FH-062
+session banner is deferred; no new UI ships with this block.
+
+- **Off by default.** `adaptive.guardrails.enabled=false` (the default) makes `observe` return
+  `{ verdict: "continue", reason: "disabled" }` **before** touching any state and **without** writing
+  a row. On a non-legacy runtime it returns `runtime-not-legacy` and likewise writes nothing.
+- **Delivery.** `POST /harness/adaptive/guardrails`, guarded unconditionally by the dedicated
+  `adaptive-token` ([ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)); with no token the
+  route and the `adaptive-guardrails` capability are absent (404). `GUARDRAILS_PLUGIN` reads the same
+  `adaptive-token` file, hashes each call's arguments (or the tool's error message) with a canonical
+  `sha256`, and `POST`s **only the digest** fire-and-forget. It never blocks the tool path, never
+  reads the verdict and never mutates `output`.
+- **Detection is pure.** `guardrails-detector.ts` counts the **consecutive identical** tail of a
+  per-session ring, so a changed argument, an interleaved error or an observation outside the window
+  breaks the streak: a normal retry is never a false positive. `failure` intervenes when
+  `repeatedCalls` or `repeatedErrors` reaches its threshold (default `3`, aligned to the engine's
+  `DOOM_LOOP_THRESHOLD` but an independent config value).
+- **State is in memory and bounded.** A ring per session (a `windowMs` window, `maxObservations`
+  entries) and at most `maxSessions` rings; a restart forgets them. `agent.steps` is **not**
+  supported: `stepsUsed` is `0`, no `stepsBudget` is sent and the answer reports `steps:
+  "unsupported"`.
+- **The notice is the audit.** No new table: a detected loop writes one `adaptive_decision` row with
+  `kind: "failure"`, `shadow: 0`, a deterministic id (`failure:${sessionID}:${keyDigest}`) and the
+  `failure` and `toolRisk` decisions. A persistent loop is cached, so it neither re-spends Jev nor
+  rewrites the row; the audit is `/harness/adaptive/decisions` and `explain`.
+- **`toolRisk` is raise-only.** `clampLearned` caps any learned score at `CONFIRM` and
+  `elevateRisk(native, learned)` returns the most restrictive of the native floor and the clamped
+  score, so a learned policy can only raise confirmation and can never reach `DENY` unless the native
+  floor already is. The deterministic baseline is exactly `state.native ?? "ALLOW"` and never
+  elevates.
+- **Coexistence.** E7 neither consumes nor modifies the engine's own `doom_loop`; it only observes.
+  `shadow.ts` is untouched: guardrails is a separate hot route, not a shadow kind.
+
+| Control | What it stops | What it does not touch | Decision |
+| --- | --- | --- | --- |
+| `adaptive.guardrails.enabled=false` | the ring, the decisions and every row (returns `disabled`) | the turn, the tool path, any other adaptive surface | ADR-0023 |
+| a non-legacy runtime | the ring and the decisions (returns `runtime-not-legacy`) | the turn, the tool path | ADR-0023 |
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting
