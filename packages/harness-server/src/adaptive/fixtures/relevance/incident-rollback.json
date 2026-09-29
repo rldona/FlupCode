@@ -1,0 +1,23 @@
+{
+  "objective": "Roll back the bad deploy to production",
+  "roster": [
+    { "name": "rollback", "description": "Revert a bad deploy", "learned": false },
+    { "name": "deploy", "description": "Deployment pipeline", "learned": false },
+    { "name": "incident", "description": "Incident response runbook", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "rollback": { "type": "noul", "probability": 0.95 },
+      "deploy": { "type": "noul", "probability": 0.85 },
+      "incident": { "type": "noul", "probability": 0.55 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["rollback", "deploy"],
+  "wrong": ["release"],
+  "degraded": true,
+  "simulatedLatencyMs": 400,
+  "simulatedTokens": 300
+}

@@ -1,0 +1,21 @@
+{
+  "objective": "Add structured metrics to the request handler",
+  "roster": [
+    { "name": "observability", "description": "Instrument services with metrics", "learned": false },
+    { "name": "logging", "description": "Structured logging setup", "learned": false },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "observability": { "type": "noul", "probability": 0.9 },
+      "logging": { "type": "noul", "probability": 0.85 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["observability", "logging"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 210,
+  "simulatedTokens": 450
+}

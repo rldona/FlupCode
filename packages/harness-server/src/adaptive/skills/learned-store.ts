@@ -155,8 +155,12 @@ export type LearnedStore = {
   roots(projectID: string): LearnedRoots
   /** The only writer of a learned skill: create on first write, patch on the next. */
   write(input: LearnedWriteInput): LearnedWriteResult
-  /** Moves a learned skill out of `skills/`; a move, never a delete. */
-  archive(input: { projectID: string; name: string; reason: string; at?: number }): LearnedArchiveResult
+  /**
+   * Moves a learned skill out of `skills/`; a move, never a delete. `security: true` marks a
+   * reverse-collision repair, which runs even with learning off: it is a security move, not a learning
+   * write (ADR-0022 §4). Every other archive stays fail-closed behind the switch.
+   */
+  archive(input: { projectID: string; name: string; reason: string; at?: number; security?: boolean }): LearnedArchiveResult
   /** Changes the sidecar (lifecycle state, usage counters) without touching the skill body. */
   updateSidecar(input: LearnedSidecarUpdate): LearnedSidecarResult
   readSidecar(projectID: string, name: string): SkillSidecar | undefined
@@ -507,8 +511,16 @@ export function createLearnedStore(
     return { ok: true, path: skillPath, version, contentHash, state: "probation" }
   }
 
-  const archive = (input: { projectID: string; name: string; reason: string; at?: number }): LearnedArchiveResult => {
-    if (disabled()) return { ok: false, reason: "disabled" }
+  const archive = (input: {
+    projectID: string
+    name: string
+    reason: string
+    at?: number
+    security?: boolean
+  }): LearnedArchiveResult => {
+    // A reverse-collision repair is a security move, not a learning write: it runs even with learning
+    // off, so the human wins on disk too (ADR-0022 §4). Every other archive stays fail-closed.
+    if (disabled() && input.security !== true) return { ok: false, reason: "disabled" }
     const prepared = prepare(input.projectID, input.name)
     if (!prepared.ok) return prepared
     const { roots, skillDir: source } = prepared

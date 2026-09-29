@@ -4,9 +4,9 @@
  * It owns the circuit breaker, the monthly budget, the adaptive limiter and the single-flight map,
  * and exposes two entries that are isolated by construction rather than by convention: `runHot`
  * never acquires a limiter slot, so a saturating batch cannot delay a live turn; `runBatch` goes
- * through the limiter. Both share the same breaker, budget and in-flight map, so a background job
- * cannot open a second circuit or spend a second budget, and identical concurrent questions
- * collapse into one outbound call.
+ * through the limiter. Both share the same breaker, budget and single-flight map, but the key is
+ * scoped per mode, so a live turn never joins an in-flight background batch; identical concurrent
+ * questions inside the same mode collapse into one outbound call.
  *
  * The transport lives in `jev.ts` and the fallback in `fallback.ts`; this module knows about work,
  * not about HTTP.
@@ -120,7 +120,11 @@ export function createGovernor(input: {
   }
 
   const run = async <T>(mode: "hot" | "batch", key: string, tokens: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> => {
-    return flight.run(key, async () => {
+    // Hot and batch never share an in-flight promise: a live turn must not join a background batch
+    // and inherit its limiter wait (ADR-0017 §4). Breaker, budget and limiter stay shared below, and
+    // the hot path keeps its own deadline. The accepted cost is that one identical question hot and
+    // one batch no longer collapse into a single outbound call.
+    return flight.run(`${mode}\u0000${key}`, async () => {
       // The reservation happens inside the flight: a deduped caller shares the answer and reserves
       // nothing, and the estimate is persisted before the call so a later failure still counts.
       if (!reserve(tokens, mode)) throw new DecisionUnavailable("budget-exhausted")

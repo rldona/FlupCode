@@ -1,0 +1,23 @@
+{
+  "objective": "Fix the race condition in the worker pool",
+  "roster": [
+    { "name": "worker", "description": "Worker pool internals", "learned": false },
+    { "name": "concurrency", "description": "Synchronisation primitives", "learned": true },
+    { "name": "testing", "description": "Write focused tests", "learned": false },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "worker": { "type": "noul", "probability": 0.9 },
+      "concurrency": { "type": "noul", "probability": 0.85 },
+      "testing": { "type": "noul", "probability": 0.3 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["worker", "concurrency"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 280,
+  "simulatedTokens": 560
+}

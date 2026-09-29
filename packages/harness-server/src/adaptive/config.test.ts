@@ -6,6 +6,7 @@ import {
   DEFAULT_JEV_CONFIG,
   DEFAULT_LEARNING_CONFIG,
   DEFAULT_RELEVANCE_CONFIG,
+  DEFAULT_RETENTION_CONFIG,
   RELEVANCE_MAX_SKILLS_CEILING,
   RELEVANCE_TIMEOUT_MS_CEILING,
   createAdaptiveConfig,
@@ -59,10 +60,12 @@ describe("resolveAdaptiveConfig", () => {
       context: DEFAULT_CONTEXT_CONFIG,
       learning: DEFAULT_LEARNING_CONFIG,
       relevance: DEFAULT_RELEVANCE_CONFIG,
+      retention: DEFAULT_RETENTION_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)
     expect(config.relevance.enabled).toBe(false)
+    expect(config.retention.enabled).toBe(false)
   })
 
   test("reads the flupcode.adaptive block", () => {
@@ -240,6 +243,33 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(clamped.relevance.timeoutMs).toBe(RELEVANCE_TIMEOUT_MS_CEILING)
+  })
+
+  test("the retention slice is off by default and reads its block", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} }).retention
+    expect(defaults).toEqual(DEFAULT_RETENTION_CONFIG)
+    expect(defaults.enabled).toBe(false)
+
+    const config = resolveAdaptiveConfig({
+      block: { retention: { enabled: true, decisionsDays: 7, actingDays: 120, rejectedProposalsDays: 14 } },
+      env: {},
+    })
+    expect(config.retention).toEqual({
+      enabled: true,
+      decisionsDays: 7,
+      actingDays: 120,
+      plansDays: DEFAULT_RETENTION_CONFIG.plansDays,
+      appliedPlansDays: DEFAULT_RETENTION_CONFIG.appliedPlansDays,
+      reflectionDays: DEFAULT_RETENTION_CONFIG.reflectionDays,
+      rejectedProposalsDays: 14,
+    })
+
+    // A malformed window is ignored rather than guessed, and `enabled` is explicit.
+    const malformed = resolveAdaptiveConfig({
+      block: { retention: { enabled: "yes", decisionsDays: -1, actingDays: "many" } },
+      env: {},
+    })
+    expect(malformed.retention).toEqual(DEFAULT_RETENTION_CONFIG)
   })
 
   test("composes the Phase 1 resolvers unchanged", () => {

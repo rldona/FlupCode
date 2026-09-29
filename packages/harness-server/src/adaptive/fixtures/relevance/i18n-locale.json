@@ -1,0 +1,21 @@
+{
+  "objective": "Add a new locale to the settings screen",
+  "roster": [
+    { "name": "settings", "description": "Settings screen components", "learned": false },
+    { "name": "i18n", "description": "Translation catalogues", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "i18n": { "type": "noul", "probability": 0.88 },
+      "settings": { "type": "noul", "probability": 0.85 },
+      "release": { "type": "noul", "probability": 0.12 }
+    }
+  },
+  "good": ["settings", "i18n"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 230,
+  "simulatedTokens": 480
+}

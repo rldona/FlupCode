@@ -1,0 +1,23 @@
+{
+  "objective": "Prepare the release changelog for v2.1",
+  "roster": [
+    { "name": "release", "description": "Cut a release", "learned": false },
+    { "name": "changelog", "description": "Write the changelog", "learned": false },
+    { "name": "releases", "description": "Release notes archive", "learned": true },
+    { "name": "security", "description": "Audit input sanitisation", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "release": { "type": "noul", "probability": 0.9 },
+      "changelog": { "type": "noul", "probability": 0.9 },
+      "releases": { "type": "noul", "probability": 0.4 },
+      "security": { "type": "noul", "probability": 0.05 }
+    }
+  },
+  "good": ["release", "changelog"],
+  "wrong": ["security"],
+  "degraded": false,
+  "simulatedLatencyMs": 180,
+  "simulatedTokens": 370
+}

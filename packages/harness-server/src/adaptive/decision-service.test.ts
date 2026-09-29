@@ -380,6 +380,48 @@ describe("the decision service (FH-015)", () => {
     repository.close()
   })
 
+  test("the hot path's own deadline aborts a hung provider; a batch call is not bounded by it", async () => {
+    // A provider that only settles when the signal aborts: this is the hang the hot deadline exists
+    // to cut, and it makes the `timeout` reason observable instead of a `network` one.
+    const hung: DecisionProvider = {
+      id: "jev",
+      answer: <Q extends DecisionKind>(_request: DecisionRequest<Q>, signal: AbortSignal) =>
+        new Promise<ProviderAnswer<Q>>((_resolve, reject) => {
+          signal.addEventListener("abort", () => {
+            const error = new Error("deadline")
+            error.name = "AbortError"
+            reject(error)
+          })
+        }),
+    }
+    const policy = { ...DEFAULT_DECISION_POLICY, timeoutMs: 10 }
+    const hot = serviceFor(jevOn, hung)
+    const timedOut = await hot.service.predict({ ...completion(), policy }, "hot")
+    expect(timedOut.degraded).toBe(true)
+    expect(timedOut.degradedReason).toBe("timeout")
+    hot.repository.close()
+
+    // The deadline belongs to the hot path alone: the same short `timeoutMs` does not bound a batch
+    // call, so the slow provider finishes un-aborted even past the deadline (ADR-0017 §4).
+    const bounded = { aborted: true }
+    const slow: DecisionProvider = {
+      id: "jev",
+      answer: async <Q extends DecisionKind>(
+        _request: DecisionRequest<Q>,
+        signal: AbortSignal,
+      ): Promise<ProviderAnswer<Q>> => {
+        await Bun.sleep(30)
+        bounded.aborted = signal.aborted
+        return { answer: { verdict: "complete" }, confidence: 1, latencyMs: 0 } as ProviderAnswer<Q>
+      },
+    }
+    const batch = serviceFor(jevOn, slow)
+    const answered = await batch.service.predict({ ...completion(), policy })
+    expect(answered.source).toBe("jev")
+    expect(bounded.aborted).toBe(false)
+    batch.repository.close()
+  })
+
   test("a corrupt audit row decodes defensively instead of taking the endpoint down", () => {
     const { repository, service } = serviceFor({})
     repository.db.exec(

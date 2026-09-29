@@ -7,7 +7,10 @@
 > decisions are [ADR-0020](adr/0020-learning-persistence-and-egress.md) and
 > [ADR-0019](adr/0019-learned-skill-lifecycle.md). Phase 4 (skill relevance, the first **acting**
 > decision) is **in progress**; its decision is
-> [ADR-0021](adr/0021-skill-relevance-acting.md). The learning UI (FH-035/FH-046) is deferred; the
+> [ADR-0021](adr/0021-skill-relevance-acting.md), and the **promotion of the acting line** —
+> loopback auth, retention, hot/batch isolation, reverse-collision and rollback, with PoC-3 as its
+> offline gate — is in progress under [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md).
+> The learning UI (FH-035/FH-046) is deferred; the
 > read surfaces exist as `GET /harness/adaptive/proposals` and `/harness/adaptive/learned-skills`.
 > This is a skeleton: the sections below are filled
 > in as each phase lands, not a complete manual. The full plan and the phase designs live in the
@@ -203,8 +206,10 @@ might be relevant and an engine plugin injects a single non-coercive line. The d
   `experimental.chat.messages.transform`, posts it to the loopback endpoint
   `POST /harness/adaptive/relevance`, and pushes the line in `experimental.chat.system.transform`.
   **The server is the only policy**; the plugin decides nothing and never throws. It is registered
-  whenever base+token resolve, so the kill switch is instantaneous, and the endpoint takes the same
-  bearer as `/harness/browser/*` and `/harness/actions/*`. The engine→harness call is **local, not
+  whenever base+token resolve, so the kill switch is instantaneous. Phase 4 guarded the endpoint with
+  the same bearer as `/harness/browser/*` and `/harness/actions/*`; the acting promotion replaces it
+  with a dedicated `adaptive-token` (see [Acting promotion](#acting-promotion-in-progress)) so a
+  squatted loopback port cannot capture a broader credential. The engine→harness call is **local, not
   egress**, so it does not cross the [ADR-0017](adr/0017-jev-egress-and-governance.md) boundary.
 - **Off by default.** `adaptive.relevance.enabled=false` is the default: the plugin still posts, but
   the server returns `line: null` and nothing is injected. With the feature on and Jev off, the
@@ -226,6 +231,65 @@ might be relevant and an engine plugin injects a single non-coercive line. The d
 - **Measurement.** The merge gate is an **offline** evaluation comparing the deterministic line against
   a recorded Jev answer — wrong-load and recall, determinism, inertness, one request and trust. Live
   behaviour is validated by PoC-3 before promotion; outcome improvement is not claimed here.
+
+## Acting promotion (in progress)
+
+Promoting the acting line is not a flag flip: [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)
+fixes the debts [ADR-0021](adr/0021-skill-relevance-acting.md) recorded, and the code lands as this
+promotion. The plan's promotion decisions of 2026-09-29 set the posture; the sections below describe
+what the promotion fixes and, where it is not landed yet, what stands today.
+
+- **Loopback auth of the relevance.** The acting endpoint stops sharing the browser/artifacts/actions
+  bearer. A **dedicated** secret `<configDir>/adaptive-token` (0600) is created by the harness at its
+  entrypoint and read by `RELEVANCE_PLUGIN` from the same config directory; `WEB_ACTIONS_PLUGIN` and
+  the shared bearer are untouched. `POST /harness/adaptive/relevance` requires that bearer
+  **unconditionally** — fail-closed: a missing or wrong bearer is a 403, and with no token resolved the
+  route and the `adaptive-relevance` capability are simply absent (404), never an open loopback.
+  Off-loopback (`127.0.0.1`, `::1`, `localhost`) the feature is inert: no token, no route. The
+  endpoint requires the dedicated bearer and `RELEVANCE_PLUGIN` reads only `adaptive-token`, while the
+  shared bearer keeps guarding `browser/*`, `actions/*`, `credentials/*`, `artifacts` and `events` as
+  before.
+- **Retention (`adaptive.retention`).** Off by **default**: nothing expires until a person opts in,
+  consistent with archive-not-delete. When on, one transactional purge covers only the four adaptive
+  audit tables (`adaptive_decision`, `adaptive_plan`, `reflection_job`, `skill_proposals`) with a
+  window per state, judged by `updated_at`. **Never purged**: proposals in `proposed` or `promoted`,
+  `pending` reflection jobs, any row referenced by a surviving row
+  (`decision_id`/`proposal_id`), and — outside retention entirely — episodes, evidence, artifacts and
+  every on-disk artifact (`.ledger.jsonl`, `.versions/`, `.sidecar.json`, the archive). Execution is
+  at startup and on the existing hourly sweep, fail-safe; with retention off no query runs.
+- **Hot/batch isolation.** The single-flight key is scoped per mode (`hot`/`batch`), so a live turn
+  never joins an in-flight background batch and waits for the adaptive limiter; breaker, budget and
+  limiter stay shared, and the hot path keeps its own deadline (ADR-0017 §4). The accepted cost is
+  that one identical question hot and one batch no longer collapse into a single call.
+- **Reverse-collision: the human wins.** If a loaded human skill and a learned skill share a name, the
+  learned one is excluded from the curator roster (fail-closed: never offered, selected, counted or
+  proposed for a patch) and reconciled durably — archived through the single writer with reason
+  `human-name-collision`, so the human wins on disk too. The repair is the one curator write that runs
+  **even with learning off**, treated as a security move (a reversible `move`, not a learning write):
+  the engine's own scanner can no longer load the shadowed body over the human. A malformed human
+  `SKILL.md` is not a claim and never archives a healthy learned skill.
+- **Rollback and kill switches.** Nothing is deleted — data, learned skills, sidecars, ledgers,
+  snapshots and the archive persist, and archiving is a move. Reproducible drills assert byte-identity
+  (relevance off leaves `system` unchanged; `context.apply=false` leaves the run prompt byte-identical),
+  zero new rows/proposals when a switch is off, and lossless restore of a previous `.versions` snapshot
+  or of the archived pool.
+
+| Control | What it stops | What it does not touch | Decision |
+| --- | --- | --- | --- |
+| `adaptive.enabled=false` / `FLUPCODE_ADAPTIVE_DISABLED=1` | decisions, shadow, Jev, relevance (`disabled`), learning, context plan | episodes, evidence, base harness, already-written rows and skills | ADR-0017 |
+| `adaptive.relevance.enabled=false` | the line (`system.push`; a `POST` per turn returns `line: null`) | the rest of decisions/shadow | ADR-0021 |
+| `adaptive.learning.enabled=false` | reflection, classification, draft, and every curator write **except** the reverse-collision security repair | skills already on disk (they keep loading), shadow | ADR-0020 |
+| `adaptive.context.apply=false` | the run-prompt filtering (prompt byte-identical) | the shadow plan (`applied=0`) | ADR-0018 |
+| `adaptive.shadow=false` | episode decisions/plans | relevance (has its own flag) | ADR-0017 |
+| `adaptive.jev.enabled=false` | any Jev attempt; learning stays inert | the lexical line when relevance is on | ADR-0017 |
+
+- **PoC-3 is the promotion gate.** It is built **offline** now — a curated labelled set, recorded Jev
+  answers, and a threshold (wrong-load zero on every fixture, recall@3 ≥ 0.80, precision ≥ 0.60,
+  degradation without wrong-load and recall at least the baseline, cost within
+  `adaptive.budget.monthlyTokens`). The **live** PoC (real Jev, a real engine with the plugin,
+  measured latency/cost) is **blocked on `TYPESAFE_API_KEY`** and environment; its procedure is
+  documented and it is a prerequisite before the feature is ever recommended as default-on. The
+  threshold gates the offline set, not the default: relevance stays opt-in.
 
 ## Decisions
 

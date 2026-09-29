@@ -54,7 +54,12 @@ export type ContextItemKind = (typeof CONTEXT_ITEM_KINDS)[number]
  * `@artifact:` refs and `contextFiles` stay archivable.
  */
 export const PROTECTED_CONTEXT_KINDS: readonly ContextItemKind[] = ["objective", "error", "other", "memory"]
-/** The only kinds `drop` may touch; everything else is archived, which is recoverable. */
+/**
+ * The only kinds `drop` may touch; everything else is archived, which is recoverable. A pack's
+ * `artifact` and `file` parts are deliberately **not** here: even with `context.apply=true` they can
+ * only be archived (recoverable), never dropped, so a reference a person added to a pack is never
+ * lost silently. The scorer and the Jev merge both enforce this, and the manager re-checks it.
+ */
 export const DROPPABLE_CONTEXT_KINDS: readonly ContextItemKind[] = ["tool", "message", "history"]
 
 export const isContextItemKind = (value: unknown): value is ContextItemKind =>

@@ -1,0 +1,23 @@
+{
+  "objective": "Review the pull request for the payments refactor",
+  "roster": [
+    { "name": "review", "description": "Code review checklist", "learned": false },
+    { "name": "payments", "description": "Payment provider integration", "learned": false },
+    { "name": "refactoring", "description": "Split large functions", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "review": { "type": "noul", "probability": 0.9 },
+      "payments": { "type": "noul", "probability": 0.85 },
+      "refactoring": { "type": "noul", "probability": 0.8 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["review", "payments", "refactoring"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 220,
+  "simulatedTokens": 460
+}

@@ -1,0 +1,23 @@
+{
+  "objective": "Optimize the slow dashboard query",
+  "roster": [
+    { "name": "dashboard", "description": "Dashboard widgets", "learned": false },
+    { "name": "performance", "description": "Profile hot paths", "learned": false },
+    { "name": "database", "description": "Tune SQL and indexes", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "performance": { "type": "noul", "probability": 0.9 },
+      "database": { "type": "noul", "probability": 0.85 },
+      "dashboard": { "type": "noul", "probability": 0.8 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["dashboard", "performance", "database"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 300,
+  "simulatedTokens": 600
+}

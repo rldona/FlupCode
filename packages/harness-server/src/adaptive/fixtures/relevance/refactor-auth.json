@@ -1,0 +1,23 @@
+{
+  "objective": "Refactor the auth module into smaller units",
+  "roster": [
+    { "name": "auth", "description": "Authentication and authorization wiring", "learned": false },
+    { "name": "refactoring", "description": "Split large functions", "learned": false },
+    { "name": "docs", "description": "Update documentation", "learned": false },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "auth": { "type": "noul", "probability": 0.88 },
+      "refactoring": { "type": "noul", "probability": 0.82 },
+      "docs": { "type": "noul", "probability": 0.3 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["auth", "refactoring"],
+  "wrong": ["docs", "release"],
+  "degraded": false,
+  "simulatedLatencyMs": 240,
+  "simulatedTokens": 510
+}

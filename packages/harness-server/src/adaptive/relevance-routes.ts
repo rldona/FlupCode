@@ -1,9 +1,10 @@
 /**
- * The HTTP contract of the acting relevance line (FH-04, ADR-0021 §1).
+ * The HTTP contract of the acting relevance line (FH-04, ADR-0021 §1, ADR-0022 §1).
  *
- * `api.ts` guards this route with the artifacts bearer, and here it is only the shape of the request
- * and the answer. The service is the one policy point: this handler validates that the four fields
- * are strings and hands them over; whether the line acts is decided behind it.
+ * `api.ts` guards this route with the dedicated `adaptive-token` bearer — not the artifacts bearer —
+ * and here it is only the shape of the request and the answer. The service is the one policy point:
+ * this handler validates that the four fields are strings and hands them over; whether the line acts
+ * is decided behind it.
  *
  * The project is validated here, before the service is reached: the curator walks `projectID` for
  * skills, so an unchecked value lets a caller point the scan anywhere it can name. Absolute and an

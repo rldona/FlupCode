@@ -75,6 +75,7 @@ import { reflectionJobFromRow, reflectionJobRowFrom } from "./adaptive/learning/
 import type { ReflectionRow } from "./adaptive/learning/reflection-job"
 import { proposalFromRow, proposalRowFrom } from "./adaptive/learning/proposal-record"
 import type { SkillProposalRow } from "./adaptive/learning/proposal-record"
+import type { RetentionCutoffs, RetentionPurge } from "./adaptive/retention"
 import type { DecisionKind } from "./adaptive/decision"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -335,6 +336,8 @@ CREATE INDEX IF NOT EXISTS adaptive_decision_episode ON adaptive_decision(episod
 CREATE INDEX IF NOT EXISTS adaptive_decision_session ON adaptive_decision(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_kind ON adaptive_decision(kind, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_hash ON adaptive_decision(inputs_hash);
+-- The purge deletes shadow vs acting rows by updated_at; without this it scanned the table.
+CREATE INDEX IF NOT EXISTS adaptive_decision_shadow_updated ON adaptive_decision(shadow, updated_at);
 CREATE TABLE IF NOT EXISTS adaptive_plan (
   id TEXT PRIMARY KEY,
   run_id TEXT,
@@ -364,6 +367,10 @@ CREATE INDEX IF NOT EXISTS adaptive_plan_task ON adaptive_plan(task_id, created_
 CREATE INDEX IF NOT EXISTS adaptive_plan_episode ON adaptive_plan(episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_plan_session ON adaptive_plan(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_plan_project ON adaptive_plan(project_id, created_at DESC);
+-- The retention purge (FH-082, ADR-0022 §2) filters on updated_at per state and correlates
+-- decision_id; neither was indexed, so the synchronous startup/sweep delete scanned the tables.
+CREATE INDEX IF NOT EXISTS adaptive_plan_decision ON adaptive_plan(decision_id);
+CREATE INDEX IF NOT EXISTS adaptive_plan_applied_updated ON adaptive_plan(applied, updated_at);
 CREATE TABLE IF NOT EXISTS reflection_job (
   episode_id TEXT PRIMARY KEY,
   session_id TEXT,
@@ -378,6 +385,10 @@ CREATE TABLE IF NOT EXISTS reflection_job (
 );
 CREATE INDEX IF NOT EXISTS reflection_job_project ON reflection_job(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS reflection_job_status ON reflection_job(status, created_at DESC);
+-- The purge deletes terminal jobs by updated_at and correlates decision_id/proposal_id.
+CREATE INDEX IF NOT EXISTS reflection_job_decision ON reflection_job(decision_id);
+CREATE INDEX IF NOT EXISTS reflection_job_proposal ON reflection_job(proposal_id);
+CREATE INDEX IF NOT EXISTS reflection_job_status_updated ON reflection_job(status, updated_at);
 CREATE TABLE IF NOT EXISTS skill_proposals (
   id TEXT PRIMARY KEY,
   episode_id TEXT NOT NULL,
@@ -401,6 +412,9 @@ CREATE TABLE IF NOT EXISTS skill_proposals (
 CREATE INDEX IF NOT EXISTS skill_proposals_episode ON skill_proposals(episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS skill_proposals_project ON skill_proposals(project_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS skill_proposals_status ON skill_proposals(status, created_at DESC);
+-- The purge deletes rejected proposals by updated_at and correlates decision_id.
+CREATE INDEX IF NOT EXISTS skill_proposals_decision ON skill_proposals(decision_id);
+CREATE INDEX IF NOT EXISTS skill_proposals_status_updated ON skill_proposals(status, updated_at);
 `
 
 /**
@@ -2662,6 +2676,63 @@ export class SqliteRoutineRepository implements RoutineRepository {
       // An unreadable proposal page answers empty rather than taking the endpoint down.
       return []
     }
+  }
+
+  // ---- adaptive retention (FH-082, ADR-0022 §2) ----------------------------------------------
+
+  /**
+   * Purges the four adaptive audit tables in one transaction, child-first, honouring the hard
+   * exemptions in SQL. Never touches episodes, evidence, artifacts or the filesystem. Returns the
+   * deleted counts.
+   *
+   * The exemptions: proposals in `proposed` (awaiting review) or `promoted` (the on-disk sidecar's
+   * provenance) and jobs in `pending` never leave; a row a surviving row references is kept. The
+   * order is child-first, so deleting the terminal jobs unprotects only the rows reachable through
+   * them — a decision referenced solely by a terminal job goes with it. With retention off the
+   * caller never reaches this method; a cutoff is still exclusive, so a row exactly on its boundary
+   * is kept.
+   */
+  purgeAdaptive(input: RetentionCutoffs): RetentionPurge {
+    return this.db.transaction(() => {
+      const reflectionJobs = this.db
+        .query(
+          `DELETE FROM reflection_job
+           WHERE status IN ('done', 'skipped', 'failed') AND updated_at < ?1`,
+        )
+        .run(input.reflectionBefore).changes
+      const proposals = this.db
+        .query(
+          `DELETE FROM skill_proposals
+           WHERE status = 'rejected' AND updated_at < ?1
+             AND NOT EXISTS (SELECT 1 FROM reflection_job j WHERE j.proposal_id = skill_proposals.id)`,
+        )
+        .run(input.proposalsBefore).changes
+      const plans = this.db
+        .query(
+          `DELETE FROM adaptive_plan
+           WHERE (applied = 1 AND updated_at < ?1) OR (applied = 0 AND updated_at < ?2)`,
+        )
+        .run(input.appliedPlansBefore, input.plansBefore).changes
+      const decisions = this.db
+        .query(
+          `DELETE FROM adaptive_decision
+           WHERE shadow = 1 AND updated_at < ?1
+             AND NOT EXISTS (SELECT 1 FROM adaptive_plan p WHERE p.decision_id = adaptive_decision.id)
+             AND NOT EXISTS (SELECT 1 FROM reflection_job j WHERE j.decision_id = adaptive_decision.id)
+             AND NOT EXISTS (SELECT 1 FROM skill_proposals s WHERE s.decision_id = adaptive_decision.id)`,
+        )
+        .run(input.decisionsBefore).changes
+      const actingDecisions = this.db
+        .query(
+          `DELETE FROM adaptive_decision
+           WHERE shadow = 0 AND updated_at < ?1
+             AND NOT EXISTS (SELECT 1 FROM adaptive_plan p WHERE p.decision_id = adaptive_decision.id)
+             AND NOT EXISTS (SELECT 1 FROM reflection_job j WHERE j.decision_id = adaptive_decision.id)
+             AND NOT EXISTS (SELECT 1 FROM skill_proposals s WHERE s.decision_id = adaptive_decision.id)`,
+        )
+        .run(input.actingBefore).changes
+      return { decisions, actingDecisions, plans, reflectionJobs, proposals }
+    })()
   }
 
   // ---- action credentials (WA-5) ---------------------------------------------------------------

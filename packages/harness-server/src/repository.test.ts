@@ -814,3 +814,214 @@ describe("the skill proposal store (FH-034)", () => {
     repository.close()
   })
 })
+
+describe("the adaptive retention purge (FH-082, ADR-0022 §2)", () => {
+  test("the columns the purge correlates and filters on are indexed, so the delete does not scan", () => {
+    const repository = open()
+    const indexes = new Set(
+      (repository.db.query("SELECT name FROM sqlite_master WHERE type = 'index'").all() as Array<{ name: string }>).map(
+        (row) => row.name,
+      ),
+    )
+    for (const name of [
+      "adaptive_plan_decision",
+      "adaptive_plan_applied_updated",
+      "adaptive_decision_shadow_updated",
+      "reflection_job_decision",
+      "reflection_job_proposal",
+      "reflection_job_status_updated",
+      "skill_proposals_decision",
+      "skill_proposals_status_updated",
+    ])
+      expect(indexes, name).toContain(name)
+    // A representative window query resolves through the additive index instead of a full scan.
+    const plan = repository.db
+      .query("EXPLAIN QUERY PLAN SELECT 1 FROM adaptive_decision WHERE shadow = 1 AND updated_at < ?1")
+      .all(1) as Array<{ detail: string }>
+    expect(plan.some((step) => step.detail.includes("adaptive_decision_shadow_updated"))).toBe(true)
+    repository.close()
+  })
+
+  const decision = (overrides: Partial<StoredDecisionInput> = {}): StoredDecisionInput => ({
+    id: "decision:old",
+    kind: "completion",
+    sessionID: "ses_1",
+    episodeID: "episode:run:1",
+    projectID: "/work/project",
+    inputsHash: "a".repeat(64),
+    stateSummary: {},
+    answer: { verdict: "complete" },
+    baselineAnswer: { verdict: "complete" },
+    baselineRule: "episode-outcome",
+    provider: "deterministic",
+    source: "deterministic",
+    degraded: false,
+    latencyMs: 1,
+    policy: { allowJev: false, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
+    shadow: true,
+    ...overrides,
+  })
+
+  const job = (overrides: Partial<StoredReflectionJobInput> = {}): StoredReflectionJobInput => ({
+    episodeID: "episode:run:1",
+    sessionID: "ses_1",
+    projectID: "/work/project",
+    status: "done",
+    attempts: 1,
+    ...overrides,
+  })
+
+  const proposal = (overrides: Partial<StoredSkillProposalInput> = {}): StoredSkillProposalInput => ({
+    id: "proposal:episode:run:1",
+    episodeID: "episode:run:1",
+    sessionID: "ses_1",
+    projectID: "/work/project",
+    intent: "add",
+    name: "fix-failing-test",
+    description: "Use when a test fails",
+    body: "b",
+    bodyHash: "a".repeat(64),
+    evidenceRefs: [],
+    status: "rejected",
+    ...overrides,
+  })
+
+  /** One cutoff for every table: the common shape a caller builds from `retentionCutoffs`. */
+  const cutoffs = (before: number) => ({
+    decisionsBefore: before,
+    actingBefore: before,
+    plansBefore: before,
+    appliedPlansBefore: before,
+    reflectionBefore: before,
+    proposalsBefore: before,
+  })
+
+  test("purges each table by its window and reports the counts", () => {
+    const repository = open()
+    repository.createDecision(decision({ id: "shadow:old" }), 1_000)
+    repository.createDecision(decision({ id: "acting:old", shadow: false }), 1_000)
+    repository.createPlan(plan({ id: "plan:shadow:old", episodeID: "episode:shadow" }), 1_000)
+    repository.createPlan(plan({ id: "plan:applied:old", episodeID: "episode:applied", applied: true }), 1_000)
+    repository.createReflectionJob(job({ episodeID: "job:old", status: "done" }), 1_000)
+    repository.createReflectionJob(job({ episodeID: "job:pending", status: "pending" }), 1_000)
+    repository.createProposal(proposal({ id: "prop:rejected", status: "rejected" }), 1_000)
+    repository.createProposal(proposal({ id: "prop:proposed", status: "proposed" }), 1_000)
+    repository.createProposal(proposal({ id: "prop:promoted", status: "promoted" }), 1_000)
+
+    const purged = repository.purgeAdaptive(cutoffs(2_000))
+    expect(purged).toEqual({ decisions: 1, actingDecisions: 1, plans: 2, reflectionJobs: 1, proposals: 1 })
+    expect(repository.getDecision("shadow:old")).toBeUndefined()
+    expect(repository.getDecision("acting:old")).toBeUndefined()
+    expect(repository.getPlan("plan:shadow:old")).toBeUndefined()
+    expect(repository.getPlan("plan:applied:old")).toBeUndefined()
+    expect(repository.getReflectionJob("job:old")).toBeUndefined()
+    // Hard exemptions: a pending job and proposed/promoted proposals never leave.
+    expect(repository.getReflectionJob("job:pending")).toBeDefined()
+    expect(repository.getProposal("prop:proposed")).toBeDefined()
+    expect(repository.getProposal("prop:promoted")).toBeDefined()
+    expect(repository.getProposal("prop:rejected")).toBeUndefined()
+    repository.close()
+  })
+
+  test("a row inside its window is kept, and a cutoff before it deletes nothing", () => {
+    const repository = open()
+    repository.createDecision(decision({ id: "shadow:fresh" }), 5_000)
+    expect(repository.purgeAdaptive(cutoffs(1_000))).toMatchObject({ decisions: 0, plans: 0 })
+    expect(repository.getDecision("shadow:fresh")).toBeDefined()
+
+    // The acting window is judged on its own cutoff: a shadow window would take it, the acting one not.
+    repository.createDecision(decision({ id: "acting:young", shadow: false }), 5_000)
+    expect(repository.purgeAdaptive({ ...cutoffs(1_000), actingBefore: 10_000 }).actingDecisions).toBe(1)
+
+    // A cutoff is exclusive (`updated_at < cutoff`): a row touched exactly on its boundary is kept.
+    repository.createDecision(decision({ id: "shadow:boundary" }), 2_000)
+    expect(repository.purgeAdaptive(cutoffs(2_000)).decisions).toBe(0)
+    expect(repository.getDecision("shadow:boundary")).toBeDefined()
+    repository.close()
+  })
+
+  test("an applied plan keeps its longer window while an unapplied one goes", () => {
+    const repository = open()
+    repository.createPlan(plan({ id: "plan:shadow", episodeID: "episode:shadow" }), 1_000)
+    repository.createPlan(plan({ id: "plan:applied", episodeID: "episode:applied", applied: true }), 1_000)
+    // A cutoff is per state: the shadow window (2_000) takes the unapplied plan, while the shorter
+    // applied window (500) leaves the applied one alone.
+    const purged = repository.purgeAdaptive({ ...cutoffs(2_000), appliedPlansBefore: 500 })
+    expect(purged.plans).toBe(1)
+    expect(repository.getPlan("plan:shadow")).toBeUndefined()
+    expect(repository.getPlan("plan:applied")).toBeDefined()
+    repository.close()
+  })
+
+  test("never purges a row a surviving row references", () => {
+    const repository = open()
+    repository.createDecision(decision({ id: "decision:referenced-by-plan" }), 1_000)
+    repository.createPlan(plan({ id: "plan:survivor", episodeID: "episode:survivor", decisionID: "decision:referenced-by-plan" }), 5_000)
+    repository.createDecision(decision({ id: "decision:referenced-by-job" }), 1_000)
+    repository.createReflectionJob(job({ episodeID: "job:pending", status: "pending", decisionID: "decision:referenced-by-job" }), 5_000)
+    repository.createDecision(decision({ id: "decision:referenced-by-proposal" }), 1_000)
+    repository.createProposal(proposal({ id: "prop:survivor", status: "proposed", decisionID: "decision:referenced-by-proposal" }), 5_000)
+
+    expect(repository.purgeAdaptive(cutoffs(2_000)).decisions).toBe(0)
+    expect(repository.getDecision("decision:referenced-by-plan")).toBeDefined()
+    expect(repository.getDecision("decision:referenced-by-job")).toBeDefined()
+    expect(repository.getDecision("decision:referenced-by-proposal")).toBeDefined()
+    repository.close()
+  })
+
+  test("a rejected proposal a surviving job references is kept", () => {
+    const repository = open()
+    repository.createReflectionJob(job({ episodeID: "job:pending", status: "pending", proposalID: "prop:rejected" }), 5_000)
+    repository.createProposal(proposal({ id: "prop:rejected", status: "rejected" }), 1_000)
+    expect(repository.purgeAdaptive(cutoffs(2_000)).proposals).toBe(0)
+    expect(repository.getProposal("prop:rejected")).toBeDefined()
+    repository.close()
+  })
+
+  test("a decision reachable only through a terminal job goes with it, child-first", () => {
+    const repository = open()
+    repository.createDecision(decision({ id: "decision:terminal-only" }), 1_000)
+    repository.createReflectionJob(job({ episodeID: "job:done", status: "done", decisionID: "decision:terminal-only" }), 1_000)
+    const purged = repository.purgeAdaptive(cutoffs(2_000))
+    expect(purged.reflectionJobs).toBe(1)
+    expect(purged.decisions).toBe(1)
+    expect(repository.getDecision("decision:terminal-only")).toBeUndefined()
+    repository.close()
+  })
+
+  test("never touches episodes, evidence or artifacts", () => {
+    const repository = open()
+    repository.createEpisode(
+      {
+        id: "episode:run:1",
+        sessionID: "ses_1",
+        projectID: "/work/project",
+        objective: "o",
+        toolCalls: 1,
+        files: [],
+        commands: [],
+        failures: [],
+        verifications: [],
+        outcome: "success",
+        startedAt: 1,
+        endedAt: 2,
+        evidenceRefs: [],
+      },
+      1_000,
+    )
+    const slice = repository.putEvidence({ content: "evidence kept" }, 1_000)!
+    const artifact = repository.addArtifact(
+      { kind: "report", title: "kept", producer: "harness", content: "an artifact the purge must not touch" },
+      1_000,
+    )
+    repository.createDecision(decision({ id: "shadow:old" }), 1_000)
+
+    repository.purgeAdaptive(cutoffs(2_000))
+    expect(repository.getEpisode("episode:run:1")).toBeDefined()
+    expect(repository.listEpisodes()).toHaveLength(1)
+    expect(repository.getEvidence(slice.hash, 3_000)).toBeDefined()
+    expect(repository.getArtifact(artifact.id)).toBeDefined()
+    expect(repository.listArtifacts()).toHaveLength(1)
+    repository.close()
+  })
+})

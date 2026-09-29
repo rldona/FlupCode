@@ -1,0 +1,23 @@
+{
+  "objective": "Update the README quickstart for new contributors",
+  "roster": [
+    { "name": "readme", "description": "README and docs site", "learned": false },
+    { "name": "docs", "description": "Write user documentation", "learned": false },
+    { "name": "onboarding", "description": "Contributor onboarding guide", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "readme": { "type": "noul", "probability": 0.9 },
+      "docs": { "type": "noul", "probability": 0.85 },
+      "onboarding": { "type": "noul", "probability": 0.8 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["readme", "docs", "onboarding"],
+  "wrong": ["release"],
+  "degraded": true,
+  "simulatedLatencyMs": 400,
+  "simulatedTokens": 390
+}
