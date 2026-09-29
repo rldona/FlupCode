@@ -643,4 +643,126 @@ describe("SessionProjector", () => {
       ])
     }),
   )
+
+  it.effect("persists assistant parts that decode strictly without compatibility normalization", () =>
+    Effect.gen(function* () {
+      const { db } = yield* Database.Service
+      const writerSessionID = SessionV2.ID.make("ses_writer_invariant")
+      yield* db
+        .insert(ProjectTable)
+        .values({ id: Project.ID.global, worktree: AbsolutePath.make("/project"), sandboxes: [] })
+        .onConflictDoNothing()
+        .run()
+        .pipe(Effect.orDie)
+      yield* db
+        .insert(SessionTable)
+        .values({
+          id: writerSessionID,
+          project_id: Project.ID.global,
+          slug: "writer",
+          directory: "/project",
+          title: "writer",
+          version: "test",
+        })
+        .run()
+        .pipe(Effect.orDie)
+
+      const events = yield* EventV2.Service
+      const assistantID = SessionMessage.ID.make("msg_writer_assistant")
+      const timestamp = DateTime.makeUnsafe(0)
+      yield* events.publish(SessionEvent.Step.Started, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        agent: "build",
+        model,
+      })
+      yield* events.publish(SessionEvent.Text.Started, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        textID: "text_writer",
+      })
+      yield* events.publish(SessionEvent.Text.Ended, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        textID: "text_writer",
+        text: "hello",
+      })
+      yield* events.publish(SessionEvent.Reasoning.Started, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        reasoningID: "reason_writer",
+      })
+      yield* events.publish(SessionEvent.Reasoning.Ended, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        reasoningID: "reason_writer",
+        text: "because",
+      })
+      yield* events.publish(SessionEvent.Tool.Input.Started, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        callID: "call_writer",
+        name: "bash",
+      })
+      yield* events.publish(SessionEvent.Tool.Called, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        callID: "call_writer",
+        tool: "bash",
+        input: {},
+        provider: { executed: true },
+      })
+      yield* events.publish(SessionEvent.Tool.Progress, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        callID: "call_writer",
+        structured: { stdout: "x" },
+        content: [],
+      })
+      yield* events.publish(SessionEvent.Tool.Success, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        callID: "call_writer",
+        structured: { stdout: "x" },
+        content: [],
+        outputPaths: [],
+        provider: { executed: true },
+      })
+      yield* events.publish(SessionEvent.Step.Ended, {
+        sessionID: writerSessionID,
+        assistantMessageID: assistantID,
+        timestamp,
+        finish: "stop",
+        cost: 0,
+        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      })
+
+      const row = yield* db
+        .select()
+        .from(SessionMessageTable)
+        .where(eq(SessionMessageTable.id, assistantID))
+        .get()
+        .pipe(Effect.orDie)
+      if (!row) return yield* Effect.die("assistant row missing")
+
+      // Strict decoding without SessionMessageCompat.normalize is the writer invariant: the
+      // projection must never persist a row that only the legacy compatibility layer can read.
+      const message = Schema.decodeUnknownSync(SessionMessage.Message)({ ...row.data, id: row.id, type: row.type })
+      if (message.type !== "assistant") return yield* Effect.die("expected assistant projection")
+      expect(message.content.map((part) => part.type)).toEqual(["text", "reasoning", "tool"])
+      expect(message.content.map((part) => part.id)).toEqual(["text_writer", "reason_writer", "call_writer"])
+      expect(message.content[2]).toMatchObject({
+        state: { status: "completed", structured: { stdout: "x" }, content: [] },
+      })
+    }),
+  )
 })
