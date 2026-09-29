@@ -1,0 +1,16 @@
+{
+  "name": "rotate-deploy-keys",
+  "objective": "Rotate the deploy keys",
+  "roster": [
+    { "name": "parser-fix", "description": "Use when a parser test fails", "learned": false },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "before": [],
+  "after": ["rotate-deploy-keys"],
+  "wrongLoad": ["parser-fix", "release"],
+  "lesson": {
+    "name": "rotate-deploy-keys",
+    "description": "Use when deploy keys need rotating safely",
+    "body": "## Steps\nGenerate the new key first, then switch the deploy over and retire the old one."
+  }
+}

@@ -40,11 +40,28 @@ const sampleRequests: { [Q in DecisionKind]: DecisionRequest<Q> } = {
   agentRoute: request("agentRoute", { objective: "fix the failing test", signals: ["red-check"] }),
   toolRisk: request("toolRisk", { tool: "bash", argsDigest: "abc123" }),
   failure: request("failure", { repeatedCalls: 0, repeatedErrors: 0, stepsUsed: 1 }),
+  skillReflection: request("skillReflection", {
+    episodeID: "episode:1",
+    objective: "fix the failing test",
+    outcome: "success",
+    toolCalls: 3,
+    signals: ["verify:test ok"],
+    skills: [{ name: "testing", description: "write focused tests", learned: false }],
+  }),
 }
 
 describe("decision kinds", () => {
   test("decisionKinds lists exactly the kinds DecisionSpec declares", () => {
-    expect(decisionKinds()).toEqual(["completion", "skillRelevance", "contextItem", "modelRoute", "agentRoute", "toolRisk", "failure"])
+    expect(decisionKinds()).toEqual([
+      "completion",
+      "skillRelevance",
+      "contextItem",
+      "modelRoute",
+      "agentRoute",
+      "toolRisk",
+      "failure",
+      "skillReflection",
+    ])
     expect(Object.keys(DECISION_KINDS)).toEqual(decisionKinds())
   })
 

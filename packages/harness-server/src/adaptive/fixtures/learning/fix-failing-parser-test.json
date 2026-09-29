@@ -1,0 +1,16 @@
+{
+  "name": "fix-failing-parser-test",
+  "objective": "Fix the failing parser test",
+  "roster": [
+    { "name": "release", "description": "Cut a release", "learned": false },
+    { "name": "testing", "description": "Write focused tests", "learned": false }
+  ],
+  "before": [],
+  "after": ["fix-failing-parser-test"],
+  "wrongLoad": ["release", "testing"],
+  "lesson": {
+    "name": "fix-failing-parser-test",
+    "description": "Use when a failing parser test needs a minimal fix",
+    "body": "## Steps\nRead the failing assertion, change the smallest thing, then run the parser test again."
+  }
+}

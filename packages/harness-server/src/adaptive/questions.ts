@@ -7,7 +7,7 @@
  * parses keyed to the same ids, so a prompt built from raw state cannot bypass the guard.
  */
 
-import { AGENT_ROUTES, DECISION_TIERS, ITEM_DISPOSITIONS, TOOL_RISKS } from "./decision"
+import { AGENT_ROUTES, DECISION_TIERS, ITEM_DISPOSITIONS, REFLECTION_INTENTS, TOOL_RISKS } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 
 export const QUESTION_TYPES = ["noul", "choice", "score"] as const
@@ -69,6 +69,31 @@ const questionPlans: QuestionPlanner = {
       type: "noul",
       prompt: `Should the harness intervene? repeatedErrors=${state.repeatedErrors}, stepsUsed=${state.stepsUsed}`,
     },
+  ],
+  // One request per episode: `reusable` is the gate, `intent` is what the lesson calls for, and
+  // `target` is only asked when there is a roster to point at (a state with no skills asks two).
+  skillReflection: (state) => [
+    {
+      id: "reusable",
+      type: "noul",
+      prompt: `Does this episode contain a reusable, non-obvious lesson for a future task? Objective: ${state.objective}. Signals: ${state.signals.join("; ")}`,
+    },
+    {
+      id: "intent",
+      type: "choice",
+      prompt: "Which change does the lesson call for?",
+      choices: [...REFLECTION_INTENTS],
+    },
+    ...(state.skills.length > 0
+      ? [
+          {
+            id: "target",
+            type: "choice" as const,
+            prompt: "Which existing skill should it target, if any?",
+            choices: state.skills.map((skill) => skill.name).slice(0, 255),
+          },
+        ]
+      : []),
   ],
 }
 

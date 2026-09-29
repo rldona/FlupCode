@@ -18,6 +18,7 @@ import {
   DECISION_TIERS,
   ITEM_DISPOSITIONS,
   TOOL_RISKS,
+  isReflectionIntent,
 } from "../decision"
 import type { JevConfig } from "../config"
 import type { EgressGuard } from "../egress"
@@ -237,6 +238,23 @@ const interpretations: Interpreter = {
       answer: { verdict: answer.probability >= 0.5 ? "intervene" : "continue" },
       confidence: answer.probability,
       probabilities: { continue: 1 - answer.probability, intervene: answer.probability },
+    }
+  },
+  // The `noul` gate decides reusable; a missing or unrecognised intent falls to the safe `add`, and
+  // the target is only carried when Jev named one. Confidence is the weakest axis it reported, so a
+  // noisy intent can pull a confident gate below the policy and the service degrades to inert.
+  skillReflection: (prediction) => {
+    const reusable = prediction.answers.reusable
+    if (reusable?.type !== "noul") return undefined
+    const intent = prediction.answers.intent
+    const chosen =
+      intent?.type === "choice" && isReflectionIntent(intent.choice) ? intent.choice : "add"
+    const target = prediction.answers.target?.type === "choice" ? prediction.answers.target.choice : undefined
+    const axes = [reusable.probability, ...(intent?.type === "choice" && intent.confidence !== undefined ? [intent.confidence] : [])]
+    return {
+      answer: { reusable: reusable.probability >= 0.5, intent: chosen, ...(target ? { target } : {}) },
+      confidence: Math.min(...axes),
+      probabilities: { reusable: reusable.probability },
     }
   },
 }

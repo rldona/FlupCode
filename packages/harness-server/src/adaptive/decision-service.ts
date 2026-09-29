@@ -102,6 +102,7 @@ const QUESTIONS: Record<DecisionKind, string> = {
   agentRoute: "Which agent route should this objective take?",
   toolRisk: "How risky is this tool call?",
   failure: "Should the harness intervene in this loop?",
+  skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
 }
 
 /**

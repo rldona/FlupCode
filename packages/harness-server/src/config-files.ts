@@ -306,6 +306,18 @@ export function globalAdaptiveBlock(): Record<string, unknown> {
   return isPlainObject(adaptive) ? adaptive : {}
 }
 
+/**
+ * The global `small_model`, as a `provider/model` key, or nothing.
+ *
+ * It is a top-level config key (`core/src/config.ts`) that the adaptive learning draft falls back to
+ * when `adaptive.learning.model` is not set (ADR-0020 §6). A malformed value reads as unset rather
+ * than being guessed at, so a bad key becomes `no-model` instead of a call to some other model.
+ */
+export function globalSmallModel(): string | undefined {
+  const value = loadGlobalConfig().small_model
+  return typeof value === "string" && value.trim() ? value.trim() : undefined
+}
+
 /** Every guard every delivery profile names, resolved against the config directory. */
 function guardEntries(config: Record<string, unknown>, configDir: string) {
   const flupcode = config.flupcode

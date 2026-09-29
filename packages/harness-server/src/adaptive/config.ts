@@ -50,6 +50,27 @@ export type ContextConfig = {
   budget: ContextBudget
 }
 
+export type LearningConfig = {
+  /** Off by default: it gates reflection, the `skillReflection` classification, the draft and writes. */
+  enabled: boolean
+  /** The tool-call cadence an episode must reach before it may be reflected at all (FH-030). */
+  minToolCalls: number
+  /** How many pre-patch snapshots a learned skill keeps under `.versions/`. */
+  snapshotKeep: number
+  /** The cap on the transcript handed to the drafting model (ADR-0020 §5). */
+  maxInputChars: number
+  /** The cap on the drafted body before it is stored (ADR-0020 §2). */
+  maxBodyChars: number
+  /** Opportunities a `probation` learned skill must have had before the lifecycle judges it (FH-042). */
+  probationSample: number
+  /** Opportunities without a load or view after which a `mature` skill turns `stale`. */
+  staleAfter: number
+  /** Opportunities without a load or view after which a `stale` skill is archived. */
+  archiveAfter: number
+  /** A `provider/model` key for the drafting model; falls back to the global `small_model`. */
+  model?: string
+}
+
 export type AdaptiveConfig = {
   /** Kill switch: stops decisions, shadow and Jev. It does not touch episodes or the base harness. */
   enabled: boolean
@@ -62,6 +83,7 @@ export type AdaptiveConfig = {
   egress: EgressConfig
   governor: GovernorConfig
   context: ContextConfig
+  learning: LearningConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -103,6 +125,24 @@ export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
   keepThreshold: KEEP_THRESHOLD,
   dropThreshold: DROP_THRESHOLD,
   budget: DEFAULT_CONTEXT_BUDGET,
+}
+
+/**
+ * Learning is off until a project opts in (ADR-0020 §5). The numbers are conservative and configurable:
+ * the tool-call cadence of the deterministic evidence gate, and how many pre-patch snapshots a learned
+ * skill keeps. The default snapshot count must stay in step with `SNAPSHOT_KEEP` in `skills/learned-store.ts`.
+ */
+export const DEFAULT_LEARNING_CONFIG: LearningConfig = {
+  enabled: false,
+  minToolCalls: 5,
+  snapshotKeep: 5,
+  // Mirrors `DEFAULT_MAX_INPUT_CHARS` and `DRAFT_LIMITS.maxBodyChars` in `learning/draft.ts`; a test
+  // keeps the three numbers in step rather than importing across the slice.
+  maxInputChars: 8_000,
+  maxBodyChars: 4_000,
+  probationSample: 5,
+  staleAfter: 10,
+  archiveAfter: 20,
 }
 
 /** How long the composed config is trusted before the global block is read again. */
@@ -155,6 +195,7 @@ function resolveDecisionPolicies(block: Record<string, unknown>, context: Contex
     agentRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.agentRoute),
     toolRisk: policyFrom(DEFAULT_DECISION_POLICY, decisions.toolRisk),
     failure: policyFrom(DEFAULT_DECISION_POLICY, decisions.failure),
+    skillReflection: policyFrom(DEFAULT_DECISION_POLICY, decisions.skillReflection),
   }
 }
 
@@ -215,6 +256,27 @@ function resolveContextConfig(block: Record<string, unknown>): ContextConfig {
   }
 }
 
+/**
+ * The learning slice: off unless the block says `true`, and the gate's numbers fall back to their
+ * conservative defaults. A malformed value is ignored rather than guessed, so a bad `minToolCalls`
+ * cannot make the gate spend.
+ */
+function resolveLearningConfig(block: Record<string, unknown>): LearningConfig {
+  const learning = isPlainObject(block.learning) ? block.learning : {}
+  const model = stringFrom(learning.model)
+  return {
+    enabled: learning.enabled === true,
+    minToolCalls: positiveNumberFrom(learning.minToolCalls) ?? DEFAULT_LEARNING_CONFIG.minToolCalls,
+    snapshotKeep: positiveNumberFrom(learning.snapshotKeep) ?? DEFAULT_LEARNING_CONFIG.snapshotKeep,
+    maxInputChars: positiveNumberFrom(learning.maxInputChars) ?? DEFAULT_LEARNING_CONFIG.maxInputChars,
+    maxBodyChars: positiveNumberFrom(learning.maxBodyChars) ?? DEFAULT_LEARNING_CONFIG.maxBodyChars,
+    probationSample: positiveNumberFrom(learning.probationSample) ?? DEFAULT_LEARNING_CONFIG.probationSample,
+    staleAfter: positiveNumberFrom(learning.staleAfter) ?? DEFAULT_LEARNING_CONFIG.staleAfter,
+    archiveAfter: positiveNumberFrom(learning.archiveAfter) ?? DEFAULT_LEARNING_CONFIG.archiveAfter,
+    ...(model ? { model } : {}),
+  }
+}
+
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
@@ -226,6 +288,7 @@ function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
     agentRoute: kinds.agentRoute === true,
     toolRisk: kinds.toolRisk === true,
     failure: kinds.failure === true,
+    skillReflection: kinds.skillReflection === true,
   }
 }
 
@@ -288,6 +351,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     egress: resolveEgressConfig(block),
     governor: resolveGovernorConfig(block),
     context,
+    learning: resolveLearningConfig(block),
   }
 }
 
