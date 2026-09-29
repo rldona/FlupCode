@@ -4,7 +4,13 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository, routineLockKey } from "./repository"
-import type { RunSource, StoredDecisionInput, StoredPlanInput } from "./types"
+import type {
+  RunSource,
+  StoredDecisionInput,
+  StoredPlanInput,
+  StoredReflectionJobInput,
+  StoredSkillProposalInput,
+} from "./types"
 
 const plan = (overrides: Partial<StoredPlanInput> = {}): StoredPlanInput => ({
   id: "plan:episode:run:1",
@@ -670,6 +676,141 @@ describe("the context plan audit (FH-022)", () => {
     const stored = repository.getPlan("plan:huge:task")!
     expect(stored.entries.length).toBeLessThan(5)
     expect(stored.truncated).toBe(true)
+    repository.close()
+  })
+})
+
+describe("the reflection job store (FH-030)", () => {
+  const job = (overrides: Partial<StoredReflectionJobInput> = {}): StoredReflectionJobInput => ({
+    episodeID: "episode:run:1",
+    sessionID: "ses_1",
+    projectID: "/work/project",
+    status: "pending",
+    attempts: 0,
+    ...overrides,
+  })
+
+  test("a database written before the table gains it, keeping its other rows", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000)
+    // Put it back the way a server without reflection jobs left it.
+    before.db.exec("DROP TABLE reflection_job")
+    before.close()
+
+    const after = open(path)
+    expect(after.getReflectionJob("episode:run:1")).toBeUndefined()
+    expect(after.getRun(run.id)?.id).toBe(run.id)
+    // A job can be written again, which is what proves the table came back.
+    expect(after.createReflectionJob(job(), 2_000)).toMatchObject({ episodeID: "episode:run:1", status: "pending" })
+    after.close()
+  })
+
+  test("writes and reads a row, and upserts by episode id", () => {
+    const repository = open()
+    const created = repository.createReflectionJob(
+      job({ status: "skipped", reason: "below-threshold", decisionID: "skillReflection:episode:run:1" }),
+      1_000,
+    )
+    expect(created.createdAt).toBe(1_000)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({
+      status: "skipped",
+      reason: "below-threshold",
+      decisionID: "skillReflection:episode:run:1",
+    })
+
+    // The same episode converges on one row: the id is what makes "already tried" durable.
+    const updated = repository.createReflectionJob(
+      job({ status: "done", proposalID: "proposal:episode:run:1" }),
+      2_000,
+    )
+    expect(updated.createdAt).toBe(1_000)
+    expect(updated.updatedAt).toBe(2_000)
+    expect(repository.listReflectionJobs()).toHaveLength(1)
+    expect(repository.getReflectionJob("episode:run:1")?.status).toBe("done")
+    repository.close()
+  })
+
+  test("lists by project and status, newest first", () => {
+    const repository = open()
+    repository.createReflectionJob(job({ episodeID: "episode:run:1", status: "done" }), 1_000)
+    repository.createReflectionJob(job({ episodeID: "episode:run:2", status: "done" }), 1_001)
+    repository.createReflectionJob(job({ episodeID: "episode:run:3", projectID: "/work/other" }), 1_002)
+
+    expect(repository.listReflectionJobs({ status: "done" })).toHaveLength(2)
+    expect(repository.listReflectionJobs({ projectID: "/work/other" }).map((entry) => entry.episodeID)).toEqual([
+      "episode:run:3",
+    ])
+    expect(repository.listReflectionJobs({ limit: 1 })[0]!.episodeID).toBe("episode:run:3")
+    repository.close()
+  })
+})
+
+describe("the skill proposal store (FH-034)", () => {
+  const proposal = (overrides: Partial<StoredSkillProposalInput> = {}): StoredSkillProposalInput => ({
+    id: "proposal:episode:run:1",
+    episodeID: "episode:run:1",
+    sessionID: "ses_1",
+    projectID: "/work/project",
+    decisionID: "skillReflection:episode:run:1",
+    intent: "add",
+    name: "fix-failing-test",
+    description: "Use when a test fails",
+    body: "## Steps\nDo the minimal thing.",
+    bodyHash: "a".repeat(64),
+    evidenceRefs: ["episode:run:1"],
+    confidence: 0.9,
+    modelVersion: "prov/small",
+    status: "proposed",
+    ...overrides,
+  })
+
+  test("a database written before the table gains it, keeping its other rows", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1_000)
+    // Put it back the way a server without skill proposals left it.
+    before.db.exec("DROP TABLE skill_proposals")
+    before.close()
+
+    const after = open(path)
+    expect(after.getProposal("proposal:episode:run:1")).toBeUndefined()
+    expect(after.getRun(run.id)?.id).toBe(run.id)
+    // A proposal can be written again, which is what proves the table came back.
+    expect(after.createProposal(proposal(), 2_000)).toMatchObject({
+      id: "proposal:episode:run:1",
+      status: "proposed",
+      intent: "add",
+    })
+    after.close()
+  })
+
+  test("writes and reads a row, and upserts by proposal id", () => {
+    const repository = open()
+    const created = repository.createProposal(proposal(), 1_000)
+    expect(created.createdAt).toBe(1_000)
+    expect(repository.getProposal("proposal:episode:run:1")).toMatchObject({
+      episodeID: "episode:run:1",
+      evidenceRefs: ["episode:run:1"],
+      bodyHash: "a".repeat(64),
+      confidence: 0.9,
+    })
+
+    // The same episode converges on one row, and the promotion updates its status in place.
+    const promoted = repository.createProposal(proposal({ status: "promoted" }), 2_000)
+    expect(promoted.createdAt).toBe(1_000)
+    expect(promoted.updatedAt).toBe(2_000)
+    expect(repository.getProposal("proposal:episode:run:1")?.status).toBe("promoted")
+    expect(repository.listProposals()).toHaveLength(1)
+    repository.close()
+  })
+
+  test("drops a row whose intent or status is unknown rather than guessing", () => {
+    const repository = open()
+    repository.createProposal(proposal(), 1_000)
+    repository.db.query("UPDATE skill_proposals SET status = 'invented' WHERE id = ?1").run("proposal:episode:run:1")
+    expect(repository.getProposal("proposal:episode:run:1")).toBeUndefined()
+    expect(repository.listProposals()).toEqual([])
     repository.close()
   })
 })

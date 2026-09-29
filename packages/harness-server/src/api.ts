@@ -34,6 +34,8 @@ import { handleDecisionRequest } from "./adaptive/decision-routes"
 import type { DecisionService } from "./adaptive/decision-service"
 import { handleContextPlanRequest } from "./adaptive/context-routes"
 import type { ContextManager } from "./adaptive/context-manager"
+import { handleLearnedSkillRequest, handleProposalRequest } from "./adaptive/learning-routes"
+import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -391,6 +393,9 @@ export type HarnessHandlerOptions = {
   runtimeProbe?: RuntimeProbe
   decisions?: DecisionService
   context?: ContextManager
+  /** The learning audit (FH-034): the drafted proposals and the learned-skill roster. */
+  proposals?: ProposalReader
+  learnedSkills?: LearnedSkillReader
 }
 
 export const createHarnessHandler = (
@@ -459,6 +464,18 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleContextPlanRequest(request, path.slice(2), options.context)
     }
+    // The learning audit (FH-034): the proposed skills a reflection drafted, and the learned skills
+    // the curator installed. Same bearer as the decision audit; reading only.
+    if (path[1] === "adaptive" && path[2] === "proposals" && options.proposals) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleProposalRequest(request, path.slice(2), options.proposals)
+    }
+    if (path[1] === "adaptive" && path[2] === "learned-skills" && options.learnedSkills) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleLearnedSkillRequest(request, path.slice(2), options.learnedSkills)
+    }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a
     // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
@@ -487,6 +504,9 @@ export const createHarnessHandler = (
           ...(options.decisions ? (["adaptive-decisions"] as const) : []),
           // The context plan audit is its own surface too: announced only when it was built (FH-022).
           ...(options.context ? (["adaptive-context"] as const) : []),
+          // The learning audit is two surfaces: proposals and learned skills (FH-034).
+          ...(options.proposals ? (["adaptive-proposals"] as const) : []),
+          ...(options.learnedSkills ? (["adaptive-skills"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

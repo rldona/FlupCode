@@ -60,11 +60,21 @@ import type {
   PlanFilter,
   StoredPlan,
   StoredPlanInput,
+  ReflectionJobFilter,
+  StoredReflectionJob,
+  StoredReflectionJobInput,
+  SkillProposalFilter,
+  StoredSkillProposal,
+  StoredSkillProposalInput,
 } from "./types"
 import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
 import type { DecisionRow } from "./adaptive/decision-record"
 import { planFromRow, planRowFrom } from "./adaptive/context-record"
 import type { PlanRow } from "./adaptive/context-record"
+import { reflectionJobFromRow, reflectionJobRowFrom } from "./adaptive/learning/reflection-job"
+import type { ReflectionRow } from "./adaptive/learning/reflection-job"
+import { proposalFromRow, proposalRowFrom } from "./adaptive/learning/proposal-record"
+import type { SkillProposalRow } from "./adaptive/learning/proposal-record"
 import type { DecisionKind } from "./adaptive/decision"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -354,6 +364,43 @@ CREATE INDEX IF NOT EXISTS adaptive_plan_task ON adaptive_plan(task_id, created_
 CREATE INDEX IF NOT EXISTS adaptive_plan_episode ON adaptive_plan(episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_plan_session ON adaptive_plan(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_plan_project ON adaptive_plan(project_id, created_at DESC);
+CREATE TABLE IF NOT EXISTS reflection_job (
+  episode_id TEXT PRIMARY KEY,
+  session_id TEXT,
+  project_id TEXT,
+  status TEXT NOT NULL,
+  reason TEXT,
+  decision_id TEXT,
+  proposal_id TEXT,
+  attempts INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS reflection_job_project ON reflection_job(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS reflection_job_status ON reflection_job(status, created_at DESC);
+CREATE TABLE IF NOT EXISTS skill_proposals (
+  id TEXT PRIMARY KEY,
+  episode_id TEXT NOT NULL,
+  session_id TEXT,
+  project_id TEXT NOT NULL,
+  decision_id TEXT,
+  intent TEXT NOT NULL,
+  target_skill TEXT,
+  name TEXT,
+  description TEXT,
+  body TEXT,
+  body_hash TEXT,
+  evidence_refs_json TEXT NOT NULL DEFAULT '[]',
+  confidence REAL,
+  model_version TEXT,
+  status TEXT NOT NULL,
+  reason TEXT,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS skill_proposals_episode ON skill_proposals(episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS skill_proposals_project ON skill_proposals(project_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS skill_proposals_status ON skill_proposals(status, created_at DESC);
 `
 
 /**
@@ -2421,6 +2468,198 @@ export class SqliteRoutineRepository implements RoutineRepository {
       })
     } catch {
       // An unreadable plan page answers empty rather than taking the endpoint down.
+      return []
+    }
+  }
+
+  // ---- reflection jobs (FH-030) ----------------------------------------------------------------
+
+  /**
+   * Writes the job, or replaces the one already under this episode.
+   *
+   * The episode id is the primary key, so a second close or a sweep converges: the row keeps its
+   * `created_at` and only moves `updated_at`. A failure to write is swallowed, because the audit of
+   * an episode must never fail the episode's close.
+   */
+  createReflectionJob(input: StoredReflectionJobInput, now = Date.now()): StoredReflectionJob {
+    const row = reflectionJobRowFrom(input, now)
+    try {
+      this.db
+        .query(
+          `INSERT INTO reflection_job (
+             episode_id, session_id, project_id, status, reason, decision_id, proposal_id,
+             attempts, created_at, updated_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+           ON CONFLICT(episode_id) DO UPDATE SET
+             session_id = excluded.session_id,
+             project_id = excluded.project_id,
+             status = excluded.status,
+             reason = excluded.reason,
+             decision_id = excluded.decision_id,
+             proposal_id = excluded.proposal_id,
+             attempts = excluded.attempts,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          row.episode_id,
+          row.session_id,
+          row.project_id,
+          row.status,
+          row.reason,
+          row.decision_id,
+          row.proposal_id,
+          row.attempts,
+          row.created_at,
+          row.updated_at,
+        )
+    } catch {
+      // An audit that cannot be written is dropped, never raised into the episode.
+    }
+    return this.getReflectionJob(row.episode_id) ?? { ...input, createdAt: now, updatedAt: now }
+  }
+
+  getReflectionJob(episodeID: string): StoredReflectionJob | undefined {
+    try {
+      const row = this.db.query("SELECT * FROM reflection_job WHERE episode_id = ?1").get(episodeID) as ReflectionRow | null
+      return row ? reflectionJobFromRow(row) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Newest first, filtered by whichever of project or status is given. */
+  listReflectionJobs(filter: ReflectionJobFilter = {}): StoredReflectionJob[] {
+    const clauses: string[] = []
+    const values: Array<string | number> = []
+    if (filter.projectID) {
+      clauses.push(`project_id = ?${values.length + 1}`)
+      values.push(filter.projectID)
+    }
+    if (filter.status) {
+      clauses.push(`status = ?${values.length + 1}`)
+      values.push(filter.status)
+    }
+    const limit = normalizeEpisodeLimit(filter.limit)
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : ""
+    const tail = limit !== undefined ? ` LIMIT ?${values.length + 1}` : ""
+    if (limit !== undefined) values.push(limit)
+    try {
+      const rows = this.db
+        .query(`SELECT * FROM reflection_job${where} ORDER BY created_at DESC, episode_id DESC${tail}`)
+        .all(...values) as ReflectionRow[]
+      // A row whose status is unknown is dropped by `reflectionJobFromRow`, never guessed at.
+      return rows.flatMap((row) => {
+        const job = reflectionJobFromRow(row)
+        return job ? [job] : []
+      })
+    } catch {
+      // An unreadable job page answers empty rather than taking the endpoint down.
+      return []
+    }
+  }
+
+  // ---- skill proposals (FH-034) ----------------------------------------------------------------
+
+  /**
+   * Writes the proposal, or replaces the one already under this id.
+   *
+   * The id is `proposal:<episodeID>`, so a re-close converges: the row keeps its `created_at` and
+   * only moves `updated_at`. A failure to write is swallowed, because the audit of a reflection must
+   * never fail the episode's close.
+   */
+  createProposal(input: StoredSkillProposalInput, now = Date.now()): StoredSkillProposal {
+    const row = proposalRowFrom(input, now)
+    try {
+      this.db
+        .query(
+          `INSERT INTO skill_proposals (
+             id, episode_id, session_id, project_id, decision_id, intent, target_skill, name, description,
+             body, body_hash, evidence_refs_json, confidence, model_version, status, reason, created_at, updated_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18)
+           ON CONFLICT(id) DO UPDATE SET
+             episode_id = excluded.episode_id,
+             session_id = excluded.session_id,
+             project_id = excluded.project_id,
+             decision_id = excluded.decision_id,
+             intent = excluded.intent,
+             target_skill = excluded.target_skill,
+             name = excluded.name,
+             description = excluded.description,
+             body = excluded.body,
+             body_hash = excluded.body_hash,
+             evidence_refs_json = excluded.evidence_refs_json,
+             confidence = excluded.confidence,
+             model_version = excluded.model_version,
+             status = excluded.status,
+             reason = excluded.reason,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          row.id,
+          row.episode_id,
+          row.session_id,
+          row.project_id,
+          row.decision_id,
+          row.intent,
+          row.target_skill,
+          row.name,
+          row.description,
+          row.body,
+          row.body_hash,
+          row.evidence_refs_json,
+          row.confidence,
+          row.model_version,
+          row.status,
+          row.reason,
+          row.created_at,
+          row.updated_at,
+        )
+    } catch {
+      // An audit that cannot be written is dropped, never raised into the reflection.
+    }
+    return this.getProposal(row.id) ?? { ...input, createdAt: now, updatedAt: now }
+  }
+
+  getProposal(id: string): StoredSkillProposal | undefined {
+    try {
+      const row = this.db.query("SELECT * FROM skill_proposals WHERE id = ?1").get(id) as SkillProposalRow | null
+      return row ? proposalFromRow(row) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /** Newest first, filtered by whichever of episode, project or status is given. */
+  listProposals(filter: SkillProposalFilter = {}): StoredSkillProposal[] {
+    const clauses: string[] = []
+    const values: Array<string | number> = []
+    if (filter.episodeID) {
+      clauses.push(`episode_id = ?${values.length + 1}`)
+      values.push(filter.episodeID)
+    }
+    if (filter.projectID) {
+      clauses.push(`project_id = ?${values.length + 1}`)
+      values.push(filter.projectID)
+    }
+    if (filter.status) {
+      clauses.push(`status = ?${values.length + 1}`)
+      values.push(filter.status)
+    }
+    const limit = normalizeEpisodeLimit(filter.limit)
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : ""
+    const tail = limit !== undefined ? ` LIMIT ?${values.length + 1}` : ""
+    if (limit !== undefined) values.push(limit)
+    try {
+      const rows = this.db
+        .query(`SELECT * FROM skill_proposals${where} ORDER BY created_at DESC, id DESC${tail}`)
+        .all(...values) as SkillProposalRow[]
+      // A row whose intent or status is unknown is dropped by `proposalFromRow`, never guessed at.
+      return rows.flatMap((row) => {
+        const proposal = proposalFromRow(row)
+        return proposal ? [proposal] : []
+      })
+    } catch {
+      // An unreadable proposal page answers empty rather than taking the endpoint down.
       return []
     }
   }

@@ -62,6 +62,14 @@ const SAMPLES: { [Q in DecisionKind]: DecisionRequest<Q> } = {
   agentRoute: request("agentRoute", { objective: "fix the failing test", signals: ["red-check"] }),
   toolRisk: request("toolRisk", { tool: "bash", argsDigest: "abc123" }),
   failure: request("failure", { repeatedCalls: 0, repeatedErrors: 0, stepsUsed: 1 }),
+  skillReflection: request("skillReflection", {
+    episodeID: "episode:1",
+    objective: "fix the failing test",
+    outcome: "success",
+    toolCalls: 3,
+    signals: ["verify:test ok"],
+    skills: [{ name: "testing", description: "write focused tests", learned: false }],
+  }),
 }
 
 const store: GovernorStore = {
@@ -70,9 +78,9 @@ const store: GovernorStore = {
 }
 
 describe("Phase 2 evaluation (offline, recorded)", () => {
-  test("deterministic coverage: 7/7 kinds answer with Jev off", () => {
+  test("deterministic coverage: 8/8 kinds answer with Jev off", () => {
     const answered = decisionKinds().filter((kind) => deterministicBaseline(SAMPLES[kind]).answer !== undefined)
-    expect(answered).toHaveLength(7)
+    expect(answered).toHaveLength(8)
   })
 
   test("parsing: 3/3 Jev answer types land on their question id", async () => {
@@ -109,7 +117,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
     expect(wireQuestions(questions).map((question) => question.id)).toEqual(["w0", "w1", "w2"])
   })
 
-  test("fallback equality: 7/7 answers equal the deterministic baseline byte for byte", async () => {
+  test("fallback equality: 8/8 answers equal the deterministic baseline byte for byte", async () => {
     let equal = 0
     for (const kind of decisionKinds()) {
       const fallback = createFallbackProvider({
@@ -120,7 +128,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
       const answer = await fallback.answer(SAMPLES[kind], signal)
       if (JSON.stringify(answer.answer) === JSON.stringify(deterministicBaseline(SAMPLES[kind]).answer)) equal += 1
     }
-    expect(equal).toBe(7)
+    expect(equal).toBe(8)
   })
 
   test("dedupe: two identical concurrent states collapse into one call", async () => {

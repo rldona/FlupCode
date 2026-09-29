@@ -4,6 +4,7 @@ import {
   DEFAULT_BUDGET_CONFIG,
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
+  DEFAULT_LEARNING_CONFIG,
   createAdaptiveConfig,
   resolveAdaptiveConfig,
 } from "./config"
@@ -25,6 +26,7 @@ const allPolicies = (): Record<DecisionKind, DecisionPolicy> => ({
   agentRoute: DEFAULT_DECISION_POLICY,
   toolRisk: DEFAULT_DECISION_POLICY,
   failure: DEFAULT_DECISION_POLICY,
+  skillReflection: DEFAULT_DECISION_POLICY,
 })
 
 const allKindsOff = (): Record<DecisionKind, boolean> => ({
@@ -35,6 +37,7 @@ const allKindsOff = (): Record<DecisionKind, boolean> => ({
   agentRoute: false,
   toolRisk: false,
   failure: false,
+  skillReflection: false,
 })
 
 describe("resolveAdaptiveConfig", () => {
@@ -51,8 +54,10 @@ describe("resolveAdaptiveConfig", () => {
       egress: { enabled: false, projects: [], kinds: allKindsOff() },
       governor: DEFAULT_GOVERNOR_CONFIG,
       context: DEFAULT_CONTEXT_CONFIG,
+      learning: DEFAULT_LEARNING_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
+    expect(config.learning.enabled).toBe(false)
   })
 
   test("reads the flupcode.adaptive block", () => {
@@ -84,6 +89,7 @@ describe("resolveAdaptiveConfig", () => {
     expect(config.egress.projects).toEqual(["/work/project"])
     expect(config.egress.kinds.completion).toBe(true)
     expect(config.egress.kinds.skillRelevance).toBe(false)
+    expect(config.egress.kinds.skillReflection).toBe(false)
     expect(config.decisions.completion).toEqual({ allowJev: false, minConfidence: 0.9, minProbability: 0.5, timeoutMs: 400 })
     expect(config.decisions.skillRelevance).toEqual(DEFAULT_DECISION_POLICY)
   })
@@ -162,6 +168,35 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(malformed.context).toEqual(DEFAULT_CONTEXT_CONFIG)
+  })
+
+  test("the learning slice is off by default and reads its block", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} }).learning
+    expect(defaults).toEqual(DEFAULT_LEARNING_CONFIG)
+    expect(defaults.enabled).toBe(false)
+
+    const config = resolveAdaptiveConfig({
+      block: { learning: { enabled: true, minToolCalls: 20, snapshotKeep: 2, model: "prov/small" } },
+      env: {},
+    })
+    expect(config.learning).toEqual({
+      enabled: true,
+      minToolCalls: 20,
+      snapshotKeep: 2,
+      maxInputChars: DEFAULT_LEARNING_CONFIG.maxInputChars,
+      maxBodyChars: DEFAULT_LEARNING_CONFIG.maxBodyChars,
+      probationSample: DEFAULT_LEARNING_CONFIG.probationSample,
+      staleAfter: DEFAULT_LEARNING_CONFIG.staleAfter,
+      archiveAfter: DEFAULT_LEARNING_CONFIG.archiveAfter,
+      model: "prov/small",
+    })
+
+    // A malformed slice falls back to off and the conservative numbers rather than guessing.
+    const malformed = resolveAdaptiveConfig({
+      block: { learning: { enabled: "yes", minToolCalls: -1, snapshotKeep: "many" } },
+      env: {},
+    })
+    expect(malformed.learning).toEqual(DEFAULT_LEARNING_CONFIG)
   })
 
   test("composes the Phase 1 resolvers unchanged", () => {

@@ -3,7 +3,7 @@
  *
  * A decision is a question about the session the harness is observing — is this episode complete,
  * which skills matter for this objective, what should happen to this context item — and a typed
- * answer to it. The seven kinds are declared here even though only three carry rich deterministic
+ * answer to it. The eight kinds are declared here even though only three carry rich deterministic
  * logic in this phase, so the seam, the audit and the provider dispatch are all exhaustive: adding a
  * kind to `DecisionSpec` does not compile until every map below lists it.
  *
@@ -87,6 +87,17 @@ export type AgentRoute = (typeof AGENT_ROUTES)[number]
 export const TOOL_RISKS = ["ALLOW", "CONFIRM", "REVIEW", "DENY"] as const
 export type ToolRisk = (typeof TOOL_RISKS)[number]
 
+/**
+ * The change a reusable lesson calls for (FH-031). `merge` and `drop` are declared so the vocabulary
+ * is closed and the Jev adapter can parse them, but Phase 3b rejects both with a reason: only `add`
+ * and `patch` are implemented, and `merge`/`drop` are later phases (ADR-0020 §9).
+ */
+export const REFLECTION_INTENTS = ["add", "patch", "merge", "drop"] as const
+export type ReflectionIntent = (typeof REFLECTION_INTENTS)[number]
+
+export const isReflectionIntent = (value: unknown): value is ReflectionIntent =>
+  typeof value === "string" && (REFLECTION_INTENTS as readonly string[]).includes(value)
+
 export type CompletionAnswer = { verdict: "complete" | "not_complete" }
 export type SkillRelevanceAnswer = { load: string[] }
 export type ContextItemAnswer = { decisions: Array<{ id: string; disposition: ItemDisposition }> }
@@ -94,6 +105,12 @@ export type ModelRouteAnswer = { tier: DecisionTier }
 export type AgentRouteAnswer = { agent: AgentRoute }
 export type ToolRiskAnswer = { risk: ToolRisk }
 export type FailureAnswer = { verdict: "continue" | "intervene" }
+export type SkillReflectionAnswer = {
+  reusable: boolean
+  intent: ReflectionIntent
+  /** The name of the existing skill a `patch`/`merge` points at, when one was chosen. */
+  target?: string
+}
 
 // ---- states per kind (bounded; never a session's raw state) ----------------------------------
 
@@ -121,8 +138,24 @@ export type FailureState = {
   stepsUsed: number
   stepsBudget?: number
 }
+/**
+ * What a closed episode offers a reflection decision (FH-031).
+ *
+ * Bounded signals and a roster, never a transcript: the decision is *whether* a lesson is reusable
+ * and *what* it calls for, and the small model drafts the text afterwards. `skills` is the current
+ * roster so a `patch`/`merge` can point at a real skill by name.
+ */
+export type SkillReflectionState = {
+  episodeID: string
+  objective: string
+  outcome: EpisodeOutcome
+  toolCalls: number
+  /** Bounded, deterministic signals ("verify:test ok", "file:src/x.ts", "failure:…"). */
+  signals: string[]
+  skills: Array<{ name: string; description: string; learned: boolean }>
+}
 
-/** The map that defines the seven kinds and correlates each state with its answer. */
+/** The map that defines the eight kinds and correlates each state with its answer. */
 export type DecisionSpec = {
   completion: { state: CompletionState; answer: CompletionAnswer }
   skillRelevance: { state: SkillRelevanceState; answer: SkillRelevanceAnswer }
@@ -131,6 +164,7 @@ export type DecisionSpec = {
   agentRoute: { state: AgentRouteState; answer: AgentRouteAnswer }
   toolRisk: { state: ToolRiskState; answer: ToolRiskAnswer }
   failure: { state: FailureState; answer: FailureAnswer }
+  skillReflection: { state: SkillReflectionState; answer: SkillReflectionAnswer }
 }
 
 export type DecisionKind = keyof DecisionSpec
@@ -144,9 +178,10 @@ export const DECISION_KINDS: Record<DecisionKind, true> = {
   agentRoute: true,
   toolRisk: true,
   failure: true,
+  skillReflection: true,
 }
 
-/** The kinds this phase actually implements and tests; the other four answer safe defaults. */
+/** The kinds this phase actually implements and tests; the other kinds answer safe defaults. */
 export const E2_KINDS = ["completion", "skillRelevance", "contextItem"] as const
 export type E2Kind = (typeof E2_KINDS)[number]
 

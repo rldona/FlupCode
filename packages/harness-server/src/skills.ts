@@ -44,6 +44,8 @@ export type SkillFile = {
   reason?: string
   /** The name is already taken by a file the engine reads first. */
   shadows?: string
+  /** Written by the harness, read from the `self-authored` marker rather than the path (FH-040). */
+  learned?: boolean
 }
 
 export class SkillError extends Error {
@@ -127,7 +129,8 @@ export function skillReport(directory?: string, projectDirectory?: string): Skil
       const { fields, problem } = parseFrontmatter(text)
       const name = typeof fields.name === "string" && fields.name.trim() ? fields.name.trim() : undefined
       const description = typeof fields.description === "string" ? fields.description : undefined
-      const file: SkillFile = { path, scope: root.scope, root: root.path, bytes, loaded: false, ...(name ? { name } : {}), ...(description ? { description } : {}) }
+      const learned = fields["self-authored"] === true
+      const file: SkillFile = { path, scope: root.scope, root: root.path, bytes, loaded: false, ...(name ? { name } : {}), ...(description ? { description } : {}), ...(learned ? { learned: true } : {}) }
       if (basename(path) !== "SKILL.md") {
         // Measured: a `.md` in a skill folder that is not called SKILL.md is never globbed.
         files.push({ ...file, reason: "Only a file called SKILL.md is loaded" })

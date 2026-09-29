@@ -27,6 +27,20 @@ export type ShadowKind = (typeof SHADOW_KINDS)[number]
 /** One candidate skill for a relevance question; `learned` is the self-authored marker, later. */
 export type SkillCandidate = { name: string; description: string; learned: boolean }
 
+/** The roster a `skillRelevance` decision was offered and the names it selected (FH-043). */
+export type SkillSelection = {
+  projectID: string
+  roster: readonly SkillCandidate[]
+  loaded: readonly string[]
+}
+
+/** The names an answer loaded; anything that is not a string array is "selected nothing". */
+function selectedSkills(answer: unknown): string[] {
+  if (typeof answer !== "object" || answer === null) return []
+  const load = (answer as { load?: unknown }).load
+  return Array.isArray(load) ? load.filter((name): name is string => typeof name === "string") : []
+}
+
 /** A repository the shadow can read episodes from as well as write decisions and plans to. */
 export type ShadowRepository = DecisionRepository & {
   listEpisodes(filter?: { limit?: number }): SessionEpisode[]
@@ -49,6 +63,11 @@ export function createShadowRunner(deps: {
   /** The context manager that owns `contextItem` and its plan (FH-023); absent means none is taken. */
   context?: ContextManager
   readSkills?: (episode: SessionEpisode) => SkillCandidate[]
+  /**
+   * Reports a `skillRelevance` selection so the learning loop can account its use (FH-043). It is
+   * synchronous and fire-and-forget; a failure in it is reported and never reaches the episode.
+   */
+  trackSelection?: (selection: SkillSelection) => void
   onError?: (cause: unknown) => void
   sweepLimit?: number
 }): ShadowRunner {
@@ -61,6 +80,8 @@ export function createShadowRunner(deps: {
     kind: ShadowKind,
     episode: SessionEpisode,
     config: AdaptiveConfig,
+    /** The roster, read once per close and shared by the request and its selection (FH-043). */
+    skills: () => SkillCandidate[],
   ): DecisionRequest => {
     const policy: DecisionPolicy = config.decisions[kind]
     const base = { episodeID: episode.id, sessionID: episode.sessionID, projectID: episode.projectID, policy }
@@ -83,7 +104,7 @@ export function createShadowRunner(deps: {
         return {
           ...base,
           kind,
-          state: { sessionID: episode.sessionID, objective: episode.objective, skills: readSkills(episode) },
+          state: { sessionID: episode.sessionID, objective: episode.objective, skills: skills() },
         }
     }
   }
@@ -102,12 +123,23 @@ export function createShadowRunner(deps: {
 
   /** The adaptive work of one closed episode; the config is read once, in the task. */
   const decideClosed = async (episode: SessionEpisode, config: AdaptiveConfig): Promise<void> => {
+    // The roster is filesystem I/O: memoized so the request and its selection share one read.
+    let roster: SkillCandidate[] | undefined
+    const skills = () => (roster ??= readSkills(episode))
     for (const kind of SHADOW_KINDS) {
       // A second close (a retried capture, another sweep) is already decided: the deterministic id
       // would converge the row anyway, but skipping it saves the call and keeps one decision.
       if (deps.repository.countDecisionsForEpisode(episode.id, kind) > 0) continue
       // One failing kind is reported and dropped; it never starves the kinds after it.
-      await deps.service.predict(requestFor(kind, episode, config)).catch(onError)
+      const result = await deps.service.predict(requestFor(kind, episode, config, skills)).catch((cause) => {
+        onError(cause)
+        return undefined
+      })
+      // The selection is the usage signal; the same roster the request offered is handed to the tracker.
+      if (kind === "skillRelevance" && result !== undefined && deps.trackSelection !== undefined) {
+        const selection = { projectID: episode.projectID, roster: skills(), loaded: selectedSkills(result.answer) }
+        deps.trackSelection(selection)
+      }
     }
     // The plan is idempotent by id, but a second plan could spend on Jev again, so it is skipped.
     if (

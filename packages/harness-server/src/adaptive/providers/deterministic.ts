@@ -3,10 +3,11 @@
  *
  * Deterministic first is the rule of the whole phase: every kind has a safe, reproducible answer
  * that never calls a model, so with Jev off the harness behaves exactly as it did before Jev existed.
- * Three kinds carry the rich logic this phase tests; the other four return their safe default until
- * their phase arrives.
+ * Three kinds carry the rich logic this phase tests; the others return their safe default until
+ * their phase arrives — `skillReflection` answers the inert `no-reflection`, so without Jev no
+ * lesson is ever learned.
  *
- * The seven handlers are a `Record<DecisionKind, …>`, so leaving one out is a compile error rather
+ * The handlers are a `Record<DecisionKind, …>`, so leaving one out is a compile error rather
  * than a runtime surprise. The generic entry point indexes that record by the request's own kind; the
  * design's §1.3 anticipated needing `request as AnyDecisionRequest` here, but `tsgo` accepts the
  * generic indexed access directly, so no cast is used and the dispatch stays sound by construction
@@ -75,11 +76,13 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
     ),
     rule: "context-score",
   }),
-  // The four kinds below are typed but not implemented in this phase: each answers its safe default.
+  // The kinds below are typed but not implemented in this phase: each answers its safe default.
   modelRoute: () => ({ answer: { tier: "BALANCED" }, rule: "declared-policy" }),
   agentRoute: () => ({ answer: { agent: "CONTINUE" }, rule: "safe-default" }),
   toolRisk: () => ({ answer: { risk: "ALLOW" }, rule: "permission-floor" }),
   failure: () => ({ answer: { verdict: "continue" }, rule: "safe-default" }),
+  // Inert on purpose: without a classifier nothing is reusable, so an idle project learns nothing.
+  skillReflection: () => ({ answer: { reusable: false, intent: "add" }, rule: "no-reflection" }),
 }
 
 /** The deterministic answer and the rule that produced it, for the service to store as the baseline. */

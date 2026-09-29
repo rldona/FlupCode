@@ -28,6 +28,19 @@ import type {
   DegradedReason,
   ItemDisposition,
 } from "./adaptive/decision"
+import type {
+  ReflectionJobFilter,
+  ReflectionStatus,
+  StoredReflectionJob,
+  StoredReflectionJobInput,
+} from "./adaptive/learning/reflection-job"
+import type {
+  SkillProposalFilter,
+  SkillProposalStatus,
+  StoredSkillProposal,
+  StoredSkillProposalInput,
+} from "./adaptive/learning/proposal-record"
+import type { EvidenceSlice } from "./adaptive/evidence"
 
 export type {
   EpisodeFailure,
@@ -36,6 +49,14 @@ export type {
   EpisodeOutcome,
   EpisodeVerification,
   SessionEpisode,
+  ReflectionJobFilter,
+  ReflectionStatus,
+  StoredReflectionJob,
+  StoredReflectionJobInput,
+  SkillProposalFilter,
+  SkillProposalStatus,
+  StoredSkillProposal,
+  StoredSkillProposalInput,
 }
 
 export type RoutineSchedule =
@@ -746,8 +767,35 @@ export type ContextPlanRepository = {
   markApplied(id: string, now?: number): StoredPlan | undefined
 }
 
+/**
+ * The reflection jobs of closed episodes (FH-030).
+ *
+ * `createReflectionJob` is an upsert by `episode_id`, so a second close or a sweep converges on one
+ * terminal row: the id is what makes "already tried" durable rather than an in-memory guess.
+ */
+export type ReflectionRepository = {
+  createReflectionJob(input: StoredReflectionJobInput, now?: number): StoredReflectionJob
+  getReflectionJob(episodeID: string): StoredReflectionJob | undefined
+  listReflectionJobs(filter?: ReflectionJobFilter): StoredReflectionJob[]
+}
+
+/**
+ * The proposals a reflection drafted (FH-034).
+ *
+ * `createProposal` is an upsert by the deterministic id (`proposal:<episodeID>`), so a re-close
+ * converges on one row. `evidenceFor` is the FH-006 read the manager uses to build the draft input;
+ * it is declared here so the learning loop can reach it without depending on the concrete store.
+ */
+export type LearningRepository = {
+  createProposal(input: StoredSkillProposalInput, now?: number): StoredSkillProposal
+  getProposal(id: string): StoredSkillProposal | undefined
+  listProposals(filter?: SkillProposalFilter): StoredSkillProposal[]
+  /** The slices an episode kept, in capture order (FH-006); empty when none were stored. */
+  evidenceFor(episode: SessionEpisode, now?: number): EvidenceSlice[]
+}
+
 /** Routines, and the lock that keeps one from running twice at once. */
-export type RoutineRepository = RunRepository & EpisodeRepository & DecisionRepository & ContextPlanRepository & {
+export type RoutineRepository = RunRepository & EpisodeRepository & DecisionRepository & ContextPlanRepository & ReflectionRepository & LearningRepository & {
   /**
    * Terminal runs finished inside the window that still have no terminal episode, newest first
    * (FH-002).

@@ -12,7 +12,7 @@ import { unavailableActionCredentialResolver } from "./action-credentials"
 import type { ActionCredentialResolver } from "./action-credentials"
 import { createVault, parseVaultKey, readOrCreateVaultKeyFile, readVaultKeyFile, vaultKeyFile } from "./vault"
 import type { CredentialVault } from "./vault"
-import { globalAdaptiveBlock, loadActionProfiles } from "./config-files"
+import { globalAdaptiveBlock, globalSmallModel, loadActionProfiles } from "./config-files"
 import { createAdaptiveConfig } from "./adaptive/config"
 import { createAdaptiveEgressGuard } from "./adaptive/egress"
 import { resolveInstallationKey } from "./adaptive/installation-key"
@@ -25,8 +25,12 @@ import { createJevClient, createJevProvider, defaultJevFetch } from "./adaptive/
 import { createDecisionService } from "./adaptive/decision-service"
 import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
-import { skillReport } from "./skills"
-import type { SessionEpisode } from "./types"
+import { createLearnedStore } from "./adaptive/skills/learned-store"
+import { createSkillCurator } from "./adaptive/skills/curator"
+import { createEngineSkillDrafter, learningModel } from "./adaptive/learning/draft"
+import type { SkillDrafter } from "./adaptive/learning/draft"
+import { createLearningManager } from "./adaptive/learning/manager"
+import type { LearningRunner } from "./adaptive/learning/manager"
 
 export type HarnessServerOptions = {
   port?: number
@@ -127,23 +131,58 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     egress,
     opaqueKey: () => key ?? resolveInstallationKey(),
   })
+  // The learned-skill store and its curator (FH-040/FH-041): the curator is the only writer of a
+  // learned skill and the roster the shadow evaluates relevance against. The store is built before
+  // the shadow because the shadow reads that roster.
+  const learnedStore = createLearnedStore({
+    env: process.env,
+    snapshotKeep: startup.learning.snapshotKeep,
+    // The kill switch as a rule in the writer too: with learning off the store refuses on its own.
+    enabled: () => adaptive.current().learning.enabled,
+  })
+  const curator = createSkillCurator({
+    store: learnedStore,
+    // The kill switch reaches the writer: with learning off, a selection records no usage, so a
+    // close cannot move the sidecar or the ledger even though the shadow still reads the roster.
+    enabled: () => adaptive.current().learning.enabled,
+    config: () => {
+      const learning = adaptive.current().learning
+      return {
+        probationSample: learning.probationSample,
+        staleAfter: learning.staleAfter,
+        archiveAfter: learning.archiveAfter,
+      }
+    },
+    // The same body cap the manager bounds to, so a configured value cannot be accepted by one and
+    // refused by the other.
+    limits: () => ({ maxBodyChars: adaptive.current().learning.maxBodyChars }),
+  })
   // The shadow (FH-017) records decisions on episode close and acts on nothing; it is the only
-  // writer to `adaptive_decision` and, through the manager, `adaptive_plan`.
+  // writer to `adaptive_decision` and, through the manager, `adaptive_plan`. The roster is
+  // human + learned, and a `skillRelevance` selection is reported to the curator (FH-043).
   const shadow = createShadowRunner({
     service: decisions,
     repository,
     config: () => adaptive.current(),
     context,
-    readSkills: skillCandidates,
+    readSkills: (episode) => curator.roster(episode.projectID),
+    trackSelection: (selection) => curator.recordSelection(selection),
     onError: (cause) =>
       console.error(`Could not record an adaptive decision: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
+  // The learning manager is built after the scheduler (it drafts through the engine), so the close
+  // callback reaches it through this holder; the callback is only ever invoked once serving starts.
+  let learning: LearningRunner | undefined
   // Episodes (FH-002): the scheduler hands it to every runner, and it sweeps for terminal runs a
-  // restart or a lost hook left behind.
+  // restart or a lost hook left behind. The close composes the shadow and the learning manager; both
+  // are async and inert to failure.
   const episodes = createEpisodeCoordinator({
     repository,
     config: startup.episode,
-    onEpisodeClosed: (episode) => shadow.onEpisodeClosed(episode),
+    onEpisodeClosed: (episode) => {
+      shadow.onEpisodeClosed(episode)
+      learning?.onEpisodeClosed(episode)
+    },
     onError: (cause) =>
       console.error(`Could not record a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
@@ -161,6 +200,36 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // The shadow's backstop: a restart cannot see the close callbacks it missed, so terminal episodes
   // without a decision are swept on the same boundary cadence as the episodes themselves.
   shadow.start()
+  // The learning manager (FH-034): it reflects on closed episodes and sweeps for terminal ones with
+  // no job. The draft is the only model call, through a throwaway engine session, and only when a
+  // model is resolved and the project opted in; with learning off it never fires.
+  const drafter: SkillDrafter = {
+    async draft(input) {
+      const config = adaptive.current()
+      const model = learningModel(config.learning, globalSmallModel)
+      if (!model) return undefined
+      return createEngineSkillDrafter({
+        engine: scheduler.engine,
+        model,
+        timeoutMs: config.decisions.skillReflection.timeoutMs,
+        redact: egress.redact,
+        maxInputChars: config.learning.maxInputChars,
+        limits: { maxBodyChars: config.learning.maxBodyChars },
+      }).draft(input)
+    },
+  }
+  learning = createLearningManager({
+    repository,
+    service: decisions,
+    config: () => adaptive.current(),
+    egress,
+    curator,
+    drafter,
+    smallModel: globalSmallModel,
+    onError: (cause) =>
+      console.error(`Could not reflect on a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
+  })
+  learning.start()
   // The runtime probe (FH-000): which runtime the engine is on, so a gate never assumes the legacy
   // hooks. It refreshes off the critical path at startup and on its own interval; a caller asking
   // for the route refreshes within the same TTL.
@@ -179,6 +248,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       runtimeProbe,
       decisions,
       context,
+      proposals: repository,
+      learnedSkills: curator,
     }),
   })
   return {
@@ -193,6 +264,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     stop: async () => {
       clearInterval(sweep)
       clearInterval(probeInterval)
+      learning?.stop()
       shadow.stop()
       episodes.stop()
       scheduler.stop()
@@ -202,16 +274,6 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     },
   }
 }
-
-/**
- * The skill catalogue the shadow evaluates relevance against, read from the same `skills.ts` report
- * the UI shows. Only skills the engine would actually load are candidates; `learned` is false until
- * the learning loop exists, which is Phase 3b.
- */
-const skillCandidates = (episode: SessionEpisode): Array<{ name: string; description: string; learned: boolean }> =>
-  skillReport(episode.projectID)
-    .filter((file): file is typeof file & { name: string } => file.loaded && typeof file.name === "string")
-    .map((file) => ({ name: file.name, description: file.description ?? "", learned: false }))
 
 /**
  * The browser runtime, or none.

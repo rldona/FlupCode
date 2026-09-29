@@ -90,6 +90,16 @@ export const CONFINED: PermissionRule[] = [{ permission: "external_directory", p
 export const NO_SHELL: PermissionRule[] = [{ permission: "bash", pattern: "*", action: "deny" }]
 
 /**
+ * A run with no tools at all (H-47).
+ *
+ * `*` is the engine's wildcard for "any permission", so a single `deny` matches every tool; because
+ * it is the last rule and `disabled()` reads the last matching rule, the engine also hides the whole
+ * tool list from the model. This is the ceiling for a session that only needs to read text and answer
+ * — the skill drafter, whose prompt carries untrusted observed content (ADR-0020 §5).
+ */
+export const NO_TOOLS: PermissionRule[] = [{ permission: "*", pattern: "*", action: "deny" }]
+
+/**
  * The rules a run's sessions are created under (H-47, WA-7).
  *
  * `outside` opens the boundary and `shell: false` closes the shell; everything else keeps the

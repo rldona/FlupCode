@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { createHash } from "node:crypto"
 import { resolveAdaptiveConfig } from "./config"
+import type { DecisionKind, DecisionRequest, DecisionResult, DecisionSpec } from "./decision"
 import { createDecisionService } from "./decision-service"
 import type { DecisionService } from "./decision-service"
 import { createContextManager } from "./context-manager"
@@ -8,6 +9,7 @@ import { createAdaptiveEgressGuard } from "./egress"
 import { decisionID } from "./decision-record"
 import { planID } from "./compaction-plan"
 import { createShadowRunner, SHADOW_KINDS } from "./shadow"
+import type { SkillSelection } from "./shadow"
 import { createEpisodeCoordinator } from "./coordinator"
 import { runEpisodeID } from "./episode"
 import { SqliteRoutineRepository } from "../repository"
@@ -373,5 +375,126 @@ describe("the decision shadow (FH-017)", () => {
     // Keyed: the id is not the truncated keyless digest, which would be a dictionary oracle.
     const keyless = `command:${createHash("sha256").update(command).digest("hex").slice(0, 16)}`
     expect(first[0]).not.toBe(keyless)
+  })
+})
+
+describe("the skillRelevance usage seam (FH-043)", () => {
+  /** A stub service so the selection is controlled: the point here is the wiring, not the scorer. */
+  const serviceReturning = (load: readonly string[]): DecisionService => ({
+    async predict<Q extends DecisionKind>(request: DecisionRequest<Q>): Promise<DecisionResult<Q>> {
+      const answer = (
+        request.kind === "skillRelevance" ? { load: [...load] } : { verdict: "complete" }
+      ) as DecisionSpec[Q]["answer"]
+      return {
+        kind: request.kind,
+        answer,
+        source: "deterministic",
+        provider: "stub",
+        latencyMs: 0,
+        degraded: false,
+        baseline: answer,
+        baselineRule: "stub",
+        inputsHash: "hash",
+        decidedAt: NOW,
+      }
+    },
+    decisions: () => [],
+    explain: () => undefined,
+  })
+
+  const config = () => resolveAdaptiveConfig({ block: { shadow: true }, env: {} })
+
+  test("a closed episode reports exactly one opportunity with the roster and the selected names", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const run = seedRun(repository)
+    const selections: SkillSelection[] = []
+    const service = serviceReturning(["testing"])
+    const shadow = createShadowRunner({
+      service,
+      repository,
+      config,
+      context: createContextManager({ repository, service, config, opaqueKey: () => OPAQUE_KEY, now: () => NOW }),
+      readSkills: () => SKILLS,
+      trackSelection: (selection) => selections.push(selection),
+    })
+    coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)
+    await flush()
+
+    expect(selections).toEqual([{ projectID: "/work/project", roster: SKILLS, loaded: ["testing"] }])
+    repository.close()
+  })
+
+  test("the roster is read once per close, shared by the request and the selection", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const run = seedRun(repository)
+    let reads = 0
+    const service = serviceReturning(["testing"])
+    const shadow = createShadowRunner({
+      service,
+      repository,
+      config,
+      context: createContextManager({ repository, service, config, opaqueKey: () => OPAQUE_KEY, now: () => NOW }),
+      readSkills: () => {
+        reads += 1
+        return SKILLS
+      },
+      trackSelection: () => {},
+    })
+    coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)
+    await flush()
+
+    expect(reads).toBe(1)
+    repository.close()
+  })
+
+  test("a second close is not a second opportunity", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const run = seedRun(repository)
+    const selections: SkillSelection[] = []
+    // The real service so the first close actually audits the decision the second close must see.
+    const service = serviceFor(repository, true)
+    const shadow = createShadowRunner({
+      service,
+      repository,
+      config,
+      context: createContextManager({ repository, service, config, opaqueKey: () => OPAQUE_KEY, now: () => NOW }),
+      readSkills: () => SKILLS,
+      trackSelection: (selection) => selections.push(selection),
+    })
+    const episode = coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)!
+    await flush()
+    shadow.onEpisodeClosed(episode)
+    await flush()
+
+    // The opportunity counter advances once per episode, not once per close.
+    expect(repository.countDecisionsForEpisode(episode.id, "skillRelevance")).toBe(1)
+    expect(selections).toHaveLength(1)
+    repository.close()
+  })
+
+  test("a tracker that throws is reported and never reaches the episode", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const run = seedRun(repository)
+    const errors: unknown[] = []
+    const service = serviceReturning(["testing"])
+    const shadow = createShadowRunner({
+      service,
+      repository,
+      config,
+      context: createContextManager({ repository, service, config, opaqueKey: () => OPAQUE_KEY, now: () => NOW }),
+      readSkills: () => SKILLS,
+      trackSelection: () => {
+        throw new Error("track boom")
+      },
+      onError: (cause) => errors.push(cause),
+    })
+    const episode = coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)!
+    await flush()
+
+    expect(episode.id).toBe(runEpisodeID(run.id))
+    // The episode row the callback saw is untouched: a tracker failure is not a session failure.
+    expect(repository.getEpisode(episode.id)).toEqual(episode)
+    expect(errors.some((cause) => cause instanceof Error && cause.message === "track boom")).toBe(true)
+    repository.close()
   })
 })
