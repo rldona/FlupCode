@@ -32,6 +32,9 @@ target
 opencode-dev
 UPCOMING_CHANGELOG.md
 logs/
+# Only generated run artifacts. `.flupcode/project.yaml`, `.flupcode/workflows/` and
+# `.flupcode/memory/` are project configuration and are versioned.
+.flupcode/artifacts/
 # Downloaded Chromium for the packaged desktop app (WA-9); never commit binaries.
 packages/harness-desktop/browsers/
 *.bun-build

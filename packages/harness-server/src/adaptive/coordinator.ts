@@ -56,6 +56,13 @@ export type EpisodeCoordinatorDeps = {
   readEpisodeEvents?: EpisodeEventReader
   evidence?: EpisodeEvidenceStore
   onError?: (cause: unknown) => void
+  /**
+   * Called when an episode reaches a terminal state (FH-017).
+   *
+   * It is synchronous and its failure is swallowed, so the shadow trigger can never break the close
+   * of an episode: the callback schedules work and returns.
+   */
+  onEpisodeClosed?: (episode: SessionEpisode) => void
   sweepLimit?: number
 }
 
@@ -211,6 +218,15 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
   let timer: ReturnType<typeof setInterval> | undefined
   let sweeping = false
 
+  /** The shadow trigger, wrapped so no failure in it can reach the caller that closed the episode. */
+  const notifyClosed = (episode: SessionEpisode): void => {
+    try {
+      deps.onEpisodeClosed?.(episode)
+    } catch (cause) {
+      onError(cause)
+    }
+  }
+
   const writeRun = (runID: string): SessionEpisode | undefined => {
     const run = repository.getRun(runID)
     if (!run) return undefined
@@ -259,6 +275,7 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
       now(),
     )
     recordEvidence(episode.id, evidenceCandidates(evidence.signals, evidence.events))
+    if (terminal) notifyClosed(episode)
     return episode
   }
 
@@ -308,6 +325,7 @@ export function createEpisodeCoordinator(deps: EpisodeCoordinatorDeps): EpisodeC
       now(),
     )
     recordEvidence(episode.id, evidenceCandidates(evidence.signals, evidence.events))
+    notifyClosed(episode)
     return episode
   }
 

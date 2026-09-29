@@ -30,6 +30,8 @@ import { actionInputProblem, allowRulesFrom, missingAllowRules } from "./action-
 import { handleCredentialRequest } from "./credential-routes"
 import type { CredentialVault } from "./vault"
 import type { RuntimeProbe } from "./adaptive/runtime"
+import { handleDecisionRequest } from "./adaptive/decision-routes"
+import type { DecisionService } from "./adaptive/decision-service"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -385,6 +387,7 @@ export type HarnessHandlerOptions = {
   actions?: ActionRunner
   credentials?: CredentialVault
   runtimeProbe?: RuntimeProbe
+  decisions?: DecisionService
 }
 
 export const createHarnessHandler = (
@@ -438,6 +441,14 @@ export const createHarnessHandler = (
       const state = await options.runtimeProbe.refresh()
       return json({ data: { ...state, capabilities: options.runtimeProbe.capabilities() } })
     }
+    // The decision audit (FH-015) is as sensitive as `/harness/artifacts`: it carries what a session
+    // was observed to be doing, so it takes the same bearer when one is configured. Reading only —
+    // there is no route that makes a decision.
+    if (path[1] === "adaptive" && path[2] === "decisions" && options.decisions) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleDecisionRequest(request, path.slice(2), options.decisions)
+    }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a
     // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
@@ -461,6 +472,9 @@ export const createHarnessHandler = (
           ...(options.token ? (["action-profiles"] as const) : []),
           // The probe is built with the server, so it is announced whenever the route is (FH-000).
           ...(options.runtimeProbe ? (["adaptive"] as const) : []),
+          // The decision audit is announced apart from the probe: a client must not read it as the
+          // runtime probe's own capability (FH-015).
+          ...(options.decisions ? (["adaptive-decisions"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

@@ -1,0 +1,19 @@
+{
+  "model": "jev-1.13.0",
+  "answers": {
+    "w2": {
+      "type": "score",
+      "score": 2,
+      "legend": ["low", "mid", "high"],
+      "probabilities": { "low": 0.1, "mid": 0.2, "high": 0.7 },
+      "confidence": 0.7
+    },
+    "w0": { "type": "noul", "probability": 0.82 },
+    "w1": {
+      "type": "choice",
+      "choice": "HIGH",
+      "probabilities": { "CHEAP": 0.05, "HIGH": 0.9, "MAX": 0.05 },
+      "confidence": 0.9
+    }
+  }
+}

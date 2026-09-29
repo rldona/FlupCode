@@ -20,6 +20,7 @@ import type {
   EpisodeVerification,
   SessionEpisode,
 } from "./adaptive/episode"
+import type { DecisionKind, DecisionPolicy, DecisionSource, DegradedReason } from "./adaptive/decision"
 
 export type {
   EpisodeFailure,
@@ -584,8 +585,80 @@ export type EpisodeRepository = {
   listEpisodes(filter?: EpisodeFilter): SessionEpisode[]
 }
 
+/** What the Jev budget has spent, by UTC month (FH-013). */
+export type AdaptiveUsage = { tokens: number; calls: number }
+
+/**
+ * The monthly Jev budget ledger, persisted so a restart cannot reset the cap (FH-013).
+ *
+ * It is small on purpose: the governor reads the month it is about to spend and adds to it after a
+ * call succeeds. A missing month reads as zero rather than as an error.
+ */
+export type AdaptiveUsageRepository = {
+  adaptiveUsage(month: string): AdaptiveUsage
+  addAdaptiveUsage(month: string, tokens: number, calls: number, now: number): void
+}
+
+/**
+ * One audited decision (FH-015).
+ *
+ * It carries the inputs hash and a **redacted summary**, never the raw state: the audit is a record
+ * that a decision was asked and what came back, not a second copy of what the session saw. The
+ * baseline answer and the rule that produced it are stored even when Jev won, so `explain` is a read.
+ */
+export type StoredDecision = {
+  id: string
+  kind: DecisionKind
+  sessionID?: string
+  episodeID?: string
+  projectID?: string
+  inputsHash: string
+  stateSummary: Record<string, unknown>
+  answer: unknown
+  baselineAnswer: unknown
+  baselineRule: string
+  confidence?: number
+  probabilities?: Record<string, number>
+  provider: string
+  /** The external provider that was asked, kept apart from `provider` (who produced the answer). */
+  attemptedProvider?: string
+  modelVersion?: string
+  source: DecisionSource
+  degraded: boolean
+  degradedReason?: DegradedReason
+  latencyMs: number
+  policy: DecisionPolicy
+  shadow: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+/** What a writer supplies; the store stamps `createdAt`/`updatedAt` (FH-015). */
+export type StoredDecisionInput = Omit<StoredDecision, "createdAt" | "updatedAt">
+
+/** How decisions are listed; an absent field is not a filter (FH-015). */
+export type DecisionFilter = {
+  sessionID?: string
+  episodeID?: string
+  kind?: DecisionKind
+  limit?: number
+}
+
+/**
+ * The decision audit (FH-015).
+ *
+ * `createDecision` is an upsert by the deterministic id, so a re-capture converges on one row.
+ * `countDecisionsForEpisode` is what lets the shadow treat a second episode close as already done.
+ */
+export type DecisionRepository = AdaptiveUsageRepository & {
+  createDecision(input: StoredDecisionInput, now?: number): StoredDecision
+  getDecision(id: string): StoredDecision | undefined
+  listDecisions(filter?: DecisionFilter): StoredDecision[]
+  countDecisionsForEpisode(episodeID: string, kind: DecisionKind): number
+}
+
 /** Routines, and the lock that keeps one from running twice at once. */
-export type RoutineRepository = RunRepository & EpisodeRepository & {
+export type RoutineRepository = RunRepository & EpisodeRepository & DecisionRepository & {
   /**
    * Terminal runs finished inside the window that still have no terminal episode, newest first
    * (FH-002).
