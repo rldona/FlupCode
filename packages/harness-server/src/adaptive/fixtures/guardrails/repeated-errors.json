@@ -1,0 +1,11 @@
+{
+  "id": "repeated-errors",
+  "description": "The same error three times in a row: the work is failing the same way.",
+  "loop": true,
+  "observations": [
+    { "kind": "error", "tool": "bash", "errorDigest": "11aa" },
+    { "kind": "error", "tool": "bash", "errorDigest": "11aa" },
+    { "kind": "error", "tool": "bash", "errorDigest": "11aa" }
+  ],
+  "expect": { "verdict": "intervene", "reason": "error", "decision": true, "repeatedCalls": 0, "repeatedErrors": 3 }
+}

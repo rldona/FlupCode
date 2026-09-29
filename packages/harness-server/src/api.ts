@@ -38,6 +38,8 @@ import { handleLearnedSkillRequest, handleProposalRequest } from "./adaptive/lea
 import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
 import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
+import { handleGuardrailsRequest } from "./adaptive/guardrails-routes"
+import type { GuardrailService } from "./adaptive/guardrails"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
 
@@ -402,6 +404,8 @@ export type HarnessHandlerOptions = {
   learnedSkills?: LearnedSkillReader
   /** The acting relevance line (FH-04): the only adaptive route a live turn calls. */
   relevance?: RelevanceService
+  /** The failure/loop guardrails (FH-060–063): an advisory loopback route fed by opaque digests. */
+  guardrails?: GuardrailService
   /** The dedicated loopback bearer of the acting line; the route is closed without it (ADR-0022). */
   adaptiveToken?: string
   /** The adaptive settings surface (FH-070): reads the settings and writes the switches. */
@@ -514,6 +518,22 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleRelevanceRequest(request, options.relevance)
     }
+    // The failure/loop guardrails (FH-060–063): the plugin's hooks call it on the loopback with the
+    // same dedicated bearer as the relevance line. It is a POST because it decides, and it exists only
+    // when both the service and the token were resolved — without a token it is an ordinary 404 and
+    // the capability is not announced (ADR-0023 §2).
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "guardrails" &&
+      path.length === 3 &&
+      request.method === "POST" &&
+      options.guardrails &&
+      options.adaptiveToken
+    ) {
+      if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleGuardrailsRequest(request, options.guardrails)
+    }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a
     // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
@@ -551,6 +571,8 @@ export const createHarnessHandler = (
           // The acting relevance line (FH-04): announced only when the service was built and its
           // dedicated bearer was resolved, so an unauthenticated route is never advertised.
           ...(options.relevance && options.adaptiveToken ? (["adaptive-relevance"] as const) : []),
+          // The failure/loop guardrails (FH-060–063): the same dedicated bearer and the same rule.
+          ...(options.guardrails && options.adaptiveToken ? (["adaptive-guardrails"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

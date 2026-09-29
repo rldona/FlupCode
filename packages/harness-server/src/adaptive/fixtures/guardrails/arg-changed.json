@@ -1,0 +1,11 @@
+{
+  "id": "arg-changed",
+  "description": "The same tool retried with a changed argument: a new run, not a loop.",
+  "loop": false,
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "aa11" },
+    { "kind": "call", "tool": "bash", "argsDigest": "aa11" },
+    { "kind": "call", "tool": "bash", "argsDigest": "bb22" }
+  ],
+  "expect": { "verdict": "continue", "reason": "below-threshold", "decision": false, "repeatedCalls": 1, "repeatedErrors": 0 }
+}

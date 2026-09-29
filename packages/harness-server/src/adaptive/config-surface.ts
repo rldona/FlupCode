@@ -66,6 +66,7 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
   { path: "learning.enabled", type: "boolean", confirmation: "none", guard: "egress-allowlist" },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+  { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
   { path: "egress.projects", type: "string-list", confirmation: "widening", guard: "none" },
   { path: "egress.kinds", type: "kinds", confirmation: "widening", guard: "none" },
@@ -105,6 +106,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const context = usageOf(block.context)
   const learning = usageOf(block.learning)
   const relevance = usageOf(block.relevance)
+  const guardrails = usageOf(block.guardrails)
   const jev = usageOf(block.jev)
   const retention = usageOf(block.retention)
   const egress = usageOf(block.egress)
@@ -118,6 +120,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     "context.apply": pick(false, typeof context.apply === "boolean"),
     "learning.enabled": pick(false, typeof learning.enabled === "boolean"),
     "relevance.enabled": pick(false, typeof relevance.enabled === "boolean"),
+    "guardrails.enabled": pick(false, typeof guardrails.enabled === "boolean"),
     "jev.enabled": pick(false, typeof jev.enabled === "boolean"),
     "retention.enabled": pick(false, typeof retention.enabled === "boolean"),
     "egress.projects": pick(false, Array.isArray(egress.projects)),
@@ -353,6 +356,11 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (setsTrue("relevance.enabled") && !input.adaptiveTokenPresent)
     throw new AdaptiveConfigError("Enabling relevance needs a resolved adaptive token", 422, "guard:no-adaptive-token", [
       "relevance.enabled",
+    ])
+
+  if (setsTrue("guardrails.enabled") && !input.adaptiveTokenPresent)
+    throw new AdaptiveConfigError("Enabling guardrails needs a resolved adaptive token", 422, "guard:no-adaptive-token", [
+      "guardrails.enabled",
     ])
 
   if (setsTrue("learning.enabled")) {

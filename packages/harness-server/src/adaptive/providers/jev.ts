@@ -23,6 +23,7 @@ import {
 import type { JevConfig } from "../config"
 import type { EgressGuard } from "../egress"
 import { questionsFor } from "../questions"
+import { clampLearned } from "../risk"
 import { parseJevResponse } from "./jev-parse"
 import type { JevPrediction, JevQuestion } from "./jev-parse"
 import { DecisionUnavailable } from "./provider"
@@ -229,7 +230,8 @@ const interpretations: Interpreter = {
     const index = Math.min(TOOL_RISKS.length - 1, Math.max(0, Math.round(answer.score)))
     const risk = TOOL_RISKS[index]
     if (!risk) return undefined
-    return { answer: { risk }, confidence: answer.confidence, probabilities: answer.probabilities }
+    // A learned score may only raise confirmation, never exceed the ceiling (FH-063, ADR-0023 §5).
+    return { answer: { risk: clampLearned(risk) }, confidence: answer.confidence, probabilities: answer.probabilities }
   },
   failure: (prediction) => {
     const answer = prediction.answers.verdict

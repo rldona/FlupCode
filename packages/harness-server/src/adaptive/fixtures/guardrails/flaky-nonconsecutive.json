@@ -1,0 +1,12 @@
+{
+  "id": "flaky-nonconsecutive",
+  "description": "A flaky pattern: the repeated call is not consecutive, so the tail run is only two.",
+  "loop": false,
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "ee55" },
+    { "kind": "call", "tool": "grep", "argsDigest": "ff66" },
+    { "kind": "call", "tool": "bash", "argsDigest": "ee55" },
+    { "kind": "call", "tool": "bash", "argsDigest": "ee55" }
+  ],
+  "expect": { "verdict": "continue", "reason": "below-threshold", "decision": false, "repeatedCalls": 2, "repeatedErrors": 0 }
+}

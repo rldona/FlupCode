@@ -1,0 +1,12 @@
+{
+  "id": "disabled",
+  "description": "The feature is off: even three identical calls touch no ring and write no row.",
+  "loop": true,
+  "config": { "guardrails": { "enabled": false } },
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "44dd" },
+    { "kind": "call", "tool": "bash", "argsDigest": "44dd" },
+    { "kind": "call", "tool": "bash", "argsDigest": "44dd" }
+  ],
+  "expect": { "verdict": "continue", "reason": "disabled", "decision": false }
+}

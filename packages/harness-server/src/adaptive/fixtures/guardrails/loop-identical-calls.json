@@ -1,0 +1,11 @@
+{
+  "id": "loop-identical-calls",
+  "description": "Three identical bash calls in a row: the turn is stuck on the same step.",
+  "loop": true,
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "9f2a1c" },
+    { "kind": "call", "tool": "bash", "argsDigest": "9f2a1c" },
+    { "kind": "call", "tool": "bash", "argsDigest": "9f2a1c" }
+  ],
+  "expect": { "verdict": "intervene", "reason": "loop", "decision": true, "repeatedCalls": 3, "repeatedErrors": 0 }
+}

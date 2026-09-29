@@ -1,0 +1,11 @@
+{
+  "id": "mixed-error-call",
+  "description": "An error interleaved between calls breaks the call run; the error run is one.",
+  "loop": false,
+  "observations": [
+    { "kind": "call", "tool": "bash", "argsDigest": "22bb" },
+    { "kind": "call", "tool": "bash", "argsDigest": "22bb" },
+    { "kind": "error", "tool": "bash", "errorDigest": "33cc" }
+  ],
+  "expect": { "verdict": "continue", "reason": "below-threshold", "decision": false, "repeatedCalls": 0, "repeatedErrors": 1 }
+}

@@ -136,7 +136,7 @@ export type SkillRelevanceState = {
 export type ContextItemState = { objective: string; items: ContextItem[] }
 export type ModelRouteState = { role: string; taskName: string; declared?: string }
 export type AgentRouteState = { objective: string; signals: string[] }
-export type ToolRiskState = { tool: string; argsDigest: string }
+export type ToolRiskState = { tool: string; argsDigest: string; native?: ToolRisk }
 export type FailureState = {
   repeatedCalls: number
   repeatedErrors: number
@@ -218,6 +218,13 @@ export type DecisionPolicy = {
    */
   keepThreshold?: number
   dropThreshold?: number
+  /**
+   * The failure/loop thresholds, carried only by `failure` policies (FH-060/061, ADR-0023 §6). The
+   * detector is pure, so the numbers live on the request and a deterministic baseline and its audit
+   * row agree on them; absent means the handler's own default.
+   */
+  repeatedCalls?: number
+  repeatedErrors?: number
 }
 
 export const DEFAULT_DECISION_POLICY: DecisionPolicy = {
