@@ -13,6 +13,8 @@ import { ActionRunError } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
 import { BrowserError } from "./browser"
 import { actionInputProblem, missingAllowRules } from "./action-allow"
+import type { ContextManager } from "./adaptive/context-manager"
+import type { ContextPart } from "./adaptive/context"
 
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
@@ -88,26 +90,93 @@ const failureSummary = (report: { steps: Array<{ name: string; exitCode: number 
 }
 
 /**
+ * The parts a run prompt is assembled from, before anything selects among them (FH-024).
+ *
+ * A part is a whole block of the assembly — the memory notes, one artifact quote, one file the
+ * engine reads, the handoff of the tasks before, the task's own instruction. The planner decides
+ * about them and the renderer joins them, so a selection ever removes a whole part and never
+ * rewrites one. The ids are positional and carry no path, command or text: the plan audit is
+ * content-free by construction, and `packs.ts` stays pure.
+ */
+export type RunPromptPartsInput = {
+  objective: string
+  handoff?: string | undefined
+  /** The artifact refs said as their content, in order (`expandArtifactRefs`). */
+  artifacts?: readonly string[]
+  /** The project's notes, already joined (`RunContext.memory`). */
+  memory?: string | undefined
+  files?: readonly { path: string }[]
+}
+
+export function runPromptParts(input: RunPromptPartsInput): ContextPart[] {
+  return [
+    ...(input.memory ? [{ id: "memory", kind: "memory" as const, text: input.memory }] : []),
+    ...(input.artifacts ?? []).map((text, index) => ({ id: `artifact:${index}`, kind: "artifact" as const, text })),
+    ...(input.files ?? []).map((file, index) => ({ id: `file:${index}`, kind: "file" as const, file })),
+    ...(input.handoff ? [{ id: "handoff", kind: "handoff" as const, text: input.handoff }] : []),
+    { id: "objective", kind: "objective" as const, text: input.objective },
+  ]
+}
+
+/**
+ * The one renderer of a run prompt.
+ *
+ * Memory and packs come first, then the handoff and the task's own instruction. Both the selection
+ * path (parts filtered by the plan) and the plain path (parts untouched) go through here, so turning
+ * selection off is byte-identical by construction rather than by a second implementation agreeing.
+ */
+export function renderRunPrompt(parts: readonly ContextPart[]): { text: string; files: Array<{ path: string }> } {
+  // A header is turned on by the **joined** text, not by each part: this is exactly the truthiness
+  // the pre-selection `compose` applied to `quoted.join("\n")`, so a mixture like `["", "@artifact:x"]`
+  // keeps the blank line the historical join produced and stays byte-identical.
+  const memory = parts
+    .filter((part) => part.kind === "memory")
+    .map((part) => part.text ?? "")
+    .join("\n")
+  const artifacts = parts
+    .filter((part) => part.kind === "artifact")
+    .map((part) => part.text ?? "")
+    .join("\n")
+  const files = parts.flatMap((part) => (part.file ? [part.file] : []))
+  const handoff = parts.find((part) => part.kind === "handoff")?.text
+  const objective = parts.find((part) => part.kind === "objective")?.text ?? ""
+
+  const head = [
+    memory ? `Project memory:\n${memory}` : "",
+    artifacts ? `Context packs:\n${artifacts}` : "",
+  ]
+    .filter(Boolean)
+    .join("\n\n")
+
+  const body = !handoff
+    ? objective
+    : [
+        `Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`,
+        handoff.slice(0, 4000),
+        "",
+        objective,
+      ].join("\n")
+
+  return { text: !head ? body : [`${head}`, "", body].join("\n"), files }
+}
+
+/**
  * What a task is handed from the ones before it.
  *
  * A handoff, not a transcript (§6.2): tasks receive what their dependencies concluded, not whole
  * conversations. It keeps the prompt small and the dependency explicit — and it is why a task stores
- * its output at all. With a graph a task may have several (H-28), so they are joined.
+ * its output at all. With a graph a task may have several (H-28), so they are joined. It builds the
+ * parts and delegates to the one renderer, so it can never drift from the selection path.
  */
-function compose(task: Task, handoff: string | undefined, context?: string, memory?: string) {
-  const body = !handoff
-    ? task.prompt
-    : [`Previous step (${handoff.length > 4000 ? "truncated" : "complete"}):`, handoff.slice(0, 4000), "", task.prompt].join(
-        "\n",
-      )
-  const head = [
-    memory ? `Project memory:\n${memory}` : "",
-    context ? `Context packs:\n${context}` : "",
-  ]
-    .filter(Boolean)
-    .join("\n\n")
-  if (!head) return body
-  return [`${head}`, "", body].join("\n")
+export function compose(task: Task, handoff: string | undefined, context?: string, memory?: string) {
+  return renderRunPrompt(
+    runPromptParts({
+      objective: task.prompt,
+      ...(handoff ? { handoff } : {}),
+      ...(context ? { artifacts: [context] } : {}),
+      ...(memory ? { memory } : {}),
+    }),
+  ).text
 }
 
 /** A name the engine can turn into a folder and a branch: lowercase, dashes, no spaces. */
@@ -179,6 +248,14 @@ export class TaskRunner {
      * adaptive layer want: the detection must never change how a run behaves.
      */
     private readonly episodes?: EpisodeCoordinator,
+    /**
+     * Where a run prompt's context is planned and, opt-in, selected among (FH-024).
+     *
+     * Absent means this runner selects nothing and renders exactly as before. When present, the plan
+     * is best-effort — a failure to plan never fails the run — and it only filters whole parts when
+     * `context.apply` is on, which is off by default.
+     */
+    private readonly context?: ContextManager,
   ) {}
 
   /**
@@ -591,7 +668,6 @@ export class TaskRunner {
           ? packFiles(context.packRefsList, directory)
           : { files: [], others: [] }
       const quoted = expandArtifactRefs(packs.others, (key) => this.artifactQuote(key, run, directory))
-      const contextText = quoted.length > 0 ? quoted.join("\n") : undefined
       const contextFiles = packs.files.map((path) => ({ path }))
       // Another vendor's CLI does the work (H-38). It is a process this server holds, so stop and
       // the run's ceiling reach it; it has no session, no model and no tokens the harness can bill.
@@ -611,14 +687,41 @@ export class TaskRunner {
         ...(permission.length > 0 ? { permission } : {}),
       })
       this.repository.attachTaskSession(task.id, session.id)
+      // The assembly, as whole parts (FH-024). Planning is best-effort: it never fails the run, and
+      // applying is opt-in (`context.apply`, off by default), so the prompt below is byte-identical
+      // to the one before selection existed until an install turns it on.
+      const parts = runPromptParts({
+        objective: task.prompt,
+        ...(handoff ? { handoff } : {}),
+        ...(quoted.length > 0 ? { artifacts: quoted } : {}),
+        ...(context.memory ? { memory: context.memory } : {}),
+        ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
+      })
+      const plan = this.context
+        ? await this.context
+            .plan({
+              parts,
+              objective: task.prompt,
+              runID: run.id,
+              taskID: task.id,
+              sessionID: session.id,
+              ...(directory ? { projectID: directory } : {}),
+            })
+            .catch(() => undefined)
+        : undefined
+      const active = this.context ? this.context.apply({ parts, plan }) : parts
+      // The audit distinguishes shadow from acting: a plan is `applied` only when it actually
+      // removed a part. `apply` never adds, so a shorter assembly means it filtered something.
+      if (this.context && plan && active.length !== parts.length) this.context.markApplied(plan.id)
+      const { text, files } = renderRunPrompt(active)
       await this.engine.prompt({
         sessionID: session.id,
-        text: compose(task, handoff, contextText, context.memory),
+        text,
         directory,
         agent: task.agent,
         // Its own model, or the policy's for the role it runs as (H-30).
         model: modelForTask(task, run.policy),
-        ...(contextFiles.length > 0 ? { files: contextFiles } : {}),
+        ...(files.length > 0 ? { files } : {}),
       })
       await this.engine.waitForIdle(session.id, {
         directory,

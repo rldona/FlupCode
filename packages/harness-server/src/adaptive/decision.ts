@@ -20,6 +20,64 @@ import type { EpisodeOutcome } from "./episode"
 export const ITEM_DISPOSITIONS = ["keep", "archive", "drop"] as const
 export type ItemDisposition = (typeof ITEM_DISPOSITIONS)[number]
 
+// ---- the context item model (FH-020) ---------------------------------------------------------
+
+/**
+ * The closed vocabulary of things a context item can be.
+ *
+ * `other` catches anything outside it and is protected; `skill` is reserved for Phase 3b/4 and the
+ * Phase 3a classifiers never emit it, but declaring it keeps the type ready without dead code.
+ */
+export const CONTEXT_ITEM_KINDS = [
+  "objective", // the objective of the task/run — never dropped
+  "plan", // the current plan
+  "decision", // a decision and its rationale
+  "handoff", // what a previous task concluded
+  "file", // a file/code reference
+  "command", // a command that ran
+  "error", // an error / red check — never dropped
+  "artifact", // an artifact quoted in the prompt
+  "memory", // a project note (human data, not an instruction)
+  "tool", // a tool call (scope + outcome)
+  "message", // agent narration
+  "history", // historical conversation
+  "skill", // RESERVED to 3b/Phase 4; 3a never emits it
+  "other", // unknown — never dropped
+] as const
+export type ContextItemKind = (typeof CONTEXT_ITEM_KINDS)[number]
+
+/**
+ * The kinds a plan never archives nor drops ("no-drop" in plan §7.2).
+ *
+ * `memory` is a human project note — an instruction a person wrote for every turn — so it is as
+ * protected as the objective: archiving it would silently drop a directive from the prompt. The
+ * `@artifact:` refs and `contextFiles` stay archivable.
+ */
+export const PROTECTED_CONTEXT_KINDS: readonly ContextItemKind[] = ["objective", "error", "other", "memory"]
+/** The only kinds `drop` may touch; everything else is archived, which is recoverable. */
+export const DROPPABLE_CONTEXT_KINDS: readonly ContextItemKind[] = ["tool", "message", "history"]
+
+export const isContextItemKind = (value: unknown): value is ContextItemKind =>
+  typeof value === "string" && (CONTEXT_ITEM_KINDS as readonly string[]).includes(value)
+
+/**
+ * The item observed: a descriptor, never content. The text lives in its durable source (a pack, an
+ * artifact, a handoff or `evidence`). `importance`/`novelty`/`state`/`reason` are results, not
+ * observations, and live on the plan entry instead.
+ */
+export type ContextItem = {
+  id: string
+  kind: ContextItemKind
+  tokens: number
+  /** Names something in the current objective (lexical). */
+  referenced: boolean
+  /** How many paths/commands/errors it carries; the scorer caps it. */
+  anchors: number
+  /** Archived by an earlier plan; a referenced archived item can recover. */
+  archived: boolean
+  createdAt?: number
+}
+
 export const DECISION_TIERS = ["CHEAP", "BALANCED", "HIGH", "MAX"] as const
 export type DecisionTier = (typeof DECISION_TIERS)[number]
 
@@ -53,10 +111,7 @@ export type SkillRelevanceState = {
   objective: string
   skills: Array<{ name: string; description: string; learned: boolean }>
 }
-export type ContextItemState = {
-  objective: string
-  items: Array<{ id: string; kind: string; tokens: number; referenced: boolean }>
-}
+export type ContextItemState = { objective: string; items: ContextItem[] }
 export type ModelRouteState = { role: string; taskName: string; declared?: string }
 export type AgentRouteState = { objective: string; signals: string[] }
 export type ToolRiskState = { tool: string; argsDigest: string }
@@ -117,6 +172,12 @@ export type DecisionPolicy = {
   minConfidence: number
   minProbability: number
   timeoutMs: number
+  /**
+   * The context scorer thresholds, carried only by `contextItem` policies, so the deterministic
+   * baseline scores on the same resolved numbers as the manager's plan instead of the defaults.
+   */
+  keepThreshold?: number
+  dropThreshold?: number
 }
 
 export const DEFAULT_DECISION_POLICY: DecisionPolicy = {
@@ -132,6 +193,19 @@ export type DecisionRequest<Q extends DecisionKind = DecisionKind> = {
   kind: Q
   state: DecisionSpec[Q]["state"]
   policy: DecisionPolicy
+  /**
+   * An explicit scope for the deterministic id when no episode or session names it (FH-023).
+   *
+   * A run prompt is planned per `(runID, taskID)` and never belongs to an episode, so it passes
+   * `"${runID}:${taskID}"` here; with the field absent the service keeps Phase 2's fallback chain.
+   */
+  scopeID?: string
+  /**
+   * The clock the request was built at, forwarded to the deterministic baseline so a scorer plan
+   * and its audit row agree when the items carry `createdAt` (FH-023). Absent means the provider's
+   * own clock, exactly as before.
+   */
+  now?: number
   episodeID?: string
   sessionID?: string
   projectID?: string

@@ -57,9 +57,14 @@ import type {
   StoredDecision,
   StoredDecisionInput,
   DecisionFilter,
+  PlanFilter,
+  StoredPlan,
+  StoredPlanInput,
 } from "./types"
 import { decisionFromRow, decisionRowFrom } from "./adaptive/decision-record"
 import type { DecisionRow } from "./adaptive/decision-record"
+import { planFromRow, planRowFrom } from "./adaptive/context-record"
+import type { PlanRow } from "./adaptive/context-record"
 import type { DecisionKind } from "./adaptive/decision"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
@@ -320,6 +325,35 @@ CREATE INDEX IF NOT EXISTS adaptive_decision_episode ON adaptive_decision(episod
 CREATE INDEX IF NOT EXISTS adaptive_decision_session ON adaptive_decision(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_kind ON adaptive_decision(kind, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_hash ON adaptive_decision(inputs_hash);
+CREATE TABLE IF NOT EXISTS adaptive_plan (
+  id TEXT PRIMARY KEY,
+  run_id TEXT,
+  task_id TEXT,
+  episode_id TEXT,
+  session_id TEXT,
+  project_id TEXT,
+  objective_hash TEXT NOT NULL,
+  items_json TEXT NOT NULL DEFAULT '[]',
+  item_count INTEGER NOT NULL DEFAULT 0,
+  keep_count INTEGER NOT NULL DEFAULT 0,
+  archive_count INTEGER NOT NULL DEFAULT 0,
+  drop_count INTEGER NOT NULL DEFAULT 0,
+  score_source TEXT NOT NULL,
+  degraded INTEGER NOT NULL DEFAULT 0,
+  degraded_reason TEXT,
+  applied INTEGER NOT NULL DEFAULT 0,
+  tokens_before INTEGER NOT NULL DEFAULT 0,
+  tokens_after INTEGER NOT NULL DEFAULT 0,
+  decision_id TEXT,
+  truncated INTEGER NOT NULL DEFAULT 0,
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS adaptive_plan_run ON adaptive_plan(run_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_plan_task ON adaptive_plan(task_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_plan_episode ON adaptive_plan(episode_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_plan_session ON adaptive_plan(session_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS adaptive_plan_project ON adaptive_plan(project_id, created_at DESC);
 `
 
 /**
@@ -927,6 +961,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("artifacts", "pinned", "INTEGER")
     this.addColumn("artifacts", "expires_at", "INTEGER")
     this.addColumn("adaptive_decision", "attempted_provider", "TEXT")
+    this.addColumn("adaptive_plan", "truncated", "INTEGER NOT NULL DEFAULT 0")
     this.migrateDocumentPaths()
   }
 
@@ -2261,6 +2296,132 @@ export class SqliteRoutineRepository implements RoutineRepository {
       return row?.count ?? 0
     } catch {
       return 0
+    }
+  }
+
+  // ---- context plans (FH-022) -----------------------------------------------------------------
+
+  /**
+   * Writes the plan, or replaces the one already under this id.
+   *
+   * The id is deterministic (`plan:<runID:taskID>` or `plan:<episodeID>`), so a re-plan converges:
+   * the row keeps its `created_at` and only moves `updated_at`. A failure to write is swallowed,
+   * because an audit row must never fail the planning it belongs to.
+   */
+  createPlan(input: StoredPlanInput, now = Date.now()): StoredPlan {
+    const row = planRowFrom(input, now)
+    try {
+      this.db
+        .query(
+          `INSERT INTO adaptive_plan (
+             id, run_id, task_id, episode_id, session_id, project_id, objective_hash, items_json,
+             item_count, keep_count, archive_count, drop_count, score_source, degraded, degraded_reason,
+             applied, tokens_before, tokens_after, decision_id, truncated, created_at, updated_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+           ON CONFLICT(id) DO UPDATE SET
+             run_id = excluded.run_id,
+             task_id = excluded.task_id,
+             episode_id = excluded.episode_id,
+             session_id = excluded.session_id,
+             project_id = excluded.project_id,
+             objective_hash = excluded.objective_hash,
+             items_json = excluded.items_json,
+             item_count = excluded.item_count,
+             keep_count = excluded.keep_count,
+             archive_count = excluded.archive_count,
+             drop_count = excluded.drop_count,
+             score_source = excluded.score_source,
+             degraded = excluded.degraded,
+             degraded_reason = excluded.degraded_reason,
+             applied = excluded.applied,
+             tokens_before = excluded.tokens_before,
+             tokens_after = excluded.tokens_after,
+             decision_id = excluded.decision_id,
+             truncated = excluded.truncated,
+             updated_at = excluded.updated_at`,
+        )
+        .run(
+          row.id,
+          row.run_id,
+          row.task_id,
+          row.episode_id,
+          row.session_id,
+          row.project_id,
+          row.objective_hash,
+          row.items_json,
+          row.item_count,
+          row.keep_count,
+          row.archive_count,
+          row.drop_count,
+          row.score_source,
+          row.degraded,
+          row.degraded_reason,
+          row.applied,
+          row.tokens_before,
+          row.tokens_after,
+          row.decision_id,
+          row.truncated,
+          row.created_at,
+          row.updated_at,
+        )
+    } catch {
+      // An audit that cannot be written is dropped, never raised into the plan.
+    }
+    return this.getPlan(row.id) ?? { ...input, truncated: false, createdAt: now, updatedAt: now }
+  }
+
+  getPlan(id: string): StoredPlan | undefined {
+    try {
+      const row = this.db.query("SELECT * FROM adaptive_plan WHERE id = ?1").get(id) as PlanRow | null
+      return row ? planFromRow(row) : undefined
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Marks a plan applied after it filtered the prompt. Best-effort like `createPlan`: a plan that
+   * cannot be written must never fail the run that produced it.
+   */
+  markApplied(id: string, now = Date.now()): StoredPlan | undefined {
+    try {
+      this.db.query("UPDATE adaptive_plan SET applied = 1, updated_at = ?2 WHERE id = ?1").run(id, now)
+    } catch {
+      return undefined
+    }
+    return this.getPlan(id)
+  }
+
+  /** Newest first, filtered by whichever of run, task, episode, session or project is given. */
+  listPlans(filter: PlanFilter = {}): StoredPlan[] {
+    const clauses: string[] = []
+    const values: Array<string | number> = []
+    const add = (column: string, value: string | undefined) => {
+      if (!value) return
+      clauses.push(`${column} = ?${values.length + 1}`)
+      values.push(value)
+    }
+    add("run_id", filter.runID)
+    add("task_id", filter.taskID)
+    add("episode_id", filter.episodeID)
+    add("session_id", filter.sessionID)
+    add("project_id", filter.projectID)
+    const limit = normalizeEpisodeLimit(filter.limit)
+    const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : ""
+    const tail = limit !== undefined ? ` LIMIT ?${values.length + 1}` : ""
+    if (limit !== undefined) values.push(limit)
+    try {
+      const rows = this.db
+        .query(`SELECT * FROM adaptive_plan${where} ORDER BY created_at DESC, id DESC${tail}`)
+        .all(...values) as PlanRow[]
+      // A row whose JSON is corrupt is decoded defensively by `planFromRow`, never thrown.
+      return rows.flatMap((row) => {
+        const plan = planFromRow(row)
+        return plan ? [plan] : []
+      })
+    } catch {
+      // An unreadable plan page answers empty rather than taking the endpoint down.
+      return []
     }
   }
 

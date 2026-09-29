@@ -95,3 +95,29 @@ and `"sweep"` marks the run terminal like restart recovery would and calls `swee
   (FH-004). Reads `partial` and cites `failure:unknown:0`, since the event names no file or line.
 - `run-crashed-then-recovered.json` — a live checkpoint, then restart recovery marks the run failed.
   The sweep settles the same row (`failed`) instead of leaving the checkpoint `unknown`.
+
+## Context fixtures (`context/`, FH-021…FH-024)
+
+Synthetic item sets seeded from the FH-007 sessions, used by `context-fixtures.test.ts` and the
+offline before/after metric in `context-eval.test.ts`. Each file is hand-labelled:
+
+```jsonc
+{
+  "name": "run-red-then-green",       // must match the file's own name
+  "objective": "…",
+  "now": 1700000000000,               // fixed clock for recency
+  "items": [                           // the observed items, content-free (opaque ids only)
+    { "id": "objective", "kind": "objective", "tokens": 9, "referenced": true, "anchors": 0, "archived": false }
+  ],
+  "labels": { "objective": "keep", "tool:bash": "drop" },  // hand-written expectation per id
+  "prompt": {                          // optional: a run-prompt golden for byte-identity
+    "handoff": "…", "memory": "…", "artifacts": ["…"], "files": ["src/math.ts"],
+    "expected": "…"                    // what the one renderer must produce
+  }
+}
+```
+
+The labels are the point: `keep` means the scorer must keep it, `drop` means it must drop it, and an
+unlabelled item is free. `context-eval.test.ts` turns the fixtures into the four measurements —
+protected retention, token reduction, wrong rate and byte-identity — so enabling `apply` stays a
+metric-gated promotion rather than a guess.

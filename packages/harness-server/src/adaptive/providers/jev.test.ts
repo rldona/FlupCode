@@ -247,8 +247,8 @@ describe("JevProvider interpretation", () => {
       sampleRequest("contextItem", {
         objective: "tidy",
         items: [
-          { id: "a", kind: "file", tokens: 1, referenced: true },
-          { id: "b", kind: "file", tokens: 1, referenced: false },
+          { id: "a", kind: "file", tokens: 1, referenced: true, anchors: 0, archived: false },
+          { id: "b", kind: "file", tokens: 1, referenced: false, anchors: 0, archived: false },
         ],
       }),
       signal,

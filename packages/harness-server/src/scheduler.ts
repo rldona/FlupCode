@@ -8,6 +8,7 @@ import type { BrowserAllowRule, Run, RunPolicy, RunSource, TaskInput } from "./t
 import { routineLockKey, type SqliteRoutineRepository } from "./repository"
 import type { ActionRunner } from "./action-runner"
 import type { EpisodeCoordinator } from "./adaptive/coordinator"
+import type { ContextManager } from "./adaptive/context-manager"
 
 type Result<T> = { data?: T; error?: unknown }
 
@@ -20,6 +21,8 @@ type SchedulerOptions = {
   actions?: ActionRunner
   /** Where a run's episode is captured at its terminal boundaries (FH-002). Absent records none. */
   episodes?: EpisodeCoordinator
+  /** Where a run prompt's context is planned and, opt-in, selected among (FH-024). Absent selects none. */
+  context?: ContextManager
 }
 
 const unwrap = async <T>(call: Promise<Result<T>>) => {
@@ -76,6 +79,7 @@ export class RoutineScheduler {
   readonly lockTtlMs: number
   readonly actions?: ActionRunner
   readonly episodes?: EpisodeCoordinator
+  readonly context?: ContextManager
   private readonly owner = crypto.randomUUID()
   private readonly stopping = new Set<string>()
   private timer: ReturnType<typeof setInterval> | undefined
@@ -89,6 +93,7 @@ export class RoutineScheduler {
     this.lockTtlMs = options.lockTtlMs ?? 24 * 60 * 60 * 1000
     this.actions = options.actions
     this.episodes = options.episodes
+    this.context = options.context
   }
 
   start() {
@@ -256,7 +261,7 @@ export class RoutineScheduler {
   private async drive(runID: string, directory?: string) {
     const run = this.repository.getRun(runID)
     if (!run) return
-    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes)
+    const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context)
     try {
       const outcome = await runner.execute(run, { directory, stopped: () => this.stopping.has(runID) })
       if (outcome === "paused" && !this.stopping.has(runID)) return this.repository.awaitRun(runID)
@@ -527,7 +532,7 @@ export class RoutineScheduler {
       Math.max(1000, Math.floor(this.lockTtlMs / 3)),
     )
     try {
-      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes)
+      const runner = new TaskRunner(this.repository, this.engine, this.actions, this.episodes, this.context)
       const outcome = await runner.execute(run, {
         directory: routine.projectDirectory,
         stopped: () => this.stopping.has(run.id),

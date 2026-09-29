@@ -20,7 +20,14 @@ import type {
   EpisodeVerification,
   SessionEpisode,
 } from "./adaptive/episode"
-import type { DecisionKind, DecisionPolicy, DecisionSource, DegradedReason } from "./adaptive/decision"
+import type {
+  ContextItemKind,
+  DecisionKind,
+  DecisionPolicy,
+  DecisionSource,
+  DegradedReason,
+  ItemDisposition,
+} from "./adaptive/decision"
 
 export type {
   EpisodeFailure,
@@ -657,8 +664,90 @@ export type DecisionRepository = AdaptiveUsageRepository & {
   countDecisionsForEpisode(episodeID: string, kind: DecisionKind): number
 }
 
+/**
+ * One entry of a context plan (FH-022): what was decided about one observed item.
+ *
+ * It carries the item's opaque id and the plan's own results — the score, the disposition and the
+ * stable reason — never the item's content. The SHA of the objective is the only hash kept; the text
+ * stays in its durable source and is reached through the episode's evidence refs.
+ */
+export type ContextPlanEntry = {
+  id: string
+  kind: ContextItemKind
+  score: number
+  disposition: ItemDisposition
+  reason: string
+  protected: boolean
+  tokens: number
+  /** The evidence slice this item is explained from, when the source has one. */
+  evidenceRef?: string
+}
+
+/**
+ * A context plan (FH-022): the decision taken over the items a run prompt or an episode exposed.
+ *
+ * The plan is content-free by construction — ids, scores, reasons and scope — so it can be audited
+ * and persisted without a second copy of the session. It is the domain shape; the store adds its own
+ * timestamps.
+ */
+export type ContextPlan = {
+  id: string
+  runID?: string
+  taskID?: string
+  episodeID?: string
+  sessionID?: string
+  projectID?: string
+  /** The hash of the objective, never the objective text. */
+  objectiveHash: string
+  entries: ContextPlanEntry[]
+  scoreSource: "deterministic" | "jev"
+  degraded: boolean
+  degradedReason?: DegradedReason
+  /** Whether the plan actually filtered the prompt; false while the seam is in shadow. */
+  applied: boolean
+  tokensBefore: number
+  tokensAfter: number
+  /** The `contextItem` decision row when Jev was asked, so the plan can explain itself. */
+  decisionID?: string
+  createdAt: number
+}
+
+/** A stored plan: the domain plan plus the store's own `updatedAt` and the bound marker. */
+export type StoredPlan = ContextPlan & {
+  /** A plan too large to store whole was trimmed; the bytes remain in their durable source. */
+  truncated: boolean
+  updatedAt: number
+}
+
+/** What a writer supplies; the store stamps the timestamps and computes `truncated`. */
+export type StoredPlanInput = Omit<StoredPlan, "createdAt" | "updatedAt" | "truncated">
+
+/** How plans are listed; an absent field is not a filter (FH-022). */
+export type PlanFilter = {
+  runID?: string
+  taskID?: string
+  episodeID?: string
+  sessionID?: string
+  projectID?: string
+  limit?: number
+}
+
+/**
+ * The plan audit (FH-022).
+ *
+ * `createPlan` is an upsert by the deterministic id, so re-planning the same run task or episode
+ * converges on one row and a plan is always reconstructible.
+ */
+export type ContextPlanRepository = {
+  createPlan(input: StoredPlanInput, now?: number): StoredPlan
+  getPlan(id: string): StoredPlan | undefined
+  listPlans(filter?: PlanFilter): StoredPlan[]
+  /** Marks a stored plan as having filtered something; an identity apply leaves it `false`. */
+  markApplied(id: string, now?: number): StoredPlan | undefined
+}
+
 /** Routines, and the lock that keeps one from running twice at once. */
-export type RoutineRepository = RunRepository & EpisodeRepository & DecisionRepository & {
+export type RoutineRepository = RunRepository & EpisodeRepository & DecisionRepository & ContextPlanRepository & {
   /**
    * Terminal runs finished inside the window that still have no terminal episode, newest first
    * (FH-002).

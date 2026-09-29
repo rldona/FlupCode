@@ -3,10 +3,11 @@ import { createHash } from "node:crypto"
 import { resolveAdaptiveConfig } from "./config"
 import { createDecisionService } from "./decision-service"
 import type { DecisionService } from "./decision-service"
+import { createContextManager } from "./context-manager"
 import { createAdaptiveEgressGuard } from "./egress"
-import { E2_KINDS } from "./decision"
 import { decisionID } from "./decision-record"
-import { createShadowRunner } from "./shadow"
+import { planID } from "./compaction-plan"
+import { createShadowRunner, SHADOW_KINDS } from "./shadow"
 import { createEpisodeCoordinator } from "./coordinator"
 import { runEpisodeID } from "./episode"
 import { SqliteRoutineRepository } from "../repository"
@@ -48,15 +49,29 @@ const serviceFor = (repository: SqliteRoutineRepository, shadow: boolean) => {
   return service
 }
 
-const shadowFor = (repository: SqliteRoutineRepository, service: DecisionService, shadow: boolean, onError?: (cause: unknown) => void) =>
-  createShadowRunner({
+const shadowFor = (
+  repository: SqliteRoutineRepository,
+  service: DecisionService,
+  shadow: boolean,
+  onError?: (cause: unknown) => void,
+) => {
+  const config = () => resolveAdaptiveConfig({ block: { shadow }, env: {} })
+  const context = createContextManager({
+    repository,
+    service,
+    config,
+    opaqueKey: () => OPAQUE_KEY,
+    now: () => NOW,
+  })
+  return createShadowRunner({
     service,
     repository,
-    config: () => resolveAdaptiveConfig({ block: { shadow }, env: {} }),
-    opaqueKey: () => OPAQUE_KEY,
+    config,
+    context,
     readSkills: () => SKILLS,
     ...(onError ? { onError } : {}),
   })
+}
 
 /** The fire-and-forget decisions resolve in a microtask; a macrotask flush is enough. */
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -75,7 +90,7 @@ const normalize = (episode: SessionEpisode, runID: string, taskIDs: string[]): S
 })
 
 describe("the decision shadow (FH-017)", () => {
-  test("on: it records the E2 decisions and leaves the episode identical byte for byte", async () => {
+  test("on: it records the shadow decisions and the plan, and leaves the episode identical byte for byte", async () => {
     const withShadow = new SqliteRoutineRepository(":memory:")
     const runWith = seedRun(withShadow)
     const shadow = shadowFor(withShadow, serviceFor(withShadow, true), true)
@@ -83,8 +98,12 @@ describe("the decision shadow (FH-017)", () => {
     await flush()
 
     const decisions = withShadow.listDecisions({ episodeID: episode.id })
-    expect(decisions.map((decision) => decision.kind).sort()).toEqual([...E2_KINDS].sort())
-    expect(withShadow.listDecisions()).toHaveLength(3)
+    expect(decisions.map((decision) => decision.kind).sort()).toEqual([...SHADOW_KINDS].sort())
+    expect(withShadow.listDecisions()).toHaveLength(SHADOW_KINDS.length)
+    // The manager delegated by the shadow wrote the plan; the episode carried no evidence, so it is
+    // empty and Jev was never asked.
+    expect(withShadow.getPlan(planID(episode.id))).toBeDefined()
+    expect(withShadow.getPlan(planID(episode.id))!.entries).toHaveLength(0)
     // The episode row the callback saw is the same one that was returned: the shadow wrote nothing
     // to it.
     expect(withShadow.getEpisode(episode.id)).toEqual(episode)
@@ -124,29 +143,33 @@ describe("the decision shadow (FH-017)", () => {
       egress: createAdaptiveEgressGuard({ config: () => config }),
       now: () => NOW,
     })
-    const shadow = createShadowRunner({ service, repository, config: () => config, opaqueKey: () => OPAQUE_KEY, readSkills: () => SKILLS })
+    const context = createContextManager({ repository, service, config: () => config, opaqueKey: () => OPAQUE_KEY, now: () => NOW })
+    const shadow = createShadowRunner({ service, repository, config: () => config, context, readSkills: () => SKILLS })
     const episode = coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)!
     await flush()
 
     expect(repository.listDecisions()).toHaveLength(0)
+    expect(repository.listPlans()).toHaveLength(0)
     // The switch stops decisions, not episodes: the episode row is still written as usual.
     expect(repository.getEpisode(episode.id)).toEqual(episode)
     expect(shadow.sweep()).toBe(0)
     repository.close()
   })
 
-  test("a second close is the same decision, not a second one", async () => {
+  test("a second close is the same decision and the same plan, not a second one", async () => {
     const repository = new SqliteRoutineRepository(":memory:")
     const run = seedRun(repository)
     const service = serviceFor(repository, true)
     const shadow = shadowFor(repository, service, true)
     const episode = coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)!
     await flush()
-    expect(repository.listDecisions()).toHaveLength(3)
+    expect(repository.listDecisions()).toHaveLength(SHADOW_KINDS.length)
+    expect(repository.listPlans()).toHaveLength(1)
 
     shadow.onEpisodeClosed(episode)
     await flush()
-    expect(repository.listDecisions()).toHaveLength(3)
+    expect(repository.listDecisions()).toHaveLength(SHADOW_KINDS.length)
+    expect(repository.listPlans()).toHaveLength(1)
     repository.close()
   })
 
@@ -183,12 +206,37 @@ describe("the decision shadow (FH-017)", () => {
 
     expect(shadow.sweep()).toBe(1)
     await flush()
-    expect(repository.listDecisions()).toHaveLength(3)
+    expect(repository.listDecisions()).toHaveLength(SHADOW_KINDS.length)
+    expect(repository.listPlans()).toHaveLength(1)
     expect(shadow.sweep()).toBe(0)
     repository.close()
   })
 
-  test("no raw content reaches the audit row: a canary in a command and a failure is nowhere", async () => {
+  test("with the context slice off, the sweep does not re-enqueue for a plan it will never write", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const run = seedRun(repository)
+    const config = () => resolveAdaptiveConfig({ block: { shadow: true, context: { enabled: false } }, env: {} })
+    const service = createDecisionService({
+      repository,
+      config,
+      egress: createAdaptiveEgressGuard({ config }),
+      now: () => NOW,
+    })
+    const context = createContextManager({ repository, service, config, opaqueKey: () => OPAQUE_KEY, now: () => NOW })
+    const shadow = createShadowRunner({ service, repository, config, context, readSkills: () => SKILLS })
+    coordinatorFor(repository).captureRun(run.id)
+
+    // The decisions are missing, so the episode is worked once; the plan is off, so it is not.
+    expect(shadow.sweep()).toBe(1)
+    await flush()
+    expect(repository.listDecisions()).toHaveLength(SHADOW_KINDS.length)
+    expect(repository.listPlans()).toHaveLength(0)
+    // Before the fix the missing plan kept `needsWork` true forever and re-enqueued every sweep.
+    expect(shadow.sweep()).toBe(0)
+    repository.close()
+  })
+
+  test("no raw content reaches the audit: a canary in a command and a failure is nowhere", async () => {
     const CANARY = "SECRETCANARY-abcdefghijklmnop"
     const repository = new SqliteRoutineRepository(":memory:")
     const run = repository.startRun({ type: "manual" }, NOW, "/work/project")
@@ -204,7 +252,8 @@ describe("the decision shadow (FH-017)", () => {
       egress: createAdaptiveEgressGuard({ config: () => config, secrets: () => [CANARY] }),
       now: () => NOW,
     })
-    const shadow = createShadowRunner({ service, repository, config: () => config, opaqueKey: () => OPAQUE_KEY, readSkills: () => SKILLS })
+    const context = createContextManager({ repository, service, config: () => config, egress: createAdaptiveEgressGuard({ config: () => config, secrets: () => [CANARY] }), opaqueKey: () => OPAQUE_KEY, now: () => NOW })
+    const shadow = createShadowRunner({ service, repository, config: () => config, context, readSkills: () => SKILLS })
     const coordinator = createEpisodeCoordinator({
       repository,
       now: () => NOW,
@@ -227,33 +276,41 @@ describe("the decision shadow (FH-017)", () => {
 
     // The episode is local and keeps the canary; the audit must not.
     expect(JSON.stringify(episode)).toContain(CANARY)
-    const rows = repository.db
+    const decisionRows = repository.db
       .query("SELECT answer_json, baseline_answer_json, state_summary_json FROM adaptive_decision")
       .all()
-    expect(rows.length).toBeGreaterThan(0)
-    for (const row of rows) {
+    const planRows = repository.db.query("SELECT items_json FROM adaptive_plan").all()
+    for (const row of [...decisionRows, ...planRows]) {
       expect(JSON.stringify(row)).not.toContain(CANARY)
     }
 
-    // The context ids are opaque digests, not the path, command or failure text.
-    const context = repository.getDecision(decisionID("contextItem", episode.id))!
-    const ids = (context.answer as { decisions: Array<{ id: string }> }).decisions.map((entry) => entry.id)
-    expect(ids.some((id) => id.includes("curl"))).toBe(false)
-    expect(ids.some((id) => id.includes("Bearer"))).toBe(false)
-    expect(ids.every((id) => /^(?:file|command|failure):[0-9a-f]{16}$/.test(id))).toBe(true)
+    // The plan's item ids are opaque digests, not the path, command or failure text.
+    const plan = repository.getPlan(planID(episode.id))!
+    expect(plan.entries.length).toBeGreaterThan(0)
+    expect(plan.entries.every((entry) => /^(?:file|command|failure):[0-9a-f]{16}$/.test(entry.id))).toBe(true)
+    expect(plan.entries.some((entry) => entry.id.includes("curl"))).toBe(false)
+    expect(plan.entries.some((entry) => entry.id.includes("Bearer"))).toBe(false)
+    // When the episode had an ambiguous item the manager asked the service, which audited the same
+    // opaque ids.
+    const contextDecision = repository.getDecision(decisionID("contextItem", episode.id))
+    if (contextDecision) {
+      const ids = (contextDecision.answer as { decisions: Array<{ id: string }> }).decisions.map((entry) => entry.id)
+      expect(ids.every((id) => /^(?:file|command|failure):[0-9a-f]{16}$/.test(id))).toBe(true)
+    }
     repository.close()
   })
 
-  test("the close callback only enqueues: no skill read or decision write on the synchronous path", async () => {
+  test("the close callback only enqueues: no skill read or write on the synchronous path", async () => {
     const repository = new SqliteRoutineRepository(":memory:")
     const run = seedRun(repository)
     let skillReads = 0
     const service = serviceFor(repository, true)
+    const config = () => resolveAdaptiveConfig({ block: { shadow: true }, env: {} })
     const shadow = createShadowRunner({
       service,
       repository,
-      config: () => resolveAdaptiveConfig({ block: { shadow: true }, env: {} }),
-      opaqueKey: () => OPAQUE_KEY,
+      config,
+      context: createContextManager({ repository, service, config, opaqueKey: () => OPAQUE_KEY, now: () => NOW }),
       readSkills: () => {
         skillReads += 1
         return SKILLS
@@ -262,13 +319,13 @@ describe("the decision shadow (FH-017)", () => {
     const coordinator = coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry))
     coordinator.captureRun(run.id)
 
-    // Synchronously, after the close returns: neither the skill read (FS) nor a decision write ran.
+    // Synchronously, after the close returns: neither the skill read (FS) nor a write ran.
     expect(skillReads).toBe(0)
     expect(repository.listDecisions()).toHaveLength(0)
 
     await flush()
     expect(skillReads).toBe(1)
-    expect(repository.listDecisions()).toHaveLength(3)
+    expect(repository.listDecisions()).toHaveLength(SHADOW_KINDS.length)
     repository.close()
   })
 
@@ -288,7 +345,8 @@ describe("the decision shadow (FH-017)", () => {
         egress: createAdaptiveEgressGuard({ config: () => config }),
         now: () => NOW,
       })
-      const shadow = createShadowRunner({ service, repository, config: () => config, opaqueKey: () => key, readSkills: () => [] })
+      const context = createContextManager({ repository, service, config: () => config, opaqueKey: () => key, now: () => NOW })
+      const shadow = createShadowRunner({ service, repository, config: () => config, context, readSkills: () => [] })
       const coordinator = createEpisodeCoordinator({
         repository,
         now: () => NOW,
@@ -301,9 +359,8 @@ describe("the decision shadow (FH-017)", () => {
       })
       const episode = coordinator.captureRun(run.id)!
       await flush()
-      const context = repository.getDecision(decisionID("contextItem", episode.id))!
-      const serialized = JSON.stringify(context.answer)
-      const matches = serialized.match(/command:[0-9a-f]{16}/g) ?? []
+      const plan = repository.getPlan(planID(episode.id))!
+      const matches = plan.entries.flatMap((entry) => (entry.id.startsWith("command:") ? [entry.id] : []))
       repository.close()
       return matches
     }

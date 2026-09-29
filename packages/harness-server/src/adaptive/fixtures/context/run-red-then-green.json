@@ -1,0 +1,27 @@
+{
+  "name": "run-red-then-green",
+  "objective": "Make the failing check in src/math.ts pass",
+  "now": 1700000000000,
+  "items": [
+    { "id": "objective", "kind": "objective", "tokens": 9, "referenced": true, "anchors": 0, "archived": false },
+    { "id": "failure:the check is red", "kind": "error", "tokens": 5, "referenced": true, "anchors": 1, "archived": false },
+    { "id": "file:src/math.ts", "kind": "file", "tokens": 4, "referenced": true, "anchors": 1, "archived": false },
+    { "id": "command:bun test", "kind": "command", "tokens": 3, "referenced": false, "anchors": 1, "archived": false },
+    { "id": "tool:bash", "kind": "tool", "tokens": 120, "referenced": false, "anchors": 0, "archived": false },
+    { "id": "message:thinking out loud", "kind": "message", "tokens": 200, "referenced": false, "anchors": 0, "archived": false }
+  ],
+  "labels": {
+    "objective": "keep",
+    "failure:the check is red": "keep",
+    "file:src/math.ts": "keep",
+    "tool:bash": "drop",
+    "message:thinking out loud": "drop"
+  },
+  "prompt": {
+    "handoff": "The previous step fixed src/math.ts",
+    "memory": "- run bun test before pushing",
+    "artifacts": ["--- verdict (verdict) ---\nred\n---"],
+    "files": ["src/math.ts"],
+    "expected": "Project memory:\n- run bun test before pushing\n\nContext packs:\n--- verdict (verdict) ---\nred\n---\n\nPrevious step (complete):\nThe previous step fixed src/math.ts\n\nMake the failing check in src/math.ts pass"
+  }
+}

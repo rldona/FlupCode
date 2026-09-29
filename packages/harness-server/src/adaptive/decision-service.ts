@@ -20,6 +20,7 @@ import type {
   DegradedReason,
 } from "./decision"
 import type { AdaptiveConfig } from "./config"
+import { estimateTokens } from "./context"
 import type { EgressGuard } from "./egress"
 import { boundAnswer, boundSummary, decisionID } from "./decision-record"
 import { deterministicBaseline } from "./providers/deterministic"
@@ -62,8 +63,18 @@ export type DecisionExplanation = {
   decidedAt: number
 }
 
+/**
+ * Which governor entry a prediction goes through (ADR-0017 §4).
+ *
+ * `hot` is the live path: it never queues behind the adaptive limiter and is bounded end to end by
+ * the request's `timeoutMs`, so a live turn cannot wait for Jev because a background batch saturates
+ * the limiter. `batch` is the default for background work (the shadow), which goes through the
+ * limiter and still shares the breaker, budget and single-flight.
+ */
+export type PredictionMode = "hot" | "batch"
+
 export type DecisionService = {
-  predict<Q extends DecisionKind>(request: DecisionRequest<Q>): Promise<DecisionResult<Q>>
+  predict<Q extends DecisionKind>(request: DecisionRequest<Q>, mode?: PredictionMode): Promise<DecisionResult<Q>>
   decisions(filter?: DecisionFilter): StoredDecision[]
   explain(id: string): DecisionExplanation | undefined
 }
@@ -92,9 +103,6 @@ const QUESTIONS: Record<DecisionKind, string> = {
   toolRisk: "How risky is this tool call?",
   failure: "Should the harness intervene in this loop?",
 }
-
-/** A rough token estimate: four characters per token, conservative enough for the budget. */
-const estimateTokens = (body: string): number => Math.ceil(body.length / 4)
 
 /**
  * A gate passes when every axis the answer actually reports clears its threshold.
@@ -139,6 +147,7 @@ export function createDecisionService(deps: {
     baseline: DeterministicBaseline<Q>,
     body: string,
     hash: string,
+    mode: PredictionMode,
   ): Promise<Improved<Q>> => {
     const startedAt = now()
     // The deterministic rule answers whenever the external provider does not win; the row keeps who
@@ -153,13 +162,15 @@ export function createDecisionService(deps: {
       degradedReason: reason,
     })
     try {
-      // Shadow work is background work: it goes through the batch entry, behind the limiter, sharing
-      // the breaker and budget with the hot path.
-      const raw = await governor.runBatch(
-        governorKey(request.kind, hash, config.jev.model),
-        estimateTokens(body),
-        (signal) => provider.answer(request, signal),
-      )
+      // The hot path never acquires a limiter slot, so a saturating batch cannot delay a live turn
+      // (ADR-0017 §4). Batch stays on the limiter for background work. The hot call is bounded end to
+      // end by the request's own timeout: the deadline aborts the provider, so a live turn never waits
+      // for Jev beyond `timeoutMs` even when the provider hangs.
+      const deadline = mode === "hot" ? AbortSignal.timeout(request.policy.timeoutMs) : undefined
+      const key = governorKey(request.kind, hash, config.jev.model)
+      const tokens = estimateTokens(body)
+      const work = (signal: AbortSignal) => provider.answer(request, deadline ? AbortSignal.any([signal, deadline]) : signal)
+      const raw = mode === "hot" ? await governor.runHot(key, tokens, work) : await governor.runBatch(key, tokens, work)
       // A wrapping provider (the FH-013 fallback) already exhausted its retries and handed back the
       // deterministic answer. Honor its outcome instead of relabelling it as a Jev win.
       if (raw.degraded) {
@@ -196,7 +207,14 @@ export function createDecisionService(deps: {
         degraded: false,
       }
     } catch (cause) {
-      const reason = cause instanceof DecisionUnavailable ? cause.reason : "network"
+      // An aborted deadline is a timeout, not a network fault: the hot path must record the reason it
+      // actually degraded for.
+      const reason =
+        cause instanceof DecisionUnavailable
+          ? cause.reason
+          : cause instanceof Error && (cause.name === "AbortError" || cause.name === "TimeoutError")
+            ? "timeout"
+            : "network"
       governor.recordFailure(reason)
       // A 429 is a 429: the limiter backs off whether or not the provider named a `Retry-After`.
       if (reason === "rate-limited")
@@ -205,7 +223,10 @@ export function createDecisionService(deps: {
     }
   }
 
-  const predict = async <Q extends DecisionKind>(request: DecisionRequest<Q>): Promise<DecisionResult<Q>> => {
+  const predict = async <Q extends DecisionKind>(
+    request: DecisionRequest<Q>,
+    mode: PredictionMode = "batch",
+  ): Promise<DecisionResult<Q>> => {
     const config = deps.config()
     const baseline = deterministicBaseline(request)
     const prepared = deps.egress.prepare(request as AnyDecisionRequest)
@@ -233,9 +254,9 @@ export function createDecisionService(deps: {
       request.policy.allowJev && config.jev.enabled && deps.egress.allows(request.kind, request.projectID)
     const improved: Improved<Q> =
       external !== undefined && governor !== undefined && mayAttempt
-        ? await improve(external, governor, request, config, baseline, prepared.body, prepared.hash)
+        ? await improve(external, governor, request, config, baseline, prepared.body, prepared.hash, mode)
         : { answer: baseline.answer, source: "deterministic", provider: "deterministic", latencyMs: 0, degraded: false }
-    const scopeID = request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
+    const scopeID = request.scopeID ?? request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
     // The audit never retains what egress would not let out (ADR-0017 §3): the answer and the
     // baseline go through the same redaction and bound before they reach the writer.
     const input: StoredDecisionInput = {

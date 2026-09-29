@@ -15,19 +15,17 @@
  */
 
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
-import type {
-  CompletionAnswer,
-  CompletionState,
-  ContextItemAnswer,
-  ContextItemState,
-  SkillRelevanceAnswer,
-  SkillRelevanceState,
-} from "../decision"
+import type { CompletionAnswer, CompletionState, SkillRelevanceAnswer, SkillRelevanceState } from "../decision"
+import { words } from "../context"
+import { deterministicContextItem } from "../scoring"
 import type { DecisionProvider, ProviderAnswer } from "./provider"
 
 /** One handler per kind; the mapped type obliges every kind to be implemented. */
 export type DeterministicHandler = {
-  [Q in DecisionKind]: (state: DecisionSpec[Q]["state"]) => { answer: DecisionSpec[Q]["answer"]; rule: string }
+  [Q in DecisionKind]: (request: DecisionRequest<Q>) => {
+    answer: DecisionSpec[Q]["answer"]
+    rule: string
+  }
 }
 
 export type DeterministicBaseline<Q extends DecisionKind = DecisionKind> = {
@@ -48,10 +46,6 @@ function deterministicCompletion(state: CompletionState): CompletionAnswer {
   return { verdict: complete ? "complete" : "not_complete" }
 }
 
-const NOT_A_WORD = /[^\p{L}\p{N}]+/u
-const words = (text: string): string[] =>
-  text.toLowerCase().split(NOT_A_WORD).filter((word) => word.length >= 3)
-
 /**
  * The skills whose name or description shares a word with the objective.
  *
@@ -66,15 +60,21 @@ function lexicallyRelevant(state: SkillRelevanceState): SkillRelevanceAnswer {
   return { load }
 }
 
-/** Every item stays: the deterministic context answer never drops anything on its own. */
-function deterministicContextItem(state: ContextItemState): ContextItemAnswer {
-  return { decisions: state.items.map((item) => ({ id: item.id, disposition: "keep" })) }
-}
-
 export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
-  completion: (state) => ({ answer: deterministicCompletion(state), rule: "episode-outcome" }),
-  skillRelevance: (state) => ({ answer: lexicallyRelevant(state), rule: "lexical-objective-match" }),
-  contextItem: (state) => ({ answer: deterministicContextItem(state), rule: "keep-all" }),
+  completion: (request) => ({ answer: deterministicCompletion(request.state), rule: "episode-outcome" }),
+  skillRelevance: (request) => ({ answer: lexicallyRelevant(request.state), rule: "lexical-objective-match" }),
+  // The scorer replaced Phase 2's keep-all: the single implementation lives in `scoring.ts`. The
+  // request's clock and the resolved thresholds on its policy are forwarded, so a manager-computed
+  // plan and this baseline score on the same clock and the same numbers.
+  contextItem: (request) => ({
+    answer: deterministicContextItem(
+      request.state,
+      request.now,
+      request.policy.keepThreshold,
+      request.policy.dropThreshold,
+    ),
+    rule: "context-score",
+  }),
   // The four kinds below are typed but not implemented in this phase: each answers its safe default.
   modelRoute: () => ({ answer: { tier: "BALANCED" }, rule: "declared-policy" }),
   agentRoute: () => ({ answer: { agent: "CONTINUE" }, rule: "safe-default" }),
@@ -85,7 +85,7 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
 /** The deterministic answer and the rule that produced it, for the service to store as the baseline. */
 export function deterministicBaseline<Q extends DecisionKind>(request: DecisionRequest<Q>): DeterministicBaseline<Q> {
   const handler: DeterministicHandler[Q] = DETERMINISTIC_HANDLERS[request.kind]
-  return handler(request.state)
+  return handler(request)
 }
 
 /** The provider the service always has, whatever the external slot holds. */
