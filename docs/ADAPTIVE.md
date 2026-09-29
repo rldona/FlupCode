@@ -299,8 +299,9 @@ what the promotion fixes and, where it is not landed yet, what stands today.
 
 E7 (FH-060–063, [ADR-0023](adr/0023-failure-loop-guardrails.md)) detects a **failing or looping**
 session and records an **advisory** intervention. It never pauses, blocks or mutates a turn: the
-engine plugin only reports, the server decides, and a person reads the audit. The original FH-062
-session banner is deferred; no new UI ships with this block.
+engine plugin only reports, the server decides, and the app shows a dismissible **`warn` banner**
+while the loop is live. Nothing is paused — the turn keeps running — and the reader may open the
+decisions or dismiss the banner.
 
 - **Off by default.** `adaptive.guardrails.enabled=false` (the default) makes `observe` return
   `{ verdict: "continue", reason: "disabled" }` **before** touching any state and **without** writing
@@ -322,8 +323,15 @@ session banner is deferred; no new UI ships with this block.
   "unsupported"`.
 - **The notice is the audit.** No new table: a detected loop writes one `adaptive_decision` row with
   `kind: "failure"`, `shadow: 0`, a deterministic id (`failure:${sessionID}:${keyDigest}`) and the
-  `failure` and `toolRisk` decisions. A persistent loop is cached, so it neither re-spends Jev nor
-  rewrites the row; the audit is `/harness/adaptive/decisions` and `explain`.
+  `failure` and `toolRisk` decisions. A persistent loop is cached within the window, so it does not
+  re-spend Jev or rewrite the row; the audit is `/harness/adaptive/decisions` and `explain`.
+- **The advisory banner (FH-062).** While a session is selected, the cockpit reads
+  `GET /harness/adaptive/guardrails/status?sessionID=` under the artifacts bearer (read-only, no
+  acting token) and paints a dismissible banner over the conversation when the same in-memory ring
+  crosses a threshold. It carries only opaque state — reason, counts, tool, `decisionID`, risk and
+  time — never content, and it clears itself when the streak breaks, the window expires or the
+  feature is off. The dismissal is per `decisionID` and in memory: a new loop arms it again and a
+  session change forgets it. It is a warning only, and the turn is never stopped.
 - **`toolRisk` is raise-only.** `clampLearned` caps any learned score at `CONFIRM` and
   `elevateRisk(native, learned)` returns the most restrictive of the native floor and the clamped
   score, so a learned policy can only raise confirmation and can never reach `DENY` unless the native
@@ -336,6 +344,7 @@ session banner is deferred; no new UI ships with this block.
 | --- | --- | --- | --- |
 | `adaptive.guardrails.enabled=false` | the ring, the decisions and every row (returns `disabled`) | the turn, the tool path, any other adaptive surface | ADR-0023 |
 | a non-legacy runtime | the ring and the decisions (returns `runtime-not-legacy`) | the turn, the tool path | ADR-0023 |
+| the advisory banner (`warn`) | nothing — it warns and is dismissible, it never stops the turn | the turn, the tool path, `doom_loop` | ADR-0023 |
 
 ## The cockpit (E8)
 
