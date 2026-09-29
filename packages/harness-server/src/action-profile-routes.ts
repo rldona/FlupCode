@@ -6,13 +6,9 @@
  * derived by `action-config.ts`, never taken from the request.
  */
 
-import {
-  ActionConfigError,
-  listActionProfiles,
-  removeActionProfile,
-  writeActionProfile,
-} from "./action-config"
+import { listActionProfiles, removeActionProfile, writeActionProfile } from "./action-config"
 import type { ActionProfileScope } from "./config-files"
+import { ConfigWriteError } from "./config-write"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -81,6 +77,6 @@ const dispatch = async (request: Request, segments: string[]): Promise<Response>
 }
 
 const failure = (cause: unknown): Response => {
-  if (cause instanceof ActionConfigError) return error(cause.message, cause.code, cause.status)
+  if (cause instanceof ConfigWriteError) return error(cause.message, cause.code, cause.status)
   return error(cause instanceof Error ? cause.message : String(cause), "internal_error", 500)
 }

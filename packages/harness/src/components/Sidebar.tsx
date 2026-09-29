@@ -98,6 +98,7 @@ type SidebarProps = {
   onRuns: () => void
   onUsage: () => void
   onContext: () => void
+  onDecisions: () => void
   onAgents: () => void
   onSkills: () => void
   onWorkflows: () => void
@@ -689,6 +690,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
                   separator,
                   { label: t("Providers & API keys"), icon: "⚿", onSelect: props.onProviders },
                   { label: t("Context"), icon: "◫", onSelect: props.onContext },
+                  { label: t("Decisions"), icon: "◆", onSelect: props.onDecisions },
                   { label: t("Agents"), icon: "◍", onSelect: props.onAgents },
                   { label: t("Skills"), icon: "✦", onSelect: props.onSkills },
                   separator,

@@ -163,6 +163,11 @@ describe("createHarnessServer runtime probe wiring", () => {
     expect(await health(app)).not.toContain("adaptive-relevance")
     expect((await postRelevance(app)).status).toBe(404)
   })
+
+  test("announces the adaptive settings surface whenever the service is built", async () => {
+    const app = startAt()
+    expect(await health(app)).toContain("adaptive-config")
+  })
 })
 
 /**

@@ -7707,6 +7707,36 @@ button.fc-status {
   gap: 8px;
 }
 
+/* A section label inside a settings group, quieter than the group's own title. */
+.fc-settings-subtitle {
+  margin: var(--fc-space-3) 0 2px;
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fc-text-muted);
+}
+
+/* The kill switch's row: the one control that stops the whole layer, held apart from the rest. */
+.fc-settings-highlight {
+  margin-inline: calc(var(--fc-space-3) * -1);
+  padding-inline: var(--fc-space-3);
+  border-radius: var(--fc-radius-md);
+  background: color-mix(in srgb, var(--fc-accent) 8%, transparent);
+}
+
+/* A control the server's last `422` blamed, so it is not lost among the untouched ones. */
+.fc-settings-refused {
+  border-radius: var(--fc-radius-md);
+  box-shadow: 0 0 0 1px var(--fc-danger);
+}
+
+/* Hooks the cockpit uses (and E2E selects on); they add no layout of their own. */
+.fc-context-plan,
+.fc-skill-learned {
+  scroll-margin-block-start: var(--fc-space-3);
+}
+
 /* Modals: the backdrop fades in and the dialog rises and scales into place. */
 @keyframes fc-backdrop-in {
   from {

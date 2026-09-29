@@ -58,6 +58,12 @@ import type {
   UsageReport,
   Workflow,
   WorkflowFile,
+  AdaptiveConfigView,
+  DecisionExplanation,
+  LearnedSkill,
+  SkillProposal,
+  StoredDecision,
+  StoredPlan,
 } from "./types"
 
 type RoutineCreateRequest = RoutineInput & Partial<Pick<Routine, "id" | "enabled" | "createdAt" | "lastRunAt" | "runs">>
@@ -1202,6 +1208,72 @@ async function harnessAuthorizedJson<T>(baseUrl: string, path: string, init?: Re
   return body?.data as T
 }
 
+const stringList = (value: unknown): string[] | undefined =>
+  Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") : undefined
+
+/**
+ * A config write the server refused (FH-070).
+ *
+ * The `422` carries closed codes the panel turns into messages, and the fields it blames. Losing
+ * them behind the message alone would leave the reader with "this change needs confirmation" and no
+ * way to tell which control asked for it.
+ */
+export class AdaptiveConfigError extends Error {
+  constructor(
+    message: string,
+    readonly code: string,
+    readonly fields?: string[],
+    readonly missing?: string[],
+  ) {
+    super(message)
+    this.name = "AdaptiveConfigError"
+  }
+}
+
+/** The same call as `harnessAuthorizedJson`, keeping the warnings a config write travels with. */
+async function harnessAuthorizedEnvelope<T>(
+  baseUrl: string,
+  path: string,
+  init?: RequestInit,
+): Promise<{ data: T; warnings: string[] }> {
+  const response = await harnessAuthorizedRequest(baseUrl, path, init)
+  const body = (await response.json().catch(() => undefined)) as
+    | { data?: T; error?: string; code?: string; fields?: unknown; missing?: unknown; warnings?: unknown }
+    | undefined
+  if (!response.ok)
+    throw new AdaptiveConfigError(
+      body?.error ?? `Harness request failed (${response.status})`,
+      body?.code ?? "unknown",
+      stringList(body?.fields),
+      stringList(body?.missing),
+    )
+  return { data: body?.data as T, warnings: stringList(body?.warnings) ?? [] }
+}
+
+/**
+ * Which adaptive surfaces a server says it has (FH-070).
+ *
+ * The cockpit asks only for the routes `/harness/health` lists: an older sidecar without them is a
+ * 404 in every console, and a panel that knows better leaves the toggle out instead.
+ */
+export type AdaptiveSurfaces = {
+  config: boolean
+  decisions: boolean
+  plans: boolean
+  proposals: boolean
+  learnedSkills: boolean
+}
+
+export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
+  return {
+    config: capabilities.includes("adaptive-config"),
+    decisions: capabilities.includes("adaptive-decisions"),
+    plans: capabilities.includes("adaptive-context"),
+    proposals: capabilities.includes("adaptive-proposals"),
+    learnedSkills: capabilities.includes("adaptive-skills"),
+  }
+}
+
 /** What the live view watches (WA-6): the status a session's browser run is in. */
 export type AgentBrowserSession = {
   id: string
@@ -1812,7 +1884,62 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           }),
         }),
     },
+    /**
+     * The adaptive surfaces (FH-070/071/072/073): the settings writer and the read audits behind it.
+     *
+     * They carry the loopback bearer like the artifacts, because what a session was observed doing is
+     * as sensitive as what a run left behind. The client does not decide which of them exist — the
+     * cockpit's `adaptiveSurfaces(capabilities)` does — so an older server is never asked for a route
+     * it does not have.
+     */
+    adaptive: {
+      config: {
+        get: () => harnessAuthorizedJson<AdaptiveConfigView>(baseUrl, "/harness/adaptive/config"),
+        patch: (input: { patch: Record<string, unknown>; confirm?: boolean }) =>
+          harnessAuthorizedEnvelope<AdaptiveConfigView>(baseUrl, "/harness/adaptive/config", {
+            method: "PATCH",
+            body: JSON.stringify({ patch: input.patch, confirm: input.confirm === true }),
+          }),
+      },
+      decisions: {
+        list: (filter: { sessionID?: string; episodeID?: string; kind?: string; limit?: number } = {}) =>
+          harnessAuthorizedJson<StoredDecision[]>(baseUrl, `/harness/adaptive/decisions${adaptiveQuery(filter)}`),
+        explain: (id: string) =>
+          harnessAuthorizedJson<DecisionExplanation>(baseUrl, `/harness/adaptive/decisions/${encodeURIComponent(id)}`),
+      },
+      plans: {
+        list: (
+          filter: { runID?: string; taskID?: string; episodeID?: string; sessionID?: string; projectID?: string; limit?: number } = {},
+        ) => harnessAuthorizedJson<StoredPlan[]>(baseUrl, `/harness/adaptive/plans${adaptiveQuery(filter)}`),
+        explain: (id: string) => harnessAuthorizedJson<StoredPlan>(baseUrl, `/harness/adaptive/plans/${encodeURIComponent(id)}`),
+      },
+      proposals: {
+        list: (filter: { episodeID?: string; projectID?: string; status?: string; limit?: number } = {}) =>
+          harnessAuthorizedJson<SkillProposal[]>(baseUrl, `/harness/adaptive/proposals${adaptiveQuery(filter)}`),
+        get: (id: string) =>
+          harnessAuthorizedJson<SkillProposal>(baseUrl, `/harness/adaptive/proposals/${encodeURIComponent(id)}`),
+      },
+      learnedSkills: {
+        list: (filter: { projectID?: string } = {}) =>
+          harnessAuthorizedJson<LearnedSkill[]>(baseUrl, `/harness/adaptive/learned-skills${adaptiveQuery(filter)}`),
+        get: (name: string, filter: { projectID?: string } = {}) =>
+          harnessAuthorizedJson<LearnedSkill>(
+            baseUrl,
+            `/harness/adaptive/learned-skills/${encodeURIComponent(name)}${adaptiveQuery(filter)}`,
+          ),
+      },
+    },
   }
+}
+
+/** A filter as a query string, with the empty ones left out rather than sent as "undefined". */
+function adaptiveQuery(filter: Record<string, string | number | undefined>): string {
+  const search = new URLSearchParams()
+  for (const [key, value] of Object.entries(filter)) {
+    if (typeof value === "string" && value) search.set(key, value)
+    if (typeof value === "number") search.set(key, String(value))
+  }
+  return search.size ? `?${search}` : ""
 }
 
 /** `?directory=&project=` when either is set, and nothing when neither is (WA-8). */

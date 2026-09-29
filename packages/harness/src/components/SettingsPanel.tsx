@@ -30,6 +30,7 @@ import { PermissionsPanel } from "./PermissionsPanel"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
+import { AdaptiveSettingsPanel, type AdaptiveSettingsState } from "./AdaptiveSettingsPanel"
 
 type SettingsPanelProps = {
   open: boolean
@@ -160,6 +161,9 @@ type SettingsPanelProps = {
   /** The rest of the engine's config files: tools, guards and the global config. */
   onOpenConfigFiles: () => void
   onOpenAbout: () => void
+  /** The adaptive settings (FH-070): the view, the health capabilities and the write handler. */
+  adaptive: AdaptiveSettingsState
+  onAdaptivePatch: (patch: Record<string, unknown>, confirm: boolean) => void
   onClose: () => void
 }
 
@@ -186,6 +190,7 @@ export type SettingsSection =
   | "commands"
   | "agents"
   | "mcp"
+  | "adaptive"
   | "server"
   | "advanced"
 
@@ -226,6 +231,10 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
       { id: "agents", label: "Agents" },
       { id: "mcp", label: "MCP servers" },
     ],
+  },
+  {
+    label: "Adaptive",
+    items: [{ id: "adaptive", label: "Adaptive" }],
   },
   {
     label: "System",
@@ -706,6 +715,19 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                     onOAuth={props.onOAuthMcp}
                   />
                 </section>
+              </Show>
+
+              <Show when={section() === "adaptive"}>
+                <AdaptiveSettingsPanel
+                  view={props.adaptive.view}
+                  loading={props.adaptive.loading}
+                  failure={props.adaptive.failure}
+                  capabilities={props.adaptive.capabilities}
+                  saving={props.adaptive.saving}
+                  warnings={props.adaptive.warnings}
+                  error={props.adaptive.error}
+                  onPatch={props.onAdaptivePatch}
+                />
               </Show>
 
               <Show when={section() === "server"}>

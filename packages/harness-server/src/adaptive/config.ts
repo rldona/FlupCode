@@ -477,7 +477,9 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
  *
  * `current()` answers from a cached composition until the TTL expires, then re-reads the global block
  * — that is what lets the kill switch and the egress opt-in change without a restart. TTL defaults
- * shorter than the runtime probe's so a switch reacts quickly.
+ * shorter than the runtime probe's so a switch reacts quickly. `raw()` returns the block `current()`
+ * composed from, for a reader that needs the keys the resolver does not carry; it shares the cache.
+ * `invalidate()` drops that cache so the next read sees a write immediately instead of after the TTL.
  */
 export function createAdaptiveConfig(
   input: {
@@ -486,20 +488,38 @@ export function createAdaptiveConfig(
     ttlMs?: number
     now?: () => number
   } = {},
-): { current(): AdaptiveConfig } {
+): { current(): AdaptiveConfig; raw(): Record<string, unknown>; invalidate(): void } {
   const read = input.read ?? globalAdaptiveBlock
   const env = input.env ?? process.env
   const ttlMs = input.ttlMs ?? DEFAULT_ADAPTIVE_TTL_MS
   const now = input.now ?? Date.now
   let cached: AdaptiveConfig | undefined
+  let block: Record<string, unknown> | undefined
   let checkedAt = 0
 
-  const current = (): AdaptiveConfig => {
-    if (cached && now() - checkedAt < ttlMs) return cached
-    cached = resolveAdaptiveConfig({ block: read(), env })
+  const load = (): void => {
+    block = read()
+    cached = resolveAdaptiveConfig({ block, env })
     checkedAt = now()
-    return cached
   }
 
-  return { current }
+  const stale = (): boolean => cached === undefined || block === undefined || now() - checkedAt >= ttlMs
+
+  const current = (): AdaptiveConfig => {
+    if (stale()) load()
+    return cached!
+  }
+
+  const raw = (): Record<string, unknown> => {
+    if (stale()) load()
+    return block!
+  }
+
+  const invalidate = (): void => {
+    cached = undefined
+    block = undefined
+    checkedAt = 0
+  }
+
+  return { current, raw, invalidate }
 }

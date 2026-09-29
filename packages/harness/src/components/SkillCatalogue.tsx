@@ -1,6 +1,8 @@
-import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createResource, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import type { AgentFile, SkillFile } from "../types"
+import { formatDateTime } from "../dates"
+import { adaptiveSurfaces, createHarnessClient } from "../client"
+import type { AgentFile, LearnedSkillState, SkillFile, SkillProposal } from "../types"
 import type { SkillInfo } from "../engine-types"
 import type { SkillSourceKind, SkillSources } from "../skill-sources"
 import { skillAccess } from "../skill-access"
@@ -20,6 +22,10 @@ type SkillCatalogueProps = {
   skillsLoading: boolean
   serverAvailable: boolean
   hasProject: boolean
+  /** The harness server and the project folder, for the read-only learning audit (FH-073). */
+  serverUrl: string
+  projectID?: string
+  capabilities: string[]
   /** Extra places the engine reads skills from: folders and URLs (H-27). */
   sources: SkillSources
   /** Agent files, so each skill can say who loads it (SK-1, like H-34 does for MCP). */
@@ -58,6 +64,14 @@ export function notPickedUp(skills: SkillInfo[], files: SkillFile[]) {
   const has = new Set(skills.map((skill) => skill.name))
   return files.filter((file) => file.loaded && file.name && !has.has(file.name))
 }
+
+/** What the lifecycle calls a learned skill's state, as the catalogue shows it (FH-073). */
+export const learnedStateLabel = (state: LearnedSkillState | undefined): string =>
+  state ? state.charAt(0).toUpperCase() + state.slice(1) : "Probation"
+
+/** What became of a proposal, as the catalogue shows it (FH-073). */
+export const proposalStatusLabel = (status: SkillProposal["status"]): string =>
+  status.charAt(0).toUpperCase() + status.slice(1)
 
 /**
  * Skills, and why yours is not showing up (H-27).
@@ -156,6 +170,18 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
   )
   const waiting = createMemo(() => (props.skillsLoading ? [] : notPickedUp(props.skills, props.files)))
   const orphans = createMemo(() => (props.skillsLoading ? [] : withoutFiles(props.skills, props.files)))
+
+  // The learning audit (FH-073): what a reflection drafted and what the curator installed. Read
+  // only — approving, merging and archiving are later phases, so no button here promises them.
+  const learning = () => adaptiveSurfaces(props.capabilities)
+  const [proposals] = createResource(
+    () => (props.open && learning().proposals && props.projectID ? props.projectID : undefined),
+    (projectID) => createHarnessClient(props.serverUrl).adaptive.proposals.list({ projectID }),
+  )
+  const [learned] = createResource(
+    () => (props.open && learning().learnedSkills && props.projectID ? props.projectID : undefined),
+    (projectID) => createHarnessClient(props.serverUrl).adaptive.learnedSkills.list({ projectID }),
+  )
 
   createEffect(() => {
     if (!props.open) {
@@ -509,6 +535,93 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                   )}
                 </For>
               </div>
+            </section>
+          </Show>
+
+          <Show when={learning().proposals || learning().learnedSkills}>
+            <section class="fc-usage-block fc-skill-learned">
+              <h2>{t("Learned")}</h2>
+              <p class="fc-usage-note">
+                {t(
+                  "Skills the harness proposed and installed itself, and what became of each. This is a read-only account.",
+                )}
+              </p>
+              <Show when={!props.projectID}>
+                <div class="fc-settings-hint">{t("Open a project to see what it learned.")}</div>
+              </Show>
+
+              <Show when={learning().learnedSkills}>
+                <h3 class="fc-settings-subtitle">
+                  {t("Learned skills")}
+                  <Show when={(learned()?.length ?? 0) > 0}>
+                    <span class="fc-context-aside">{learned()!.length}</span>
+                  </Show>
+                </h3>
+                <Show
+                  when={(learned()?.length ?? 0) > 0}
+                  fallback={<p class="fc-usage-note">{learned.loading ? t("Reading…") : t("None yet.")}</p>}
+                >
+                  <div class="fc-routine-cards">
+                    <For each={learned()}>
+                      {(skill) => (
+                        <div class="fc-routine-card fc-routine-card-static fc-skill-row">
+                          <span class="fc-routine-card-content">
+                            <strong dir="auto">{skill.name}</strong>
+                            <small dir="auto">{skill.description}</small>
+                          </span>
+                          <span class="fc-artifact-kind" dir="ltr">
+                            {t(learnedStateLabel(skill.state))}
+                          </span>
+                          <Show when={skill.usage}>
+                            {(usage) => (
+                              <span class="fc-context-aside">
+                                {t("{loads} loads · {uses} opportunities", {
+                                  loads: usage().load,
+                                  uses: usage().opportunities,
+                                })}
+                              </span>
+                            )}
+                          </Show>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
+
+              <Show when={learning().proposals}>
+                <h3 class="fc-settings-subtitle">
+                  {t("Proposals")}
+                  <Show when={(proposals()?.length ?? 0) > 0}>
+                    <span class="fc-context-aside">{proposals()!.length}</span>
+                  </Show>
+                </h3>
+                <Show
+                  when={(proposals()?.length ?? 0) > 0}
+                  fallback={<p class="fc-usage-note">{proposals.loading ? t("Reading…") : t("No proposals yet.")}</p>}
+                >
+                  <div class="fc-routine-cards">
+                    <For each={proposals()}>
+                      {(proposal: SkillProposal) => (
+                        <div class="fc-routine-card fc-routine-card-static fc-skill-row">
+                          <span class="fc-routine-card-content">
+                            <strong dir="auto">{proposal.name ?? proposal.targetSkill ?? proposal.id}</strong>
+                            <small dir="auto">
+                              {proposal.intent} · {formatDateTime(proposal.updatedAt)}
+                            </small>
+                            <Show when={proposal.reason}>
+                              {(reason) => <small dir="auto">{reason()}</small>}
+                            </Show>
+                          </span>
+                          <span class="fc-artifact-kind" dir="ltr">
+                            {t(proposalStatusLabel(proposal.status))}
+                          </span>
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
             </section>
           </Show>
         </div>

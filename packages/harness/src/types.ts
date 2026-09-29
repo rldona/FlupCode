@@ -657,3 +657,199 @@ export type TaskTools = {
   name: string
   calls: ToolCall[]
 }
+
+// ── Adaptive harness (FH-070) ─────────────────────────────────────────────────────────────────
+//
+// The read surfaces the settings panel and the inspectors consume. These mirror the shapes
+// `harness-server` answers; the settings model is narrowed to the fields the panel draws, never
+// widened, so a field the UI does not write cannot be invented here.
+
+/** Where a settings leaf takes its value from, as the server reports it. */
+export type AdaptiveProvenance = "env" | "block" | "default"
+
+/** The per-field guard the server enforces before it writes a leaf. */
+export type AdaptiveGuard = "none" | "env-disabled" | "adaptive-token" | "egress-allowlist"
+
+/** When a write to a leaf needs an explicit confirmation. */
+export type AdaptiveConfirmation = "none" | "required" | "widening"
+
+export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number"
+
+/** A note the server travels beside a successful write. */
+export type AdaptiveWarning = "evaluation-gated" | "runtime-inert" | "no-model" | "skills-still-load"
+
+/** One switch the settings panel may render; the server's list is the whole allowlist. */
+export type AdaptiveWritableField = {
+  path: string
+  type: AdaptiveFieldType
+  confirmation: AdaptiveConfirmation
+  guard: AdaptiveGuard
+  warning?: AdaptiveWarning
+}
+
+/** The values the panel draws, narrowed from the server's resolved `AdaptiveConfig`. */
+export type AdaptiveSettings = {
+  enabled: boolean
+  shadow: boolean
+  context: { enabled: boolean; apply: boolean }
+  learning: { enabled: boolean }
+  relevance: { enabled: boolean }
+  jev: { enabled: boolean }
+  egress: { projects: string[]; kinds: Record<string, boolean> }
+  retention: { enabled: boolean }
+  budget: { monthlyTokens: number; hotReserveFraction: number }
+}
+
+export type AdaptiveRuntimeCapabilities = {
+  runtime: "legacy" | "v2" | "unknown"
+  degraded: boolean
+  canUseLegacyHooks: boolean
+  canInjectSystemPrompt: boolean
+  canObserveToolCalls: boolean
+  canObserveCompaction: boolean
+  canTransformMessages: boolean
+  canUseSdkPath: true
+  checkedAt: number
+}
+
+/** What the adaptive budget has spent this month, read-only in E8. */
+export type AdaptiveUsage = {
+  month: string
+  tokensSpent: number
+  calls: number
+  monthlyTokens: number
+  hotReserveFraction: number
+}
+
+/** `GET /harness/adaptive/config`: the settings surface as the panel reads it. */
+export type AdaptiveConfigView = {
+  effective: AdaptiveSettings
+  source: Record<string, AdaptiveProvenance>
+  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean }
+  runtime: { runtime: "legacy" | "v2" | "unknown"; degraded: boolean; checkedAt: number }
+  capabilities: AdaptiveRuntimeCapabilities
+  canWrite: boolean
+  writer: { path: string; exists: boolean }
+  usage: AdaptiveUsage
+  writable: AdaptiveWritableField[]
+}
+
+/** One audited decision (FH-015). Mirrors `harness-server`'s own type. */
+export type StoredDecision = {
+  id: string
+  kind: string
+  sessionID?: string
+  episodeID?: string
+  projectID?: string
+  inputsHash: string
+  stateSummary: Record<string, unknown>
+  answer: unknown
+  baselineAnswer: unknown
+  baselineRule: string
+  confidence?: number
+  probabilities?: Record<string, number>
+  provider: string
+  attemptedProvider?: string
+  modelVersion?: string
+  source: "deterministic" | "jev" | "fallback"
+  degraded: boolean
+  degradedReason?: string
+  latencyMs: number
+  shadow: boolean
+  createdAt: number
+  updatedAt: number
+}
+
+/** What the decision audit explains about one row (FH-015). Mirrors the server's own type. */
+export type DecisionExplanation = {
+  id: string
+  question: string
+  answer: unknown
+  baseline: { answer: unknown; rule: string }
+  why: string
+  source: "deterministic" | "jev" | "fallback"
+  provider: string
+  attemptedProvider?: string
+  modelVersion?: string
+  confidence?: number
+  probabilities?: Record<string, number>
+  latencyMs: number
+  degraded: boolean
+  degradedReason?: string
+  episodeID?: string
+  evidenceRefs: string[]
+  decidedAt: number
+}
+
+export type ItemDisposition = "keep" | "archive" | "drop"
+
+/** One observed item as a context plan decided about it (FH-022). */
+export type ContextPlanEntry = {
+  id: string
+  kind: string
+  score: number
+  disposition: ItemDisposition
+  reason: string
+  protected: boolean
+  tokens: number
+  evidenceRef?: string
+}
+
+/** A context plan (FH-022). Mirrors `harness-server`'s own type. */
+export type StoredPlan = {
+  id: string
+  runID?: string
+  taskID?: string
+  episodeID?: string
+  sessionID?: string
+  projectID?: string
+  objectiveHash: string
+  entries: ContextPlanEntry[]
+  scoreSource: "deterministic" | "jev"
+  degraded: boolean
+  degradedReason?: string
+  applied: boolean
+  tokensBefore: number
+  tokensAfter: number
+  decisionID?: string
+  createdAt: number
+  truncated: boolean
+  updatedAt: number
+}
+
+export type SkillProposalStatus = "proposed" | "promoted" | "rejected"
+
+/** One skill proposal a reflection drafted, before or after the curator decided on it (FH-034). */
+export type SkillProposal = {
+  id: string
+  episodeID: string
+  sessionID?: string
+  projectID: string
+  decisionID?: string
+  intent: "add" | "patch" | "merge" | "drop"
+  targetSkill?: string
+  name?: string
+  description?: string
+  body?: string
+  bodyHash?: string
+  evidenceRefs: string[]
+  confidence?: number
+  modelVersion?: string
+  status: SkillProposalStatus
+  reason?: string
+  createdAt: number
+  updatedAt: number
+}
+
+export type LearnedSkillState = "probation" | "mature" | "stale" | "archived" | "merged"
+
+export type LearnedSkillUsage = { load: number; view: number; patch: number; opportunities: number }
+
+/** One learned skill in the roster, with its sidecar state (FH-034/FH-041). */
+export type LearnedSkill = {
+  name: string
+  description: string
+  learned: boolean
+  state?: LearnedSkillState
+  usage?: LearnedSkillUsage
+}

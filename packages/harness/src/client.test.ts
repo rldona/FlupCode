@@ -1,5 +1,13 @@
 import { afterEach, expect, test } from "bun:test"
-import { createClient, createHarnessClient, isSessionGone, probeServer, subscribeEvents } from "./client"
+import {
+  AdaptiveConfigError,
+  adaptiveSurfaces,
+  createClient,
+  createHarnessClient,
+  isSessionGone,
+  probeServer,
+  subscribeEvents,
+} from "./client"
 import { setEngineTransport } from "./transport"
 
 afterEach(() => setEngineTransport(undefined))
@@ -527,4 +535,160 @@ test("the action catalogue is asked for under /harness/actions", async () => {
   await createHarnessClient("http://harness").actions.list()
 
   expect(seen).toEqual(["/harness/actions"])
+})
+
+type AdaptiveCall = { method: string; path: string; search: string; auth: string | null; body?: unknown }
+
+/** Records every harness call and answers with `body`; the adaptive surfaces all read one shape. */
+function recordingAdaptive(calls: AdaptiveCall[], body: unknown = { data: [] }, status = 200) {
+  setEngineTransport({
+    fetch: async (input, init) => {
+      const request = input instanceof Request ? input : new Request(String(input), init)
+      const url = new URL(request.url)
+      const text = request.method === "GET" ? "" : await request.text()
+      calls.push({
+        method: request.method.toUpperCase(),
+        path: url.pathname,
+        search: url.search,
+        auth: request.headers.get("authorization"),
+        body: text ? JSON.parse(text) : undefined,
+      })
+      return new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } })
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+}
+
+/** Runs `work` with the desktop's loopback token in place, and puts the window back afterwards. */
+async function withLoopbackToken<T>(work: () => Promise<T>): Promise<T> {
+  const globalWindow = globalThis as { window?: unknown }
+  const previous = globalWindow.window
+  globalWindow.window = { flupcode: { browserToken: "tok" } }
+  try {
+    return await work()
+  } finally {
+    globalWindow.window = previous
+  }
+}
+
+test("the adaptive settings are read under /harness/adaptive/config with the loopback bearer", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls)
+
+  await withLoopbackToken(() => createHarnessClient("http://harness").adaptive.config.get())
+
+  expect(calls).toEqual([
+    { method: "GET", path: "/harness/adaptive/config", search: "", auth: "Bearer tok", body: undefined },
+  ])
+})
+
+test("a config patch sends the patch and the confirmation, and keeps the warnings", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls, { data: { effective: {} }, warnings: ["skills-still-load"] })
+
+  const answer = await withLoopbackToken(() =>
+    createHarnessClient("http://harness").adaptive.config.patch({ patch: { enabled: true }, confirm: true }),
+  )
+
+  expect(calls).toEqual([
+    {
+      method: "PATCH",
+      path: "/harness/adaptive/config",
+      search: "",
+      auth: "Bearer tok",
+      body: { patch: { enabled: true }, confirm: true },
+    },
+  ])
+  expect(answer.warnings).toEqual(["skills-still-load"])
+})
+
+test("a refused config write keeps the code, the fields and what is missing", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(
+    calls,
+    { error: "Enabling learning needs an egress allowlist", code: "guard:egress-allowlist-required", fields: ["learning.enabled"], missing: ["egress.projects"] },
+    422,
+  )
+
+  const refused = await withLoopbackToken(() =>
+    createHarnessClient("http://harness").adaptive.config.patch({ patch: { learning: { enabled: true } } }),
+  ).then(
+    () => undefined,
+    (cause: unknown) => cause,
+  )
+
+  expect(refused).toBeInstanceOf(AdaptiveConfigError)
+  expect((refused as AdaptiveConfigError).code).toBe("guard:egress-allowlist-required")
+  expect((refused as AdaptiveConfigError).fields).toEqual(["learning.enabled"])
+  expect((refused as AdaptiveConfigError).missing).toEqual(["egress.projects"])
+})
+
+test("the audits are asked for under their own paths, with the filter and the bearer", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls)
+
+  await withLoopbackToken(async () => {
+    const client = createHarnessClient("http://harness")
+    await client.adaptive.decisions.list({ sessionID: "ses_1", limit: 5 })
+    await client.adaptive.decisions.explain("dec_1")
+    await client.adaptive.plans.list({ sessionID: "ses_1" })
+    await client.adaptive.plans.explain("plan_1")
+    await client.adaptive.proposals.list({ projectID: "/work/demo" })
+    await client.adaptive.learnedSkills.list({ projectID: "/work/demo" })
+  })
+
+  expect(calls.map((call) => `${call.method} ${call.path}${call.search}`)).toEqual([
+    "GET /harness/adaptive/decisions?sessionID=ses_1&limit=5",
+    "GET /harness/adaptive/decisions/dec_1",
+    "GET /harness/adaptive/plans?sessionID=ses_1",
+    "GET /harness/adaptive/plans/plan_1",
+    "GET /harness/adaptive/proposals?projectID=%2Fwork%2Fdemo",
+    "GET /harness/adaptive/learned-skills?projectID=%2Fwork%2Fdemo",
+  ])
+  expect(calls.every((call) => call.auth === "Bearer tok")).toBe(true)
+})
+
+test("an adaptive surface the server did not announce is not asked for", () => {
+  // The cockpit gates every request on this: an older sidecar lists none of them, and a 404 in the
+  // console is what this avoids.
+  expect(adaptiveSurfaces([])).toEqual({
+    config: false,
+    decisions: false,
+    plans: false,
+    proposals: false,
+    learnedSkills: false,
+  })
+  expect(
+    adaptiveSurfaces([
+      "adaptive-config",
+      "adaptive-decisions",
+      "adaptive-context",
+      "adaptive-proposals",
+      "adaptive-skills",
+    ]),
+  ).toEqual({ config: true, decisions: true, plans: true, proposals: true, learnedSkills: true })
+})
+
+test("each adaptive surface is offered only for its own capability", () => {
+  expect(adaptiveSurfaces(["adaptive-config"])).toEqual({
+    config: true,
+    decisions: false,
+    plans: false,
+    proposals: false,
+    learnedSkills: false,
+  })
+  expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-context"]).plans).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-proposals"]).proposals).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-skills"]).learnedSkills).toBe(true)
+  expect(adaptiveSurfaces(["something-else"])).toEqual({
+    config: false,
+    decisions: false,
+    plans: false,
+    proposals: false,
+    learnedSkills: false,
+  })
 })

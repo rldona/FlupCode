@@ -12,6 +12,7 @@ export type Screen =
   | "changes"
   | "usage"
   | "context"
+  | "decisions"
   | "agents"
   | "skills"
   | "files"
@@ -27,6 +28,7 @@ const SCREENS: readonly Screen[] = [
   "changes",
   "usage",
   "context",
+  "decisions",
   "agents",
   "skills",
   "files",
