@@ -109,6 +109,17 @@ describe("the decision service (FH-015)", () => {
     repository.close()
   })
 
+  test("the shadow flag defaults to true and an acting call can write shadow false", async () => {
+    const { repository, service } = serviceFor({})
+    await service.predict(completion())
+    expect(repository.getDecision("completion:episode:run:1")?.shadow).toBe(true)
+
+    const acting = { ...completion(), scopeID: "ses_1:msg_1" }
+    await service.predict(acting, "hot", false)
+    expect(repository.getDecision(decisionID("completion", "ses_1:msg_1"))?.shadow).toBe(false)
+    repository.close()
+  })
+
   test("explain is built from the stored row and matches it, without re-running", async () => {
     const external = spyProvider({
       answer: { verdict: "complete" },

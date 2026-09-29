@@ -1,0 +1,20 @@
+{
+  "objective": "Migrate database schema",
+  "roster": [
+    { "name": "migrate-db", "description": "Run database migrations", "learned": false },
+    { "name": "schema-tools", "description": "Edit database schema", "learned": false },
+    { "name": "backup", "description": "Back up database", "learned": false },
+    { "name": "rollback", "description": "Revert bad migration", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "migrate-db": { "type": "noul", "probability": 0.92 },
+      "schema-tools": { "type": "noul", "probability": 0.81 },
+      "backup": { "type": "noul", "probability": 0.6 },
+      "rollback": { "type": "noul", "probability": 0.2 }
+    }
+  },
+  "good": ["migrate-db", "schema-tools", "backup"],
+  "wrong": ["rollback"]
+}

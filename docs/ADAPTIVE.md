@@ -5,7 +5,9 @@
 > [ADR-0017](adr/0017-jev-egress-and-governance.md)). Phase 3a (selection seam) is **done**
 > ([ADR-0018](adr/0018-context-selection-seam.md)). Phase 3b (learning loop) is **done**: its
 > decisions are [ADR-0020](adr/0020-learning-persistence-and-egress.md) and
-> [ADR-0019](adr/0019-learned-skill-lifecycle.md). The learning UI (FH-035/FH-046) is deferred; the
+> [ADR-0019](adr/0019-learned-skill-lifecycle.md). Phase 4 (skill relevance, the first **acting**
+> decision) is **in progress**; its decision is
+> [ADR-0021](adr/0021-skill-relevance-acting.md). The learning UI (FH-035/FH-046) is deferred; the
 > read surfaces exist as `GET /harness/adaptive/proposals` and `/harness/adaptive/learned-skills`.
 > This is a skeleton: the sections below are filled
 > in as each phase lands, not a complete manual. The full plan and the phase designs live in the
@@ -50,6 +52,8 @@ This inherits the precedence **permissions > instructions > skills > memory** fr
 | `ContextManager` | Model context items, score and plan | Phase 3a (done) | [ADR-0018](adr/0018-context-selection-seam.md) |
 | `LearningManager` / `ReflectionEngine` | Episode → reflection → proposal, promotion, read routes | Phase 3b (done) | [ADR-0020](adr/0020-learning-persistence-and-egress.md) |
 | `SkillCurator` / `SkillStore` | Sole writer of learned skills; lifecycle and usage | Phase 3b (done) | [ADR-0019](adr/0019-learned-skill-lifecycle.md) |
+| `RelevanceService` / `rankSkills` / `renderSkillLine` | Suggest skills for a turn; pure rank and names-only line | Phase 4 (in progress) | [ADR-0021](adr/0021-skill-relevance-acting.md) |
+| `RELEVANCE_PLUGIN` | Capture the objective and inject the line over the loopback endpoint | Phase 4 (in progress) | [ADR-0021](adr/0021-skill-relevance-acting.md) |
 
 The boundary — what lives in `harness-server`, what attaches through the engine plugin, and when a
 contained core extension is allowed — is fixed by
@@ -96,7 +100,8 @@ the engine's own job and is untouched. The design is fixed by
   (shadow) so its "what would have happened" is measurable, and enabling `apply` is a promotion gated
   on the before/after evaluation over the offline fixtures — not a configuration change alone.
 
-The selection seam is what skill relevance and skill probation will later depend on (plan §7).
+The selection seam is what skill relevance and skill probation depend on (plan §7); skill relevance is
+now acting — see [Skill relevance](#skill-relevance).
 
 ## Learning
 
@@ -176,6 +181,51 @@ provenance-carrying files the engine loads like any other. The design is fixed b
   still means "unknown", not "unused".
 - **The permission ceiling is a rule in the writer.** A learned skill can never create, widen or
   bypass a permission; it is at most one more skill, evaluated by the engine like any other.
+
+## Skill relevance
+
+Phase 4 is the first **acting** decision: at the start of a turn the harness suggests which skills
+might be relevant and an engine plugin injects a single non-coercive line. The design is fixed by
+[ADR-0021](adr/0021-skill-relevance-acting.md).
+
+- **What is injected.** One fixed `<skill_relevance>` block, **names-only** and **non-coercive**:
+
+  ```
+  <skill_relevance>Possibly relevant skills: alpha, beta, gamma. Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>
+  ```
+
+  The only variable content is skill **names**, each validated against the loaded roster and `NAME`;
+  the top-`maxSkills` (3) are ordered by a pure rank over the decision's `answer.load`, and the
+  underlying selection is unchanged. No descriptions, permissions or instructions travel in the line,
+  so a false positive cannot displace a correct choice or widen a permission.
+- **Where.** The acting seam is a thin-proxy engine plugin (`RELEVANCE_PLUGIN`,
+  `packages/remote/src/engine-plugins.ts`): it captures the turn's objective in
+  `experimental.chat.messages.transform`, posts it to the loopback endpoint
+  `POST /harness/adaptive/relevance`, and pushes the line in `experimental.chat.system.transform`.
+  **The server is the only policy**; the plugin decides nothing and never throws. It is registered
+  whenever base+token resolve, so the kill switch is instantaneous, and the endpoint takes the same
+  bearer as `/harness/browser/*` and `/harness/actions/*`. The engine→harness call is **local, not
+  egress**, so it does not cross the [ADR-0017](adr/0017-jev-egress-and-governance.md) boundary.
+- **Off by default.** `adaptive.relevance.enabled=false` is the default: the plugin still posts, but
+  the server returns `line: null` and nothing is injected. With the feature on and Jev off, the
+  **deterministic lexical line is still injected** — the lexical path is the fallback, and turning
+  relevance off (not Jev) restores the previous behaviour. Enabling it is gated on the offline
+  evaluation, not a configuration change alone.
+- **Inertness.** `system` is **byte-identical** whenever the feature is off, the master kill switch
+  (`adaptive.enabled=false` / `FLUPCODE_ADAPTIVE_DISABLED=1`) is on, the runtime is not `legacy`, there
+  is no fresh objective, or there is no roster, no candidate, an absent server, a timeout, a non-200,
+  invalid JSON or an exception. Two accepted limits come from the hook surface:
+  `system.transform` fires on **every** request and cannot discriminate its type, and the hook
+  **blocks the turn**, bounded only by the timeout.
+- **Relationship to ADR-0016/0017.** The seam stays inside the
+  [ADR-0016](adr/0016-adaptive-harness-boundary.md) boundary: only `packages/harness-server` and
+  `packages/remote` change, the plugin observes and injects over the legacy hook surface, the runtime
+  probe gates it, and no core is touched. Relevance adds **no new egress condition** on top of
+  ADR-0017: the Jev call it may make is the existing one (`adaptive.jev.enabled` +
+  `egress.projects` + `egress.kinds.skillRelevance`), redacted and bounded by the same guard.
+- **Measurement.** The merge gate is an **offline** evaluation comparing the deterministic line against
+  a recorded Jev answer — wrong-load and recall, determinism, inertness, one request and trust. Live
+  behaviour is validated by PoC-3 before promotion; outcome improvement is not claimed here.
 
 ## Decisions
 

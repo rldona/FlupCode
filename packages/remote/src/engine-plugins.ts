@@ -1461,6 +1461,219 @@ export const flupcodeEpisodeEvents = async () => ({
 `,
 }
 
+/**
+ * relevance: injects the harness's acting relevance line into a turn's system prompt (FH-04,
+ * ADR-0021). It is a thin proxy: it captures the turn's objective and its ids in
+ * `experimental.chat.messages.transform`, asks the loopback harness for the line in
+ * `experimental.chat.system.transform`, and pushes it only when the answer carries one. It decides
+ * nothing, holds no product state and never throws: any failure — an absent server, a timeout, a
+ * non-200, malformed JSON — leaves `system` byte-identical, which is the inertness ADR-0021 §3 fixes.
+ *
+ * The server is the only policy point, so the plugin registers whenever base and token resolve, even
+ * with the feature off; the accepted cost is one loopback `POST` per turn returning `line: null`.
+ * The capture is not consumed when read: a title runs on another fiber and its `system.transform` may
+ * interleave before the turn, so reading has to leave the objective in place for the real turn.
+ */
+export const RELEVANCE_PLUGIN = {
+  file: "flupcode-relevance.js",
+  source: String.raw`// Installed by FlupCode. Injects the harness's acting relevance line into a turn's system prompt.
+// It captures the turn's objective and its ids, asks the loopback harness for the line, and pushes
+// it only when the answer carries one. It decides nothing and holds no product state. Regenerated
+// when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// The objective is a hint the harness matches skill names against, not the whole message; it is
+// bounded so a huge turn cannot travel on the hot path.
+const OBJECTIVE_LIMIT = 500
+
+// A capture outlives its turn only to survive the title fiber racing the turn fiber; after this it is
+// stale and the injection is inert. The next user turn overwrites it.
+const CAPTURE_TTL_MS = 5 * 60 * 1000
+
+// The capture map is bounded so a long-lived engine cannot grow it without bound.
+const MAX_SESSIONS = 500
+
+// The server's own hot deadline is capped below this one (see RELEVANCE_TIMEOUT_MS_CEILING in
+// packages/harness-server/src/adaptive/config.ts), so the server always answers first. It is a
+// defence against a hung server, not product policy.
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 500
+})()
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  // The desktop hands the engine it starts the token both sides compare; a file only exists when the
+  // harness wrote one on its own, so the environment wins and the file is the fallback.
+  const fromEnv = typeof process !== "undefined" && process.env ? process.env.FLUPCODE_BROWSER_TOKEN : undefined
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+// The last user message of the request, with only its non-synthetic text: a synthetic part is the
+// engine's own scaffolding, not what the user asked.
+function lastUserObjective(messages) {
+  if (!Array.isArray(messages)) return undefined
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index]
+    const info = message && message.info
+    if (!info || info.role !== "user") continue
+    const parts = Array.isArray(message.parts) ? message.parts : []
+    const text = parts
+      .filter((part) => part && part.type === "text" && typeof part.text === "string" && !part.synthetic)
+      .map((part) => part.text)
+      .join("\n")
+    return {
+      sessionID: typeof info.sessionID === "string" ? info.sessionID : undefined,
+      messageID: typeof info.id === "string" ? info.id : undefined,
+      objective: text.slice(0, OBJECTIVE_LIMIT),
+    }
+  }
+  return undefined
+}
+
+// The captures live in the module, keyed by session, so a title's system.transform cannot consume the
+// turn's objective before the turn reads it.
+const captures = new Map()
+
+function pruneCaptures(now) {
+  for (const [sessionID, entry] of captures) {
+    if (now - entry.at > CAPTURE_TTL_MS) captures.delete(sessionID)
+  }
+  while (captures.size > MAX_SESSIONS) {
+    const oldest = captures.keys().next().value
+    if (oldest === undefined) break
+    captures.delete(oldest)
+  }
+}
+
+function capture(sessionID, messageID, objective) {
+  if (typeof sessionID !== "string" || !sessionID) return
+  if (typeof messageID !== "string" || !messageID) return
+  const now = Date.now()
+  pruneCaptures(now)
+  // Re-insert so the newest turn is the newest entry for the size bound.
+  captures.delete(sessionID)
+  captures.set(sessionID, { messageID: messageID, objective: objective, at: now })
+}
+
+function freshCapture(sessionID) {
+  if (typeof sessionID !== "string" || !sessionID) return undefined
+  const entry = captures.get(sessionID)
+  if (!entry) return undefined
+  return Date.now() - entry.at > CAPTURE_TTL_MS ? undefined : entry
+}
+
+// The server renders one fixed, names-only box and the plugin is the last line of trust: it must not
+// push whatever a peer that happens to hold the loopback port answers. The shape is kept in step with
+// skill-line.ts (packages/harness-server/src/adaptive/skill-line.ts): the same prefix and suffix, the
+// same NAME as skills.ts, and the same top-3 the default relevance config allows. Anything that is
+// not exactly that box — extra text, a nested tag, an unknown token — is refused, so a hostile or
+// tampered answer leaves the system prompt byte-identical.
+const SKILL_LINE_PREFIX = "<skill_relevance>Possibly relevant skills: "
+const SKILL_LINE_SUFFIX = ". Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>"
+const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/i
+const MAX_LINE_SKILLS = 3
+
+// Shape is not enough: a hostile peer that holds the loopback port could answer with a shape-valid
+// token of kilobytes (system-prompt bloat) or hyphenated tokens that read as instructions. A
+// legitimate name is a short folder name, so both caps are refused outright when exceeded.
+const MAX_SKILL_NAME_LENGTH = 64
+const MAX_LINE_LENGTH = 300
+
+function namesOnlyLine(value) {
+  if (typeof value !== "string") return undefined
+  if (value.length > MAX_LINE_LENGTH) return undefined
+  if (!value.startsWith(SKILL_LINE_PREFIX) || !value.endsWith(SKILL_LINE_SUFFIX)) return undefined
+  const middle = value.slice(SKILL_LINE_PREFIX.length, value.length - SKILL_LINE_SUFFIX.length)
+  const names = middle.split(", ")
+  if (names.length < 1 || names.length > MAX_LINE_SKILLS) return undefined
+  if (!names.every((name) => SKILL_NAME.test(name) && name.length <= MAX_SKILL_NAME_LENGTH)) return undefined
+  return value
+}
+
+// A non-200, malformed JSON, a null/empty line or any body that is not the fixed box is the inert
+// answer. The fetch is bounded with a timeout and the caller catches everything.
+async function requestLine(base, token, projectID, sessionID, messageID, objective) {
+  const response = await fetch(base + "/harness/adaptive/relevance", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify({ projectID: projectID, sessionID: sessionID, messageID: messageID, objective: objective }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) return undefined
+  const body = await response.json().catch(() => undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  const line = data && typeof data === "object" ? data.line : undefined
+  return namesOnlyLine(line)
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeRelevance = async (input) => {
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+  // The harness's adaptive project id is the project directory, which the plugin factory is handed.
+  const projectID = input && typeof input.directory === "string" ? input.directory : undefined
+
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      try {
+        const objective = lastUserObjective(output && output.messages)
+        if (objective) capture(objective.sessionID, objective.messageID, objective.objective)
+      } catch {
+        // A capture that cannot be read must never fail the turn; there is simply no objective.
+      }
+    },
+    "experimental.chat.system.transform": async (hookInput, output) => {
+      try {
+        const pending = freshCapture(hookInput && hookInput.sessionID)
+        if (!pending || !Array.isArray(output && output.system)) return
+        const line = await requestLine(
+          base,
+          token,
+          projectID,
+          hookInput.sessionID,
+          pending.messageID,
+          pending.objective,
+        )
+        if (line) output.system.push(line)
+      } catch {
+        // Any failure - an absent server, a timeout, a non-200, bad JSON - is inert: the system
+        // prompt is left exactly as it arrived and the turn is unaffected.
+      }
+    },
+  }
+}
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
@@ -1471,6 +1684,7 @@ const PLUGINS = [
   DELIVERY_PLUGIN,
   WEB_ACTIONS_PLUGIN,
   EPISODE_EVENTS_PLUGIN,
+  RELEVANCE_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

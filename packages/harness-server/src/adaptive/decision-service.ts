@@ -74,7 +74,16 @@ export type DecisionExplanation = {
 export type PredictionMode = "hot" | "batch"
 
 export type DecisionService = {
-  predict<Q extends DecisionKind>(request: DecisionRequest<Q>, mode?: PredictionMode): Promise<DecisionResult<Q>>
+  /**
+   * `shadow` marks the audit row: `true` (the default) records a decision the harness does not act
+   * on, which is every episode decision; an acting path — the relevance line — passes `false`. The
+   * default keeps the Phase 2/3a/3b shadow byte-identical when no flag is given.
+   */
+  predict<Q extends DecisionKind>(
+    request: DecisionRequest<Q>,
+    mode?: PredictionMode,
+    shadow?: boolean,
+  ): Promise<DecisionResult<Q>>
   decisions(filter?: DecisionFilter): StoredDecision[]
   explain(id: string): DecisionExplanation | undefined
 }
@@ -227,6 +236,7 @@ export function createDecisionService(deps: {
   const predict = async <Q extends DecisionKind>(
     request: DecisionRequest<Q>,
     mode: PredictionMode = "batch",
+    shadow = true,
   ): Promise<DecisionResult<Q>> => {
     const config = deps.config()
     const baseline = deterministicBaseline(request)
@@ -281,7 +291,7 @@ export function createDecisionService(deps: {
       ...(improved.degradedReason !== undefined ? { degradedReason: improved.degradedReason } : {}),
       latencyMs: improved.latencyMs,
       policy: request.policy,
-      shadow: true,
+      shadow,
     }
     deps.repository.createDecision(input, decidedAt)
 

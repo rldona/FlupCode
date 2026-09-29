@@ -5,6 +5,9 @@ import {
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
   DEFAULT_LEARNING_CONFIG,
+  DEFAULT_RELEVANCE_CONFIG,
+  RELEVANCE_MAX_SKILLS_CEILING,
+  RELEVANCE_TIMEOUT_MS_CEILING,
   createAdaptiveConfig,
   resolveAdaptiveConfig,
 } from "./config"
@@ -55,9 +58,11 @@ describe("resolveAdaptiveConfig", () => {
       governor: DEFAULT_GOVERNOR_CONFIG,
       context: DEFAULT_CONTEXT_CONFIG,
       learning: DEFAULT_LEARNING_CONFIG,
+      relevance: DEFAULT_RELEVANCE_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)
+    expect(config.relevance.enabled).toBe(false)
   })
 
   test("reads the flupcode.adaptive block", () => {
@@ -197,6 +202,44 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(malformed.learning).toEqual(DEFAULT_LEARNING_CONFIG)
+  })
+
+  test("the relevance slice is off by default and reads its block", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} }).relevance
+    expect(defaults).toEqual(DEFAULT_RELEVANCE_CONFIG)
+    expect(defaults.enabled).toBe(false)
+
+    const config = resolveAdaptiveConfig({
+      block: { relevance: { enabled: true, maxSkills: 2, rosterTtlMs: 1000, timeoutMs: 250 } },
+      env: {},
+    })
+    expect(config.relevance).toEqual({ enabled: true, maxSkills: 2, rosterTtlMs: 1000, timeoutMs: 250 })
+
+    // The ceiling keeps the writer in step with the plugin, which only accepts a box of up to three
+    // names; a larger value would render a line the plugin drops.
+    const capped = resolveAdaptiveConfig({
+      block: { relevance: { enabled: true, maxSkills: 5 } },
+      env: {},
+    })
+    expect(capped.relevance.maxSkills).toBe(RELEVANCE_MAX_SKILLS_CEILING)
+
+    // A malformed value is ignored rather than guessed.
+    const malformed = resolveAdaptiveConfig({
+      block: { relevance: { enabled: "yes", maxSkills: -1, rosterTtlMs: "many" } },
+      env: {},
+    })
+    expect(malformed.relevance).toEqual(DEFAULT_RELEVANCE_CONFIG)
+  })
+
+  test("clamps the relevance deadline below the plugin's fetch timeout", () => {
+    // The plugin bounds its own fetch at 500 ms by default, so the server's deadline must stay under
+    // `RELEVANCE_TIMEOUT_MS_CEILING` or the line would vanish without the server ever answering.
+    expect(RELEVANCE_TIMEOUT_MS_CEILING).toBeLessThan(500)
+    const clamped = resolveAdaptiveConfig({
+      block: { relevance: { enabled: true, timeoutMs: 10_000 } },
+      env: {},
+    })
+    expect(clamped.relevance.timeoutMs).toBe(RELEVANCE_TIMEOUT_MS_CEILING)
   })
 
   test("composes the Phase 1 resolvers unchanged", () => {
