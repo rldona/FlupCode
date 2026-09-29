@@ -117,6 +117,48 @@ delivery with its reason. Guards fail closed: a listed module that cannot be loa
 `assess` throws, refuses the delivery instead of being skipped. Without `guards`, the profile
 delivers unconditionally.
 
+## Adaptive Harness settings
+
+The Adaptive Harness is FlupCode's own bounded service, and its settings live in the global
+`flupcode.adaptive` block — read through the same OpenCode layering as the rest of the global config,
+not a product profile. The acting promotion
+([ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)) adds one slice, **retention**:
+
+```jsonc
+{
+  "flupcode": {
+    "adaptive": {
+      "retention": {
+        "enabled": false,
+        "decisionsDays": 30,
+        "actingDays": 90,
+        "plansDays": 30,
+        "appliedPlansDays": 90,
+        "reflectionDays": 30,
+        "rejectedProposalsDays": 30
+      }
+    }
+  }
+}
+```
+
+- `enabled` is **off by default**: nothing expires until you opt in. The numbers above are the
+  conservative defaults — ADR-0022 fixes the policy, not the numbers; a malformed
+  value or a non-positive window falls back to its default, never guessed.
+- When on, a single transactional purge limits only the four adaptive audit tables —
+  `adaptive_decision`, `adaptive_plan`, `reflection_job`, `skill_proposals` — with a window per state
+  (shadow vs acting decisions, shadow vs applied plans, terminal reflection jobs, rejected proposals),
+  judged by `updated_at`.
+- **Never purged**: proposals in `proposed` or `promoted`, `pending` reflection jobs, any row another
+  row references, and — outside retention entirely — episodes, evidence, artifacts and every on-disk
+  artifact (`.ledger.jsonl`, `.versions/`, `.sidecar.json`, the archive). Execution is at startup and
+  on the hourly sweep, and fails safe.
+
+The relevance loopback auth is **not** configuration: the harness creates
+`<configDir>/adaptive-token` (0600) itself and the relevance plugin reads the same file, so there is
+nothing to put in your config. `WEB_ACTIONS_PLUGIN` and the browser token are unchanged. See
+[`docs/ADAPTIVE.md`](ADAPTIVE.md#acting-promotion-in-progress) for the full posture.
+
 ## Onboarding a product
 
 1. An agent (`agent/<product>.md`, or the Agents panel).
