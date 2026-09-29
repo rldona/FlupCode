@@ -9,7 +9,6 @@ import { UNAVAILABLE_FEATURES } from "../features"
 import type { Routine } from "../types"
 import type { Screen } from "../screen"
 import { ContextMenu, separator, type MenuItem } from "./ContextMenu"
-import { Loader } from "./Loader"
 import logo from "../assets/flupcode-logo.png"
 
 /** The sidebar's width until the reader drags it; double-clicking its edge goes back to it. */
@@ -65,15 +64,12 @@ type SidebarProps = {
   sessionTags: Record<string, string[]>
   expandedProjects: Record<string, boolean>
   noFolderSessions: string[]
-  /** Whether the server has another page of sessions to load (H-18). */
-  hasMoreSessions: boolean
   onDisplayName: (value: string) => void
   onToggleSessionPin: (id: string) => void
   /** Opens the dialog that edits a session's tags, so this only asks for it (H-18). */
   onEditTags: (id: string) => void
   /** Archives a session, or brings it back (H-18). */
   onArchiveSession: (id: string, archived: boolean) => void
-  onLoadMoreSessions: () => void
   onToggleProject: (id: string) => void
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
@@ -166,6 +162,47 @@ export const Sidebar: Component<SidebarProps> = (props) => {
         })
       },
       { defer: true },
+    ),
+  )
+
+  /**
+   * Bring the open or working session into the middle of the list on the first load.
+   *
+   * A reload rebuilds the sidebar from the top, and with many sessions the one the reader was in can
+   * be far below the fold. The first time the list arrives, the selected session — or a running one
+   * when nothing is selected — is scrolled to the middle of the visible area so it is always in view;
+   * the reader's own scroll wins from then on. The row may not be rendered on the first frame, so the
+   * wait is a bounded retry rather than a single attempt.
+   */
+  let centeredOnOpenSession = false
+  createEffect(
+    on(
+      () => [props.selectedSession, props.sessions] as const,
+      () => {
+        const el = scrollEl
+        if (centeredOnOpenSession || !el || !props.sessions) return
+        let tries = 0
+        const attempt = () => {
+          const current = scrollEl
+          if (centeredOnOpenSession || !current) return
+          const id = [props.selectedSession, ...props.runningSessions].find((candidate) =>
+            candidate ? current.querySelector(`[data-session-id="${CSS.escape(candidate)}"]`) : false,
+          )
+          const row = id ? current.querySelector<HTMLElement>(`[data-session-id="${CSS.escape(id)}"]`) : null
+          if (row) {
+            const delta = row.getBoundingClientRect().top - current.getBoundingClientRect().top
+            current.scrollTop += delta - current.clientHeight / 2 + row.clientHeight / 2
+            centeredOnOpenSession = true
+            return
+          }
+          if (++tries > 30) {
+            centeredOnOpenSession = true
+            return
+          }
+          requestAnimationFrame(attempt)
+        }
+        requestAnimationFrame(attempt)
+      },
     ),
   )
 
@@ -304,6 +341,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
   const SessionRow: Component<{ session: SessionInfo }> = (row) => (
     <div
       class="fc-session-row"
+      data-session-id={row.session.id}
       classList={{
         "fc-session-row-active": props.selectedSession === row.session.id,
         "fc-session-row-split":
@@ -365,6 +403,20 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           </For>
         </span>
       </Show>
+    </div>
+  )
+
+  /** Placeholder rows for the sidebar while the session list loads, in the shape of the real list. */
+  const SidebarSkeleton: Component<{ rows?: number }> = (skeleton) => (
+    <div class="fc-skeleton-list" aria-hidden="true">
+      <For each={Array.from({ length: skeleton.rows ?? 6 })}>
+        {() => (
+          <div class="fc-skeleton-row">
+            <span class="fc-skeleton-dot" />
+            <span class="fc-skeleton-bar" />
+          </div>
+        )}
+      </For>
     </div>
   )
 
@@ -571,7 +623,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             </div>
             <Show
               when={!props.sessionsLoading || unpinned().length > 0}
-              fallback={<Loader class="fc-loader-inline" label={t("Loading chats")} />}
+              fallback={<SidebarSkeleton rows={5} />}
             >
               <Show
                 when={unpinned().length > 0}
@@ -613,7 +665,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
 
             <Show
               when={!props.sessionsLoading || groups().length > 0}
-              fallback={<Loader class="fc-loader-inline" label={t("Loading sessions")} />}
+              fallback={<SidebarSkeleton rows={8} />}
             >
               <Show
                 when={groups().length > 0}
@@ -664,13 +716,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
               </Show>
             </Show>
             </section>
-          </Show>
-
-          {/* The engine has more sessions than the page asked for (H-18). */}
-          <Show when={props.hasMoreSessions}>
-            <button class="fc-load-more" type="button" onClick={props.onLoadMoreSessions}>
-              {t("Load more")}
-            </button>
           </Show>
         </div>
 
