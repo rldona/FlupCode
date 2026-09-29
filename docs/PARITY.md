@@ -41,7 +41,7 @@ Paths are relative to `packages/`.
 | Archive, tags, server-side search, cursor paging | ✅                         | ✅       | archive, `TagsDialog`, server-side search and cursor paging (H-18)      |
 | Export transcript                                | ✅ (Markdown with options) | ✅       | `ExportDialog.tsx`: Markdown or JSON with reasoning/tool options (H-35) |
 | Engine-generated title                           | ✅                         | ✅       | the engine's title agent names the session on its first turn            |
-| Session list cap                                 | paged                      | ✅       | cursor paging, `SESSION_PAGE = 80` with "Load more" (H-18)              |
+| Session list cap                                 | paged                      | ✅       | walks the cursor to load every session up front, `SESSION_PAGE = 80` per request (H-18) |
 
 ## 3. Composer
 

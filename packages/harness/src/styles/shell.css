@@ -594,24 +594,6 @@ button.fc-row-main {
   white-space: nowrap;
 }
 
-/* The sidebar's "there is another page" button (H-18). */
-.fc-load-more {
-  display: block;
-  width: calc(100% - 2 * var(--fc-space-3));
-  margin: var(--fc-space-2) var(--fc-space-3);
-  padding: 6px;
-  border: 1px dashed var(--fc-border);
-  border-radius: var(--fc-radius-sm);
-  background: transparent;
-  color: var(--fc-text-muted);
-  font-size: var(--fc-text-xs);
-  cursor: pointer;
-}
-
-.fc-load-more:hover {
-  color: var(--fc-text);
-}
-
 /* Top bar icons: plain until hovered, when a soft shade appears behind them (no border). */
 .fc-nav-arrow {
   display: inline-flex;
@@ -2228,6 +2210,73 @@ button.fc-status {
 
 .fc-loader-inline {
   padding: 8px 2px;
+}
+
+/* Sidebar loading placeholders: the shape of the list, shimmering, instead of a spinner. */
+.fc-skeleton-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-1);
+  padding: 2px 0;
+}
+
+.fc-skeleton-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 6px;
+}
+
+.fc-skeleton-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.fc-skeleton-bar {
+  height: 9px;
+  flex: 1;
+  border-radius: var(--fc-radius-pill);
+}
+
+.fc-skeleton-dot,
+.fc-skeleton-bar {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--fc-border) 55%, transparent) 25%,
+    color-mix(in srgb, var(--fc-border) 95%, transparent) 37%,
+    color-mix(in srgb, var(--fc-border) 55%, transparent) 63%
+  );
+  background-size: 400% 100%;
+  animation: fc-skeleton-shimmer 1.4s ease-in-out infinite;
+}
+
+/* Vary the placeholder width so the list reads as rows, not a stack of identical bars. */
+.fc-skeleton-row:nth-child(3n) .fc-skeleton-bar {
+  flex: none;
+  width: 62%;
+}
+
+.fc-skeleton-row:nth-child(4n) .fc-skeleton-bar {
+  flex: none;
+  width: 78%;
+}
+
+@keyframes fc-skeleton-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fc-skeleton-dot,
+  .fc-skeleton-bar {
+    animation: none;
+  }
 }
 
 .fc-mode {
