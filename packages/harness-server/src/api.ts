@@ -400,6 +400,8 @@ export type HarnessHandlerOptions = {
   learnedSkills?: LearnedSkillReader
   /** The acting relevance line (FH-04): the only adaptive route a live turn calls. */
   relevance?: RelevanceService
+  /** The dedicated loopback bearer of the acting line; the route is closed without it (ADR-0022). */
+  adaptiveToken?: string
 }
 
 export const createHarnessHandler = (
@@ -480,18 +482,21 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLearnedSkillRequest(request, path.slice(2), options.learnedSkills)
     }
-    // The acting line (FH-04): a live turn's plugin calls it on the loopback with the same bearer as
-    // the other adaptive surfaces. It is a POST because it decides; the service is the policy point.
-    // The exact path and method are required before delegating: a POST to a deeper path is not this
-    // route and must not answer through it.
+    // The acting line (FH-04): a live turn's plugin calls it on the loopback with its own bearer,
+    // never the browser/artifacts/actions one (ADR-0022). It is a POST because it decides, and the
+    // route exists only when both the service and the dedicated token were resolved: without a token
+    // it is an ordinary 404 and the capability is not announced, so there is no open-loopback
+    // fallback. The exact path and method are required before delegating: a POST to a deeper path is
+    // not this route and must not answer through it.
     if (
       path[1] === "adaptive" &&
       path[2] === "relevance" &&
       path.length === 3 &&
       request.method === "POST" &&
-      options.relevance
+      options.relevance &&
+      options.adaptiveToken
     ) {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+      if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleRelevanceRequest(request, options.relevance)
     }
@@ -526,8 +531,9 @@ export const createHarnessHandler = (
           // The learning audit is two surfaces: proposals and learned skills (FH-034).
           ...(options.proposals ? (["adaptive-proposals"] as const) : []),
           ...(options.learnedSkills ? (["adaptive-skills"] as const) : []),
-          // The acting relevance line (FH-04): announced only when the service was built.
-          ...(options.relevance ? (["adaptive-relevance"] as const) : []),
+          // The acting relevance line (FH-04): announced only when the service was built and its
+          // dedicated bearer was resolved, so an unauthenticated route is never advertised.
+          ...(options.relevance && options.adaptiveToken ? (["adaptive-relevance"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

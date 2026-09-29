@@ -51,6 +51,7 @@ afterEach(async () => {
   delete process.env.FLUPCODE_HARNESS_PORT
   delete process.env.FLUPCODE_BROWSER_DISABLED
   delete process.env.FLUPCODE_BROWSER_TOKEN
+  delete process.env.FLUPCODE_ADAPTIVE_TOKEN
   delete process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS
 })
 
@@ -1686,7 +1687,7 @@ describe("RELEVANCE_PLUGIN", () => {
   ) => {
     const config = await temp()
     const tokenDir = await temp()
-    if (options.token !== false) await writeFile(path.join(tokenDir, "browser-token"), options.token ?? "token-abc")
+    if (options.token !== false) await writeFile(path.join(tokenDir, "adaptive-token"), options.token ?? "token-abc")
     if (options.config !== undefined)
       await writeFile(path.join(config, "opencode.json"), JSON.stringify(options.config))
     process.env.OPENCODE_CONFIG_DIR = config
@@ -1751,6 +1752,42 @@ describe("RELEVANCE_PLUGIN", () => {
       messageID: "msg_1",
       objective: "fix the parser",
     })
+  })
+
+  test("reads the dedicated adaptive token, never the browser bearer", async () => {
+    const fixture = startFixture()
+    process.env.FLUPCODE_BROWSER_TOKEN = "desktop-browser-token"
+    const { hooks } = await open({ fixture, token: "adaptive-token-abc" })
+
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    await inject(hooks, "ses_1", ["base"])
+
+    expect(fixture.requests).toHaveLength(1)
+    expect(fixture.requests[0]!.auth).toBe("Bearer adaptive-token-abc")
+  })
+
+  test("an FLUPCODE_ADAPTIVE_TOKEN env var is ignored: the file is the only source", async () => {
+    const fixture = startFixture()
+    process.env.FLUPCODE_ADAPTIVE_TOKEN = "env-adaptive-token"
+    const { hooks } = await open({ fixture, token: "file-adaptive-token" })
+
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    await inject(hooks, "ses_1", ["base"])
+
+    expect(fixture.requests).toHaveLength(1)
+    // ADR-0022 fixes the token to the file alone, so a stray env override must have no effect.
+    expect(fixture.requests[0]!.auth).toBe("Bearer file-adaptive-token")
+  })
+
+  test("is inert when only another purpose's bearer exists", async () => {
+    // The browser/artifacts/actions bearer must not open the relevance route (ADR-0022): without the
+    // dedicated token the plugin registers nothing, so no hook can even ask and the turn is untouched.
+    const fixture = startFixture()
+    process.env.FLUPCODE_BROWSER_TOKEN = "desktop-browser-token"
+    const { hooks } = await open({ fixture, token: false })
+
+    expect(hooks).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
   })
 
   test("reads the last user message and only its non-synthetic text", async () => {

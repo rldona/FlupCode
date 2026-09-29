@@ -1,0 +1,23 @@
+{
+  "objective": "Fix XSS in the comment renderer",
+  "roster": [
+    { "name": "renderer", "description": "Comment renderer internals", "learned": false },
+    { "name": "security", "description": "Audit input sanitisation", "learned": false },
+    { "name": "escaping", "description": "Escape HTML output", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "renderer": { "type": "noul", "probability": 0.9 },
+      "escaping": { "type": "noul", "probability": 0.88 },
+      "security": { "type": "noul", "probability": 0.8 },
+      "release": { "type": "noul", "probability": 0.05 }
+    }
+  },
+  "good": ["renderer", "escaping", "security"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 260,
+  "simulatedTokens": 540
+}

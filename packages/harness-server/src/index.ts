@@ -4,7 +4,15 @@ import { RoutineScheduler } from "./scheduler"
 import { seedTemplates } from "./workflow"
 import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
 import type { BrowserRuntime } from "./browser"
-import { browserTokenFile, readBrowserToken, readOrCreateBrowserToken } from "./browser-token"
+import {
+  adaptiveTokenFile,
+  browserTokenFile,
+  isLoopbackHostname,
+  readAdaptiveToken,
+  readBrowserToken,
+  readOrCreateAdaptiveToken,
+  readOrCreateBrowserToken,
+} from "./browser-token"
 import { createEgressGuard } from "./browser-egress"
 import { createActionRunner } from "./action-runner"
 import type { ActionRunner } from "./action-runner"
@@ -14,6 +22,7 @@ import { createVault, parseVaultKey, readOrCreateVaultKeyFile, readVaultKeyFile,
 import type { CredentialVault } from "./vault"
 import { globalAdaptiveBlock, globalSmallModel, loadActionProfiles } from "./config-files"
 import { createAdaptiveConfig } from "./adaptive/config"
+import { retentionCutoffs } from "./adaptive/retention"
 import { createAdaptiveEgressGuard } from "./adaptive/egress"
 import { resolveInstallationKey } from "./adaptive/installation-key"
 import { createRuntimeProbe } from "./adaptive/runtime"
@@ -48,6 +57,9 @@ export type HarnessServerOptions = {
   vaultKey?: string
   vaultKeyFile?: string
   runtimeProbe?: RuntimeProbe
+  /** The acting line's dedicated bearer (FH-04, ADR-0022); resolved from the file when omitted. */
+  adaptiveToken?: string
+  adaptiveTokenFile?: string
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
@@ -59,7 +71,6 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // over from a build that did not (FH-006).
   const evicted = repository.evictEvidence()
   if (evicted > 0) console.warn(`[flupcode] evicted ${evicted} evidence slice(s) past the total limit`)
-  const sweep = setInterval(() => repository.removeExpiredArtifacts(), 60 * 60 * 1000)
   const browser = browserFrom(options, repository)
   // Read apart from the runtime: the same bearer guards the artifact routes (WA-9), and it is worth
   // passing even when there is no browser to guard, so the token is not lost with the runtime.
@@ -90,6 +101,25 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // effect without a restart. Jev is off by default: without an explicit opt-in, the deterministic
   // provider answers and nothing leaves the process.
   const adaptive = createAdaptiveConfig({ read: globalAdaptiveBlock, env: process.env })
+  // Retention (FH-082, ADR-0022 §2): off by default, so with the switch off no query runs at all.
+  // Fail-safe: a purge that throws is logged and never takes the server down, and the same hourly
+  // boundary that forgets expired artifacts runs it. With retention on it only ever removes rows
+  // outside their window and unreferenced by a survivor; episodes, evidence and the filesystem are
+  // never touched.
+  const purge = () => {
+    const retention = adaptive.current().retention
+    if (!retention.enabled) return
+    try {
+      repository.purgeAdaptive(retentionCutoffs(retention, Date.now()))
+    } catch (cause) {
+      console.warn(`[flupcode] adaptive retention failed: ${cause instanceof Error ? cause.message : String(cause)}`)
+    }
+  }
+  purge()
+  const sweep = setInterval(() => {
+    repository.removeExpiredArtifacts()
+    purge()
+  }, 60 * 60 * 1000)
   const startup = adaptive.current()
   const egress = createAdaptiveEgressGuard({ config: () => adaptive.current() })
   const governor = createGovernor({ config: startup.governor, store: repository })
@@ -247,9 +277,16 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     runtimeProbe,
     config: () => adaptive.current(),
   })
+  const hostname = options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1"
+  // The acting line's own secret (FH-04, ADR-0022). It is only resolved on a loopback host: off the
+  // loopback no token, no route and no capability are built, so the feature is inert rather than
+  // exposed. Without a token the route is an ordinary 404, never an open loopback.
+  const adaptiveToken = isLoopbackHostname(hostname)
+    ? options.adaptiveToken ?? readAdaptiveToken(options.adaptiveTokenFile ?? adaptiveTokenFile())
+    : undefined
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
-    hostname: options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1",
+    hostname,
     fetch: createHarnessHandler(repository, scheduler, {
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
@@ -260,7 +297,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       context,
       proposals: repository,
       learnedSkills: curator,
-      relevance,
+      ...(relevance && adaptiveToken ? { relevance, adaptiveToken } : {}),
     }),
   })
   return {
@@ -330,6 +367,22 @@ const createBrowserToken = (): string | undefined => {
 }
 
 /**
+ * The acting line's dedicated secret (FH-04, ADR-0022).
+ *
+ * The harness owns it: the desktop never generates or propagates it, and there is **no** environment
+ * override — the ADR fixes the token to the file alone, so the shared file keeps it out of the
+ * children's env. A read-only config directory leaves the line inert rather than stopping the server.
+ */
+const createAdaptiveToken = (): string | undefined => {
+  try {
+    return readOrCreateAdaptiveToken(adaptiveTokenFile())
+  } catch (cause) {
+    console.warn(`Could not write the adaptive token: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return undefined
+  }
+}
+
+/**
  * The key the desktop injected, when it is one, and otherwise the file this process owns.
  *
  * The desktop sends `FLUPCODE_VAULT_KEY` on the platforms where `safeStorage` holds it, so the
@@ -357,7 +410,16 @@ if (import.meta.main) {
   // the harness from serving everything else, so it starts without a browser instead.
   const token = createBrowserToken()
   const vaultKey = createVaultKey()
-  const app = createHarnessServer({ ...(token ? { browserToken: token } : {}), ...(vaultKey ? { vaultKey } : {}) })
+  // The acting line's secret is only ever created on a loopback host (ADR-0022 §1): off the loopback
+  // the feature is inert, so the entrypoint must not leave the dedicated token on disk either. The
+  // resolved host matches the one `createHarnessServer` uses (no explicit hostname is passed here).
+  const hostname = process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1"
+  const adaptiveToken = isLoopbackHostname(hostname) ? createAdaptiveToken() : undefined
+  const app = createHarnessServer({
+    ...(token ? { browserToken: token } : {}),
+    ...(vaultKey ? { vaultKey } : {}),
+    ...(adaptiveToken ? { adaptiveToken } : {}),
+  })
   console.log(`FlupCode harness server listening on ${app.server.url}`)
   // Playwright swallows SIGTERM, so without this the browser outlives the server that owns it.
   let stopping = false

@@ -1,0 +1,21 @@
+{
+  "objective": "Upgrade the logging library to v3",
+  "roster": [
+    { "name": "logging", "description": "Structured logging setup", "learned": false },
+    { "name": "dependencies", "description": "Dependency management", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "logging": { "type": "noul", "probability": 0.9 },
+      "dependencies": { "type": "noul", "probability": 0.8 },
+      "release": { "type": "noul", "probability": 0.15 }
+    }
+  },
+  "good": ["logging", "dependencies"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 170,
+  "simulatedTokens": 360
+}

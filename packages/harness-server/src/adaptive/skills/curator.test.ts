@@ -285,3 +285,112 @@ describe("human skills are never touched", () => {
     })
   })
 })
+
+describe("reverse collision: the human wins (FH-081, ADR-0022 §4)", () => {
+  const humanPath = () => join(project, ".opencode", "skills", "shared", "SKILL.md")
+  const archivePath = () => join(project, ".opencode", "flupcode-learned-archive", "shared")
+
+  /** A learned skill that a human file with the same name only appears for afterwards. */
+  const collided = () => {
+    const created = store()
+    expect(
+      created.write({ projectID: project, name: "shared", description: "A learned skill", body: body() }).ok,
+    ).toBe(true)
+    write(humanPath(), humanSkill("shared"))
+    return created
+  }
+
+  test("the shadowed learned skill is excluded from the roster, so it is never counted as used", () => {
+    const created = collided()
+    const skills = createSkillCurator({ store: created })
+    // `skillReport` is first-wins and can mark the learned one loaded; the roster still drops it.
+    expect(skills.roster(project).some((entry) => entry.name === "shared")).toBe(false)
+
+    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["shared"] })
+    expect(created.readSidecar(project, "shared")!.usage).toMatchObject({ opportunities: 0, load: 0 })
+    // The human file is byte-identical: nothing touched it.
+    expect(readFileSync(humanPath(), "utf8")).toBe(humanSkill("shared"))
+  })
+
+  test("reconcile archives the learned skill through the single writer, with the reason recorded", () => {
+    const created = collided()
+    const skills = createSkillCurator({ store: created, now: () => 1_000 })
+    expect(skills.reconcile(project, 1_000)).toEqual([{ name: "shared", reason: "human-name-collision" }])
+
+    // Archive-not-delete: the folder moved out of `skills/` and into the archive.
+    expect(existsSync(join(learned, "shared", "SKILL.md"))).toBe(false)
+    expect(existsSync(join(archivePath(), "SKILL.md"))).toBe(true)
+    const sidecar: unknown = JSON.parse(readFileSync(join(archivePath(), ".sidecar.json"), "utf8"))
+    expect(sidecar).toMatchObject({ state: "archived" })
+    const ledger = readFileSync(join(archivePath(), ".ledger.jsonl"), "utf8").trim().split("\n")
+    expect(JSON.parse(ledger.at(-1)!)).toMatchObject({ event: "archived", reason: "human-name-collision" })
+    // Once it left the learned root there is nothing left to reconcile.
+    expect(createSkillCurator({ store: created }).reconcile(project)).toEqual([])
+    expect(readFileSync(humanPath(), "utf8")).toBe(humanSkill("shared"))
+  })
+
+  test("recompute reconciles first, so the collision is repaired on disk by the sweep", () => {
+    const created = collided()
+    const skills = createSkillCurator({ store: created })
+    expect(skills.recompute(project, 1_000)).toEqual([])
+    expect(existsSync(join(learned, "shared", "SKILL.md"))).toBe(false)
+    expect(existsSync(join(archivePath(), "SKILL.md"))).toBe(true)
+  })
+
+  test("with learning off the read exclusion still protects, and the collision is repaired on disk", () => {
+    const created = collided()
+    const off = createSkillCurator({ store: created, enabled: () => false })
+    expect(off.roster(project).some((entry) => entry.name === "shared")).toBe(false)
+    // A reverse collision is a security move, not a learning write: it is repaired even with the
+    // switch off, so the human wins on disk too (ADR-0022 §4).
+    expect(off.reconcile(project)).toEqual([{ name: "shared", reason: "human-name-collision" }])
+    expect(existsSync(join(learned, "shared", "SKILL.md"))).toBe(false)
+    expect(existsSync(join(archivePath(), "SKILL.md"))).toBe(true)
+    expect(readFileSync(humanPath(), "utf8")).toBe(humanSkill("shared"))
+  })
+
+  test("a malformed human SKILL.md is not a claim and never archives a healthy learned skill", () => {
+    const created = store()
+    expect(
+      created.write({ projectID: project, name: "shared", description: "A learned skill", body: body() }).ok,
+    ).toBe(true)
+    // The frontmatter cannot be read, so `skillReport` parses no name from it. The learned skill is
+    // not shadowed and must survive: the tightening can only fail to exclude, never wrongly archive.
+    write(humanPath(), "---\nname: [shared\n---\n\nA human skill with broken frontmatter.\n")
+    const skills = createSkillCurator({ store: created })
+    expect(skills.reconcile(project)).toEqual([])
+    expect(existsSync(join(learned, "shared", "SKILL.md"))).toBe(true)
+  })
+
+  test("a learned skill no human claims is offered and reconciling it is a no-op", () => {
+    const created = store()
+    expect(created.write({ projectID: project, name: "solo", description: "A learned skill", body: body() }).ok).toBe(
+      true,
+    )
+    const skills = createSkillCurator({ store: created })
+    expect(skills.roster(project).some((entry) => entry.name === "solo")).toBe(true)
+    expect(skills.reconcile(project)).toEqual([])
+    expect(existsSync(join(learned, "solo", "SKILL.md"))).toBe(true)
+  })
+})
+
+describe("cross-project isolation: a learned skill never leaks or collides across projects (FH-081)", () => {
+  test("another project's roster never offers it and its reconcile never archives it", () => {
+    const other = join(root, "other-project")
+    mkdirSync(other, { recursive: true })
+    const created = store()
+    expect(
+      created.write({ projectID: project, name: "shared", description: "A learned skill", body: body() }).ok,
+    ).toBe(true)
+    // A human claims the same name, but in a *different* project: it must neither shadow nor archive
+    // the learned skill that belongs to `project`.
+    write(join(other, ".opencode", "skills", "shared", "SKILL.md"), humanSkill("shared"))
+
+    const skills = createSkillCurator({ store: created })
+    expect(skills.roster(project).some((entry) => entry.name === "shared" && entry.learned)).toBe(true)
+    expect(skills.roster(other).some((entry) => entry.name === "shared" && entry.learned)).toBe(false)
+    // The recompute for the other project finds no learned collision: nothing of ours is touched.
+    expect(skills.reconcile(other)).toEqual([])
+    expect(existsSync(join(learned, "shared", "SKILL.md"))).toBe(true)
+  })
+})

@@ -1,10 +1,12 @@
 /**
- * The relevance route (FH-04, ADR-0021 §1).
+ * The relevance route (FH-04, ADR-0021 §1 / ADR-0022 §1).
  *
- * The route is only the shape of the call: it is bearer-guarded like the other adaptive surfaces,
- * refuses a malformed body, refuses a project that is not an existing directory (the curator walks
- * it), answers a POST with the service's result without the skill-name list, and is announced as its
- * own capability. Whether the line acts is the service's decision, tested elsewhere.
+ * The route is only the shape of the call: it takes the dedicated acting bearer (never the browser
+ * one), refuses a malformed body, refuses a project that is not an existing directory (the curator
+ * walks it), answers a POST with the service's result without the skill-name list, and is announced
+ * as its own capability only when both the service and its token exist. Without a token the route is
+ * an ordinary 404 — fail-closed, never an open loopback. Whether the line acts is the service's
+ * decision, tested elsewhere.
  */
 
 import { describe, expect, test } from "bun:test"
@@ -17,6 +19,8 @@ import { RoutineScheduler } from "../scheduler"
 import type { RelevanceResult, RelevanceService } from "./relevance"
 
 const PROJECT = tmpdir()
+/** The acting line's own secret; the browser/artifacts bearer is a different, unrelated one. */
+const ADAPTIVE = "adaptive-secret"
 
 const result: RelevanceResult = {
   line: "<skill_relevance>Possibly relevant skills: testing. Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>",
@@ -47,16 +51,16 @@ const body = { projectID: PROJECT, sessionID: "ses_1", messageID: "msg_1", objec
 
 describe("the relevance route (FH-04)", () => {
   test("answers a POST with the service result", async () => {
-    const { repository, handler } = open({ relevance: service() })
-    const response = await handler(post(body))
+    const { repository, handler } = open({ relevance: service(), adaptiveToken: ADAPTIVE })
+    const response = await handler(post(body, ADAPTIVE))
     expect(response.status).toBe(200)
     expect((await response.json()).data.line).toContain("testing")
     repository.close()
   })
 
   test("answers the result under data without the skill-name list", async () => {
-    const { repository, handler } = open({ relevance: service() })
-    const response = await handler(post(body))
+    const { repository, handler } = open({ relevance: service(), adaptiveToken: ADAPTIVE })
+    const response = await handler(post(body, ADAPTIVE))
     // `skills` is dropped: the plugin reads only `line`, and the list is an enumeration surface.
     expect(await response.json()).toEqual({
       data: {
@@ -71,8 +75,8 @@ describe("the relevance route (FH-04)", () => {
     repository.close()
   })
 
-  test("takes the bearer when one is configured and refuses without it", async () => {
-    const { repository, handler } = open({ token: "secret", relevance: service() })
+  test("takes the dedicated bearer and refuses without it", async () => {
+    const { repository, handler } = open({ relevance: service(), adaptiveToken: ADAPTIVE })
     const forbidden = await handler(post(body))
     expect(forbidden.status).toBe(403)
     expect((await forbidden.json()).code).toBe("invalid_token")
@@ -80,19 +84,62 @@ describe("the relevance route (FH-04)", () => {
     const wrong = await handler(post(body, "not-the-secret"))
     expect(wrong.status).toBe(403)
 
-    const allowed = await handler(post(body, "secret"))
+    const allowed = await handler(post(body, ADAPTIVE))
     expect(allowed.status).toBe(200)
     repository.close()
   })
 
-  test("is a 404 for a GET, a malformed body, a deeper path or an unknown method", async () => {
+  test("a token of another purpose does not open the route", async () => {
+    // The browser/artifacts bearer is a different secret (ADR-0022): holding it must not buy the line.
+    const { repository, handler } = open({
+      token: "browser-secret",
+      relevance: service(),
+      adaptiveToken: ADAPTIVE,
+    })
+    const browserBearer = await handler(post(body, "browser-secret"))
+    expect(browserBearer.status).toBe(403)
+    expect((await browserBearer.json()).code).toBe("invalid_token")
+
+    // The route has its own bearer even when no browser token is configured at all.
+    const dedicated = open({ relevance: service(), adaptiveToken: ADAPTIVE })
+    expect((await dedicated.handler(post(body, "browser-secret"))).status).toBe(403)
+    expect((await dedicated.handler(post(body, ADAPTIVE))).status).toBe(200)
+    repository.close()
+    dedicated.repository.close()
+  })
+
+  test("is an ordinary 404 without a dedicated token, even with the service", async () => {
+    // Fail-closed: no token resolved means the route is absent, never an open loopback.
     const { repository, handler } = open({ relevance: service() })
+    expect((await handler(post(body))).status).toBe(404)
+    expect((await handler(post(body, ADAPTIVE))).status).toBe(404)
+    repository.close()
+  })
+
+  test("the dedicated token does not replace the shared bearer of the other surfaces", async () => {
+    // `/artifacts` and `/events` keep their own browser bearer: the adaptive token must not open them,
+    // and their guard must not have moved to it.
+    const { repository, handler } = open({ token: "browser-secret", relevance: service(), adaptiveToken: ADAPTIVE })
+    expect((await handler(new Request("http://x/harness/events"))).status).toBe(403)
+    expect((await handler(new Request("http://x/harness/artifacts"))).status).toBe(403)
+    expect(
+      (
+        await handler(
+          new Request("http://x/harness/events", { headers: { authorization: `Bearer ${ADAPTIVE}` } }),
+        )
+      ).status,
+    ).toBe(403)
+    repository.close()
+  })
+
+  test("is a 404 for a GET, a malformed body, a deeper path or an unknown method", async () => {
+    const { repository, handler } = open({ relevance: service(), adaptiveToken: ADAPTIVE })
     expect((await handler(new Request("http://x/harness/adaptive/relevance"))).status).toBe(404)
-    expect((await handler(post(body, undefined, "/harness/adaptive/relevance/extra"))).status).toBe(404)
-    expect((await handler(post({ projectID: PROJECT }))).status).toBe(400)
+    expect((await handler(post(body, ADAPTIVE, "/harness/adaptive/relevance/extra"))).status).toBe(404)
+    expect((await handler(post({ projectID: PROJECT }, ADAPTIVE))).status).toBe(400)
     const notJson = new Request("http://x/harness/adaptive/relevance", {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", authorization: `Bearer ${ADAPTIVE}` },
       body: "{",
     })
     expect((await handler(notJson)).status).toBe(400)
@@ -100,41 +147,40 @@ describe("the relevance route (FH-04)", () => {
   })
 
   test("refuses a project that is not an existing directory", async () => {
-    const { repository, handler } = open({ relevance: service() })
-    const relative = await handler(post({ ...body, projectID: "work/project" }))
+    const { repository, handler } = open({ relevance: service(), adaptiveToken: ADAPTIVE })
+    const relative = await handler(post({ ...body, projectID: "work/project" }, ADAPTIVE))
     expect(relative.status).toBe(400)
     expect((await relative.json()).code).toBe("bad_request")
 
-    const missing = await handler(post({ ...body, projectID: join(PROJECT, "definitely-not-here") }))
+    const missing = await handler(post({ ...body, projectID: join(PROJECT, "definitely-not-here") }, ADAPTIVE))
     expect(missing.status).toBe(400)
     repository.close()
   })
 
   test("refuses an id or an objective past its limit", async () => {
-    const { repository, handler } = open({ relevance: service() })
-    expect((await handler(post({ ...body, sessionID: "s".repeat(201) }))).status).toBe(400)
-    expect((await handler(post({ ...body, messageID: "m".repeat(201) }))).status).toBe(400)
-    expect((await handler(post({ ...body, objective: "o".repeat(501) }))).status).toBe(400)
+    const { repository, handler } = open({ relevance: service(), adaptiveToken: ADAPTIVE })
+    expect((await handler(post({ ...body, sessionID: "s".repeat(201) }, ADAPTIVE))).status).toBe(400)
+    expect((await handler(post({ ...body, messageID: "m".repeat(201) }, ADAPTIVE))).status).toBe(400)
+    expect((await handler(post({ ...body, objective: "o".repeat(501) }, ADAPTIVE))).status).toBe(400)
     repository.close()
   })
 
   test("is an ordinary 404 without a relevance service", async () => {
-    const { repository, handler } = open()
-    expect((await handler(post(body))).status).toBe(404)
+    const { repository, handler } = open({ adaptiveToken: ADAPTIVE })
+    expect((await handler(post(body, ADAPTIVE))).status).toBe(404)
     repository.close()
   })
 
-  test("health announces adaptive-relevance only when the service exists", async () => {
-    const without = open()
-    expect((await (await without.handler(new Request("http://x/harness/health"))).json()).capabilities).not.toContain(
-      "adaptive-relevance",
-    )
-    without.repository.close()
+  test("health announces adaptive-relevance only when the service and its token exist", async () => {
+    const capabilitiesOf = async (options: HarnessHandlerOptions) => {
+      const { repository, handler } = open(options)
+      const capabilities = (await (await handler(new Request("http://x/harness/health"))).json()).capabilities
+      repository.close()
+      return capabilities
+    }
 
-    const withService = open({ relevance: service() })
-    expect((await (await withService.handler(new Request("http://x/harness/health"))).json()).capabilities).toContain(
-      "adaptive-relevance",
-    )
-    withService.repository.close()
+    expect(await capabilitiesOf({})).not.toContain("adaptive-relevance")
+    expect(await capabilitiesOf({ relevance: service() })).not.toContain("adaptive-relevance")
+    expect(await capabilitiesOf({ relevance: service(), adaptiveToken: ADAPTIVE })).toContain("adaptive-relevance")
   })
 })

@@ -1524,11 +1524,10 @@ function harnessBaseURL() {
 }
 
 async function readToken() {
-  // The desktop hands the engine it starts the token both sides compare; a file only exists when the
-  // harness wrote one on its own, so the environment wins and the file is the fallback.
-  const fromEnv = typeof process !== "undefined" && process.env ? process.env.FLUPCODE_BROWSER_TOKEN : undefined
-  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
-  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  // The acting line has its own secret (FH-04, ADR-0022): the browser bearer the desktop injects is
+  // a different credential and must not open this route. The harness-owned file is the only source —
+  // never an environment variable, so the secret stays out of the children's env.
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
   if (text === undefined) return undefined
   const token = text.trim()
   return token === "" ? undefined : token

@@ -1,0 +1,21 @@
+{
+  "objective": "Fix keyboard focus order in the modal dialog",
+  "roster": [
+    { "name": "accessibility", "description": "ARIA and focus management", "learned": false },
+    { "name": "dialog", "description": "Modal dialog components", "learned": false },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "accessibility": { "type": "noul", "probability": 0.9 },
+      "dialog": { "type": "noul", "probability": 0.85 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["accessibility", "dialog"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 200,
+  "simulatedTokens": 410
+}

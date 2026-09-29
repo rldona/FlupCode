@@ -3,6 +3,7 @@
   "roster": [
     { "name": "testing", "description": "Write a focused test", "learned": false },
     { "name": "parser", "description": "Debug parser failures", "learned": false },
+    { "name": "debugging", "description": "Trace stack traces", "learned": true },
     { "name": "release", "description": "Cut a release", "learned": false }
   ],
   "jev": {
@@ -10,9 +11,13 @@
     "answers": {
       "testing": { "type": "noul", "probability": 0.9 },
       "parser": { "type": "noul", "probability": 0.8 },
-      "release": { "type": "noul", "probability": 0.15 }
+      "debugging": { "type": "noul", "probability": 0.7 },
+      "release": { "type": "noul", "probability": 0.12 }
     }
   },
-  "good": ["testing", "parser"],
-  "wrong": ["release"]
+  "good": ["testing", "parser", "debugging"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 180,
+  "simulatedTokens": 420
 }

@@ -1,0 +1,23 @@
+{
+  "objective": "Add missing unit tests for the payment service",
+  "roster": [
+    { "name": "testing", "description": "Write focused unit tests", "learned": false },
+    { "name": "payment", "description": "Payment provider integration", "learned": false },
+    { "name": "fixtures", "description": "Reusable test fixtures", "learned": true },
+    { "name": "release", "description": "Cut a release", "learned": false }
+  ],
+  "jev": {
+    "model": "jev-1.13.0",
+    "answers": {
+      "testing": { "type": "noul", "probability": 0.9 },
+      "payment": { "type": "noul", "probability": 0.85 },
+      "fixtures": { "type": "noul", "probability": 0.75 },
+      "release": { "type": "noul", "probability": 0.1 }
+    }
+  },
+  "good": ["testing", "payment", "fixtures"],
+  "wrong": ["release"],
+  "degraded": false,
+  "simulatedLatencyMs": 190,
+  "simulatedTokens": 400
+}

@@ -171,6 +171,19 @@ describe("writing a learned skill", () => {
     expect(readFileSync(skillPath).equals(beforeSkill)).toBe(true)
   })
 
+  test("a security archive runs even with learning off, so the human wins on disk", () => {
+    const created = store()
+    expect(created.write(input()).ok).toBe(true)
+    const gated = createLearnedStore({ env: overrides(), enabled: () => false })
+    // The reverse-collision repair is a move, not a learning write (ADR-0022 §4): the one archive
+    // that bypasses the kill switch, and only when the caller marks it as a security repair.
+    expect(
+      gated.archive({ projectID: project, name: "fix-failing-test", reason: "human-name-collision", security: true }),
+    ).toMatchObject({ ok: true })
+    expect(existsSync(join(learned, "fix-failing-test", "SKILL.md"))).toBe(false)
+    expect(existsSync(join(archive, "fix-failing-test", "SKILL.md"))).toBe(true)
+  })
+
   test("refuses a path that leaves the root through a symlink", () => {
     mkdirSync(learned, { recursive: true })
     symlinkSync(outside, join(learned, "sneaky"))

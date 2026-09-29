@@ -615,6 +615,30 @@ describe("the manager drives the learned-skill lifecycle (FH-042)", () => {
     expect(inert.sweep()).toBe(0)
     expect(store().readSidecar(project, "selected-skill")).toMatchObject({ state: "mature" })
   })
+
+  test("with learning off the sweep still repairs a human-name collision on disk", () => {
+    const created = store()
+    expect(createSkillCurator({ store: created }).promote(skillProposal("shared")).ok).toBe(true)
+    const humanPath = join(project, ".opencode", "skills", "shared", "SKILL.md")
+    mkdirSync(join(project, ".opencode", "skills", "shared"), { recursive: true })
+    writeFileSync(humanPath, `---\nname: shared\ndescription: A human skill\n---\n\nDo the human thing.\n`)
+
+    const repository = repositoryFor()
+    seedTerminalEpisode(repository)
+    const manager = managerFor({
+      repository,
+      service: reflectionService({}),
+      config: configFor({ learning: { enabled: false, minToolCalls: 5, model: "prov/small" } }),
+      drafter: drafters().drafter,
+      curator: createSkillCurator({ store: created, enabled: () => false }),
+    })
+
+    // No reflection with learning off, but the reverse collision is repaired as a security move.
+    expect(manager.sweep()).toBe(0)
+    expect(existsSync(join(project, ".opencode", "skills", "flupcode-learned", "shared", "SKILL.md"))).toBe(false)
+    expect(existsSync(join(project, ".opencode", "flupcode-learned-archive", "shared", "SKILL.md"))).toBe(true)
+    expect(readFileSync(humanPath, "utf8")).toContain("Do the human thing.")
+  })
 })
 
 describe("a patch drafts from the current skill (FH-041, ADR-0019 §5)", () => {

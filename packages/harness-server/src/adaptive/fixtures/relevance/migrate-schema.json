@@ -16,5 +16,8 @@
     }
   },
   "good": ["migrate-db", "schema-tools", "backup"],
-  "wrong": ["rollback"]
+  "wrong": ["rollback"],
+  "degraded": false,
+  "simulatedLatencyMs": 210,
+  "simulatedTokens": 380
 }

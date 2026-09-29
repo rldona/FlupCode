@@ -73,6 +73,72 @@ describe("single-flight", () => {
     expect(first).toBe("answer")
     expect(second).toBe("answer")
   })
+
+  test("two concurrent identical batch requests still collapse into one call", async () => {
+    const governor = createGovernor({ config, store: memStore() })
+    let calls = 0
+    const work = async () => {
+      calls += 1
+      await Promise.resolve()
+      return "answer"
+    }
+
+    await Promise.all([governor.runBatch("same", 1, work), governor.runBatch("same", 1, work)])
+    expect(calls).toBe(1)
+  })
+
+  test("a hot call does not join an in-flight batch with the same key", async () => {
+    const governor = createGovernor({ config, store: memStore() })
+    let releaseBatch: () => void = () => {}
+    let batchStarted: () => void = () => {}
+    const started = new Promise<void>((resolve) => {
+      batchStarted = resolve
+    })
+    const gate = new Promise<void>((resolve) => {
+      releaseBatch = resolve
+    })
+    let calls = 0
+
+    const batch = governor.runBatch("same", 1, async () => {
+      calls += 1
+      batchStarted()
+      await gate
+      return "batch"
+    })
+    await started
+
+    // The hot call shares the key but must run its own work: without the mode-scoped key it would
+    // join the batch flight and block until the gate opens, inheriting the batch's limiter wait.
+    const hot = await governor.runHot("same", 1, async () => {
+      calls += 1
+      return "hot"
+    })
+    expect(hot).toBe("hot")
+    expect(calls).toBe(2)
+
+    releaseBatch()
+    expect(await batch).toBe("batch")
+  })
+
+  test("breaker and budget stay shared across modes", async () => {
+    const governor = createGovernor({ config, store: memStore() })
+    await Promise.all([
+      governor.runHot("same", 1, async () => "hot"),
+      governor.runBatch("same", 1, async () => "batch"),
+    ])
+    // Two distinct flights each reserve once; the shared budget counts both, not one per question.
+    expect(governor.state().tokensSpent).toBe(2)
+
+    // The breaker is the same closure for both entries: once open, it refuses either mode.
+    governor.recordFailure("network")
+    governor.recordFailure("network")
+    governor.recordFailure("network")
+    expect(governor.state().breaker).toBe("open")
+    const hot = await governor.runHot("later-hot", 1, async () => "hot").catch((error: unknown) => error)
+    const batch = await governor.runBatch("later-batch", 1, async () => "batch").catch((error: unknown) => error)
+    expect(hot).toMatchObject({ reason: "breaker-open" })
+    expect(batch).toMatchObject({ reason: "breaker-open" })
+  })
 })
 
 describe("assembly by id", () => {

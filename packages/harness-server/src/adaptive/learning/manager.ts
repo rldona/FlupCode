@@ -52,7 +52,7 @@ export type LearningManagerDeps = {
   service: ReflectionService
   config: () => AdaptiveConfig
   egress: Pick<EgressGuard, "allows" | "redact">
-  curator: Pick<SkillCurator, "roster" | "promote" | "readExisting" | "recompute">
+  curator: Pick<SkillCurator, "roster" | "promote" | "readExisting" | "recompute" | "reconcile">
   drafter: SkillDrafter
   /** The global `small_model`; absent leaves `adaptive.learning.model` as the only source. */
   smallModel?: () => string | undefined
@@ -277,15 +277,23 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
 
   const sweep = (): number => {
     const config = deps.config()
-    if (!config.enabled || !config.learning.enabled) return 0
+    if (!config.enabled) return 0
     try {
       const episodes = deps.repository.listEpisodes({ limit: sweepLimit })
-      // The lifecycle (FH-042) ages every project the sweep saw: a window only moves when its own
-      // episodes close, so the same listing that finds reflections finds what to graduate or archive.
-      // The state transitions are durable, so a later sweep is a no-op and nothing is re-enqueued.
-      for (const projectID of new Set(episodes.map((episode) => episode.projectID))) {
-        if (projectID) deps.curator.recompute(projectID)
+      const projects = new Set(episodes.map((episode) => episode.projectID))
+      if (config.learning.enabled) {
+        // The lifecycle (FH-042) ages every project the sweep saw: a window only moves when its own
+        // episodes close, so the same listing that finds reflections finds what to graduate or
+        // archive. `recompute` reconciles reverse collisions first. The state transitions are durable,
+        // so a later sweep is a no-op and nothing is re-enqueued.
+        for (const projectID of projects) if (projectID) deps.curator.recompute(projectID)
+      } else {
+        // A human-name collision is repaired on disk as a security move even with learning off: the
+        // learned skill leaves `skills/`, so the engine's scanner cannot load it over the human
+        // (ADR-0022 §4). It runs before the learning gate because it is a move, not a learning write.
+        for (const projectID of projects) if (projectID) deps.curator.reconcile(projectID)
       }
+      if (!config.learning.enabled) return 0
       return reflectionCandidates({
         episodes,
         hasJob: (episodeID) => deps.repository.getReflectionJob(episodeID) !== undefined,

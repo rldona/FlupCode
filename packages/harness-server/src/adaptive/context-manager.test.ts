@@ -508,3 +508,35 @@ describe("ContextManager.apply (FH-022)", () => {
     repository.close()
   })
 })
+
+describe("a pack's artifact and file refs stay archivable, never dropped (ADR-0022 §4)", () => {
+  test("a low-value artifact and file are archived, apply removes them recoverably, explain shows them", async () => {
+    const { repository, ...rest } = setup({ context: { apply: true } })
+    const manager = managerFor({ repository, ...rest })
+    const packParts: ContextPart[] = [
+      { id: "obj", kind: "objective", text: "ship the feature" },
+      { id: "art", kind: "artifact", text: "a note about lunch" },
+      { id: "file", kind: "file", file: { path: "src/unrelated.txt" } },
+    ]
+    const plan = await manager.plan(planInput({ parts: packParts, objective: "ship the feature" }))
+
+    // Both score below keep but neither is a low-value payload: archived, never dropped, even with
+    // applying on. A reference a person put in a pack is never lost silently.
+    expect(plan!.drop.map((entry) => entry.id)).toEqual([])
+    expect(plan!.archive.map((entry) => entry.id).sort()).toEqual(["art", "file"])
+    expect(plan!.keep.map((entry) => entry.id)).toEqual(["obj"])
+
+    // `apply=true` filters them from the prompt but the plan keeps what it archived: recoverable.
+    expect(manager.apply({ parts: packParts, plan }).map((part) => part.id)).toEqual(["obj"])
+
+    // What was archived is exposed through the plan/explain read, without a new product API.
+    const explanation = manager.explainPlan(planID("run-1:task-1"))!
+    expect(
+      explanation.entries
+        .filter((entry) => entry.disposition === "archive")
+        .map((entry) => entry.id)
+        .sort(),
+    ).toEqual(["art", "file"])
+    repository.close()
+  })
+})

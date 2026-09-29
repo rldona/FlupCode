@@ -62,6 +62,28 @@ export type RelevanceConfig = {
   timeoutMs: number
 }
 
+/**
+ * The retention slice (ADR-0022 §2): **off by default**, so nothing expires until a person opts in,
+ * consistent with archive-not-delete. When on, one transactional purge limits the four adaptive
+ * audit tables, with a window per state. A window is conservative configuration, not policy.
+ */
+export type RetentionConfig = {
+  /** Off by default: nothing expires until a human opts in at activation. */
+  enabled: boolean
+  /** Shadow decisions (one per episode/kind). */
+  decisionsDays: number
+  /** Acting decisions (`shadow = 0`, one per turn). Kept longer: they explain what was suggested live. */
+  actingDays: number
+  /** Plans that never filtered a prompt. */
+  plansDays: number
+  /** Plans that actually filtered (`applied = 1`). */
+  appliedPlansDays: number
+  /** Terminal reflection jobs (`done | skipped | failed`). */
+  reflectionDays: number
+  /** Rejected proposals only. */
+  rejectedProposalsDays: number
+}
+
 export type LearningConfig = {
   /** Off by default: it gates reflection, the `skillReflection` classification, the draft and writes. */
   enabled: boolean
@@ -97,6 +119,7 @@ export type AdaptiveConfig = {
   context: ContextConfig
   learning: LearningConfig
   relevance: RelevanceConfig
+  retention: RetentionConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -167,6 +190,17 @@ export const DEFAULT_RELEVANCE_CONFIG: RelevanceConfig = {
   maxSkills: 3,
   rosterTtlMs: 5_000,
   timeoutMs: 400,
+}
+
+/** Conservative defaults for the opt-in retention policy; the numbers are configuration, not policy. */
+export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
+  enabled: false,
+  decisionsDays: 30,
+  actingDays: 90,
+  plansDays: 30,
+  appliedPlansDays: 90,
+  reflectionDays: 30,
+  rejectedProposalsDays: 30,
 }
 
 /**
@@ -339,6 +373,25 @@ function resolveRelevanceConfig(block: Record<string, unknown>): RelevanceConfig
   }
 }
 
+/**
+ * The retention slice: off unless the block says `true`, with every window falling back to its
+ * conservative default. A malformed or non-positive value is ignored rather than guessed, so a bad
+ * window cannot make the purge delete more than intended.
+ */
+function resolveRetentionConfig(block: Record<string, unknown>): RetentionConfig {
+  const retention = isPlainObject(block.retention) ? block.retention : {}
+  return {
+    enabled: retention.enabled === true,
+    decisionsDays: positiveNumberFrom(retention.decisionsDays) ?? DEFAULT_RETENTION_CONFIG.decisionsDays,
+    actingDays: positiveNumberFrom(retention.actingDays) ?? DEFAULT_RETENTION_CONFIG.actingDays,
+    plansDays: positiveNumberFrom(retention.plansDays) ?? DEFAULT_RETENTION_CONFIG.plansDays,
+    appliedPlansDays: positiveNumberFrom(retention.appliedPlansDays) ?? DEFAULT_RETENTION_CONFIG.appliedPlansDays,
+    reflectionDays: positiveNumberFrom(retention.reflectionDays) ?? DEFAULT_RETENTION_CONFIG.reflectionDays,
+    rejectedProposalsDays:
+      positiveNumberFrom(retention.rejectedProposalsDays) ?? DEFAULT_RETENTION_CONFIG.rejectedProposalsDays,
+  }
+}
+
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
@@ -415,6 +468,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     context,
     learning: resolveLearningConfig(block),
     relevance: resolveRelevanceConfig(block),
+    retention: resolveRetentionConfig(block),
   }
 }
 
