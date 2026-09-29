@@ -17,7 +17,7 @@ import { createEpisodeCoordinator } from "./coordinator"
 import type { EpisodeOutcome, SessionEpisode } from "./episode"
 import { runEpisodeID, sessionEpisodeID } from "./episode"
 import { resolveAdaptiveConfig } from "./config"
-import type { DecisionPolicy, DecisionRequest } from "./decision"
+import type { ContextItem, DecisionPolicy, DecisionRequest } from "./decision"
 import { createDecisionService } from "./decision-service"
 import { decisionID } from "./decision-record"
 import { createAdaptiveEgressGuard } from "./egress"
@@ -114,9 +114,9 @@ const contextRequest = (episode: SessionEpisode, policy: DecisionPolicy): Decisi
   state: {
     objective: episode.objective,
     items: [
-      ...episode.files.map((path) => ({ id: `file:${path}`, kind: "file", tokens: 0, referenced: true })),
-      ...episode.commands.map((command) => ({ id: `command:${command}`, kind: "command", tokens: 0, referenced: true })),
-      ...episode.failures.map((failure) => ({ id: `failure:${failure.summary}`, kind: "failure", tokens: 0, referenced: true })),
+      ...episode.files.map((path): ContextItem => ({ id: `file:${path}`, kind: "file", tokens: 0, referenced: true, anchors: 0, archived: false })),
+      ...episode.commands.map((command): ContextItem => ({ id: `command:${command}`, kind: "command", tokens: 0, referenced: true, anchors: 0, archived: false })),
+      ...episode.failures.map((failure): ContextItem => ({ id: `failure:${failure.summary}`, kind: "error", tokens: 0, referenced: true, anchors: 0, archived: false })),
     ],
   },
 })

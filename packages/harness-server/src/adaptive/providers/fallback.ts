@@ -131,6 +131,10 @@ export function createFallbackProvider(input: {
         } catch (error) {
           lastReason = reasonOf(error)
           lastRetryAfterMs = error instanceof DecisionUnavailable ? error.retryAfterMs : undefined
+          // A caller that aborted its own deadline must not be retried: the hot path is bounded end to
+          // end by that deadline, and a retry would wait past it. This does not affect a caller that is
+          // still alive (the usual per-attempt timeout and bounded retries stand).
+          if (signal.aborted) break
           if (attemptNumber >= maxAttempts || !RETRYABLE.has(lastReason)) break
           // A rate limit says exactly how long to wait; anything else backs off exponentially.
           const delay =

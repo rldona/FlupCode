@@ -32,6 +32,8 @@ import type { CredentialVault } from "./vault"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { handleDecisionRequest } from "./adaptive/decision-routes"
 import type { DecisionService } from "./adaptive/decision-service"
+import { handleContextPlanRequest } from "./adaptive/context-routes"
+import type { ContextManager } from "./adaptive/context-manager"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -388,6 +390,7 @@ export type HarnessHandlerOptions = {
   credentials?: CredentialVault
   runtimeProbe?: RuntimeProbe
   decisions?: DecisionService
+  context?: ContextManager
 }
 
 export const createHarnessHandler = (
@@ -449,6 +452,13 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleDecisionRequest(request, path.slice(2), options.decisions)
     }
+    // The context plan audit (FH-022) is as sensitive as the decision audit: it says what a run or
+    // an episode was observed to carry. Same bearer, reading only — there is no route that plans.
+    if (path[1] === "adaptive" && path[2] === "plans" && options.context) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleContextPlanRequest(request, path.slice(2), options.context)
+    }
     // What the runs left behind is served to any page that reaches the loopback port — its bytes and
     // its listing. When a token was configured it is the same bearer that guards the browser, so a
     // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
@@ -475,6 +485,8 @@ export const createHarnessHandler = (
           // The decision audit is announced apart from the probe: a client must not read it as the
           // runtime probe's own capability (FH-015).
           ...(options.decisions ? (["adaptive-decisions"] as const) : []),
+          // The context plan audit is its own surface too: announced only when it was built (FH-022).
+          ...(options.context ? (["adaptive-context"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

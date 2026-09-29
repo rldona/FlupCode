@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   DEFAULT_ADAPTIVE_TTL_MS,
   DEFAULT_BUDGET_CONFIG,
+  DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
   createAdaptiveConfig,
   resolveAdaptiveConfig,
@@ -15,7 +16,11 @@ import { DEFAULT_RUNTIME_PROBE_CONFIG, resolveRuntimeConfig } from "./runtime-co
 const allPolicies = (): Record<DecisionKind, DecisionPolicy> => ({
   completion: DEFAULT_DECISION_POLICY,
   skillRelevance: DEFAULT_DECISION_POLICY,
-  contextItem: DEFAULT_DECISION_POLICY,
+  contextItem: {
+    ...DEFAULT_DECISION_POLICY,
+    keepThreshold: DEFAULT_CONTEXT_CONFIG.keepThreshold,
+    dropThreshold: DEFAULT_CONTEXT_CONFIG.dropThreshold,
+  },
   modelRoute: DEFAULT_DECISION_POLICY,
   agentRoute: DEFAULT_DECISION_POLICY,
   toolRisk: DEFAULT_DECISION_POLICY,
@@ -45,6 +50,7 @@ describe("resolveAdaptiveConfig", () => {
       budget: DEFAULT_BUDGET_CONFIG,
       egress: { enabled: false, projects: [], kinds: allKindsOff() },
       governor: DEFAULT_GOVERNOR_CONFIG,
+      context: DEFAULT_CONTEXT_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
   })
@@ -121,6 +127,41 @@ describe("resolveAdaptiveConfig", () => {
     expect(config.egress.projects).toEqual(["/p"])
     expect(config.egress.kinds).toEqual(allKindsOff())
     expect(config.decisions.completion).toEqual(DEFAULT_DECISION_POLICY)
+  })
+
+  test("the context slice defaults to shadow planning and reads its block", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} }).context
+    expect(defaults.enabled).toBe(true)
+    expect(defaults.apply).toBe(false)
+    expect(defaults.budget).toEqual(DEFAULT_CONTEXT_CONFIG.budget)
+
+    const config = resolveAdaptiveConfig({
+      block: {
+        context: {
+          enabled: false,
+          apply: true,
+          keepThreshold: 0.8,
+          dropThreshold: 0.1,
+          budget: { total: 100, perClass: { file: 40 } },
+        },
+      },
+      env: {},
+    })
+    expect(config.context.enabled).toBe(false)
+    expect(config.context.apply).toBe(true)
+    expect(config.context.keepThreshold).toBe(0.8)
+    expect(config.context.dropThreshold).toBe(0.1)
+    expect(config.context.budget.total).toBe(100)
+    expect(config.context.budget.perClass.file).toBe(40)
+    // A kind the block does not mention keeps its own default.
+    expect(config.context.budget.perClass.error).toBe(DEFAULT_CONTEXT_CONFIG.budget.perClass.error)
+
+    // A malformed context block is ignored rather than guessed.
+    const malformed = resolveAdaptiveConfig({
+      block: { context: { enabled: "no", apply: "yes", keepThreshold: 2, budget: { total: -1 } } },
+      env: {},
+    })
+    expect(malformed.context).toEqual(DEFAULT_CONTEXT_CONFIG)
   })
 
   test("composes the Phase 1 resolvers unchanged", () => {

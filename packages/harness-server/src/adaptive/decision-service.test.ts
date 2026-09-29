@@ -336,13 +336,36 @@ describe("the decision service (FH-015)", () => {
       policy: config.decisions.contextItem,
       state: {
         objective: "clean",
-        items: [{ id: `command:${CANARY}`, kind: "command", tokens: 0, referenced: true }],
+        items: [{ id: `command:${CANARY}`, kind: "command", tokens: 0, referenced: true, anchors: 0, archived: false }],
       },
     })
 
     const stored = repository.getDecision(decisionID("contextItem", "episode:raw"))!
     expect(JSON.stringify(stored)).not.toContain(CANARY)
     expect(JSON.stringify(stored!.answer)).toContain("[REDACTED]")
+    repository.close()
+  })
+
+  test("a hot prediction is not queued behind a saturated batch limiter", async () => {
+    const external = spyProvider({ answer: { verdict: "complete" }, confidence: 1, latencyMs: 0 })
+    const { repository, service, governor } = serviceFor(
+      { ...jevOn, governor: { limiter: { initial: 1, max: 1, min: 1, restoreEvery: 8 } } },
+      external,
+    )
+    // Hold the only batch slot: the hot entry must bypass the limiter entirely (ADR-0017 §4).
+    let acquired: () => void = () => {}
+    const held = new Promise<void>((resolve) => {
+      acquired = resolve
+    })
+    void governor.runBatch("held", 1, () => {
+      acquired()
+      return new Promise<void>(() => {})
+    })
+    await held
+
+    const result = await service.predict(completion(), "hot")
+    expect(result.source).toBe("jev")
+    expect(external.calls).toBe(1)
     repository.close()
   })
 

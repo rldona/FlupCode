@@ -4,7 +4,25 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { SqliteRoutineRepository, routineLockKey } from "./repository"
-import type { RunSource, StoredDecisionInput } from "./types"
+import type { RunSource, StoredDecisionInput, StoredPlanInput } from "./types"
+
+const plan = (overrides: Partial<StoredPlanInput> = {}): StoredPlanInput => ({
+  id: "plan:episode:run:1",
+  episodeID: "episode:run:1",
+  sessionID: "ses_1",
+  projectID: "/work/project",
+  objectiveHash: "b".repeat(64),
+  entries: [
+    { id: "file:abc", kind: "file", score: 0.75, disposition: "keep", reason: "class-weight", protected: false, tokens: 30 },
+    { id: "tool:def", kind: "tool", score: 0.12, disposition: "drop", reason: "low-value-payload", protected: false, tokens: 5 },
+  ],
+  scoreSource: "deterministic",
+  degraded: false,
+  applied: false,
+  tokensBefore: 35,
+  tokensAfter: 30,
+  ...overrides,
+})
 
 const input = {
   name: "Dependency audit",
@@ -133,6 +151,37 @@ describe("opening a database written by an older server", () => {
     expect(after.get(old.id)?.allow).toEqual([
       { permission: "browser", pattern: "https://example.com", action: "allow" },
     ])
+    after.close()
+  })
+
+  test("a database written before context plans gains the table, keeping its other rows", () => {
+    const path = scratch()
+    const before = open(path)
+    const run = before.startRun({ type: "manual" }, 1000)
+    before.createPlan(plan({ id: "plan:run1:task1", runID: run.id, taskID: "task1" }), 1_000)
+    // Put it back the way a server without plans left it: the table is simply absent.
+    before.db.exec("DROP TABLE adaptive_plan")
+    before.close()
+
+    const after = open(path)
+    expect(after.listPlans()).toHaveLength(0)
+    // The run written before the table existed is untouched.
+    expect(after.getRun(run.id)?.id).toBe(run.id)
+    after.createPlan(plan({ id: "plan:run1:task1", runID: run.id, taskID: "task1" }), 2_000)
+    expect(after.getPlan("plan:run1:task1")?.taskID).toBe("task1")
+    after.close()
+  })
+
+  test("a plan table written before the truncated marker keeps its rows and gains the column", () => {
+    const path = scratch()
+    const before = open(path)
+    before.createPlan(plan({ id: "plan:episode:1", episodeID: "episode:1" }), 1_000)
+    before.db.exec("ALTER TABLE adaptive_plan DROP COLUMN truncated")
+    before.close()
+
+    const after = open(path)
+    // A plan written before the marker existed simply reads as untruncated.
+    expect(after.getPlan("plan:episode:1")).toMatchObject({ id: "plan:episode:1", truncated: false })
     after.close()
   })
 })
@@ -559,6 +608,68 @@ describe("the decision audit (FH-015)", () => {
     expect(repository.listDecisions({ kind: "skillRelevance" })).toHaveLength(1)
     expect(repository.countDecisionsForEpisode("episode:run:1", "completion")).toBe(1)
     expect(repository.countDecisionsForEpisode("episode:run:1", "contextItem")).toBe(0)
+    repository.close()
+  })
+})
+
+describe("the context plan audit (FH-022)", () => {
+  test("writes and reads a row, and upserts on the deterministic id", () => {
+    const repository = open()
+    const created = repository.createPlan(plan(), 1_000)
+    expect(created.createdAt).toBe(1_000)
+    expect(repository.getPlan("plan:episode:run:1")).toMatchObject({
+      episodeID: "episode:run:1",
+      scoreSource: "deterministic",
+      applied: false,
+      truncated: false,
+      tokensBefore: 35,
+      tokensAfter: 30,
+    })
+    expect(repository.getPlan("plan:episode:run:1")?.entries.map((entry) => entry.id)).toEqual([
+      "file:abc",
+      "tool:def",
+    ])
+
+    const updated = repository.createPlan(
+      plan({ scoreSource: "jev", degraded: true, degradedReason: "low-confidence", applied: true }),
+      2_000,
+    )
+    expect(updated.createdAt).toBe(1_000)
+    expect(updated.updatedAt).toBe(2_000)
+    expect(repository.getPlan("plan:episode:run:1")).toMatchObject({
+      scoreSource: "jev",
+      degraded: true,
+      degradedReason: "low-confidence",
+      applied: true,
+    })
+    expect(repository.listPlans()).toHaveLength(1)
+    repository.close()
+  })
+
+  test("lists by scope, newest first, and bounds a plan too large to store whole", () => {
+    const repository = open()
+    repository.createPlan(plan({ id: "plan:run1:task1", runID: "run1", taskID: "task1" }), 1_000)
+    repository.createPlan(plan({ id: "plan:run2:task2", runID: "run2", taskID: "task2", sessionID: "ses_2" }), 1_002)
+
+    expect(repository.listPlans({ runID: "run1" })).toHaveLength(1)
+    expect(repository.listPlans({ taskID: "task2" })).toHaveLength(1)
+    expect(repository.listPlans({ sessionID: "ses_2" }).map((entry) => entry.id)).toEqual(["plan:run2:task2"])
+    expect(repository.listPlans()).toHaveLength(2)
+
+    const huge = Array.from({ length: 5 }, (_, index) => ({
+      id: `file:${index}`,
+      kind: "file" as const,
+      score: 0.5,
+      disposition: "archive" as const,
+      reason: "ambiguous",
+      protected: false,
+      tokens: 1,
+      evidenceRef: "x".repeat(10_000),
+    }))
+    repository.createPlan(plan({ id: "plan:huge:task", runID: "huge", taskID: "task", entries: huge }), 1_003)
+    const stored = repository.getPlan("plan:huge:task")!
+    expect(stored.entries.length).toBeLessThan(5)
+    expect(stored.truncated).toBe(true)
     repository.close()
   })
 })

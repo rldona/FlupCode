@@ -34,7 +34,7 @@ const sampleRequests: { [Q in DecisionKind]: DecisionRequest<Q> } = {
   }),
   contextItem: request("contextItem", {
     objective: "fix the failing test",
-    items: [{ id: "item-1", kind: "file", tokens: 120, referenced: true }],
+    items: [{ id: "item-1", kind: "file", tokens: 120, referenced: true, anchors: 0, archived: false }],
   }),
   modelRoute: request("modelRoute", { role: "build", taskName: "task-1", declared: "HIGH" }),
   agentRoute: request("agentRoute", { objective: "fix the failing test", signals: ["red-check"] }),

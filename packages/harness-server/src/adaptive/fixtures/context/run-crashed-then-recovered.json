@@ -1,0 +1,23 @@
+{
+  "name": "run-crashed-then-recovered",
+  "objective": "Recover the run and make its check green",
+  "now": 1700000000000,
+  "items": [
+    { "id": "objective", "kind": "objective", "tokens": 8, "referenced": true, "anchors": 0, "archived": false },
+    { "id": "failure:the check is red", "kind": "error", "tokens": 6, "referenced": true, "anchors": 1, "archived": false },
+    { "id": "file:src/math.ts", "kind": "file", "tokens": 4, "referenced": false, "anchors": 1, "archived": false },
+    { "id": "command:bun test", "kind": "command", "tokens": 3, "referenced": false, "anchors": 1, "archived": false },
+    { "id": "tool:bash", "kind": "tool", "tokens": 60, "referenced": false, "anchors": 0, "archived": false },
+    { "id": "message:reasoning", "kind": "message", "tokens": 90, "referenced": false, "anchors": 0, "archived": false }
+  ],
+  "labels": {
+    "objective": "keep",
+    "failure:the check is red": "keep",
+    "tool:bash": "drop",
+    "message:reasoning": "drop"
+  },
+  "prompt": {
+    "files": ["src/math.ts"],
+    "expected": "Recover the run and make its check green"
+  }
+}

@@ -23,6 +23,7 @@ import { createGovernor } from "./adaptive/providers/governor"
 import { createFallbackProvider } from "./adaptive/providers/fallback"
 import { createJevClient, createJevProvider, defaultJevFetch } from "./adaptive/providers/jev"
 import { createDecisionService } from "./adaptive/decision-service"
+import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
 import { skillReport } from "./skills"
 import type { SessionEpisode } from "./types"
@@ -113,15 +114,26 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     external,
     governor,
   })
+  // Context selection (FH-022/023 and the FH-024 seam): the manager owns `contextItem` — the scorer
+  // baseline, the Jev refinement of ambiguous items only, and the plan audit. The scheduler hands it
+  // to every runner, where it plans each run prompt (best-effort) and filters it only when
+  // `context.apply` is on (off by default); the shadow still plans closed episodes. Reuse the vault
+  // key the server already holds; without one, resolve (and, on first use, create) a restricted
+  // per-installation key.
+  const context = createContextManager({
+    repository,
+    service: decisions,
+    config: () => adaptive.current(),
+    egress,
+    opaqueKey: () => key ?? resolveInstallationKey(),
+  })
   // The shadow (FH-017) records decisions on episode close and acts on nothing; it is the only
-  // writer to `adaptive_decision`.
+  // writer to `adaptive_decision` and, through the manager, `adaptive_plan`.
   const shadow = createShadowRunner({
     service: decisions,
     repository,
     config: () => adaptive.current(),
-    // Reuse the vault key the server already holds; without one, resolve (and, on first use, create)
-    // a restricted per-installation key. Lazy so building a server never writes a key on its own.
-    opaqueKey: () => key ?? resolveInstallationKey(),
+    context,
     readSkills: skillCandidates,
     onError: (cause) =>
       console.error(`Could not record an adaptive decision: ${cause instanceof Error ? cause.message : String(cause)}`),
@@ -141,6 +153,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     intervalMs: options.intervalMs,
     ...(actions ? { actions } : {}),
     episodes,
+    context,
   })
   scheduler.start()
   // After the scheduler started, so a run it recovered as failed is swept and backfilled.
@@ -165,6 +178,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(vault ? { credentials: vault } : {}),
       runtimeProbe,
       decisions,
+      context,
     }),
   })
   return {

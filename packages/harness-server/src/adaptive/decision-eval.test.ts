@@ -24,7 +24,8 @@ import type { JevFetch, JevFetchResponse } from "./providers/jev"
 import type { GovernorStore } from "./providers/governor"
 import { createAdaptiveEgressGuard } from "./egress"
 import { createDecisionService } from "./decision-service"
-import { createShadowRunner } from "./shadow"
+import { createContextManager } from "./context-manager"
+import { createShadowRunner, SHADOW_KINDS } from "./shadow"
 import { createEpisodeCoordinator } from "./coordinator"
 import { SqliteRoutineRepository } from "../repository"
 import type { SessionEpisode } from "../types"
@@ -55,7 +56,7 @@ const SAMPLES: { [Q in DecisionKind]: DecisionRequest<Q> } = {
   }),
   contextItem: request("contextItem", {
     objective: "fix the failing test",
-    items: [{ id: "item-1", kind: "file", tokens: 120, referenced: true }],
+    items: [{ id: "item-1", kind: "file", tokens: 120, referenced: true, anchors: 0, archived: false }],
   }),
   modelRoute: request("modelRoute", { role: "build", taskName: "task-1", declared: "HIGH" }),
   agentRoute: request("agentRoute", { objective: "fix the failing test", signals: ["red-check"] }),
@@ -153,11 +154,18 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
       egress: createAdaptiveEgressGuard({ config: () => config }),
       now: () => NOW,
     })
+    const context = createContextManager({
+      repository,
+      service,
+      config: () => config,
+      opaqueKey: () => Buffer.alloc(32, 1),
+      now: () => NOW,
+    })
     const shadow = createShadowRunner({
       service,
       repository,
       config: () => config,
-      opaqueKey: () => Buffer.alloc(32, 1),
+      context,
       readSkills: () => [],
     })
     const coordinator = createEpisodeCoordinator({
@@ -172,7 +180,10 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
     const runBytes = JSON.stringify(repository.getRun(run.id))
     await new Promise((resolve) => setTimeout(resolve, 0))
 
-    expect(repository.listDecisions({ episodeID: episode.id })).toHaveLength(3)
+    // Two shadow decisions plus the context plan the manager wrote; the episode carries no evidence,
+    // so the plan is empty and Jev is never asked.
+    expect(repository.listDecisions({ episodeID: episode.id })).toHaveLength(SHADOW_KINDS.length)
+    expect(repository.listPlans({ episodeID: episode.id })).toHaveLength(1)
     expect(JSON.stringify(repository.getEpisode(episode.id))).toBe(episodeBytes)
     expect(JSON.stringify(repository.getRun(run.id))).toBe(runBytes)
     repository.close()

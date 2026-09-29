@@ -2,74 +2,52 @@
  * The shadow harness: decide on closed episodes, record, act on nothing (FH-017).
  *
  * A decision is computed from evidence that is already stored, after the episode is written, and it
- * can only write to `adaptive_decision`. That is the whole observable effect, and it is zero: the
- * episode, the run and the session are untouched, which is what the effect-zero test asserts byte by
- * byte.
+ * can only write to `adaptive_decision` and `adaptive_plan`. That is the whole observable effect, and
+ * it is zero: the episode, the run and the session are untouched, which is what the effect-zero test
+ * asserts byte by byte.
  *
- * The trigger is the coordinator's terminal callback plus a periodic sweep as a backstop. Both are
- * fire-and-forget: the coordinator does not wait, and a failure to decide is reported and dropped
- * rather than raised into the close of an episode.
+ * `completion` and `skillRelevance` are decided here; `contextItem` is delegated to the
+ * `ContextManager`, which classifies the episode, plans it and asks Jev only about ambiguous items
+ * (FH-023). The trigger is the coordinator's terminal callback plus a periodic sweep as a backstop;
+ * both are fire-and-forget, and a failure to decide is reported and dropped rather than raised into
+ * the close of an episode.
  */
 
-import { createHmac } from "node:crypto"
 import type { AdaptiveConfig } from "./config"
 import type { DecisionPolicy, DecisionRequest } from "./decision"
-import { E2_KINDS } from "./decision"
 import type { DecisionService } from "./decision-service"
-import type { DecisionRepository, SessionEpisode } from "../types"
+import { planID } from "./compaction-plan"
+import type { ContextManager } from "./context-manager"
+import type { DecisionRepository, SessionEpisode, StoredPlan } from "../types"
+
+/** The kinds the shadow itself decides; `contextItem` is the manager's (FH-023). */
+export const SHADOW_KINDS = ["completion", "skillRelevance"] as const
+export type ShadowKind = (typeof SHADOW_KINDS)[number]
 
 /** One candidate skill for a relevance question; `learned` is the self-authored marker, later. */
 export type SkillCandidate = { name: string; description: string; learned: boolean }
 
-/** A repository the shadow can read episodes from as well as write decisions to. */
+/** A repository the shadow can read episodes from as well as write decisions and plans to. */
 export type ShadowRepository = DecisionRepository & {
   listEpisodes(filter?: { limit?: number }): SessionEpisode[]
+  getPlan(id: string): StoredPlan | undefined
 }
 
 export type ShadowRunner = {
   /** Fire-and-forget: it returns nothing and never throws toward the coordinator. */
   onEpisodeClosed(episode: SessionEpisode): void
-  /** Restart backstop: terminal episodes with no decision yet. */
+  /** Restart backstop: terminal episodes with no decision or plan yet. */
   sweep(): number
   start(): void
   stop(): void
 }
 
-/**
- * A stable, opaque reference for an observed value.
- *
- * Context item ids name what the episode touched, but a path, a command or a failure summary is
- * content: putting it in an id would ship it to Jev and keep it in the audit. The id is an HMAC under
- * the install's key — a keyless digest of a path or a command would be a dictionary oracle — so a
- * re-capture converges and `explain` shows a stable id, while the content stays in the episode and is
- * reached by `evidence_refs` (ADR-0017 §3). The key is never returned or logged.
- */
-const opaqueItemID = (kind: "file" | "command" | "failure", value: string, key: Buffer): string =>
-  `${kind}:${createHmac("sha256", key).update(value).digest("hex").slice(0, 16)}`
-
-/** The context items E2 can name from what the episode already carries, always by opaque id. */
-const contextItems = (episode: SessionEpisode, key: Buffer) => [
-  ...episode.files.map((path) => ({ id: opaqueItemID("file", path, key), kind: "file", tokens: 0, referenced: true })),
-  ...episode.commands.map((command) => ({
-    id: opaqueItemID("command", command, key),
-    kind: "command",
-    tokens: 0,
-    referenced: true,
-  })),
-  ...episode.failures.map((failure) => ({
-    id: opaqueItemID("failure", failure.summary, key),
-    kind: "failure",
-    tokens: 0,
-    referenced: true,
-  })),
-]
-
 export function createShadowRunner(deps: {
   service: DecisionService
   repository: ShadowRepository
   config: () => AdaptiveConfig
-  /** The install's key for opaque ids; never exported or logged. */
-  opaqueKey: () => Buffer
+  /** The context manager that owns `contextItem` and its plan (FH-023); absent means none is taken. */
+  context?: ContextManager
   readSkills?: (episode: SessionEpisode) => SkillCandidate[]
   onError?: (cause: unknown) => void
   sweepLimit?: number
@@ -78,9 +56,9 @@ export function createShadowRunner(deps: {
   const readSkills = deps.readSkills ?? (() => [])
   const sweepLimit = deps.sweepLimit ?? 50
 
-  /** One request per E2 kind, built from the episode; the policy comes from the config, per kind. */
+  /** One request per shadow kind, built from the episode; the policy comes from the config, per kind. */
   const requestFor = (
-    kind: (typeof E2_KINDS)[number],
+    kind: ShadowKind,
     episode: SessionEpisode,
     config: AdaptiveConfig,
   ): DecisionRequest => {
@@ -107,19 +85,37 @@ export function createShadowRunner(deps: {
           kind,
           state: { sessionID: episode.sessionID, objective: episode.objective, skills: readSkills(episode) },
         }
-      case "contextItem":
-        return { ...base, kind, state: { objective: episode.objective, items: contextItems(episode, deps.opaqueKey()) } }
     }
   }
 
-  /** The E2 decisions of one closed episode, in order; the config is read once, in the task. */
+  /**
+   * Whether an episode still needs any adaptive work: a missing decision, or a missing plan.
+   *
+   * The plan clause is gated on `config.context.enabled`: with the context slice off no plan is ever
+   * written, so counting it as outstanding would re-enqueue the episode on every sweep.
+   */
+  const needsWork = (episode: SessionEpisode, config: AdaptiveConfig): boolean =>
+    SHADOW_KINDS.some((kind) => deps.repository.countDecisionsForEpisode(episode.id, kind) === 0) ||
+    (deps.context !== undefined &&
+      config.context.enabled &&
+      deps.repository.getPlan(planID(episode.id)) === undefined)
+
+  /** The adaptive work of one closed episode; the config is read once, in the task. */
   const decideClosed = async (episode: SessionEpisode, config: AdaptiveConfig): Promise<void> => {
-    for (const kind of E2_KINDS) {
+    for (const kind of SHADOW_KINDS) {
       // A second close (a retried capture, another sweep) is already decided: the deterministic id
       // would converge the row anyway, but skipping it saves the call and keeps one decision.
       if (deps.repository.countDecisionsForEpisode(episode.id, kind) > 0) continue
       // One failing kind is reported and dropped; it never starves the kinds after it.
       await deps.service.predict(requestFor(kind, episode, config)).catch(onError)
+    }
+    // The plan is idempotent by id, but a second plan could spend on Jev again, so it is skipped.
+    if (
+      deps.context !== undefined &&
+      config.context.enabled &&
+      deps.repository.getPlan(planID(episode.id)) === undefined
+    ) {
+      await deps.context.planEpisode(episode).catch(onError)
     }
   }
 
@@ -143,7 +139,7 @@ export function createShadowRunner(deps: {
       return deps.repository
         .listEpisodes({ limit: sweepLimit })
         .filter((episode) => episode.endedAt !== undefined)
-        .filter((episode) => E2_KINDS.some((kind) => deps.repository.countDecisionsForEpisode(episode.id, kind) === 0))
+        .filter((episode) => needsWork(episode, config))
         .reduce((count, episode) => {
           onEpisodeClosed(episode)
           return count + 1

@@ -14,11 +14,13 @@
 
 import { globalAdaptiveBlock } from "../config-files"
 import { DEFAULT_DECISION_POLICY } from "./decision"
-import type { DecisionKind, DecisionPolicy } from "./decision"
+import type { ContextItemKind, DecisionKind, DecisionPolicy } from "./decision"
 import { resolveEpisodeBoundaryConfig } from "./episode"
 import type { EpisodeBoundaryConfig } from "./episode"
 import { resolveRuntimeConfig } from "./runtime-config"
 import type { RuntimeProbeConfig } from "./runtime-config"
+import { DROP_THRESHOLD, KEEP_THRESHOLD } from "./scoring"
+import type { ContextBudget } from "./scoring"
 import { DEFAULT_GOVERNOR_CONFIG } from "./providers/governor"
 import type { GovernorConfig } from "./providers/governor"
 
@@ -38,6 +40,16 @@ export type EgressConfig = {
   kinds: Record<DecisionKind, boolean>
 }
 
+export type ContextConfig = {
+  /** Whether a plan is computed at all; with the shadow on it is computed even when not applied. */
+  enabled: boolean
+  /** Whether the plan filters the run prompt. Off by default: promotion needs the evaluation metric. */
+  apply: boolean
+  keepThreshold: number
+  dropThreshold: number
+  budget: ContextBudget
+}
+
 export type AdaptiveConfig = {
   /** Kill switch: stops decisions, shadow and Jev. It does not touch episodes or the base harness. */
   enabled: boolean
@@ -49,6 +61,7 @@ export type AdaptiveConfig = {
   budget: BudgetConfig
   egress: EgressConfig
   governor: GovernorConfig
+  context: ContextConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -61,6 +74,36 @@ export const DEFAULT_JEV_CONFIG: JevConfig = {
 
 /** A conservative monthly cap; the budget policy is fixed, the number is configuration. */
 export const DEFAULT_BUDGET_CONFIG: BudgetConfig = { monthlyTokens: 100_000, hotReserveFraction: 0.2 }
+
+/** Conservative per-class token budgets: the policy is fixed by ADR-0018, the numbers are config. */
+export const DEFAULT_CONTEXT_BUDGET: ContextBudget = {
+  total: 16_000,
+  perClass: {
+    objective: 4_000,
+    plan: 2_000,
+    decision: 2_000,
+    handoff: 2_000,
+    file: 3_000,
+    command: 1_500,
+    error: 3_000,
+    artifact: 2_000,
+    memory: 1_000,
+    tool: 500,
+    message: 500,
+    history: 500,
+    skill: 1_000,
+    other: 1_000,
+  },
+}
+
+/** A plan is computed (shadow) but never applied until the evaluation metric promotes it. */
+export const DEFAULT_CONTEXT_CONFIG: ContextConfig = {
+  enabled: true,
+  apply: false,
+  keepThreshold: KEEP_THRESHOLD,
+  dropThreshold: DROP_THRESHOLD,
+  budget: DEFAULT_CONTEXT_BUDGET,
+}
 
 /** How long the composed config is trusted before the global block is read again. */
 export const DEFAULT_ADAPTIVE_TTL_MS = 5_000
@@ -94,12 +137,20 @@ const policyFrom = (base: DecisionPolicy, value: unknown): DecisionPolicy => {
   }
 }
 
-function resolveDecisionPolicies(block: Record<string, unknown>): Record<DecisionKind, DecisionPolicy> {
+/**
+ * The per-kind policies. The `contextItem` policy also carries the resolved scorer thresholds, so the
+ * decision baseline and the manager's plan are scored against one source instead of two defaults.
+ */
+function resolveDecisionPolicies(block: Record<string, unknown>, context: ContextConfig): Record<DecisionKind, DecisionPolicy> {
   const decisions = isPlainObject(block.decisions) ? block.decisions : {}
   return {
     completion: policyFrom(DEFAULT_DECISION_POLICY, decisions.completion),
     skillRelevance: policyFrom(DEFAULT_DECISION_POLICY, decisions.skillRelevance),
-    contextItem: policyFrom(DEFAULT_DECISION_POLICY, decisions.contextItem),
+    contextItem: {
+      ...policyFrom(DEFAULT_DECISION_POLICY, decisions.contextItem),
+      keepThreshold: context.keepThreshold,
+      dropThreshold: context.dropThreshold,
+    },
     modelRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.modelRoute),
     agentRoute: policyFrom(DEFAULT_DECISION_POLICY, decisions.agentRoute),
     toolRisk: policyFrom(DEFAULT_DECISION_POLICY, decisions.toolRisk),
@@ -123,6 +174,44 @@ function resolveBudgetConfig(block: Record<string, unknown>): BudgetConfig {
   return {
     monthlyTokens: positiveNumberFrom(budget.monthlyTokens) ?? DEFAULT_BUDGET_CONFIG.monthlyTokens,
     hotReserveFraction: unitFrom(budget.hotReserveFraction) ?? DEFAULT_BUDGET_CONFIG.hotReserveFraction,
+  }
+}
+
+/**
+ * The context selection slice. `enabled` and `apply` are booleans; a malformed one falls back to the
+ * default rather than being guessed. The thresholds accept a unit value and the per-class budgets a
+ * positive number, each kind falling back to its own default so a partial block is still complete.
+ */
+function resolveContextConfig(block: Record<string, unknown>): ContextConfig {
+  const context = isPlainObject(block.context) ? block.context : {}
+  const budget = isPlainObject(context.budget) ? context.budget : {}
+  const perClass = isPlainObject(budget.perClass) ? budget.perClass : {}
+  const budgetFor = (kind: ContextItemKind): number =>
+    positiveNumberFrom(perClass[kind]) ?? DEFAULT_CONTEXT_BUDGET.perClass[kind]
+  return {
+    enabled: typeof context.enabled === "boolean" ? context.enabled : DEFAULT_CONTEXT_CONFIG.enabled,
+    apply: typeof context.apply === "boolean" ? context.apply : DEFAULT_CONTEXT_CONFIG.apply,
+    keepThreshold: unitFrom(context.keepThreshold) ?? DEFAULT_CONTEXT_CONFIG.keepThreshold,
+    dropThreshold: unitFrom(context.dropThreshold) ?? DEFAULT_CONTEXT_CONFIG.dropThreshold,
+    budget: {
+      total: positiveNumberFrom(budget.total) ?? DEFAULT_CONTEXT_BUDGET.total,
+      perClass: {
+        objective: budgetFor("objective"),
+        plan: budgetFor("plan"),
+        decision: budgetFor("decision"),
+        handoff: budgetFor("handoff"),
+        file: budgetFor("file"),
+        command: budgetFor("command"),
+        error: budgetFor("error"),
+        artifact: budgetFor("artifact"),
+        memory: budgetFor("memory"),
+        tool: budgetFor("tool"),
+        message: budgetFor("message"),
+        history: budgetFor("history"),
+        skill: budgetFor("skill"),
+        other: budgetFor("other"),
+      },
+    },
   }
 }
 
@@ -187,16 +276,18 @@ function resolveEgressConfig(block: Record<string, unknown>): EgressConfig {
 export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.ProcessEnv } = {}): AdaptiveConfig {
   const env = input.env ?? process.env
   const block = isPlainObject(input.block) ? input.block : {}
+  const context = resolveContextConfig(block)
   return {
     enabled: resolveEnabled(block, env),
     shadow: block.shadow !== false,
     runtime: resolveRuntimeConfig({ block, env }),
     episode: resolveEpisodeBoundaryConfig({ block, env }),
-    decisions: resolveDecisionPolicies(block),
+    decisions: resolveDecisionPolicies(block, context),
     jev: resolveJevConfig(block),
     budget: resolveBudgetConfig(block),
     egress: resolveEgressConfig(block),
     governor: resolveGovernorConfig(block),
+    context,
   }
 }
 
