@@ -51,3 +51,4 @@ packages/harness-server/fixtures/replay/*
 !packages/harness-server/fixtures/replay/README.md
 !packages/harness-server/fixtures/replay/example-synthetic.json
 !packages/harness-server/fixtures/replay/variants/
+packages/harness-server/fixtures/reflection-eval/
