@@ -119,6 +119,33 @@ describe("createHarnessServer runtime probe wiring", () => {
     expect(app.runtimeProbe).toBeDefined()
   })
 
+  test("a server that cannot bind starts no background work", async () => {
+    process.env.FLUPCODE_ADAPTIVE_PROBE_TTL_MS = "5"
+    const taken = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: () => new Response("taken") })
+    const seen = { calls: 0 }
+    try {
+      expect(() =>
+        createHarnessServer({
+          port: taken.port,
+          hostname: "127.0.0.1",
+          databasePath: ":memory:",
+          intervalMs: 3_600_000,
+          browserToken: "t",
+          vaultKeyFile: path.join(directory, "vault-key"),
+          runtimeProbe: probe(async () => {
+            seen.calls += 1
+            return unknownState()
+          }),
+        }),
+      ).toThrow()
+      // The probe's refresh and its 5 ms interval come after the bind, so neither ever ran.
+      await Bun.sleep(30)
+      expect(seen.calls).toBe(0)
+    } finally {
+      await taken.stop(true)
+    }
+  })
+
   test("stop clears the probe interval so it stops refreshing", async () => {
     process.env.FLUPCODE_ADAPTIVE_PROBE_TTL_MS = "5"
     const seen = { calls: 0 }

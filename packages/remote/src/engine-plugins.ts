@@ -1470,7 +1470,10 @@ export const flupcodeEpisodeEvents = async () => ({
  * non-200, malformed JSON — leaves `system` byte-identical, which is the inertness ADR-0021 §3 fixes.
  *
  * The server is the only policy point, so the plugin registers whenever base and token resolve, even
- * with the feature off; the accepted cost is one loopback `POST` per turn returning `line: null`.
+ * with the feature off. The engine awaits the hook on every provider request, so the plugin keeps
+ * that cheap: an inert answer carrying `retryAfterMs` (feature off, runtime not legacy) silences it
+ * until the hint expires, and three consecutive failures open a breaker for a minute, after which a
+ * single request decides whether it closes. Neither holds product state: the server still decides.
  * The capture is not consumed when read: a title runs on another fiber and its `system.transform` may
  * interleave before the turn, so reading has to leave the objective in place for the real turn.
  */
@@ -1502,6 +1505,44 @@ const FETCH_TIMEOUT_MS = (() => {
   const raw = Number(process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS)
   return Number.isFinite(raw) && raw > 0 ? raw : 500
 })()
+
+// The engine awaits this hook on every provider request, so a wedged harness would cost every step
+// the full deadline. After this many consecutive failures the plugin stops asking for BREAKER_OPEN_MS,
+// then lets one request through: success closes the breaker, another failure reopens it.
+const BREAKER_THRESHOLD = 3
+const BREAKER_OPEN_MS = 60 * 1000
+
+// The server's retryAfterMs is honoured up to this cap, so an odd answer cannot silence the line for
+// long; the kill switch is still the server's alone.
+const MAX_RETRY_AFTER_MS = 10 * 60 * 1000
+
+// One harness serves the whole engine, so the breaker is module-wide rather than per session.
+let failures = 0
+let quietUntil = 0
+let probing = false
+
+// Whether a request may go out now. With the breaker open and its window over, only one request
+// (the half-open probe) is admitted until it settles.
+function admit(now) {
+  if (now < quietUntil) return false
+  if (failures < BREAKER_THRESHOLD) return true
+  if (probing) return false
+  probing = true
+  return true
+}
+
+function settle(answer, now) {
+  probing = false
+  if (!answer) {
+    failures++
+    if (failures >= BREAKER_THRESHOLD) quietUntil = now + BREAKER_OPEN_MS
+    return
+  }
+  failures = 0
+  const hint = answer.retryAfterMs
+  if (typeof hint === "number" && Number.isFinite(hint) && hint > 0)
+    quietUntil = now + Math.min(hint, MAX_RETRY_AFTER_MS)
+}
 
 // Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
 // importing it: the plugin has no package imports.
@@ -1615,9 +1656,9 @@ function namesOnlyLine(value) {
   return value
 }
 
-// A non-200, malformed JSON, a null/empty line or any body that is not the fixed box is the inert
-// answer. The fetch is bounded with a timeout and the caller catches everything.
-async function requestLine(base, token, projectID, sessionID, messageID, objective) {
+// A non-200 or a body without a data object is a failure (undefined); the fetch is bounded with a
+// timeout and a network error or timeout rejects. Any answer is inert unless its line is the fixed box.
+async function requestAnswer(base, token, projectID, sessionID, messageID, objective) {
   const response = await fetch(base + "/harness/adaptive/relevance", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + token },
@@ -1627,8 +1668,8 @@ async function requestLine(base, token, projectID, sessionID, messageID, objecti
   if (!response.ok) return undefined
   const body = await response.json().catch(() => undefined)
   const data = body && typeof body === "object" ? body.data : undefined
-  const line = data && typeof data === "object" ? data.line : undefined
-  return namesOnlyLine(line)
+  if (!data || typeof data !== "object") return undefined
+  return { line: namesOnlyLine(data.line), retryAfterMs: data.retryAfterMs }
 }
 
 // Only this is exported: the engine treats every exported function as a plugin of its own.
@@ -1654,15 +1695,17 @@ export const flupcodeRelevance = async (input) => {
       try {
         const pending = freshCapture(hookInput && hookInput.sessionID)
         if (!pending || !Array.isArray(output && output.system)) return
-        const line = await requestLine(
+        if (!admit(Date.now())) return
+        const answer = await requestAnswer(
           base,
           token,
           projectID,
           hookInput.sessionID,
           pending.messageID,
           pending.objective,
-        )
-        if (line) output.system.push(line)
+        ).catch(() => undefined)
+        settle(answer, Date.now())
+        if (answer && answer.line) output.system.push(answer.line)
       } catch {
         // Any failure - an absent server, a timeout, a non-200, bad JSON - is inert: the system
         // prompt is left exactly as it arrived and the turn is unaffected.
