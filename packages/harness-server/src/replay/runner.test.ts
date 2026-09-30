@@ -78,7 +78,15 @@ function fakeEngine() {
         const id = Number(url.searchParams.get("sessionID")?.replace("ses_", ""))
         if (id % 2) return json({ data: [] })
         return json({
-          data: [{ cost: 0.01, tokens: { input: 100, output: 20, reasoning: 0, cacheRead: 50, cacheWrite: 0 } }],
+          data: [
+            {
+              cost: 0.01,
+              tokens: { input: 100, output: 20, reasoning: 0, cacheRead: 50, cacheWrite: 0 },
+              compactions: 1,
+              rereadsAfterCompaction: 2,
+              summaryTokens: 300,
+            },
+          ],
         })
       }
       if (path === "/harness/adaptive/config" && request.method === "GET")
@@ -159,6 +167,14 @@ describe("replay runner", () => {
     expect(baseline.usd.mean).toBeCloseTo(0.01)
     expect(baseline.reproducible).toBe(true)
     expect(renderMarkdown(report)).toContain("| synthetic | adaptive-off | 3/3 | 100.0% |")
+    // Compaction numbers come only from `session_metrics`, and the report says so per variant.
+    expect(report.runs.find((run) => run.source === "session_metrics")!.compaction).toEqual({
+      compactions: 1,
+      rereadsAfterCompaction: 2,
+      summaryTokens: 300,
+    })
+    expect(report.runs.find((run) => run.source === "engine")!.compaction).toBeUndefined()
+    expect(renderMarkdown(report)).toContain("## Compaction")
   })
 
   test("a failed verify is reported as not completed, and an unreachable engine as an error", async () => {

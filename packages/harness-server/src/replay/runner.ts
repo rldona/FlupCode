@@ -56,6 +56,8 @@ export type ReplayRun = {
   source: "session_metrics" | "engine" | "none"
   /** Assistant turns the engine marked as failed. */
   turnErrors: number
+  /** Compactions, re-reads after them and the summaries' output tokens (AH-D04); `session_metrics` only. */
+  compaction?: ReplayCompaction
   verify?: { command: string; passed: boolean; exitCode: number | null; ms: number }
   /** Finished every prompt without an error and, when the fixture has one, verified green. */
   completed: boolean
@@ -63,6 +65,8 @@ export type ReplayRun = {
   commit?: string
   commitMismatch?: boolean
 }
+
+export type ReplayCompaction = { compactions: number; rereadsAfterCompaction: number; summaryTokens: number }
 
 export type ReplayStat = { mean: number; p50: number; min: number; max: number; spread: number }
 
@@ -282,6 +286,7 @@ async function replayOnce(input: {
       wallMs,
       source: usage.source,
       turnErrors,
+      ...("compaction" in usage ? { compaction: usage.compaction } : {}),
       ...(verify ? { verify } : {}),
       completed: !turn && turnErrors === 0 && (verify ? verify.passed : true),
       ...(commit ? { commit } : {}),
@@ -300,6 +305,12 @@ async function measure(options: ReplayOptions, sessionID: string, messages: Tran
   if (turns.length > 0)
     return {
       source: "session_metrics" as const,
+      compaction: {
+        // An older harness answers without these fields.
+        compactions: turns.reduce((sum, turn) => sum + (turn.compactions ?? 0), 0),
+        rereadsAfterCompaction: turns.reduce((sum, turn) => sum + (turn.rereadsAfterCompaction ?? 0), 0),
+        summaryTokens: turns.reduce((sum, turn) => sum + (turn.summaryTokens ?? 0), 0),
+      },
       usd: turns.reduce((sum, turn) => sum + turn.cost, 0),
       tokens: turns.reduce(
         (sum, turn) => ({
@@ -474,6 +485,15 @@ export function renderMarkdown(report: ReplayReport) {
     ].join(" | "),
   )
   const failures = report.runs.filter((run) => run.status === "error" || run.commitMismatch)
+  const compacted = [...Map.groupBy(report.runs, (run) => `${run.fixture} | ${run.variant}`)].flatMap(([key, runs]) => {
+    const measured = runs.flatMap((run) => (run.compaction ? [run.compaction] : []))
+    if (!measured.some((entry) => entry.compactions > 0)) return []
+    const mean = (pick: (entry: ReplayCompaction) => number) =>
+      (measured.reduce((sum, entry) => sum + pick(entry), 0) / measured.length).toFixed(1)
+    return [
+      `| ${key} | ${mean((entry) => entry.compactions)} | ${mean((entry) => entry.rereadsAfterCompaction)} | ${mean((entry) => entry.summaryTokens)} |`,
+    ]
+  })
   return [
     "# Replay report",
     "",
@@ -498,6 +518,18 @@ export function renderMarkdown(report: ReplayReport) {
                 run.error ?? `ran on ${run.commit?.slice(0, 12)}, not the fixture's commit`
               }`,
           ),
+          "",
+        ]
+      : []),
+    ...(compacted.length > 0
+      ? [
+          "## Compaction",
+          "",
+          "Means per repetition. A re-read is a read of a file already read before the last compaction.",
+          "",
+          "| Fixture | Variant | Compactions | Re-reads after compaction | Summary tokens |",
+          "| --- | --- | --- | --- | --- |",
+          ...compacted,
           "",
         ]
       : []),

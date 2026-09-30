@@ -1872,6 +1872,9 @@ export const flupcodeGuardrails = async (input) => {
  * fire-and-forget like the guardrails plugin, so a slow or absent harness never delays a turn; a lost
  * observation is a gap in the baseline, not a failure of the work. Both runtimes are read: the legacy
  * `message.*` events and the V2 `session.next.*` ones.
+ *
+ * A successful `read` of a file the session read before its last compaction carries `reread: true`
+ * (AH-D04), each file once per compaction. The paths it compares stay in the engine process.
  */
 export const SESSION_METRICS_PLUGIN = {
   file: "flupcode-session-metrics.js",
@@ -1960,6 +1963,38 @@ const tools = new Map()
 const prompts = new Map()
 // Observations already sent: the engine re-emits a part on every update.
 const sent = new Map()
+// Per session, the files it read and the ones read before its last compaction that it has not read
+// again since (AH-D04). The paths stay in the engine: only a re-read flag travels.
+const reads = new Map()
+const MAX_READ_PATHS = 1000
+
+function readsOf(sessionID) {
+  const known = reads.get(sessionID)
+  if (known) return known
+  const fresh = { seen: new Set(), before: new Set() }
+  remember(reads, sessionID, fresh)
+  return fresh
+}
+
+// Whether a successful read loads a file the session read before its last compaction. Each file
+// counts once per compaction: what the summary made the agent load again, not every later read.
+function reread(sessionID, tool, file) {
+  if (tool !== "read" || !sessionID || !file) return false
+  const state = readsOf(sessionID)
+  const again = state.before.delete(file)
+  if (state.seen.size < MAX_READ_PATHS) state.seen.add(file)
+  return again
+}
+
+function compacted(sessionID) {
+  if (!sessionID) return
+  const state = readsOf(sessionID)
+  state.before = new Set(state.seen)
+}
+
+function readPath(tool, input) {
+  return tool === "read" && input ? text(input.filePath) : undefined
+}
 
 function once(key) {
   if (sent.has(key)) return false
@@ -2025,6 +2060,7 @@ function observe(event) {
       const step = steps.get(part.messageID)
       if (!step || !text(part.tool) || !once("tool:" + part.id)) return
       const skill = skillOf(part.tool, state.input)
+      const again = state.status === "completed" && reread(partSession, part.tool, readPath(part.tool, state.input))
       return {
         sessionID: partSession,
         observation: {
@@ -2035,11 +2071,13 @@ function observe(event) {
           error: state.status === "error",
           bytes: typeof state.output === "string" ? Buffer.byteLength(state.output) : 0,
           ...(skill ? { skill: skill } : {}),
+          ...(again ? { reread: true } : {}),
         },
       }
     }
     if (part.type === "compaction") {
       if (!text(part.messageID) || !once("compaction:" + part.id)) return
+      compacted(partSession)
       return { sessionID: partSession, observation: { kind: "compaction", id: part.id, turnID: part.messageID } }
     }
     return
@@ -2071,7 +2109,11 @@ function observe(event) {
   if (type === "session.next.tool.called") {
     firstOutput(stepID)
     if (text(properties.callID) && text(properties.tool))
-      remember(tools, properties.callID, { tool: properties.tool, skill: skillOf(properties.tool, properties.input) })
+      remember(tools, properties.callID, {
+        tool: properties.tool,
+        skill: skillOf(properties.tool, properties.input),
+        file: readPath(properties.tool, properties.input),
+      })
     return
   }
   if (type === "session.next.step.ended") {
@@ -2084,6 +2126,7 @@ function observe(event) {
     const tool = callID ? tools.get(callID) : undefined
     if (!tool || !once("tool:" + callID)) return
     const step = steps.get(stepID)
+    const again = type === "session.next.tool.success" && reread(sessionID, tool.tool, tool.file)
     return {
       sessionID: sessionID,
       observation: {
@@ -2094,12 +2137,14 @@ function observe(event) {
         error: type === "session.next.tool.failed",
         bytes: contentBytes(properties.content),
         ...(tool.skill ? { skill: tool.skill } : {}),
+        ...(again ? { reread: true } : {}),
       },
     }
   }
   if (type === "session.next.compaction.ended") {
     const messageID = text(properties.messageID)
     if (!messageID || !once("compaction:" + messageID)) return
+    compacted(sessionID)
     return { sessionID: sessionID, observation: { kind: "compaction", id: messageID, turnID: messageID } }
   }
 }
@@ -2134,6 +2179,186 @@ export const flupcodeSessionMetrics = async (input) => {
 `,
 }
 
+/**
+ * compaction-anchors: hands the engine's compaction prompt the session's anchors (AH-D04, audit
+ * §10.4). Summarising stays the engine's: in `experimental.session.compacting` the plugin only pushes
+ * one capped block — the goal, the files edited and read, the errors still open — onto
+ * `output.context`, which the engine appends after its own prompt.
+ *
+ * The plugin keeps what only the engine sees: the session's first user text (the goal) from
+ * `experimental.chat.messages.transform` and the paths `read` loaded from `tool.execute.after`. The
+ * harness adds the edits and open errors from the episode's evidence, redacts and caps the block.
+ * Compaction must never wait on or fail because of the harness: the request has a short deadline, and
+ * a timeout, a non-200, a malformed answer or a block past the cap adds nothing.
+ */
+export const COMPACTION_ANCHORS_PLUGIN = {
+  file: "flupcode-compaction-anchors.js",
+  source: String.raw`// Installed by FlupCode. Adds the session's anchors (goal, files touched, open errors) to the
+// engine's compaction prompt. The summary stays the engine's; any failure adds nothing. Regenerated
+// when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Compaction is a model call of its own, so a second is small next to it; past it the prompt goes
+// out without anchors.
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000
+})()
+
+// Kept in step with ANCHOR_BLOCK_LIMIT, ANCHOR_PREFIX and ANCHOR_SUFFIX in
+// packages/harness-server/src/adaptive/compaction-anchors.ts: the plugin refuses anything else.
+const BLOCK_LIMIT = 1536
+const PREFIX = "<compaction_anchors>\n"
+const SUFFIX = "\n</compaction_anchors>"
+
+// The route takes at most this many read paths, newest first, and a goal this long.
+const MOST_READS = 30
+const GOAL_LIMIT = 300
+const PATH_LIMIT = 1000
+
+// Every map is bounded so a long-lived engine cannot grow it without bound; the oldest session goes.
+const MAX_SESSIONS = 500
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  // The adaptive routes have their own secret (ADR-0022): the browser bearer must not open them.
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+function remember(map, key, value) {
+  map.delete(key)
+  map.set(key, value)
+  if (map.size > MAX_SESSIONS) map.delete(map.keys().next().value)
+}
+
+// Per session: its goal, captured once, and the paths it read, newest first.
+const goals = new Map()
+const reads = new Map()
+
+// The first user message with non-synthetic text: a synthetic part is the engine's own scaffolding.
+function firstUserGoal(messages) {
+  if (!Array.isArray(messages)) return undefined
+  for (const message of messages) {
+    const info = message && message.info
+    if (!info || info.role !== "user" || typeof info.sessionID !== "string" || !info.sessionID) continue
+    const parts = Array.isArray(message.parts) ? message.parts : []
+    const text = parts
+      .filter((part) => part && part.type === "text" && typeof part.text === "string" && !part.synthetic)
+      .map((part) => part.text)
+      .join("\n")
+      .trim()
+    if (text) return { sessionID: info.sessionID, goal: text.slice(0, GOAL_LIMIT) }
+  }
+  return undefined
+}
+
+function recordRead(sessionID, file) {
+  if (typeof sessionID !== "string" || !sessionID) return
+  if (typeof file !== "string" || !file || file.length > PATH_LIMIT) return
+  const previous = (reads.get(sessionID) || []).filter((entry) => entry !== file)
+  remember(reads, sessionID, [file, ...previous].slice(0, MOST_READS))
+}
+
+// Only the fixed block, whole and under the cap: whatever a peer holding the loopback port answers
+// otherwise is refused, and the prompt is left as the engine built it.
+function anchorBlock(value) {
+  if (typeof value !== "string") return undefined
+  if (Buffer.byteLength(value) > BLOCK_LIMIT) return undefined
+  if (!value.startsWith(PREFIX) || !value.endsWith(SUFFIX)) return undefined
+  const inner = value.slice(PREFIX.length, value.length - SUFFIX.length)
+  if (inner.includes("<") || inner.includes(">")) return undefined
+  return value
+}
+
+async function requestBlock(base, token, body) {
+  const response = await fetch(base + "/harness/adaptive/anchors", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) return undefined
+  const answer = await response.json().catch(() => undefined)
+  const data = answer && typeof answer === "object" ? answer.data : undefined
+  return data && typeof data === "object" ? anchorBlock(data.block) : undefined
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeCompactionAnchors = async (input) => {
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+  // The harness's adaptive project id is the project directory, which the plugin factory is handed.
+  const projectID = input && typeof input.directory === "string" ? input.directory : undefined
+
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      try {
+        const found = firstUserGoal(output && output.messages)
+        // The first goal a session shows is kept: after a compaction the list starts at the summary.
+        if (found && !goals.has(found.sessionID)) remember(goals, found.sessionID, found.goal)
+      } catch {
+        // A goal that cannot be read is simply not an anchor.
+      }
+    },
+    "tool.execute.after": async (hookInput) => {
+      try {
+        if (!hookInput || hookInput.tool !== "read") return
+        const args = hookInput.args
+        recordRead(hookInput.sessionID, args && args.filePath)
+      } catch {
+        // A read that cannot be recorded is simply not an anchor.
+      }
+    },
+    "experimental.session.compacting": async (hookInput, output) => {
+      try {
+        const sessionID = hookInput && hookInput.sessionID
+        if (typeof sessionID !== "string" || !sessionID) return
+        if (!output || !Array.isArray(output.context)) return
+        const goal = goals.get(sessionID)
+        const block = await requestBlock(base, token, {
+          ...(projectID ? { projectID: projectID } : {}),
+          sessionID: sessionID,
+          ...(goal ? { goal: goal } : {}),
+          reads: reads.get(sessionID) || [],
+        }).catch(() => undefined)
+        if (block) output.context.push(block)
+      } catch {
+        // Any failure - an absent server, a timeout, a non-200, bad JSON - adds nothing: compaction
+        // runs with the engine's own prompt.
+      }
+    },
+  }
+}
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
@@ -2147,6 +2372,7 @@ const PLUGINS = [
   RELEVANCE_PLUGIN,
   GUARDRAILS_PLUGIN,
   SESSION_METRICS_PLUGIN,
+  COMPACTION_ANCHORS_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

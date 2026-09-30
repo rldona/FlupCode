@@ -28,7 +28,17 @@ export type MetricObservation =
       ms: number
       firstTokenMs?: number
     }
-  | { kind: "tool"; id: string; turnID: string; tool: string; error: boolean; bytes: number; skill?: string }
+  | {
+      kind: "tool"
+      id: string
+      turnID: string
+      tool: string
+      error: boolean
+      bytes: number
+      skill?: string
+      /** A read of a file the session had already read before its last compaction (AH-D04). */
+      reread?: boolean
+    }
   | { kind: "compaction"; id: string; turnID: string }
 
 export type ToolUse = { calls: number; errors: number; bytes: number }
@@ -56,6 +66,13 @@ export type SessionMetricTurn = {
   toolOutputBytes: number
   tools: Record<string, ToolUse>
   compactions: number
+  /**
+   * Reads of a file already read before the session's last compaction, each file counted once per
+   * compaction (AH-D04): what the summary made the agent load again.
+   */
+  rereadsAfterCompaction: number
+  /** Output tokens of the engine's compaction steps: the summaries' size (AH-D04). */
+  summaryTokens: number
   skills: string[]
   startedAt: number
   endedAt: number
@@ -92,6 +109,8 @@ export function emptyTurn(input: {
     toolOutputBytes: 0,
     tools: {},
     compactions: 0,
+    rereadsAfterCompaction: 0,
+    summaryTokens: 0,
     skills: [],
     startedAt: input.now,
     endedAt: input.now,
@@ -124,6 +143,7 @@ export function applyObservation(turn: SessionMetricTurn, observation: MetricObs
       toolCalls: turn.toolCalls + 1,
       toolErrors: turn.toolErrors + (observation.error ? 1 : 0),
       toolOutputBytes: turn.toolOutputBytes + observation.bytes,
+      rereadsAfterCompaction: turn.rereadsAfterCompaction + (observation.reread ? 1 : 0),
       tools,
       skills,
       endedAt,
@@ -144,6 +164,8 @@ export function applyObservation(turn: SessionMetricTurn, observation: MetricObs
       cacheWrite: turn.tokens.cacheWrite + observation.tokens.cacheWrite,
     },
     cost: turn.cost + observation.cost,
+    // The engine runs its summary as a step of the `compaction` agent.
+    summaryTokens: turn.summaryTokens + (observation.agent === "compaction" ? observation.tokens.output : 0),
     modelMs: turn.modelMs + observation.ms,
     ...(turn.firstTokenMs === undefined && observation.firstTokenMs !== undefined
       ? { firstTokenMs: observation.firstTokenMs }
@@ -216,7 +238,16 @@ function observationFrom(value: unknown): MetricObservation | undefined {
     const bytes = measure(value.bytes)
     if (tool === undefined || bytes === undefined || typeof value.error !== "boolean") return undefined
     const skill = boundedString(value.skill, NAME_LIMIT)
-    return { kind: "tool", id, turnID, tool, error: value.error, bytes, ...(skill ? { skill } : {}) }
+    return {
+      kind: "tool",
+      id,
+      turnID,
+      tool,
+      error: value.error,
+      bytes,
+      ...(skill ? { skill } : {}),
+      ...(value.reread === true ? { reread: true } : {}),
+    }
   }
   if (value.kind !== "step") return undefined
   const tokens = tokensFrom(value.tokens)

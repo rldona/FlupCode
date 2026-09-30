@@ -354,6 +354,10 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       adaptiveConfig,
       ...(adaptiveToken ? { adaptiveToken, relevance, guardrails } : {}),
       holdoutFraction: () => adaptive.current().holdout.fraction,
+      compactionAnchors: () => {
+        const config = adaptive.current()
+        return config.enabled && config.compaction.anchors
+      },
     }),
   })
   // Background work starts only once the port is bound: a harness that fails to bind throws above

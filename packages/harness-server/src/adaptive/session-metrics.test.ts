@@ -101,6 +101,22 @@ describe("applyObservation", () => {
   test("a compaction counts", () => {
     expect(applyObservation(turn(), { kind: "compaction", id: "c1", turnID: "msg_u1" }, 10_000).compactions).toBe(1)
   })
+
+  test("a re-read after compaction counts, and a compaction step's output is the summary's size", () => {
+    const reread = applyObservation(
+      turn(),
+      { kind: "tool", id: "t1", turnID: "msg_u1", tool: "read", error: false, bytes: 10, reread: true },
+      10_000,
+    )
+    const plain = applyObservation(
+      reread,
+      { kind: "tool", id: "t2", turnID: "msg_u1", tool: "read", error: false, bytes: 10 },
+      10_000,
+    )
+    const summary = applyObservation(plain, step("s1", "msg_u1", 100, { agent: "compaction" }), 10_000)
+    const work = applyObservation(summary, step("s2", "msg_u1", 100), 10_000)
+    expect(work).toMatchObject({ rereadsAfterCompaction: 1, summaryTokens: 40, toolCalls: 2 })
+  })
 })
 
 describe("recordSessionMetric", () => {
@@ -130,6 +146,16 @@ describe("recordSessionMetric", () => {
     expect(repository.listSessionMetrics("ses_1")[0]!.requests).toBe(1)
   })
 
+  test("the re-reads and the summary tokens survive the row", () => {
+    const { repository } = open()
+    repository.recordSessionMetric({
+      sessionID: "ses_1",
+      observation: { kind: "tool", id: "t1", turnID: "msg_u1", tool: "read", error: false, bytes: 1, reread: true },
+    })
+    repository.recordSessionMetric({ sessionID: "ses_1", observation: step("s1", "msg_u1", 100, { agent: "compaction" }) })
+    expect(repository.listSessionMetrics("ses_1")[0]).toMatchObject({ rereadsAfterCompaction: 1, summaryTokens: 40 })
+  })
+
   test("the dedupe ledger is pruned by age", () => {
     const { repository } = open()
     repository.recordSessionMetric({ sessionID: "ses_1", observation: step("s1", "msg_u1", 100) }, 1_000)
@@ -153,6 +179,15 @@ describe("the metrics routes", () => {
     const rows = ((await listed.json()) as { data: Array<{ turn: number; tokens: { input: number } }> }).data
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ turn: 1, tokens: { input: 100 } })
+  })
+
+  test("a tool's re-read flag travels, and anything but true is not one", async () => {
+    const { handler, repository } = open()
+    const tool = (id: string, reread: unknown) =>
+      post({ sessionID: "ses_1", observation: { kind: "tool", id, turnID: "msg_u1", tool: "read", error: false, bytes: 1, reread } })
+    await handler(tool("t1", true))
+    await handler(tool("t2", "yes"))
+    expect(repository.listSessionMetrics("ses_1")[0]).toMatchObject({ toolCalls: 2, rereadsAfterCompaction: 1 })
   })
 
   test("a new turn records the session's holdout arms", async () => {
