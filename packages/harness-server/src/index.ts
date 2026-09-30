@@ -39,8 +39,7 @@ import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
 import { createLearnedStore } from "./adaptive/skills/learned-store"
 import { createSkillCurator } from "./adaptive/skills/curator"
-import { createEngineSkillDrafter, learningModel } from "./adaptive/learning/draft"
-import type { SkillDrafter } from "./adaptive/learning/draft"
+import { createLearningDrafter } from "./adaptive/learning/draft"
 import { createLearningManager } from "./adaptive/learning/manager"
 import type { LearningRunner } from "./adaptive/learning/manager"
 
@@ -236,21 +235,12 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // The learning manager (FH-034): it reflects on closed episodes and sweeps for terminal ones with
   // no job. The draft is the only model call, through a throwaway engine session, and only when a
   // model is resolved and the project opted in; with learning off it never fires.
-  const drafter: SkillDrafter = {
-    async draft(input) {
-      const config = adaptive.current()
-      const model = learningModel(config.learning, globalSmallModel)
-      if (!model) return undefined
-      return createEngineSkillDrafter({
-        engine: scheduler.engine,
-        model,
-        timeoutMs: config.decisions.skillReflection.timeoutMs,
-        redact: egress.redact,
-        maxInputChars: config.learning.maxInputChars,
-        limits: { maxBodyChars: config.learning.maxBodyChars },
-      }).draft(input)
-    },
-  }
+  const drafter = createLearningDrafter({
+    engine: scheduler.engine,
+    config: () => adaptive.current(),
+    smallModel: globalSmallModel,
+    redact: egress.redact,
+  })
   learning = createLearningManager({
     repository,
     service: decisions,

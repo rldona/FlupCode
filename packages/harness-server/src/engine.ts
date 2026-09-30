@@ -234,6 +234,11 @@ export class Engine {
     )) as { id: string }
   }
 
+  /** Remove a throwaway session and its messages, so helper sessions do not pile up in the list. */
+  deleteSession(sessionID: string, directory?: string) {
+    return unwrap(this.client.session.delete({ sessionID, ...(directory ? { directory } : {}) }))
+  }
+
   rename(sessionID: string, title: string) {
     return unwrap(this.client.session.update({ sessionID, title }))
   }
@@ -382,7 +387,8 @@ export class Engine {
     } = {},
   ) {
     const stopped = options.stopped ?? (() => false)
-    const deadline = Date.now() + (options.timeoutMs ?? 30 * 60_000)
+    const timeoutMs = options.timeoutMs ?? 30 * 60_000
+    const deadline = Date.now() + timeoutMs
     const pollMs = options.pollMs ?? 1000
     const checkEveryMs = options.checkEveryMs ?? CHECK_EVERY_MS
     const settleUntil = Date.now() + (options.settleMs ?? 3000)
@@ -409,7 +415,9 @@ export class Engine {
       }
       await new Promise((resolve) => setTimeout(resolve, pollMs))
     }
-    throw new Error("The work was still running after 30 minutes")
+    throw new Error(
+      `The work was still running after ${timeoutMs >= 60_000 ? `${timeoutMs / 60_000} minutes` : `${timeoutMs / 1000} seconds`}`,
+    )
   }
 
   /** The running tool call, if it has been running longer than this run allows. */

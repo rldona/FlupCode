@@ -10,6 +10,8 @@ import type { DecisionKind, DecisionRequest, DecisionResult, DecisionSpec, Skill
 import { createAdaptiveEgressGuard } from "../egress"
 import type { SessionEpisode } from "../episode"
 import type { SkillDraft, SkillDraftRequest, SkillDrafter } from "./draft"
+import { createLearningDrafter } from "./draft"
+import { Engine } from "../../engine"
 import type { SkillProposal } from "./proposal"
 import type { ReflectionService } from "./manager"
 import { REFLECTION_FAILED_REASON, createLearningManager } from "./manager"
@@ -720,5 +722,102 @@ describe("a secret in the drafted name or description never reaches the row (FH-
     // The redacted name no longer matches the skill shape, so the proposal is refused and reviewable.
     expect(proposal.status).toBe("rejected")
     expect(proposal.reason).toBe("invalid-name")
+  })
+})
+
+/**
+ * The real drafter against a slow engine (AH-A02). What is stubbed is only what `Engine` asks the
+ * engine process — busy or not, the answer, the abort and the delete — so the real wait loop, the
+ * real drafter and the real manager decide the outcome. The poll intervals are shortened the way
+ * `engine.test.ts` does; the draft timeout is the configured one.
+ */
+class SlowEngine extends Engine {
+  interrupted: string[] = []
+  deleted: string[] = []
+  private startedAt = 0
+
+  constructor(private readonly busyMs: number) {
+    super("http://127.0.0.1:1")
+  }
+
+  override async createSession() {
+    return { id: "draft-session" }
+  }
+
+  // The real one answers the engine's empty acknowledgement, which the type spells `void & {}`.
+  override prompt() {
+    this.startedAt = Date.now()
+    return Promise.resolve() as ReturnType<Engine["prompt"]>
+  }
+
+  override waitForIdle(sessionID: string, options: Parameters<Engine["waitForIdle"]>[1] = {}) {
+    return super.waitForIdle(sessionID, { ...options, pollMs: 10, settleMs: 50 })
+  }
+
+  override async isBusy() {
+    return this.interrupted.length === 0 && Date.now() - this.startedAt < this.busyMs
+  }
+
+  override async lastAnswer() {
+    return { text: "```json\n" + JSON.stringify(validDraft()) + "\n```", tokens: undefined, cost: undefined }
+  }
+
+  override async interrupt(sessionID: string) {
+    this.interrupted.push(sessionID)
+  }
+
+  override async deleteSession(sessionID: string) {
+    this.deleted.push(sessionID)
+    return true
+  }
+}
+
+/** Until the job is terminal: the draft really waits, so a single macrotask is not enough here. */
+const jobSettled = async (repository: SqliteRoutineRepository) => {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    const job = repository.getReflectionJob("episode:run:1")
+    if (job && job.status !== "pending") return job
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+  return repository.getReflectionJob("episode:run:1")
+}
+
+describe("the draft timeout (AH-A02)", () => {
+  test("a draft slower than the decision deadline still lands under the learning draft timeout", async () => {
+    const repository = repositoryFor()
+    const config = configFor()
+    // The regression: the drafter used to wait only `decisions.skillReflection.timeoutMs`.
+    expect(config.decisions.skillReflection.timeoutMs).toBeLessThan(1_000)
+    const engine = new SlowEngine(1_000)
+    const manager = managerFor({
+      repository,
+      service: reflectionService({}),
+      config,
+      drafter: createLearningDrafter({ engine, config: () => config }),
+    })
+    manager.onEpisodeClosed(episode())
+
+    expect(await jobSettled(repository)).toMatchObject({ status: "done", reason: "promoted" })
+    expect(engine.interrupted).toEqual([])
+    expect(engine.deleted).toEqual(["draft-session"])
+  })
+
+  test("a draft past the timeout fails, and its session is interrupted and deleted", async () => {
+    const repository = repositoryFor()
+    const config = configFor({ learning: { enabled: true, minToolCalls: 5, model: "prov/small", draftTimeoutMs: 100 } })
+    const engine = new SlowEngine(60_000)
+    const manager = managerFor({
+      repository,
+      service: reflectionService({}),
+      config,
+      drafter: createLearningDrafter({ engine, config: () => config }),
+    })
+    manager.onEpisodeClosed(episode())
+
+    expect(await jobSettled(repository)).toMatchObject({ status: "skipped", reason: "draft-failed" })
+    expect(repository.getProposal("proposal:episode:run:1")).toBeUndefined()
+    expect(engine.interrupted).toEqual(["draft-session"])
+    expect(engine.deleted).toEqual(["draft-session"])
   })
 })

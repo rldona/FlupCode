@@ -112,6 +112,11 @@ export type LearningConfig = {
   maxInputChars: number
   /** The cap on the drafted body before it is stored (ADR-0020 §2). */
   maxBodyChars: number
+  /**
+   * How long the drafting session may generate before it is stopped and deleted. Its own number, not
+   * the `skillReflection` decision deadline: that one is a hot-path latency budget, a draft is not.
+   */
+  draftTimeoutMs: number
   /** Opportunities a `probation` learned skill must have had before the lifecycle judges it (FH-042). */
   probationSample: number
   /** Opportunities without a load or view after which a `mature` skill turns `stale`. */
@@ -194,6 +199,8 @@ export const DEFAULT_LEARNING_CONFIG: LearningConfig = {
   // keeps the three numbers in step rather than importing across the slice.
   maxInputChars: 8_000,
   maxBodyChars: 4_000,
+  // The same two minutes `Engine.commitMessage`/`handoff` give their throwaway sessions.
+  draftTimeoutMs: 120_000,
   probationSample: 5,
   staleAfter: 10,
   archiveAfter: 20,
@@ -387,6 +394,7 @@ function resolveLearningConfig(block: Record<string, unknown>): LearningConfig {
     snapshotKeep: positiveNumberFrom(learning.snapshotKeep) ?? DEFAULT_LEARNING_CONFIG.snapshotKeep,
     maxInputChars: positiveNumberFrom(learning.maxInputChars) ?? DEFAULT_LEARNING_CONFIG.maxInputChars,
     maxBodyChars: positiveNumberFrom(learning.maxBodyChars) ?? DEFAULT_LEARNING_CONFIG.maxBodyChars,
+    draftTimeoutMs: positiveNumberFrom(learning.draftTimeoutMs) ?? DEFAULT_LEARNING_CONFIG.draftTimeoutMs,
     probationSample: positiveNumberFrom(learning.probationSample) ?? DEFAULT_LEARNING_CONFIG.probationSample,
     staleAfter: positiveNumberFrom(learning.staleAfter) ?? DEFAULT_LEARNING_CONFIG.staleAfter,
     archiveAfter: positiveNumberFrom(learning.archiveAfter) ?? DEFAULT_LEARNING_CONFIG.archiveAfter,
