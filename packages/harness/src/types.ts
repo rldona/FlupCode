@@ -859,6 +859,38 @@ export type StoredDecision = {
   updatedAt: number
 }
 
+/**
+ * Whether a kind's predictive model is asked (AH-C05). Mirrors `harness-server`'s own type: warming
+ * up, asked, only explored because it does not pay for itself, or paused because it does not help.
+ */
+export type ValueGateState = "warming-up" | "asking" | "exploring" | "paused"
+
+/** One kind and model's value-of-information gate. Mirrors `harness-server`'s own type. */
+export type ValueGateStatus = {
+  kind: string
+  modelID: string
+  modelVersion?: string
+  state: ValueGateState
+  samples: number
+  disagreements: number
+  disagreementRate: number
+  uplift: number
+  valueUsd: number
+  costUsd: number
+  p95LatencyMs?: number
+  latencySamples: number
+}
+
+/** The gate of every assigned kind, with the numbers it is judged by. */
+export type ValueGateSnapshot = {
+  enabled: boolean
+  window: number
+  minSamples: number
+  epsilon: number
+  explorationRate: number
+  kinds: ValueGateStatus[]
+}
+
 export type DecisionLabelOutcome = "correct" | "incorrect" | "unknown"
 
 /**

@@ -10,7 +10,7 @@
 
 import { createHash } from "node:crypto"
 import type { ContextItemKind, DegradedReason, ItemDisposition, PlanScoreSource } from "./decision"
-import { isContextItemKind, ITEM_DISPOSITIONS } from "./decision"
+import { DEGRADED_REASONS, isContextItemKind, ITEM_DISPOSITIONS } from "./decision"
 import type { ContextPlanEntry, StoredPlan, StoredPlanInput } from "../types"
 
 /** A plan never keeps more entries than this; the UI is deferred and the plan is one read. */
@@ -69,21 +69,8 @@ const readScoreSource = (row: PlanRow): { value: PlanScoreSource | "unknown"; pr
 const isDisposition = (value: unknown): value is ItemDisposition =>
   typeof value === "string" && ITEM_DISPOSITIONS.some((candidate) => candidate === value)
 
-const parseReason = (value: string | null): DegradedReason | undefined => {
-  const reasons: DegradedReason[] = [
-    "timeout",
-    "network",
-    "rate-limited",
-    "unauthorized",
-    "malformed",
-    "low-confidence",
-    "budget-exhausted",
-    "breaker-open",
-    "egress-denied",
-    "provider-disabled",
-  ]
-  return reasons.find((reason) => reason === value)
-}
+const parseReason = (value: string | null): DegradedReason | undefined =>
+  DEGRADED_REASONS.find((reason) => reason === value)
 
 /**
  * Bounds the entries by count and by serialized characters. A plan that would not fit is trimmed

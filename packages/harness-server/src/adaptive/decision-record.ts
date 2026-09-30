@@ -8,7 +8,7 @@
  */
 
 import type { DecisionKind, DecisionLabel, DecisionPolicy, DecisionSource, DegradedReason } from "./decision"
-import { DEFAULT_DECISION_POLICY, isDecisionKind, isDecisionLabelOutcome, isDecisionSource } from "./decision"
+import { DEFAULT_DECISION_POLICY, DEGRADED_REASONS, isDecisionKind, isDecisionLabelOutcome, isDecisionSource } from "./decision"
 import type { StoredDecision, StoredDecisionInput } from "../types"
 import { isArm } from "./holdout"
 
@@ -97,21 +97,8 @@ const parsePolicy = (value: string): DecisionPolicy => {
   }
 }
 
-const parseReason = (value: string | null): DegradedReason | undefined => {
-  const reasons: DegradedReason[] = [
-    "timeout",
-    "network",
-    "rate-limited",
-    "unauthorized",
-    "malformed",
-    "low-confidence",
-    "budget-exhausted",
-    "breaker-open",
-    "egress-denied",
-    "provider-disabled",
-  ]
-  return reasons.find((reason) => reason === value)
-}
+const parseReason = (value: string | null): DegradedReason | undefined =>
+  DEGRADED_REASONS.find((reason) => reason === value)
 
 /** Trims a summary to a bound so a chatty summarizer cannot turn the audit into a transcript. */
 export const boundSummary = (summary: Record<string, unknown>, limit = SUMMARY_CHAR_LIMIT): Record<string, unknown> => {
