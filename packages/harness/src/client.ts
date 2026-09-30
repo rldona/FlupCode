@@ -122,7 +122,8 @@ export async function probeEngineProfile(baseUrl: string): Promise<EngineProfile
 
 
 
-export { EngineError, isSessionGone, invalidateLegacyHistory } from "./engine/v1"
+export { EngineError, isSessionGone } from "./engine/error"
+export { invalidateLegacyHistory } from "./engine/v1"
 export { subscribeEvents }
 
 /**

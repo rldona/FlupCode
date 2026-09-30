@@ -806,6 +806,7 @@ Every ticket is its own PR against `power`.
 | V2-05, V2-06 | Done: rldona/FlupCode#439. Findings in [V2-CONTRACT-REPORT.md](V2-CONTRACT-REPORT.md) |
 | V2-07 | Open. The report only has start-to-healthy times, and they are not comparable |
 | V2-10, V2-12 | Done in the engine adapter PR |
+| V2-20 | Done in the OpenCode 2 adapter PR: `engine/v2.ts` on `@opencode/client@2.0.18` (the newest version old enough for `minimumReleaseAge`, same as the sandbox) covers the session and message domains. Permission and question replies are stubbed until V2-22. `createClient` does not choose it yet: it will once every domain exists |
 | V2-11 | Detection is covered by V2-00 (`detectEngine`, the banner, onboarding, desktop and CLI). Choosing an adapter by line lands with V2-20, since no 2.x adapter exists before it |
 
 ### Phase 0: Baseline

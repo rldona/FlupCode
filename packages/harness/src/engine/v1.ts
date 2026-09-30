@@ -16,6 +16,7 @@ import type { McpConfig, McpScope } from "../types"
 import type { ConfiguredProvider } from "../custom-provider"
 import { engineFetch } from "../transport"
 import { subscribeEvents } from "../event-stream"
+import { EngineError } from "./error"
 import { SUGGESTION_SESSION_TITLE } from "../reply-suggestion"
 import { chatFileParts } from "../chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "../transcript"
@@ -75,25 +76,6 @@ async function reloadConfig(baseUrl: string, input?: { directory?: string; works
 
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
-
-/**
- * A failed engine call, keeping the error's `_tag`. The app needs the tag, not just the message, to
- * tell a session the engine no longer has (`SessionNotFoundError`) from the engine being unreachable:
- * one means drop the stale session, the other means say the truth and leave it in place.
- */
-export class EngineError extends Error {
-  constructor(
-    message: string,
-    readonly tag?: string,
-  ) {
-    super(message)
-    this.name = "EngineError"
-  }
-}
-
-export function isSessionGone(cause: unknown) {
-  return cause instanceof EngineError && cause.tag === "SessionNotFoundError"
-}
 
 async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
   const result = await call
