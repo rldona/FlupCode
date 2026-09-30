@@ -172,11 +172,10 @@ export type LearningConfig = {
    * the `skillReflection` decision deadline: that one is a hot-path latency budget, a draft is not.
    */
   draftTimeoutMs: number
-  /** Opportunities a `probation` learned skill must have had before the lifecycle judges it (FH-042). */
-  probationSample: number
-  /** Opportunities without a load or view after which a `mature` skill turns `stale`. */
-  staleAfter: number
-  /** Opportunities without a load or view after which a `stale` skill is archived. */
+  /**
+   * Real sessions a learned skill may sit unused before archiving it is suggested to a person (AH-F02).
+   * It is only a suggestion: nothing archives a skill automatically.
+   */
   archiveAfter: number
   /** A `provider/model` key for the drafting model; falls back to the global `small_model`. */
   model?: string
@@ -324,8 +323,6 @@ export const DEFAULT_LEARNING_CONFIG: LearningConfig = {
   maxBodyChars: 4_000,
   // The same two minutes `Engine.commitMessage`/`handoff` give their throwaway sessions.
   draftTimeoutMs: 120_000,
-  probationSample: 5,
-  staleAfter: 10,
   archiveAfter: 20,
   frozen: false,
   limits: { proposalsPerDay: 5, maxLearnedSkills: 20, patchesPerWeek: 5 },
@@ -628,8 +625,6 @@ function resolveLearningConfig(block: Record<string, unknown>): LearningConfig {
     maxInputChars: positiveNumberFrom(learning.maxInputChars) ?? DEFAULT_LEARNING_CONFIG.maxInputChars,
     maxBodyChars: positiveNumberFrom(learning.maxBodyChars) ?? DEFAULT_LEARNING_CONFIG.maxBodyChars,
     draftTimeoutMs: positiveNumberFrom(learning.draftTimeoutMs) ?? DEFAULT_LEARNING_CONFIG.draftTimeoutMs,
-    probationSample: positiveNumberFrom(learning.probationSample) ?? DEFAULT_LEARNING_CONFIG.probationSample,
-    staleAfter: positiveNumberFrom(learning.staleAfter) ?? DEFAULT_LEARNING_CONFIG.staleAfter,
     archiveAfter: positiveNumberFrom(learning.archiveAfter) ?? DEFAULT_LEARNING_CONFIG.archiveAfter,
     ...(model ? { model } : {}),
     frozen: learning.frozen === true,

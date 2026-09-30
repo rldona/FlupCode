@@ -603,8 +603,8 @@ describe("the learning manager's refusals", () => {
   })
 })
 
-describe("the manager drives the learned-skill lifecycle (FH-042)", () => {
-  const numbers = { probationSample: 1, staleAfter: 1, archiveAfter: 1 }
+describe("the manager sweeps the learned-skill lifecycle (FH-042, AH-F02)", () => {
+  const numbers = { archiveAfter: 1 }
 
   /** A terminal episode with a job, so the sweep discovers its project without reflecting again. */
   const seedTerminalEpisode = (repo: SqliteRoutineRepository) => {
@@ -629,10 +629,10 @@ describe("the manager drives the learned-skill lifecycle (FH-042)", () => {
     repo.createReflectionJob({ episodeID: "episode:run:seed", projectID: project, status: "done", attempts: 1 }, NOW)
   }
 
-  test("graduates a used skill and archives an unused one by move, and is inert with learning off", () => {
+  test("never marks a skill stale nor archives it: an unused one is only suggested", () => {
     const created = store()
     const skills = createSkillCurator({ store: created, config: () => numbers })
-    expect(skills.promote(skillProposal("selected-skill")).ok).toBe(true)
+    expect(skills.promote(skillProposal("used-skill")).ok).toBe(true)
     expect(skills.promote(skillProposal("unused-skill")).ok).toBe(true)
 
     const repository = repositoryFor()
@@ -645,27 +645,14 @@ describe("the manager drives the learned-skill lifecycle (FH-042)", () => {
       curator: skills,
     })
 
-    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["selected-skill"] })
-    manager.sweep()
-    expect(store().readSidecar(project, "selected-skill")).toMatchObject({ state: "mature" })
-    expect(store().readSidecar(project, "unused-skill")).toMatchObject({ state: "stale" })
-
-    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["selected-skill"] })
-    manager.sweep()
-    // Archive is a move: the unused skill left `skills/` for the archive root.
-    expect(store().readSidecar(project, "unused-skill")).toBeUndefined()
-    expect(existsSync(join(project, ".opencode", "flupcode-learned-archive", "unused-skill", "SKILL.md"))).toBe(true)
-
-    // With learning off the sweep returns before the lifecycle: nothing moves.
-    const inert = managerFor({
-      repository,
-      service: reflectionService({}),
-      config: configFor({ learning: { enabled: false, minToolCalls: 5, model: "prov/small" } }),
-      drafter: drafters().drafter,
-      curator: skills,
-    })
-    expect(inert.sweep()).toBe(0)
-    expect(store().readSidecar(project, "selected-skill")).toMatchObject({ state: "mature" })
+    for (const sessionID of ["ses_a", "ses_b", "ses_c"]) {
+      skills.recordSession({ projectID: project, sessionID, skills: ["used-skill"] })
+      manager.sweep()
+    }
+    expect(store().readSidecar(project, "used-skill")).toMatchObject({ state: "mature", sessionsSinceUse: 0 })
+    expect(store().readSidecar(project, "unused-skill")).toMatchObject({ state: "probation", sessionsSinceUse: 3 })
+    expect(existsSync(join(project, ".opencode", "flupcode-learned-archive", "unused-skill"))).toBe(false)
+    expect(skills.recompute(project)).toEqual([{ name: "unused-skill", unusedSessions: 3 }])
   })
 
   test("with learning off the sweep still repairs a human-name collision on disk", () => {

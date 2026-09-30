@@ -143,6 +143,12 @@ observable on disk: it is the state of a *proposal* before install (`proposal.st
 and the curator installs directly into `probation`. `merged` exists in the type but 3b **never
 reaches it** — merge is deferred (FH-044).
 
+> **Superseded in part by AH-F02.** The `since` window, the automatic `stale` and `archived`
+> transitions and `load` from `skillRelevance` below are retired: `load` now counts distinct real
+> sessions that ran the engine's `skill` tool, the sidecar keeps `lastUsedAt` and
+> `sessionsSinceUse`, `stale`/`merged` are frozen, and an unused skill is only *suggested* for
+> archiving. See "Skills" in [ADAPTIVE.md](../ADAPTIVE.md).
+
 A pure `recompute` over usage and config drives:
 
 ```

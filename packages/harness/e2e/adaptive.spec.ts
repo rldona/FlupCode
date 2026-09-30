@@ -920,6 +920,17 @@ test("the learned section paints the roster and the rejected proposal, read-only
         learned: true,
         state: "probation",
         usage: { load: 2, view: 0, patch: 0, opportunities: 5 },
+        sessionsSinceUse: 1,
+        suggestArchive: false,
+      },
+      {
+        name: "old-habit",
+        description: "Something no session asks for",
+        learned: true,
+        state: "probation",
+        usage: { load: 0, view: 0, patch: 0, opportunities: 20 },
+        sessionsSinceUse: 20,
+        suggestArchive: true,
       },
     ],
     proposals: [
@@ -943,6 +954,10 @@ test("the learned section paints the roster and the rejected proposal, read-only
   await expect(learned.getByRole("heading", { name: "Learned", exact: true })).toBeVisible()
   await expect(learned).toContainText("deploy-runbook")
   await expect(learned).toContainText("Probation")
+  // Real use, and the archive hint only on the skill that sat unused (AH-F02).
+  await expect(learned).toContainText("Used in 2 of 5 sessions")
+  await expect(learned.locator(".fc-skill-archive-hint")).toHaveCount(1)
+  await expect(learned.locator(".fc-skill-archive-hint")).toHaveText("Unused in 20 sessions · Archive?")
   await expect(learned).toContainText("flaky-test-helper")
   await expect(learned).toContainText("Rejected")
   await expect(learned).toContainText("not reusable")

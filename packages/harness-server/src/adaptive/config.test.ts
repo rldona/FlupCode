@@ -226,8 +226,6 @@ describe("resolveAdaptiveConfig", () => {
       maxInputChars: DEFAULT_LEARNING_CONFIG.maxInputChars,
       maxBodyChars: DEFAULT_LEARNING_CONFIG.maxBodyChars,
       draftTimeoutMs: 30_000,
-      probationSample: DEFAULT_LEARNING_CONFIG.probationSample,
-      staleAfter: DEFAULT_LEARNING_CONFIG.staleAfter,
       archiveAfter: DEFAULT_LEARNING_CONFIG.archiveAfter,
       model: "prov/small",
       frozen: false,

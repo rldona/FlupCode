@@ -78,19 +78,27 @@ export type SkillSidecar = {
   source: SkillSource
   evidenceRefs: string[]
   modelVersion?: string
+  /**
+   * Real use (AH-F02): `load` counts the distinct real sessions that ran the engine's `skill` tool on
+   * it and `opportunities` the distinct real sessions observed since install. `view`/`patch` are the
+   * harness's own re-reads and rewrites.
+   */
   usage: SkillUsage
+  /** When a real session last ran the engine's `skill` tool on it; absent means never. */
+  lastUsedAt?: number
+  /** Real sessions closed since its last use (or since install or patch); the archive hint reads it. */
+  sessionsSinceUse: number
   /**
-   * The usage baseline the lifecycle window is measured against (FH-042). Cumulative counters alone
-   * cannot express "no load or view in the last N opportunities", so the window's start travels with
-   * the skill; absent reads as creation, which is the conservative reading.
+   * The most recent real sessions already folded into `usage`, newest last and bounded by
+   * `COUNTED_SESSIONS_KEEP`. A session closes once per episode, so a later episode of the same session
+   * is folded again only when it turns an unused session into a used one.
    */
-  since: SkillUsage
+  countedSessions?: CountedSession[]
   /**
-   * The most recent episodes whose `skillRelevance` selection was already counted into `usage`, newest
-   * last and bounded by `COUNTED_EPISODES_KEEP`. A selection reported twice for one episode (a restart
-   * sweep racing the close, a second process) is then counted once. Absent reads as none counted.
+   * Which signal `usage` measures. Only `engine` is written; a sidecar without it predates AH-F02 and
+   * its `load`/`opportunities` counted suggestions, so the read migrates them to zero.
    */
-  countedEpisodes?: string[]
+  usageSource: "engine"
   /**
    * HMAC over the folder name and `contentHash` under the install's key: what makes this skill the
    * harness's own. A sidecar without a valid one is never trusted, so the skill is read-only.
@@ -98,8 +106,10 @@ export type SkillSidecar = {
   provenance?: string
 }
 
-/** How many counted episodes a sidecar remembers; duplicates arrive close together, not days apart. */
-export const COUNTED_EPISODES_KEEP = 32
+export type CountedSession = { id: string; used: boolean }
+
+/** How many counted sessions a sidecar remembers; duplicates arrive close together, not days apart. */
+export const COUNTED_SESSIONS_KEEP = 32
 
 export type LedgerEvent =
   | { at: number; event: "created"; version: number; contentHash: string; proposalID?: string; reason: string }
@@ -155,7 +165,7 @@ export type LearnedArchiveResult = { ok: true; path: string } | { ok: false; rea
 export type LearnedSidecarResult = { ok: true; sidecar: SkillSidecar } | { ok: false; reason: LearnedWriteRejection }
 
 /**
- * A sidecar-only change: the curator moves `state`/`usage`/`since` on an existing learned skill
+ * A sidecar-only change: the curator moves `state` and the use fields on an existing learned skill
  * without rewriting the body. A missing sidecar is reconstructed from the file as PROBATION v1
  * rather than failing, which is the defensive read ADR-0019 §3 asks for.
  */
@@ -164,8 +174,9 @@ export type LearnedSidecarUpdate = {
   name: string
   state?: SkillState
   usage?: SkillUsage
-  since?: SkillUsage
-  countedEpisodes?: string[]
+  lastUsedAt?: number
+  sessionsSinceUse?: number
+  countedSessions?: CountedSession[]
   /** Ledger events appended after the sidecar is written, in order. */
   events?: LedgerEvent[]
   at?: number
@@ -450,7 +461,10 @@ function parseSidecar(value: unknown): SkillSidecar | undefined {
   if (!state) return undefined
   if (!isPlainObject(value.source) || typeof value.source.projectID !== "string") return undefined
   const usage = isPlainObject(value.usage) ? value.usage : {}
-  const since = isPlainObject(value.since) ? value.since : {}
+  // Before AH-F02 `load`/`opportunities` counted suggestions and a `since` window drove the states;
+  // both are dropped on read, so an old skill starts its real-use count from zero and is never
+  // suggested for archiving before it has had `archiveAfter` real sessions.
+  const engine = value.usageSource === "engine"
   const count = (source: Record<string, unknown>, key: string) => (typeof source[key] === "number" ? source[key] : 0)
   return {
     name: value.name,
@@ -471,24 +485,25 @@ function parseSidecar(value: unknown): SkillSidecar | undefined {
       : [],
     ...(typeof value.modelVersion === "string" ? { modelVersion: value.modelVersion } : {}),
     usage: {
-      load: count(usage, "load"),
+      load: engine ? count(usage, "load") : 0,
       view: count(usage, "view"),
       patch: count(usage, "patch"),
-      opportunities: count(usage, "opportunities"),
+      opportunities: engine ? count(usage, "opportunities") : 0,
     },
-    since: {
-      load: count(since, "load"),
-      view: count(since, "view"),
-      patch: count(since, "patch"),
-      opportunities: count(since, "opportunities"),
-    },
-    ...(Array.isArray(value.countedEpisodes)
+    ...(engine && typeof value.lastUsedAt === "number" ? { lastUsedAt: value.lastUsedAt } : {}),
+    sessionsSinceUse: engine ? count(value, "sessionsSinceUse") : 0,
+    ...(engine && Array.isArray(value.countedSessions)
       ? {
-          countedEpisodes: value.countedEpisodes
-            .filter((entry): entry is string => typeof entry === "string")
-            .slice(-COUNTED_EPISODES_KEEP),
+          countedSessions: value.countedSessions
+            .filter(
+              (entry): entry is CountedSession =>
+                isPlainObject(entry) && typeof entry.id === "string" && typeof entry.used === "boolean",
+            )
+            .map((entry) => ({ id: entry.id, used: entry.used }))
+            .slice(-COUNTED_SESSIONS_KEEP),
         }
       : {}),
+    usageSource: "engine",
     ...(typeof value.provenance === "string" ? { provenance: value.provenance } : {}),
   }
 }
@@ -629,7 +644,7 @@ export function createLearnedStore(
     const version = existing === undefined ? 1 : (previous?.version ?? 1) + 1
     const content = serialiseLearnedSkill({ name: input.name, description: input.description, body: input.body })
     const contentHash = contentHashOf(content)
-    // A patch resets the lifecycle window: the new version starts its `probation` from here.
+    // A patch keeps the counters but starts a fresh unused count: the new version gets its own chance.
     const usage = previous?.usage ?? ZERO_USAGE
     const sidecar: SkillSidecar = {
       name: input.name,
@@ -643,9 +658,11 @@ export function createLearnedStore(
       evidenceRefs: input.evidenceRefs ?? [],
       ...(input.modelVersion ? { modelVersion: input.modelVersion } : {}),
       usage,
-      since: usage,
-      // A patch keeps the counters, so it keeps the memory of which episodes they already include.
-      ...(previous?.countedEpisodes ? { countedEpisodes: previous.countedEpisodes } : {}),
+      ...(previous?.lastUsedAt !== undefined ? { lastUsedAt: previous.lastUsedAt } : {}),
+      sessionsSinceUse: 0,
+      // A patch keeps the counters, so it keeps the memory of which sessions they already include.
+      ...(previous?.countedSessions ? { countedSessions: previous.countedSessions } : {}),
+      usageSource: "engine",
       provenance: provenanceOf(signingKey(), input.name, contentHash).toString("hex"),
     }
     const event: LedgerEvent =
@@ -843,9 +860,10 @@ export function createLearnedStore(
       ...current,
       ...(input.state !== undefined ? { state: input.state } : {}),
       ...(input.usage !== undefined ? { usage: input.usage } : {}),
-      ...(input.since !== undefined ? { since: input.since } : {}),
-      ...(input.countedEpisodes !== undefined
-        ? { countedEpisodes: input.countedEpisodes.slice(-COUNTED_EPISODES_KEEP) }
+      ...(input.lastUsedAt !== undefined ? { lastUsedAt: input.lastUsedAt } : {}),
+      ...(input.sessionsSinceUse !== undefined ? { sessionsSinceUse: input.sessionsSinceUse } : {}),
+      ...(input.countedSessions !== undefined
+        ? { countedSessions: input.countedSessions.slice(-COUNTED_SESSIONS_KEEP) }
         : {}),
       updatedAt: at,
     }
