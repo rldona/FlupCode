@@ -43,6 +43,7 @@ import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-rou
 import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
 import { handleGuardrailsRequest, handleGuardrailsStatusRequest } from "./adaptive/guardrails-routes"
+import { handleEvidenceReadRequest, handleToolTrimRequest } from "./adaptive/tool-trim-routes"
 import type { GuardrailService } from "./adaptive/guardrails"
 import { handleCompactionAnchorsRequest } from "./adaptive/compaction-anchors"
 import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptive/session-metrics"
@@ -50,6 +51,7 @@ import { armsFor } from "./adaptive/holdout"
 import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
+import type { AdaptiveConfig } from "./adaptive/config"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -420,6 +422,8 @@ export type HarnessHandlerOptions = {
   guardrails?: GuardrailService
   /** Whether the compaction anchors are on (AH-D04): `compaction.anchors` and the kill switch. */
   compactionAnchors?: () => boolean
+  /** The live adaptive config the tool-output trim reads its switch and bounds from (AH-D02). */
+  toolTrimConfig?: () => AdaptiveConfig
   /** The live holdout share, so a metrics row records the session's arms (AH-B05). */
   holdoutFraction?: () => number
   /** The dedicated loopback bearer of the acting line; the route is closed without it (ADR-0022). */
@@ -641,6 +645,22 @@ export const createHarnessHandler = (
         },
       })
     }
+    // The recoverable tool-output trim (AH-D02): the plugin posts a finished output and the
+    // `evidence_read` tool reads a stored one back, both on the loopback with the dedicated bearer.
+    // Without a token neither route exists and the capability is not announced.
+    if (
+      path[1] === "adaptive" &&
+      ((path[2] === "tool-trim" && path.length === 3) ||
+        (path[2] === "evidence" && path[3] === "read" && path.length === 4)) &&
+      request.method === "POST" &&
+      options.toolTrimConfig &&
+      options.adaptiveToken
+    ) {
+      if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      const deps = { store: repository, config: options.toolTrimConfig }
+      return path[2] === "tool-trim" ? handleToolTrimRequest(request, deps) : handleEvidenceReadRequest(request, deps)
+    }
     // Its read side takes the artifacts bearer, like the other adaptive audits a browser reads.
     if (path[1] === "adaptive" && path[2] === "metrics" && path.length === 3 && request.method === "GET") {
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
@@ -721,6 +741,8 @@ export const createHarnessHandler = (
           ...(options.guardrails && options.adaptiveToken ? (["adaptive-guardrails"] as const) : []),
           // The per-turn cost baseline (AH-B01): the plugin's POST needs the dedicated bearer too.
           ...(options.adaptiveToken ? (["adaptive-metrics"] as const) : []),
+          // The tool-output trim (AH-D02): both routes need the dedicated bearer and the config reader.
+          ...(options.toolTrimConfig && options.adaptiveToken ? (["adaptive-tool-trim"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

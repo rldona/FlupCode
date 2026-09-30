@@ -12,11 +12,13 @@ import {
   RUN_EPISODE_PREFIX,
 } from "./adaptive/episode"
 import {
+  EVIDENCE_SLICE_LIMIT,
   EVIDENCE_TOTAL_LIMIT,
   evidenceHash,
   isEvidenceHash,
   sliceEvidence,
 } from "./adaptive/evidence"
+import { TOOL_TRIM_MAX_STORED_BYTES } from "./adaptive/config"
 import type {
   EvidenceInput,
   EvidenceKind,
@@ -311,6 +313,16 @@ CREATE TABLE IF NOT EXISTS episode_evidence (
 );
 CREATE INDEX IF NOT EXISTS episode_evidence_episode ON episode_evidence(episode_id, position);
 CREATE INDEX IF NOT EXISTS episode_evidence_hash ON episode_evidence(hash);
+-- A trimmed tool output (AH-D02): the session that owns the ref, and the evidence row that holds it.
+CREATE TABLE IF NOT EXISTS tool_evidence (
+  session_id TEXT NOT NULL,
+  ref TEXT NOT NULL,
+  hash TEXT NOT NULL,
+  tool TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, ref)
+);
+CREATE INDEX IF NOT EXISTS tool_evidence_hash ON tool_evidence(hash);
 CREATE TABLE IF NOT EXISTS adaptive_usage (
   month TEXT PRIMARY KEY,
   tokens INTEGER NOT NULL DEFAULT 0,
@@ -2310,9 +2322,13 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * capture may fail because its evidence could not be kept.
    */
   putEvidence(input: EvidenceInput, now = Date.now()): EvidenceSlice | undefined {
+    return this.storeEvidence(input, EVIDENCE_SLICE_LIMIT, now)
+  }
+
+  private storeEvidence(input: EvidenceInput, limit: number, now: number): EvidenceSlice | undefined {
     try {
       if (!input.content) return undefined
-      const sliced = sliceEvidence(input)
+      const sliced = sliceEvidence(input, limit)
       const hash = evidenceHash(sliced.content)
       this.db
         .query(
@@ -2351,6 +2367,59 @@ export class SqliteRoutineRepository implements RoutineRepository {
         this.db.query("UPDATE evidence SET last_read_at = ?1 WHERE hash = ?2").run(now, hash)
       } catch {}
       return decodeEvidence(row)
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Keep a trimmed tool output whole and hand back the session-scoped ref that reads it (AH-D02).
+   *
+   * It lives in the same content-addressed store as episode evidence, under the same global total
+   * and LRU eviction, but it is never cut: an output past `TOOL_TRIM_MAX_STORED_BYTES` is refused, and
+   * the ref is only returned once the stored row reads back whole, so a caller that gets a ref may
+   * replace the output it came from. The ref is the first 16 hex digits of the content address, and
+   * it is linked to one session: another session naming the same ref finds nothing.
+   */
+  putToolEvidence(
+    input: { sessionID: string; tool: string; content: string },
+    now = Date.now(),
+  ): { ref: string; hash: string; bytes: number } | undefined {
+    try {
+      const bytes = Buffer.byteLength(input.content, "utf8")
+      if (bytes === 0 || bytes > TOOL_TRIM_MAX_STORED_BYTES) return undefined
+      const stored = this.storeEvidence({ content: input.content }, input.content.length, now)
+      // Read back through the verified path: it confirms the whole text is there under its address
+      // and marks it used, so content first stored long ago is not the next thing the LRU evicts.
+      const slice = stored ? this.getEvidence(stored.hash, now) : undefined
+      if (!slice || slice.content !== input.content) return undefined
+      const ref = slice.hash.slice(0, 16)
+      this.db
+        .query(
+          `INSERT INTO tool_evidence (session_id, ref, hash, tool, created_at) VALUES (?1, ?2, ?3, ?4, ?5)
+           ON CONFLICT(session_id, ref) DO UPDATE SET hash = excluded.hash, tool = excluded.tool`,
+        )
+        .run(input.sessionID, ref, slice.hash, input.tool, now)
+      return { ref, hash: slice.hash, bytes }
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * A trimmed tool output by its ref, only for the session that owns it (AH-D02).
+   *
+   * Read through `getEvidence`, so a row that was evicted or edited by hand reads as `undefined`
+   * rather than as text its address does not name, and reading it marks it used for the LRU.
+   */
+  getToolEvidence(sessionID: string, ref: string, now = Date.now()): { content: string; tool: string } | undefined {
+    try {
+      const link = this.db
+        .query("SELECT hash, tool FROM tool_evidence WHERE session_id = ?1 AND ref = ?2")
+        .get(sessionID, ref) as { hash: string; tool: string } | null
+      if (!link) return undefined
+      const slice = this.getEvidence(link.hash, now)
+      return slice ? { content: slice.content, tool: link.tool } : undefined
     } catch {
       return undefined
     }
@@ -2435,6 +2504,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
       return this.db.transaction(() => {
         for (const hash of doomed) {
           this.db.query("DELETE FROM episode_evidence WHERE hash = ?1").run(hash)
+          this.db.query("DELETE FROM tool_evidence WHERE hash = ?1").run(hash)
           this.db.query("DELETE FROM evidence WHERE hash = ?1").run(hash)
         }
         return doomed.length

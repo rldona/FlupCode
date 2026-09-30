@@ -64,6 +64,7 @@ describe("the writable allowlist", () => {
       "learning.enabled",
       "relevance.enabled",
       "guardrails.enabled",
+      "toolTrim.enabled",
       "jev.enabled",
       "egress.providers.*.enabled",
       "egress.providers.*.projects",
@@ -163,6 +164,12 @@ describe("guards", () => {
     const error = rejection({ patch: { relevance: { enabled: true } }, adaptiveTokenPresent: false })
     expect(error).toMatchObject({ code: "guard:no-adaptive-token", fields: ["relevance.enabled"] })
     expect(plan({ patch: { relevance: { enabled: true } } }).leaves).toHaveLength(1)
+  })
+
+  test("enabling the tool-output trim needs a resolved adaptive token", () => {
+    const error = rejection({ patch: { toolTrim: { enabled: true } }, adaptiveTokenPresent: false })
+    expect(error).toMatchObject({ code: "guard:no-adaptive-token", fields: ["toolTrim.enabled"] })
+    expect(plan({ patch: { toolTrim: { enabled: true } } }).leaves).toHaveLength(1)
   })
 
   test("enabling guardrails needs a resolved adaptive token", () => {
@@ -464,6 +471,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       learning: { enabled: false },
       relevance: { enabled: false },
       guardrails: { enabled: false },
+      toolTrim: { enabled: false },
       jev: { enabled: false },
       retention: { enabled: false },
       egress: { projects: [], kinds: {} },
@@ -482,6 +490,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       learning: { enabled: 1 },
       relevance: { enabled: "true" },
       guardrails: { enabled: "true" },
+      toolTrim: { enabled: "true" },
       jev: { enabled: 1 },
       retention: { enabled: 1 },
       egress: { projects: "nope", kinds: [] },
@@ -497,6 +506,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
     expect(effective.learning.enabled).toBe(false)
     expect(effective.relevance.enabled).toBe(false)
     expect(effective.guardrails.enabled).toBe(false)
+    expect(effective.toolTrim.enabled).toBe(false)
     expect(effective.jev.enabled).toBe(false)
     expect(effective.retention.enabled).toBe(false)
     expect(effective.egress.providers.jev?.projects).toEqual([])

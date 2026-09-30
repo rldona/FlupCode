@@ -363,7 +363,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       learnedSkills: curator,
       proposalReview: createProposalReview({ repository, curator }),
       adaptiveConfig,
-      ...(adaptiveToken ? { adaptiveToken, relevance, guardrails } : {}),
+      ...(adaptiveToken ? { adaptiveToken, relevance, guardrails, toolTrimConfig: () => adaptive.current() } : {}),
       holdoutFraction: () => adaptive.current().holdout.fraction,
       compactionAnchors: () => {
         const config = adaptive.current()

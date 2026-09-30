@@ -189,6 +189,24 @@ export type LearningConfig = {
  */
 export type CompactionConfig = { anchors: boolean }
 
+/**
+ * The recoverable tool-output trim (AH-D02, audit §10.4 "avoid sending context"): **off by default**,
+ * because the threshold is fixed by the D01 replay, not guessed here. Above `thresholdBytes` a tool's
+ * output is stored whole in the evidence store and the model gets its head (`headBytes`), its tail
+ * (`tailBytes`), a structure line and an `evidence:<ref>` it can read back with `evidence_read`, at
+ * most `readBytes` per call. An output past `maxStoredBytes` is left untouched rather than stored cut,
+ * and a tool named in `exempt` is never trimmed.
+ */
+export type ToolTrimConfig = {
+  enabled: boolean
+  thresholdBytes: number
+  headBytes: number
+  tailBytes: number
+  maxStoredBytes: number
+  readBytes: number
+  exempt: string[]
+}
+
 export type AdaptiveConfig = {
   /** Kill switch: stops decisions, shadow and Jev. It does not touch episodes or the base harness. */
   enabled: boolean
@@ -210,6 +228,7 @@ export type AdaptiveConfig = {
   holdout: HoldoutConfig
   voi: VoiConfig
   compaction: CompactionConfig
+  toolTrim: ToolTrimConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -334,6 +353,31 @@ export const DEFAULT_GUARDRAILS_CONFIG: GuardrailsConfig = {
   maxObservations: 200,
   maxSessions: 500,
   timeoutMs: 300,
+}
+
+/**
+ * The trim's bounds, kept in step with TOOL_TRIM_PLUGIN (`packages/remote/src/engine-plugins.ts`): the
+ * plugin never posts an output below the floor or past the item cap, so a configured value outside
+ * them could never apply. `readBytes` stays below the engine's own 50 KB tool-output truncation, so a
+ * read is never cut again on its way back to the model.
+ */
+export const TOOL_TRIM_MIN_THRESHOLD_BYTES = 4_096
+export const TOOL_TRIM_MAX_STORED_BYTES = 8 * 1024 * 1024
+export const TOOL_TRIM_READ_BYTES_CEILING = 32_768
+
+/**
+ * The trim defaults: off, a 32 KiB threshold (a placeholder until D01 fixes it), 2 KiB of head and of
+ * tail, 4 MiB per stored output and 16 KiB per read. The exempt tools are the ones whose whole output
+ * is the point: a `read` the agent sized itself, a loaded skill, a subagent's answer and the todo list.
+ */
+export const DEFAULT_TOOL_TRIM_CONFIG: ToolTrimConfig = {
+  enabled: false,
+  thresholdBytes: 32_768,
+  headBytes: 2_048,
+  tailBytes: 2_048,
+  maxStoredBytes: 4 * 1024 * 1024,
+  readBytes: 16_384,
+  exempt: ["read", "skill", "task", "todowrite", "todoread"],
 }
 
 /**
@@ -585,6 +629,36 @@ function resolveCompactionConfig(block: Record<string, unknown>): CompactionConf
   return { anchors: typeof compaction.anchors === "boolean" ? compaction.anchors : DEFAULT_COMPACTION_CONFIG.anchors }
 }
 
+/**
+ * The trim slice: off unless the block says `true`. The threshold is raised to the plugin's floor and
+ * the stored size capped at its item cap; head and tail are each held to a quarter of the threshold so
+ * a trimmed output is always well under the original. An `exempt` list replaces the default whole, so
+ * `[]` exempts nothing.
+ */
+function resolveToolTrimConfig(block: Record<string, unknown>): ToolTrimConfig {
+  const trim = isPlainObject(block.toolTrim) ? block.toolTrim : {}
+  const thresholdBytes = Math.max(
+    TOOL_TRIM_MIN_THRESHOLD_BYTES,
+    positiveIntegerFrom(trim.thresholdBytes) ?? DEFAULT_TOOL_TRIM_CONFIG.thresholdBytes,
+  )
+  const quarter = Math.floor(thresholdBytes / 4)
+  return {
+    enabled: trim.enabled === true,
+    thresholdBytes,
+    headBytes: Math.min(quarter, positiveIntegerFrom(trim.headBytes) ?? DEFAULT_TOOL_TRIM_CONFIG.headBytes),
+    tailBytes: Math.min(quarter, positiveIntegerFrom(trim.tailBytes) ?? DEFAULT_TOOL_TRIM_CONFIG.tailBytes),
+    maxStoredBytes: Math.min(
+      TOOL_TRIM_MAX_STORED_BYTES,
+      positiveIntegerFrom(trim.maxStoredBytes) ?? DEFAULT_TOOL_TRIM_CONFIG.maxStoredBytes,
+    ),
+    readBytes: Math.min(
+      TOOL_TRIM_READ_BYTES_CEILING,
+      positiveIntegerFrom(trim.readBytes) ?? DEFAULT_TOOL_TRIM_CONFIG.readBytes,
+    ),
+    exempt: Array.isArray(trim.exempt) ? stringListFrom(trim.exempt) : [...DEFAULT_TOOL_TRIM_CONFIG.exempt],
+  }
+}
+
 /** The holdout share: a number in [0, 0.5], else the default. `0` is an explicit off. */
 function resolveHoldoutConfig(block: Record<string, unknown>): HoldoutConfig {
   const holdout = isPlainObject(block.holdout) ? block.holdout : {}
@@ -741,6 +815,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     holdout: resolveHoldoutConfig(block),
     voi: resolveVoiConfig(block),
     compaction: resolveCompactionConfig(block),
+    toolTrim: resolveToolTrimConfig(block),
   }
 }
 

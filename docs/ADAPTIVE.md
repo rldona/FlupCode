@@ -648,6 +648,77 @@ audit §6.4). The service checks this gate before every model call.
 - **Config.** Everything lives under `adaptive.voi`, with per-kind overrides in
   `adaptive.voi.kinds.<kind>`. The gate only matters for a kind that has a model assigned.
 
+## Tool output trim
+
+The recoverable trim (AH-D02, audit §10.4 "avoid sending context"). A large tool output is stored
+whole in the local evidence store. The model gets a digest instead, plus a ref it can read back from.
+It is deterministic and local: no model is asked.
+
+- **Off by default.** `adaptive.toolTrim.enabled=false`. The threshold is a placeholder until the
+  D01 replay fixes it. The global `adaptive.enabled` kill switch also turns it off.
+- **Config.** `adaptive.toolTrim`:
+
+  | Key | Default | Bound |
+  | --- | --- | --- |
+  | `enabled` | `false` | |
+  | `thresholdBytes` | `32768` | at least `4096` |
+  | `headBytes`, `tailBytes` | `2048` | at most a quarter of the threshold |
+  | `maxStoredBytes` | 4 MiB | at most 8 MiB |
+  | `readBytes` | `16384` | at most 32 KiB, below the engine's 50 KB tool-output truncation |
+  | `exempt` | `["read", "skill", "task", "todowrite", "todoread"]` | a list replaces the default; `[]` exempts nothing |
+
+  `evidence_read` itself is always exempt. `toolTrim.enabled` is a writable switch in the settings
+  surface, guarded by the adaptive token.
+- **Capture.** `TOOL_TRIM_PLUGIN` (`flupcode-tool-trim.js`) runs on `tool.execute.after`. It posts
+  one text output to `POST /harness/adaptive/tool-trim`, and the server decides. When the server
+  trims, it stores the whole output first, then answers with a replacement:
+  - the size in bytes and lines, and `evidence:<ref>`;
+  - a structure line: a JSON top level, or the lines that mention an error, failure or warning;
+  - how to call `evidence_read` and the range syntax;
+  - the head and tail, labelled with their line numbers.
+
+  The plugin awaits this call, because the replacement is the answer. The call is bounded to 2 s
+  (`FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS`). Outputs the live policy could never trim are not posted at
+  all: under the threshold, exempt, or past the cap. The policy comes back with every answer and is
+  trusted for 30 s. While the trim is off the plugin stays quiet for 60 s, and three failures in a
+  row open a one-minute breaker.
+- **Fail open, never lose data.** The output is replaced only when the answer confirms that the
+  store kept the whole output. The answer must also name its ref and be shorter than the original.
+  In every other case the output reaches the model exactly as the tool produced it: an absent
+  harness, a timeout, a non-200, a store failure, an output past the cap, or a malformed answer.
+  MCP tool outputs, which are content lists rather than text, are never touched.
+- **Recovery.** The same plugin registers `evidence_read(ref, range)`. `range` can be:
+  - `START-END`: 1-based lines, inclusive;
+  - `N` or `N-`: from line N to the end;
+  - `bytes:START-END`: byte offsets, END exclusive;
+  - `all`: from the start.
+
+  A call returns at most `readBytes`, never splits a character, and names the next range to read.
+  If a single line is longer than one read, the call continues it by byte offsets.
+  `POST /harness/adaptive/evidence/read` answers even while the trim is off, so a ref handed out
+  earlier stays readable.
+- **Storage.** The output goes into the same content-addressed `evidence` table as episode
+  evidence (FH-006), under the same 64 MiB global total and LRU eviction. It is not cut at the
+  8 KiB episode slice limit. `tool_evidence` links `(session_id, ref)` to the row, where `ref` is the
+  first 16 hex digits of the sha256. Eviction drops the link with the row, and a later read then
+  says the ref is gone. The hash is checked on every read, so a row edited by hand reads as missing.
+  Outputs are not deleted when their session ends: they leave through the LRU.
+- **Access and scope.** Both routes take the dedicated `adaptive-token`, never the browser bearer.
+  Without that token, both routes return 404 and `/harness/health` does not list the
+  `adaptive-tool-trim` capability. A ref is read with the `sessionID` the engine hands the tool, so
+  one session cannot read another's evidence. A foreign ref and an evicted ref return the same 404.
+- **Redaction.** The output is stored raw, not redacted, like all evidence today. The store lives on
+  the loopback, and redaction applies where state leaves the machine (`egress.ts`). A trimmed output
+  only goes back to the session that produced it, which already had the whole text. `tool_evidence`
+  rows are never linked to an episode, so they never reach a learning draft.
+- **Limits.** Measured by the D01 replay, not assumed:
+  - The agent may not read back when it should (the main risk).
+  - The session's stored tool part holds the trimmed text, so the conversation view shows the digest
+    too.
+  - A subagent's refs belong to the subagent's session.
+  - The plugin needs the legacy `tool.execute.after` hook and plugin tools (see D05 for V2).
+  - There is no per-session holdout arm yet.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting
