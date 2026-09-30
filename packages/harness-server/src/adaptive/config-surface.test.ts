@@ -292,6 +292,16 @@ describe("source provenance (env > block > default)", () => {
     expect(source["episode.sweepMs"]).toBe("default")
   })
 
+  test("the interactive episode keys report where they come from", () => {
+    const source = adaptiveSource(
+      { episode: { interactive: true, idleMs: 60_000 } },
+      { FLUPCODE_ADAPTIVE_EPISODE_INTERACTIVE: "0" },
+    )
+    expect(source["episode.interactive"]).toBe("env")
+    expect(source["episode.idleMs"]).toBe("block")
+    expect(source["episode.sessionLimit"]).toBe("default")
+  })
+
   test("ignores a malformed env value and falls through to the block", () => {
     const source = adaptiveSource({ probe: { ttlMs: 1000 } }, { FLUPCODE_ADAPTIVE_PROBE_TTL_MS: "not-a-number" })
     expect(source["runtime.ttlMs"]).toBe("block")

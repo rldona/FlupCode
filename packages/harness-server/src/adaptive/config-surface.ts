@@ -155,6 +155,18 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
       envNumber("FLUPCODE_ADAPTIVE_EPISODE_BACKFILL_MS") !== undefined,
       positiveNumberFrom(episode.backfillMs) !== undefined,
     ),
+    "episode.interactive": pick(
+      env.FLUPCODE_ADAPTIVE_EPISODE_INTERACTIVE === "0",
+      typeof episode.interactive === "boolean",
+    ),
+    "episode.idleMs": pick(
+      envNumber("FLUPCODE_ADAPTIVE_EPISODE_IDLE_MS") !== undefined,
+      positiveNumberFrom(episode.idleMs) !== undefined,
+    ),
+    "episode.sessionLimit": pick(
+      envNumber("FLUPCODE_ADAPTIVE_EPISODE_SESSION_LIMIT") !== undefined,
+      positiveNumberFrom(episode.sessionLimit) !== undefined,
+    ),
   }
 }
 

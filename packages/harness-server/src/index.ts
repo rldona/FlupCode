@@ -223,6 +223,14 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const episodes = createEpisodeCoordinator({
     repository,
     config: startup.episode,
+    // Interactive sessions (AH-B03) are a new writer, so unlike run episodes they obey the kill
+    // switch, read live like every other adaptive writer.
+    interactive: () => {
+      const current = adaptive.current()
+      return current.enabled && current.episode.interactive
+    },
+    // The scheduler is built just below; a sweep only runs once `episodes.start()` is called after it.
+    describeSession: (sessionID) => scheduler.engine.describeSession(sessionID),
     onEpisodeClosed: (episode) => {
       shadow.onEpisodeClosed(episode)
       learning?.onEpisodeClosed(episode)

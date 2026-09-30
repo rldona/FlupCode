@@ -1,12 +1,13 @@
 import { describe, expect, jest, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import type { ToolUses } from "../context"
 import { SqliteRoutineRepository } from "../repository"
-import { createEpisodeCoordinator } from "./coordinator"
-import type { EpisodeCoordinatorDeps, EpisodeEvidenceStore } from "./coordinator"
+import { createEpisodeCoordinator, sessionActivity } from "./coordinator"
+import type { EpisodeCoordinatorDeps, EpisodeEvidenceStore, SessionActivity, SessionIdentity } from "./coordinator"
 import { EVIDENCE_EPISODE_SLICE_LIMIT, EVIDENCE_OVERFLOW_CONTENT } from "./evidence"
-import { runEpisodeID, sessionEpisodeID } from "./episode"
+import { DEFAULT_EPISODE_BOUNDARY_CONFIG, runEpisodeID, sessionEpisodeID } from "./episode"
 import { OUTCOME_REF_LIMIT } from "./outcome"
 
 const open = (path = ":memory:") => new SqliteRoutineRepository(path)
@@ -880,5 +881,333 @@ describe("episode evidence store (FH-006)", () => {
     expect(droppingCoordinator.captureRun(run.id)).toBeDefined()
     expect(repository.evidenceFor(repository.getEpisode(runEpisodeID(run.id))!, NOW)).toEqual([])
     repository.close()
+  })
+})
+
+describe("interactive session episodes (AH-B03)", () => {
+  const IDLE = DEFAULT_EPISODE_BOUNDARY_CONFIG.idleMs
+  const LATER = NOW + 10 * IDLE
+  const EDIT = { tool: "edit", start: NOW - 500, ok: true, paths: ["/work/proj/src/a.ts"] }
+  const identity: SessionIdentity = { directory: "/work/proj", title: "Fix the parser", createdAt: NOW - 1_000 }
+
+  // A session list, a describer that records who it was asked about, and a close log, all in memory.
+  const interactiveCoordinator = (
+    repository: SqliteRoutineRepository,
+    input: {
+      activity: () => SessionActivity[]
+      identities?: Record<string, SessionIdentity | undefined>
+      on?: () => boolean
+      at?: () => number
+      deps?: Partial<EpisodeCoordinatorDeps>
+    },
+  ) => {
+    const described: string[] = []
+    const closed: string[] = []
+    const coordinator = episodeCoordinator({
+      repository,
+      now: input.at ?? (() => LATER),
+      interactive: input.on ?? (() => true),
+      listSessionActivity: input.activity,
+      describeSession: async (sessionID) => {
+        described.push(sessionID)
+        return input.identities ? input.identities[sessionID] : identity
+      },
+      readToolUses: () => ({ tools: { edit: { count: 4, last: NOW } }, calls: [{ tool: "edit", start: NOW - 500, ms: 10 }] }),
+      readEpisodeSignals: () => ({ calls: [EDIT] }),
+      onEpisodeClosed: (episode) => closed.push(episode.id),
+      ...input.deps,
+    })
+    return { coordinator, described, closed }
+  }
+
+  test("a session that went quiet closes one episode with an outcome, and only once", async () => {
+    const repository = open()
+    const { coordinator, closed } = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_chat", at: NOW }],
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(1)
+    const episode = repository.getEpisode(sessionEpisodeID("ses_chat"))!
+    expect(episode).toMatchObject({
+      sessionID: "ses_chat",
+      projectID: "/work/proj",
+      objective: "Fix the parser",
+      toolCalls: 4,
+      files: ["src/a.ts"],
+      outcome: "partial",
+      startedAt: NOW - 500,
+      endedAt: NOW,
+    })
+    expect(episode.runID).toBeUndefined()
+    expect(closed).toEqual([episode.id])
+
+    // The same activity is already covered: nothing is written or announced twice.
+    expect(await coordinator.sweepSessions()).toBe(0)
+    expect(repository.listEpisodes()).toHaveLength(1)
+    expect(closed).toHaveLength(1)
+    repository.close()
+  })
+
+  test("a session still inside the idle window, or older than the backfill, is left alone", async () => {
+    const repository = open()
+    const { coordinator, described } = interactiveCoordinator(repository, {
+      activity: () => [
+        { sessionID: "ses_busy", at: LATER - IDLE + 1 },
+        { sessionID: "ses_old", at: LATER - DEFAULT_EPISODE_BOUNDARY_CONFIG.backfillMs - 1 },
+      ],
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(0)
+    expect(described).toEqual([])
+    expect(repository.listEpisodes()).toHaveLength(0)
+    repository.close()
+  })
+
+  test("the idle boundary comes from the episode config", async () => {
+    const repository = open()
+    const { coordinator } = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_chat", at: NOW }],
+      at: () => NOW + 1_000,
+      deps: { config: { idleMs: 1_000 } },
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(1)
+    repository.close()
+  })
+
+  test("with the switch off nothing is listed, described or written", async () => {
+    const repository = open()
+    let listed = 0
+    const off = interactiveCoordinator(repository, {
+      activity: () => {
+        listed++
+        return [{ sessionID: "ses_chat", at: NOW }]
+      },
+      on: () => false,
+    })
+    expect(await off.coordinator.sweepSessions()).toBe(0)
+    expect(listed).toBe(0)
+    expect(off.described).toEqual([])
+
+    // Absent is off too: a coordinator built without the switch never observes a session.
+    const absent = createEpisodeCoordinator({
+      repository,
+      now: () => LATER,
+      listSessionActivity: () => {
+        listed++
+        return []
+      },
+    })
+    expect(await absent.sweepSessions()).toBe(0)
+    expect(listed).toBe(0)
+
+    // Thrown while the engine is being asked: the write after the wait does not happen.
+    let on = true
+    const midway = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_chat", at: NOW }],
+      on: () => on,
+      deps: {
+        describeSession: async () => {
+          on = false
+          return identity
+        },
+      },
+    })
+    expect(await midway.coordinator.sweepSessions()).toBe(0)
+    expect(repository.listEpisodes()).toHaveLength(0)
+    repository.close()
+  })
+
+  test("a run's sessions stay the run's, and a subagent's child is set aside until it is active again", async () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, NOW, "/work/proj")
+    repository.attachSession(run.id, "ses_run")
+    const [task] = repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    repository.attachTaskSession(task!.id, "ses_task")
+    let childAt = NOW
+    const { coordinator, described } = interactiveCoordinator(repository, {
+      activity: () => [
+        { sessionID: "ses_run", at: NOW },
+        { sessionID: "ses_task", at: NOW },
+        { sessionID: "ses_child", at: childAt },
+      ],
+      identities: { ses_child: { ...identity, parentID: "ses_parent" } },
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(0)
+    expect(described).toEqual(["ses_child"])
+    expect(repository.listEpisodes()).toHaveLength(0)
+
+    // The same activity is not asked about twice; new activity is judged again.
+    await coordinator.sweepSessions()
+    expect(described).toEqual(["ses_child"])
+    childAt = NOW + 1
+    await coordinator.sweepSessions()
+    expect(described).toEqual(["ses_child", "ses_child"])
+    expect(repository.listEpisodes()).toHaveLength(0)
+    repository.close()
+  })
+
+  test("work after a close is a new objective: a second episode with only what came after", async () => {
+    const repository = open()
+    let at = NOW
+    let clock = LATER
+    const resumed = NOW + 20 * IDLE
+    const bash = { tool: "bash", start: resumed - 100, ok: false, exit: 1, command: "bun test", paths: [] }
+    const { coordinator, closed } = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_chat", at }],
+      at: () => clock,
+      deps: {
+        readToolUses: (): ToolUses =>
+          at === NOW
+            ? { tools: { edit: { count: 4, last: NOW } }, calls: [{ tool: "edit", start: NOW - 500 }] }
+            : {
+                tools: { edit: { count: 4, last: NOW }, bash: { count: 3, last: resumed } },
+                calls: [
+                  { tool: "edit", start: NOW - 500 },
+                  { tool: "bash", start: resumed - 100 },
+                ],
+              },
+        readEpisodeSignals: () => ({ calls: at === NOW ? [EDIT] : [EDIT, bash] }),
+      },
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(1)
+    at = resumed
+    clock = resumed + IDLE
+    expect(await coordinator.sweepSessions()).toBe(1)
+
+    const second = repository.getEpisode(sessionEpisodeID("ses_chat", 2))!
+    expect(second).toMatchObject({
+      toolCalls: 3,
+      files: [],
+      commands: ["bun test"],
+      startedAt: resumed - 100,
+      endedAt: resumed,
+      outcome: "partial",
+    })
+    expect(repository.getEpisode(sessionEpisodeID("ses_chat"))).toMatchObject({ toolCalls: 4, endedAt: NOW })
+    expect(closed).toEqual([sessionEpisodeID("ses_chat"), sessionEpisodeID("ses_chat", 2)])
+    repository.close()
+  })
+
+  test("one sweep closes at most sessionLimit sessions, newest first, and the next takes the rest", async () => {
+    const repository = open()
+    const { coordinator } = interactiveCoordinator(repository, {
+      activity: () => [
+        { sessionID: "ses_a", at: NOW - 2 },
+        { sessionID: "ses_b", at: NOW },
+        { sessionID: "ses_c", at: NOW - 1 },
+      ],
+      deps: { config: { sessionLimit: 2 } },
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(2)
+    expect(repository.listEpisodes().map((episode) => episode.sessionID).toSorted()).toEqual(["ses_b", "ses_c"])
+    expect(await coordinator.sweepSessions()).toBe(1)
+    expect(await coordinator.sweepSessions()).toBe(0)
+    repository.close()
+  })
+
+  test("an engine that cannot be asked ends the sweep, is reported, and the next sweep closes it", async () => {
+    const repository = open()
+    const seen: unknown[] = []
+    let reachable = false
+    const { coordinator } = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_chat", at: NOW }],
+      deps: {
+        onError: (cause) => seen.push(cause),
+        describeSession: async () => {
+          if (!reachable) throw new Error("engine down")
+          return identity
+        },
+      },
+    })
+
+    expect(await coordinator.sweepSessions()).toBe(0)
+    expect(seen).toHaveLength(1)
+    expect(repository.listEpisodes()).toHaveLength(0)
+    reachable = true
+    expect(await coordinator.sweepSessions()).toBe(1)
+    repository.close()
+  })
+
+  test("a session the engine does not know is set aside, and no engine files it under local", async () => {
+    const repository = open()
+    const unknown = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_gone", at: NOW }],
+      identities: {},
+    })
+    expect(await unknown.coordinator.sweepSessions()).toBe(0)
+    expect(repository.listEpisodes()).toHaveLength(0)
+
+    const bare = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_chat", at: NOW }],
+      deps: { describeSession: undefined },
+    })
+    expect(await bare.coordinator.sweepSessions()).toBe(1)
+    expect(repository.getEpisode(sessionEpisodeID("ses_chat"))).toMatchObject({
+      projectID: "local",
+      objective: "Interactive session",
+    })
+    repository.close()
+  })
+
+  test("a live checkpoint is never announced as closed and keeps its start", () => {
+    const repository = open()
+    let clock = NOW
+    const closed: string[] = []
+    const coordinator = episodeCoordinator({
+      repository,
+      now: () => clock,
+      config: { cadenceCalls: 1 },
+      readToolUses: () => ({ tools: { read: { count: clock === NOW ? 1 : 5, last: clock } }, calls: [] }),
+      onEpisodeClosed: (episode) => closed.push(episode.id),
+    })
+
+    coordinator.captureSession({ sessionID: "ses_free", directory: "/work" })
+    clock = NOW + 100
+    const checkpoint = coordinator.captureSession({ sessionID: "ses_free", directory: "/work" })!
+
+    expect(checkpoint).toMatchObject({ startedAt: NOW, toolCalls: 5 })
+    expect(checkpoint.endedAt).toBeUndefined()
+    expect(closed).toEqual([])
+    repository.close()
+  })
+
+  test("a run is untouched by the session sweep", async () => {
+    const repository = open()
+    const run = repository.startRun({ type: "manual" }, NOW, "/work/proj")
+    repository.attachSession(run.id, "ses_run")
+    repository.addTasks(run.id, [{ name: "build", prompt: "go" }])
+    repository.finishRun(run.id, "success", undefined, NOW)
+    const { coordinator } = interactiveCoordinator(repository, {
+      activity: () => [{ sessionID: "ses_run", at: NOW }],
+    })
+
+    expect(coordinator.sweep()).toBe(1)
+    const before = repository.getEpisode(runEpisodeID(run.id))!
+    expect(await coordinator.sweepSessions()).toBe(0)
+    expect(repository.listEpisodes()).toEqual([before])
+    repository.close()
+  })
+
+  test("the default lister reads each session's last activity from the tool-uses folder", () => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-tool-uses-"))
+    const previous = process.env.FLUPCODE_TOOL_USES_DIR
+    try {
+      writeFileSync(join(directory, "ses_chat.json"), "{}")
+      utimesSync(join(directory, "ses_chat.json"), NOW / 1000, NOW / 1000)
+      writeFileSync(join(directory, "not a session.json"), "{}")
+      writeFileSync(join(directory, "ses_chat.json.tmp-1-2"), "{}")
+      process.env.FLUPCODE_TOOL_USES_DIR = directory
+      expect(sessionActivity()).toEqual([{ sessionID: "ses_chat", at: NOW }])
+      process.env.FLUPCODE_TOOL_USES_DIR = join(directory, "missing")
+      expect(sessionActivity()).toEqual([])
+    } finally {
+      if (previous === undefined) delete process.env.FLUPCODE_TOOL_USES_DIR
+      else process.env.FLUPCODE_TOOL_USES_DIR = previous
+      rmSync(directory, { recursive: true, force: true })
+    }
   })
 })

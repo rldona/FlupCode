@@ -146,12 +146,24 @@ export type EpisodeBoundaryConfig = {
   cadenceCalls: number
   sweepMs: number
   backfillMs: number
+  /**
+   * Whether interactive sessions (the ones no harness run owns) become episodes too (AH-B03). Read
+   * with the kill switch on every sweep: either one off and nothing is observed or written.
+   */
+  interactive: boolean
+  /** How long an interactive session must stay quiet before its episode closes (AH-B03). */
+  idleMs: number
+  /** How many interactive sessions one sweep may close: the bound on volume and on engine lookups. */
+  sessionLimit: number
 }
 
 export const DEFAULT_EPISODE_BOUNDARY_CONFIG: EpisodeBoundaryConfig = {
   cadenceCalls: 50,
   sweepMs: 30_000,
   backfillMs: 24 * 60 * 60 * 1000,
+  interactive: true,
+  idleMs: 15 * 60 * 1000,
+  sessionLimit: 20,
 }
 
 const positiveNumberFrom = (value: unknown): number | undefined =>
@@ -182,6 +194,20 @@ export function resolveEpisodeBoundaryConfig(
       episode.backfillMs,
       DEFAULT_EPISODE_BOUNDARY_CONFIG.backfillMs,
     ),
+    interactive:
+      env.FLUPCODE_ADAPTIVE_EPISODE_INTERACTIVE === "0"
+        ? false
+        : typeof episode.interactive === "boolean"
+          ? episode.interactive
+          : DEFAULT_EPISODE_BOUNDARY_CONFIG.interactive,
+    idleMs: numberFrom(env.FLUPCODE_ADAPTIVE_EPISODE_IDLE_MS, episode.idleMs, DEFAULT_EPISODE_BOUNDARY_CONFIG.idleMs),
+    sessionLimit: Math.ceil(
+      numberFrom(
+        env.FLUPCODE_ADAPTIVE_EPISODE_SESSION_LIMIT,
+        episode.sessionLimit,
+        DEFAULT_EPISODE_BOUNDARY_CONFIG.sessionLimit,
+      ),
+    ),
   }
 }
 
@@ -191,8 +217,15 @@ export const SESSION_EPISODE_PREFIX = "episode:session:"
 /** The one episode a run owns: the deterministic id is what makes a retried capture converge. */
 export const runEpisodeID = (runID: string): string => `${RUN_EPISODE_PREFIX}${runID}`
 
-/** The one episode a session that belongs to no run owns. */
-export const sessionEpisodeID = (sessionID: string): string => `${SESSION_EPISODE_PREFIX}${sessionID}`
+/**
+ * The episode a session that belongs to no run owns.
+ *
+ * An interactive session can hold several: each time it goes quiet one closes, and work after that
+ * is a new objective. The first keeps the bare id; the n-th (n > 1) is suffixed with its position,
+ * so a retried close converges on the same row.
+ */
+export const sessionEpisodeID = (sessionID: string, position = 1): string =>
+  position > 1 ? `${SESSION_EPISODE_PREFIX}${sessionID}:${position}` : `${SESSION_EPISODE_PREFIX}${sessionID}`
 
 const TERMINAL_RUN_STATUSES = ["success", "failed", "stopped"] as const
 

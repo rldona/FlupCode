@@ -245,9 +245,43 @@ describe("the episode model (FH-001)", () => {
     ).toBe(DEFAULT_EPISODE_BOUNDARY_CONFIG.sweepMs)
   })
 
+  test("the interactive boundary resolves from the environment first, then the block, then defaults", () => {
+    expect(resolveEpisodeBoundaryConfig({ env: {} })).toMatchObject({
+      interactive: true,
+      idleMs: DEFAULT_EPISODE_BOUNDARY_CONFIG.idleMs,
+      sessionLimit: DEFAULT_EPISODE_BOUNDARY_CONFIG.sessionLimit,
+    })
+    expect(
+      resolveEpisodeBoundaryConfig({
+        block: { episode: { interactive: false, idleMs: 60_000, sessionLimit: 2.5 } },
+        env: {},
+      }),
+    ).toMatchObject({ interactive: false, idleMs: 60_000, sessionLimit: 3 })
+    expect(
+      resolveEpisodeBoundaryConfig({
+        block: { episode: { interactive: true, idleMs: 60_000, sessionLimit: 5 } },
+        env: {
+          FLUPCODE_ADAPTIVE_EPISODE_INTERACTIVE: "0",
+          FLUPCODE_ADAPTIVE_EPISODE_IDLE_MS: "1000",
+          FLUPCODE_ADAPTIVE_EPISODE_SESSION_LIMIT: "1",
+        },
+      }),
+    ).toMatchObject({ interactive: false, idleMs: 1000, sessionLimit: 1 })
+    // A malformed value is ignored rather than reaching the sweep as itself.
+    expect(
+      resolveEpisodeBoundaryConfig({ block: { episode: { interactive: "yes", idleMs: 0, sessionLimit: -1 } }, env: {} }),
+    ).toMatchObject({
+      interactive: true,
+      idleMs: DEFAULT_EPISODE_BOUNDARY_CONFIG.idleMs,
+      sessionLimit: DEFAULT_EPISODE_BOUNDARY_CONFIG.sessionLimit,
+    })
+  })
+
   test("ids are deterministic per run and per session", () => {
     expect(runEpisodeID("r1")).toBe("episode:run:r1")
     expect(sessionEpisodeID("s1")).toBe("episode:session:s1")
+    expect(sessionEpisodeID("s1", 1)).toBe("episode:session:s1")
+    expect(sessionEpisodeID("s1", 2)).toBe("episode:session:s1:2")
   })
 
   test("a run's status reads as terminal and as an outcome", () => {
