@@ -1,4 +1,4 @@
-import { For, Show, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createSignal, on, type Component } from "solid-js"
 import { t } from "../i18n"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
@@ -19,6 +19,8 @@ type DecisionsPanelProps = {
   /** The session whose decisions to read; without one the whole audit is listed. */
   sessionID?: string
   capabilities: string[]
+  /** A decision to open on arrival, e.g. the one a guardrail banner names (AH-E03). */
+  focusID?: string
   onClose: () => void
 }
 
@@ -119,6 +121,8 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
     (serverUrl) => createHarnessClient(serverUrl).adaptive.voi.get(),
   )
   const [openID, setOpenID] = createSignal<string>()
+  // A deep link opens that decision's explanation straight away, whether or not the list has it yet.
+  createEffect(on(() => props.focusID, (id) => id && setOpenID(id)))
   const [explanation, explanationActions] = createResource(openID, async (id) => ({
     id,
     detail: await createHarnessClient(props.serverUrl).adaptive.decisions.explain(id),

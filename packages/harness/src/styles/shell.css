@@ -4234,9 +4234,13 @@ button.fc-status {
 }
 
 /* The advisory guardrail banner (FH-062): a live loop is called out above the conversation, and the
-   reader may open the decisions or dismiss it. It warns; it never stops the turn. */
+   reader may open the decision, stop the turn or dismiss it. It warns; it never stops the turn on
+   its own. `--fc-text-muted` is too faint on the warning tint in some palettes (sublime dark falls
+   to ~2.5:1), so the secondary text mixes it towards `--fc-text`, which keeps ≥4.5:1 in all of them. */
 .fc-guardrail-banner {
+  --fc-guardrail-muted: color-mix(in srgb, var(--fc-text) 60%, var(--fc-text-muted));
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--fc-space-3);
   margin: var(--fc-space-2) var(--fc-space-4) 0;
@@ -4249,7 +4253,7 @@ button.fc-status {
 }
 
 .fc-guardrail-banner-text {
-  min-width: 0;
+  min-width: 12rem;
   flex: 1;
 }
 
@@ -4259,12 +4263,12 @@ button.fc-status {
 
 .fc-guardrail-banner-body {
   margin: 0;
-  color: var(--fc-text-muted);
+  color: var(--fc-guardrail-muted);
 }
 
 .fc-guardrail-banner-note {
   margin: 2px 0 0;
-  color: var(--fc-text-muted);
+  color: var(--fc-guardrail-muted);
   font-size: 12px;
 }
 
@@ -4272,14 +4276,44 @@ button.fc-status {
   flex: none;
 }
 
+/* The close control meets the 32px hit target (DESIGN §5) even though the glyph is small. */
 .fc-guardrail-banner-close {
   flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
   border: none;
+  border-radius: var(--fc-radius-md);
   background: none;
-  color: var(--fc-text-muted);
-  font-size: 16px;
+  color: var(--fc-guardrail-muted);
+  font-size: 18px;
   line-height: 1;
   cursor: pointer;
+}
+
+.fc-guardrail-banner-close:hover {
+  color: var(--fc-text);
+}
+
+.fc-guardrail-banner-close:focus-visible {
+  outline: 2px solid var(--fc-accent);
+  outline-offset: 1px;
+}
+
+/* Read by assistive technology, never painted: the permanent live regions use it. */
+.fc-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* Prompt actions stay out of the way until the reader hovers the message or focuses a button. */
