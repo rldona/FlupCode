@@ -804,6 +804,52 @@ Cache-aware selection of old tool outputs (AH-D03, audit §10.4 "reduce real con
   - An engine restart after a policy change can cost one rewrite in a warm session.
   - The hook fires only on the legacy runner (D05).
 
+## Per-session override
+
+The **Adaptive** chip in the composer's chip row (AH-E02) is the in-session surface of the adaptive
+layer. The config switches are global and written to the user's file; the chip acts on one session
+only and writes nothing to disk.
+
+- **The popover** describes the session's latest turn, read from the audit (`GET
+  /harness/adaptive/sessions/:id/turn`), so opening it never decides or spends:
+  - **Suggested skills**: the `load` of the session's latest `skillRelevance` decision. A row that was
+    only recorded (paused, shadow or holdout) says no line was added.
+  - **Context plan**: the session's latest plan and `tokensBefore − tokensAfter`, as "applied" or
+    "observed" (`context.apply` off).
+  - **Predictive model**: the latest decision of the session that has a `providerID`, with its
+    latency.
+  - It is re-read when the popover opens and when a turn starts or ends, never on a timer.
+- **Actions.**
+  - **Pause in this session** / **Resume in this session**.
+  - **Don't suggest _skill_** per suggested skill, and **Suggest _skill_ again** to undo it.
+  - **Why?** opens the Decisions screen on the turn's decision (the relevance decision, else the
+    plan's, else the model's), with its explanation open.
+- **Routes.** `GET` / `PUT /harness/adaptive/sessions/:id/override` with
+  `{ paused?: boolean, excludedSkills?: string[] }` (a partial write; at most 50 names of up to 200
+  characters) and `GET /harness/adaptive/sessions/:id/turn`. They take the browser (artifacts) bearer
+  and, like the settings writer, exist only when that bearer is configured. The capability is
+  `adaptive-session`; the app draws the chip only when the server announces it.
+- **State.** An in-memory map per `sessionID` on the harness server, bounded at 1,000 sessions (oldest
+  write evicted). An override back at its defaults is dropped. A harness restart forgets every
+  override.
+- **What a pause does.** Each capability reads the override on its own next request, so a pause lands
+  on the next provider step:
+
+  | Capability | Paused session |
+  | --- | --- |
+  | Decision service | asks no model; records the deterministic baseline with `degradedReason: "session-paused"` and `shadow: true` |
+  | Skill relevance | no line (`reason: "session-paused"`, no `retryAfterMs`); the decision is still recorded as paused and the turn's cached line is dropped, so a resume decides afresh |
+  | Loop warnings | the ring keeps accumulating; a crossed threshold records the `failure`/`toolRisk` rows as paused and answers `continue` with `reason: "session-paused"`; `status` is `null` |
+  | Context plan | `plan` and `planEpisode` return nothing, so nothing is filtered or stored |
+  | Compaction anchors | no block |
+  | Tool-output trim | `trimmed: false`, `reason: "session-paused"`, no `retryAfterMs` (the plugin's back-off is global). Refs handed out earlier stay readable |
+  | Per-step selection | `GET /harness/adaptive/selection` lists `pausedSessions`. The plugin offers such a session the off policy, but its latch still changes only at that session's **next cold step** (within one 30 s policy refresh), so a pause never rewrites a warm cache. Resume works the same way |
+
+  The Decisions screen therefore shows the pause as the reason nothing acted.
+- **Don't suggest.** The relevance line removes the excluded names from the roster before it decides,
+  for that session only. A changed exclusion list invalidates the turn's cached decision, so it
+  applies from the next step as well.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting

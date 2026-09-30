@@ -701,6 +701,28 @@ test("a learned-skill action names the skill and the project, and always sends t
   ])
 })
 
+test("the composer chip reads a session's turn and writes its override with the bearer (AH-E02)", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls)
+
+  await withLoopbackToken(async () => {
+    const client = createHarnessClient("http://harness")
+    await client.adaptive.sessions.turn("ses/1")
+    await client.adaptive.sessions.setOverride("ses/1", { paused: true })
+  })
+
+  expect(calls).toEqual([
+    { method: "GET", path: "/harness/adaptive/sessions/ses%2F1/turn", search: "", auth: "Bearer tok", body: undefined },
+    {
+      method: "PUT",
+      path: "/harness/adaptive/sessions/ses%2F1/override",
+      search: "",
+      auth: "Bearer tok",
+      body: { paused: true },
+    },
+  ])
+})
+
 test("a guardrail status of null is a live answer, not a failure", async () => {
   const calls: AdaptiveCall[] = []
   recordingAdaptive(calls, { data: null })
@@ -736,6 +758,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     metrics: false,
     voi: false,
     runtimeAlerts: false,
+    session: false,
   })
   expect(
     adaptiveSurfaces([
@@ -750,6 +773,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-metrics",
       "adaptive-voi",
       "adaptive-runtime-alerts",
+      "adaptive-session",
     ]),
   ).toEqual({
     config: true,
@@ -763,6 +787,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     metrics: true,
     voi: true,
     runtimeAlerts: true,
+    session: true,
   })
 })
 
@@ -779,6 +804,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     metrics: false,
     voi: false,
     runtimeAlerts: false,
+    session: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
@@ -797,6 +823,8 @@ test("each adaptive surface is offered only for its own capability", () => {
   expect(adaptiveSurfaces(["adaptive-metrics"]).guardrails).toBe(false)
   expect(adaptiveSurfaces(["adaptive-voi"]).voi).toBe(true)
   expect(adaptiveSurfaces(["adaptive-voi"]).decisions).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-session"]).session).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-session"]).decisions).toBe(false)
   expect(adaptiveSurfaces(["something-else"])).toEqual({
     config: false,
     decisions: false,
@@ -809,6 +837,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     metrics: false,
     voi: false,
     runtimeAlerts: false,
+    session: false,
   })
 })
 

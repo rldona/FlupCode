@@ -55,6 +55,8 @@ import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptiv
 import { armsFor } from "./adaptive/holdout"
 import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
+import { handleSessionOverrideRequest } from "./adaptive/session-override"
+import type { SessionOverrides } from "./adaptive/session-override"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
 import type { AdaptiveConfig, SelectionConfig } from "./adaptive/config"
 
@@ -439,6 +441,8 @@ export type HarnessHandlerOptions = {
   adaptiveToken?: string
   /** The adaptive settings surface (FH-070): reads the settings and writes the switches. */
   adaptiveConfig?: AdaptiveConfigSurface
+  /** The per-session override (AH-E02): the pause and exclusions the composer's chip writes. */
+  overrides?: SessionOverrides
   /** The address the server listens on, so a `Host` naming it is accepted (AH-A05). */
   hostname?: string
 }
@@ -595,6 +599,19 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleAdaptiveConfigRequest(request, options.adaptiveConfig)
     }
+    // The per-session override and the turn the composer's chip describes (AH-E02). Both are a
+    // browser's, so they take the artifacts bearer. Like the settings writer, the override writes only
+    // behind that bearer: with none configured the routes are an ordinary 404 and not announced.
+    if (path[1] === "adaptive" && path[2] === "sessions" && options.overrides) {
+      if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleSessionOverrideRequest(request, path.slice(2), {
+        overrides: options.overrides,
+        ...(options.decisions ? { decisions: options.decisions } : {}),
+        ...(options.context ? { plans: options.context } : {}),
+      })
+    }
     // The acting line (FH-04): a live turn's plugin calls it on the loopback with its own bearer,
     // never the browser/artifacts/actions one (ADR-0022). It is a POST because it decides, and the
     // route exists only when both the service and the dedicated token were resolved: without a token
@@ -661,6 +678,7 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleCompactionAnchorsRequest(request, {
         enabled: options.compactionAnchors ?? (() => false),
+        ...(options.overrides ? { paused: options.overrides.paused } : {}),
         objective: (sessionID) => {
           const objective = repository.listEpisodes({ sessionID, limit: 1 })[0]?.objective
           // The coordinator's generic placeholder says nothing about the goal.
@@ -681,7 +699,9 @@ export const createHarnessHandler = (
     ) {
       if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return json({ data: options.selectionPolicy() })
+      // The plugin latches its policy per session, so a pause travels as the list of paused sessions
+      // and takes effect at that session's next cold step (AH-E02, docs/ADAPTIVE.md).
+      return json({ data: { ...options.selectionPolicy(), pausedSessions: options.overrides?.pausedSessions() ?? [] } })
     }
     // The recoverable tool-output trim (AH-D02): the plugin posts a finished output and the
     // `evidence_read` tool reads a stored one back, both on the loopback with the dedicated bearer.
@@ -696,7 +716,11 @@ export const createHarnessHandler = (
     ) {
       if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      const deps = { store: repository, config: options.toolTrimConfig }
+      const deps = {
+        store: repository,
+        config: options.toolTrimConfig,
+        ...(options.overrides ? { paused: options.overrides.paused } : {}),
+      }
       return path[2] === "tool-trim" ? handleToolTrimRequest(request, deps) : handleEvidenceReadRequest(request, deps)
     }
     // Its read side takes the artifacts bearer, like the other adaptive audits a browser reads.
@@ -787,6 +811,8 @@ export const createHarnessHandler = (
           ...(options.toolTrimConfig && options.adaptiveToken ? (["adaptive-tool-trim"] as const) : []),
           // Per-step selection (AH-D03): the policy route needs the dedicated bearer too.
           ...(options.selectionPolicy && options.adaptiveToken ? (["adaptive-selection"] as const) : []),
+          // The session override (AH-E02) writes, so it is announced only when its bearer exists.
+          ...(options.overrides && options.token ? (["adaptive-session"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

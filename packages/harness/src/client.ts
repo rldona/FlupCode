@@ -64,6 +64,8 @@ import type {
   AdaptiveRuntimeAlert,
   DecisionExplanation,
   GuardrailStatus,
+  SessionAdaptiveOverride,
+  SessionTurnSummary,
   LearnedSkill,
   SkillProposal,
   StoredDecision,
@@ -1278,6 +1280,8 @@ export type AdaptiveSurfaces = {
   voi: boolean
   /** Dismissing the runtime probe's change alerts (AH-D05); announced only with the writer's bearer. */
   runtimeAlerts: boolean
+  /** The per-session override and turn summary behind the composer's chip (AH-E02); writer's bearer only. */
+  session: boolean
 }
 
 export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
@@ -1293,6 +1297,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     metrics: capabilities.includes("adaptive-metrics"),
     voi: capabilities.includes("adaptive-voi"),
     runtimeAlerts: capabilities.includes("adaptive-runtime-alerts"),
+    session: capabilities.includes("adaptive-session"),
   }
 }
 
@@ -2019,6 +2024,20 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           ),
         sessions: (filter: { since?: number; directory?: string; limit?: number } = {}) =>
           harnessAuthorizedJson<SessionCostReport>(baseUrl, `/harness/adaptive/metrics/sessions${adaptiveQuery(filter)}`),
+      },
+      /** The composer chip's session (AH-E02): its latest turn, and the pause and exclusions a person set. */
+      sessions: {
+        turn: (sessionID: string) =>
+          harnessAuthorizedJson<SessionTurnSummary>(
+            baseUrl,
+            `/harness/adaptive/sessions/${encodeURIComponent(sessionID)}/turn`,
+          ),
+        setOverride: (sessionID: string, patch: Partial<SessionAdaptiveOverride>) =>
+          harnessAuthorizedJson<SessionAdaptiveOverride>(
+            baseUrl,
+            `/harness/adaptive/sessions/${encodeURIComponent(sessionID)}/override`,
+            { method: "PUT", body: JSON.stringify(patch) },
+          ),
       },
       guardrails: {
         status: (sessionID: string) =>

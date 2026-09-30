@@ -838,6 +838,75 @@ button.fc-status {
   color: var(--fc-accent);
 }
 
+/* The composer's "Adaptive" chip (AH-E02): a context chip whose popover says what the turn did. */
+.fc-adaptive-chip-paused .fc-mode-button,
+.fc-composer .fc-adaptive-chip-paused .fc-mode-button {
+  color: var(--fc-accent);
+}
+
+/* Doubled so it wins over the shared `.fc-mode-popover` rule further down. */
+.fc-mode-popover.fc-adaptive-popover {
+  width: min(360px, 90vw);
+  padding: 10px 12px 12px;
+  gap: 12px;
+}
+
+.fc-adaptive-section {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fc-adaptive-label {
+  font-size: var(--fc-text-xs);
+  font-weight: 500;
+  color: var(--fc-text-muted);
+}
+
+.fc-adaptive-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-2);
+}
+
+.fc-adaptive-skill {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--fc-font-mono);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-adaptive-action {
+  flex-shrink: 0;
+  font-size: var(--fc-text-sm);
+}
+
+.fc-adaptive-muted {
+  margin: 0;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-adaptive-note {
+  margin: 0;
+  padding: var(--fc-space-2);
+  border-radius: var(--fc-radius-sm);
+  background: var(--fc-accent-soft);
+  color: var(--fc-text);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-adaptive-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--fc-space-2);
+  padding-top: var(--fc-space-2);
+  border-top: 1px solid var(--fc-border);
+}
+
 .fc-composer-controls {
   display: flex;
   align-items: center;

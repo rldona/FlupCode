@@ -933,6 +933,18 @@ export type GuardrailStatus = {
   at: number
 }
 
+/** A person's override of the adaptive layer for one session (AH-E02). Mirrors the server's own type. */
+export type SessionAdaptiveOverride = { paused: boolean; excludedSkills: string[] }
+
+/** What the composer's "Adaptive" chip says about a session's latest turn (AH-E02), from the audit. */
+export type SessionTurnSummary = {
+  sessionID: string
+  override: SessionAdaptiveOverride
+  relevance?: { decisionID: string; skills: string[]; acted: boolean; degradedReason?: string; at: number }
+  plan?: { id: string; tokensSaved: number; applied: boolean; decisionID?: string; at: number }
+  model?: { providerID: string; kind: string; latencyMs: number; decisionID: string; at: number }
+}
+
 /** What the decision audit explains about one row (FH-015). Mirrors the server's own type. */
 export type DecisionExplanation = {
   id: string
