@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test"
 import {
   feedbackFor,
   fieldProblem,
+  inactiveByMaster,
   needsConfirmation,
+  nextBudgetDraft,
   patchLeaf,
   problemKey,
   refusedField,
@@ -19,6 +21,7 @@ const WRITABLE: AdaptiveWritableField[] = [
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
   { path: "learning.enabled", type: "boolean", confirmation: "none", guard: "egress-allowlist" },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+  { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
   { path: "egress.projects", type: "string-list", confirmation: "widening", guard: "none" },
   { path: "egress.kinds", type: "kinds", confirmation: "widening", guard: "none" },
@@ -32,6 +35,7 @@ const view = (over: Partial<AdaptiveConfigView["effective"]> = {}, envDisabled =
     context: { enabled: true, apply: false },
     learning: { enabled: false },
     relevance: { enabled: false },
+    guardrails: { enabled: false },
     jev: { enabled: false },
     egress: { projects: [], kinds: {} },
     retention: { enabled: false },
@@ -104,6 +108,22 @@ describe("which fields are offered", () => {
     expect(writableField(view(), "runtime.timeoutMs")).toBeUndefined()
   })
 
+  test("loop warnings are offered like relevance: only with the acting token", () => {
+    const field = writableField(view(), "guardrails.enabled")!
+    expect(field.guard).toBe("adaptive-token")
+    expect(fieldProblem(field, view(), ["adaptive-config"])).toBe("no-adaptive-token")
+    expect(fieldProblem(field, view(), ["adaptive-relevance"])).toBeUndefined()
+    expect(fieldProblem(field, view(), ["adaptive-guardrails"])).toBeUndefined()
+    expect(problemKey("no-adaptive-token")).toBe("This switch needs the acting token, which this server does not have.")
+  })
+
+  test("a row is drawn only from the server's list, so an older server hides loop warnings", () => {
+    const older = { ...view(), writable: WRITABLE.filter((field) => field.path !== "guardrails.enabled") }
+    expect(writableField(older, "guardrails.enabled")).toBeUndefined()
+    expect(writableField(older, "relevance.enabled")).toBeDefined()
+    expect(writableField({ ...view(), writable: [] }, "enabled")).toBeUndefined()
+  })
+
   test("a field whose guard is met is offered", () => {
     expect(fieldProblem(writableField(view(), "context.apply")!, view(), [])).toBeUndefined()
     expect(fieldProblem(writableField(view(), "egress.projects")!, view(), [])).toBeUndefined()
@@ -142,7 +162,7 @@ describe("the server's answer said in the reader's words", () => {
   test("a known code becomes its message, with what is missing", () => {
     expect(feedbackFor("guard:egress-allowlist-required", ["egress.projects"]).missing).toEqual(["egress.projects"])
     expect(feedbackFor("guard:no-adaptive-token").message).toBe(
-      "Relevance needs the acting token, which this server does not have.",
+      "This switch needs the acting token, which this server does not have.",
     )
   })
 
@@ -171,7 +191,9 @@ describe("the server's answer said in the reader's words", () => {
 
   test("the warnings the server sends have their own words", () => {
     expect(warningKey("skills-still-load")).toBe("Learned skills still load from disk.")
-    expect(warningKey("evaluation-gated")).toBe("Applying is configured, but promotion waits for the offline evaluation.")
+    expect(warningKey("evaluation-gated")).toBe(
+      "Applying is configured, but promotion waits for the offline evaluation.",
+    )
   })
 
   test("provenance is said where it comes from", () => {
@@ -191,5 +213,42 @@ describe("the fields a refusal blamed", () => {
   test("without a refusal, or without fields, nothing is blamed", () => {
     expect(refusedField(undefined, "shadow")).toBe(false)
     expect(refusedField(new AdaptiveConfigError("no target", "env-disabled"), "shadow")).toBe(false)
+  })
+})
+
+describe("the switches the master stops", () => {
+  test("with the master off, the gated switches say they are inactive", () => {
+    const off = view({ enabled: false })
+    for (const path of ["shadow", "context.apply", "relevance.enabled", "guardrails.enabled", "jev.enabled"])
+      expect(inactiveByMaster(off, path)).toBe(true)
+  })
+
+  test("retention, the master itself and the allowlist are not gated", () => {
+    const off = view({ enabled: false })
+    expect(inactiveByMaster(off, "retention.enabled")).toBe(false)
+    expect(inactiveByMaster(off, "enabled")).toBe(false)
+    expect(inactiveByMaster(off, "egress.projects")).toBe(false)
+  })
+
+  test("with the master on, nothing is inactive", () => {
+    expect(inactiveByMaster(view(), "guardrails.enabled")).toBe(false)
+  })
+})
+
+describe("the budget draft", () => {
+  test("the first view fills it", () => {
+    expect(nextBudgetDraft("", undefined, "100000")).toBe("100000")
+  })
+
+  test("an unsaved draft survives a write to another switch", () => {
+    expect(nextBudgetDraft("5000", "100000", "100000")).toBe("5000")
+  })
+
+  test("an untouched draft follows the server when its value changes", () => {
+    expect(nextBudgetDraft("100000", "100000", "200000")).toBe("200000")
+  })
+
+  test("a draft that was saved matches the server's new value", () => {
+    expect(nextBudgetDraft("5000", "100000", "5000")).toBe("5000")
   })
 })

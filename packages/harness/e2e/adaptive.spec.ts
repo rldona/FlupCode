@@ -20,6 +20,7 @@ const WRITABLE = [
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
   { path: "learning.enabled", type: "boolean", confirmation: "none", guard: "egress-allowlist" },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+  { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
   { path: "egress.projects", type: "string-list", confirmation: "widening", guard: "none" },
   { path: "egress.kinds", type: "kinds", confirmation: "widening", guard: "none" },
@@ -34,6 +35,7 @@ type View = {
     context: { enabled: boolean; apply: boolean }
     learning: { enabled: boolean }
     relevance: { enabled: boolean }
+    guardrails: { enabled: boolean }
     jev: { enabled: boolean }
     egress: { projects: string[]; kinds: Record<string, boolean> }
     retention: { enabled: boolean }
@@ -56,6 +58,7 @@ const view = (over: Partial<View> = {}): View => ({
     context: { enabled: true, apply: false },
     learning: { enabled: false },
     relevance: { enabled: false },
+    guardrails: { enabled: false },
     jev: { enabled: false },
     egress: { projects: [], kinds: {} },
     retention: { enabled: false },
@@ -118,8 +121,7 @@ async function openApp(page: Page, options: Options = {}) {
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (url.pathname === "/harness/health")
-      return route.fulfill({ json: { data: { healthy: true, capabilities } } })
+    if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true, capabilities } } })
     if (url.pathname === "/harness/context")
       return route.fulfill({
         json: { data: { directory: "/work/demo", projectDirectory: "/work/demo", instructions: [] } },
@@ -263,14 +265,68 @@ test("relevance is not offered without the acting token, and says why", async ({
 
   const relevance = dialog.getByRole("switch", { name: "Relevance", exact: true })
   await expect(relevance).toBeDisabled()
-  await expect(dialog.getByText("Relevance needs the acting token, which this server does not have.")).toBeVisible()
+  // Relevance and loop warnings share the guard, so each row carries the same reason.
+  await expect(dialog.getByText("This switch needs the acting token, which this server does not have.")).toHaveCount(2)
+  await expect(dialog.getByRole("switch", { name: "Loop warnings" })).toBeDisabled()
   expect(calls.patches).toHaveLength(0)
+})
+
+test("loop warnings are drawn from the server's list and toggle through a patch", async ({ page }) => {
+  const on = view({ effective: { ...view().effective, guardrails: { enabled: true } } })
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-config", "adaptive-guardrails"],
+    patchResponse: () => ({ json: { data: on, warnings: [] }, nextView: on }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+
+  await expect(
+    dialog.getByText("Warns when the agent repeats the same tool call; never pauses the turn."),
+  ).toBeVisible()
+  const guardrails = dialog.getByRole("switch", { name: "Loop warnings" })
+  await expect(guardrails).toHaveAttribute("aria-checked", "false")
+  await guardrails.click()
+  await expect
+    .poll(() => calls.patches.at(0)?.body)
+    .toEqual({ patch: { guardrails: { enabled: true } }, confirm: false })
+  await expect(guardrails).toHaveAttribute("aria-checked", "true")
+  expect(calls.patches).toHaveLength(1)
+})
+
+test("a leaf the server does not list is not drawn", async ({ page }) => {
+  await openApp(page, {
+    capabilities: ["adaptive-config", "adaptive-guardrails"],
+    view: view({
+      writable: WRITABLE.filter((field) => field.path !== "guardrails.enabled" && field.path !== "retention.enabled"),
+    }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+
+  await expect(dialog.getByRole("switch", { name: "Shadow" })).toBeVisible()
+  await expect(dialog.getByRole("switch", { name: "Loop warnings" })).toHaveCount(0)
+  await expect(dialog.getByRole("switch", { name: "Retention" })).toHaveCount(0)
+})
+
+test("with the master off, its children say they are inactive, and Jev says the key is missing", async ({ page }) => {
+  await openApp(page, {
+    capabilities: ["adaptive-config"],
+    view: view({ effective: { ...view().effective, enabled: false, shadow: true } }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+
+  await expect(dialog.getByRole("switch", { name: "Shadow" })).toHaveAttribute("aria-checked", "true")
+  await expect(dialog.getByText("Inactive: the master switch is off.").first()).toBeVisible()
+  await expect(dialog.getByText("Key missing: decisions fall back to built-in rules.")).toBeVisible()
 })
 
 test("retention and Jev ask for a confirmation before the write leaves", async ({ page }) => {
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
-    view: view({ effective: { ...view().effective, egress: { projects: ["/work/demo"], kinds: { skillReflection: true } } } }),
+    view: view({
+      effective: { ...view().effective, egress: { projects: ["/work/demo"], kinds: { skillReflection: true } } },
+    }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
@@ -281,10 +337,12 @@ test("retention and Jev ask for a confirmation before the write leaves", async (
   // Nothing is written until the dialog is confirmed.
   expect(calls.patches).toHaveLength(0)
   await confirm.getByRole("button", { name: "Write it" }).click()
-  await expect.poll(() => calls.patches.at(0)?.body).toEqual({
-    patch: { retention: { enabled: true } },
-    confirm: true,
-  })
+  await expect
+    .poll(() => calls.patches.at(0)?.body)
+    .toEqual({
+      patch: { retention: { enabled: true } },
+      confirm: true,
+    })
 
   // Jev carries the same confirmation, and its egress guard is met by the allowlist already there.
   await dialog.getByRole("switch", { name: "Jev" }).click()
@@ -377,8 +435,24 @@ test("the context plan paints each disposition and reason, and offers no action"
         id: "plan_1",
         objectiveHash: "h",
         entries: [
-          { id: "file_1", kind: "file", score: 0.2, disposition: "archive", reason: "superseded", protected: false, tokens: 120 },
-          { id: "obj_1", kind: "objective", score: 1, disposition: "keep", reason: "the objective", protected: true, tokens: 40 },
+          {
+            id: "file_1",
+            kind: "file",
+            score: 0.2,
+            disposition: "archive",
+            reason: "superseded",
+            protected: false,
+            tokens: 120,
+          },
+          {
+            id: "obj_1",
+            kind: "objective",
+            score: 1,
+            disposition: "keep",
+            reason: "the objective",
+            protected: true,
+            tokens: 40,
+          },
         ],
         scoreSource: "deterministic",
         degraded: false,

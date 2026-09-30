@@ -1401,8 +1401,14 @@ const ES: Record<string, string> = {
   "Writing to {field} needs confirmation. The change is written to the config file.":
     "Escribir en {field} requiere confirmación. El cambio se escribe en el archivo de configuración.",
   "Write it": "Escribirlo",
-  "Relevance needs the acting token, which this server does not have.":
-    "La relevancia necesita el token actuante, que este servidor no tiene.",
+  "This switch needs the acting token, which this server does not have.":
+    "Este interruptor necesita el token actuante, que este servidor no tiene.",
+  "Loop warnings": "Avisos de bucle",
+  "Warns when the agent repeats the same tool call; never pauses the turn.":
+    "Avisa cuando el agente repite la misma llamada a una herramienta; nunca pausa el turno.",
+  "Inactive: the master switch is off.": "Inactivo: el interruptor principal está apagado.",
+  "Key missing: decisions fall back to built-in rules.":
+    "Falta la clave: las decisiones vuelven a las reglas integradas.",
   "Enabling this needs a project and a kind in the egress allowlist first.":
     "Activar esto necesita antes un proyecto y un kind en la allowlist de egreso.",
   "This settings surface does not write that field.": "Esta superficie de ajustes no escribe ese campo.",

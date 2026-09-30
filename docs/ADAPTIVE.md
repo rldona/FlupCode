@@ -360,7 +360,9 @@ always safe.
   read-only **Learned** section in the Skills screen (FH-073). None of them changes the engine.
 - **What the app may write.** Only the switches in the allowlist below; every other field of
   `flupcode.adaptive` is read-only in E8. The server's `writable` list is the whole contract, and the
-  UI draws a control only from it, so a field the server does not list is never offered.
+  UI draws a control only from it, so a field the server does not list is never offered. While a
+  write is in flight every control is disabled, so a double click cannot send two patches built from
+  the same view, and an unsaved budget draft survives a write to another switch.
 
   | Writable leaf | Type | Guard before it can be set | Confirmation |
   | --- | --- | --- | --- |
@@ -370,6 +372,7 @@ always safe.
   | `context.apply` | boolean | warning `evaluation-gated` ([ADR-0018](adr/0018-context-selection-seam.md)) | — |
   | `learning.enabled` | boolean | egress allowlist: a project **and** `egress.kinds.skillReflection` ([ADR-0020](adr/0020-learning-persistence-and-egress.md)) | — |
   | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
+  | `guardrails.enabled` | boolean | a resolved `adaptive-token` ([ADR-0023](adr/0023-failure-loop-guardrails.md)); shown as "Loop warnings" | — |
   | `jev.enabled` | boolean | egress allowlist: a project and a kind | **yes** |
   | `egress.projects` | string[] | — | **yes** when it widens |
   | `egress.kinds` | boolean-map | validated against `isDecisionKind` | **yes** when it widens |
@@ -389,10 +392,13 @@ always safe.
   disabled** with the reason, and a direct `enabled=true` is rejected with `env-disabled`; the API is
   honest even when someone skips the UI.
 - **The kill switch, said honestly.** `adaptive.enabled=false` (and
-  `FLUPCODE_ADAPTIVE_DISABLED=1`) stops decisions, shadow, Jev, relevance, learning and the context
-  plan, per the [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md) table. It **does not**
+  `FLUPCODE_ADAPTIVE_DISABLED=1`) stops decisions, shadow, Jev, relevance, learning, the loop
+  warnings and the context plan, per the [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md) table. It **does not**
   unload learned skills: they are ordinary files on disk and the engine keeps loading them, because
-  there is no seam in the engine to stop that. The panel says so and never promises a total stop. The
+  there is no seam in the engine to stop that. The panel says so and never promises a total stop.
+  With the master off, each switch it stops (every boolean switch except retention, which
+  sweeps regardless) keeps its own value but is marked "inactive: the master switch is off". The Jev row also
+  says when `TYPESAFE_API_KEY` is missing, since decisions then fall back to the built-in rules. The
   same is true of a successful write to `enabled`: it travels the warning `skills-still-load`.
 - **Write contract.** `PATCH /harness/adaptive/config` with `{ "patch": { … }, "confirm": false }`.
   The patch is **nested**, mirroring `flupcode.adaptive`, and carries only allowlisted leaves; a key

@@ -694,6 +694,7 @@ export type AdaptiveSettings = {
   context: { enabled: boolean; apply: boolean }
   learning: { enabled: boolean }
   relevance: { enabled: boolean }
+  guardrails: { enabled: boolean }
   jev: { enabled: boolean }
   egress: { projects: string[]; kinds: Record<string, boolean> }
   retention: { enabled: boolean }
