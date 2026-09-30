@@ -39,8 +39,9 @@ bun run --cwd packages/engine-contract opencode-v2 serve     # http://127.0.0.1:
 ```
 
 `install` fetches the platform package of the pinned version (`OPENCODE_V2_VERSION` in
-`src/opencode-v2.ts`) from the npm registry, checks it against the published sha512 integrity, and
-unpacks it to `~/.cache/flupcode/engines/opencode-<version>/`. `serve` runs it with a home under
+`src/opencode-v2.ts`) from the npm registry. It refuses a version younger than the repo's
+`minimumReleaseAge` (`bunfig.toml`), the rule bun applies to every other package. It checks the
+package against the published sha512 integrity and unpacks it to `~/.cache/flupcode/engines/opencode-<version>/`. `serve` runs it with a home under
 `~/.cache/flupcode/engines/sandbox-<version>/` and prints a fresh password; delete that folder to
 start over.
 

@@ -4,7 +4,7 @@
 - **Date:** 2026-09-30
 - **Engines:**
   - **v1:** this checkout's `packages/opencode` (1.18.32, upstream `dev@0f549842ee`).
-  - **v2:** the pinned sandbox binary `@opencode/cli@2.0.20` (V2-05).
+  - **v2:** the sandbox binary (V2-05). The report was recorded against `@opencode/cli@2.0.20`. The sandbox is now pinned to `2.0.18`, the newest version old enough for the repo's `minimumReleaseAge`, and `fixtures/v2/` came out identical on it.
 - **Source of every claim:** `packages/engine-contract`.
   - The v1 flows are in `test/contract.test.ts` and `test/plugins.test.ts`, with results in `fixtures/v1/`.
   - The same flows through OpenCode 2's API are in `test/contract-v2.test.ts`, with results in `fixtures/v2/`.
