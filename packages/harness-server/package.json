@@ -12,6 +12,7 @@
     "replay": "bun src/replay/cli.ts run",
     "replay:export": "bun src/replay/cli.ts export",
     "reflect:heuristics": "bun src/adaptive/learning/heuristics-cli.ts",
+    "reflect:eval": "bun src/adaptive/learning/eval-cli.ts",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
