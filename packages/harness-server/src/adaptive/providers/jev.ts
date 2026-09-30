@@ -90,6 +90,9 @@ const retryAfterMsFrom = (header: string | null, now: () => number): number | un
   return undefined
 }
 
+/** Jev's identity for the egress guard: the client re-checks Jev's own consent, not anyone else's. */
+const JEV = { id: "jev", locality: "remote" } as const
+
 export function createJevClient(input: {
   fetch: JevFetch
   egress: EgressGuard
@@ -130,7 +133,7 @@ export function createJevClient(input: {
     questions: readonly Question[],
     signal?: AbortSignal,
   ): Promise<JevResult> => {
-    if (!input.egress.allows(state.kind, state.projectID)) throw new DecisionUnavailable("egress-denied")
+    if (!input.egress.allows(JEV, state.kind, state.projectID)) throw new DecisionUnavailable("egress-denied")
     const config = input.config()
     // The envelope carries only what the guard wrote — the redacted state text and the redacted
     // prompts — re-keyed to positional wire ids, so there is no second path that could skip redaction.
@@ -184,8 +187,7 @@ const toAnswer = (question: Question, answer: JevAnswer): Answer => {
 export function createJevModel(input: { client: JevClient; now?: () => number }): PredictiveModel {
   const now = input.now ?? Date.now
   return {
-    id: "jev",
-    locality: "remote",
+    ...JEV,
     supports: decisionKinds(),
     async predict(state, questions, options): Promise<Prediction> {
       // Jev cannot answer an empty question set; a state with nothing to ask is not a Jev answer.
@@ -202,7 +204,7 @@ export function createJevModel(input: { client: JevClient; now?: () => number })
         answers,
         latencyMs: now() - startedAt,
         usage: { inputTokens: result.inputTokens, costUsd: result.inputTokens * JEV_USD_PER_INPUT_TOKEN },
-        model: { id: "jev", ...(result.modelVersion ? { version: result.modelVersion } : {}) },
+        model: { id: JEV.id, ...(result.modelVersion ? { version: result.modelVersion } : {}) },
       }
     },
   }

@@ -43,11 +43,24 @@ export const BASELINE_MODEL = "baseline"
 
 export type BudgetConfig = { monthlyTokens: number; hotReserveFraction: number }
 
-export type EgressConfig = {
+/** One remote provider's consent: whether it may be sent anything, for which projects and kinds. */
+export type EgressProviderConfig = {
   enabled: boolean
   projects: string[]
   kinds: Record<DecisionKind, boolean>
 }
+
+/**
+ * Consent per remote provider (AH-C03), keyed by the predictive model id (`jev`, `small-llm`). One
+ * provider's consent never covers another; a `local` model needs none (the kill switch still applies).
+ */
+export type EgressConfig = { providers: Record<string, EgressProviderConfig> }
+
+/** The shape a provider id must have to be read from, or written to, `egress.providers.<id>`. */
+export const PROVIDER_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$/
+
+/** The provider the legacy top-level egress keys (`jev.enabled`, `egress.projects/kinds`) consent for. */
+export const LEGACY_EGRESS_PROVIDER = "jev"
 
 export type ContextConfig = {
   /** Whether a plan is computed at all; with the shadow on it is computed even when not applied. */
@@ -557,11 +570,35 @@ function resolveGovernorConfig(block: Record<string, unknown>): GovernorConfig {
 }
 
 /**
- * The egress posture: the global opt-in is `adaptive.jev.enabled` (off), then the project must be
- * listed and the kind allowlisted. The guard reads `egress.enabled`, so the global switch is mirrored
- * here rather than leaving the guard to reach into the Jev settings.
+ * The egress consent, per provider: `egress.providers.<id>.{ enabled, projects, kinds }`.
+ *
+ * A config written before AH-C03 has no `providers` block: its consent was global, switched by
+ * `jev.enabled` and scoped by the top-level `egress.projects` and `egress.kinds`, and Jev was the only
+ * remote model. That shape is read — never rewritten — as the consent of `jev` alone, so an old file
+ * behaves exactly as it did. Once `egress.providers.jev` exists it is Jev's consent and the legacy keys
+ * no longer grant anything; `jev.enabled` keeps only its model-assignment meaning. `egress.enabled`
+ * was never read (the switch was `jev.enabled`), and still is not.
  */
 function resolveEgressConfig(block: Record<string, unknown>): EgressConfig {
+  const egress = isPlainObject(block.egress) ? block.egress : {}
+  const providers = isPlainObject(egress.providers) ? egress.providers : {}
+  const configured = Object.entries(providers).flatMap(([id, entry]) =>
+    PROVIDER_ID_PATTERN.test(id) && isPlainObject(entry) ? [[id, resolveEgressProvider(entry)] as const] : [],
+  )
+  return { providers: Object.fromEntries([[LEGACY_EGRESS_PROVIDER, legacyEgressProvider(block)], ...configured]) }
+}
+
+/** One provider's consent: off, with no project and no kind, until the block says otherwise. */
+function resolveEgressProvider(entry: Record<string, unknown>): EgressProviderConfig {
+  return {
+    enabled: entry.enabled === true,
+    projects: stringListFrom(entry.projects),
+    kinds: resolveEgressKinds(entry.kinds),
+  }
+}
+
+/** The raw block's legacy egress keys as a `providers.jev` entry, for a writer moving to the new shape. */
+export function legacyEgressProvider(block: Record<string, unknown>): EgressProviderConfig {
   const egress = isPlainObject(block.egress) ? block.egress : {}
   const jev = isPlainObject(block.jev) ? block.jev : {}
   return {

@@ -65,8 +65,9 @@ describe("the writable allowlist", () => {
       "relevance.enabled",
       "guardrails.enabled",
       "jev.enabled",
-      "egress.projects",
-      "egress.kinds",
+      "egress.providers.*.enabled",
+      "egress.providers.*.projects",
+      "egress.providers.*.kinds",
       "retention.enabled",
       "budget.monthlyTokens",
     ])
@@ -94,6 +95,23 @@ describe("the writable allowlist", () => {
     expect(error.fields).toEqual(["context.enabled.extra"])
   })
 
+  test("the legacy top-level egress keys are no longer written: consent is per provider", () => {
+    expect(rejection({ patch: { egress: { projects: ["/a"] } } })).toMatchObject({
+      code: "unsupported-field",
+      fields: ["egress.projects"],
+    })
+    expect(rejection({ patch: { egress: { kinds: { completion: true } } } }).code).toBe("unsupported-field")
+  })
+
+  test("a provider id must be a plain id, never a wildcard or a dotted key", () => {
+    for (const id of ["*", "a.b", "bad id", "-lead"])
+      expect(rejection({ patch: { egress: { providers: { [id]: { enabled: false } } } } }).code).toBe("unsupported-field")
+    expect(rejection({ patch: { egress: { providers: { jev: { endpoint: "x" } } } } })).toMatchObject({
+      code: "unsupported-field",
+      fields: ["egress.providers.jev.endpoint"],
+    })
+  })
+
   test("rejects a patch nested far deeper than any writable field", () => {
     const deep = { a: { b: { c: { d: { e: { f: { g: { h: { i: 1 } } } } } } } } }
     expect(rejection({ patch: deep }).code).toBe("unsupported-field")
@@ -106,15 +124,20 @@ describe("value validation", () => {
     expect(rejection({ patch: { shadow: "off" } })).toMatchObject({ code: "invalid-value", fields: ["shadow"] })
   })
 
-  test("egress.projects takes a list of non-empty strings or null", () => {
-    expect(plan({ patch: { egress: { projects: ["/a"] } }, confirm: true }).leaves).toHaveLength(1)
-    expect(rejection({ patch: { egress: { projects: ["/a", 7] } } }).code).toBe("invalid-value")
+  test("a provider's projects take a list of non-empty strings or null", () => {
+    const small = (projects: unknown) => ({ egress: { providers: { "small-llm": { projects } } } })
+    expect(plan({ patch: small(["/a"]), confirm: true }).leaves).toHaveLength(1)
+    expect(rejection({ patch: small(["/a", 7]) })).toMatchObject({
+      code: "invalid-value",
+      fields: ["egress.providers.small-llm.projects"],
+    })
   })
 
-  test("egress.kinds only accepts decision kinds with booleans", () => {
-    expect(plan({ patch: { egress: { kinds: { skillReflection: true, completion: false } } }, confirm: true }).leaves).toHaveLength(1)
-    expect(rejection({ patch: { egress: { kinds: { nope: true } } } }).code).toBe("invalid-value")
-    expect(rejection({ patch: { egress: { kinds: { completion: "yes" } } } }).code).toBe("invalid-value")
+  test("a provider's kinds only accept decision kinds with booleans", () => {
+    const small = (kinds: unknown) => ({ egress: { providers: { "small-llm": { kinds } } } })
+    expect(plan({ patch: small({ skillReflection: true, completion: false }), confirm: true }).leaves).toHaveLength(1)
+    expect(rejection({ patch: small({ nope: true }) }).code).toBe("invalid-value")
+    expect(rejection({ patch: small({ completion: "yes" }) }).code).toBe("invalid-value")
   })
 
   test("budget.monthlyTokens must be a positive number", () => {
@@ -147,13 +170,27 @@ describe("guards", () => {
     expect(plan({ patch: { guardrails: { enabled: true } } }).leaves).toHaveLength(1)
   })
 
-  test("enabling learning needs a project and skillReflection in egress", () => {
+  test("enabling learning needs the classifier's consent for a project and skillReflection", () => {
     const error = rejection({ patch: { learning: { enabled: true } } })
     expect(error).toMatchObject({
       code: "guard:egress-allowlist-required",
       fields: ["learning.enabled"],
-      missing: ["egress.projects", "egress.kinds.skillReflection"],
+      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds.skillReflection"],
     })
+    // The consent asked for is the one of the model `skillReflection` is assigned to.
+    expect(
+      rejection({ patch: { learning: { enabled: true } }, block: { models: { skillReflection: "small-llm" } } }).missing,
+    ).toEqual(["egress.providers.small-llm.projects", "egress.providers.small-llm.kinds.skillReflection"])
+  })
+
+  test("a local classifier needs no consent for learning", () => {
+    const built = plan({
+      patch: { learning: { enabled: true } },
+      block: { models: { skillReflection: "local-embed" } },
+      models: [{ id: "local-embed", locality: "local" }],
+      confirm: true,
+    })
+    expect(built.leaves.map((leaf) => leaf.path)).toEqual(["learning.enabled"])
   })
 
   test("enabling learning passes when the block already allowlists it", () => {
@@ -165,17 +202,53 @@ describe("guards", () => {
     expect(built.leaves.map((leaf) => leaf.path)).toEqual(["learning.enabled"])
   })
 
-  test("enabling learning passes when the same patch allowlists it", () => {
+  test("enabling learning passes when the same patch gives the consent", () => {
     const built = plan({
-      patch: { egress: { projects: ["/p"], kinds: { skillReflection: true } }, learning: { enabled: true } },
+      patch: {
+        egress: { providers: { jev: { projects: ["/p"], kinds: { skillReflection: true } } } },
+        learning: { enabled: true },
+      },
       confirm: true,
     })
-    expect(built.leaves.map((leaf) => leaf.path)).toEqual(["egress.projects", "egress.kinds", "learning.enabled"])
+    expect(built.leaves.map((leaf) => leaf.path)).toEqual([
+      "egress.providers.jev.enabled",
+      "egress.providers.jev.projects",
+      "egress.providers.jev.kinds",
+      "learning.enabled",
+    ])
   })
 
   test("enabling Jev needs a project and at least one kind", () => {
     const error = rejection({ patch: { jev: { enabled: true } }, confirm: true })
-    expect(error).toMatchObject({ code: "guard:egress-allowlist-required", missing: ["egress.projects", "egress.kinds"] })
+    expect(error).toMatchObject({
+      code: "guard:egress-allowlist-required",
+      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds"],
+    })
+  })
+
+  test("in the new shape, enabling Jev also needs Jev's consent switched on", () => {
+    const consent = { projects: ["/p"], kinds: { completion: true } }
+    const block = { egress: { providers: { jev: consent } } }
+    expect(rejection({ patch: { jev: { enabled: true } }, block, confirm: true }).missing).toEqual([
+      "egress.providers.jev.enabled",
+    ])
+    const on = { egress: { providers: { jev: { ...consent, enabled: true } } } }
+    expect(plan({ patch: { jev: { enabled: true } }, block: on, confirm: true }).leaves).toHaveLength(1)
+  })
+
+  test("consenting to a provider needs a project and a kind for that provider", () => {
+    const error = rejection({ patch: { egress: { providers: { "small-llm": { enabled: true } } } }, confirm: true })
+    expect(error).toMatchObject({
+      code: "guard:egress-allowlist-required",
+      fields: ["egress.providers.small-llm.enabled"],
+      missing: ["egress.providers.small-llm.projects", "egress.providers.small-llm.kinds"],
+    })
+    // Jev's consent is not small-llm's.
+    const jevConsent = { jev: { enabled: true }, egress: { projects: ["/p"], kinds: { completion: true } } }
+    expect(
+      rejection({ patch: { egress: { providers: { "small-llm": { enabled: true } } } }, block: jevConsent, confirm: true })
+        .code,
+    ).toBe("guard:egress-allowlist-required")
   })
 
   test("a missing allowlist is refused before confirmation is considered", () => {
@@ -212,18 +285,91 @@ describe("confirmation", () => {
     expect(plan({ ...shared, patch: { learning: { enabled: false } } }).leaves).toHaveLength(1)
   })
 
-  test("widening egress.projects needs confirmation, narrowing does not", () => {
-    const block = { egress: { projects: ["/a"] } }
-    expect(rejection({ patch: { egress: { projects: ["/a", "/b"] } }, block }).fields).toEqual(["egress.projects"])
-    expect(plan({ patch: { egress: { projects: ["/a"] } }, block, confirm: true }).leaves).toHaveLength(1)
+  test("widening a provider's projects needs confirmation, narrowing does not", () => {
+    const block = { egress: { providers: { "small-llm": { projects: ["/a", "/c"] } } } }
+    const projects = (list: string[]) => ({ egress: { providers: { "small-llm": { projects: list } } } })
+    expect(rejection({ patch: projects(["/a", "/b"]), block }).fields).toEqual(["egress.providers.small-llm.projects"])
+    expect(plan({ patch: projects(["/a"]), block }).leaves).toHaveLength(1)
   })
 
-  test("turning a kind on needs confirmation, turning one off does not", () => {
-    const block = { egress: { kinds: { completion: true } } }
-    expect(rejection({ patch: { egress: { kinds: { completion: true, failure: true } } }, block }).fields).toEqual([
-      "egress.kinds",
+  test("turning a provider's kind on needs confirmation, turning one off does not", () => {
+    const block = { egress: { providers: { "small-llm": { kinds: { completion: true } } } } }
+    const kinds = (on: Record<string, boolean>) => ({ egress: { providers: { "small-llm": { kinds: on } } } })
+    expect(rejection({ patch: kinds({ completion: true, failure: true }), block }).fields).toEqual([
+      "egress.providers.small-llm.kinds",
     ])
-    expect(plan({ patch: { egress: { kinds: { completion: true } } }, block, confirm: true }).leaves).toHaveLength(1)
+    expect(plan({ patch: kinds({ completion: false }), block }).leaves).toHaveLength(1)
+  })
+
+  test("turning a provider's consent on needs confirmation, turning it off does not", () => {
+    const block = { egress: { providers: { "small-llm": { projects: ["/p"], kinds: { completion: true } } } } }
+    const enabled = (on: boolean) => ({ egress: { providers: { "small-llm": { enabled: on } } } })
+    expect(rejection({ patch: enabled(true), block })).toMatchObject({
+      code: "confirmation-required",
+      fields: ["egress.providers.small-llm.enabled"],
+    })
+    expect(plan({ patch: enabled(true), block, confirm: true }).leaves).toHaveLength(1)
+    expect(plan({ patch: enabled(false), block }).leaves).toHaveLength(1)
+  })
+})
+
+describe("moving an old config to per-provider consent (AH-C03)", () => {
+  const legacy = { jev: { enabled: true }, egress: { projects: ["/p"], kinds: { completion: true } } }
+
+  test("editing Jev's consent carries the legacy consent over, so the move changes nothing else", () => {
+    const built = plan({ patch: { egress: { providers: { jev: { projects: ["/p", "/q"] } } } }, block: legacy, confirm: true })
+    expect(built.leaves.map((leaf) => [leaf.path, leaf.value])).toEqual([
+      ["egress.providers.jev.enabled", true],
+      ["egress.providers.jev.kinds", { completion: true }],
+      ["egress.providers.jev.projects", ["/p", "/q"]],
+    ])
+    const after = resolveAdaptiveConfig({ block: built.blockAfter, env: {} })
+    expect(after.egress.providers.jev).toMatchObject({ enabled: true, projects: ["/p", "/q"] })
+    expect(after.egress.providers.jev?.kinds.completion).toBe(true)
+    // The legacy keys are left where they were: no file is rewritten beyond the patch's own provider.
+    expect(built.blockAfter).toMatchObject(legacy)
+  })
+
+  test("the carried-over leaves ask for no confirmation of their own: only the widening does", () => {
+    expect(rejection({ patch: { egress: { providers: { jev: { projects: ["/p", "/q"] } } } }, block: legacy }).fields).toEqual([
+      "egress.providers.jev.projects",
+    ])
+    // Narrowing Jev's consent while moving it is not gated at all.
+    expect(plan({ patch: { egress: { providers: { jev: { enabled: false } } } }, block: legacy }).leaves).toHaveLength(3)
+  })
+
+  test("consenting to another provider leaves an old config's Jev exactly where it was", () => {
+    const patch = {
+      egress: { providers: { "small-llm": { enabled: true, projects: ["/p"], kinds: { skillRelevance: true } } } },
+    }
+    const built = plan({ patch, block: legacy, confirm: true })
+    expect(built.leaves.map((leaf) => leaf.path)).toEqual([
+      "egress.providers.small-llm.enabled",
+      "egress.providers.small-llm.projects",
+      "egress.providers.small-llm.kinds",
+    ])
+    const before = resolveAdaptiveConfig({ block: legacy, env: {} })
+    const after = resolveAdaptiveConfig({ block: built.blockAfter, env: {} })
+    expect(after.egress.providers.jev).toEqual(before.egress.providers.jev)
+    expect(after.models).toEqual(before.models)
+  })
+
+  test("enabling small-llm does not enable Jev, and enabling Jev does not enable small-llm", () => {
+    const consent = { projects: ["/p"], kinds: { completion: true } }
+    const small = plan({
+      patch: { egress: { providers: { "small-llm": { enabled: true, ...consent } } } },
+      confirm: true,
+    })
+    const smallAfter = resolveAdaptiveConfig({ block: small.blockAfter, env: {} })
+    expect(smallAfter.egress.providers["small-llm"]?.enabled).toBe(true)
+    expect(smallAfter.egress.providers.jev?.enabled).toBe(false)
+    expect(smallAfter.jev.enabled).toBe(false)
+    expect(smallAfter.models).toEqual({})
+
+    const jev = plan({ patch: { egress: { providers: { jev: { enabled: true, ...consent } } } }, confirm: true })
+    const jevAfter = resolveAdaptiveConfig({ block: jev.blockAfter, env: {} })
+    expect(jevAfter.egress.providers.jev?.enabled).toBe(true)
+    expect(jevAfter.egress.providers["small-llm"]).toBeUndefined()
   })
 })
 
@@ -323,7 +469,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       budget: { monthlyTokens: 10 },
     }
     const source = adaptiveSource(block, {})
-    for (const field of WRITABLE_FIELDS) expect(source[field.path]).toBe("block")
+    for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("block")
   })
 
   test("a mistyped writable leaf is default and the effective value is its default, not the bad one", () => {
@@ -340,7 +486,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       budget: { monthlyTokens: -5 },
     }
     const source = adaptiveSource(block, {})
-    for (const field of WRITABLE_FIELDS) expect(source[field.path]).toBe("default")
+    for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("default")
 
     const effective = resolveAdaptiveConfig({ block, env: {} })
     expect(effective.enabled).toBe(true)
@@ -350,17 +496,17 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
     expect(effective.guardrails.enabled).toBe(false)
     expect(effective.jev.enabled).toBe(false)
     expect(effective.retention.enabled).toBe(false)
-    expect(effective.egress.projects).toEqual([])
-    expect(Object.values(effective.egress.kinds).some(Boolean)).toBe(false)
+    expect(effective.egress.providers.jev?.projects).toEqual([])
+    expect(Object.values(effective.egress.providers.jev?.kinds ?? {}).some(Boolean)).toBe(false)
     expect(effective.budget.monthlyTokens).toBe(100_000)
   })
 
   test("a partial egress block reports only the leaves it carries", () => {
     const block = { egress: { projects: ["/a"] } }
     const source = adaptiveSource(block, {})
-    expect(source["egress.projects"]).toBe("block")
-    expect(source["egress.kinds"]).toBe("default")
-    expect(resolveAdaptiveConfig({ block, env: {} }).egress).toEqual({
+    expect(source["egress.providers.jev.projects"]).toBe("block")
+    expect(source["egress.providers.jev.kinds"]).toBe("default")
+    expect(resolveAdaptiveConfig({ block, env: {} }).egress.providers.jev).toEqual({
       enabled: false,
       projects: ["/a"],
       kinds: {
@@ -407,6 +553,20 @@ describe("the read model", () => {
     expect(view.writable).toHaveLength(WRITABLE_FIELDS.length)
     expect(view.effective.enabled).toBe(true)
     expect(view.learningDraft).toEqual({ model: null })
+  })
+
+  test("lists a consent row per registered remote model, then any other provider the config names", () => {
+    expect(adaptiveConfigView(viewInput()).egressProviders).toEqual(["jev"])
+    const resolved = createAdaptiveConfig({
+      read: () => ({ egress: { providers: { other: { enabled: false } } } }),
+      env: {},
+    }).current()
+    const models = [
+      { id: "jev", locality: "remote" },
+      { id: "small-llm", locality: "remote" },
+      { id: "local-embed", locality: "local" },
+    ] as const
+    expect(adaptiveConfigView(viewInput({ resolved, models })).egressProviders).toEqual(["jev", "small-llm", "other"])
   })
 
   test("names the model a learning draft is sent to: the learning model first, then small_model", () => {
@@ -590,6 +750,47 @@ describe("the surface against a real config file", () => {
     expect(result.view.source.enabled).toBe("default")
     expect(result.view.source.shadow).toBe("default")
     expect(JSON.parse(readFileSync(path, "utf8")).flupcode.adaptive).toEqual({})
+  })
+
+  test("an old config reads the same, and a consent write lands in the new shape without dropping it", async () => {
+    const path = join(config, "opencode.jsonc")
+    const legacy = { jev: { enabled: true }, egress: { projects: ["/p"], kinds: { completion: true } } }
+    writeFileSync(path, JSON.stringify({ flupcode: { adaptive: legacy } }))
+    const { globalAdaptiveBlock } = await import("../config-files")
+    const service = createAdaptiveConfigSurface({
+      config: createAdaptiveConfig({ read: globalAdaptiveBlock, env: {} }),
+      runtime: () => ({ runtime: "legacy", degraded: false, checkedAt: 0 }),
+      capabilities: () => capabilities,
+      repository: { adaptiveUsage: () => ({ tokens: 0, calls: 0 }), addAdaptiveUsage: () => {} },
+      canWrite: true,
+      adaptiveTokenPresent: true,
+      env: {},
+      models: [{ id: "jev", locality: "remote" }],
+    })
+
+    const before = service.read()
+    expect(before.effective.egress.providers.jev).toMatchObject({ enabled: true, projects: ["/p"] })
+    expect(before.source["egress.providers.jev.enabled"]).toBe("block")
+    // Reading never rewrites the file.
+    expect(JSON.parse(readFileSync(path, "utf8")).flupcode.adaptive).toEqual(legacy)
+
+    await expect(
+      service.update({ egress: { providers: { "small-llm": { enabled: true } } } }, true),
+    ).rejects.toMatchObject({ code: "guard:egress-allowlist-required" })
+    const small = await service.update(
+      { egress: { providers: { "small-llm": { enabled: true, projects: ["/p"], kinds: { skillRelevance: true } } } } },
+      true,
+    )
+    expect(small.view.effective.egress.providers.jev).toEqual(before.effective.egress.providers.jev)
+    expect(small.view.egressProviders).toEqual(["jev", "small-llm"])
+
+    const moved = await service.update({ egress: { providers: { jev: { enabled: false } } } }, false)
+    expect(moved.view.effective.egress.providers.jev).toMatchObject({ enabled: false, projects: ["/p"] })
+    expect(moved.view.effective.egress.providers.jev?.kinds.completion).toBe(true)
+    expect(moved.view.effective.egress.providers["small-llm"]?.enabled).toBe(true)
+    const written = JSON.parse(readFileSync(path, "utf8")).flupcode.adaptive
+    expect(written.egress.providers.jev).toEqual({ enabled: false, projects: ["/p"], kinds: { completion: true } })
+    expect(written.jev).toEqual({ enabled: true })
   })
 
   test("an update keeps comments, nested siblings and unknown keys inside the adaptive block", async () => {

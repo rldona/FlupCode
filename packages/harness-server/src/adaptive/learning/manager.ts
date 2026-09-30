@@ -20,7 +20,7 @@
 
 import type { AdaptiveConfig } from "../config"
 import type { DecisionKind, DecisionRequest, DecisionResult } from "../decision"
-import type { EgressGuard } from "../egress"
+import type { EgressGuard, EgressSubject } from "../egress"
 import type { SkillCurator } from "../skills/curator"
 import type { SkillDrafter } from "./draft"
 import { DRAFT_LIMITS, learningModel } from "./draft"
@@ -53,6 +53,11 @@ export type LearningManagerDeps = {
   service: ReflectionService
   config: () => AdaptiveConfig
   egress: Pick<EgressGuard, "allows" | "redact">
+  /**
+   * The registered models, for the locality of the one `skillReflection` is assigned to. An assigned
+   * id not listed here is treated as remote, so it needs its provider's consent.
+   */
+  models?: readonly EgressSubject[]
   curator: Pick<SkillCurator, "roster" | "check" | "readExisting" | "recompute" | "reconcile">
   drafter: SkillDrafter
   /** The global `small_model`; absent leaves `adaptive.learning.model` as the only source. */
@@ -146,9 +151,16 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       return
     }
 
-    // The classification is the door: without egress no question leaves, so a reflection that could
-    // not be classified is skipped rather than answered inertly and mislabelled.
-    if (!deps.egress.allows("skillReflection", episode.projectID)) {
+    // The classification is the door: without a model the guard lets out for this project, no question
+    // is asked, so a reflection that could not be classified is skipped rather than answered inertly
+    // and mislabelled. The consent checked is the assigned model's own provider's (AH-C03). The draft
+    // below goes to the small model through the engine; its consent is `learning.enabled` itself.
+    const assigned = config.models.skillReflection
+    const classifier =
+      assigned === undefined
+        ? undefined
+        : (deps.models?.find((model) => model.id === assigned) ?? { id: assigned, locality: "remote" as const })
+    if (!classifier || !deps.egress.allows(classifier, "skillReflection", episode.projectID)) {
       jobFor(episode, "skipped", { reason: "egress-denied" })
       return
     }

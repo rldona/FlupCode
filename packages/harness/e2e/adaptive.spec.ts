@@ -28,8 +28,9 @@ const WRITABLE = [
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
-  { path: "egress.projects", type: "string-list", confirmation: "widening", guard: "none" },
-  { path: "egress.kinds", type: "kinds", confirmation: "widening", guard: "none" },
+  { path: "egress.providers.*.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
+  { path: "egress.providers.*.projects", type: "string-list", confirmation: "widening", guard: "none" },
+  { path: "egress.providers.*.kinds", type: "kinds", confirmation: "widening", guard: "none" },
   { path: "retention.enabled", type: "boolean", confirmation: "required", guard: "none" },
   { path: "budget.monthlyTokens", type: "number", confirmation: "none", guard: "none" },
 ]
@@ -43,7 +44,7 @@ type View = {
     relevance: { enabled: boolean }
     guardrails: { enabled: boolean }
     jev: { enabled: boolean }
-    egress: { projects: string[]; kinds: Record<string, boolean> }
+    egress: { providers: Record<string, { enabled: boolean; projects: string[]; kinds: Record<string, boolean> }> }
     retention: { enabled: boolean }
     budget: { monthlyTokens: number; hotReserveFraction: number }
   }
@@ -55,6 +56,7 @@ type View = {
   writer: { path: string; exists: boolean }
   usage: { month: string; tokensSpent: number; calls: number; monthlyTokens: number; hotReserveFraction: number }
   writable: typeof WRITABLE
+  egressProviders?: string[]
 }
 
 const view = (over: Partial<View> = {}): View => ({
@@ -66,7 +68,7 @@ const view = (over: Partial<View> = {}): View => ({
     relevance: { enabled: false },
     guardrails: { enabled: false },
     jev: { enabled: false },
-    egress: { projects: [], kinds: {} },
+    egress: { providers: { jev: { enabled: false, projects: [], kinds: {} } } },
     retention: { enabled: false },
     budget: { monthlyTokens: 100_000, hotReserveFraction: 0.2 },
   },
@@ -355,7 +357,10 @@ test("retention and Jev ask for a confirmation before the write leaves", async (
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
     view: view({
-      effective: { ...view().effective, egress: { projects: ["/work/demo"], kinds: { skillReflection: true } } },
+      effective: {
+        ...view().effective,
+        egress: { providers: { jev: { enabled: true, projects: ["/work/demo"], kinds: { skillReflection: true } } } },
+      },
     }),
   })
   await page.goto("/")
@@ -374,11 +379,56 @@ test("retention and Jev ask for a confirmation before the write leaves", async (
       confirm: true,
     })
 
-  // Jev carries the same confirmation, and its egress guard is met by the allowlist already there.
-  await dialog.getByRole("switch", { name: "Jev" }).click()
+  // Jev carries the same confirmation, and its egress guard is met by Jev's consent already there.
+  await dialog.getByRole("switch", { name: "Jev", exact: true }).click()
   await expect(page.getByRole("dialog", { name: "Confirm change" })).toBeVisible()
   await page.getByRole("dialog", { name: "Confirm change" }).getByRole("button", { name: "Write it" }).click()
   await expect.poll(() => calls.patches.at(1)?.body).toEqual({ patch: { jev: { enabled: true } }, confirm: true })
+})
+
+// ── AH-C03: consent per provider ─────────────────────────────────────────────────────────────
+
+test("each remote provider has its own consent row, and a write names only that provider", async ({ page }) => {
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-config"],
+    view: view({
+      egressProviders: ["jev", "small-llm"],
+      effective: {
+        ...view().effective,
+        egress: {
+          providers: {
+            jev: { enabled: false, projects: ["/work/demo"], kinds: { completion: true } },
+            "small-llm": { enabled: false, projects: [], kinds: {} },
+          },
+        },
+      },
+    }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+
+  await expect(dialog.getByText("Egress consent: jev")).toBeVisible()
+  await expect(dialog.getByText("Egress consent: small-llm")).toBeVisible()
+  // small-llm has no project and no kind yet, so its consent cannot be offered; Jev's can.
+  await expect(dialog.getByRole("switch", { name: "Send data to small-llm" })).toBeDisabled()
+  await expect(dialog.getByRole("switch", { name: "Jev", exact: true })).toBeDisabled()
+
+  // Consenting to Jev asks first, the dialog names Jev only, and the patch touches Jev only.
+  await dialog.getByRole("switch", { name: "Send data to jev" }).click()
+  const confirm = page.getByRole("dialog", { name: "Confirm change" })
+  await expect(confirm.getByText(/covers jev only/)).toBeVisible()
+  expect(calls.patches).toHaveLength(0)
+  await confirm.getByRole("button", { name: "Write it" }).click()
+  await expect
+    .poll(() => calls.patches.at(0)?.body)
+    .toEqual({ patch: { egress: { providers: { jev: { enabled: true } } } }, confirm: true })
+
+  // A kind for small-llm widens small-llm's consent alone.
+  await dialog.getByRole("switch", { name: "skillRelevance for small-llm" }).click()
+  await page.getByRole("dialog", { name: "Confirm change" }).getByRole("button", { name: "Write it" }).click()
+  await expect
+    .poll(() => calls.patches.at(1)?.body)
+    .toEqual({ patch: { egress: { providers: { "small-llm": { kinds: { skillRelevance: true } } } } }, confirm: true })
 })
 
 test("FLUPCODE_ADAPTIVE_DISABLED=1 disables the master switch and blocks the write", async ({ page }) => {

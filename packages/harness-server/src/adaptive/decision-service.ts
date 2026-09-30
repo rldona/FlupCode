@@ -204,14 +204,14 @@ export function createDecisionService(deps: {
 
   /**
    * The model a request may ask, or none. It must be assigned to the kind, registered, and support
-   * the kind; the policy must allow a model; and a remote model is only asked for a project and kind
-   * the egress guard lets out. Anything short of that is the opt-in posture, not a degradation: the
+   * the kind; the policy must allow a model; and the egress guard must let the model out: a remote
+   * model needs its own provider's consent for the project and kind, a local one only the kill switch. Anything short of that is the opt-in posture, not a degradation: the
    * baseline answers and the row says no model was consulted.
    */
   const modelFor = (request: AnyDecisionRequest, config: AdaptiveConfig): PredictiveModel | undefined => {
     const model = registry.get(config.models[request.kind] ?? "")
     if (!model || !model.supports.includes(request.kind) || !allowsModel(request.policy)) return undefined
-    if (model.locality === "remote" && !deps.egress.allows(request.kind, request.projectID)) return undefined
+    if (!deps.egress.allows(model, request.kind, request.projectID)) return undefined
     return model
   }
 

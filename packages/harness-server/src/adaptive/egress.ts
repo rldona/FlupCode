@@ -3,9 +3,11 @@
  *
  * No model is handed anything the guard did not write: `prepare` redacts, bounds and summarizes a
  * request into the neutral input every predictive model receives, and `allows` decides whether a
- * remote model may be asked at all. The posture is opt-in three times over — the global switch, the
- * project list, and the per-kind allowlist — so with the switch off, nothing leaves whatever else is
- * configured. This is the trust invariant as a rule at the writer, not as a separate service.
+ * model may be asked at all. Consent is per provider (AH-C03): a remote model is only asked when its
+ * own `egress.providers.<id>` entry is on, lists the project and allowlists the kind, so consenting to
+ * one provider never lets anything reach another. A local model sends nothing off the machine and
+ * needs no consent, but the adaptive kill switch stops it like every other model. This is the trust
+ * invariant as a rule at the writer, not as a separate service.
  *
  * The guard writes a neutral input, not a wire body: each remote model serializes its own envelope
  * from it (Jev's lives in `providers/jev.ts`), so the guard stays the same whichever model is asked.
@@ -16,7 +18,10 @@ import { decisionInputsHash } from "./decision"
 import type { AdaptiveConfig } from "./config"
 import { redactText } from "./redaction"
 import { questionID, questionsFor } from "./questions"
-import type { PredictionState, Question } from "./predictive/model"
+import type { PredictionState, PredictiveModel, Question } from "./predictive/model"
+
+/** What the guard needs to know about the model it is asked about: who it is and where it runs. */
+export type EgressSubject = Pick<PredictiveModel, "id" | "locality">
 
 /** What `prepare` hands the service: the model's input, its serialization, hash and audit summary. */
 export type PreparedInput = {
@@ -30,7 +35,8 @@ export type PreparedInput = {
 }
 
 export type EgressGuard = {
-  allows(kind: DecisionKind, projectID: string | undefined): boolean
+  /** Whether `model` may be asked about `kind` for `projectID`: its provider's consent, or local. */
+  allows(model: EgressSubject, kind: DecisionKind, projectID: string | undefined): boolean
   /**
    * Builds the whole model input, redacting and bounding it; it never returns the raw state.
    *
@@ -124,13 +130,17 @@ export function createAdaptiveEgressGuard(deps: {
   /** Known values to delete outright (for example an active credential); none by default. */
   secrets?: () => string[]
 }): EgressGuard {
-  const allows = (kind: DecisionKind, projectID: string | undefined): boolean => {
+  const allows = (model: EgressSubject, kind: DecisionKind, projectID: string | undefined): boolean => {
     const config = deps.config()
+    if (!config.enabled) return false
+    if (model.locality === "local") return true
+    const consent = Object.hasOwn(config.egress.providers, model.id) ? config.egress.providers[model.id] : undefined
     return (
-      config.egress.enabled &&
+      consent !== undefined &&
+      consent.enabled &&
       projectID !== undefined &&
-      config.egress.projects.includes(projectID) &&
-      config.egress.kinds[kind]
+      consent.projects.includes(projectID) &&
+      consent.kinds[kind]
     )
   }
 
@@ -153,8 +163,9 @@ export function createAdaptiveEgressGuard(deps: {
         options: question.options.map((option) => redactText(option, secrets)),
       }
     })
-    // The bound is still read from the Jev slot of the config, the only remote budget there is today;
-    // a per-provider budget arrives with per-provider egress (AH-C03).
+    // The bound is still read from the Jev slot of the config. The input is prepared before a model is
+    // chosen (every decision is hashed, answered by a model or not), so it cannot depend on which
+    // provider is asked; a per-provider bound would need a second, per-model preparation.
     const bounded = boundInput(
       redactText(JSON.stringify(request.state), secrets),
       asked,

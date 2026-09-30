@@ -173,18 +173,19 @@ to `skills/` is a person (AH-A04).
 - **In the app.** The Skills screen's **Learned** section shows **Approve** / **Reject** on each
   `proposed` row when the capability is announced; Approve opens a confirmation with the skill's
   name, description and full body.
-- **Egress is opt-in and off by default.** The `skillReflection` classification needs
-  `adaptive.jev.enabled` **and** the project in `adaptive.egress.projects` **and**
-  `adaptive.egress.kinds.skillReflection`. The draft needs `adaptive.learning.enabled` **and**
-  `adaptive.egress.enabled` **and** the project in `adaptive.egress.projects`; its text is passed
-  through `EgressGuard.redact` and bounded. Learning is therefore project-scoped and inert until a
-  person opts in.
-- **The draft leaves by a different door than Jev.** `adaptive.egress.enabled` mirrors
-  `adaptive.jev.enabled`, but the draft itself (up to `learning.maxInputChars` of the redacted
-  objective and evidence) goes to the **small model's provider** through the engine, not to Jev. So
-  turning `learning.enabled` on needs its own `confirm: true`, the write travels the warning
-  `learning-draft-egress`, and the config view names the resolved model in `learningDraft.model`
-  (`provider/model`, or `null`). A dedicated egress consent for the draft is a later change.
+- **Egress is opt-in and off by default.** The `skillReflection` classification is only asked when
+  the model assigned to `skillReflection` (Jev under `adaptive.jev.enabled`) is let out by the egress
+  guard: for a remote model, **its own provider's** consent (`egress.providers.<id>.enabled`, the
+  project in its `projects` and `kinds.skillReflection`; see [Egress consent](#egress-consent-per-provider));
+  a local model needs none. Without it the job is skipped `egress-denied` and no draft is made. The
+  draft's text is passed through `EgressGuard.redact` and bounded. Learning is therefore
+  project-scoped and inert until a person opts in.
+- **The draft leaves by a different door than the classification.** The draft itself (up to
+  `learning.maxInputChars` of the redacted objective and evidence) goes to the **small model's
+  provider** through the engine, not to a predictive model, so no `egress.providers` entry covers it.
+  Its consent is `learning.enabled` itself: turning it on needs its own `confirm: true` whose dialog
+  names the model, the write travels the warning `learning-draft-egress`, and the config view names
+  the resolved model in `learningDraft.model` (`provider/model`, or `null`).
 - **Redaction.** `adaptive/redaction.ts` deletes known literals first — the environment's
   secret-named values, the browser and adaptive bearers and every vault credential (decrypted on each
   call, so a credential saved after startup is covered), in the raw, HTML-escaped and URL-encoded
@@ -201,8 +202,8 @@ to `skills/` is a person (AH-A04).
 | --- | --- | --- |
 | `adaptive.learning.enabled = false` (default) | reflection jobs, `skillReflection` classification, the draft and the curator's writes | already-written learned skills, and the `completion`/`skillRelevance` shadow |
 | `adaptive.enabled = false` / `FLUPCODE_ADAPTIVE_DISABLED=1` | additionally, every decision and the shadow | episodes, evidence, base harness, learned skills |
-| `adaptive.jev.enabled = false` (default) | classification degrades to the inert baseline ⇒ no proposal | learned skills keep loading |
-| project absent from `egress.projects`, or `egress.kinds.skillReflection = false` | no egress ⇒ no classification and no draft | learned skills keep loading |
+| `adaptive.jev.enabled = false` (default) and no `models.skillReflection` | no model is assigned ⇒ job `egress-denied`, no proposal | learned skills keep loading |
+| the classifier's provider consent is off, lacks the project, or lacks `kinds.skillReflection` | no egress ⇒ no classification and no draft | learned skills keep loading |
 | no `learning.model` and no `small_model` | the draft ⇒ job `no-model`; no write | learned skills keep loading |
 
 - **Measurement.** The falsifiable claim of 3b is **selection/recall**, offline: a PROBATION skill
@@ -309,8 +310,8 @@ might be relevant and an engine plugin injects a single non-coercive line. The d
   [ADR-0016](adr/0016-adaptive-harness-boundary.md) boundary: only `packages/harness-server` and
   `packages/remote` change, the plugin observes and injects over the legacy hook surface, the runtime
   probe gates it, and no core is touched. Relevance adds **no new egress condition** on top of
-  ADR-0017: the Jev call it may make is the existing one (`adaptive.jev.enabled` +
-  `egress.projects` + `egress.kinds.skillRelevance`), redacted and bounded by the same guard.
+  ADR-0017: the Jev call it may make is the existing one (`adaptive.jev.enabled` + Jev's consent for
+  the project and `skillRelevance`), redacted and bounded by the same guard.
 - **Measurement.** The merge gate is an **offline** evaluation comparing the deterministic line against
   a recorded Jev answer — wrong-load and recall, determinism, inertness, one request and trust. Live
   behaviour is validated by PoC-3 before promotion; outcome improvement is not claimed here.
@@ -502,6 +503,40 @@ measured against numbers rather than impressions. `packages/harness-server/src/r
   the mean in total tokens and USD.
 - **Cost.** Without `--yes` it only prints the plan; under `CI` it refuses. Tests use a stub engine.
 
+## Egress consent per provider
+
+_AH-C03._ Consent is given **per remote provider**, never as a generic "egress" switch:
+
+```jsonc
+"egress": {
+  "providers": {
+    "jev":       { "enabled": true, "projects": ["/work/app"], "kinds": { "skillRelevance": true } },
+    "small-llm": { "enabled": true, "projects": ["/work/app"], "kinds": { "completion": true } }
+  }
+}
+```
+
+- **Per provider.** `EgressGuard.allows(model, kind, projectID)` lets a remote model out only when
+  its own `egress.providers.<model.id>` entry is `enabled`, lists the project and allowlists the
+  kind. Consenting to `small-llm` never lets anything reach Jev, and the reverse. `DecisionService`
+  passes the assigned model to the guard, and the Jev client re-checks Jev's own consent before a
+  byte is sent.
+- **Local models.** A model with `locality: "local"` sends nothing off the machine, so it needs no
+  consent; the adaptive kill switch (`enabled = false`, `FLUPCODE_ADAPTIVE_DISABLED=1`) still stops
+  it, like every model.
+- **Consent is not assignment.** `egress.providers.<id>` says what a provider *may* receive;
+  `adaptive.models.<kind>` says which model is *asked*. `jev.enabled` keeps only its assignment
+  meaning (Jev for every kind without a `models` entry) once `egress.providers.jev` exists.
+- **Old configs read the same.** A config without `egress.providers.jev` is read, not rewritten, as
+  Jev's consent: `enabled` from `jev.enabled`, `projects` from `egress.projects`, `kinds` from
+  `egress.kinds` (`egress.enabled` was never read, and still is not). A mixed config reads Jev from
+  the legacy keys and every other provider from its entry. The first write through the settings
+  surface to `egress.providers.jev.*` carries the legacy values over into the new entry, so the move
+  changes no behaviour; the old keys are left in the file and ignored from then on. The legacy
+  `egress.projects` / `egress.kinds` are no longer writable through the surface.
+- **Budget.** The input bound is still `jev.maxInputTokens`: the neutral input is prepared before a
+  model is chosen, so it is the same whichever provider is asked.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting
@@ -528,12 +563,13 @@ always safe.
   | `shadow` | boolean | — | — |
   | `context.enabled` | boolean | — | — |
   | `context.apply` | boolean | warning `evaluation-gated` ([ADR-0018](adr/0018-context-selection-seam.md)) | — |
-  | `learning.enabled` | boolean | egress allowlist: a project **and** `egress.kinds.skillReflection` ([ADR-0020](adr/0020-learning-persistence-and-egress.md)); warning `learning-draft-egress` | **yes**: the draft goes to the small model's provider |
+  | `learning.enabled` | boolean | the classifier's provider consent: a project **and** `kinds.skillReflection` (none for a local classifier) ([ADR-0020](adr/0020-learning-persistence-and-egress.md)); warning `learning-draft-egress` | **yes**: the draft goes to the small model's provider |
   | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
   | `guardrails.enabled` | boolean | a resolved `adaptive-token` ([ADR-0023](adr/0023-failure-loop-guardrails.md)); shown as "Loop warnings" | — |
-  | `jev.enabled` | boolean | egress allowlist: a project and a kind | **yes** |
-  | `egress.projects` | string[] | — | **yes** when it widens |
-  | `egress.kinds` | boolean-map | validated against `isDecisionKind` | **yes** when it widens |
+  | `jev.enabled` | boolean | Jev's consent: `egress.providers.jev.enabled`, a project and a kind | **yes** |
+  | `egress.providers.<id>.enabled` | boolean | that provider's project and a kind | **yes** |
+  | `egress.providers.<id>.projects` | string[] | — | **yes** when it widens |
+  | `egress.providers.<id>.kinds` | boolean-map | validated against `isDecisionKind` | **yes** when it widens |
   | `retention.enabled` | boolean | — | **yes** ([ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)) |
   | `budget.monthlyTokens` | number > 0 | — | — |
 
@@ -576,7 +612,7 @@ always safe.
   targets `OPENCODE_CONFIG_DIR`, or the reverse) survives and the effective value is not necessarily
   the default again. The panel says so and does not present deletion as an absolute guarantee of
   restoring the default.
-- **Open decision, non-blocking.** The egress allowlist UI offers only the **four kinds the server
+- **Open decision, non-blocking.** The provider consent UI offers only the **four kinds the server
   ships** — `completion`, `skillRelevance`, `contextItem`, `skillReflection`. A kind the writer would
   accept but the product does not implement yet is not rendered, so the panel never promises an
   allowlist entry that would do nothing. Widening the set is additive when a kind lands.

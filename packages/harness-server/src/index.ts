@@ -134,8 +134,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // The key comes from the environment, never from the config block (ADR-0017). The client is built
-  // always; the service only reaches it when a kind is assigned to Jev (by default: `jev.enabled`),
-  // the project is allowlisted and the kind is allowlisted, so an off install makes no call.
+  // always; the service only reaches it when a kind is assigned to Jev (by default: `jev.enabled`)
+  // and Jev's own consent (`egress.providers.jev`, or the legacy keys) lists the project and the kind,
+  // so an off install makes no call.
   const apiKey = process.env.TYPESAFE_API_KEY
   // FH-013: the model is wrapped with the strict per-attempt timeout, bounded retries and
   // `Retry-After`, so they are on the live path and not only in tests; a failure that survives them
@@ -152,11 +153,13 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   })
   // AH-C01: the static predictive-model registry. `adaptive.models.<kind>` picks one of these ids per
   // kind; without a `models` block every kind asks Jev when it is enabled, as before the registry.
+  // AH-C03: each remote model is asked only under its own `egress.providers.<id>` consent.
+  const models = [jev]
   const decisions = createDecisionService({
     repository,
     config: () => adaptive.current(),
     egress,
-    models: [jev],
+    models,
     governor,
   })
   // Context selection (FH-022/023 and the FH-024 seam): the manager owns `contextItem` — the scorer
@@ -260,6 +263,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     service: decisions,
     config: () => adaptive.current(),
     egress,
+    models,
     curator,
     drafter,
     smallModel: globalSmallModel,
@@ -302,6 +306,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     adaptiveTokenPresent: Boolean(adaptiveToken),
     env: process.env,
     smallModel: globalSmallModel,
+    models,
   })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),

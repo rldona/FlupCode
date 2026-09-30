@@ -221,6 +221,17 @@ describe("JevClient egress", () => {
     expect(failure).toMatchObject({ reason: "egress-denied" })
     expect(calls).toHaveLength(0)
   })
+
+  test("another provider's consent never lets Jev send a request", async () => {
+    const { fetch, calls } = recorder(() => json({}))
+    const consent = { enabled: true, projects: ["/work/project"], kinds: { completion: true } }
+    const egress = guard({ jev: { enabled: true }, egress: { providers: { "small-llm": consent } } })
+    const client = createJevClient({ fetch, egress, config: jevConfig })
+    const failure = await client.predictOne(stateOf(completion()), questions).catch((error: unknown) => error)
+
+    expect(failure).toMatchObject({ reason: "egress-denied" })
+    expect(calls).toHaveLength(0)
+  })
 })
 
 const signal = new AbortController().signal

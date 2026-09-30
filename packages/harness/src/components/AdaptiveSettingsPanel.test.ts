@@ -30,8 +30,9 @@ const WRITABLE: AdaptiveWritableField[] = [
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
-  { path: "egress.projects", type: "string-list", confirmation: "widening", guard: "none" },
-  { path: "egress.kinds", type: "kinds", confirmation: "widening", guard: "none" },
+  { path: "egress.providers.*.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
+  { path: "egress.providers.*.projects", type: "string-list", confirmation: "widening", guard: "none" },
+  { path: "egress.providers.*.kinds", type: "kinds", confirmation: "widening", guard: "none" },
   { path: "retention.enabled", type: "boolean", confirmation: "required", guard: "none" },
 ]
 
@@ -44,7 +45,7 @@ const view = (over: Partial<AdaptiveConfigView["effective"]> = {}, envDisabled =
     relevance: { enabled: false },
     guardrails: { enabled: false },
     jev: { enabled: false },
-    egress: { projects: [], kinds: {} },
+    egress: { providers: { jev: { enabled: false, projects: [], kinds: {} } } },
     retention: { enabled: false },
     budget: { monthlyTokens: 100000, hotReserveFraction: 0.2 },
     ...over,
@@ -68,6 +69,19 @@ const view = (over: Partial<AdaptiveConfigView["effective"]> = {}, envDisabled =
   usage: { month: "2026-09", tokensSpent: 0, calls: 0, monthlyTokens: 100000, hotReserveFraction: 0.2 },
   writable: WRITABLE,
 })
+
+/** A view whose providers carry the given consents, every other field at its default. */
+const consenting = (providers: Record<string, Partial<{ enabled: boolean; projects: string[]; kinds: Record<string, boolean> }>>) =>
+  view({
+    egress: {
+      providers: Object.fromEntries(
+        Object.entries({ jev: {}, ...providers }).map(([id, consent]) => [
+          id,
+          { enabled: false, projects: [], kinds: {}, ...consent },
+        ]),
+      ),
+    },
+  })
 
 describe("the patch a switch writes", () => {
   test("nests a dotted leaf", () => {
@@ -96,19 +110,42 @@ describe("which fields are offered", () => {
     expect(fieldProblem(field, view(), ["adaptive-relevance"])).toBeUndefined()
   })
 
-  test("learning needs a project and skillReflection in the allowlist", () => {
+  test("learning needs its classifier's consent for a project and skillReflection", () => {
     const field = writableField(view(), "learning.enabled")!
     expect(fieldProblem(field, view(), [])).toBe("egress-allowlist")
-    expect(fieldProblem(field, view({ egress: { projects: ["/p"], kinds: {} } }), [])).toBe("egress-allowlist")
+    expect(fieldProblem(field, consenting({ jev: { projects: ["/p"] } }), [])).toBe("egress-allowlist")
     expect(
-      fieldProblem(field, view({ egress: { projects: ["/p"], kinds: { skillReflection: true } } }), []),
+      fieldProblem(field, consenting({ jev: { projects: ["/p"], kinds: { skillReflection: true } } }), []),
+    ).toBeUndefined()
+    // Another provider's consent is not the classifier's.
+    const small = consenting({ "small-llm": { projects: ["/p"], kinds: { skillReflection: true } } })
+    expect(fieldProblem(field, small, [])).toBe("egress-allowlist")
+    const assigned = { ...small, effective: { ...small.effective, models: { skillReflection: "small-llm" } } }
+    expect(fieldProblem(field, assigned, [])).toBeUndefined()
+  })
+
+  test("jev needs its own consent on, with any project and any kind", () => {
+    const field = writableField(view(), "jev.enabled")!
+    expect(fieldProblem(field, view(), [])).toBe("egress-allowlist")
+    expect(fieldProblem(field, consenting({ jev: { projects: ["/p"], kinds: { completion: true } } }), [])).toBe(
+      "egress-allowlist",
+    )
+    expect(
+      fieldProblem(field, consenting({ jev: { enabled: true, projects: ["/p"], kinds: { completion: true } } }), []),
     ).toBeUndefined()
   })
 
-  test("jev needs any project and any kind", () => {
-    const field = writableField(view(), "jev.enabled")!
-    expect(fieldProblem(field, view(), [])).toBe("egress-allowlist")
-    expect(fieldProblem(field, view({ egress: { projects: ["/p"], kinds: { completion: true } } }), [])).toBeUndefined()
+  test("a provider's consent is found through the descriptor and needs that provider's project and kind", () => {
+    const field = writableField(view(), "egress.providers.small-llm.enabled")!
+    expect(field.path).toBe("egress.providers.*.enabled")
+    const path = "egress.providers.small-llm.enabled"
+    const jevOnly = consenting({ jev: { enabled: true, projects: ["/p"], kinds: { completion: true } } })
+    expect(fieldProblem(field, jevOnly, [], path)).toBe("egress-allowlist")
+    const ready = consenting({ "small-llm": { projects: ["/p"], kinds: { completion: true } } })
+    expect(fieldProblem(field, ready, [], path)).toBeUndefined()
+    expect(problemKey("egress-allowlist")).toBe(
+      "Enabling this needs the provider's egress consent, with a project and a kind, first.",
+    )
   })
 
   test("a field the server does not list is never found", () => {
@@ -133,7 +170,7 @@ describe("which fields are offered", () => {
 
   test("a field whose guard is met is offered", () => {
     expect(fieldProblem(writableField(view(), "context.apply")!, view(), [])).toBeUndefined()
-    expect(fieldProblem(writableField(view(), "egress.projects")!, view(), [])).toBeUndefined()
+    expect(fieldProblem(writableField(view(), "egress.providers.jev.projects")!, view(), [])).toBeUndefined()
     expect(fieldProblem(writableField(view(), "shadow")!, view(), [])).toBeUndefined()
   })
 })
@@ -145,13 +182,25 @@ describe("which writes need confirming", () => {
     expect(needsConfirmation("jev.enabled", true, view())).toBe(true)
   })
 
-  test("egress only when it widens", () => {
-    const before = view({ egress: { projects: ["/p"], kinds: { completion: true } } })
-    expect(needsConfirmation("egress.projects", ["/p", "/q"], before)).toBe(true)
-    expect(needsConfirmation("egress.projects", ["/p"], before)).toBe(false)
-    expect(needsConfirmation("egress.projects", [], before)).toBe(false)
-    expect(needsConfirmation("egress.kinds", { completion: true, skillRelevance: true }, before)).toBe(true)
-    expect(needsConfirmation("egress.kinds", { completion: false }, before)).toBe(false)
+  test("a provider's consent only when it widens that provider's", () => {
+    const before = consenting({ jev: { projects: ["/p"], kinds: { completion: true } } })
+    expect(needsConfirmation("egress.providers.jev.projects", ["/p", "/q"], before)).toBe(true)
+    expect(needsConfirmation("egress.providers.jev.projects", ["/p"], before)).toBe(false)
+    expect(needsConfirmation("egress.providers.jev.projects", [], before)).toBe(false)
+    expect(needsConfirmation("egress.providers.jev.kinds", { completion: true, skillRelevance: true }, before)).toBe(true)
+    expect(needsConfirmation("egress.providers.jev.kinds", { completion: false }, before)).toBe(false)
+    // Jev's projects are not small-llm's: the same list widens a provider that has none.
+    expect(needsConfirmation("egress.providers.small-llm.projects", ["/p"], before)).toBe(true)
+    expect(needsConfirmation("egress.providers.small-llm.kinds", { completion: true }, before)).toBe(true)
+  })
+
+  test("turning a provider's consent on asks, and the dialog names that provider only", () => {
+    expect(needsConfirmation("egress.providers.small-llm.enabled", true, view())).toBe(true)
+    expect(needsConfirmation("egress.providers.small-llm.enabled", false, view())).toBe(false)
+    const message = confirmationMessage("egress.providers.small-llm.enabled", true, view())
+    expect(message).toContain("sent to small-llm")
+    expect(message).toContain("covers small-llm only")
+    expect(message).not.toContain("jev")
   })
 
   test("learning asks when it is being turned on, since its draft leaves the machine", () => {
@@ -254,7 +303,7 @@ describe("the switches the master stops", () => {
     const off = view({ enabled: false })
     expect(inactiveByMaster(off, "retention.enabled")).toBe(false)
     expect(inactiveByMaster(off, "enabled")).toBe(false)
-    expect(inactiveByMaster(off, "egress.projects")).toBe(false)
+    expect(inactiveByMaster(off, "egress.providers.jev.enabled")).toBe(false)
   })
 
   test("with the master on, nothing is inactive", () => {
