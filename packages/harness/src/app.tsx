@@ -145,7 +145,7 @@ import { BestOfNDialog, type BestOfNLaunch } from "./components/BestOfNDialog"
 import { ReplayPanel } from "./components/ReplayPanel"
 import { ComparePanel } from "./components/ComparePanel"
 import { DecisionsPanel } from "./components/DecisionsPanel"
-import { GuardrailBanner } from "./components/GuardrailBanner"
+import { GuardrailBanner, guardrailFor, type GuardrailReading } from "./components/GuardrailBanner"
 import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
@@ -504,6 +504,12 @@ export const App: Component = () => {
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
   const decisionsOpen = () => screen() === "decisions"
+  // The decision the guardrail banner asked to open (AH-E03); it lasts while the screen is open, so
+  // reaching the screen any other way later opens no stale decision.
+  const [decisionFocus, setDecisionFocus] = createSignal<string>()
+  createEffect(() => {
+    if (!decisionsOpen()) setDecisionFocus(undefined)
+  })
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
@@ -1056,38 +1062,6 @@ export const App: Component = () => {
       )
       .finally(() => setAdaptiveSaving(false))
   }
-
-  // The live guardrail advisory (FH-062, ADR-0023). It reads the read-only `status` route while a
-  // session is selected and the server announced the surface; the tick re-reads it so a loop appears
-  // and clears on its own. The dismissal is per `decisionID` and in memory only, and a new loop —
-  // a new id — arms it again; switching sessions forgets it.
-  const [guardrailTick, setGuardrailTick] = createSignal(0)
-  const [guardrailDismissed, setGuardrailDismissed] = createSignal<string>()
-  const [guardrailStatus] = createResource(
-    () => {
-      const url = harnessServerUrl()
-      const sessionID = selected()
-      if (!url || !sessionID || !adaptiveSurfaces(harnessCapabilities()).guardrails) return undefined
-      return { url, sessionID, tick: guardrailTick() }
-    },
-    (input) => createHarnessClient(input.url).adaptive.guardrails.status(input.sessionID),
-  )
-  const liveGuardrail = () => {
-    const status = guardrailStatus()
-    if (!status || guardrailDismissed() === status.decisionID) return undefined
-    return status
-  }
-  createEffect(() => {
-    selected()
-    setGuardrailDismissed(undefined)
-  })
-  createEffect(() => {
-    const url = harnessServerUrl()
-    const sessionID = selected()
-    if (!url || !sessionID || !adaptiveSurfaces(harnessCapabilities()).guardrails) return
-    const timer = setInterval(() => setGuardrailTick((value) => value + 1), 5000)
-    onCleanup(() => clearInterval(timer))
-  })
 
   const [packs, setPacks] = createSignal<ContextPack[]>([])
 
@@ -1964,6 +1938,50 @@ export const App: Component = () => {
     const time = (last as { time?: { completed?: number } }).time
     return time !== undefined && time.completed === undefined
   }
+  // The live guardrail advisory (FH-062, ADR-0023; AH-E03). There is no guardrail event, so the
+  // read-only `status` route is polled, but only while the open session is generating and the tab is
+  // visible: an idle session or a hidden tab costs nothing. Every reading is stamped with the session
+  // it was asked for, and one that lands after the session changed is dropped, so a warning never
+  // shows in another session. The dismissal is per `decisionID` and in memory only; a new loop — a
+  // new id — arms it again, and switching sessions forgets it.
+  const [guardrailReading, setGuardrailReading] = createSignal<GuardrailReading>()
+  const [guardrailDismissed, setGuardrailDismissed] = createSignal<string>()
+  const [pageVisible, setPageVisible] = createSignal(document.visibilityState === "visible")
+  const onVisibilityChange = () => setPageVisible(document.visibilityState === "visible")
+  document.addEventListener("visibilitychange", onVisibilityChange)
+  onCleanup(() => document.removeEventListener("visibilitychange", onVisibilityChange))
+  const liveGuardrail = () => guardrailFor(guardrailReading(), selected(), guardrailDismissed())
+  createEffect(() => {
+    selected()
+    setGuardrailReading(undefined)
+    setGuardrailDismissed(undefined)
+  })
+  createEffect(() => {
+    const url = harnessServerUrl()
+    const sessionID = selected()
+    if (!url || !sessionID || !adaptiveSurfaces(harnessCapabilities()).guardrails) return
+    // A finished turn has no live loop left to warn about.
+    if (!generating()) {
+      setGuardrailReading(undefined)
+      return
+    }
+    if (!pageVisible()) return
+    const state = { live: true }
+    const read = () =>
+      createHarnessClient(url)
+        .adaptive.guardrails.status(sessionID)
+        .then((status) => {
+          if (!state.live || untrack(selected) !== sessionID) return
+          setGuardrailReading(status ? { sessionID, status } : undefined)
+        })
+        .catch(() => undefined)
+    void read()
+    const timer = setInterval(read, 5000)
+    onCleanup(() => {
+      state.live = false
+      clearInterval(timer)
+    })
+  })
   /**
    * Whether the session is being folded right now. A compaction is a turn of its own — the engine
    * writes its summary as an assistant message — so the status line reads like any other answer
@@ -5711,6 +5729,7 @@ export const App: Component = () => {
                 serverUrl={harnessServerUrl()}
                 sessionID={selected()}
                 capabilities={harnessCapabilities()}
+                focusID={decisionFocus()}
                 onClose={() => leaveScreen()}
               />
             </PanelBoundary>
@@ -5886,15 +5905,15 @@ export const App: Component = () => {
             }
           >
             <PanelBoundary name={t("The conversation")}>
-              <Show when={liveGuardrail()}>
-                {(status) => (
-                  <GuardrailBanner
-                    status={status()}
-                    onViewDecisions={() => showScreen("decisions")}
-                    onDismiss={() => setGuardrailDismissed(status().decisionID)}
-                  />
-                )}
-              </Show>
+              <GuardrailBanner
+                status={liveGuardrail()}
+                onViewDecision={(decisionID) => {
+                  setDecisionFocus(decisionID)
+                  showScreen("decisions")
+                }}
+                onStopTurn={stopSession}
+                onDismiss={() => setGuardrailDismissed(liveGuardrail()?.decisionID)}
+              />
               <SessionView
                 messages={activeMessages()}
                 sessionKey={selected()}

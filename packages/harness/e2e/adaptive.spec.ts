@@ -90,6 +90,10 @@ type Calls = {
   reviews: Array<{ path: string; body: unknown }>
   /** The query of every read of the live guardrail advisory, to pin the session it names. */
   guardrailQueries: string[]
+  /** The query of every guardrail read the mock has answered, so a slow one can be waited for. */
+  guardrailAnswered: string[]
+  /** Every engine POST, by path, to see a turn being stopped. */
+  enginePosts: string[]
 }
 
 type Options = {
@@ -111,8 +115,14 @@ type Options = {
   plans?: unknown[]
   proposals?: unknown[]
   learnedSkills?: unknown[]
-  /** What `GET /harness/adaptive/guardrails/status` answers; read on every tick, so a thunk. */
-  guardrailsStatus?: () => unknown
+  /** What `GET /harness/adaptive/guardrails/status` answers per session; read on every tick, so a thunk. */
+  guardrailsStatus?: (sessionID: string) => unknown
+  /** How long the guardrail read of a session takes to answer, to race a session switch. */
+  guardrailsDelay?: (sessionID: string) => number
+  /** The sessions the engine reports as running; read on every poll, so a turn can end. */
+  running?: () => string[]
+  /** The session list; the default is the one "Adaptive" session. */
+  sessions?: unknown[]
 }
 
 /**
@@ -121,7 +131,7 @@ type Options = {
  * "capability absent" tests lean on.
  */
 async function openApp(page: Page, options: Options = {}) {
-  const calls: Calls = { asked: [], patches: [], reviews: [], guardrailQueries: [] }
+  const calls: Calls = { asked: [], patches: [], reviews: [], guardrailQueries: [], guardrailAnswered: [], enginePosts: [] }
   const capabilities = options.capabilities ?? []
   // The settings panel re-reads the view after every write, so the mock has to remember what the
   // last answer left behind; otherwise the panel would snap back to the pre-write state.
@@ -193,16 +203,30 @@ async function openApp(page: Page, options: Options = {}) {
     if (url.pathname === "/harness/adaptive/guardrails/status") {
       calls.asked.push("guardrails")
       calls.guardrailQueries.push(url.search)
-      return route.fulfill({ json: { data: options.guardrailsStatus?.() ?? null } })
+      const sessionID = url.searchParams.get("sessionID") ?? ""
+      return new Promise((resolve) => setTimeout(resolve, options.guardrailsDelay?.(sessionID) ?? 0))
+        .then(() => route.fulfill({ json: { data: options.guardrailsStatus?.(sessionID) ?? null } }))
+        .then(() => calls.guardrailAnswered.push(url.search))
+        .catch(() => undefined)
     }
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ json: { data: [] } })
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
+    if (route.request().method() === "POST") calls.enginePosts.push(url.pathname)
     if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/session")
+      return route.fulfill({ json: { data: options.sessions ?? [session], cursor: {} } })
+    if (url.pathname === "/api/session/active")
+      return route.fulfill({
+        json: { data: Object.fromEntries((options.running?.() ?? []).map((id) => [id, { type: "running" }])) },
+      })
+    if (url.pathname === "/session/status")
+      return route.fulfill({
+        json: Object.fromEntries((options.running?.() ?? []).map((id) => [id, { type: "busy" }])),
+      })
+    if (/^\/session\/[^/]+\/abort$/.test(url.pathname)) return route.fulfill({ json: true })
     if (url.pathname === "/experimental/tool/ids") return route.fulfill({ json: ["bash", "read", "edit"] })
     if (url.pathname === "/api/skill")
       return route.fulfill({ json: { data: [{ name: "effect", description: "Work with Effect v4" }] } })
@@ -772,34 +796,50 @@ const loopStatus = () => ({
   at: now,
 })
 
+const running = () => ["ses_ad"]
+
 test("a server without adaptive-guardrails shows no banner and is never asked", async ({ page }) => {
-  const calls = await openApp(page, { capabilities: [] })
+  const calls = await openApp(page, { capabilities: [], running })
   await page.goto("/")
 
   await expect(page.locator(".fc-guardrail-banner")).toHaveCount(0)
   expect(calls.asked).not.toContain("guardrails")
 })
 
-test("a live loop paints the advisory banner, and dismissing it hides it", async ({ page }) => {
-  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: loopStatus })
+test("a live loop paints the actionable banner, announced through a permanent live region", async ({ page }) => {
+  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: loopStatus, running })
   await page.goto("/")
+
+  // The live region is there before any warning, so the screen reader hears it when text arrives.
+  const live = page.locator('.fc-sr-only[role="status"]')
+  await expect(live).toHaveCount(1)
 
   const banner = page.locator(".fc-guardrail-banner")
   await expect(banner).toBeVisible()
-  await expect(banner).toContainText("Guardrail warning")
+  await expect(banner).toContainText("Possible loop")
   await expect(banner).toContainText("3 identical calls to bash in a row")
+  await expect(live).toHaveText("Possible loop: 3 identical calls to bash in a row")
 
   // The read names the session the panel has selected, not some other one.
   expect(calls.guardrailQueries[0]).toBe("?sessionID=ses_ad")
 
-  await banner.getByRole("button", { name: "Dismiss" }).click()
+  // The close control meets the 32px hit target.
+  const close = banner.getByRole("button", { name: "Dismiss" })
+  const box = await close.boundingBox()
+  expect(box?.width).toBeGreaterThanOrEqual(32)
+  expect(box?.height).toBeGreaterThanOrEqual(32)
+
+  await close.click()
   await expect(banner).toHaveCount(0)
+  // The region stays mounted; only its text goes.
+  await expect(live).toHaveCount(1)
+  await expect(live).toHaveText("")
 })
 
 test("the surface with no live loop is read but paints no banner", async ({ page }) => {
   // With the feature off or the runtime off-legacy the server keeps the surface but projects null,
-  // so the panel keeps asking and shows nothing.
-  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: () => null })
+  // so the panel keeps asking while the turn runs and shows nothing.
+  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: () => null, running })
   await page.goto("/")
 
   await expect.poll(() => calls.asked).toContain("guardrails")
@@ -808,7 +848,7 @@ test("the surface with no live loop is read but paints no banner", async ({ page
 
 test("a new loop with a new decisionID arms the banner again", async ({ page }) => {
   let current = loopStatus()
-  await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: () => current })
+  await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: () => current, running })
   await page.goto("/")
 
   const banner = page.locator(".fc-guardrail-banner")
@@ -819,4 +859,102 @@ test("a new loop with a new decisionID arms the banner again", async ({ page }) 
   // The next read names a different loop, so the dismissal no longer applies.
   current = { ...loopStatus(), decisionID: "failure:ses_ad:bash:b" }
   await expect(banner).toBeVisible({ timeout: 10_000 })
+})
+
+// ── AH-E03: an actionable banner that only polls while it matters ────────────────────────────────
+
+test("an idle session is never polled for guardrails", async ({ page }) => {
+  const calls = await openApp(page, { capabilities: ["adaptive-guardrails"], guardrailsStatus: loopStatus })
+  await page.goto("/")
+
+  await expect(page.locator(".fc-session-row", { hasText: "Adaptive" }).first()).toBeVisible()
+  // Longer than one polling interval: a single read would have landed by now.
+  await page.waitForTimeout(6_000)
+  expect(calls.guardrailQueries).toHaveLength(0)
+  await expect(page.locator(".fc-guardrail-banner")).toHaveCount(0)
+})
+
+test("the polling stops when the turn ends and while the tab is hidden", async ({ page }) => {
+  let busy = ["ses_ad"]
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-guardrails"],
+    guardrailsStatus: loopStatus,
+    running: () => busy,
+  })
+  await page.goto("/")
+  const banner = page.locator(".fc-guardrail-banner")
+  await expect(banner).toBeVisible()
+
+  // A hidden tab stops asking.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+  })
+  const hidden = calls.guardrailQueries.length
+  await page.waitForTimeout(6_000)
+  expect(calls.guardrailQueries).toHaveLength(hidden)
+
+  // Coming back asks again at once.
+  await page.evaluate(() => {
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true })
+    document.dispatchEvent(new Event("visibilitychange"))
+  })
+  await expect.poll(() => calls.guardrailQueries.length).toBeGreaterThan(hidden)
+
+  // The turn ends: the warning goes with it and nothing more is asked.
+  busy = []
+  await expect(banner).toHaveCount(0, { timeout: 10_000 })
+  const ended = calls.guardrailQueries.length
+  await page.waitForTimeout(6_000)
+  expect(calls.guardrailQueries).toHaveLength(ended)
+})
+
+test("a slow answer for one session never paints its warning in the next one", async ({ page }) => {
+  const other = { ...session, id: "ses_b", title: "Other" }
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-guardrails"],
+    sessions: [session, other],
+    running: () => ["ses_ad", "ses_b"],
+    // Only the first session has a loop, and its answer is slow enough to land after the switch.
+    guardrailsStatus: (sessionID) => (sessionID === "ses_ad" ? loopStatus() : null),
+    guardrailsDelay: (sessionID) => (sessionID === "ses_ad" ? 3_000 : 0),
+  })
+  await page.goto("/")
+
+  await expect.poll(() => calls.guardrailQueries).toContain("?sessionID=ses_ad")
+  await page.locator(".fc-session-row", { hasText: "Other" }).first().click()
+  await expect(page.locator(".fc-session-row-active")).toContainText("Other")
+  await expect.poll(() => calls.guardrailQueries).toContain("?sessionID=ses_b")
+
+  // The slow answer for the first session lands while the second is open, and paints nothing.
+  await expect.poll(() => calls.guardrailAnswered, { timeout: 10_000 }).toContain("?sessionID=ses_ad")
+  // Checked once, not retried: a retrying assertion would pass once the next read for the second
+  // session overwrote a wrongly painted warning.
+  await page.waitForTimeout(500)
+  expect(await page.locator(".fc-guardrail-banner").count()).toBe(0)
+  expect(await page.locator('.fc-sr-only[role="status"]').textContent()).toBe("")
+
+  // Back on the first session its own loop shows again.
+  await page.locator(".fc-session-row", { hasText: "Adaptive" }).first().click()
+  await expect(page.locator(".fc-guardrail-banner")).toBeVisible({ timeout: 10_000 })
+})
+
+test("View decision opens that decision, and Stop turn aborts the running turn", async ({ page }) => {
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-guardrails", "adaptive-decisions"],
+    guardrailsStatus: loopStatus,
+    running,
+    explain: (id) => ({ json: { data: explanationOf(id, "Is this a loop?") } }),
+  })
+  await page.goto("/")
+
+  const banner = page.locator(".fc-guardrail-banner")
+  await banner.getByRole("button", { name: "Stop turn" }).click()
+  await expect.poll(() => calls.enginePosts).toContain("/session/ses_ad/abort")
+
+  await banner.getByRole("button", { name: "View decision" }).click()
+  await expect(page).toHaveURL(/\/decisions$/)
+  const dialog = page.getByRole("dialog", { name: "Decision" })
+  await expect(dialog).toContainText("failure:ses_ad:bash:a")
+  await expect(dialog).toContainText("Is this a loop?")
 })
