@@ -711,12 +711,17 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                           <Show when={skill.usage}>
                             {(usage) => (
                               <span class="fc-context-aside">
-                                {t("{loads} loads · {uses} opportunities", {
-                                  loads: usage().load,
-                                  uses: usage().opportunities,
+                                {t("Used in {used} of {sessions} sessions", {
+                                  used: usage().load,
+                                  sessions: usage().opportunities,
                                 })}
                               </span>
                             )}
+                          </Show>
+                          <Show when={skill.suggestArchive && !skill.disabled}>
+                            <span class="fc-context-aside fc-skill-archive-hint">
+                              {t("Unused in {count} sessions · Archive?", { count: skill.sessionsSinceUse ?? 0 })}
+                            </span>
                           </Show>
                           <span class="fc-skill-review-actions">
                             <Show when={skill.path}>

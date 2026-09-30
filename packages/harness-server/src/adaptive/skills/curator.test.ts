@@ -15,7 +15,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { skillReport } from "../../skills"
 import type { SkillProposal } from "../learning/proposal"
-import { COUNTED_EPISODES_KEEP, createLearnedStore, learnedRoots, SNAPSHOT_KEEP } from "./learned-store"
+import { COUNTED_SESSIONS_KEEP, createLearnedStore, learnedRoots, SNAPSHOT_KEEP } from "./learned-store"
 import { createSkillCurator } from "./curator"
 
 let root = ""
@@ -98,8 +98,10 @@ describe("promotion (FH-041)", () => {
       state: "probation",
       createdBy: "skillReflection",
       usage: { load: 0, view: 0, patch: 0, opportunities: 0 },
-      since: { load: 0, view: 0, patch: 0, opportunities: 0 },
+      sessionsSinceUse: 0,
+      usageSource: "engine",
     })
+    expect(sidecar.lastUsedAt).toBeUndefined()
     expect(readFileSync(join(learned, "fix-failing-test", ".ledger.jsonl"), "utf8")).toContain('"event":"created"')
     expect(skillReport(project, project).find((file) => file.name === "fix-failing-test")).toMatchObject({
       loaded: true,
@@ -192,7 +194,7 @@ describe("the learning kill switch stops usage writes (FH-043)", () => {
     expect(existsSync(join(learned, "fix-failing-test"))).toBe(false)
   })
 
-  test("with learning off a selection records nothing, while the roster still reads for the shadow", () => {
+  test("with learning off a closed session records nothing, while the roster still reads for the shadow", () => {
     const created = store()
     expect(
       created.write({ projectID: project, name: "gated", description: "Use when gated", body: body() }).ok,
@@ -207,7 +209,7 @@ describe("the learning kill switch stops usage writes (FH-043)", () => {
     // The shadow still needs the roster to evaluate relevance; only the writer is inert.
     const roster = off.roster(project)
     expect(roster.some((entry) => entry.name === "gated" && entry.learned)).toBe(true)
-    off.recordSelection({ projectID: project, roster, loaded: ["gated"] })
+    off.recordSession({ projectID: project, sessionID: "ses_1", skills: ["gated"] })
 
     expect(readFileSync(sidecarPath).equals(beforeSidecar)).toBe(true)
     expect(readFileSync(ledgerPath).equals(beforeLedger)).toBe(true)
@@ -216,7 +218,7 @@ describe("the learning kill switch stops usage writes (FH-043)", () => {
 
     // With the switch on, the same call moves the counters.
     const on = createSkillCurator({ store: created, enabled: () => true })
-    on.recordSelection({ projectID: project, roster: on.roster(project), loaded: ["gated"] })
+    on.recordSession({ projectID: project, sessionID: "ses_1", skills: ["gated"] })
     expect(store().readSidecar(project, "gated")!.usage).toMatchObject({ load: 1, opportunities: 1 })
   })
 
@@ -267,7 +269,7 @@ describe("human skills are never touched", () => {
 
     const skills = curator()
     skills.promote(proposal())
-    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["fix-failing-test"] })
+    skills.recordSession({ projectID: project, sessionID: "ses_1", skills: ["fix-failing-test"] })
     skills.promote(proposal({ intent: "patch", targetSkill: "fix-failing-test", body: body("Patched. ") }))
     skills.recompute(project)
     skills.archive(project, "fix-failing-test", "test")
@@ -308,7 +310,7 @@ describe("reverse collision: the human wins (FH-081, ADR-0022 §4)", () => {
     // `skillReport` is first-wins and can mark the learned one loaded; the roster still drops it.
     expect(skills.roster(project).some((entry) => entry.name === "shared")).toBe(false)
 
-    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["shared"] })
+    skills.recordSession({ projectID: project, sessionID: "ses_1", skills: ["shared"] })
     expect(created.readSidecar(project, "shared")!.usage).toMatchObject({ opportunities: 0, load: 0 })
     // The human file is byte-identical: nothing touched it.
     expect(readFileSync(humanPath(), "utf8")).toBe(humanSkill("shared"))
@@ -417,7 +419,7 @@ describe("a repository-committed learned skill is never acted on (AH-A03)", () =
       description: "Use when deploying",
       learned: true,
     })
-    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["shared"] })
+    skills.recordSession({ projectID: project, sessionID: "ses_1", skills: ["shared"] })
     expect(skills.recompute(project, 1_000)).toEqual([])
     expect(skills.readExisting(project, "shared")).toBeUndefined()
     expect(skills.promote(proposal({ intent: "patch", targetSkill: "shared", name: "shared" }))).toEqual({
@@ -451,47 +453,66 @@ describe("cross-project isolation: a learned skill never leaks or collides acros
   })
 })
 
-describe("a selection counts once per episode (AH-A07)", () => {
+describe("a real session counts once (AH-A07, AH-F02)", () => {
   const usageEvents = () =>
     readFileSync(join(learned, "fix-failing-test", ".ledger.jsonl"), "utf8")
       .trim()
       .split("\n")
       .filter((line) => JSON.parse(line).event === "usage")
 
-  test("a repeated report of one episode moves the counters once; another episode moves them again", () => {
+  test("a repeated close of one session moves the counters once; another session moves them again", () => {
     const skills = curator()
     expect(skills.promote(proposal()).ok).toBe(true)
-    const select = (episodeID: string) =>
-      skills.recordSelection({ projectID: project, episodeID, roster: skills.roster(project), loaded: ["fix-failing-test"] })
+    const close = (sessionID: string) =>
+      skills.recordSession({ projectID: project, sessionID, skills: ["fix-failing-test"] })
 
-    select("episode:run:a")
-    select("episode:run:a")
+    close("ses_a")
+    close("ses_a")
     expect(store().readSidecar(project, "fix-failing-test")!.usage).toMatchObject({ load: 1, opportunities: 1 })
     expect(usageEvents()).toHaveLength(1)
 
-    select("episode:run:b")
+    close("ses_b")
     expect(store().readSidecar(project, "fix-failing-test")!.usage).toMatchObject({ load: 2, opportunities: 2 })
   })
 
-  test("a patch keeps the memory of the episodes its counters already include", () => {
+  test("a patch keeps the memory of the sessions its counters already include, and restarts the unused count", () => {
     const skills = curator()
     skills.promote(proposal())
-    skills.recordSelection({ projectID: project, episodeID: "episode:run:a", roster: skills.roster(project), loaded: [] })
+    skills.recordSession({ projectID: project, sessionID: "ses_a", skills: [] })
+    expect(store().readSidecar(project, "fix-failing-test")!.sessionsSinceUse).toBe(1)
     expect(skills.promote(proposal({ intent: "patch", targetSkill: "fix-failing-test", body: body("Patched. ") })).ok).toBe(
       true,
     )
-    skills.recordSelection({ projectID: project, episodeID: "episode:run:a", roster: skills.roster(project), loaded: [] })
+    expect(store().readSidecar(project, "fix-failing-test")).toMatchObject({ state: "probation", sessionsSinceUse: 0 })
+    skills.recordSession({ projectID: project, sessionID: "ses_a", skills: [] })
     expect(store().readSidecar(project, "fix-failing-test")!.usage.opportunities).toBe(1)
   })
 
-  test("the memory is bounded: only the most recent episodes are remembered", () => {
+  test("the memory is bounded: only the most recent sessions are remembered", () => {
     const skills = curator()
     skills.promote(proposal())
-    const episodes = Array.from({ length: COUNTED_EPISODES_KEEP + 3 }, (_, index) => `episode:run:${index}`)
-    for (const episodeID of episodes)
-      skills.recordSelection({ projectID: project, episodeID, roster: skills.roster(project), loaded: [] })
+    const sessions = Array.from({ length: COUNTED_SESSIONS_KEEP + 3 }, (_, index) => `ses_${index}`)
+    for (const sessionID of sessions) skills.recordSession({ projectID: project, sessionID, skills: [] })
     const sidecar = store().readSidecar(project, "fix-failing-test")!
-    expect(sidecar.usage.opportunities).toBe(episodes.length)
-    expect(sidecar.countedEpisodes).toEqual(episodes.slice(-COUNTED_EPISODES_KEEP))
+    expect(sidecar.usage.opportunities).toBe(sessions.length)
+    expect(sidecar.countedSessions?.map((entry) => entry.id)).toEqual(sessions.slice(-COUNTED_SESSIONS_KEEP))
+  })
+})
+
+describe("the curator suggests archiving and never archives by itself (AH-F02)", () => {
+  test("a skill used in a real session never appears among the suggestions", () => {
+    const skills = createSkillCurator({ store: store(), config: () => ({ archiveAfter: 2 }) })
+    skills.promote(proposal())
+    skills.promote(proposal({ name: "quiet-skill", episodeID: "episode:run:2" }))
+    for (let index = 0; index < 10; index++) {
+      skills.recordSession({ projectID: project, sessionID: `ses_${index}`, skills: ["fix-failing-test"] })
+      expect(skills.recompute(project).map((entry) => entry.name)).not.toContain("fix-failing-test")
+    }
+    expect(skills.recompute(project)).toEqual([{ name: "quiet-skill", unusedSessions: 10 }])
+    // A suggestion is only a suggestion: both skills are still loaded, and nothing is `stale`.
+    expect(skills.roster(project).filter((entry) => entry.learned).map((entry) => entry.state)).toEqual([
+      "mature",
+      "probation",
+    ])
   })
 })

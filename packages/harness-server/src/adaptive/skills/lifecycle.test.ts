@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { SkillUsage } from "./learned-store"
-import { createLearnedStore, learnedRoots } from "./learned-store"
-import { DEFAULT_LIFECYCLE_CONFIG, nextSkillState } from "./lifecycle"
+import { COUNTED_SESSIONS_KEEP, createLearnedStore, learnedRoots, SIDECAR_FILE } from "./learned-store"
+import type { SkillUse } from "./lifecycle"
+import { DEFAULT_LIFECYCLE_CONFIG, foldSession, suggestsArchive } from "./lifecycle"
 import { createSkillCurator } from "./curator"
 
 const usage = (over: Partial<SkillUsage> = {}): SkillUsage => ({
@@ -15,85 +16,89 @@ const usage = (over: Partial<SkillUsage> = {}): SkillUsage => ({
   ...over,
 })
 
-describe("the lifecycle machine (FH-042)", () => {
-  const config = { probationSample: 3, staleAfter: 4, archiveAfter: 5 }
+const fresh = (over: Partial<SkillUse> = {}): SkillUse => ({
+  state: "probation",
+  usage: usage(),
+  sessionsSinceUse: 0,
+  ...over,
+})
 
-  test("a fresh skill installs into probation and waits for its sample", () => {
-    expect(nextSkillState({ state: "probation", usage: usage({ opportunities: 2 }), config })).toMatchObject({
-      changed: false,
-      state: "probation",
-    })
-  })
-
-  test("a selected probation skill graduates; a never-selected one ages out", () => {
-    const graduated = nextSkillState({ state: "probation", usage: usage({ opportunities: 3, load: 1 }), config })
-    expect(graduated).toMatchObject({ changed: true, from: "probation", to: "mature", reason: "graduated" })
-
-    const stale = nextSkillState({ state: "probation", usage: usage({ opportunities: 3 }), config })
-    expect(stale).toMatchObject({ changed: true, from: "probation", to: "stale", reason: "no-recall" })
-  })
-
-  test("probation is not evictable: it never reaches archived, whatever the opportunities", () => {
-    for (let opportunities = 0; opportunities <= 50; opportunities++) {
-      const decision = nextSkillState({ state: "probation", usage: usage({ opportunities }), config })
-      if (decision.changed) expect(decision.to).not.toBe("archived")
-    }
-  })
-
-  test("a mature skill with recent use stays; without it ages to stale", () => {
-    const base = usage({ opportunities: 3, load: 1 })
-    const recent = usage({ opportunities: 6, load: 2 })
-    expect(nextSkillState({ state: "mature", usage: recent, since: base, config })).toMatchObject({
-      changed: false,
+describe("the single-sidecar lifecycle (AH-F02)", () => {
+  test("a used session counts a load, resets the unused count and promotes probation", () => {
+    const folded = foldSession(fresh({ sessionsSinceUse: 7 }), { id: "ses_a", used: true, at: 50 })!
+    expect(folded.next).toMatchObject({
       state: "mature",
+      usage: { load: 1, opportunities: 1 },
+      lastUsedAt: 50,
+      sessionsSinceUse: 0,
+      countedSessions: [{ id: "ses_a", used: true }],
     })
-    expect(nextSkillState({ state: "mature", usage: recent, since: base, config }).since).toEqual(recent)
-
-    const quiet = usage({ opportunities: 7, load: 1 })
-    expect(nextSkillState({ state: "mature", usage: quiet, since: base, config })).toMatchObject({
-      changed: true,
-      from: "mature",
-      to: "stale",
-      reason: "no-recent-use",
-    })
+    expect(folded.events).toEqual([
+      { at: 50, event: "usage", kind: "load", total: 1 },
+      { at: 50, event: "state", from: "probation", to: "mature", reason: "used" },
+    ])
   })
 
-  test("a stale skill is archived only when its window had no load or view", () => {
-    const base = usage({ opportunities: 7, load: 1 })
-    const used = usage({ opportunities: 12, load: 2 })
-    expect(nextSkillState({ state: "stale", usage: used, since: base, config })).toMatchObject({
-      changed: false,
-      state: "stale",
-    })
-
-    const quiet = usage({ opportunities: 12, load: 1 })
-    expect(nextSkillState({ state: "stale", usage: quiet, since: base, config })).toMatchObject({
-      changed: true,
-      from: "stale",
-      to: "archived",
-      reason: "aged-out",
-    })
+  test("an unused session only advances the unused count, and never changes the state", () => {
+    const folded = foldSession(fresh({ state: "mature" }), { id: "ses_a", used: false, at: 50 })!
+    expect(folded.next).toMatchObject({ state: "mature", usage: { load: 0, opportunities: 1 }, sessionsSinceUse: 1 })
+    expect(folded.next.lastUsedAt).toBeUndefined()
+    expect(folded.events).toEqual([])
   })
 
-  test("a patch returns the skill to probation, and terminal states never move", () => {
-    expect(nextSkillState({ state: "mature", usage: usage({ opportunities: 9 }), patched: true, config })).toMatchObject({
-      changed: true,
-      to: "probation",
-      reason: "patched",
-    })
-    expect(nextSkillState({ state: "archived", usage: usage({ opportunities: 999 }), config })).toMatchObject({
-      changed: false,
-      state: "archived",
-    })
-    expect(nextSkillState({ state: "merged", usage: usage({ opportunities: 999 }), config })).toMatchObject({
-      changed: false,
-      state: "merged",
-    })
+  test("a session counts once, but a later use of an unused session still counts", () => {
+    const once = foldSession(fresh(), { id: "ses_a", used: false, at: 1 })!.next
+    expect(foldSession(once, { id: "ses_a", used: false, at: 2 })).toBeUndefined()
+
+    const used = foldSession(once, { id: "ses_a", used: true, at: 3 })!.next
+    // The same session: one opportunity, now one load, and the unused count it earned is taken back.
+    expect(used).toMatchObject({ usage: { load: 1, opportunities: 1 }, sessionsSinceUse: 0, lastUsedAt: 3 })
+    expect(foldSession(used, { id: "ses_a", used: true, at: 4 })).toBeUndefined()
+    expect(foldSession(used, { id: "ses_a", used: false, at: 4 })).toBeUndefined()
   })
 
-  test("the defaults are conservative and ordered", () => {
-    expect(DEFAULT_LIFECYCLE_CONFIG.probationSample).toBeLessThan(DEFAULT_LIFECYCLE_CONFIG.staleAfter)
-    expect(DEFAULT_LIFECYCLE_CONFIG.staleAfter).toBeLessThan(DEFAULT_LIFECYCLE_CONFIG.archiveAfter)
+  test("the memory of counted sessions is bounded", () => {
+    const last = Array.from({ length: COUNTED_SESSIONS_KEEP + 3 }, (_, index) => `ses_${index}`).reduce(
+      (current, id) => foldSession(current, { id, used: false, at: 1 })!.next,
+      fresh(),
+    )
+    expect(last.countedSessions).toHaveLength(COUNTED_SESSIONS_KEEP)
+    expect(last.usage.opportunities).toBe(COUNTED_SESSIONS_KEEP + 3)
+  })
+
+  test("stale and merged are frozen: nothing assigns them, and a used stale skill leaves stale", () => {
+    const states = ["probation", "mature", "stale", "merged"] as const
+    for (const state of states) {
+      for (const used of [true, false]) {
+        const folded = foldSession(fresh({ state, sessionsSinceUse: 1_000 }), { id: "ses_a", used, at: 1 })!
+        if (state !== "stale") expect(folded.next.state).not.toBe("stale")
+        if (state !== "merged") expect(folded.next.state).not.toBe("merged")
+        expect(folded.next.state).not.toBe("archived")
+      }
+    }
+    expect(foldSession(fresh({ state: "stale" }), { id: "ses_a", used: true, at: 1 })!.next.state).toBe("mature")
+    expect(foldSession(fresh({ state: "merged" }), { id: "ses_a", used: true, at: 1 })!.next.state).toBe("merged")
+  })
+
+  test("archiving is suggested only after archiveAfter unused sessions, never for a terminal state", () => {
+    const config = { archiveAfter: 3 }
+    expect(suggestsArchive({ state: "mature", sessionsSinceUse: 2 }, config)).toBe(false)
+    expect(suggestsArchive({ state: "mature", sessionsSinceUse: 3 }, config)).toBe(true)
+    expect(suggestsArchive({ state: "probation", sessionsSinceUse: 3 }, config)).toBe(true)
+    expect(suggestsArchive({ state: "merged", sessionsSinceUse: 99 }, config)).toBe(false)
+    expect(suggestsArchive({ state: "archived", sessionsSinceUse: 99 }, config)).toBe(false)
+    expect(DEFAULT_LIFECYCLE_CONFIG.archiveAfter).toBeGreaterThanOrEqual(10)
+  })
+
+  test("a used skill never proposes archiving, however many sessions pass", () => {
+    const config = { archiveAfter: 3 }
+    const last = Array.from({ length: 200 }, (_, index) => index).reduce((current, index) => {
+      // Used in every third session: the unused count never reaches the threshold.
+      const next = foldSession(current, { id: `ses_${index}`, used: index % 3 === 0, at: index })!.next
+      expect(suggestsArchive(next, config)).toBe(false)
+      return next
+    }, fresh())
+    expect(last.usage.load).toBe(67)
   })
 })
 
@@ -135,79 +140,89 @@ afterEach(() => {
 })
 
 describe("the lifecycle on disk", () => {
-  const numbers = { probationSample: 3, staleAfter: 4, archiveAfter: 5 }
-  // No override: the default root under the temp project is the one `roster` can scan.
-  const env = () => ({})
+  const numbers = { archiveAfter: 3 }
+  const body = `## Steps\n${"Do the thing carefully. ".repeat(20)}`.trim()
 
-  test("graduates, ages to stale and archives by move, logging every transition", () => {
-    const store = createLearnedStore({ env: env() })
+  test("an unused skill is suggested for archiving but never moved or marked stale", () => {
+    const store = createLearnedStore({ env: {} })
     const skills = createSkillCurator({ store, config: () => numbers })
+    expect(store.write({ projectID: project, name: "quiet-skill", description: "Use when quiet", body }).ok).toBe(true)
 
-    expect(
-      skills.promote({
-        projectID: project,
-        episodeID: "episode:run:1",
-        intent: "add",
-        name: "fix-failing-test",
-        description: "Use when a test fails and the failing assertion is not obvious",
-        body: `## Steps\n${"Do the thing carefully. ".repeat(20)}`.trim(),
-        evidenceRefs: ["episode:run:1"],
-      }).ok,
-    ).toBe(true)
+    for (let index = 0; index < 2; index++)
+      skills.recordSession({ projectID: project, sessionID: `ses_${index}`, skills: [] })
+    expect(skills.recompute(project)).toEqual([])
 
-    const offer = (loaded: string[]) =>
-      skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded })
-
-    offer(["fix-failing-test"])
-    offer([])
-    offer([])
-    expect(skills.recompute(project)).toEqual([
-      { name: "fix-failing-test", from: "probation", to: "mature", reason: "graduated" },
-    ])
-
-    for (let index = 0; index < 4; index++) offer([])
-    expect(skills.recompute(project)).toEqual([
-      { name: "fix-failing-test", from: "mature", to: "stale", reason: "no-recent-use" },
-    ])
-
-    for (let index = 0; index < 5; index++) offer([])
-    expect(skills.recompute(project)).toEqual([
-      { name: "fix-failing-test", from: "stale", to: "archived", reason: "aged-out" },
-    ])
-
-    // Archive is a move: the skill left `skills/` and lives in the archive root.
-    expect(existsSync(join(learned, "fix-failing-test"))).toBe(false)
-    expect(existsSync(join(archive, "fix-failing-test", "SKILL.md"))).toBe(true)
-    const archived = JSON.parse(readFileSync(join(archive, "fix-failing-test", ".sidecar.json"), "utf8"))
-    expect(archived.state).toBe("archived")
-    const ledger = readFileSync(join(archive, "fix-failing-test", ".ledger.jsonl"), "utf8")
-    expect(ledger).toContain('"event":"state"')
-    expect(ledger).toContain('"to":"mature"')
-    expect(ledger).toContain('"event":"archived"')
+    skills.recordSession({ projectID: project, sessionID: "ses_2", skills: [] })
+    expect(skills.recompute(project)).toEqual([{ name: "quiet-skill", unusedSessions: 3 }])
+    expect(skills.roster(project).find((entry) => entry.name === "quiet-skill")).toMatchObject({
+      state: "probation",
+      sessionsSinceUse: 3,
+      suggestArchive: true,
+    })
+    // The sweep only suggests: the skill is still loaded and still `probation`.
+    for (let index = 3; index < 30; index++)
+      skills.recordSession({ projectID: project, sessionID: `ses_${index}`, skills: [] })
+    skills.recompute(project)
+    expect(existsSync(join(learned, "quiet-skill", "SKILL.md"))).toBe(true)
+    expect(existsSync(join(archive, "quiet-skill"))).toBe(false)
+    expect(store.readSidecar(project, "quiet-skill")!.state).toBe("probation")
   })
 
-  test("a used mature skill is not archived by age alone", () => {
-    const store = createLearnedStore({ env: env() })
+  test("a real use promotes the skill, records when, and clears the suggestion", () => {
+    const store = createLearnedStore({ env: {} })
     const skills = createSkillCurator({ store, config: () => numbers })
-    store.write({
-      projectID: project,
-      name: "used-skill",
-      description: "Use when a used skill is needed",
-      body: `## Steps\n${"Do the thing carefully. ".repeat(20)}`.trim(),
+    store.write({ projectID: project, name: "used-skill", description: "Use when used", body })
+
+    for (let index = 0; index < 3; index++)
+      skills.recordSession({ projectID: project, sessionID: `ses_${index}`, skills: [] })
+    expect(skills.recompute(project)).toHaveLength(1)
+
+    skills.recordSession({ projectID: project, sessionID: "ses_used", skills: ["used-skill"], at: 9_000 })
+    expect(skills.recompute(project)).toEqual([])
+    expect(store.readSidecar(project, "used-skill")).toMatchObject({
+      state: "mature",
+      lastUsedAt: 9_000,
+      sessionsSinceUse: 0,
+      usage: { load: 1, opportunities: 4 },
     })
+    const ledger = readFileSync(join(learned, "used-skill", ".ledger.jsonl"), "utf8")
+    expect(ledger).toContain('"to":"mature"')
+    expect(ledger).toContain('"kind":"load"')
+  })
 
-    const offer = (loaded: string[]) =>
-      skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded })
+  test("a sidecar from before AH-F02 is migrated on read and rewritten in the new shape", () => {
+    const store = createLearnedStore({ env: {} })
+    const skills = createSkillCurator({ store, config: () => numbers })
+    store.write({ projectID: project, name: "legacy-skill", description: "Use when legacy", body })
+    const path = join(learned, "legacy-skill", SIDECAR_FILE)
+    // What the old writer left: suggestion-based counters, a `since` window and a `stale` state.
+    const legacy = JSON.parse(readFileSync(path, "utf8"))
+    delete legacy.usageSource
+    delete legacy.sessionsSinceUse
+    writeFileSync(
+      path,
+      JSON.stringify({
+        ...legacy,
+        state: "stale",
+        usage: { load: 4, view: 1, patch: 2, opportunities: 40 },
+        since: { load: 4, view: 1, patch: 2, opportunities: 30 },
+        countedEpisodes: ["episode:run:1"],
+      }),
+    )
 
-    offer(["used-skill"])
-    offer([])
-    offer([])
-    skills.recompute(project)
-    // Every window keeps a recent load, so `mature` never ages out.
-    for (let index = 0; index < 20; index++) {
-      offer(["used-skill"])
-      expect(skills.recompute(project)).toEqual([])
-    }
-    expect(store.readSidecar(project, "used-skill")!.state).toBe("mature")
+    // The suggestion counters are dropped; the harness's own view/patch survive; the state is kept.
+    expect(store.readSidecar(project, "legacy-skill")).toMatchObject({
+      state: "stale",
+      usage: { load: 0, view: 1, patch: 2, opportunities: 0 },
+      sessionsSinceUse: 0,
+      usageSource: "engine",
+    })
+    expect(skills.recompute(project)).toEqual([])
+
+    skills.recordSession({ projectID: project, sessionID: "ses_a", skills: [] })
+    const written = JSON.parse(readFileSync(path, "utf8"))
+    expect(written).toMatchObject({ usageSource: "engine", sessionsSinceUse: 1, state: "stale" })
+    expect(written.since).toBeUndefined()
+    expect(written.countedEpisodes).toBeUndefined()
   })
 })

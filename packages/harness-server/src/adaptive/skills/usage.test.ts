@@ -2,34 +2,47 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import { SqliteRoutineRepository } from "../../repository"
 import { createLearnedStore } from "./learned-store"
 import type { SkillUsage } from "./learned-store"
-import { EMPTY_USAGE, bumpUsage, recallRate, sameUsage, usageDelta } from "./usage"
-import { nextSkillState } from "./lifecycle"
+import { bumpUsage, recallRate, sessionSkills } from "./usage"
 import { createSkillCurator } from "./curator"
 
-describe("the usage arithmetic (FH-043)", () => {
+const EMPTY: SkillUsage = { load: 0, view: 0, patch: 0, opportunities: 0 }
+
+describe("the usage arithmetic (FH-043, AH-F02)", () => {
   test("a bump moves exactly one counter", () => {
-    const once = bumpUsage(EMPTY_USAGE, "load")
+    const once = bumpUsage(EMPTY, "load")
     expect(once).toEqual({ load: 1, view: 0, patch: 0, opportunities: 0 })
     expect(bumpUsage(once, "view")).toEqual({ load: 1, view: 1, patch: 0, opportunities: 0 })
     expect(bumpUsage(once, "patch")).toEqual({ load: 1, view: 0, patch: 1, opportunities: 0 })
     expect(bumpUsage(once, "opportunities")).toEqual({ load: 1, view: 0, patch: 0, opportunities: 1 })
   })
 
-  test("the delta is a non-negative window and equality is exact", () => {
-    const base: SkillUsage = { load: 1, view: 0, patch: 1, opportunities: 3 }
-    const now: SkillUsage = { load: 3, view: 2, patch: 1, opportunities: 9 }
-    expect(usageDelta(now, base)).toEqual({ load: 2, view: 2, patch: 0, opportunities: 6 })
-    // A stale reading never goes negative.
-    expect(usageDelta(base, now)).toEqual({ load: 0, view: 0, patch: 0, opportunities: 0 })
-    expect(sameUsage(base, { ...base })).toBe(true)
-    expect(sameUsage(base, now)).toBe(false)
+  test("the rate is real sessions that used it over real sessions seen, never over time", () => {
+    expect(recallRate(EMPTY)).toBe(0)
+    expect(recallRate({ load: 3, view: 0, patch: 0, opportunities: 10 })).toBeCloseTo(0.3)
   })
 
-  test("the rate is load over opportunities from creation, never over time", () => {
-    expect(recallRate(EMPTY_USAGE)).toBe(0)
-    expect(recallRate({ load: 3, view: 0, patch: 0, opportunities: 10 })).toBeCloseTo(0.3)
+  test("a session's skills are the engine's `skill` tool calls across its turns, once each", () => {
+    expect(sessionSkills([])).toEqual([])
+    expect(sessionSkills([{ skills: ["a", "b"] }, { skills: [] }, { skills: ["b", "c"] }])).toEqual(["a", "b", "c"])
+  })
+
+  test("reads the skill loads the session-metrics plugin recorded, and nothing else", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const tool = (id: string, turnID: string, name: string, skill?: string) =>
+      repository.recordSessionMetric({
+        sessionID: "ses_1",
+        projectID: "/w",
+        observation: { kind: "tool", id, turnID, tool: name, error: false, bytes: 10, ...(skill ? { skill } : {}) },
+      })
+    tool("t1", "msg_u1", "skill", "fix-failing-test")
+    tool("t2", "msg_u1", "read")
+    tool("t3", "msg_u2", "skill", "fix-failing-test")
+    tool("t4", "msg_u2", "skill", "deploy")
+    expect(sessionSkills(repository.listSessionMetrics("ses_1"))).toEqual(["fix-failing-test", "deploy"])
+    expect(sessionSkills(repository.listSessionMetrics("ses_other"))).toEqual([])
   })
 })
 
@@ -79,7 +92,7 @@ describe("the counters on disk", () => {
 
   test("load, view and patch are distinct counters", () => {
     const { store, skills } = setup()
-    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["fix-failing-test"] })
+    skills.recordSession({ projectID: project, sessionID: "ses_1", skills: ["fix-failing-test"] })
     skills.promote({
       projectID: project,
       episodeID: "episode:run:2",
@@ -92,43 +105,29 @@ describe("the counters on disk", () => {
     })
 
     const before = store.readSidecar(project, "fix-failing-test")!
-    store.updateSidecar({
-      projectID: project,
-      name: "fix-failing-test",
-      usage: bumpUsage(before.usage, "view"),
-      since: before.since,
-    })
+    store.updateSidecar({ projectID: project, name: "fix-failing-test", usage: bumpUsage(before.usage, "view") })
 
     const sidecar = store.readSidecar(project, "fix-failing-test")!
     expect(sidecar.usage).toEqual({ load: 1, view: 1, patch: 1, opportunities: 1 })
   })
 
-  test("the rate is measured over candidate decisions from creation", () => {
+  test("the rate is measured over real sessions from install", () => {
     const { skills } = setup()
     for (let index = 0; index < 10; index++) {
-      const loaded = index < 3 ? ["fix-failing-test"] : []
-      skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded })
+      const used = index < 3 ? ["fix-failing-test"] : []
+      skills.recordSession({ projectID: project, sessionID: `ses_${index}`, skills: used })
     }
     expect(skills.recallRate(project, "fix-failing-test")).toBeCloseTo(0.3)
     expect(skills.recallRate(project, "never-seen")).toBe(0)
   })
 
-  test("a reserved view is accounted and does not break the lifecycle", () => {
+  test("a skill the model never called is not used, whatever the harness suggested", () => {
     const { store, skills } = setup()
-    const sidecar = store.readSidecar(project, "fix-failing-test")!
-    store.updateSidecar({ projectID: project, name: "fix-failing-test", usage: bumpUsage(sidecar.usage, "view") })
-    expect(store.readSidecar(project, "fix-failing-test")!.usage.view).toBe(1)
-
-    // A view inside a mature window keeps the skill from aging out, exactly like a load: with enough
-    // opportunities and no view the same window would be `stale`.
-    const base: SkillUsage = { load: 0, view: 0, patch: 0, opportunities: 5 }
-    const quiet: SkillUsage = { load: 0, view: 0, patch: 0, opportunities: 20 }
-    const viewed: SkillUsage = { load: 0, view: 1, patch: 0, opportunities: 20 }
-    expect(nextSkillState({ state: "mature", usage: quiet, since: base })).toMatchObject({ changed: true, to: "stale" })
-    expect(nextSkillState({ state: "mature", usage: viewed, since: base })).toMatchObject({
-      changed: false,
-      state: "mature",
+    // Another skill's call, and a human skill's, are not this skill's use.
+    skills.recordSession({ projectID: project, sessionID: "ses_1", skills: ["other-skill"] })
+    expect(store.readSidecar(project, "fix-failing-test")).toMatchObject({
+      usage: { load: 0, opportunities: 1 },
+      sessionsSinceUse: 1,
     })
-    expect(skills.recallRate(project, "fix-failing-test")).toBe(0)
   })
 })

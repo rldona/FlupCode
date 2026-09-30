@@ -346,10 +346,9 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       const episodes = deps.repository.listEpisodes({ limit: sweepLimit })
       const projects = new Set(episodes.map((episode) => episode.projectID))
       if (config.learning.enabled) {
-        // The lifecycle (FH-042) ages every project the sweep saw: a window only moves when its own
-        // episodes close, so the same listing that finds reflections finds what to graduate or
-        // archive. `recompute` reconciles reverse collisions first. The state transitions are durable,
-        // so a later sweep is a no-op and nothing is re-enqueued.
+        // The lifecycle (FH-042, AH-F02) looks at every project the sweep saw: `recompute` reconciles
+        // reverse collisions first, then lists the skills to suggest archiving. It never moves or
+        // re-labels a skill, so a later sweep is a no-op and nothing is re-enqueued.
         for (const projectID of projects) if (projectID) deps.curator.recompute(projectID)
       } else {
         // A human-name collision is repaired on disk as a security move even with learning off: the

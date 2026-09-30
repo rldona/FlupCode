@@ -1061,7 +1061,14 @@ export type LearnedSkill = {
   description: string
   learned: boolean
   state?: LearnedSkillState
+  /** `load` is real sessions that used it, `opportunities` real sessions seen since install (AH-F02). */
   usage?: LearnedSkillUsage
+  /** When a real session last used it. */
+  lastUsedAt?: number
+  /** Real sessions closed since its last use. */
+  sessionsSinceUse?: number
+  /** It sat unused long enough that a person may want to archive it; nothing archives it by itself. */
+  suggestArchive?: boolean
   /** A person disabled it (AH-E04): its file sits outside `skills/`, so no new session loads it. */
   disabled?: boolean
   /** Where its `SKILL.md` is on the machine running the harness, for "Open file". */

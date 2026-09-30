@@ -9,10 +9,11 @@
  * marker, the atomic temp + rename, the snapshot, the ledger — is the store's; the curator owns the
  * decisions above it.
  *
- * Usage is opportunity-relative and never wall-clock: `load` is recorded from a `skillRelevance`
- * selection, `patch` from a promotion that wrote a new version, `view` from the harness re-reading a
- * body to prepare a patch (the only seam 3b has; ADR-0019 §5), and `opportunities` advances for every
- * learned skill in the roster that was offered.
+ * Usage is real use (AH-F02): `load` is a distinct session that ran the engine's `skill` tool on the
+ * skill, folded in when the session's episode closes, and `opportunities` every distinct real session
+ * the skill was loaded for; a `skillRelevance` suggestion is never counted. `patch` is a promotion that
+ * wrote a new version and `view` the harness re-reading a body to prepare a patch (ADR-0019 §5). The
+ * curator never archives or re-labels a skill by age: it only suggests archiving to a person.
  */
 
 import { basename, join } from "node:path"
@@ -24,14 +25,13 @@ import type {
   LearnedArchiveResult,
   LearnedStore,
   LearnedWriteRejection,
-  LedgerEvent,
   SkillState,
   SkillUsage,
 } from "./learned-store"
 import { SKILL_FILE } from "./learned-store"
-import type { LifecycleConfig, LifecycleReason } from "./lifecycle"
-import { DEFAULT_LIFECYCLE_CONFIG, nextSkillState } from "./lifecycle"
-import { bumpUsage, recallRate as rateOf, sameUsage } from "./usage"
+import type { LifecycleConfig } from "./lifecycle"
+import { DEFAULT_LIFECYCLE_CONFIG, foldSession, suggestsArchive } from "./lifecycle"
+import { bumpUsage, recallRate as rateOf } from "./usage"
 
 export type SkillRosterEntry = {
   name: string
@@ -39,6 +39,12 @@ export type SkillRosterEntry = {
   learned: boolean
   state?: SkillState
   usage?: SkillUsage
+  /** When a real session last used it; absent means never (or no trusted sidecar). */
+  lastUsedAt?: number
+  /** Real sessions closed since its last use. */
+  sessionsSinceUse?: number
+  /** It sat unused through `archiveAfter` real sessions: a person may want to archive it. */
+  suggestArchive?: boolean
 }
 
 export type PromoteRejection = ProposalRejection | LearnedWriteRejection
@@ -47,16 +53,16 @@ export type PromoteResult =
   | { ok: true; path: string; state: "probation"; version: number }
   | { ok: false; reason: PromoteRejection }
 
-export type SkillStateChange = { name: string; from: SkillState; to: SkillState; reason: LifecycleReason }
+/** A learned skill that sat unused long enough to ask a person whether to archive it (AH-F02). */
+export type ArchiveSuggestion = { name: string; unusedSessions: number }
 
-export type SelectionInput = {
+export type SessionUseInput = {
   projectID: string
-  /** The roster the `skillRelevance` decision was offered. */
-  roster: readonly SkillRosterEntry[]
-  /** The names the decision selected (`answer.load`). */
-  loaded: readonly string[]
-  /** The episode the selection belongs to; with it, a repeated report of one episode counts once. */
-  episodeID?: string
+  /** The real session whose episode closed; a session is counted once however many episodes it has. */
+  sessionID: string
+  /** The skills the session ran through the engine's `skill` tool (the session metrics, AH-B01). */
+  skills: readonly string[]
+  at?: number
 }
 
 export type SkillCurator = {
@@ -73,12 +79,15 @@ export type SkillCurator = {
    * the store keeps checking collision and the marker live, so the roster is only the lint's fast-fail.
    */
   promote(proposal: SkillProposal, at?: number, roster?: readonly SkillRosterEntry[]): PromoteResult
-  /** Records one `skillRelevance` opportunity, and a `load` for each skill it selected; once per episode. */
-  recordSelection(input: SelectionInput): void
+  /** Folds one closed real session into every learned skill's use: a `load` when it ran the skill. */
+  recordSession(input: SessionUseInput): void
   /** The body a `patch` will improve, read from disk; the re-read is counted as a `view`. */
   readExisting(projectID: string, name: string): { name: string; description: string; body: string } | undefined
-  /** Re-evaluates every learned skill and applies the lifecycle; returns the transitions made. */
-  recompute(projectID: string, at?: number): SkillStateChange[]
+  /**
+   * Repairs reverse collisions, then lists the learned skills to suggest archiving. It never archives
+   * or re-labels a skill: `stale` and `merged` are frozen, and archiving is a person's move (AH-F02).
+   */
+  recompute(projectID: string, at?: number): ArchiveSuggestion[]
   /**
    * Detects reverse collisions (a human skill created after a learned one with the same name) and
    * archives the learned one through the single writer with reason `human-name-collision`. Returns
@@ -110,7 +119,7 @@ export type SkillCurator = {
 
 export function createSkillCurator(deps: {
   store: LearnedStore
-  /** The lifecycle numbers; the curator falls back to the conservative defaults. */
+  /** The lifecycle number; the curator falls back to the conservative default. */
   config?: () => LifecycleConfig
   /** The learning switch: with it off, a selection records no usage (the kill switch stops the write). */
   enabled?: () => boolean
@@ -158,7 +167,15 @@ export function createSkillCurator(deps: {
           name: file.name!,
           description: file.description ?? "",
           learned,
-          ...(sidecar ? { state: sidecar.state, usage: sidecar.usage } : {}),
+          ...(sidecar
+            ? {
+                state: sidecar.state,
+                usage: sidecar.usage,
+                ...(sidecar.lastUsedAt !== undefined ? { lastUsedAt: sidecar.lastUsedAt } : {}),
+                sessionsSinceUse: sidecar.sessionsSinceUse,
+                suggestArchive: suggestsArchive(sidecar, config()),
+              }
+            : {}),
         }
       })
   }
@@ -248,31 +265,24 @@ export function createSkillCurator(deps: {
     return { ok: true, path: written.path, state: "probation", version: written.version }
   }
 
-  const recordSelection = (input: SelectionInput): void => {
-    // The kill switch stops the loop's writes; the shadow still reads the roster for its decisions.
+  const recordSession = (input: SessionUseInput): void => {
+    // The kill switch stops the loop's writes; the roster still reads for the shadow.
     if (deps.enabled?.() === false) return
-    const selected = new Set(input.loaded)
-    for (const entry of input.roster) {
+    const used = new Set(input.skills)
+    const at = input.at ?? now()
+    // The roster, not the learned root: a skill a human shadows is never counted as used (FH-081).
+    for (const entry of roster(input.projectID)) {
       if (!entry.learned) continue
       const sidecar = deps.store.readSidecar(input.projectID, entry.name)
       if (!sidecar) continue
-      const counted = sidecar.countedEpisodes ?? []
-      if (input.episodeID !== undefined && counted.includes(input.episodeID)) continue
-      const chosen = selected.has(entry.name)
-      const usage: SkillUsage = {
-        ...sidecar.usage,
-        opportunities: sidecar.usage.opportunities + 1,
-        load: sidecar.usage.load + (chosen ? 1 : 0),
-      }
-      const events: LedgerEvent[] = chosen
-        ? [{ at: now(), event: "usage", kind: "load", total: usage.load }]
-        : []
+      const folded = foldSession(sidecar, { id: input.sessionID, used: used.has(entry.name), at })
+      if (!folded) continue
       deps.store.updateSidecar({
         projectID: input.projectID,
         name: entry.name,
-        usage,
-        events,
-        ...(input.episodeID !== undefined ? { countedEpisodes: [...counted, input.episodeID] } : {}),
+        ...folded.next,
+        events: folded.events,
+        ...(input.at !== undefined ? { at: input.at } : {}),
       })
     }
   }
@@ -289,67 +299,21 @@ export function createSkillCurator(deps: {
     return current
   }
 
-  const recompute = (projectID: string, at?: number): SkillStateChange[] => {
+  const recompute = (projectID: string, at?: number): ArchiveSuggestion[] => {
     // Reverse collisions first, and regardless of the switch: repairing a human-name collision is a
     // security move (ADR-0022 §4), not a learning write. An archived learned skill leaves the learned
-    // root, so the lifecycle below only ever sees the skills that are still the harness's to age.
+    // root, so the suggestions below only ever name skills that are still the harness's.
     reconcile(projectID, at)
-    // Fail-closed like `promote`: with learning off the lifecycle writes nothing even if called directly.
-    if (deps.enabled?.() === false) return []
-    const changes: SkillStateChange[] = []
-    for (const entry of roster(projectID)) {
-      if (!entry.learned) continue
-      const sidecar = deps.store.readSidecar(projectID, entry.name)
-      if (!sidecar) continue
-      const decision = nextSkillState({
-        state: sidecar.state,
-        usage: sidecar.usage,
-        since: sidecar.since,
-        config: config(),
-      })
-      if (!decision.changed) {
-        // Activity slid the window without changing state; persist only when it actually moved.
-        if (!sameUsage(decision.since, sidecar.since)) {
-          deps.store.updateSidecar({
-            projectID,
-            name: entry.name,
-            since: decision.since,
-            ...(at !== undefined ? { at } : {}),
-          })
-        }
-        continue
-      }
-      if (decision.to === "archived") {
-        // Archive is a move, never a state write: the ledger gets its `archived` event.
-        const archived = deps.store.archive({
-          projectID,
-          name: entry.name,
-          reason: decision.reason,
-          ...(at !== undefined ? { at } : {}),
-        })
-        if (archived.ok) changes.push({ name: entry.name, from: decision.from, to: decision.to, reason: decision.reason })
-        continue
-      }
-      const updated = deps.store.updateSidecar({
-        projectID,
-        name: entry.name,
-        state: decision.to,
-        since: decision.since,
-        events: [
-          { at: at ?? now(), event: "state", from: decision.from, to: decision.to, reason: decision.reason },
-        ],
-        ...(at !== undefined ? { at } : {}),
-      })
-      if (updated.ok) changes.push({ name: entry.name, from: decision.from, to: decision.to, reason: decision.reason })
-    }
-    return changes
+    return roster(projectID)
+      .filter((entry) => entry.learned && entry.suggestArchive === true)
+      .map((entry) => ({ name: entry.name, unusedSessions: entry.sessionsSinceUse ?? 0 }))
   }
 
   return {
     roster,
     check,
     promote,
-    recordSelection,
+    recordSession,
     readExisting,
     recompute,
     reconcile,

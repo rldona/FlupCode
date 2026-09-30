@@ -189,7 +189,7 @@ confirmation and no egress guard, since they only narrow what `learning.enabled`
   | new reflection jobs, classification, draft | stopped: a qualifying episode is `skipped` with reason `frozen` | stopped: no job row is written at all |
   | staged proposals | reviewable **and approvable** | listed, but approval is refused `disabled` (they stay `proposed`) |
   | installed learned skills | keep loading; usage keeps being recorded | keep loading; usage is not recorded |
-  | lifecycle (graduate, stale, archive) | keeps running on each sweep | stopped; only the human-collision repair runs |
+  | lifecycle (graduate on real use, archive suggestions) | keeps running on each sweep | stopped; only the human-collision repair runs |
   | egress | none (nothing new is classified or drafted) | none |
 
   An episode closed while frozen is recorded `frozen` and never reflected afterwards, so unfreezing
@@ -319,19 +319,33 @@ provenance-carrying files the engine loads like any other. The design is fixed b
   the previous body to `.versions/<hash>.txt`, keeping the last `SNAPSHOT_KEEP = 5`. Install is
   atomic (temp + rename), so an interruption leaves either a complete skill or nothing visible, and
   archive is a **move**, never a delete.
-- **Lifecycle.** `PROBATION → MATURE → STALE → ARCHIVED` (`MERGED` is declared but not reached in
-  3b). `NEW` is the state of a *proposal* before install; on disk a skill starts in `PROBATION`,
-  which is **not evictable**. Graduation is by `load`; archival happens only without recent `load` and
-  `view`, so a used skill never archives itself. The `LearningManager` sweep drives the lifecycle: it
-  re-evaluates every project a sweep touched, gated by `adaptive.learning.enabled`, and each
-  transition is durable, so a repeat is a no-op.
-- **Usage is opportunity-relative, not wall-clock.** `load` counts selection by `skillRelevance`,
-  `patch` counts improvements, `opportunities` counts every time the skill could have been chosen,
-  and the rate is `recallRate = load / max(opportunities, 1)`. `view` counts the harness re-reading a
-  body to prepare a `patch`; there is no seam to observe the model opening a skill, so `view == 0`
-  still means "unknown", not "unused". A selection counts **once per episode**: the shadow never runs
-  two passes of one episode at a time, and the sidecar remembers the last 32 episodes it counted
-  (`countedEpisodes`), so a startup sweep racing a close cannot count an opportunity twice.
+- **Lifecycle: one sidecar, real use, a suggestion (AH-F02).** There is no `since` window and no
+  automatic state machine any more. The sidecar keeps, per learned skill, `lastUsedAt` (when a real
+  session last used it), `usage.load` (distinct real sessions that used it), `usage.opportunities`
+  (distinct real sessions seen since install) and `sessionsSinceUse` (real sessions closed since the
+  last use, reset by an install or a patch). A skill installs in `PROBATION` and the first real use
+  makes it `MATURE`; a patch returns it to `PROBATION`. When `sessionsSinceUse` reaches
+  `adaptive.learning.archiveAfter` (default 20) the roster marks it `suggestArchive` and the Skills
+  screen shows "Unused in N sessions · Archive?" next to the existing Archive action; the
+  `LearningManager` sweep's `recompute` returns the same list. Nothing archives a skill by itself:
+  archiving stays a person's move (AH-E04). A used skill resets its count, so it never proposes
+  itself. **`STALE` and `MERGED` are frozen**: the harness no longer assigns them, a sidecar that
+  already carries one is read as it is, and a legacy `STALE` skill that is used again becomes
+  `MATURE`. `probationSample` and `staleAfter` are gone from the config (ignored if present).
+- **Usage is real use, counted per session.** `load` comes from the engine's own `skill` tool: the
+  session-metrics plugin (AH-B01) records the skill each call loaded, and when a session's episode
+  closes the harness folds the session's skills (`listSessionMetrics(sessionID)`) into every loaded
+  learned skill of the project. A `skillRelevance` suggestion is **not** usage: what the harness
+  guessed is not what the model read. `recallRate = load / max(opportunities, 1)` is the share of real
+  sessions that used the skill. A session counts **once**: the sidecar remembers its last 32 sessions
+  (`countedSessions`), so a repeated close or a sweep racing one is a no-op, while a later episode of
+  a session that turns it from unused to used still counts. `patch` counts improvements and `view`
+  the harness re-reading a body to prepare one. With learning off nothing is recorded.
+- **Migration of old sidecars.** A sidecar without `usageSource: "engine"` predates AH-F02: its
+  `load`/`opportunities` counted suggestions, so the read drops them to zero (keeping `view`/`patch`),
+  drops `since` and `countedEpisodes`, and starts `sessionsSinceUse` at zero, so an old skill is never
+  suggested for archiving before it has sat through `archiveAfter` real sessions. The next write
+  persists the new shape; there is no separate migration step.
 - **The permission ceiling is a rule in the writer.** A learned skill can never create, widen or
   bypass a permission; it is at most one more skill, evaluated by the engine like any other.
 
@@ -948,7 +962,7 @@ always safe.
   Read-only in E8: `runtime.*`, `episode.*`, `decisions.*`,
   `jev.{endpoint,model,timeoutMs,maxInputTokens}`, `budget.hotReserveFraction`,
   `context.{keepThreshold,dropThreshold,budget}`, `learning.{minToolCalls,snapshotKeep,maxInputChars,
-  maxBodyChars,draftTimeoutMs,probationSample,staleAfter,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
+  maxBodyChars,draftTimeoutMs,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
   timeoutMs}` and `retention.*Days`. `TYPESAFE_API_KEY` stays **environment-only**; the panel reports
   whether it is present and never edits it ([ADR-0017](adr/0017-jev-egress-and-governance.md)).
 - **Provenance and precedence.** The panel shows each switch's effective value and where it comes

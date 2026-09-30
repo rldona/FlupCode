@@ -46,6 +46,7 @@ import { createShadowRunner } from "./adaptive/shadow"
 import { createOutcomeLabeler } from "./adaptive/labeler"
 import { createLearnedStore } from "./adaptive/skills/learned-store"
 import { createSkillCurator } from "./adaptive/skills/curator"
+import { sessionSkills } from "./adaptive/skills/usage"
 import { createLearningDrafter } from "./adaptive/learning/draft"
 import { createLearningManager } from "./adaptive/learning/manager"
 import type { LearningRunner } from "./adaptive/learning/manager"
@@ -215,31 +216,23 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   })
   const curator = createSkillCurator({
     store: learnedStore,
-    // The kill switch reaches the writer: with learning off, a selection records no usage, so a
+    // The kill switch reaches the writer: with learning off, a closed session records no usage, so a
     // close cannot move the sidecar or the ledger even though the shadow still reads the roster.
     enabled: () => adaptive.current().learning.enabled,
-    config: () => {
-      const learning = adaptive.current().learning
-      return {
-        probationSample: learning.probationSample,
-        staleAfter: learning.staleAfter,
-        archiveAfter: learning.archiveAfter,
-      }
-    },
+    config: () => ({ archiveAfter: adaptive.current().learning.archiveAfter }),
     // The same body cap the manager bounds to, so a configured value cannot be accepted by one and
     // refused by the other.
     limits: () => ({ maxBodyChars: adaptive.current().learning.maxBodyChars }),
   })
   // The shadow (FH-017) records decisions on episode close and acts on nothing; it is the only
   // writer to `adaptive_decision` and, through the manager, `adaptive_plan`. The roster is
-  // human + learned, and a `skillRelevance` selection is reported to the curator (FH-043).
+  // human + learned. Its `skillRelevance` selection is a guess, so it is not usage (AH-F02).
   const shadow = createShadowRunner({
     service: decisions,
     repository,
     config: () => adaptive.current(),
     context,
     readSkills: (episode) => curator.roster(episode.projectID),
-    trackSelection: (selection) => curator.recordSelection(selection),
     onError: (cause) =>
       console.error(`Could not record an adaptive decision: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
@@ -272,6 +265,20 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     onEpisodeClosed: (episode) => {
       shadow.onEpisodeClosed(episode)
       learning?.onEpisodeClosed(episode)
+      // Real use (AH-F02): the skills the session ran through the engine's `skill` tool, as the
+      // session-metrics plugin recorded them, are the lifecycle's only usage signal. Reading the
+      // roster is filesystem I/O, so it is queued off the close path like the shadow and reflection.
+      void Promise.resolve()
+        .then(() =>
+          curator.recordSession({
+            projectID: episode.projectID,
+            sessionID: episode.sessionID,
+            skills: sessionSkills(repository.listSessionMetrics(episode.sessionID)),
+          }),
+        )
+        .catch((cause) =>
+          console.error(`Could not record learned-skill use: ${cause instanceof Error ? cause.message : String(cause)}`),
+        )
     },
     onError: (cause) =>
       console.error(`Could not record a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
