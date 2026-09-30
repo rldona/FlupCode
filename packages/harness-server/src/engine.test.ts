@@ -55,6 +55,12 @@ describe("waiting for a turn to finish", () => {
     expect(calls).toBeGreaterThan(1)
   })
 
+  test("a wait past its timeout says the timeout it was given, not thirty minutes", async () => {
+    const engine = new Stub({ busy: () => true })
+    const failure = await engine.waitForIdle("ses_1", { ...fast, timeoutMs: 100 }).catch((cause) => cause)
+    expect((failure as Error).message).toBe("The work was still running after 0.1 seconds")
+  })
+
   test("a run with no ceiling is never asked what it is doing", async () => {
     // It costs a request for the whole transcript every few seconds. A run that cannot act on the
     // answer should not be paying for it.

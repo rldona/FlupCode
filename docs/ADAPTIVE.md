@@ -128,6 +128,9 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   — `adaptive.learning.model`, falling back to the global `small_model`; with neither, the job is
   `no-model` and the engine is not called. The transcript is bounded to `learning.maxInputChars` and
   the drafted `name`/`description`/`body` are redacted and bounded before they are stored.
+- **Draft timeout.** The draft session waits up to `learning.draftTimeoutMs` (default 120 s, not the
+  `skillReflection` decision deadline); past it, or on any failure, the session is interrupted and the
+  job is `draft-failed`. The throwaway "Skill draft" session is deleted whatever the outcome.
 - **Persisted, reviewable, idempotent.** Two additive tables hold the state: `reflection_job`
   (primary key `episode_id`, one per episode) and `skill_proposals` (id `proposal:<episodeID>`). A
   proposal stores its `body` redacted and bounded **and** its `body_hash`, because it exists for
@@ -376,7 +379,7 @@ always safe.
   Read-only in E8: `runtime.*`, `episode.*`, `decisions.*`,
   `jev.{endpoint,model,timeoutMs,maxInputTokens}`, `budget.hotReserveFraction`,
   `context.{keepThreshold,dropThreshold,budget}`, `learning.{minToolCalls,snapshotKeep,maxInputChars,
-  maxBodyChars,probationSample,staleAfter,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
+  maxBodyChars,draftTimeoutMs,probationSample,staleAfter,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
   timeoutMs}` and `retention.*Days`. `TYPESAFE_API_KEY` stays **environment-only**; the panel reports
   whether it is present and never edits it ([ADR-0017](adr/0017-jev-egress-and-governance.md)).
 - **Provenance and precedence.** The panel shows each switch's effective value and where it comes

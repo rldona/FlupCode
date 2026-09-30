@@ -31,6 +31,8 @@ const fakeEngine = (options: { answer?: string; failAt?: "session" | "prompt" | 
   const prompts: string[] = []
   const models: Array<Model | undefined> = []
   const sessions: Array<{ directory?: string; permission?: Array<{ permission: string; pattern: string; action: string }> }> = []
+  const interrupted: string[] = []
+  const deleted: string[] = []
   const engine: DraftEngine = {
     async createSession(input) {
       sessions.push(input)
@@ -48,8 +50,14 @@ const fakeEngine = (options: { answer?: string; failAt?: "session" | "prompt" | 
     async lastAnswer() {
       return options.answer !== undefined ? { text: options.answer } : undefined
     },
+    async interrupt(sessionID) {
+      interrupted.push(sessionID)
+    },
+    async deleteSession(sessionID) {
+      deleted.push(sessionID)
+    },
   }
-  return { engine, prompts, models, sessions }
+  return { engine, prompts, models, sessions, interrupted, deleted }
 }
 
 const model: Model = { providerID: "prov", id: "small" }
@@ -196,6 +204,18 @@ describe("createEngineSkillDrafter (FH-032)", () => {
 
     const noAnswer = createEngineSkillDrafter({ engine: fakeEngine().engine, model, timeoutMs: 1 })
     expect(await noAnswer.draft(request())).toBeUndefined()
+  })
+
+  test("a timed-out draft is interrupted and its throwaway session deleted; a good one is deleted too", async () => {
+    const timedOut = fakeEngine({ failAt: "wait" })
+    expect(await createEngineSkillDrafter({ engine: timedOut.engine, model, timeoutMs: 1 }).draft(request())).toBeUndefined()
+    expect(timedOut.interrupted).toEqual(["draft-session"])
+    expect(timedOut.deleted).toEqual(["draft-session"])
+
+    const drafted = fakeEngine({ answer: validJson })
+    expect(await createEngineSkillDrafter({ engine: drafted.engine, model, timeoutMs: 1 }).draft(request())).toBeDefined()
+    expect(drafted.interrupted).toEqual([])
+    expect(drafted.deleted).toEqual(["draft-session"])
   })
 
   test("bounds the observed transcript, keeping the instruction whole", async () => {

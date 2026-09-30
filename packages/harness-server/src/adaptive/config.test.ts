@@ -191,7 +191,7 @@ describe("resolveAdaptiveConfig", () => {
     expect(defaults.enabled).toBe(false)
 
     const config = resolveAdaptiveConfig({
-      block: { learning: { enabled: true, minToolCalls: 20, snapshotKeep: 2, model: "prov/small" } },
+      block: { learning: { enabled: true, minToolCalls: 20, snapshotKeep: 2, draftTimeoutMs: 30_000, model: "prov/small" } },
       env: {},
     })
     expect(config.learning).toEqual({
@@ -200,6 +200,7 @@ describe("resolveAdaptiveConfig", () => {
       snapshotKeep: 2,
       maxInputChars: DEFAULT_LEARNING_CONFIG.maxInputChars,
       maxBodyChars: DEFAULT_LEARNING_CONFIG.maxBodyChars,
+      draftTimeoutMs: 30_000,
       probationSample: DEFAULT_LEARNING_CONFIG.probationSample,
       staleAfter: DEFAULT_LEARNING_CONFIG.staleAfter,
       archiveAfter: DEFAULT_LEARNING_CONFIG.archiveAfter,
@@ -208,7 +209,7 @@ describe("resolveAdaptiveConfig", () => {
 
     // A malformed slice falls back to off and the conservative numbers rather than guessing.
     const malformed = resolveAdaptiveConfig({
-      block: { learning: { enabled: "yes", minToolCalls: -1, snapshotKeep: "many" } },
+      block: { learning: { enabled: "yes", minToolCalls: -1, snapshotKeep: "many", draftTimeoutMs: 0 } },
       env: {},
     })
     expect(malformed.learning).toEqual(DEFAULT_LEARNING_CONFIG)

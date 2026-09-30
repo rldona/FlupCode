@@ -18,7 +18,7 @@ import { parseModelKey } from "../../policy"
 import { NAME } from "../../skills"
 import { NO_TOOLS, type PermissionRule } from "../../engine"
 import { isAbsolute } from "node:path"
-import type { LearningConfig } from "../config"
+import type { AdaptiveConfig, LearningConfig } from "../config"
 
 export type SkillDraft = { name: string; description: string; body: string }
 
@@ -73,6 +73,8 @@ export type DraftEngine = {
   prompt(input: { sessionID: string; text: string; directory?: string; model?: Model }): Promise<unknown>
   waitForIdle(sessionID: string, options?: { directory?: string; timeoutMs?: number }): Promise<void>
   lastAnswer(sessionID: string, directory?: string): Promise<{ text?: string } | undefined>
+  interrupt(sessionID: string, directory?: string): Promise<void>
+  deleteSession(sessionID: string, directory?: string): Promise<unknown>
 }
 
 /** The reason a draft is skipped when no model is resolved; the manager records it as-is. */
@@ -179,7 +181,9 @@ function buildTranscript(input: SkillDraftRequest): string {
  * **inside the request's project directory** and under `NO_TOOLS`: the prompt carries untrusted
  * observed content, and a session with the default agent would let that content invoke tools. A
  * request with no directory — or a relative one — is refused with `undefined` rather than opening a
- * session elsewhere. Everything is inside one `try`, so the contract holds: any failure is `undefined`.
+ * session elsewhere. Any failure is `undefined`, so the contract holds. A draft that fails or outlives
+ * `timeoutMs` is interrupted, since the engine would otherwise keep generating for nobody, and the
+ * throwaway session is deleted whatever the outcome.
  */
 export function createEngineSkillDrafter(deps: {
   engine: DraftEngine
@@ -212,18 +216,52 @@ export function createEngineSkillDrafter(deps: {
           title: "Skill draft",
           permission: NO_TOOLS,
         })
-        await deps.engine.prompt({
-          sessionID: session.id,
-          text: `${DRAFT_INSTRUCTION}\n\n${transcript}`,
-          directory,
-          model: deps.model,
-        })
-        await deps.engine.waitForIdle(session.id, { directory, timeoutMs: deps.timeoutMs })
-        const answer = await deps.engine.lastAnswer(session.id, directory)
-        return parseSkillDraft(answer?.text, limits)
+        try {
+          await deps.engine.prompt({
+            sessionID: session.id,
+            text: `${DRAFT_INSTRUCTION}\n\n${transcript}`,
+            directory,
+            model: deps.model,
+          })
+          await deps.engine.waitForIdle(session.id, { directory, timeoutMs: deps.timeoutMs })
+          const answer = await deps.engine.lastAnswer(session.id, directory)
+          return parseSkillDraft(answer?.text, limits)
+        } catch {
+          await deps.engine.interrupt(session.id, directory).catch(() => undefined)
+          return undefined
+        } finally {
+          await deps.engine.deleteSession(session.id, directory).catch(() => undefined)
+        }
       } catch {
         return undefined
       }
+    },
+  }
+}
+
+/**
+ * The drafter the server wires into the learning manager: config and model are read per draft, so a
+ * settings change applies to the next one. No model resolved means no draft and no engine call.
+ */
+export function createLearningDrafter(deps: {
+  engine: DraftEngine
+  config: () => Pick<AdaptiveConfig, "learning">
+  smallModel?: () => string | undefined
+  redact?: (value: unknown) => unknown
+}): SkillDrafter {
+  return {
+    async draft(input) {
+      const config = deps.config()
+      const model = learningModel(config.learning, deps.smallModel)
+      if (!model) return undefined
+      return createEngineSkillDrafter({
+        engine: deps.engine,
+        model,
+        timeoutMs: config.learning.draftTimeoutMs,
+        redact: deps.redact,
+        maxInputChars: config.learning.maxInputChars,
+        limits: { maxBodyChars: config.learning.maxBodyChars },
+      }).draft(input)
     },
   }
 }
