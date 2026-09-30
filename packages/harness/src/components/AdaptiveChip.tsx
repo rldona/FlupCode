@@ -132,7 +132,7 @@ export const AdaptiveChip: Component<AdaptiveChipProps> = (props) => {
             <Show when={override().paused}>
               <p class="fc-adaptive-note">
                 {t(
-                  "Paused in this session: from the next step nothing adaptive acts, and each decision is recorded as paused.",
+                  "Paused in this session: skill suggestions stop from your next message, everything else from the next step, and each decision is recorded as paused.",
                 )}
               </p>
             </Show>

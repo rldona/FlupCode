@@ -1009,8 +1009,8 @@ const ES: Record<string, string> = {
   "What the adaptive layer did on this turn": "Qué hizo la capa adaptativa en este turno",
   "Adaptive on this turn": "Adaptive en este turno",
   "This turn": "Este turno",
-  "Paused in this session: from the next step nothing adaptive acts, and each decision is recorded as paused.":
-    "En pausa en esta sesión: desde el siguiente paso nada adaptativo actúa, y cada decisión se registra como pausada.",
+  "Paused in this session: skill suggestions stop from your next message, everything else from the next step, and each decision is recorded as paused.":
+    "En pausa en esta sesión: las sugerencias de skills se detienen desde tu próximo mensaje, todo lo demás desde el siguiente paso, y cada decisión se registra como pausada.",
   "The adaptive summary is not available right now.": "El resumen adaptativo no está disponible ahora mismo.",
   "Suggested skills": "Skills sugeridas",
   "No skills suggested": "Ninguna skill sugerida",
