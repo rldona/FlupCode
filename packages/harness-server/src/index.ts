@@ -298,6 +298,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),
     hostname,
     fetch: createHarnessHandler(repository, scheduler, {
+      hostname,
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(actions ? { actions } : {}),

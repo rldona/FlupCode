@@ -22,7 +22,7 @@ import { eventStream, resumeFrom } from "./stream"
 import { handleBrowserRequest } from "./browser-routes"
 import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
-import { allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
+import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
 import { handleActionProfileRequest } from "./action-profile-routes"
@@ -410,6 +410,8 @@ export type HarnessHandlerOptions = {
   adaptiveToken?: string
   /** The adaptive settings surface (FH-070): reads the settings and writes the switches. */
   adaptiveConfig?: AdaptiveConfigSurface
+  /** The address the server listens on, so a `Host` naming it is accepted (AH-A05). */
+  hostname?: string
 }
 
 export const createHarnessHandler = (
@@ -420,6 +422,10 @@ export const createHarnessHandler = (
   const handle = async (request: Request) => {
     const path = splitPath(request)
     if (path[0] !== "harness") return error("Not found", 404)
+    // A DNS-rebinding page is same-origin with the harness, so neither CORS nor the origin check
+    // below stops it reading; only its `Host`, which still names the attacker's domain, gives it away.
+    if (!allowedHarnessHost(request.headers.get("host") ?? undefined, options.hostname ?? "127.0.0.1"))
+      return json({ error: "Forbidden", code: "invalid_host" }, 403)
     // CSRF is not stopped by CORS: a simple cross-origin request still runs server-side while only
     // hiding its answer. So a mutating request that names an origin has to name an allowed one —
     // callers without an origin (curl, the plugin, node) are unaffected.
@@ -598,6 +604,11 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return eventStream(repository, resumeFrom(request))
     }
+    // Runs start agent turns on the user's machine and carry their prompts, so with a token
+    // configured every `/harness/runs*` route asks for the same bearer as the artifacts (AH-A05):
+    // a page that is not this app cannot read the token, so it can neither list nor start one.
+    if (path[1] === "runs" && options.token && !tokenMatches(options.token, bearerFrom(request)))
+      return json({ error: "Forbidden", code: "invalid_token" }, 403)
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {
