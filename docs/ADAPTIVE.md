@@ -739,12 +739,83 @@ control arm instead of assumed (AH-B05, audit §14.2).
   `sha256`: a session keeps its arm across turns and restarts, and each capability draws its own.
   `holdout.fraction` sets the control share: 0.2 by default, anything from 0 to 0.5 is accepted, and
   0 turns the holdout off.
+- **Capabilities.** `HOLDOUT_CAPABILITIES` is `relevance`, `guardrails`, `toolTrim`, `anchors` and
+  `selection` (the last three since AH-G01, [ADR-0025](adr/0025-promotion-criteria.md)).
 - **Control arm.** The decision is still made and audited with `arm: "control"`, but it is not
   applied. The relevance line is withheld (`reason: "holdout"`). A guardrail loop answers `continue`,
-  and its status is never shown to the browser.
+  and its status is never shown to the browser. The tool-output trim answers `trimmed: false, reason:
+  "holdout"` and stores nothing. The compaction anchors add no block. Per-step selection reads
+  `holdoutFraction` from its policy and draws the session's arm with the same hash, so a control
+  session latches the off policy and is never trimmed. Anchors are on by default, so with the
+  default share 20% of sessions compact without them.
 - **Where it shows.** `adaptive_decision.arm` holds it, and the Decisions screen marks a held-out row.
   `session_metrics.arms_json` stores the session's arms when a turn is first heard of, so costs can be
   split by arm.
+
+## Promotion and live evaluation (Phase G)
+
+Which capabilities become defaults is decided by criteria fixed **before** anyone looks at the live
+data (AH-G01) and one analysis of a holdout evaluation (AH-G02). The criteria are
+[ADR-0025](adr/0025-promotion-criteria.md), **Proposed until the owner accepts it**; the final
+decision is a person's (AH-G03).
+
+- **The criteria.** `src/adaptive/promotion/criteria.ts` holds every number: per capability the
+  primary metric and its threshold, the guardrails (completion Δ ≥ −1 pp, error rate Δ ≤ +1 pp, p95
+  turn duration Δ ≤ +10%, plus the capability's own), the safety stops, the minimum sample per arm and
+  the 14-day window. The ADR embeds the table the module generates (`bun run eval:live -- table`), and
+  a test fails if they differ.
+- **The analysis.** Sessions are the unit (the arm is per session, from `session_metrics.arms_json`),
+  intention to treat. Each metric is compared between arms with a 95% percentile bootstrap by session
+  (2,000 resamples, fixed seed). One analysis when the window closes: 14 days after `start` or the
+  minimum sample, whichever is later. A primary passes with its point estimate past the threshold
+  and its CI clear of zero. The suggested decision follows the ADR's table: a safety stop or a failed
+  guardrail retires, a short sample or open window is **insufficient data**, then **promote**,
+  **retire** (the CI cannot reach the threshold) or **keep observing**.
+- **No peeking.** `status` shows counts and progress only. `report` withholds a capability's primary
+  and guardrail estimates until its window closes and its sample is reached; only the safety checks
+  show before that. `start` will not move an existing start without `--force`.
+- **Read-only.** Every command opens the harness database read-only (never migrated or written),
+  reads the episode events files without writing them, asks no model and changes no setting.
+
+Steps, from `packages/harness-server`, once ADR-0025 is **Accepted**:
+
+1. Turn on what should be evaluated, by hand (`start` prints this checklist and changes nothing):
+   - set `flupcode.adaptive.holdout.fraction` to `0.5` in the global opencode config (not in the
+     settings surface) and restart FlupCode, so both arms fill at the same pace;
+   - the capabilities: Settings → Adaptive → **Skill suggestion** → Suggesting, **Loop warnings** →
+     Warning, **Learning** → Proposing (asks to confirm), and under **Advanced** "Shorten long tool
+     outputs (recoverable)" and "Keep session anchors when compacting"; per-step selection has no
+     panel control, so `PATCH /harness/adaptive/config` with `{"patch":{"selection":{"enabled":true}}}`
+     and the artifacts bearer; a predictive model is `adaptive.models.<kind>` in the config file plus
+     that provider's sharing consent.
+2. Record the start (a snapshot of the relevant config and the time, in
+   `<data dir>/live-eval/start.json` next to the database — never in the opencode config):
+
+   ```sh
+   bun run eval:live -- start
+   ```
+
+3. Watch progress without seeing any effect:
+
+   ```sh
+   bun run eval:live -- status            # counts per arm, label coverage, % of the minimum sample
+   ```
+
+4. When `status` shows every capability you care about past its minimum sample and 14 days have
+   passed, run the one analysis:
+
+   ```sh
+   bun run eval:live -- report [--since <date>] [--until <date>] [--content-incidents 0]
+   ```
+
+   It writes `report.md` and `report.json` to the git-ignored `fixtures/live-eval/` (`--out` to
+   change it) with a suggested decision per capability. `--content-incidents` is the owner's
+   attestation for learning; without it learning cannot be promoted.
+5. Take the decision in AH-G03's ADR. The report never changes a default.
+
+Options: `--db <path>` (default `FLUPCODE_HARNESS_DB`, else `~/.local/share/flupcode/harness.sqlite`),
+`--events <dir>` (default `FLUPCODE_EPISODE_EVENTS_DIR`, else `events/` next to the database) and
+`--config <file>` (a JSON `flupcode.adaptive` block in place of the global config, for dry runs).
 
 ## Replay corpus and runner
 
@@ -947,7 +1018,7 @@ It is deterministic and local: no model is asked.
     too.
   - A subagent's refs belong to the subagent's session.
   - The plugin needs the legacy `tool.execute.after` hook and plugin tools (see D05 for V2).
-  - There is no per-session holdout arm yet.
+  - A control-arm session of the [holdout](#holdout) is never trimmed (AH-G01).
 
 ## Per-step selection
 

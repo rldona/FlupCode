@@ -286,7 +286,7 @@ function percentile(values: readonly number[], rank: number) {
  * An answer in a form where two equal answers read the same: object keys sorted, and arrays sorted
  * too, because every answer's arrays are sets (the skills to load, the item dispositions).
  */
-function canonical(value: unknown): string {
+export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).sort().join(",")}]`
   if (typeof value === "object" && value !== null)
     return `{${Object.entries(value)
