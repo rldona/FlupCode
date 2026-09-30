@@ -1064,8 +1064,8 @@ const ES: Record<string, string> = {
 
   // Cost (H-16)
   Cost: "Coste",
-  "Every run the harness has recorded — not ordinary chat turns, which it never sees.":
-    "Todas las ejecuciones que ha registrado el harness — no los turnos de chat normales, que nunca ve.",
+  "What your work cost: the runs the harness started, and below, every session, chats included.":
+    "Lo que ha costado tu trabajo: las ejecuciones que lanzó el harness y, debajo, cada sesión, chats incluidos.",
   "{n} days": "{n} días",
   "Only {project}": "Sólo {project}",
   "Nothing has run in this window.": "No se ha ejecutado nada en esta ventana.",

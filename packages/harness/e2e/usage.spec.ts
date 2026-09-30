@@ -117,10 +117,12 @@ test("the window is a choice, and it reaches the server", async ({ page }) => {
   await expect.poll(() => seen.days).toEqual(["30", "7"])
 })
 
-test("says plainly that it is about runs and not about chat", async ({ page }) => {
+test("says plainly which part is runs and which part is every session", async ({ page }) => {
   await open(page)
-  // The harness never sees an ordinary turn. Claiming this is everything spent would be a lie.
-  await expect(page.locator(".fc-routines-header")).toContainText(/not ordinary chat turns|no los turnos de chat/)
+  // The tiles are runs only; chats are counted in the Sessions section below. The subtitle says both.
+  await expect(page.locator(".fc-routines-header p")).toHaveText(
+    /^(What your work cost: the runs the harness started, and below, every session, chats included\.|Lo que ha costado tu trabajo: las ejecuciones que lanzó el harness y, debajo, cada sesión, chats incluidos\.)$/,
+  )
 })
 
 test("nothing run in the window says so, rather than showing a page of zeroes", async ({ page }) => {
