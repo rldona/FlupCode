@@ -14,6 +14,7 @@ import {
   criteriaFor,
   decide,
   futile,
+  guardrailVerdict,
   renderCriteriaTable,
   sampleForLogMeans,
   sampleForOneProportion,
@@ -131,10 +132,23 @@ describe("the decision table", () => {
     expect(decide(trim, evidence(good)).decision).toBe("promote")
   })
 
-  test("a safety stop retires even before the window closes", () => {
-    const result = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.08 } }, { windowComplete: false }))
+  test("a safety stop with evidence of harm retires even before the window closes; without it, it does not", () => {
+    const result = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.08, low: -0.14, high: -0.02 } }, { windowComplete: false }))
     expect(result.decision).toBe("retire")
     expect(result.reasons[0]).toStartWith("safety stop")
+    // Past the −5 pp line, but the 90% CI still reaches zero: noise at 30 per arm stops nothing (R18).
+    const noisy = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.12, low: -0.3, high: 0.04 } }, { windowComplete: false }))
+    expect(noisy.decision).toBe("insufficient data")
+  })
+
+  test("the deterministic stops stay absolute: one rejected tool pair, one content incident", () => {
+    const selection = criteriaFor("selection")
+    const pairing = decide(selection, evidence({ "pairingErrors:treatment": { estimate: 1 } }, { windowComplete: false }))
+    expect(pairing.decision).toBe("retire")
+    expect(pairing.reasons[0]).toStartWith("safety stop: Requests rejected")
+    const learning = criteriaFor("learning")
+    const incident = decide(learning, { estimates: { "contentIncidents:overall": { estimate: 1 } }, samples: {}, windowComplete: false })
+    expect(incident.decision).toBe("retire")
   })
 
   test("a safety stop on a session metric waits for 30 sessions per arm", () => {
@@ -153,9 +167,11 @@ describe("the decision table", () => {
     const noReplay = decide(trim, evidence(good, { samples: { sessions: full, replayFixtures: { overall: 0 } } }))
     expect(noReplay.decision).toBe("insufficient data")
     expect(noReplay.reasons).toEqual(["below 22 paired replay fixtures (3 repetitions per variant)"])
-    const lostCompletion = decide(trim, evidence({ ...good, "completion:paired": { estimate: -0.03, low: -0.08, high: 0.01 } }))
+    const lostCompletion = decide(trim, evidence({ ...good, "completion:paired": { estimate: -0.05, low: -0.09, high: -0.01 } }))
     expect(lostCompletion.decision).toBe("retire")
-    expect(lostCompletion.reasons[0]).toStartWith("guardrail failed: Task completion, replay (paired")
+    expect(lostCompletion.reasons[0]).toStartWith("guardrail failed with evidence of harm: Task completion, replay (paired")
+    const unclear = decide(trim, evidence({ ...good, "completion:paired": { estimate: -0.03, low: -0.08, high: 0.01 } }))
+    expect(unclear.decision).toBe("keep observing")
   })
 
   test("an open window or a short sample is insufficient data", () => {
@@ -165,10 +181,29 @@ describe("the decision table", () => {
     expect(short.reasons).toEqual(["below 150 sessions per arm"])
   })
 
-  test("a failed guardrail retires", () => {
-    const result = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.02 } }))
-    expect(result.decision).toBe("retire")
-    expect(result.reasons[0]).toStartWith("guardrail failed")
+  test("a guardrail past its margin retires only with evidence of harm; otherwise it blocks promotion", () => {
+    const harmed = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.04, low: -0.09, high: -0.005 } }))
+    expect(harmed.decision).toBe("retire")
+    expect(harmed.reasons).toEqual(["guardrail failed with evidence of harm: Task completion, Δ (T − C) ≥ −1 pp"])
+    const unclear = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.02, low: -0.12, high: 0.08 } }))
+    expect(unclear.decision).toBe("keep observing")
+    expect(unclear.reasons).toEqual(["guardrail inconclusive (margin crossed without evidence of harm): Task completion, Δ (T − C) ≥ −1 pp"])
+    // An inconclusive guardrail does not shield a futile primary from retirement (the decision order).
+    const futilePrimary = decide(trim, evidence({ ...good, "completion:difference": { estimate: -0.02, low: -0.12, high: 0.08 }, "uncachedInputPerSession:paired": { estimate: -0.02, low: -0.06, high: 0.02 } }))
+    expect(futilePrimary.decision).toBe("retire")
+    expect(futilePrimary.reasons[0]).toStartWith("cannot reach")
+  })
+
+  test("a one-arm guardrail needs its whole CI past the margin itself", () => {
+    const recall = { metric: "recallMiss", measure: "treatment", op: "<", threshold: 0.05 } as const
+    expect(guardrailVerdict(recall, { estimate: 0.03, low: 0.01, high: 0.06 })).toBe("pass")
+    expect(guardrailVerdict(recall, { estimate: 0.07, low: 0.04, high: 0.1 })).toBe("inconclusive")
+    expect(guardrailVerdict(recall, { estimate: 0.09, low: 0.06, high: 0.12 })).toBe("fail")
+    expect(guardrailVerdict(recall, { estimate: 0.09 })).toBe("inconclusive")
+    const summary = { metric: "summaryTokensPerCompaction", measure: "paired", op: "<=", threshold: 0.1 } as const
+    expect(guardrailVerdict(summary, { estimate: 0.2, low: 0.05, high: 0.35 })).toBe("fail")
+    expect(guardrailVerdict(summary, { estimate: 0.2, low: -0.05, high: 0.35 })).toBe("inconclusive")
+    expect(guardrailVerdict(summary, {})).toBe("unknown")
   })
 
   test("a primary whose CI cannot reach the threshold retires; an inconclusive one keeps observing", () => {
@@ -206,7 +241,7 @@ describe("the decision table", () => {
     const model = criteriaFor("model")
     const estimates = {
       "uplift:overall": { estimate: 0.3, low: 0.1, high: 0.5 },
-      "costPerUsefulDecision:overall": { estimate: 0.08 },
+      "costPerUsefulDecision:overall": { estimate: 0.08, low: 0.06, high: 0.1 },
     }
     const samples = { judgedDisagreements: { overall: 500 } }
     expect(decide(model, { estimates, samples, windowComplete: true }).decision).toBe("retire")

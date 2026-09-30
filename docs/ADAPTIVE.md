@@ -786,6 +786,16 @@ decision is a person's (AH-G03).
   decision follows the ADR's table: a safety stop or a failed guardrail retires, a short sample or
   open window is **insufficient data**, then **promote**, **retire** (the CI cannot reach the
   threshold) or **keep observing**.
+- **Retire only on evidence of harm (R18).** A guardrail passes on its point estimate; past its margin
+  it **fails with evidence of harm** only when its 90% CI lies wholly on the harmful side (of zero for
+  a comparison between arms, of the margin itself for a one-arm level such as recall miss), and is
+  otherwise **inconclusive**: that blocks promotion (keep observing) but never retires. The completion
+  and error-rate safety stops need the same evidence, so noise at 30 sessions per arm cannot stop an
+  evaluation; one rejected tool pair (selection) and an attested content incident (learning) stay
+  absolute stops. At 150 sessions per arm a harmless capability is retired by noise about 6–7% of
+  the time per guardrail (nominal 5%; about 17% across the three common ones), and a real −5 pp
+  completion drop is caught only about one time in six: the rates and their assumptions are in
+  ADR-0025 R18.
 - **No peeking.** `status` shows counts, progress and an ETA per counter ("at the current pace the
   minimum is reached in ~N days", flagged when that is past the cap), never an estimate. `report`
   withholds a capability's primary and guardrail estimates until its window closes and its sample is
