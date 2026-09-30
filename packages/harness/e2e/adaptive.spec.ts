@@ -949,7 +949,7 @@ test("the dialog reads the decision that is open, never the one before it", asyn
 
 test("the context plan paints each disposition and reason, and offers no action", async ({ page }) => {
   await openApp(page, {
-    capabilities: ["adaptive-context"],
+    capabilities: ["adaptive-context", "adaptive-config"],
     plans: [
       {
         id: "plan_1",
@@ -991,8 +991,8 @@ test("the context plan paints each disposition and reason, and offers no action"
   const block = page.locator(".fc-context-plan")
   await expect(block.getByText("Context plan")).toBeVisible()
   await expect(block).toContainText("Observe only: nothing was filtered.")
-  // The refinement names the model that made it, whichever it was (AH-C02).
-  await expect(block).toContainText("Refined by jev")
+  // The refinement names the model that made it, whichever it was (AH-C02), by its registry name.
+  await expect(block).toContainText("Refined by Jev")
   await expect(block).toContainText("Archive · superseded")
   await expect(block).toContainText("Keep · the objective")
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive/i })).toHaveCount(0)
@@ -1462,6 +1462,13 @@ test("the small model is chosen for a decision by its name, with no key field of
     "None (built-in rules)",
     "Jev",
   ])
+  // Every decision a registered model can answer has its selector, not only the first four.
+  await expect(dialog.getByLabel("Why a step failed", { exact: true }).locator("option")).toHaveText([
+    "None (built-in rules)",
+    "Jev",
+    "Small model (through the engine)",
+  ])
+  await expect(dialog.getByRole("switch", { name: "Why a step failed for Small model (through the engine)" })).toBeVisible()
 
   await fits.selectOption({ label: "Small model (through the engine)" })
   await expect.poll(() => patches).toEqual([{ patch: { models: { skillRelevance: "small-llm" } }, confirm: false }])

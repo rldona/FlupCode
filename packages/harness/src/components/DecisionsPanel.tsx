@@ -1,6 +1,6 @@
 import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
-import { degradedText } from "../adaptive-copy"
+import { degradedText, modelDisplayName } from "../adaptive-copy"
 import { holdModalFocus } from "../modal-focus"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
@@ -333,7 +333,7 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
                         {t(DECISION_KIND_TITLES[gate.kind] ?? gate.kind)}
                       </span>
                       <span class="fc-usage-key" dir="auto">
-                        {gate.modelID}
+                        {modelDisplayName(gate.modelID)}
                         {gate.modelVersion ? ` · ${gate.modelVersion}` : ""}
                       </span>
                       <span class="fc-context-excerpt">{gateSummary(gate)}</span>
@@ -526,7 +526,7 @@ const DecisionRow: Component<{ decision: StoredDecision; focused: boolean; onExp
     </span>
     <span class="fc-context-excerpt">
       {formatDateTime(props.decision.createdAt)} · {latencyText(props.decision.latencyMs)} ·{" "}
-      {sourceText(props.decision)} · {props.decision.provider}
+      {sourceText(props.decision)} · {modelDisplayName(props.decision.provider)}
       {props.decision.modelVersion ? ` · ${props.decision.modelVersion}` : ""}
       {props.decision.degraded ? ` · ${degradedText(props.decision.degradedReason)}` : ""}
       {props.decision.arm === "control" ? ` · ${t("Held out")}` : ""}
@@ -581,7 +581,7 @@ const Explanation: Component<{ detail: DecisionExplanation }> = (props) => (
     <div class="fc-usage-row">
       <span class="fc-usage-key">{t("Provider")}</span>
       <span class="fc-context-excerpt" dir="auto">
-        {props.detail.provider}
+        {modelDisplayName(props.detail.provider)}
         {props.detail.modelVersion ? ` · ${props.detail.modelVersion}` : ""}
       </span>
     </div>
@@ -590,7 +590,7 @@ const Explanation: Component<{ detail: DecisionExplanation }> = (props) => (
         <div class="fc-usage-row">
           <span class="fc-usage-key">{t("Model cost")}</span>
           <span class="fc-context-excerpt">
-            {props.detail.providerID ? `${props.detail.providerID} · ` : ""}
+            {props.detail.providerID ? `${modelDisplayName(props.detail.providerID)} · ` : ""}
             {cost()}
           </span>
         </div>

@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createSignal, type Component, type JSX } from "solid-js"
 import { getLocale, t } from "../i18n"
 import { adaptiveSurfaces } from "../client"
+import { modelDisplayName } from "../adaptive-copy"
 import type { AdaptiveConfigError } from "../client"
 import type {
   AdaptiveConfigView,
@@ -20,7 +21,7 @@ import { Segmented } from "./Segmented"
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-/** The decision kinds E8 shows when editing a provider's consent: the four the server ships. */
+/** The decision kinds an older server that does not serve its registry is shown with. */
 export const ADAPTIVE_KINDS = ["completion", "skillRelevance", "contextItem", "skillReflection"] as const
 
 /** Why a switch cannot be offered, with the words the panel shows. */
@@ -44,7 +45,22 @@ export function writableField(view: AdaptiveConfigView, path: string): AdaptiveW
  * the config file mentions) is shown as it is.
  */
 export function modelName(view: AdaptiveConfigView, id: string): string {
-  return t(view.models?.find((model) => model.id === id)?.name ?? id)
+  return modelDisplayName(id, view.models ?? [])
+}
+
+/**
+ * The decision kinds a model can be assigned to, and a provider asked about: every kind some registered
+ * model answers, in the order of their plain names, then any kind this build has no name for yet. An
+ * older server that does not serve its registry is shown the four kinds it shipped with.
+ */
+export function modelKinds(view: AdaptiveConfigView): string[] {
+  const models = view.models
+  if (!models) return [...ADAPTIVE_KINDS]
+  const supported = new Set(models.flatMap((model) => model.supports))
+  return [
+    ...Object.keys(KIND_LABELS).filter((kind) => supported.has(kind)),
+    ...[...supported].filter((kind) => !Object.hasOwn(KIND_LABELS, kind)),
+  ]
 }
 
 /** The registered models that can answer a kind, for its selector. */
@@ -511,7 +527,7 @@ function inertStatus(view: AdaptiveConfigView): CapabilityStatus | undefined {
  * permission or its key — or paused because the value gate (AH-C05) judged it does not pay for itself.
  */
 export function predictiveStatus(view: AdaptiveConfigView, voi?: ValueGateSnapshot): CapabilityStatus {
-  const rows = ADAPTIVE_KINDS.flatMap((kind) => {
+  const rows = modelKinds(view).flatMap((kind) => {
     const id = assignedModel(view, kind)
     return id === undefined ? [] : [{ kind, id, missing: missingForKind(view, kind, id) }]
   })
@@ -546,12 +562,16 @@ export function predictiveCost(voi?: ValueGateSnapshot): string {
   return usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)
 }
 
-/** The decision kinds said in plain words, for the consent rows and the value gate. */
+/** Every decision kind said in plain words, for the selectors, the consent rows and the value gate. */
 export const KIND_LABELS: Record<string, string> = {
   completion: "Whether the task is finished",
   skillRelevance: "Which skills fit",
   contextItem: "Which context to keep",
   skillReflection: "Whether a session is worth learning from",
+  modelRoute: "Which model to use",
+  agentRoute: "Which agent to use",
+  toolRisk: "How risky a tool call is",
+  failure: "Why a step failed",
 }
 
 export const GATE_LABELS: Record<ValueGateState, string> = {
@@ -1116,7 +1136,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
           </Show>
         </Show>
         <Show when={field(path("kinds"))}>
-          <For each={ADAPTIVE_KINDS}>
+          <For each={modelKinds(row.view)}>
             {(kind) => (
               <div class="fc-settings-row" classList={{ "fc-settings-refused": refused(path("kinds")) }}>
                 <span>{t(KIND_LABELS[kind] ?? kind)}</span>
@@ -1404,7 +1424,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                   (AH-C03) with its key where it needs one: every row above says what it still waits for. */}
               <Show when={field("models.completion")}>
                 <h4 class="fc-settings-subtitle">{t("Which model answers each decision")}</h4>
-                <For each={ADAPTIVE_KINDS}>{(kind) => <KindModel kind={kind} view={view()} />}</For>
+                <For each={modelKinds(view())}>{(kind) => <KindModel kind={kind} view={view()} />}</For>
                 <Show when={view().effective.jev.enabled}>
                   <p class="fc-settings-hint">
                     {t(

@@ -1315,10 +1315,17 @@ always safe.
   targets `OPENCODE_CONFIG_DIR`, or the reverse) survives and the effective value is not necessarily
   the default again. The panel says so and does not present deletion as an absolute guarantee of
   restoring the default.
-- **Open decision, non-blocking.** The provider consent UI offers only the **four kinds the server
-  ships** — `completion`, `skillRelevance`, `contextItem`, `skillReflection`. A kind the writer would
-  accept but the product does not implement yet is not rendered, so the panel never promises an
-  allowlist entry that would do nothing. Widening the set is additive when a kind lands.
+- **Which kinds are drawn.** The model selectors and the provider consent rows offer **every kind a
+  registered model answers** (from the view's `models[].supports`), each under its plain name — e.g.
+  "Why a step failed" for `failure`, "How risky a tool call is" for `toolRisk` — so a kind that can be
+  assigned can also be consented to. A kind with no plain name yet is still drawn, by its id, after
+  the named ones. An older server that does not serve its registry is shown the four kinds it shipped
+  with (`completion`, `skillRelevance`, `contextItem`, `skillReflection`).
+- **Names outside Settings.** The app reads the registry once per server that announces
+  `adaptive-config` and refreshes it on every settings read, so the Decisions screen (row, dialog,
+  value-gate block), the session chip ("Consulted Jev") and the context plan ("Refined by Jev") name
+  models by the same display names. An id the registry does not hold — an old row from a removed
+  provider, the baseline — is shown as stored.
 
 ## Decisions
 

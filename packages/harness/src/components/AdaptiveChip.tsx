@@ -1,5 +1,6 @@
 import { For, Show, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
 import { t } from "../i18n"
+import { modelDisplayName } from "../adaptive-copy"
 import { createResource } from "../resource"
 import { createHarnessClient } from "../client"
 import { toast } from "../toast"
@@ -202,7 +203,7 @@ export const AdaptiveChip: Component<AdaptiveChipProps> = (props) => {
                 <div class="fc-adaptive-label">{t("Predictive model")}</div>
                 <p class="fc-adaptive-muted">
                   {t("Consulted {model} ({latency} ms)", {
-                    model: model().providerID,
+                    model: modelDisplayName(model().providerID),
                     latency: String(model().latencyMs),
                   })}
                 </p>

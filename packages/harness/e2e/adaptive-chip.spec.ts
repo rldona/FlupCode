@@ -42,6 +42,9 @@ async function openApp(page: Page, capabilities: string[]) {
     const request = route.request()
     const url = new URL(request.url())
     if (url.pathname === "/harness/health") return route.fulfill({ json: { data: { healthy: true, capabilities } } })
+    // The settings view serves the model registry, so the chip names the model a reader knows.
+    if (url.pathname === "/harness/adaptive/config" && request.method() === "GET")
+      return route.fulfill({ json: { data: { models: [{ id: "jev", name: "Jev", locality: "remote", supports: [], needsConsent: true, needsKey: true }] } } })
     if (url.pathname === "/harness/context")
       return route.fulfill({
         json: { data: { directory: "/work/demo", projectDirectory: "/work/demo", instructions: [] } },
@@ -132,7 +135,7 @@ test("a server without adaptive-session shows no chip and is never asked", async
 })
 
 test("the chip shows the turn's suggested skills, the applied plan and the model consulted", async ({ page }) => {
-  await openApp(page, ["adaptive-session", "adaptive-decisions"])
+  await openApp(page, ["adaptive-session", "adaptive-decisions", "adaptive-config"])
   await page.goto("/")
 
   const button = chip(page).getByRole("button", { name: "Adaptive" })
@@ -143,7 +146,8 @@ test("the chip shows the turn's suggested skills, the applied plan and the model
   await expect(popover).toContainText("testing")
   await expect(popover).toContainText("parser")
   await expect(popover).toContainText(`Context plan applied: −${(1200).toLocaleString("en-US")} tokens`)
-  await expect(popover).toContainText("Consulted jev (180 ms)")
+  // The model is named as the registry names it, never by its id.
+  await expect(popover).toContainText("Consulted Jev (180 ms)")
   // The popover takes the focus as it opens, so a keyboard reader lands in it (AH-E06).
   await expect(popover).toBeFocused()
 

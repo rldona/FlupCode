@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import {
   CAPABILITIES,
+  KIND_LABELS,
   advancedFields,
   assignableModels,
   assignedModel,
   assignmentLeaves,
   missingForKind,
+  modelKinds,
   modelName,
   capabilityChoice,
   capabilityChoices,
@@ -892,6 +894,34 @@ describe("the predictive models' state, from the assignments", () => {
 })
 
 describe("choosing a model per decision (AH-C01)", () => {
+  test("every kind a registered model answers gets a selector, in the order of their plain names", () => {
+    expect(modelKinds(assigning({}))).toEqual(["completion", "skillRelevance", "contextItem", "skillReflection", "failure"])
+    const all = {
+      ...assigning({}),
+      models: [{ ...MODELS[0]!, supports: ["toolRisk", "agentRoute", "modelRoute", "failure", "completion", "futureKind"] }],
+    }
+    // A kind this build has no name for yet still gets its row, after the named ones.
+    expect(modelKinds(all)).toEqual(["completion", "modelRoute", "agentRoute", "toolRisk", "failure", "futureKind"])
+    // An older server that does not serve its registry keeps the four kinds it shipped with.
+    expect(modelKinds(view())).toEqual(["completion", "skillRelevance", "contextItem", "skillReflection"])
+  })
+
+  test("every assignable kind has a plain name in both languages, with no jargon", () => {
+    for (const kind of ["completion", "skillRelevance", "contextItem", "skillReflection", "modelRoute", "agentRoute", "toolRisk", "failure"]) {
+      const label = KIND_LABELS[kind]!
+      expect(label).toBeDefined()
+      expect(label).not.toMatch(/Jev|shadow|egress|skillRelevance|\w+\.\w+/i)
+      setLocale("es")
+      expect(t(label)).not.toBe(label)
+      setLocale("en")
+    }
+  })
+
+  test("the summary lists every assigned kind, the ones beyond the first four included", () => {
+    const status = predictiveStatus(assigning({ failure: "small-llm" }, { "small-llm": { enabled: true, projects: ["/p"], kinds: { failure: true } } }))
+    expect(t(status.key, status.params)).toBe("Why a step failed: Small model (through the engine)")
+  })
+
   test("the selector is offered only when the server lists models.*", () => {
     expect(writableField(assigning({}), "models.completion")?.path).toBe("models.*")
     expect(writableField(view(), "models.completion")).toBeUndefined()

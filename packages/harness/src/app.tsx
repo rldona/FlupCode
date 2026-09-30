@@ -2,6 +2,7 @@ import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, 
 import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
+import { setAdaptiveModels } from "./adaptive-copy"
 import { createReconciledList } from "./reconciled"
 import { compareFromSearch, decisionFromSearch, screenFromPath, searchForCompare, searchForDecision, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
@@ -1028,6 +1029,14 @@ export const App: Component = () => {
     () => (settingsOpen() && adaptiveSurfaces(harnessCapabilities()).config ? adaptiveRevision() : undefined),
     () => createHarnessClient(harnessServerUrl()).adaptive.config.get(),
   )
+  // The model registry (AH-C01) names models and providers outside Settings too — the Decisions
+  // screen, the session chip, the context plan — so it is read once per server that announces the
+  // surface, and every settings read refreshes it. Without it ids are shown as they are.
+  const [adaptiveRegistry] = createResource(
+    () => (adaptiveSurfaces(harnessCapabilities()).config ? harnessServerUrl() : undefined),
+    (url) => createHarnessClient(url).adaptive.config.get().then((view) => view.models ?? []),
+  )
+  createEffect(() => setAdaptiveModels(adaptiveSettings()?.models ?? adaptiveRegistry() ?? []))
   // The value gate (AH-C05) says whether the predictive model is paused for low value; an older server
   // that does not announce it is not asked.
   const [adaptiveVoi] = createResource(
