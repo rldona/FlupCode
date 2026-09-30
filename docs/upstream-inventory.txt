@@ -14,7 +14,9 @@ packages/client/src/generated-effect/
 packages/client/src/generated/
 packages/client/test/effect.test.ts
 packages/client/test/promise.test.ts
+packages/core/package.json
 packages/core/schema.json
+packages/core/script/session-message-backfill.ts
 packages/core/src/catalog.ts
 packages/core/src/config.ts
 packages/core/src/config/memory.ts
@@ -31,10 +33,15 @@ packages/core/src/permission.ts
 packages/core/src/plugin/agent.ts
 packages/core/src/plugin/host.ts
 packages/core/src/plugin/provider/github-copilot.ts
+packages/core/src/session.ts
+packages/core/src/session/history.ts
 packages/core/src/session/info.ts
+packages/core/src/session/message-compat.ts
 packages/core/src/session/projector.ts
+packages/core/src/session/revert.ts
 packages/core/src/session/runner/llm.ts
 packages/core/src/session/runner/model.ts
+packages/core/src/session/store.ts
 packages/core/src/skill.ts
 packages/core/src/tool/builtins.ts
 packages/core/src/tool/memory.ts
@@ -57,6 +64,8 @@ packages/core/test/memory-tool.test.ts
 packages/core/test/permission.test.ts
 packages/core/test/plugin/host.ts
 packages/core/test/plugin/provider-github-copilot.test.ts
+packages/core/test/session-message-backfill.test.ts
+packages/core/test/session-message-compat.test.ts
 packages/core/test/session-projector.test.ts
 packages/core/test/session-runner-model.test.ts
 packages/core/test/session-runner-recorded.test.ts

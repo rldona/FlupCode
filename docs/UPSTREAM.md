@@ -128,8 +128,10 @@ conflict. **Keep ours.**
 Persistent memory (`packages/core/src/memory.ts`, `packages/core/src/memory/**`,
 `packages/core/src/config/memory.ts`, `packages/core/src/tool/memory.ts`,
 `packages/schema/src/memory.ts`, `packages/protocol/src/groups/memory.ts`,
-`packages/server/src/handlers/memory.ts`, the `20260914143517_add_memory` migration) and the
-`plan_exit` tool (`packages/core/src/tool/plan-exit.ts`), plus their tests. The light-reload test
+`packages/server/src/handlers/memory.ts`, the `20260914143517_add_memory` migration), the
+`plan_exit` tool (`packages/core/src/tool/plan-exit.ts`), and the legacy session message decoder
+(`packages/core/src/session/message-compat.ts`, with its one-off rewrite script
+`packages/core/script/session-message-backfill.ts`), plus their tests. The light-reload test
 (`packages/opencode/test/config/reload.test.ts`) is also ours. New paths, so they only conflict
 through the registries below. **Keep ours.**
 
@@ -143,7 +145,8 @@ One-line registrations that make the files above reachable:
 `packages/client/src/contract.ts`, `packages/core/src/v1/config/config.ts` (the generic
 `flupcode.composeTools`/`flupcode.configRepo` fields the FlupCode apps read),
 `packages/core/src/v1/config/migrate.ts`,
-`packages/core/src/session/info.ts`.
+`packages/core/src/session/info.ts`,
+`packages/core/package.json` (the `backfill:session-message` script).
 
 **Take upstream, then re-add our line.** Never keep our whole version: upstream adds entries to
 these same lists, and keeping ours drops them.
@@ -180,10 +183,13 @@ keep-ours, because upstream may have changed the surrounding code.
 | `packages/core/src/skill.ts`, `packages/opencode/src/config/config.ts`, `packages/opencode/src/skill/index.ts`, `packages/opencode/src/command/index.ts`, `packages/opencode/src/session/processor.ts`, `packages/opencode/src/tool/registry.ts` | Light config reload: a per-directory `reload()` so a saved agent/command/tool takes effect without disposing instances, `SkillV2.reload` clearing its cache, `ToolRegistry.reload` invalidating its per-directory state so `POST /config/reload` rescans the tool directories, and the doom-loop skipping the ask when the named agent is gone. `updateGlobal` writes a provider as a unit (replaces its entry) so an edit can drop models, options or effort variants that a deep merge would keep |
 | `packages/core/src/catalog.ts`, `packages/core/src/config.ts`, `packages/core/src/config/plugin/provider.ts`, `packages/core/src/plugin/host.ts`, `packages/core/src/v1/config/migrate.ts`, `packages/plugin/src/v2/effect/catalog.ts` | Custom OpenAI-compatible providers configured from Settings: a config provider without `env` gets a v2 integration with a `key` method and is marked explicit so it stays available without a credential, `disabled_providers` is a v2 `Config` field carried through v1 migration (and no longer a v1 detection key) and applied to the catalog, and `markExplicit` is exposed on the plugin catalog draft |
 | `packages/core/src/v1/config/config.ts`                                                      | The `flupcode.configRepo` field: an absolute path to the user's own config repository that the FlupCode apps may export to, which the engine only carries                                         |
+| `packages/core/src/session.ts`, `packages/core/src/session/history.ts`, `packages/core/src/session/revert.ts`, `packages/core/src/session/store.ts` | Stored session messages decode through `SessionMessageCompat.decodeRow`, so rows written by older engines that fail the strict `SessionMessage` decode still load instead of breaking the whole session |
 | `packages/session-ui/src/components/message-part.tsx`, `message-file.ts`, `message-part.css` | The timeline renders the images a completed tool returned (its `state.attachments`), not only the files of a user message: thumbnails that open `ImagePreview` |
 
 Their tests move with them: `packages/core/test/**`, `packages/llm/test/**`,
-`packages/opencode/test/**` follow the same rule as the file they cover.
+`packages/opencode/test/**` follow the same rule as the file they cover. The `engine` job of
+`.github/workflows/harness.yml` runs every test file listed in `docs/upstream-inventory.txt`, so a
+test of ours that is not declared there is not run in CI either.
 
 ## Conflict policy
 

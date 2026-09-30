@@ -25,6 +25,7 @@ jobs:
       pull-requests: read
     outputs:
       harness: ${{ steps.filter.outputs.harness }}
+      engine: ${{ steps.filter.outputs.engine }}
       inventory: ${{ steps.filter.outputs.inventory }}
     steps:
       # Fails closed: whenever the changed files cannot be listed completely, everything runs.
@@ -41,6 +42,7 @@ jobs:
           set -uo pipefail
           all() {
             echo "harness=true" >> "$GITHUB_OUTPUT"
+            echo "engine=true" >> "$GITHUB_OUTPUT"
             echo "inventory=$([ "$EVENT" = pull_request ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
             echo "Running everything: $1"
             exit 0
@@ -60,6 +62,7 @@ jobs:
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
           echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "engine=$(matches '^(packages/(core|opencode|llm|server|protocol|schema|client|plugin|sdk|session-ui)/|docs/upstream-inventory\.txt$|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           inventory=false
           [ "$EVENT" = pull_request ] && inventory=$(matches '^(packages/|docs/upstream-inventory\.txt$|script/upstream-inventory\.ts$|\.github/workflows/harness\.yml$)')
           echo "inventory=$inventory" >> "$GITHUB_OUTPUT"
@@ -104,6 +107,7 @@ jobs:
           bun run --cwd packages/relay test
           bun run --cwd packages/flupcode-cli test
           bun run --cwd packages/harness-server test
+          bun run --cwd packages/harness-desktop test
 
       - name: Test harness
         run: bun run --cwd packages/harness test
@@ -120,6 +124,40 @@ jobs:
           name: flupcode-web
           path: packages/harness/dist
           retention-days: 14
+
+  # Our own tests inside the upstream packages (memory, plan_exit, message compat, the permission
+  # floor, config reload...). Upstream's workflow for them is gated to anomalyco/opencode, so without
+  # this job they never ran here. The list is the upstream inventory, which CI already keeps
+  # complete: every test file of ours in an upstream package is declared there. Upstream's own
+  # suites are not run: several need recordings or a machine setup this runner does not have.
+  engine:
+    needs: changes
+    if: needs.changes.outputs.engine == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Test our engine changes
+        run: |
+          set -euo pipefail
+          tests=$(grep -E '^packages/[^/]+/.+\.test\.tsx?$' docs/upstream-inventory.txt)
+          [ -n "$tests" ] || { echo "no engine tests declared in docs/upstream-inventory.txt"; exit 1; }
+          for package in $(printf '%s\n' "$tests" | cut -d/ -f2 | sort -u); do
+            files=$(printf '%s\n' "$tests" | grep "^packages/$package/" | sed "s#^packages/$package/##")
+            echo "::group::packages/$package"
+            (cd "packages/$package" && bun test --timeout 30000 $files)
+            echo "::endgroup::"
+          done
 
   inventory:
     needs: changes
@@ -150,7 +188,7 @@ jobs:
   # The one required check on `power`. A job skipped because its paths did not change is a pass; a
   # failed or cancelled one, or a `changes` job that could not decide, is not.
   gate:
-    needs: [changes, build, inventory]
+    needs: [changes, build, engine, inventory]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -159,10 +197,11 @@ jobs:
         env:
           CHANGES: ${{ needs.changes.result }}
           BUILD: ${{ needs.build.result }}
+          ENGINE: ${{ needs.engine.result }}
           INVENTORY: ${{ needs.inventory.result }}
         run: |
-          echo "changes=$CHANGES build=$BUILD inventory=$INVENTORY"
+          echo "changes=$CHANGES build=$BUILD engine=$ENGINE inventory=$INVENTORY"
           [ "$CHANGES" = success ] || exit 1
-          for result in "$BUILD" "$INVENTORY"; do
+          for result in "$BUILD" "$ENGINE" "$INVENTORY"; do
             case "$result" in success|skipped) ;; *) exit 1 ;; esac
           done
