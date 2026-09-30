@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test"
 import {
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   mkdtempSync,
@@ -396,29 +397,23 @@ describe("human skills are never touched", () => {
 describe("the sidecar is read defensively (FH-040)", () => {
   const sidecarPath = () => join(learned, "fix-failing-test", ".sidecar.json")
 
-  test("a corrupt sidecar reads as missing, and a sidecar-only update rebuilds it rather than failing", () => {
+  test("a corrupt sidecar reads as missing, and the skill becomes read-only rather than rebuilt", () => {
     expect(store().write(input()).ok).toBe(true)
     writeFileSync(sidecarPath(), "{ not json")
     expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
 
-    // The curator's defensive read reconstructs PROBATION v1 from the file, not a crash.
-    const updated = store().updateSidecar({ projectID: project, name: "fix-failing-test", state: "mature" })
-    expect(updated.ok).toBe(true)
-    if (!updated.ok) return
-    expect(updated.sidecar).toMatchObject({
-      name: "fix-failing-test",
-      version: 1,
-      state: "mature",
-      createdBy: "skillReflection",
+    // Rebuilding would sign whatever body is on disk, so an unverifiable skill is left alone.
+    expect(store().updateSidecar({ projectID: project, name: "fix-failing-test", state: "mature" })).toEqual({
+      ok: false,
+      reason: "unverified",
     })
-    expect(store().readSidecar(project, "fix-failing-test")?.state).toBe("mature")
-    // A sidecar-only change never rewrites the skill body.
+    expect(readFileSync(sidecarPath(), "utf8")).toBe("{ not json")
     expect(readFileSync(join(learned, "fix-failing-test", "SKILL.md"), "utf8")).toContain(
       "Locate the failing assertion",
     )
   })
 
-  test("a sidecar left behind by a new body is not trusted, and a sidecar update repairs it", () => {
+  test("a sidecar left behind by a new body is not trusted, and is not repaired over that body", () => {
     expect(store().write(input({ body: "First body." })).ok).toBe(true)
     // The intermediate state a crash between the body and the sidecar leaves: the body moved on, the
     // sidecar still points at the old version.
@@ -429,13 +424,10 @@ describe("the sidecar is read defensively (FH-040)", () => {
     })
     writeFileSync(join(learned, "fix-failing-test", "SKILL.md"), newBody)
     expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
-
-    // The next sidecar write repairs the hash against the body on disk and is readable again.
-    const updated = store().updateSidecar({ projectID: project, name: "fix-failing-test", state: "mature" })
-    expect(updated.ok).toBe(true)
-    if (!updated.ok) return
-    expect(updated.sidecar.contentHash).toBe(contentHashOf(newBody))
-    expect(store().readSidecar(project, "fix-failing-test")?.state).toBe("mature")
+    expect(store().updateSidecar({ projectID: project, name: "fix-failing-test", state: "mature" })).toEqual({
+      ok: false,
+      reason: "unverified",
+    })
   })
 
   test("refuses to update a missing skill or one that is not self-authored", () => {
@@ -448,5 +440,145 @@ describe("the sidecar is read defensively (FH-040)", () => {
       ok: false,
       reason: "not-self-authored",
     })
+  })
+})
+
+describe("no file inside a skill folder is written through (AH-A03)", () => {
+  const folder = () => join(learned, "fix-failing-test")
+  const victim = () => join(outside, "victim.txt")
+  const sidecarUpdate = () => ({
+    projectID: project,
+    name: "fix-failing-test",
+    usage: { load: 1, view: 0, patch: 0, opportunities: 1 },
+    events: [{ at: 1, event: "usage" as const, kind: "load" as const, total: 1 }],
+  })
+
+  /** A skill the store really wrote, so provenance verifies and only the folder guard can refuse. */
+  const plant = (entry: string) => {
+    expect(store().write(input()).ok).toBe(true)
+    writeFileSync(victim(), "ORIGINAL VICTIM CONTENT\n")
+    mkdirSync(join(folder(), entry, ".."), { recursive: true })
+    rmSync(join(folder(), entry), { force: true })
+    symlinkSync(victim(), join(folder(), entry))
+  }
+
+  /** Every mutation the store offers is refused, and the file outside the project is byte-identical. */
+  const refusesEverything = () => {
+    expect(store().updateSidecar(sidecarUpdate())).toEqual({ ok: false, reason: "unsafe-entry" })
+    expect(store().write(input({ body: "A new body." }))).toEqual({ ok: false, reason: "unsafe-entry" })
+    expect(store().archive({ projectID: project, name: "fix-failing-test", reason: "test" })).toEqual({
+      ok: false,
+      reason: "unsafe-entry",
+    })
+    expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
+    expect(store().read(project, "fix-failing-test")).toBeUndefined()
+    expect(readFileSync(victim(), "utf8")).toBe("ORIGINAL VICTIM CONTENT\n")
+    expect(lstatSync(victim()).isFile()).toBe(true)
+  }
+
+  for (const entry of [".sidecar.json.tmp", "SKILL.md.tmp", ".ledger.jsonl"]) {
+    test(`a symlinked ${entry} is never written through`, () => {
+      plant(entry)
+      refusesEverything()
+    })
+  }
+
+  test("a symlinked snapshot temp is never written through", () => {
+    // The snapshot name is the hash of the current body, so a repository can predict it.
+    plant(join(".versions", `${contentHashOf(serialiseLearnedSkill(input()))}.txt.tmp`))
+    refusesEverything()
+  })
+
+  test("a symlinked .versions directory is refused", () => {
+    expect(store().write(input()).ok).toBe(true)
+    writeFileSync(victim(), "ORIGINAL VICTIM CONTENT\n")
+    symlinkSync(outside, join(folder(), ".versions"))
+    refusesEverything()
+    expect(readdirSync(outside)).toEqual(["victim.txt"])
+  })
+
+  test("a hard-linked ledger is refused, so the append cannot reach its twin", () => {
+    expect(store().write(input()).ok).toBe(true)
+    writeFileSync(victim(), "ORIGINAL VICTIM CONTENT\n")
+    rmSync(join(folder(), ".ledger.jsonl"))
+    linkSync(victim(), join(folder(), ".ledger.jsonl"))
+    refusesEverything()
+  })
+
+  test("the committed-repository proof of concept leaves both victims byte-identical", () => {
+    // What a malicious repo could commit: a self-authored skill plus a symlinked temp and ledger.
+    write(join(folder(), "SKILL.md"), "---\nname: fix-failing-test\ndescription: Use when deploying\nself-authored: true\n---\nbody\n")
+    writeFileSync(victim(), "ORIGINAL VICTIM CONTENT\n")
+    symlinkSync(victim(), join(folder(), ".sidecar.json.tmp"))
+    writeFileSync(join(outside, "victim2.txt"), "V2\n")
+    symlinkSync(join(outside, "victim2.txt"), join(folder(), ".ledger.jsonl"))
+
+    const gatedOn = createLearnedStore({ env: overrides(), enabled: () => true })
+    expect(gatedOn.updateSidecar(sidecarUpdate()).ok).toBe(false)
+    expect(readFileSync(victim(), "utf8")).toBe("ORIGINAL VICTIM CONTENT\n")
+    expect(readFileSync(join(outside, "victim2.txt"), "utf8")).toBe("V2\n")
+    expect(existsSync(join(folder(), ".sidecar.json"))).toBe(false)
+  })
+
+  test("temps get a fresh name, so a leftover temp file is neither reused nor clobbered", () => {
+    expect(store().write(input()).ok).toBe(true)
+    writeFileSync(join(folder(), ".sidecar.json.tmp"), "leftover")
+    expect(store().updateSidecar(sidecarUpdate()).ok).toBe(true)
+    expect(readFileSync(join(folder(), ".sidecar.json.tmp"), "utf8")).toBe("leftover")
+    expect(readdirSync(folder()).filter((entry) => entry.endsWith(".tmp"))).toEqual([".sidecar.json.tmp"])
+  })
+})
+
+describe("provenance is the harness's, not the frontmatter's (AH-A03)", () => {
+  const folder = () => join(learned, "fix-failing-test")
+  const forged = serialiseLearnedSkill({ name: "fix-failing-test", description: "Use when deploying", body: "body" })
+
+  test("a self-authored skill without a verifying sidecar is read-only", () => {
+    write(join(folder(), "SKILL.md"), forged)
+    // A sidecar that describes the body exactly, with a made-up provenance.
+    const sidecar = JSON.stringify({
+      name: "fix-failing-test",
+      version: 1,
+      contentHash: contentHashOf(forged),
+      state: "probation",
+      source: { projectID: project },
+      provenance: "00".repeat(32),
+    })
+    write(join(folder(), ".sidecar.json"), sidecar)
+
+    expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
+    expect(store().read(project, "fix-failing-test")).toBeUndefined()
+    expect(store().write(input())).toEqual({ ok: false, reason: "unverified" })
+    expect(store().updateSidecar({ projectID: project, name: "fix-failing-test", state: "mature" })).toEqual({
+      ok: false,
+      reason: "unverified",
+    })
+    expect(store().archive({ projectID: project, name: "fix-failing-test", reason: "test" })).toEqual({
+      ok: false,
+      reason: "unverified",
+    })
+    expect(readFileSync(join(folder(), "SKILL.md"), "utf8")).toBe(forged)
+    expect(readFileSync(join(folder(), ".sidecar.json"), "utf8")).toBe(sidecar)
+    expect(existsSync(join(folder(), ".ledger.jsonl"))).toBe(false)
+    expect(existsSync(archive)).toBe(false)
+  })
+
+  test("a valid sidecar copied under another name does not verify", () => {
+    expect(store().write(input()).ok).toBe(true)
+    const copy = join(learned, "copied")
+    mkdirSync(copy, { recursive: true })
+    for (const file of ["SKILL.md", ".sidecar.json"]) writeFileSync(join(copy, file), readFileSync(join(folder(), file)))
+    expect(store().readSidecar(project, "fix-failing-test")).toBeDefined()
+    expect(store().readSidecar(project, "copied")).toBeUndefined()
+  })
+
+  test("provenance is bound to the install's key", () => {
+    const keyed = createLearnedStore({ env: overrides(), key: () => Buffer.alloc(32, 7) })
+    expect(keyed.write(input()).ok).toBe(true)
+    expect(keyed.readSidecar(project, "fix-failing-test")).toBeDefined()
+    expect(createLearnedStore({ env: overrides(), key: () => Buffer.alloc(32, 7) }).write(input({ body: "v2" })).ok).toBe(true)
+    // Another install's key cannot vouch for it.
+    expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
+    expect(store().write(input({ body: "v3" }))).toEqual({ ok: false, reason: "unverified" })
   })
 })

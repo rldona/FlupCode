@@ -171,6 +171,9 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     snapshotKeep: startup.learning.snapshotKeep,
     // The kill switch as a rule in the writer too: with learning off the store refuses on its own.
     enabled: () => adaptive.current().learning.enabled,
+    // The same per-installation key as the context ids: a learned skill's provenance is an HMAC
+    // under it, so a repository cannot commit a skill the store would treat as its own.
+    key: () => key ?? resolveInstallationKey(),
   })
   const curator = createSkillCurator({
     store: learnedStore,

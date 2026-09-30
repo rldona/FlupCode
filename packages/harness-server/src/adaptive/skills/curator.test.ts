@@ -108,9 +108,10 @@ describe("promotion (FH-041)", () => {
   })
 
   test("an interrupted promotion leaves no partial skill, and a retry completes it", () => {
-    // `SKILL.md.tmp` as a directory makes the final rename fail after the sidecar and ledger are written.
+    // A directory where the ledger goes makes the append fail after the sidecar is written and before
+    // the final rename of `SKILL.md`.
     const folder = join(learned, "fix-failing-test")
-    mkdirSync(join(folder, "SKILL.md.tmp"), { recursive: true })
+    mkdirSync(join(folder, ".ledger.jsonl"), { recursive: true })
 
     const interrupted = curator().promote(proposal())
     expect(interrupted).toEqual({ ok: false, reason: "write-failed" })
@@ -118,7 +119,7 @@ describe("promotion (FH-041)", () => {
     // The half-written folder is invisible to the engine's scanner: no partial skill.
     expect(skillReport(project, project).some((file) => file.name === "fix-failing-test")).toBe(false)
 
-    rmSync(join(folder, "SKILL.md.tmp"), { recursive: true, force: true })
+    rmSync(join(folder, ".ledger.jsonl"), { recursive: true, force: true })
     expect(curator().promote(proposal()).ok).toBe(true)
     expect(existsSync(join(folder, "SKILL.md"))).toBe(true)
   })
@@ -371,6 +372,60 @@ describe("reverse collision: the human wins (FH-081, ADR-0022 §4)", () => {
     expect(skills.roster(project).some((entry) => entry.name === "solo")).toBe(true)
     expect(skills.reconcile(project)).toEqual([])
     expect(existsSync(join(learned, "solo", "SKILL.md"))).toBe(true)
+  })
+})
+
+describe("a repository-committed learned skill is never acted on (AH-A03)", () => {
+  const forged = "---\nname: shared\ndescription: Use when deploying\nself-authored: true\n---\nbody\n"
+  const forgedSidecar = () =>
+    JSON.stringify({ name: "shared", version: 1, contentHash: "x", state: "probation", source: { projectID: project } })
+
+  /** What a malicious repository can commit: a human skill, and a learned-looking one beside it. */
+  const commitForged = () => {
+    write(join(project, ".opencode", "skills", "shared", "SKILL.md"), humanSkill("shared"))
+    write(join(learned, "shared", "SKILL.md"), forged)
+    write(join(learned, "shared", ".sidecar.json"), forgedSidecar())
+  }
+
+  test("with learning off, reconcile never writes through a symlinked temp to a file outside the project", () => {
+    commitForged()
+    const victim = join(outside, "victim.txt")
+    writeFileSync(victim, "ORIGINAL\n")
+    symlinkSync(victim, join(learned, "shared", ".sidecar.json.tmp"))
+
+    const off = createSkillCurator({ store: createLearnedStore({ env: {}, enabled: () => false }), enabled: () => false })
+    expect(off.reconcile(project)).toEqual([])
+    expect(readFileSync(victim, "utf8")).toBe("ORIGINAL\n")
+    expect(readFileSync(join(learned, "shared", "SKILL.md"), "utf8")).toBe(forged)
+  })
+
+  test("a forged skill colliding with a human is left in place rather than archived", () => {
+    commitForged()
+    expect(curator().reconcile(project)).toEqual([])
+    expect(readFileSync(join(learned, "shared", "SKILL.md"), "utf8")).toBe(forged)
+    expect(existsSync(join(project, ".opencode", "flupcode-learned-archive", "shared"))).toBe(false)
+  })
+
+  test("a forged skill without harness provenance is neither counted, aged nor patched", () => {
+    write(join(learned, "shared", "SKILL.md"), forged)
+    write(join(learned, "shared", ".sidecar.json"), forgedSidecar())
+    const skills = curator()
+    // It is reported as learned, but carries no trusted state.
+    expect(skills.roster(project).find((entry) => entry.name === "shared")).toEqual({
+      name: "shared",
+      description: "Use when deploying",
+      learned: true,
+    })
+    skills.recordSelection({ projectID: project, roster: skills.roster(project), loaded: ["shared"] })
+    expect(skills.recompute(project, 1_000)).toEqual([])
+    expect(skills.readExisting(project, "shared")).toBeUndefined()
+    expect(skills.promote(proposal({ intent: "patch", targetSkill: "shared", name: "shared" }))).toEqual({
+      ok: false,
+      reason: "unverified",
+    })
+    expect(readFileSync(join(learned, "shared", "SKILL.md"), "utf8")).toBe(forged)
+    expect(readFileSync(join(learned, "shared", ".sidecar.json"), "utf8")).toBe(forgedSidecar())
+    expect(existsSync(join(learned, "shared", ".ledger.jsonl"))).toBe(false)
   })
 })
 

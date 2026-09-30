@@ -91,6 +91,15 @@ it applies these guards in order:
    re-implementing the collision formula.
 5. **Only under the root**: the final path is always `join(learnedRoot, name, "SKILL.md")`; the
    archive only ever moves from the learned root to the archive root.
+6. **Every file, not just the folder** (AH-A03): a skill folder, or its `.versions/`, holding a
+   symlink, a special file or a hard-linked file is refused whole (`unsafe-entry`). Temps are random
+   names created with `wx` and the ledger is opened with `O_NOFOLLOW`, so no write goes through a
+   link a repository committed.
+7. **Harness-verified provenance** (AH-A03): the marker is committable, so it only says "learned".
+   A patch, a sidecar update or an archive (including the reverse-collision repair) requires the
+   sidecar's `provenance` — an HMAC over the folder name and `contentHash` under the
+   per-installation key — to verify; otherwise it is rejected `unverified` and the skill is
+   read-only.
 
 The marker is written into frontmatter as `self-authored: true`
 (`serialiseFrontmatter({ fields: { name, description, "self-authored": true }, prompt: body })`).
@@ -104,7 +113,7 @@ this is the ADR-0016 §3 rule that the invariant lives at the writer.
 Each learned skill is self-describing and portable without opening SQLite:
 
 - **`.sidecar.json`** carries the derived state the curator reads and writes: `name`, `version`,
-  `contentHash` (sha256 of the serialised `SKILL.md`), `state`, `createdBy`, timestamps, the
+  `contentHash` (sha256 of the serialised `SKILL.md`), `provenance` (§2.7), `state`, `createdBy`, timestamps, the
   `source` (`projectID`, `episodeID`, `proposalID`, `decisionID`), `evidenceRefs`, `modelVersion` and
   the `usage` counters.
 - **`.ledger.jsonl`** is append-only, one JSON event per line: `created`, `patched` (from/to hash),
@@ -117,14 +126,15 @@ Each learned skill is self-describing and portable without opening SQLite:
   `learning.snapshotKeep`).
 
 **Install is atomic via temp + rename**: on create the directory is made, the sidecar and ledger are
-written (temp + rename), and `SKILL.md` is written to `SKILL.md.tmp` then `renameSync`d into place —
+written (temp + rename), and `SKILL.md` is written to a random, exclusively created temp then `renameSync`d into place —
 **the rename is what makes the skill visible**. An interruption before it leaves a directory with no
 `SKILL.md` (ignored by both scanners) and a non-`.md` temp file. A patch snapshots the current body
-first, then renames the new `.tmp` over `SKILL.md`; a new `version` and `contentHash` follow. An
+first, then renames the new temp over `SKILL.md`; a new `version` and `contentHash` follow. An
 archive is `mkdirSync(archiveDir, { recursive: true })` plus a `renameSync` of the skill directory,
-on the same filesystem (`<project>/.opencode`), then the archived sidecar is updated. If a learned
-skill is found without a sidecar, the curator reconstructs it defensively as PROBATION at version 1
-rather than failing.
+on the same filesystem (`<project>/.opencode`), then the archived sidecar is updated. A learned
+skill found without a verifying sidecar (missing, corrupt, lagging the body after a crash, or written
+before provenance existed) is read-only: it is no longer reconstructed as PROBATION v1, because
+signing whatever body is on disk would adopt a skill a repository committed (AH-A03).
 
 ### 4. Lifecycle: probation is not evictable; graduation only without load or view
 
