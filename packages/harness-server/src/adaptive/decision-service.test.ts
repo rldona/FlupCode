@@ -7,6 +7,8 @@ import { createDecisionService } from "./decision-service"
 import { createAdaptiveEgressGuard } from "./egress"
 import { createFallbackProvider } from "./providers/fallback"
 import { createGovernor } from "./providers/governor"
+import { createJevProvider } from "./providers/jev"
+import type { JevPrediction } from "./providers/jev-parse"
 import { DecisionUnavailable } from "./providers/provider"
 import type { DecisionProvider, ProviderAnswer } from "./providers/provider"
 import { SqliteRoutineRepository } from "../repository"
@@ -436,6 +438,130 @@ describe("the decision service (FH-015)", () => {
     expect(decisions).toHaveLength(1)
     expect(decisions[0]!.answer).toBeUndefined()
     expect(decisions[0]!.baselineAnswer).toBeUndefined()
+    repository.close()
+  })
+})
+
+/** The real Jev adapter over a canned prediction: only the network boundary is faked. */
+const jevAnswering = (answers: JevPrediction["answers"]) =>
+  createJevProvider({
+    client: {
+      predictOne: async () => ({ modelVersion: "jev-1.13.0", answers }),
+      predictMany: async () => [{ modelVersion: "jev-1.13.0", answers }],
+    },
+  })
+
+const jevOnFor = (kind: DecisionKind) => ({
+  jev: { enabled: true },
+  egress: { projects: ["/work/project"], kinds: { [kind]: true } },
+})
+
+const failure = (): DecisionRequest<"failure"> => ({
+  kind: "failure",
+  sessionID: "ses_1",
+  projectID: "/work/project",
+  scopeID: "ses_1:bash:a",
+  policy: DEFAULT_DECISION_POLICY,
+  // Five repeated calls: the deterministic baseline says `intervene`, so a Jev `continue` is visible.
+  state: { repeatedCalls: 5, repeatedErrors: 0, stepsUsed: 5 },
+})
+
+const relevance = (): DecisionRequest<"skillRelevance"> => ({
+  kind: "skillRelevance",
+  sessionID: "ses_1",
+  projectID: "/work/project",
+  policy: DEFAULT_DECISION_POLICY,
+  // The lexical baseline loads both (they share "test" with the objective), so Jev's `[]` is visible.
+  state: {
+    sessionID: "ses_1",
+    objective: "fix the failing test",
+    skills: [
+      { name: "testing", description: "write a focused test", learned: false },
+      { name: "test-data", description: "seed test fixtures", learned: false },
+    ],
+  },
+})
+
+describe("calibrated confidence: the probability of the answer actually chosen (AH-A01)", () => {
+  test("completion: a confident no wins, a confident yes wins, a coin flip degrades", async () => {
+    const decide = async (probability: number) => {
+      const { repository, service } = serviceFor(jevOn, jevAnswering({ verdict: { type: "noul", probability } }))
+      const result = await service.predict(completion())
+      repository.close()
+      return result
+    }
+
+    const no = await decide(0.05)
+    expect(no.baseline).toEqual({ verdict: "complete" })
+    expect(no).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "not_complete" }, confidence: 0.95 })
+
+    const yes = await decide(0.95)
+    expect(yes).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "complete" }, confidence: 0.95 })
+
+    const ambiguous = await decide(0.5)
+    expect(ambiguous).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence", confidence: 0.5 })
+    expect(ambiguous.answer).toEqual(ambiguous.baseline)
+  })
+
+  test("failure: a confident p(intervene) = 0.05 is a `continue`, not a discarded answer", async () => {
+    const decide = async (probability: number) => {
+      const { repository, service } = serviceFor(jevOnFor("failure"), jevAnswering({ verdict: { type: "noul", probability } }))
+      const result = await service.predict(failure())
+      repository.close()
+      return result
+    }
+
+    const calm = await decide(0.05)
+    expect(calm.baseline).toEqual({ verdict: "intervene" })
+    expect(calm).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "continue" }, confidence: 0.95 })
+
+    const loop = await decide(0.9)
+    expect(loop).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "intervene" }, confidence: 0.9 })
+
+    const unsure = await decide(0.45)
+    expect(unsure).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence" })
+  })
+
+  test("skillRelevance: confidence is the least certain gate, so `load: []` can be a confident answer", async () => {
+    const decide = async (testing: number, testData: number) => {
+      const { repository, service } = serviceFor(
+        jevOnFor("skillRelevance"),
+        jevAnswering({
+          testing: { type: "noul", probability: testing },
+          "test-data": { type: "noul", probability: testData },
+        }),
+      )
+      const result = await service.predict(relevance())
+      repository.close()
+      return result
+    }
+
+    // Every gate a confident no: the top per-skill probability is 0.02, yet the answer is 0.98 certain.
+    const none = await decide(0.02, 0.02)
+    expect(none.baseline).toEqual({ load: ["testing", "test-data"] })
+    expect(none).toMatchObject({ source: "jev", degraded: false, answer: { load: [] }, confidence: 0.98 })
+
+    const one = await decide(0.9, 0.02)
+    expect(one).toMatchObject({ source: "jev", degraded: false, answer: { load: ["testing"] }, confidence: 0.9 })
+
+    // One gate on the fence makes the whole set ambiguous, however sure the other gate is.
+    const fence = await decide(0.95, 0.5)
+    expect(fence).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence", confidence: 0.5 })
+    expect(fence.answer).toEqual(fence.baseline)
+  })
+
+  test("a provider's own confidence still gates: the recorded confidence is the weakest axis", async () => {
+    const external = spyProvider({
+      answer: { verdict: "not_complete" },
+      confidence: 0.55,
+      probabilities: { complete: 0.05, not_complete: 0.95 },
+      latencyMs: 0,
+    })
+    const { repository, service } = serviceFor(jevOn, external)
+    const result = await service.predict(completion())
+
+    expect(result).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence", confidence: 0.55 })
+    expect(repository.getDecision("completion:episode:run:1")?.confidence).toBe(0.55)
     repository.close()
   })
 })

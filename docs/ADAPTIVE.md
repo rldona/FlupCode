@@ -420,3 +420,13 @@ _Landed in Phase 2. Documents the seven decision kinds, the audit and `explain`,
 mode that records decisions without acting on them
 ([ADR-0017](adr/0017-jev-egress-and-governance.md)). Phase 3b adds the `skillReflection` kind
 (eight in total), whose deterministic baseline is inert — see [Learning](#learning)._
+
+- **Confidence is the probability of the answer chosen.** The `DecisionService` calibrates it once,
+  for every provider, from the provider's `probabilities`: for a distribution (`completion`,
+  `failure`, the choice and score kinds) it is the top label's probability, so `p(complete) = 0.05`
+  is a 0.95-confident `not_complete`; for the gate kinds (`skillRelevance`, `skillReflection`), each
+  gate counts `max(p, 1 − p)` and the answer is as certain as its least certain gate, so every skill
+  at `0.02` is a confident "load nothing" while one gate at `0.5` degrades the whole set. A provider
+  may also report its own confidence in the chosen answer; the recorded confidence is the weaker of
+  the two. It must clear `minConfidence`, and the chosen probability must clear `minProbability`;
+  otherwise the baseline answers with `low-confidence`.

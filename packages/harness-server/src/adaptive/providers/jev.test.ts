@@ -229,8 +229,46 @@ describe("JevProvider interpretation", () => {
 
     expect(answer.modelVersion).toBe("jev-1.13.0")
     expect(answer.answer).toEqual({ verdict: "complete" })
-    expect(answer.confidence).toBe(0.75)
+    // `p(yes)` is not a confidence: the adapter reports the distribution and the service calibrates.
+    expect(answer.confidence).toBeUndefined()
     expect(answer.probabilities).toEqual({ complete: 0.75, not_complete: 0.25 })
+  })
+
+  test("a confident no is a verdict, not a missing confidence", async () => {
+    const verdict = (probability: number) =>
+      createJevProvider({ client: clientWith({ answers: { verdict: { type: "noul", probability } } }) })
+    const notComplete = await verdict(0.05).answer(completion(), signal)
+    expect(notComplete.answer).toEqual({ verdict: "not_complete" })
+    expect(notComplete.probabilities).toEqual({ complete: 0.05, not_complete: 0.95 })
+    expect(notComplete.confidence).toBeUndefined()
+
+    const failure = await verdict(0.05).answer(
+      sampleRequest("failure", { repeatedCalls: 5, repeatedErrors: 0, stepsUsed: 5 }),
+      signal,
+    )
+    expect(failure.answer).toEqual({ verdict: "continue" })
+    expect(failure.probabilities).toEqual({ continue: 0.95, intervene: 0.05 })
+    expect(failure.confidence).toBeUndefined()
+  })
+
+  test("skill gates carry every p(yes), including the confident noes", async () => {
+    const provider = createJevProvider({
+      client: clientWith({ answers: { a: { type: "noul", probability: 0.9 }, b: { type: "noul", probability: 0.02 } } }),
+    })
+    const answer = await provider.answer(
+      sampleRequest("skillRelevance", {
+        sessionID: "s",
+        objective: "o",
+        skills: [
+          { name: "a", description: "a", learned: false },
+          { name: "b", description: "b", learned: false },
+        ],
+      }),
+      signal,
+    )
+    expect(answer.answer).toEqual({ load: ["a"] })
+    expect(answer.probabilities).toEqual({ a: 0.9, b: 0.02 })
+    expect(answer.confidence).toBeUndefined()
   })
 
   test("choice answers become a disposition per item, keyed by id", async () => {

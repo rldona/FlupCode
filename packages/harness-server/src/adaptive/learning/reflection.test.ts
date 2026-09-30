@@ -127,7 +127,9 @@ describe("the skillReflection kind (FH-031)", () => {
 
     const answer = await provider.answer(reflection(), new AbortController().signal)
     expect(answer.answer).toEqual({ reusable: true, intent: "patch", target: "testing" })
-    // The weakest reported axis is the batch confidence the service gates on.
+    // The adapter reports the intent's confidence and the gate's p(yes); the service keeps the weakest
+    // of the intent and the gate's certainty (here 0.7) as the confidence it gates on.
     expect(answer.confidence).toBe(0.7)
+    expect(answer.probabilities).toEqual({ reusable: 0.8 })
   })
 })

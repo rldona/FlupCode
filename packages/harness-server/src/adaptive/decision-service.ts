@@ -115,24 +115,52 @@ const QUESTIONS: Record<DecisionKind, string> = {
 }
 
 /**
+ * What a kind's `probabilities` map means. Most kinds report one **distribution** over the labels
+ * they can answer; `skillRelevance` and `skillReflection` report independent binary **gates**, one
+ * `p(yes)` per key, which do not sum to one and whose maximum says nothing about a confident "no".
+ */
+const PROBABILITY_SHAPE: Record<DecisionKind, "distribution" | "gates"> = {
+  completion: "distribution",
+  skillRelevance: "gates",
+  contextItem: "distribution",
+  modelRoute: "distribution",
+  agentRoute: "distribution",
+  toolRisk: "distribution",
+  failure: "distribution",
+  skillReflection: "gates",
+}
+
+/**
+ * The probability of the answer actually chosen, read from the provider's `probabilities`.
+ *
+ * For a distribution it is the top label's probability, so `{ complete: 0.05, not_complete: 0.95 }`
+ * is a 0.95-certain `not_complete`, not a 0.05 one. For gates each gate answered yes or no with
+ * `max(p, 1 - p)`, and the whole answer is only as certain as its least certain gate: every gate at
+ * 0.02 is a confident "load nothing", while one gate at 0.5 makes the set ambiguous. An absent or
+ * empty map reports nothing, so it is not an axis.
+ */
+const chosenProbability = (kind: DecisionKind, probabilities: Record<string, number> | undefined) => {
+  const values = Object.values(probabilities ?? {})
+  if (values.length === 0) return undefined
+  if (PROBABILITY_SHAPE[kind] === "gates") return Math.min(...values.map((p) => Math.max(p, 1 - p)))
+  return Math.max(...values)
+}
+
+/**
  * A gate passes when every axis the answer actually reports clears its threshold.
  *
- * An absent confidence, or a probability map with no entries, is **not an axis**: nothing was
- * reported, so nothing is judged, and the gate passes. When probabilities are present the axis is the
- * **top** (winning) label's probability — the maximum, not the minimum, because the entries of a
- * distribution cannot all sit above a threshold — and `minProbability` is the floor it must clear.
- * `minConfidence` applies to the provider's single overall confidence, independently.
+ * Both axes are about the answer that was chosen: `confidence` (the weakest of the provider's own
+ * confidence and the chosen probability) must clear `minConfidence`, and the chosen probability must
+ * clear `minProbability`. An absent axis reports nothing, so it is not judged.
  */
 const passesGate = (
   confidence: number | undefined,
-  probabilities: Record<string, number> | undefined,
+  probability: number | undefined,
   minConfidence: number,
   minProbability: number,
 ): boolean => {
   if (confidence !== undefined && confidence < minConfidence) return false
-  const topProbability =
-    probabilities && Object.keys(probabilities).length > 0 ? Math.max(...Object.values(probabilities)) : undefined
-  if (topProbability !== undefined && topProbability < minProbability) return false
+  if (probability !== undefined && probability < minProbability) return false
   return true
 }
 
@@ -191,13 +219,19 @@ export function createDecisionService(deps: {
       }
       governor.recordSuccess()
       const latencyMs = now() - startedAt
-      if (!passesGate(raw.confidence, raw.probabilities, request.policy.minConfidence, request.policy.minProbability)) {
+      // Confidence is calibrated here, once, for every provider: a provider reports its probabilities
+      // and, optionally, its own confidence in the chosen answer; the recorded confidence is the
+      // weakest of the two, so no adapter can make a confident "no" read as a low-confidence "yes".
+      const probability = chosenProbability(request.kind, raw.probabilities)
+      const axes = [raw.confidence, probability].filter((axis) => axis !== undefined)
+      const confidence = axes.length > 0 ? Math.min(...axes) : undefined
+      if (!passesGate(confidence, probability, request.policy.minConfidence, request.policy.minProbability)) {
         return {
           answer: baseline.answer,
           source: "fallback",
           provider: "deterministic",
           attemptedProvider: raw.attemptedProvider ?? provider.id,
-          ...(raw.confidence !== undefined ? { confidence: raw.confidence } : {}),
+          ...(confidence !== undefined ? { confidence } : {}),
           ...(raw.probabilities !== undefined ? { probabilities: raw.probabilities } : {}),
           ...(raw.modelVersion !== undefined ? { modelVersion: raw.modelVersion } : {}),
           latencyMs,
@@ -210,7 +244,7 @@ export function createDecisionService(deps: {
         source: "jev",
         provider: raw.provider ?? provider.id,
         attemptedProvider: raw.attemptedProvider ?? provider.id,
-        ...(raw.confidence !== undefined ? { confidence: raw.confidence } : {}),
+        ...(confidence !== undefined ? { confidence } : {}),
         ...(raw.probabilities !== undefined ? { probabilities: raw.probabilities } : {}),
         ...(raw.modelVersion !== undefined ? { modelVersion: raw.modelVersion } : {}),
         latencyMs,
