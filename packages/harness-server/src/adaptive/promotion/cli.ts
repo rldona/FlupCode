@@ -3,14 +3,18 @@
  *
  *   bun run eval:live -- start  [--db <path>] [--config <file>] [--force]
  *   bun run eval:live -- status [--db <path>] [--config <file>] [--since <date>] [--until <date>]
+ *                                [--replay <report.json>]…
  *   bun run eval:live -- report [--db <path>] [--config <file>] [--since <date>] [--until <date>]
  *                                [--out <dir>] [--content-incidents <n>] [--events <dir>]
+ *                                [--replay <report.json>]…
  *   bun run eval:live -- table
  *
  * The harness database is opened **read-only** (never migrated, never written) and no model is asked.
  * `start` writes one small file, `<data dir>/live-eval/start.json` next to the database, and changes
  * no setting: it prints the switches a person would turn on, as a checklist. `report` writes
- * `report.md` and `report.json` to a git-ignored folder. `--config` points at a JSON file holding a
+ * `report.md` and `report.json` to a git-ignored folder. `--replay` (repeatable) passes the replay reports
+ * that decide the replay-instrumented capabilities (ADR-0025 R15); each must have run after `start`.
+ * The window never reaches past `start` + 42 days (R16): later data is not read. `--config` points at a JSON file holding a
  * `flupcode.adaptive` block in place of the global config (tests and dry runs).
  */
 
@@ -21,9 +25,15 @@ import { parseArgs } from "node:util"
 import { globalAdaptiveBlock } from "../../config-files"
 import { defaultDatabasePath } from "../../repository"
 import { resolveAdaptiveConfig } from "../config"
+import type { ReplayReport } from "../../replay/runner"
 import { CRITERIA, EVALUATION, renderCriteriaTable } from "./criteria"
+import type { PromotionCapability } from "./criteria"
 import { configSnapshot, evaluate, loadDataset, renderReport, status } from "./live-eval"
 import type { ConfigSnapshot } from "./live-eval"
+import { replayEvidence } from "./replay-evidence"
+import type { ReplayEvidence } from "./replay-evidence"
+
+const DAY = 24 * 60 * 60 * 1000
 
 /** Git-ignored: a report holds aggregate numbers of the person's own sessions and is never committed. */
 export const LIVE_EVAL_DIR = join(import.meta.dir, "../../../fixtures/live-eval")
@@ -38,6 +48,7 @@ const OPTIONS = {
   out: { type: "string" },
   events: { type: "string" },
   "content-incidents": { type: "string" },
+  replay: { type: "string", multiple: true },
   force: { type: "boolean", default: false },
 } as const
 
@@ -67,9 +78,16 @@ export async function main(argv: string[], print: (line: string) => void, now = 
       print("No start recorded: run `bun run eval:live -- start` first, or pass --since <date>.")
       return 1
     }
-    const until = args.until ? parseDate(args.until) : now
-    if (Number.isNaN(since) || Number.isNaN(until) || until <= since) {
+    const requested = args.until ? parseDate(args.until) : now
+    if (Number.isNaN(since) || Number.isNaN(requested) || requested <= since) {
       print("--since and --until must be dates (ISO or epoch ms) with --since before --until.")
+      return 1
+    }
+    // The cap (R16): past it the result is final, so later sessions are never read.
+    const until = Math.min(requested, since + EVALUATION.maxWindowDays * DAY)
+    const replay = readReplays(args.replay ?? [], since)
+    if (typeof replay === "string") {
+      print(replay)
       return 1
     }
     const current = configSnapshot(readConfig(args.config))
@@ -83,8 +101,11 @@ export async function main(argv: string[], print: (line: string) => void, now = 
       dataset,
       snapshot,
       ...(incidents !== undefined && Number.isFinite(incidents) ? { contentIncidents: incidents } : {}),
+      replay,
       now,
     })
+    if (until < requested)
+      print(`The window is capped at ${EVALUATION.maxWindowDays} days (${new Date(until).toISOString()}); later sessions are not read.`)
     if (command === "status") {
       printStatus(print, report, dataset, current, start)
       return 0
@@ -100,8 +121,29 @@ export async function main(argv: string[], print: (line: string) => void, now = 
     print(report.caveat)
     return 0
   }
-  print("Usage: eval:live -- start | status | report [--since <date>] [--until <date>] | table")
+  print("Usage: eval:live -- start | status | report [--since <date>] [--until <date>] [--replay <report.json>]… | table")
   return 2
+}
+
+/**
+ * The replay reports, keyed by the capability each measures, or the reason they cannot be used: a
+ * report from before `start` could have been chosen after looking, and two reports for one capability
+ * would let the better one be picked.
+ */
+function readReplays(files: string[], since: number): Partial<Record<PromotionCapability, ReplayEvidence>> | string {
+  const entries = files.flatMap((file) => {
+    const report: ReplayReport = JSON.parse(readFileSync(file, "utf8"))
+    return replayEvidence(report, file)
+  })
+  const early = entries.find((entry) => entry.evidence.startedAt < since)
+  if (early)
+    return `${early.evidence.file} ran before the evaluation started (${new Date(early.evidence.startedAt).toISOString()}); only a replay run after \`start\` is preregistered evidence.`
+  const twice = entries.find((entry, index) => entries.findIndex((other) => other.capability === entry.capability) !== index)
+  if (twice) return `More than one replay report measures ${twice.capability}; pass exactly one.`
+  const unused = files.filter((file) => !entries.some((entry) => entry.evidence.file === file))
+  if (unused.length > 0)
+    return `${unused.join(", ")}: no variant pair turns a replay-decided capability on against a baseline that turns it off.`
+  return Object.fromEntries(entries.map((entry) => [entry.capability, entry.evidence]))
 }
 
 async function startCommand(
@@ -128,7 +170,12 @@ async function startCommand(
   mkdirSync(dirname(file), { recursive: true })
   await Bun.write(file, JSON.stringify(record, null, 2) + "\n")
   print(`Evaluation started at ${new Date(now).toISOString()}; recorded in ${file}.`)
-  print(`It ends at the later of ${new Date(now + EVALUATION.windowDays * 24 * 60 * 60 * 1000).toISOString()} and the minimum sample.`)
+  print(
+    `It ends at the later of ${new Date(now + EVALUATION.windowDays * DAY).toISOString()} and the minimum sample, and no later than ${new Date(now + EVALUATION.maxWindowDays * DAY).toISOString()} (then insufficient data).`,
+  )
+  CRITERIA.filter((criteria) => criteria.replay).forEach((criteria) =>
+    print(`${criteria.title} is decided by replay: after this start, run \`${criteria.replay}\` and pass its report.json to \`report --replay\`.`),
+  )
   print("No setting was changed. To evaluate, turn these on yourself:")
   checklist(config).forEach((line) => print(line))
   return 0
@@ -159,7 +206,9 @@ function printStatus(
   start: StartRecord | undefined,
 ) {
   const date = (at: number) => new Date(at).toISOString()
-  print(`Window: ${date(report.window.since)} → ${date(report.window.until)} (${report.window.days.toFixed(1)} of ${EVALUATION.windowDays} days)`)
+  print(
+    `Window: ${date(report.window.since)} → ${date(report.window.until)} (${report.window.days.toFixed(1)} days; analysis from day ${EVALUATION.windowDays}, cap day ${EVALUATION.maxWindowDays})`,
+  )
   print(`Holdout share: ${current.holdoutFraction} now${start ? `, ${start.config.holdoutFraction} at start` : ""}`)
   if (start && start.config.holdoutFraction !== current.holdoutFraction)
     print("Warning: the holdout share changed since start; sessions keep the arm they were given.")
@@ -173,14 +222,26 @@ function printStatus(
       print(
         `  sessions: control ${row.sessions.control}, treatment ${row.sessions.treatment}; episodes: control ${row.episodes.control}, treatment ${row.episodes.treatment}`,
       )
+    if (row.replayCommand) print(`  primary decided by replay: \`${row.replayCommand}\`, then \`report --replay <report.json>\``)
     row.progress.forEach((entry) => {
       const have = typeof entry.have === "number" ? `${entry.have}` : `control ${entry.have.control}, treatment ${entry.have.treatment}`
       const least = typeof entry.have === "number" ? entry.have : Math.min(entry.have.control, entry.have.treatment)
-      print(`  ${entry.label}: ${have} of ${entry.need}${entry.perArm ? " per arm" : ""} (${Math.min(100, Math.floor((least / entry.need) * 100))}%)`)
+      print(
+        `  ${entry.label}: ${have} of ${entry.need}${entry.perArm ? " per arm" : ""} (${Math.min(100, Math.floor((least / entry.need) * 100))}%)${pace(entry, report.window.days)}`,
+      )
     })
     row.safety.forEach((stop) => print(`  SAFETY STOP: ${stop}`))
   })
   print(`Effect estimates are not shown before the analysis (${CRITERIA.length} capabilities, one analysis; ADR-0025).`)
+}
+
+/** The ETA line of one counter: at the pace since `start`, and whether it lands before the cap. */
+function pace(entry: ReturnType<typeof status>[number]["progress"][number], elapsedDays: number): string {
+  if (entry.fromReplay) return " — from the replay report"
+  if (entry.etaDays === 0) return " — reached"
+  if (entry.etaDays === undefined) return " — no pace yet to extrapolate from"
+  const late = elapsedDays + entry.etaDays > EVALUATION.maxWindowDays
+  return ` — at the current pace the minimum is reached in ~${entry.etaDays} days${late ? `, after the ${EVALUATION.maxWindowDays}-day cap: expect insufficient data` : ""}`
 }
 
 export function startFile(database: string) {

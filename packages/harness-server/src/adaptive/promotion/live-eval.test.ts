@@ -14,9 +14,11 @@ import { SqliteRoutineRepository } from "../../repository"
 import { resolveAdaptiveConfig } from "../config"
 import { HOLDOUT_CAPABILITIES } from "../holdout"
 import type { Arm } from "../holdout"
+import type { ReplayReport, ReplayRun, ReplayVariant } from "../../replay/runner"
 import { main, startFile } from "./cli"
-import { configSnapshot, evaluate, loadDataset } from "./live-eval"
-import type { Dataset, DecisionUnit, ProposalUnit, SessionUnit } from "./live-eval"
+import { configSnapshot, etaDays, evaluate, loadDataset } from "./live-eval"
+import type { Dataset, DecisionUnit, PriorSession, ProposalUnit, SessionUnit } from "./live-eval"
+import { replayEvidence } from "./replay-evidence"
 
 const DAY = 24 * 60 * 60 * 1000
 const T0 = Date.parse("2026-10-01T00:00:00Z")
@@ -114,9 +116,14 @@ describe("eval:live on a synthetic database", () => {
     const text = lines.join("\n")
     expect(text).toContain("Tool-output trim — enabled")
     expect(text).toContain("sessions: control 10, treatment 10; episodes: control 10, treatment 10")
-    expect(text).toContain("sessions: control 10, treatment 10 of 698 per arm (1%)")
+    // Ten sessions per arm in three days: 140 more take ~42 days, past the cap.
+    expect(text).toContain(
+      "sessions: control 10, treatment 10 of 150 per arm (6%) — at the current pace the minimum is reached in ~42 days, after the 42-day cap: expect insufficient data",
+    )
+    expect(text).toContain("paired replay fixtures (3 repetitions per variant): 0 of 22 (0%) — from the replay report")
+    expect(text).toContain("primary decided by replay: `bun run replay -- --variants fixtures/replay/variants/tool-trim.json --repeat 3 --yes`")
     expect(text).toContain("skillRelevance: 20/20 labelled, 20 judged")
-    expect(text).not.toMatch(/Δ|95% CI/)
+    expect(text).not.toMatch(/Δ|\d+% CI/)
 
     const out = join(temp(), "report")
     expect(await main(["report", ...args, "--out", out], () => {}, T0 + 3 * DAY)).toBe(0)
@@ -139,6 +146,38 @@ describe("eval:live on a synthetic database", () => {
     expect(lines[0]).toContain("No start recorded")
     expect(await main(["report", "--db", join(fixture.dir, "missing.sqlite")], () => {}, T0)).toBe(1)
     expect(existsSync(join(fixture.dir, "missing.sqlite"))).toBe(false)
+  })
+
+  test("--replay reads a report run after start, refuses an earlier one, and the window stops at the cap", async () => {
+    const fixture = syntheticDatabase()
+    await main(["start", "--db", fixture.path, "--config", fixture.config], () => {}, T0)
+    const write = (startedAt: number) => {
+      const file = join(temp(), "report.json")
+      writeFileSync(file, JSON.stringify({ ...replayReport(TRIM_VARIANTS, trimRuns(25, 0.7)), startedAt }))
+      return file
+    }
+    const args = ["--db", fixture.path, "--config", fixture.config, "--events", fixture.events]
+    const refused: string[] = []
+    expect(await main(["report", ...args, "--replay", write(T0 - DAY)], (line) => refused.push(line), T0 + 3 * DAY)).toBe(1)
+    expect(refused[0]).toContain("ran before the evaluation started")
+
+    const out = join(temp(), "report")
+    const late: string[] = []
+    expect(await main(["report", ...args, "--replay", write(T0 + DAY), "--out", out], (line) => late.push(line), T0 + 50 * DAY)).toBe(0)
+    expect(late[0]).toContain("The window is capped at 42 days")
+    const report = JSON.parse(readFileSync(join(out, "report.json"), "utf8"))
+    expect(report.window).toMatchObject({ until: T0 + 42 * DAY, complete: true, capped: true })
+    const trim = report.capabilities.find((result: { id: string }) => result.id === "toolTrim")
+    expect(trim.replay).toMatchObject({ variant: "tool-trim", fixtures: 25 })
+    expect(trim.samples.replayFixtures).toEqual({ overall: 25 })
+    // Ten sessions per arm by the cap: final, not "wait longer".
+    expect(trim.decision).toBe("insufficient data")
+    expect(trim.reasons).toEqual(["below 150 sessions per arm", "the 6-week cap passed: final, the window is not extended"])
+    expect(readFileSync(join(out, "report.md"), "utf8")).toContain("Primary decided by replay:")
+
+    const twice: string[] = []
+    expect(await main(["status", ...args, "--replay", write(T0 + DAY), "--replay", write(T0 + DAY)], (line) => twice.push(line), T0 + 3 * DAY)).toBe(1)
+    expect(twice[0]).toContain("More than one replay report measures toolTrim")
   })
 
   test("sessions split by the arm their first turn recorded; one without an arm is left out", () => {
@@ -196,6 +235,7 @@ const window = (days: number) => ({ since: T0, until: T0 + days * DAY })
 const dataset = (input: Partial<Dataset> & { days?: number }): Dataset => ({
   window: window(input.days ?? 15),
   sessions: input.sessions ?? [],
+  prior: input.prior ?? [],
   decisions: input.decisions ?? [],
   proposals: input.proposals ?? [],
   coverage: [],
@@ -206,45 +246,155 @@ const decisionOf = (report: ReturnType<typeof evaluate>, id: string, instance?: 
 /** 1,400 sessions × 2,000 resamples per metric take about a second per report on a laptop. */
 const HEAVY_MS = 30_000
 
+/** A replay report: `variants`, three repetitions per fixture, written by `bun run replay`. */
+function replayReport(variants: ReplayVariant[], runs: ReplayRun[]): ReplayReport {
+  return {
+    version: 1,
+    startedAt: T0 + DAY,
+    finishedAt: T0 + DAY,
+    engine: "http://127.0.0.1:0",
+    repeat: 3,
+    seed: null,
+    tolerance: 0.05,
+    isolation: "worktree",
+    variants,
+    baseline: variants[0]!.name,
+    runs,
+    aggregates: [],
+    comparisons: [],
+  }
+}
+
+const TRIM_VARIANTS: ReplayVariant[] = [
+  { name: "baseline", adaptive: { toolTrim: { enabled: false } } },
+  { name: "tool-trim", adaptive: { toolTrim: { enabled: true } } },
+]
+
+/** `count` fixtures on which the treatment spends `factor` (± a little) of the baseline's uncached input. */
+function trimRuns(count: number, factor: number): ReplayRun[] {
+  return Array.from({ length: count }, (_, index) => index).flatMap((index) =>
+    [1, 2, 3].flatMap((repetition) =>
+      [
+        ["baseline", 1],
+        ["tool-trim", factor + (index % 3) * 0.02],
+      ].map(([variant, scale]) => ({
+        fixture: `fx-${index}`,
+        variant: variant as string,
+        repetition,
+        status: "ok" as const,
+        tokens: { input: 5000 * (index + 1) * (scale as number), cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+        usd: 0.1,
+        wallMs: 1000,
+        source: "session_metrics" as const,
+        turnErrors: 0,
+        completed: true,
+      })),
+    ),
+  )
+}
+
+const trimReplay = (factor: number) => ({ toolTrim: replayEvidence(replayReport(TRIM_VARIANTS, trimRuns(25, factor)), "trim.json")[0]!.evidence })
+
 describe("the criteria applied to a synthetic evaluation", () => {
   const next = random(7)
-  // 700 sessions per arm, uncached input around 1,000 in control and 30% lower in treatment.
+  // 160 sessions per arm: the budget, with a little room.
   const arms = (treatment: (index: number) => Partial<SessionUnit>) => [
-    ...Array.from({ length: 700 }, (_, index) => session(index, "control", { uncachedInput: 500 + next() * 1000 })),
-    ...Array.from({ length: 700 }, (_, index) =>
-      session(index, "treatment", { uncachedInput: 350 + next() * 700, ...treatment(index) }),
-    ),
+    ...Array.from({ length: 160 }, (_, index) => session(index, "control", { uncachedInput: 500 + next() * 1000 })),
+    ...Array.from({ length: 160 }, (_, index) => session(index, "treatment", { uncachedInput: 350 + next() * 700, ...treatment(index) })),
   ]
 
-  test("a clear, safe token cut promotes the trim; an unchanged metric keeps observing", () => {
-    const report = evaluate({ dataset: dataset({ sessions: arms(() => ({})) }), snapshot, now: T0 })
+  test("a clear replay cut with safe live guardrails promotes the trim; without the replay it waits", () => {
+    const report = evaluate({ dataset: dataset({ sessions: arms(() => ({})) }), snapshot, replay: trimReplay(0.7), now: T0 })
     const trim = decisionOf(report, "toolTrim")
     expect(trim.decision).toBe("promote")
     const primary = trim.checks.find((check) => check.role === "primary")!
+    expect(primary.key).toBe("uncachedInputPerSession:paired")
     expect(primary.estimate!).toBeLessThan(-0.25)
     expect(primary.high!).toBeLessThan(-0.15)
-    // USD per session is identical in both arms: no saving, and no evidence against one either.
-    expect(decisionOf(report, "selection").decision).toBe("keep observing")
-  }, HEAVY_MS)
+    expect(trim.replay).toMatchObject({ file: "trim.json", fixtures: 25 })
+
+    const without = decisionOf(evaluate({ dataset: dataset({ sessions: arms(() => ({})) }), snapshot, now: T0 }), "toolTrim")
+    expect(without.decision).toBe("insufficient data")
+    expect(without.reasons).toEqual(["below 22 paired replay fixtures (3 repetitions per variant)"])
+    // Selection and anchors have no replay here, so they wait too, whatever the live sample.
+    expect(decisionOf(report, "selection").decision).toBe("insufficient data")
+    expect(decisionOf(report, "anchors").decision).toBe("insufficient data")
+  })
+
+  test("a replay cut whose CI cannot reach the threshold retires", () => {
+    const small = decisionOf(evaluate({ dataset: dataset({ sessions: arms(() => ({})) }), snapshot, replay: trimReplay(0.9), now: T0 }), "toolTrim")
+    expect(small.decision).toBe("retire")
+    expect(small.reasons[0]).toStartWith("cannot reach: Uncached input tokens per session")
+  })
 
   test("a completion drop past the guardrail retires; past the safety stop it retires as a stop", () => {
-    const guardrail = evaluate({ dataset: dataset({ sessions: arms((index) => ({ completion: index >= 14 })) }), snapshot, now: T0 })
+    const guardrail = evaluate({ dataset: dataset({ sessions: arms((index) => ({ completion: index >= 4 })) }), snapshot, replay: trimReplay(0.7), now: T0 })
     expect(decisionOf(guardrail, "toolTrim").decision).toBe("retire")
-    expect(decisionOf(guardrail, "toolTrim").reasons[0]).toStartWith("guardrail failed: Task completion")
+    expect(decisionOf(guardrail, "toolTrim").reasons[0]).toStartWith("guardrail failed: Task completion, Δ")
 
-    const stop = evaluate({ dataset: dataset({ days: 3, sessions: arms((index) => ({ completion: index >= 70 })) }), snapshot, now: T0 })
+    const stop = evaluate({ dataset: dataset({ days: 3, sessions: arms((index) => ({ completion: index >= 16 })) }), snapshot, now: T0 })
     expect(decisionOf(stop, "toolTrim").decision).toBe("retire")
     expect(decisionOf(stop, "toolTrim").reasons[0]).toStartWith("safety stop: Task completion")
     expect(decisionOf(stop, "toolTrim").withheld).toBe(false)
-  }, HEAVY_MS)
+  })
 
   test("before the window closes the same data is insufficient, and its estimates are withheld", () => {
-    const report = evaluate({ dataset: dataset({ days: 10, sessions: arms(() => ({})) }), snapshot, now: T0 })
+    const report = evaluate({ dataset: dataset({ days: 10, sessions: arms(() => ({})) }), snapshot, replay: trimReplay(0.7), now: T0 })
     const trim = decisionOf(report, "toolTrim")
     expect(trim.decision).toBe("insufficient data")
     expect(trim.reasons).toEqual(["the 14-day window has not closed"])
     expect(trim.checks.some((check) => check.role === "primary")).toBe(false)
-  }, HEAVY_MS)
+  })
+
+  test("past the 6-week cap a short sample is final insufficient data", () => {
+    const sessions = [...Array.from({ length: 40 }, (_, index) => session(index, "control")), ...Array.from({ length: 40 }, (_, index) => session(index, "treatment"))]
+    const report = evaluate({ dataset: dataset({ days: 42, sessions }), snapshot, now: T0 })
+    expect(report.window).toMatchObject({ complete: true, capped: true })
+    const loops = decisionOf(report, "guardrails")
+    expect(loops.decision).toBe("insufficient data")
+    expect(loops.reasons).toContain("the 6-week cap passed: final, the window is not extended")
+  })
+
+  test("fewer tool calls per session promote skill suggestion on the log scale, and CUPED by project narrows the CI", () => {
+    const rng = random(11)
+    // Four projects whose sessions differ tenfold in tool calls; the treatment cuts calls by 30%.
+    const scale = [5, 15, 50, 150]
+    const make = (arm: Arm, index: number) => {
+      const project = index % 4
+      const noise = Math.exp((rng() - 0.5) * 1.2)
+      return session(index, arm, { projectID: `p${project}`, toolCalls: Math.round(scale[project]! * noise * (arm === "treatment" ? 0.7 : 1)) })
+    }
+    const sessions = [...Array.from({ length: 160 }, (_, index) => make("control", index)), ...Array.from({ length: 160 }, (_, index) => make("treatment", index))]
+    const prior: PriorSession[] = Array.from({ length: 40 }, (_, index) => ({
+      projectID: `p${index % 4}`,
+      uncachedInput: 1000,
+      usd: 0.1,
+      toolCalls: scale[index % 4]!,
+    }))
+    const judged = (arm: Arm, index: number): DecisionUnit => ({
+      id: `skillRelevance:${arm}:${index}`,
+      sessionID: `ses_${arm}_${index % 160}`,
+      kind: "skillRelevance",
+      arm,
+      source: "baseline",
+      latencyMs: 2,
+      costUsd: 0,
+      answer: { load: [] },
+      baselineAnswer: { load: [] },
+      outcome: index % 2 === 0 ? "correct" : "incorrect",
+    })
+    const decisions = [...Array.from({ length: 320 }, (_, index) => judged("control", index)), ...Array.from({ length: 320 }, (_, index) => judged("treatment", index))]
+    const read = (withPrior: boolean) => {
+      const result = decisionOf(evaluate({ dataset: dataset({ sessions, decisions, prior: withPrior ? prior : [] }), snapshot, now: T0 }), "relevance")
+      return { result, check: result.checks.find((check) => check.key === "toolCallsPerSession:geometric")! }
+    }
+    const adjusted = read(true)
+    const raw = read(false)
+    expect(adjusted.result.decision).toBe("promote")
+    expect(adjusted.check.estimate!).toBeGreaterThan(-0.4)
+    expect(adjusted.check.estimate!).toBeLessThan(-0.2)
+    expect(adjusted.check.high! - adjusted.check.low!).toBeLessThan((raw.check.high! - raw.check.low!) / 2)
+  })
 
   test("one rejected tool pair stops per-step selection at once", () => {
     const sessions = [session(0, "control"), session(0, "treatment", { pairingErrors: 1 })]
@@ -253,13 +403,35 @@ describe("the criteria applied to a synthetic evaluation", () => {
     expect(decisionOf(report, "selection").reasons[0]).toStartWith("safety stop: Requests rejected")
   })
 
-  test("fewer re-reads per compaction promote the anchors", () => {
-    const sessions = [
-      ...Array.from({ length: 260 }, (_, index) => session(index, "control", { compactions: 1, rereads: 3 + Math.floor(next() * 3), summaryTokens: 500 })),
-      ...Array.from({ length: 260 }, (_, index) => session(index, "treatment", { compactions: 1, rereads: Math.floor(next() * 3), summaryTokens: 520 })),
+  test("fewer re-reads per compaction in the replay promote the anchors", () => {
+    const variants = [
+      { name: "baseline", adaptive: { compaction: { anchors: false } } },
+      { name: "anchors", adaptive: { compaction: { anchors: true } } },
     ]
-    expect(decisionOf(evaluate({ dataset: dataset({ sessions }), snapshot, now: T0 }), "anchors").decision).toBe("promote")
-  }, HEAVY_MS)
+    const runs = Array.from({ length: 20 }, (_, index) => index).flatMap((index) =>
+      [1, 2, 3].flatMap((repetition) =>
+        [
+          ["baseline", 4 + (index % 3), 500],
+          ["anchors", 1 + (index % 2), 510],
+        ].map(([variant, rereads, summaryTokens]) => ({
+          fixture: `long-${index}`,
+          variant: variant as string,
+          repetition,
+          status: "ok" as const,
+          tokens: { input: 1000, cacheRead: 0, cacheWrite: 0, output: 0, reasoning: 0 },
+          usd: 0.1,
+          wallMs: 1000,
+          source: "session_metrics" as const,
+          turnErrors: 0,
+          completed: true,
+          compaction: { compactions: 1, rereadsAfterCompaction: rereads as number, summaryTokens: summaryTokens as number },
+        })),
+      ),
+    )
+    const replay = { anchors: replayEvidence(replayReport(variants, runs), "anchors.json")[0]!.evidence }
+    const sessions = [...Array.from({ length: 150 }, (_, index) => session(index, "control")), ...Array.from({ length: 150 }, (_, index) => session(index, "treatment"))]
+    expect(decisionOf(evaluate({ dataset: dataset({ sessions }), snapshot, replay, now: T0 }), "anchors").decision).toBe("promote")
+  })
 
   test("loop warnings promote when warned loops stop far more often and unwarned ones rarely stop", () => {
     const loop = (arm: Arm, index: number, stopped: boolean): DecisionUnit => ({
@@ -276,11 +448,12 @@ describe("the criteria applied to a synthetic evaluation", () => {
       outcome: stopped ? "incorrect" : "correct",
       baselineOutcome: stopped ? "incorrect" : "correct",
     })
+    // 20 judged detections per arm: what ~150 sessions per arm plausibly yield.
     const decisions = [
-      ...Array.from({ length: 60 }, (_, index) => loop("control", index, index < 3)),
-      ...Array.from({ length: 60 }, (_, index) => loop("treatment", index, index < 40)),
+      ...Array.from({ length: 20 }, (_, index) => loop("control", index, index < 1)),
+      ...Array.from({ length: 20 }, (_, index) => loop("treatment", index, index < 14)),
     ]
-    const sessions = [...Array.from({ length: 60 }, (_, index) => session(index, "control")), ...Array.from({ length: 60 }, (_, index) => session(index, "treatment"))]
+    const sessions = [...Array.from({ length: 150 }, (_, index) => session(index, "control")), ...Array.from({ length: 150 }, (_, index) => session(index, "treatment"))]
     const report = evaluate({ dataset: dataset({ sessions, decisions }), snapshot, now: T0 })
     expect(decisionOf(report, "guardrails").decision).toBe("promote")
   })
@@ -301,8 +474,8 @@ describe("the criteria applied to a synthetic evaluation", () => {
       baselineOutcome: modelRight ? "incorrect" : "correct",
     })
     const decisions = [
-      ...Array.from({ length: 300 }, (_, index) => answered("small-llm", index, index % 10 < 7)),
-      ...Array.from({ length: 300 }, (_, index) => answered("jev", index, index % 10 < 3)),
+      ...Array.from({ length: 100 }, (_, index) => answered("small-llm", index, index % 10 < 7)),
+      ...Array.from({ length: 100 }, (_, index) => answered("jev", index, index % 10 < 3)),
     ]
     const report = evaluate({ dataset: dataset({ decisions }), snapshot, now: T0 })
     expect(decisionOf(report, "model", "completion · small-llm").decision).toBe("promote")
@@ -336,5 +509,17 @@ describe("the criteria applied to a synthetic evaluation", () => {
     expect(decisionOf(evaluate({ dataset: dataset({ days: 31, proposals: proposals.slice(0, 5) }), snapshot, now: T0 }), "learning").decision).toBe(
       "insufficient data",
     )
+  })
+})
+
+describe("the ETA status prints", () => {
+  test("extrapolates the pace since start to the minimum", () => {
+    // 30 sessions in 6 days is 5 a day; 120 more take 24 days.
+    expect(etaDays(30, 150, 6)).toBe(24)
+    expect(etaDays(31, 150, 6)).toBe(24)
+    expect(etaDays(150, 150, 6)).toBe(0)
+    expect(etaDays(200, 150, 6)).toBe(0)
+    expect(etaDays(0, 150, 6)).toBeUndefined()
+    expect(etaDays(10, 150, 0)).toBeUndefined()
   })
 })

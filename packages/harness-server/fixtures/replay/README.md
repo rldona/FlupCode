@@ -92,6 +92,16 @@ bun run replay -- --variants fixtures/replay/variants/selection-warm.json --repe
 
 Promote only with Δ USD < 0, Δ completion ≥ −1 pp and 0 turn errors (no rejected request).
 
+## Promotion evidence (ADR-0025 R15)
+
+Tool-output trim, per-step selection and compaction anchors are decided by a paired replay, not by the
+live holdout: `variants/tool-trim.json`, `variants/selection.json` and `variants/anchors.json` each turn
+one capability off in the baseline and on in the other arm. Run them **after** `eval:live -- start`
+(an earlier report is refused) with `--repeat 3`, and pass each `report.json` to
+`bun run eval:live -- report --replay <report.json>`. A fixture counts once both arms finished it three
+times; the minimums are 22 fixtures for trim and selection and 19 fixtures that compact for anchors,
+so the corpus needs fixtures with large tool outputs and fixtures long enough to compact.
+
 Reports land in `reports/<timestamp>/report.json` and `report.md`: tokens (uncached input, cached,
 output), USD and wall time per repetition, the verify result, mean, p50 and spread per fixture ×
 variant, and each variant's deltas against the baseline. The engine exposes no sampling seed, so the report says `seed: null` and pins the model on
