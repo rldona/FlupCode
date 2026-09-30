@@ -777,7 +777,7 @@ control arm instead of assumed (AH-B05, audit §14.2).
 
 Which capabilities become defaults is decided by criteria fixed **before** anyone looks at the live
 data (AH-G01) and one analysis of a holdout evaluation (AH-G02). The criteria are
-[ADR-0025](adr/0025-promotion-criteria.md), **Proposed until the owner accepts it**; the final
+[ADR-0025](adr/0025-promotion-criteria.md), **accepted by the owner on 2026-09-30**; the final
 decision is a person's (AH-G03).
 
 - **The criteria.** `src/adaptive/promotion/criteria.ts` holds every number: per capability the
