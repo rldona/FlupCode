@@ -16,7 +16,14 @@ import { join } from "node:path"
 import { DEFAULT_LEARNING_CONFIG } from "../config"
 import { DRAFT_LIMITS, DEFAULT_MAX_INPUT_CHARS } from "../learning/draft"
 import { skillReport } from "../../skills"
-import { SNAPSHOT_KEEP, contentHashOf, createLearnedStore, learnedRoots, serialiseLearnedSkill } from "./learned-store"
+import {
+  SNAPSHOT_KEEP,
+  contentHashOf,
+  createLearnedStore,
+  excludeFromGit,
+  learnedRoots,
+  serialiseLearnedSkill,
+} from "./learned-store"
 
 let root = ""
 let home = ""
@@ -580,5 +587,63 @@ describe("provenance is the harness's, not the frontmatter's (AH-A03)", () => {
     // Another install's key cannot vouch for it.
     expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
     expect(store().write(input({ body: "v3" }))).toEqual({ ok: false, reason: "unverified" })
+  })
+})
+
+describe("the learned root stays out of git (AH-A04)", () => {
+  const exclude = () => join(project, ".git", "info", "exclude")
+
+  test("the first write appends the root to .git/info/exclude once, and never touches .gitignore", () => {
+    mkdirSync(join(project, ".git"))
+    writeFileSync(join(project, ".gitignore"), "node_modules\n")
+    expect(store().write(input()).ok).toBe(true)
+    expect(store().write(input({ name: "second-skill" })).ok).toBe(true)
+    expect(store().write(input({ body: "A patched body that still says what to do." })).ok).toBe(true)
+
+    expect(readFileSync(exclude(), "utf8")).toBe("/.opencode/custom-learned/\n")
+    expect(readFileSync(join(project, ".gitignore"), "utf8")).toBe("node_modules\n")
+  })
+
+  test("the default root is excluded by its project-relative path, after the existing lines", () => {
+    mkdirSync(join(project, ".git", "info"), { recursive: true })
+    writeFileSync(exclude(), "# git ls-files --others --exclude-from=.git/info/exclude\n*.log")
+    expect(store({}).write(input()).ok).toBe(true)
+    expect(readFileSync(exclude(), "utf8")).toBe(
+      "# git ls-files --others --exclude-from=.git/info/exclude\n*.log\n/.opencode/skills/flupcode-learned/\n",
+    )
+    // Already there: a second call is a no-op.
+    expect(excludeFromGit(project, learnedRoots(project, {}).learned)).toBe(false)
+  })
+
+  test("outside a git repository nothing is created", () => {
+    expect(store().write(input()).ok).toBe(true)
+    expect(existsSync(join(project, ".git"))).toBe(false)
+  })
+
+  test("a symlinked .git/info is never written through", () => {
+    mkdirSync(join(project, ".git"))
+    symlinkSync(outside, join(project, ".git", "info"))
+    expect(store().write(input()).ok).toBe(true)
+    expect(readdirSync(outside)).toEqual([])
+  })
+
+  test("a symlinked .git, a symlinked exclude and a .git file are left alone", () => {
+    const elsewhere = join(outside, "repo")
+    mkdirSync(join(elsewhere, "info"), { recursive: true })
+    symlinkSync(elsewhere, join(project, ".git"))
+    expect(excludeFromGit(project, learned)).toBe(false)
+    expect(readdirSync(join(elsewhere, "info"))).toEqual([])
+    rmSync(join(project, ".git"))
+
+    mkdirSync(join(project, ".git", "info"), { recursive: true })
+    writeFileSync(join(outside, "target"), "")
+    symlinkSync(join(outside, "target"), exclude())
+    expect(excludeFromGit(project, learned)).toBe(false)
+    expect(readFileSync(join(outside, "target"), "utf8")).toBe("")
+    rmSync(join(project, ".git"), { recursive: true })
+
+    writeFileSync(join(project, ".git"), `gitdir: ${elsewhere}\n`)
+    expect(excludeFromGit(project, learned)).toBe(false)
+    expect(readdirSync(join(elsewhere, "info"))).toEqual([])
   })
 })

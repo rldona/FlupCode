@@ -42,6 +42,7 @@ import { createSkillCurator } from "./adaptive/skills/curator"
 import { createLearningDrafter } from "./adaptive/learning/draft"
 import { createLearningManager } from "./adaptive/learning/manager"
 import type { LearningRunner } from "./adaptive/learning/manager"
+import { createProposalReview } from "./adaptive/learning/review"
 
 export type HarnessServerOptions = {
   port?: number
@@ -308,6 +309,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       context,
       proposals: repository,
       learnedSkills: curator,
+      proposalReview: createProposalReview({ repository, curator }),
       adaptiveConfig,
       ...(adaptiveToken ? { adaptiveToken, relevance, guardrails } : {}),
     }),

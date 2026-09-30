@@ -12,10 +12,10 @@
 > offline gate — is in progress under [ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md).
 > The **cockpit** (E8, FH-070–074) is landed: the settings switches and the read-only
 > decisions/plan/learned inspectors live in `packages/harness`, and the write contract is
-> `PATCH /harness/adaptive/config` — see [The cockpit (E8)](#the-cockpit-e8). The learning UI
-> (FH-035/FH-046) stays deferred: E8 shows learned skills and proposals but never
-> approves/edits/archives them; the
-> read surfaces exist as `GET /harness/adaptive/proposals` and `/harness/adaptive/learned-skills`.
+> `PATCH /harness/adaptive/config` — see [The cockpit (E8)](#the-cockpit-e8). A drafted skill is
+> installed only when a person approves it (AH-A04, see [Human approval](#human-approval)); editing,
+> merging and archiving from the UI (FH-035/FH-046) stay deferred. The read surfaces are
+> `GET /harness/adaptive/proposals` and `/harness/adaptive/learned-skills`.
 > This is a skeleton: the sections below are filled
 > in as each phase lands, not a complete manual. The full plan and the phase designs live in the
 > working notes under `.flupcode/artifacts/`, which are intentionally not versioned; this file is the
@@ -143,6 +143,36 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   (primary key `episode_id`, one per episode) and `skill_proposals` (id `proposal:<episodeID>`). A
   proposal stores its `body` redacted and bounded **and** its `body_hash`, because it exists for
   human review before promotion; storing only the hash would force a second draft to inspect it.
+- **Nothing installs without approval.** The manager lints a draft against the roster and stops: a
+  clean one is stored as `proposed` (job `done`, reason `proposed`), a failing one as `rejected` with
+  the lint reason, and nothing is written under `skills/` either way — `patch` proposals included.
+  See [Human approval](#human-approval).
+
+### Human approval
+
+The draft is built from an episode's objective and evidence, and evidence can carry untrusted tool
+output (a web page, a README, an issue). A skill installed from it unreviewed would be a prompt
+injection that persists into every later session of the project, so the only path from `proposed`
+to `skills/` is a person (AH-A04).
+
+- **`POST /harness/adaptive/proposals/:id/approve`** with `{ "confirm": true }` installs the proposal
+  through the curator → store (the single writer, which signs the provenance) and marks it
+  `promoted`. Without `confirm: true` it is a `422 confirmation-required`.
+- **`POST /harness/adaptive/proposals/:id/reject`** marks it `rejected` with reason `human-rejected`.
+- **Bearer.** Both require the artifacts bearer, like `PATCH /harness/adaptive/config`: with no token
+  configured they are an ordinary `404`, and a wrong or missing bearer is a `403`. The capability
+  `adaptive-proposals-review` is announced only when that bearer exists.
+- **Idempotent.** Approving a `promoted` proposal, or rejecting a `rejected` one, is a `200` no-op
+  (`changed: false`). Approving a `rejected` one, or rejecting a `promoted` one, is a
+  `409 not-proposed`; an unknown id is a `404`.
+- **Re-validated at approval time.** The lint runs again against the live roster (a human skill with
+  the same name that appeared since the draft, a `patch` target that is gone, contains-secrets, …) and
+  the stored body must still match its `body_hash`. A failure is a `409` with the reason as `code`,
+  and the proposal is closed as `rejected` with that reason. Only `disabled` (learning off),
+  `no-project` and `write-failed` leave it `proposed` to try again later.
+- **In the app.** The Skills screen's **Learned** section shows **Approve** / **Reject** on each
+  `proposed` row when the capability is announced; Approve opens a confirmation with the skill's
+  name, description and full body.
 - **Egress is opt-in and off by default.** The `skillReflection` classification needs
   `adaptive.jev.enabled` **and** the project in `adaptive.egress.projects` **and**
   `adaptive.egress.kinds.skillReflection`. The draft needs `adaptive.learning.enabled` **and**
@@ -192,6 +222,12 @@ provenance-carrying files the engine loads like any other. The design is fixed b
   auxiliary roots live **outside `skills/`** (`<project>/.opencode/flupcode-learned-archive/`) so
   they are never re-loaded. The learned root can be overridden in tests with
   `FLUPCODE_ADAPTIVE_LEARNED_ROOT` (and the archive with `FLUPCODE_ADAPTIVE_LEARNED_ARCHIVE`).
+- **Kept out of git.** Before an install makes a skill visible, the store appends
+  `/.opencode/skills/flupcode-learned/` to `<project>/.git/info/exclude` if it is not there already, so
+  `git add .` does not commit and share what this machine learned. The user's `.gitignore` is never
+  touched. Only a real `.git` directory counts: outside git, with a symlinked `.git`, `.git/info` or
+  `exclude`, or with a `.git` file (a worktree or submodule, whose exclude lives in the common git
+  dir) nothing is written. A failure here never fails the install.
 - **Only the curator writes, and never a human skill.** Every write passes a realpath containment
   guard, must carry the `self-authored: true` marker, and is rejected if any skill **outside** the
   learned root already uses the name — the only real defence against the engine's order-fragile
@@ -404,7 +440,8 @@ always safe.
 
 - **Where it is.** A dedicated **Adaptive** group in Settings (`AdaptiveSettingsPanel`), a
   **Context plan** block in the Context screen (FH-072), a **Decisions** screen (FH-071) and a
-  read-only **Learned** section in the Skills screen (FH-073). None of them changes the engine.
+  **Learned** section in the Skills screen (FH-073). None of them changes the engine; the one write in
+  the Learned section is approving or rejecting a staged proposal ([Human approval](#human-approval)).
 - **When a read fails.** A non-2xx on any of those routes (a rotated token, a purged decision, a
   restarting sidecar) is said inline where the list or explanation would be, with **Try again**; the
   rest of the app keeps working. Each of those screens also has its own render boundary, mounted only

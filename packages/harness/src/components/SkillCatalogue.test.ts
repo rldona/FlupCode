@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { ignored, learnedStateLabel, notPickedUp, proposalStatusLabel, withoutFiles } from "./SkillCatalogue"
-import type { SkillFile } from "../types"
+import { ignored, learnedStateLabel, notPickedUp, proposalStatusLabel, reviewable, withoutFiles } from "./SkillCatalogue"
+import type { SkillFile, SkillProposal } from "../types"
 
 const file = (over: Partial<SkillFile>): SkillFile => ({
   path: "/p/.opencode/skills/one/SKILL.md",
@@ -62,5 +62,26 @@ describe("the read-only learning labels (FH-073)", () => {
     expect(proposalStatusLabel("proposed")).toBe("Proposed")
     expect(proposalStatusLabel("promoted")).toBe("Promoted")
     expect(proposalStatusLabel("rejected")).toBe("Rejected")
+  })
+})
+
+describe("the human review of a proposal (AH-A04)", () => {
+  const proposal = (status: SkillProposal["status"]): SkillProposal => ({
+    id: "proposal:ep1",
+    episodeID: "ep1",
+    projectID: "/work/demo",
+    intent: "add",
+    name: "flaky-test-helper",
+    evidenceRefs: [],
+    status,
+    createdAt: 1,
+    updatedAt: 1,
+  })
+
+  test("only a staged proposal is reviewable, and only when the server announced the review", () => {
+    expect(reviewable(proposal("proposed"), { review: true })).toBe(true)
+    expect(reviewable(proposal("proposed"), { review: false })).toBe(false)
+    expect(reviewable(proposal("promoted"), { review: true })).toBe(false)
+    expect(reviewable(proposal("rejected"), { review: true })).toBe(false)
   })
 })

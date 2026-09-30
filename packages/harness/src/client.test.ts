@@ -705,6 +705,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     proposals: false,
     learnedSkills: false,
     guardrails: false,
+    review: false,
   })
   expect(
     adaptiveSurfaces([
@@ -714,8 +715,17 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-proposals",
       "adaptive-skills",
       "adaptive-guardrails",
+      "adaptive-proposals-review",
     ]),
-  ).toEqual({ config: true, decisions: true, plans: true, proposals: true, learnedSkills: true, guardrails: true })
+  ).toEqual({
+    config: true,
+    decisions: true,
+    plans: true,
+    proposals: true,
+    learnedSkills: true,
+    guardrails: true,
+    review: true,
+  })
 })
 
 test("each adaptive surface is offered only for its own capability", () => {
@@ -726,11 +736,15 @@ test("each adaptive surface is offered only for its own capability", () => {
     proposals: false,
     learnedSkills: false,
     guardrails: false,
+    review: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
   expect(adaptiveSurfaces(["adaptive-context"]).plans).toBe(true)
   expect(adaptiveSurfaces(["adaptive-proposals"]).proposals).toBe(true)
+  // Reading proposals is not reviewing them: the writer is its own capability (AH-A04).
+  expect(adaptiveSurfaces(["adaptive-proposals"]).review).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-proposals-review"]).review).toBe(true)
   expect(adaptiveSurfaces(["adaptive-skills"]).learnedSkills).toBe(true)
   expect(adaptiveSurfaces(["adaptive-guardrails"]).guardrails).toBe(true)
   expect(adaptiveSurfaces(["adaptive-guardrails"]).decisions).toBe(false)
@@ -741,5 +755,6 @@ test("each adaptive surface is offered only for its own capability", () => {
     proposals: false,
     learnedSkills: false,
     guardrails: false,
+    review: false,
   })
 })

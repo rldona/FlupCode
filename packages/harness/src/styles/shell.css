@@ -9149,6 +9149,24 @@ button.fc-status {
   text-align: left;
 }
 
+/* Approve / Reject on a staged proposal, and what the confirmation shows (AH-A04). */
+.fc-skill-review-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: var(--fc-space-1);
+}
+
+.fc-skill-review {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-1);
+  margin: 0 0 var(--fc-space-3);
+}
+
+.fc-skill-review .fc-pr-log {
+  max-height: 40vh;
+}
+
 /* Agents you can edit (H-13) */
 .fc-agent-file {
   display: flex;

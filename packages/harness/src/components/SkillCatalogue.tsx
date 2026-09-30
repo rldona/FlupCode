@@ -8,6 +8,7 @@ import type { SkillInfo } from "../engine-types"
 import type { SkillSourceKind, SkillSources } from "../skill-sources"
 import { skillAccess } from "../skill-access"
 import { PanelFailure } from "./PanelBoundary"
+import { ConfirmDialog } from "./ConfirmDialog"
 
 type SkillCatalogueProps = {
   open: boolean
@@ -74,6 +75,13 @@ export const learnedStateLabel = (state: LearnedSkillState | undefined): string 
 /** What became of a proposal, as the catalogue shows it (FH-073). */
 export const proposalStatusLabel = (status: SkillProposal["status"]): string =>
   status.charAt(0).toUpperCase() + status.slice(1)
+
+/**
+ * Whether a proposal gets Approve / Reject (AH-A04): only a staged one, and only when the server
+ * announced the review, which it does only when its writer's bearer exists.
+ */
+export const reviewable = (proposal: SkillProposal, surfaces: { review: boolean }): boolean =>
+  surfaces.review && proposal.status === "proposed"
 
 /**
  * Skills, and why yours is not showing up (H-27).
@@ -173,8 +181,9 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
   const waiting = createMemo(() => (props.skillsLoading ? [] : notPickedUp(props.skills, props.files)))
   const orphans = createMemo(() => (props.skillsLoading ? [] : withoutFiles(props.skills, props.files)))
 
-  // The learning audit (FH-073): what a reflection drafted and what the curator installed. Read
-  // only — approving, merging and archiving are later phases, so no button here promises them.
+  // The learning audit (FH-073): what a reflection drafted and what the curator installed. A staged
+  // proposal is only installed when a person approves it here (AH-A04); merging and archiving are
+  // later phases, so no button here promises them.
   const learning = () => adaptiveSurfaces(props.capabilities)
   const [proposals, proposalActions] = createResource(
     () => (props.open && learning().proposals && props.projectID ? props.projectID : undefined),
@@ -184,6 +193,23 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
     () => (props.open && learning().learnedSkills && props.projectID ? props.projectID : undefined),
     (projectID) => createHarnessClient(props.serverUrl).adaptive.learnedSkills.list({ projectID }),
   )
+  const [reviewing, setReviewing] = createSignal<SkillProposal>()
+  const [reviewBusy, setReviewBusy] = createSignal<string>()
+  const [reviewProblem, setReviewProblem] = createSignal<string>()
+  const review = (proposal: SkillProposal, action: "approve" | "reject") => {
+    setReviewing(undefined)
+    setReviewBusy(proposal.id)
+    setReviewProblem(undefined)
+    const client = createHarnessClient(props.serverUrl).adaptive.proposals
+    void (action === "approve" ? client.approve(proposal.id) : client.reject(proposal.id))
+      .catch((error: unknown) => setReviewProblem(error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        setReviewBusy(undefined)
+        // A refused approval can still have changed the row (a stale proposal is closed), so both reread.
+        void proposalActions.refetch()
+        void learnedActions.refetch()
+      })
+  }
 
   createEffect(() => {
     if (!props.open) {
@@ -545,7 +571,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
               <h2>{t("Learned")}</h2>
               <p class="fc-usage-note">
                 {t(
-                  "Skills the harness proposed and installed itself, and what became of each. This is a read-only account.",
+                  "Skills the harness proposed from past sessions, and what became of each. Nothing is installed until a person approves it.",
                 )}
               </p>
               <Show when={!props.projectID}>
@@ -646,11 +672,55 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                           <span class="fc-artifact-kind" dir="ltr">
                             {t(proposalStatusLabel(proposal.status))}
                           </span>
+                          <Show when={reviewable(proposal, learning())}>
+                            <span class="fc-skill-review-actions">
+                              <button
+                                class="fc-button"
+                                type="button"
+                                disabled={reviewBusy() === proposal.id}
+                                onClick={() => setReviewing(proposal)}
+                              >
+                                {t("Approve")}
+                              </button>
+                              <button
+                                class="fc-button"
+                                type="button"
+                                disabled={reviewBusy() === proposal.id}
+                                onClick={() => review(proposal, "reject")}
+                              >
+                                {t("Reject")}
+                              </button>
+                            </span>
+                          </Show>
                         </div>
                       )}
                     </For>
                   </div>
                 </Show>
+                <Show when={reviewProblem()}>
+                  {(problem) => (
+                    <p class="fc-run-error" role="alert">
+                      {t("The proposal could not be reviewed: {reason}", { reason: problem() })}
+                    </p>
+                  )}
+                </Show>
+                <ConfirmDialog
+                  open={reviewing() !== undefined}
+                  title={t("Review a learned skill")}
+                  message={t("Install this learned skill? The agent will see it in every session of this project.")}
+                  confirmLabel={t("Install")}
+                  onClose={() => setReviewing(undefined)}
+                  onConfirm={() => {
+                    const proposal = reviewing()
+                    if (proposal) review(proposal, "approve")
+                  }}
+                >
+                  <div class="fc-skill-review" dir="auto">
+                    <strong>{reviewing()?.name ?? reviewing()?.targetSkill}</strong>
+                    <p class="fc-confirm-message">{reviewing()?.description}</p>
+                    <pre class="fc-pr-log">{reviewing()?.body}</pre>
+                  </div>
+                </ConfirmDialog>
               </Show>
             </section>
           </Show>

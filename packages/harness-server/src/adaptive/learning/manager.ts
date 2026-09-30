@@ -10,8 +10,10 @@
  * reflected again; a `pending` claim older than `REFLECTION_LEASE_MS` is a process that died
  * mid-reflection, and the sweep takes it over rather than leaving the episode stuck.
  *
- * Nothing here writes a skill: the manager validates and asks the curator, which owns the single
- * write path (ADR-0019 §2). The classification and the draft are gated by the learning switch, the
+ * Nothing here writes a skill: the manager lints the draft against the roster and stages it as a
+ * `proposed` row. The draft is built from evidence that can carry untrusted tool output, so it only
+ * reaches `skills/` when a person approves it through the review route, which asks the curator — the
+ * single write path (ADR-0019 §2) — to install it (AH-A04). The classification and the draft are gated by the learning switch, the
  * egress allowlist and a resolved model, and every skip is a machine-readable reason on the job. A
  * kill switch stops the reflection and the curation; it never deletes a skill already written.
  */
@@ -34,12 +36,7 @@ import {
   reflectionGate,
   reflectionSignals,
 } from "./reflection-job"
-import type {
-  EpisodeRepository,
-  LearningRepository,
-  ReflectionRepository,
-  SessionEpisode,
-} from "../../types"
+import type { EpisodeRepository, LearningRepository, ReflectionRepository, SessionEpisode } from "../../types"
 
 /** The read side the manager needs: jobs, proposals, evidence and the episodes a sweep walks. */
 export type LearningManagerRepository = LearningRepository &
@@ -56,7 +53,7 @@ export type LearningManagerDeps = {
   service: ReflectionService
   config: () => AdaptiveConfig
   egress: Pick<EgressGuard, "allows" | "redact">
-  curator: Pick<SkillCurator, "roster" | "promote" | "readExisting" | "recompute" | "reconcile">
+  curator: Pick<SkillCurator, "roster" | "check" | "readExisting" | "recompute" | "reconcile">
   drafter: SkillDrafter
   /** The global `small_model`; absent leaves `adaptive.learning.model` as the only source. */
   smallModel?: () => string | undefined
@@ -240,21 +237,21 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       modelVersion: `${model.providerID}/${model.id}`,
     })
     // The secret lint reads the draft as the model wrote it: the proposal above is already redacted,
-    // so linting it would never find the secret and would install a quietly edited skill instead of
+    // so linting it would never find the secret and would stage a quietly edited skill instead of
     // refusing it. The row still keeps only the redacted text.
     const leaked = [draft.name, draft.description, draft.body].some((text) => redactedText(deps.egress, text) !== text)
-    // The proposal is stored before it is promoted: a rejected one stays reviewable with its reason.
-    deps.repository.createProposal(input, now())
-    const promoted = leaked
+    // Staged, never installed: a lint failure stays reviewable with its reason, and a clean draft waits
+    // as `proposed` for a person. The approval re-runs the lint against the roster of that moment.
+    const checked = leaked
       ? { ok: false as const, reason: "contains-secrets" as const }
-      : deps.curator.promote(proposal, now(), roster)
-    if (!promoted.ok) {
-      deps.repository.createProposal({ ...input, status: "rejected", reason: promoted.reason }, now())
-      jobFor(episode, "skipped", { reason: promoted.reason, decisionID, proposalID: input.id })
+      : deps.curator.check(proposal, roster)
+    if (!checked.ok) {
+      deps.repository.createProposal({ ...input, status: "rejected", reason: checked.reason }, now())
+      jobFor(episode, "skipped", { reason: checked.reason, decisionID, proposalID: input.id })
       return
     }
-    deps.repository.createProposal({ ...input, status: "promoted" }, now())
-    jobFor(episode, "done", { reason: "promoted", decisionID, proposalID: input.id })
+    deps.repository.createProposal(input, now())
+    jobFor(episode, "done", { reason: "proposed", decisionID, proposalID: input.id })
   }
 
   /** The deferred pass: the gate, the idempotence and the failure record all live here. */
@@ -314,7 +311,8 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       if (!config.learning.enabled) return 0
       return reflectionCandidates({
         episodes,
-        hasJob: (episodeID) => !reflectionClaimable(deps.repository.getReflectionJob(episodeID), now(), REFLECTION_LEASE_MS),
+        hasJob: (episodeID) =>
+          !reflectionClaimable(deps.repository.getReflectionJob(episodeID), now(), REFLECTION_LEASE_MS),
         limit: sweepLimit,
       }).reduce((count, episode) => {
         onEpisodeClosed(episode)

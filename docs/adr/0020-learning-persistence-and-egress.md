@@ -1,6 +1,6 @@
 # ADR-0020: Learning persistence, cadence and egress
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-09-30 (AH-A04, human approval before install)
 - **Date:** 2026-09-29
 - **Related:** ADR-0016 (harness boundary), ADR-0017 (Jev egress and governance), ADR-0018 (context selection seam), ADR-0019 (learned skill lifecycle and provenance), `flupcode-adaptive-harness-plan.md` §8 / §9 / §11 / §13 / §14 / §19, `fh-phase3b-design.md`
 
@@ -232,3 +232,14 @@ step 0a and blocks all Phase 3b code; step 0b is
 [ADR-0019](0019-learned-skill-lifecycle.md). Its criteria: the tables migrate over an existing DB,
 an episode produces at most one proposal without blocking, and with Jev off, learning off or the
 kill switch the harness behaves exactly as before and no new learned skill appears.
+
+## Amendment (2026-09-30, AH-A04): the loop ends at a proposal
+
+The Context's last step — "the curator installs it" — is replaced by human approval. A reflection now
+ends at a `skill_proposals` row: `proposed` when the draft passes the lint, `rejected` with the lint
+reason when it does not, and the job reason is `proposed` rather than `promoted`. Only
+`POST /harness/adaptive/proposals/:id/approve` (bearer and `confirm: true`) moves a row to `promoted`,
+installing it through the curator (ADR-0019 §2); `POST …/reject` closes it as `rejected` /
+`human-rejected`. §2's reason for persisting the redacted body — a proposal exists for human review —
+is now the mechanism rather than a possibility, and §9's selection metric is measured after that
+approval.

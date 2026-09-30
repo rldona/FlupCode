@@ -2,9 +2,10 @@
  * The HTTP contract of the learning audit (FH-034).
  *
  * `api.ts` guards these routes with the artifacts bearer, and here they are only the shape of the
- * request and the answer. There is no route that reflects or promotes: the manager does that off the
- * episode boundary, and a client only lists what it drafted and what the curator installed. The UI
- * is deferred (FH-035/FH-046); these are the read surfaces behind it.
+ * request and the answer. There is no route that reflects: the manager does that off the episode
+ * boundary and only stages what it drafted. The one write is the human review (AH-A04): `approve`
+ * installs a staged proposal through the curator and `reject` closes it; `api.ts` requires the bearer
+ * for both, and approval also requires `confirm: true` in the body.
  */
 
 import type { LearningRepository } from "../types"
@@ -13,6 +14,7 @@ import { isAbsolute, resolve } from "node:path"
 import type { SkillRosterEntry } from "./skills/curator"
 import { isSkillProposalStatus } from "./learning/proposal-record"
 import { normalizeEpisodeLimit } from "./episode"
+import type { ProposalReview } from "./learning/review"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -36,6 +38,19 @@ function usableProject(projectID: string | null): string | undefined {
   const path = resolve(projectID)
   try {
     return statSync(path).isDirectory() ? path : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * A proposal id from the path. The ids carry `:` (`proposal:<episodeID>`) and the client encodes them,
+ * so the segment is decoded; a malformed escape is no id at all rather than a thrown request.
+ */
+function decodedID(segment: string | undefined): string | undefined {
+  if (segment === undefined) return undefined
+  try {
+    return decodeURIComponent(segment)
   } catch {
     return undefined
   }
@@ -69,11 +84,38 @@ export async function handleProposalRequest(
     })
   }
   if (segments[0] === "proposals" && id !== undefined) {
-    const proposal = reader.getProposal(id)
+    const proposal = reader.getProposal(decodedID(id) ?? "")
     if (!proposal) return error("Not found", "not_found", 404)
     return json({ data: proposal })
   }
   return error("Not found", "not_found", 404)
+}
+
+/**
+ * `POST /harness/adaptive/proposals/:id/approve` and `/reject`. Approval changes what the engine loads
+ * in every later session, so it needs an explicit `confirm: true` like a widening config write.
+ */
+export async function handleProposalReviewRequest(
+  request: Request,
+  segments: string[],
+  review: ProposalReview,
+): Promise<Response> {
+  const action = segments[2]
+  if (request.method !== "POST" || segments.length !== 3 || (action !== "approve" && action !== "reject"))
+    return error("Not found", "not_found", 404)
+  if (action === "approve") {
+    const body: unknown = await request.json().catch(() => undefined)
+    const confirmed = typeof body === "object" && body !== null && "confirm" in body && body.confirm === true
+    if (!confirmed) return error("Installing a learned skill needs confirmation", "confirmation-required", 422)
+  }
+  const id = decodedID(segments[1]) ?? ""
+  const result = action === "approve" ? review.approve(id) : review.reject(id)
+  if (!result.ok)
+    return json(
+      { error: `The proposal cannot be reviewed: ${result.code}`, code: result.code, ...(result.proposal ? { data: result.proposal } : {}) },
+      result.status,
+    )
+  return json({ data: result.proposal, changed: result.changed })
 }
 
 export async function handleLearnedSkillRequest(
