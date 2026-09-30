@@ -549,13 +549,18 @@ describe("the read model", () => {
   test("assembles the documented shape", () => {
     const view = adaptiveConfigView(viewInput({ env: { TYPESAFE_API_KEY: "k" } }))
     expect(view.env).toEqual({ adaptiveDisabled: false, typesafeKeyPresent: true })
-    expect(view.runtime).toEqual({ runtime: "legacy", degraded: false, checkedAt: 0 })
+    expect(view.runtime).toEqual({ runtime: "legacy", degraded: false, checkedAt: 0, alerts: [] })
     expect(view.canWrite).toBe(true)
     expect(view.writer).toEqual({ path: "/cfg/opencode.jsonc", exists: true })
     expect(view.usage).toEqual({ month: "2026-09", tokensSpent: 0, calls: 0, monthlyTokens: 100_000, hotReserveFraction: 0.2 })
     expect(view.writable).toHaveLength(WRITABLE_FIELDS.length)
     expect(view.effective.enabled).toBe(true)
     expect(view.learningDraft).toEqual({ model: null })
+  })
+
+  test("carries the probe's unacknowledged runtime alerts (AH-D05)", () => {
+    const alerts = [{ kind: "runtime-changed" as const, from: "legacy", to: "v2", at: 5 }]
+    expect(adaptiveConfigView(viewInput({ alerts })).runtime.alerts).toEqual(alerts)
   })
 
   test("lists a consent row per registered remote model, then any other provider the config names", () => {

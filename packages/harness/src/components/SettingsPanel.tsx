@@ -164,6 +164,7 @@ type SettingsPanelProps = {
   /** The adaptive settings (FH-070): the view, the health capabilities and the write handler. */
   adaptive: AdaptiveSettingsState
   onAdaptivePatch: (patch: Record<string, unknown>, confirm: boolean) => void
+  onAdaptiveAcknowledgeRuntime: () => void
   onClose: () => void
 }
 
@@ -727,6 +728,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   warnings={props.adaptive.warnings}
                   error={props.adaptive.error}
                   onPatch={props.onAdaptivePatch}
+                  onAcknowledgeRuntime={props.onAdaptiveAcknowledgeRuntime}
                 />
               </Show>
 

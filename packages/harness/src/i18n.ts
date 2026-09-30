@@ -1456,6 +1456,15 @@ const ES: Record<string, string> = {
   "Applying is configured, but promotion waits for the offline evaluation.":
     "Aplicar está configurado, pero la promoción espera a la evaluación offline.",
   "Configured, but inert on this runtime.": "Configurado, pero inerte en este runtime.",
+  "The engine runs V2 sessions: the adaptive hooks do not fire there, so relevance and guardrails stay inert.":
+    "El motor ejecuta sesiones V2: ahí no se disparan los hooks adaptativos, así que relevance y guardrails quedan inertes.",
+  "The engine runtime changed": "El runtime del motor ha cambiado",
+  "The engine runtime changed from {from} to {to}. Relevance and guardrails rely on legacy hooks; check docs/V2-HOOKS.md.":
+    "El runtime del motor pasó de {from} a {to}. Relevance y guardrails dependen de hooks legacy; revisa docs/V2-HOOKS.md.",
+  "The engine changed from version {from} to {to}. Check that the adaptive hooks still fire (docs/V2-HOOKS.md).":
+    "El motor pasó de la versión {from} a la {to}. Comprueba que los hooks adaptativos siguen disparándose (docs/V2-HOOKS.md).",
+  "The engine ran turns on the V2 runner ({event}). The adaptive hooks do not fire on those turns.":
+    "El motor ejecutó turnos en el runner V2 ({event}). En esos turnos no se disparan los hooks adaptativos.",
   "There is no model for a draft, so nothing will be written.":
     "No hay modelo para un borrador, así que no se escribirá nada.",
   "Learned skills still load from disk.": "Las skills aprendidas siguen cargando desde el disco.",

@@ -714,6 +714,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     review: false,
     metrics: false,
     voi: false,
+    runtimeAlerts: false,
   })
   expect(
     adaptiveSurfaces([
@@ -726,6 +727,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-proposals-review",
       "adaptive-metrics",
       "adaptive-voi",
+      "adaptive-runtime-alerts",
     ]),
   ).toEqual({
     config: true,
@@ -737,6 +739,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     review: true,
     metrics: true,
     voi: true,
+    runtimeAlerts: true,
   })
 })
 
@@ -751,6 +754,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     review: false,
     metrics: false,
     voi: false,
+    runtimeAlerts: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
@@ -776,6 +780,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     review: false,
     metrics: false,
     voi: false,
+    runtimeAlerts: false,
   })
 })
 

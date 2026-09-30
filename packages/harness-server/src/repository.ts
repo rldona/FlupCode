@@ -3355,7 +3355,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
 /** One routine runs one at a time; the key says which. */
 export const routineLockKey = (routineID: string) => `routine:${routineID}`
 
-function defaultDatabasePath() {
+export function defaultDatabasePath() {
   const base = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")
   return join(base, "flupcode", "harness.sqlite")
 }

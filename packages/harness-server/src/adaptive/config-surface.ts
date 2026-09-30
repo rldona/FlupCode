@@ -23,7 +23,7 @@ import type { EgressSubject } from "./egress"
 import { decisionKinds, isDecisionKind } from "./decision"
 import { budgetMonth } from "./providers/budget"
 import { learningModel } from "./learning/draft"
-import type { RuntimeCapabilities, RuntimeKind } from "./runtime"
+import type { RuntimeAlert, RuntimeCapabilities, RuntimeKind } from "./runtime"
 
 /** A rejected patch, or a write that could not be made, in the shape the HTTP contract reports. */
 export class AdaptiveConfigError extends Error {
@@ -236,7 +236,8 @@ export type AdaptiveConfigView = {
   effective: AdaptiveConfig
   source: Record<string, AdaptiveProvenance>
   env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean }
-  runtime: { runtime: RuntimeKind; degraded: boolean; checkedAt: number }
+  /** `alerts` are the runtime changes not yet acknowledged (AH-D05), oldest first. */
+  runtime: { runtime: RuntimeKind; degraded: boolean; checkedAt: number; alerts: RuntimeAlert[] }
   capabilities: RuntimeCapabilities
   canWrite: boolean
   writer: { path: string; exists: boolean }
@@ -281,6 +282,7 @@ export type AdaptiveConfigViewInput = {
   env: NodeJS.ProcessEnv
   resolved: AdaptiveConfig
   runtime: { runtime: RuntimeKind; degraded: boolean; checkedAt: number }
+  alerts?: RuntimeAlert[]
   capabilities: RuntimeCapabilities
   usage: AdaptiveUsageView
   canWrite: boolean
@@ -300,7 +302,12 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
       adaptiveDisabled: env.FLUPCODE_ADAPTIVE_DISABLED === "1",
       typesafeKeyPresent: typeof env.TYPESAFE_API_KEY === "string" && env.TYPESAFE_API_KEY.trim() !== "",
     },
-    runtime: { runtime: input.runtime.runtime, degraded: input.runtime.degraded, checkedAt: input.runtime.checkedAt },
+    runtime: {
+      runtime: input.runtime.runtime,
+      degraded: input.runtime.degraded,
+      checkedAt: input.runtime.checkedAt,
+      alerts: input.alerts ?? [],
+    },
     capabilities: input.capabilities,
     canWrite: input.canWrite,
     writer: input.writer,
@@ -597,6 +604,8 @@ function writeFailure(cause: unknown): unknown {
 export type AdaptiveConfigSurfaceDeps = {
   config: { current(): AdaptiveConfig; raw(): Record<string, unknown>; invalidate(): void }
   runtime: () => { runtime: RuntimeKind; degraded: boolean; checkedAt: number }
+  /** The probe's unacknowledged runtime changes (AH-D05); none when the probe is not wired. */
+  alerts?: () => RuntimeAlert[]
   capabilities: () => RuntimeCapabilities
   repository: AdaptiveUsageRepository
   canWrite: boolean
@@ -628,6 +637,7 @@ export function createAdaptiveConfigSurface(deps: AdaptiveConfigSurfaceDeps): Ad
       env,
       resolved,
       runtime: deps.runtime(),
+      ...(deps.alerts ? { alerts: deps.alerts() } : {}),
       capabilities: deps.capabilities(),
       usage: {
         month: budgetMonth(now()),
