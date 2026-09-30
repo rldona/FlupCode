@@ -114,7 +114,7 @@ export function rankSkills(input: RankSkillsInput): string[] {
  * The rendered line, or `undefined` when there is nothing safe to render.
  *
  * A name that is not a bare folder name is dropped rather than escaped: the box carries names only,
- * and an empty selection is inert (`system` is left byte-identical).
+ * and an empty selection is inert (nothing is added to the turn).
  */
 export function renderSkillLine(names: readonly string[]): string | undefined {
   const valid = names.filter((name) => typeof name === "string" && NAME.test(name))
