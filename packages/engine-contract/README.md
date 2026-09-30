@@ -26,3 +26,33 @@ bun run --cwd packages/engine-contract test
   for example a released `opencode` binary or an OpenCode 2.x one.
 - `UPDATE_FIXTURES=1`: rewrite the fixtures after an intended contract change. In CI (`CI` set) a
   missing fixture fails instead of being written.
+
+## OpenCode 2.x sandbox
+
+Ticket V2-05. OpenCode 2 installs the same `opencode` command as 1.x (its installer replaces the
+1.x one) and migrates `~/.local/share/opencode/opencode.db` one way on first start, so it is never
+installed globally or pointed at the user's data:
+
+```bash
+bun run --cwd packages/engine-contract opencode-v2 install   # prints the binary's path
+bun run --cwd packages/engine-contract opencode-v2 serve     # http://127.0.0.1:4196, sandbox home
+```
+
+`install` fetches the platform package of the pinned version (`OPENCODE_V2_VERSION` in
+`src/opencode-v2.ts`) from the npm registry, checks it against the published sha512 integrity, and
+unpacks it to `~/.cache/flupcode/engines/opencode-<version>/`. `serve` runs it with a home under
+`~/.cache/flupcode/engines/sandbox-<version>/` and prints a fresh password; delete that folder to
+start over.
+
+## Running the flows on OpenCode 2
+
+Ticket V2-06. `test/contract-v2.test.ts` drives the same flows through OpenCode 2's API and records
+`fixtures/v2/`. It also pins down what FlupCode meets there today: its 1.x routes answer the web UI's
+HTML, and its 1.x plugins are all refused. Each suite runs only on its own line:
+
+```bash
+bun run --cwd packages/engine-contract test      # 1.x flows (default line, runs in CI)
+bun run --cwd packages/engine-contract test:v2   # 2.x flows against the pinned sandbox binary
+```
+
+The findings are in [docs/V2-CONTRACT-REPORT.md](../../docs/V2-CONTRACT-REPORT.md).

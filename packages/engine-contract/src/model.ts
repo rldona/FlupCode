@@ -21,7 +21,7 @@ export function startModel() {
     fetch: async (request) => {
       if (new URL(request.url).pathname !== "/v1/chat/completions") return new Response("not found", { status: 404 })
       const body = (await request.json().catch(() => ({}))) as Record<string, unknown>
-      if (JSON.stringify(body).includes("Generate a title for this conversation")) return stream([...text("Contract")])
+      if (isTitleRequest(body)) return stream([...text("Contract")])
       requests.push(body)
       const reply = queue.shift() ?? { type: "text", text: "(no scripted reply)" }
       if (reply.type === "hang") return hang(request.signal)
@@ -38,6 +38,14 @@ export function startModel() {
     requests,
     stop: () => server.stop(true),
   }
+}
+
+/** 1.x and 2.x word their title prompt differently; either one names the request. */
+function isTitleRequest(body: unknown) {
+  const serialized = JSON.stringify(body)
+  return (
+    serialized.includes("Generate a title for this conversation") || serialized.includes("You are a title generator")
+  )
 }
 
 function* text(value: string) {

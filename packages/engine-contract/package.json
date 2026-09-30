@@ -8,6 +8,8 @@
   "description": "Contract tests that drive a real OpenCode engine the way FlupCode does, against a stub model.",
   "scripts": {
     "test": "bun test --timeout 120000",
+    "test:v2": "FLUPCODE_CONTRACT_LINE=v2 bun test --timeout 120000",
+    "opencode-v2": "bun script/opencode-v2.ts",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {

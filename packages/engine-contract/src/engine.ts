@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { detectEngine } from "@flupcode/remote/engine-kind"
+import { installOpenCodeV2 } from "./opencode-v2"
 
 /**
  * A real engine, isolated from the machine it runs on.
@@ -29,8 +30,9 @@ export async function startEngine(input: {
   await input.prepare?.(home)
   const password = crypto.randomUUID()
   const port = freePort()
+  const command = await engineCommand()
   const child = Bun.spawn(
-    engineCommand().map((part) => part.replaceAll("{port}", String(port))),
+    command.map((part) => part.replaceAll("{port}", String(port))),
     {
       cwd: project,
       env: definedOnly({
@@ -89,9 +91,17 @@ export type Engine = Awaited<ReturnType<typeof startEngine>>
 /** The model every session uses: `stub/stub-model`, served by `startModel`. */
 export const STUB_MODEL = { providerID: "stub", modelID: "stub-model" }
 
-function engineCommand() {
+/**
+ * Which engine line the suite targets: `v1` (default) or `v2`. Each suite runs only on its own line,
+ * and the fixtures of one line live apart from the other's.
+ */
+export const CONTRACT_LINE = process.env.FLUPCODE_CONTRACT_LINE === "v2" ? "v2" : "v1"
+
+async function engineCommand() {
   const configured = process.env.FLUPCODE_CONTRACT_ENGINE?.trim()
   if (configured) return configured.split(/\s+/)
+  // The pinned 2.x binary from the sandbox (V2-05), fetched and verified on first use.
+  if (CONTRACT_LINE === "v2") return [await installOpenCodeV2(), "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
   const entry = resolve(import.meta.dir, "../../opencode/src/index.ts")
   return [process.execPath, "run", entry, "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
 }

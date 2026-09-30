@@ -1,0 +1,16 @@
+{
+  "flupcode-actions.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-artifact-write.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-cache-selection.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-compaction-anchors.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-deliver.js": "Plugin failed to load",
+  "flupcode-episode-events.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-guardrails.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-reasoning-variants.js": "TypeError: undefined is not an object (evaluating 'ctx.catalog.transform')",
+  "flupcode-relevance.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-runtime-probe.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-session-metrics.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-system-prompt.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-tool-trim.js": "Plugin must export a default definition with an id and an effect or setup function.",
+  "flupcode-tool-uses.js": "Plugin must export a default definition with an id and an effect or setup function."
+}
