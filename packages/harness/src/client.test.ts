@@ -296,6 +296,37 @@ test("removing an MCP server clears it from both configurations and disconnects 
   expect(calls.some((call) => call.path.endsWith("/disconnect"))).toBe(true)
 })
 
+test("MCP writes act on the directory the list was read for", async () => {
+  const calls: Array<{ method: string; path: string; search: string }> = []
+  recordingEngineQueries(calls)
+  const mcp = createClient("http://engine").mcp
+  const directory = "/work/demo"
+
+  await mcp.connect({ server: "srv", directory })
+  await mcp.disconnect({ server: "srv", directory })
+  await mcp.authStart({ server: "srv", directory })
+  await mcp.authenticate({ server: "srv", directory })
+  await mcp.authRemove({ server: "srv", directory })
+  const config = { type: "remote" as const, url: "https://mcp.example" }
+  await mcp.add({ server: "srv", config, scope: "project", directory })
+  await mcp.remove({ server: "srv", directory })
+
+  // Only the global config file has no directory: it applies to every instance.
+  const unscoped = calls.filter(
+    (call) => !call.path.startsWith("/global/") && call.search !== "?directory=%2Fwork%2Fdemo",
+  )
+  expect(unscoped).toEqual([])
+  const routes = calls.filter((call) => call.path.startsWith("/mcp/srv")).map((call) => `${call.method} ${call.path}`)
+  expect(routes).toEqual([
+    "POST /mcp/srv/connect",
+    "POST /mcp/srv/disconnect",
+    "POST /mcp/srv/auth",
+    "POST /mcp/srv/auth/authenticate",
+    "DELETE /mcp/srv/auth",
+    "POST /mcp/srv/disconnect",
+  ])
+})
+
 type HarnessCall = { method: string; path: string; search: string; body?: unknown }
 
 /** Records every harness-server request, and answers with an empty list the calls can unwrap. */

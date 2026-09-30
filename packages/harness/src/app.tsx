@@ -4715,7 +4715,7 @@ export const App: Component = () => {
 
   const addMcp = (server: string, config: McpConfig, scope: McpScope) =>
     run(async (current) => {
-      await current.mcp.add({ server, config, scope })
+      await current.mcp.add({ server, config, scope, directory: mcpDirectory() })
       void refetchMcp()
       void refetchMcpConfigs()
       void refetchMcpResources()
@@ -4724,7 +4724,7 @@ export const App: Component = () => {
 
   const removeMcp = (server: string) =>
     run(async (current) => {
-      await current.mcp.remove({ server })
+      await current.mcp.remove({ server, directory: mcpDirectory() })
       void refetchMcp()
       void refetchMcpConfigs()
       void refetchMcpResources()
@@ -4733,7 +4733,7 @@ export const App: Component = () => {
 
   const connectMcp = (server: string) =>
     run(async (current) => {
-      await current.mcp.connect({ server })
+      await current.mcp.connect({ server, directory: mcpDirectory() })
       void refetchMcp()
       void refetchMcpResources()
       return undefined
@@ -4741,7 +4741,7 @@ export const App: Component = () => {
 
   const disconnectMcp = (server: string) =>
     run(async (current) => {
-      await current.mcp.disconnect({ server })
+      await current.mcp.disconnect({ server, directory: mcpDirectory() })
       void refetchMcp()
       void refetchMcpResources()
       return undefined
@@ -4755,9 +4755,9 @@ export const App: Component = () => {
    */
   const oauthMcp = (server: string) =>
     run(async (current) => {
-      const started = (await current.mcp.authStart({ server })) as { authorizationUrl?: string }
+      const started = (await current.mcp.authStart({ server, directory: mcpDirectory() })) as { authorizationUrl?: string }
       if (!started?.authorizationUrl) throw new Error(t("This server did not offer OAuth"))
-      await current.mcp.authenticate({ server })
+      await current.mcp.authenticate({ server, directory: mcpDirectory() })
       void refetchMcp()
       void refetchMcpResources()
       return undefined

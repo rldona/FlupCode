@@ -214,8 +214,9 @@ export async function* subscribeEvents(
  * `PATCH /config` merges into the engine's configuration file. The generated client has no typed
  * call for it, and the shape is open-ended, so it goes through the transport directly.
  */
-async function patchConfig(baseUrl: string, patch: Record<string, unknown>) {
-  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/config`, {
+async function patchConfig(baseUrl: string, patch: Record<string, unknown>, directory?: string) {
+  const query = directory ? `?directory=${encodeURIComponent(directory)}` : ""
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/config${query}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
@@ -297,13 +298,15 @@ export function createClient(baseUrl = resolveServerUrl()) {
   const client = createOpencodeClient({ baseUrl, fetch: ((request: Request) => engineFetch(request)) as typeof fetch })
 
   /** The `mcp` map as it is on disk in the file a scope names, so a write merges instead of replacing. */
-  const readMcp = async (scope: McpScope) =>
-    (await unwrap(scope === "global" ? client.global.config.get() : client.config.get())) as {
+  const readMcp = async (scope: McpScope, directory?: string) =>
+    (await unwrap(
+      scope === "global" ? client.global.config.get() : client.config.get(directory ? { directory } : undefined),
+    )) as {
       mcp?: Record<string, unknown>
     }
   /** Writes one scope's config file, global or the instance's own. */
-  const writeConfig = (scope: McpScope, patch: Record<string, unknown>) =>
-    scope === "global" ? patchGlobalConfig(baseUrl, patch) : patchConfig(baseUrl, patch)
+  const writeConfig = (scope: McpScope, patch: Record<string, unknown>, directory?: string) =>
+    scope === "global" ? patchGlobalConfig(baseUrl, patch) : patchConfig(baseUrl, patch, directory)
 
   return {
     health: {
@@ -1067,6 +1070,10 @@ export function createClient(baseUrl = resolveServerUrl()) {
      * themselves live in the configuration, so adding and removing one writes there as well —
      * otherwise a server added here would be gone the next time the engine started. Every call in
      * here used to be a no-op behind a working-looking panel.
+     *
+     * Every call takes the directory the list was read for. Without one the engine acts on the
+     * instance of its own working directory, so a server connected, authorized or added to the
+     * project from the panel could land in a different instance than the one the panel shows.
      */
     mcp: {
       list: async (input?: { directory?: string }) => {
@@ -1084,34 +1091,39 @@ export function createClient(baseUrl = resolveServerUrl()) {
         )) as { mcp?: Record<string, unknown> }
         return { data: (config?.mcp ?? {}) as Record<string, McpConfig> }
       },
-      add: async (input: { server: string; config: McpConfig; scope?: McpScope }) => {
+      add: async (input: { server: string; config: McpConfig; scope?: McpScope; directory?: string }) => {
         const scope = input.scope ?? "global"
-        const config = await readMcp(scope)
-        await writeConfig(scope, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } })
-        await unwrap(client.mcp.add({ name: input.server, config: input.config }))
+        const config = await readMcp(scope, input.directory)
+        await writeConfig(scope, { mcp: { ...(config?.mcp ?? {}), [input.server]: input.config } }, input.directory)
+        await unwrap(client.mcp.add({ name: input.server, config: input.config, directory: input.directory }))
       },
-      remove: async (input: { server: string }) => {
+      remove: async (input: { server: string; directory?: string }) => {
         // A server's scope is not readable from the list, so removal clears it wherever it is: both
         // config files are written with the map minus that server, rather than guessing one.
-        const [project, global] = await Promise.all([readMcp("project"), readMcp("global")])
+        const [project, global] = await Promise.all([readMcp("project", input.directory), readMcp("global")])
         const { [input.server]: _removedProject, ...projectRest } = project?.mcp ?? {}
         const { [input.server]: _removedGlobal, ...globalRest } = global?.mcp ?? {}
         await Promise.all([
-          writeConfig("project", { mcp: projectRest }),
+          writeConfig("project", { mcp: projectRest }, input.directory),
           writeConfig("global", { mcp: globalRest }),
         ])
         // The running instance keeps its copy until it restarts, so stop it talking to it now.
-        await unwrap(client.mcp.disconnect({ name: input.server })).catch(() => undefined)
+        await unwrap(client.mcp.disconnect({ name: input.server, directory: input.directory })).catch(() => undefined)
       },
-      connect: (input: { server: string }) => unwrap(client.mcp.connect({ name: input.server })),
-      disconnect: (input: { server: string }) => unwrap(client.mcp.disconnect({ name: input.server })),
+      connect: (input: { server: string; directory?: string }) =>
+        unwrap(client.mcp.connect({ name: input.server, directory: input.directory })),
+      disconnect: (input: { server: string; directory?: string }) =>
+        unwrap(client.mcp.disconnect({ name: input.server, directory: input.directory })),
       /**
        * OAuth for a server that needs it (SE-2): start returns the URL to open, authenticate
        * waits for the engine's callback, remove forgets the credentials.
        */
-      authStart: (input: { server: string }) => unwrap(client.mcp.auth.start({ name: input.server })),
-      authenticate: (input: { server: string }) => unwrap(client.mcp.auth.authenticate({ name: input.server })),
-      authRemove: (input: { server: string }) => unwrap(client.mcp.auth.remove({ name: input.server })),
+      authStart: (input: { server: string; directory?: string }) =>
+        unwrap(client.mcp.auth.start({ name: input.server, directory: input.directory })),
+      authenticate: (input: { server: string; directory?: string }) =>
+        unwrap(client.mcp.auth.authenticate({ name: input.server, directory: input.directory })),
+      authRemove: (input: { server: string; directory?: string }) =>
+        unwrap(client.mcp.auth.remove({ name: input.server, directory: input.directory })),
       /**
        * What the connected servers expose (H-34).
        *
