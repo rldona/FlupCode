@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
 import type { Artifact, ArtifactKind } from "../types"
@@ -6,6 +6,8 @@ import { viewerFor, viewerNeedsRaw } from "../artifact-view"
 import { openImagePreview } from "../image-preview"
 import { isAbsolutePath, joinPath } from "../folder"
 import { Markdown } from "./Markdown"
+import { PanelBoundary, PanelFailure } from "./PanelBoundary"
+import { createResource } from "../resource"
 
 type ArtifactsPanelProps = {
   open: boolean
@@ -129,7 +131,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
     // unless it already carries its content. The URL is revoked when this body goes away or the
     // artifact changes, so opening many does not leak one blob per view (WA-9).
     const wantsRaw = () => viewer() === "pdf" || (viewer() === "image" && !body.artifact.content)
-    const [raw] = createResource(
+    const [raw, rawActions] = createResource(
       () => (wantsRaw() ? body.artifact.id : undefined),
       async (id) => {
         const url = await props.rawArtifact(id)
@@ -143,6 +145,16 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
         when={!viewerNeedsRaw(viewer()) || body.artifact.path || body.artifact.content}
         fallback={<p class="fc-artifact-note">{t("This artifact has nothing to show.")}</p>}
       >
+        <Show when={wantsRaw() && !raw.loading && raw.failure()}>
+          {(error) => (
+            <PanelFailure
+              inline
+              title={t("{name} could not be read", { name: t("This artifact") })}
+              error={error()}
+              onRetry={() => void rawActions.refetch()}
+            />
+          )}
+        </Show>
         <Show when={viewer() === "markdown"}>
           <div class="fc-artifact-markdown">
             <Markdown text={body.artifact.content ?? ""} />
@@ -180,244 +192,250 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <section class="fc-routines-screen" aria-label={t("Artifacts")}>
-        <Show
-          when={selected()}
-          fallback={
-            <>
-              <div class="fc-routines-header">
-                <div>
-                  <div class="fc-routines-kicker">{t("Automation")}</div>
-                  <h1>{t("Artifacts")}</h1>
-                  <p>{t("What the runs left behind: reports, verdicts, plans, and the documents the agent kept.")}</p>
+      <PanelBoundary name={t("The artifacts screen")}>
+        <section class="fc-routines-screen" aria-label={t("Artifacts")}>
+          <Show
+            when={selected()}
+            fallback={
+              <>
+                <div class="fc-routines-header">
+                  <div>
+                    <div class="fc-routines-kicker">{t("Automation")}</div>
+                    <h1>{t("Artifacts")}</h1>
+                    <p>{t("What the runs left behind: reports, verdicts, plans, and the documents the agent kept.")}</p>
+                  </div>
                 </div>
-              </div>
 
-              <Show when={!props.serverAvailable}>
-                <div class="fc-routines-notice">
-                  <span class="fc-routines-notice-icon">⚠</span>
-                  <span>{t("The harness server is not reachable, so this is the last it said.")}</span>
+                <Show when={!props.serverAvailable}>
+                  <div class="fc-routines-notice">
+                    <span class="fc-routines-notice-icon">⚠</span>
+                    <span>{t("The harness server is not reachable, so this is the last it said.")}</span>
+                  </div>
+                </Show>
+
+                {/* Two kinds of thing, two lists: the artifacts, then the files this session wrote. */}
+                <div class="fc-routines-toolbar fc-artifact-toolbar">
+                  <div class="fc-routines-tabs">
+                    <button
+                      class="fc-routines-tab"
+                      classList={{ "fc-routines-tab-active": tab() === "artifacts" }}
+                      type="button"
+                      onClick={() => setTab("artifacts")}
+                    >
+                      {t("Artifacts")}
+                      <span class="fc-workflow-count">{props.artifacts.length}</span>
+                    </button>
+                    <button
+                      class="fc-routines-tab"
+                      classList={{ "fc-routines-tab-active": tab() === "files" }}
+                      type="button"
+                      onClick={() => setTab("files")}
+                    >
+                      {t("Files this session wrote")}
+                      <span class="fc-workflow-count">{props.sessionFiles.length}</span>
+                    </button>
+                  </div>
+                  <input
+                    class="fc-question-custom fc-routines-search"
+                    value={query()}
+                    placeholder={tab() === "artifacts" ? t("Search artifacts") : t("Search files")}
+                    aria-label={tab() === "artifacts" ? t("Search artifacts") : t("Search files")}
+                    onInput={(event) => setQuery(event.currentTarget.value)}
+                  />
                 </div>
-              </Show>
 
-              {/* Two kinds of thing, two lists: the artifacts, then the files this session wrote. */}
-              <div class="fc-routines-toolbar fc-artifact-toolbar">
-                <div class="fc-routines-tabs">
-                  <button
-                    class="fc-routines-tab"
-                    classList={{ "fc-routines-tab-active": tab() === "artifacts" }}
-                    type="button"
-                    onClick={() => setTab("artifacts")}
-                  >
-                    {t("Artifacts")}
-                    <span class="fc-workflow-count">{props.artifacts.length}</span>
-                  </button>
-                  <button
-                    class="fc-routines-tab"
-                    classList={{ "fc-routines-tab-active": tab() === "files" }}
-                    type="button"
-                    onClick={() => setTab("files")}
-                  >
-                    {t("Files this session wrote")}
-                    <span class="fc-workflow-count">{props.sessionFiles.length}</span>
-                  </button>
-                </div>
-                <input
-                  class="fc-question-custom fc-routines-search"
-                  value={query()}
-                  placeholder={tab() === "artifacts" ? t("Search artifacts") : t("Search files")}
-                  aria-label={tab() === "artifacts" ? t("Search artifacts") : t("Search files")}
-                  onInput={(event) => setQuery(event.currentTarget.value)}
-                />
-              </div>
-
-              <div class="fc-artifacts-body">
-                <Show when={tab() === "artifacts"}>
-                  <Show when={kinds().length > 1}>
-                    <div class="fc-artifact-kinds">
-                      <button
-                        class="fc-session-tag"
-                        classList={{ "fc-session-tag-active": !kind() }}
-                        type="button"
-                        onClick={() => setKind(undefined)}
-                      >
-                        {t("All")}
-                      </button>
-                      <For each={kinds()}>
-                        {(name) => (
-                          <button
-                            class="fc-session-tag"
-                            classList={{ "fc-session-tag-active": kind() === name }}
-                            type="button"
-                            onClick={() => setKind(name)}
-                          >
-                            {t(name)}
-                          </button>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-
-                  <Show
-                    when={shown().length > 0}
-                    fallback={<div class="fc-runs-empty">{t("Nothing has been kept yet.")}</div>}
-                  >
-                    <div class="fc-routine-cards">
-                      <For each={shown()}>
-                        {(artifact) => (
-                          <article class="fc-routine-card fc-artifact-card">
-                            <button class="fc-artifact-card-main" type="button" onClick={() => open(artifact)}>
-                              <span class="fc-routine-card-content">
-                                <span class="fc-artifact-card-title">
-                                  <span class="fc-artifact-kind">{t(artifact.kind)}</span>
-                                  <strong>{artifact.title}</strong>
-                                </span>
-                                <small>
-                                  {[
-                                    when(artifact.createdAt),
-                                    size(artifact),
-                                    artifact.truncated ? t("cut") : undefined,
-                                    artifact.expiresAt
-                                      ? t("forgets {when}", { when: when(artifact.expiresAt) })
-                                      : undefined,
-                                  ]
-                                    .filter(Boolean)
-                                    .join(" · ")}
-                                </small>
-                              </span>
+                <div class="fc-artifacts-body">
+                  <Show when={tab() === "artifacts"}>
+                    <Show when={kinds().length > 1}>
+                      <div class="fc-artifact-kinds">
+                        <button
+                          class="fc-session-tag"
+                          classList={{ "fc-session-tag-active": !kind() }}
+                          type="button"
+                          onClick={() => setKind(undefined)}
+                        >
+                          {t("All")}
+                        </button>
+                        <For each={kinds()}>
+                          {(name) => (
+                            <button
+                              class="fc-session-tag"
+                              classList={{ "fc-session-tag-active": kind() === name }}
+                              type="button"
+                              onClick={() => setKind(name)}
+                            >
+                              {t(name)}
                             </button>
-                            <span class="fc-artifact-card-actions">
-                              <button
-                                class="fc-icon-button fc-artifact-pin"
-                                classList={{ "fc-artifact-pinned": artifact.pinned }}
-                                type="button"
-                                aria-pressed={!!artifact.pinned}
-                                title={artifact.pinned ? t("Remove from pinned") : t("Keep in front")}
-                                aria-label={artifact.pinned ? t("Remove from pinned") : t("Keep in front")}
-                                disabled={!props.serverAvailable}
-                                onClick={() => props.onUpdate(artifact.id, { pinned: !artifact.pinned })}
-                              >
-                                {artifact.pinned ? "★" : "☆"}
-                              </button>
-                              <Show when={artifact.runID}>
-                                {(runID) => (
-                                  <button class="fc-button" type="button" onClick={() => props.onOpenRun(runID())}>
-                                    {t("Run")}
-                                  </button>
-                                )}
-                              </Show>
-                              <button
-                                class="fc-button fc-button-danger"
-                                type="button"
-                                disabled={!props.serverAvailable}
-                                onClick={() => props.onRemove(artifact.id)}
-                              >
-                                {t("Delete")}
-                              </button>
-                            </span>
-                          </article>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Show>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
 
-                <Show when={tab() === "files"}>
+                    <Show
+                      when={shown().length > 0}
+                      fallback={<div class="fc-runs-empty">{t("Nothing has been kept yet.")}</div>}
+                    >
+                      <div class="fc-routine-cards">
+                        <For each={shown()}>
+                          {(artifact) => (
+                            <article class="fc-routine-card fc-artifact-card">
+                              <button class="fc-artifact-card-main" type="button" onClick={() => open(artifact)}>
+                                <span class="fc-routine-card-content">
+                                  <span class="fc-artifact-card-title">
+                                    <span class="fc-artifact-kind">{t(artifact.kind)}</span>
+                                    <strong>{artifact.title}</strong>
+                                  </span>
+                                  <small>
+                                    {[
+                                      when(artifact.createdAt),
+                                      size(artifact),
+                                      artifact.truncated ? t("cut") : undefined,
+                                      artifact.expiresAt
+                                        ? t("forgets {when}", { when: when(artifact.expiresAt) })
+                                        : undefined,
+                                    ]
+                                      .filter(Boolean)
+                                      .join(" · ")}
+                                  </small>
+                                </span>
+                              </button>
+                              <span class="fc-artifact-card-actions">
+                                <button
+                                  class="fc-icon-button fc-artifact-pin"
+                                  classList={{ "fc-artifact-pinned": artifact.pinned }}
+                                  type="button"
+                                  aria-pressed={!!artifact.pinned}
+                                  title={artifact.pinned ? t("Remove from pinned") : t("Keep in front")}
+                                  aria-label={artifact.pinned ? t("Remove from pinned") : t("Keep in front")}
+                                  disabled={!props.serverAvailable}
+                                  onClick={() => props.onUpdate(artifact.id, { pinned: !artifact.pinned })}
+                                >
+                                  {artifact.pinned ? "★" : "☆"}
+                                </button>
+                                <Show when={artifact.runID}>
+                                  {(runID) => (
+                                    <button class="fc-button" type="button" onClick={() => props.onOpenRun(runID())}>
+                                      {t("Run")}
+                                    </button>
+                                  )}
+                                </Show>
+                                <button
+                                  class="fc-button fc-button-danger"
+                                  type="button"
+                                  disabled={!props.serverAvailable}
+                                  onClick={() => props.onRemove(artifact.id)}
+                                >
+                                  {t("Delete")}
+                                </button>
+                              </span>
+                            </article>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </Show>
+
+                  <Show when={tab() === "files"}>
+                    <Show
+                      when={files().length > 0}
+                      fallback={<div class="fc-runs-empty">{t("This session has not written anything yet.")}</div>}
+                    >
+                      <div class="fc-artifact-files">
+                        <For each={files()}>
+                          {(path) => (
+                            <div class="fc-artifact-file">
+                              <span class="fc-artifact-file-name" title={path}>
+                                {fileName(path)}
+                              </span>
+                              <span class="fc-artifact-file-path" title={path}>
+                                {path}
+                              </span>
+                              <FileActions path={path} />
+                            </div>
+                          )}
+                        </For>
+                      </div>
+                    </Show>
+                  </Show>
+                </div>
+              </>
+            }
+          >
+            {(artifact) => (
+              <div class="fc-artifact-viewer">
+                <div class="fc-artifact-viewer-bar">
+                  <button class="fc-icon-button" type="button" aria-label={t("Back")} title={t("Back")} onClick={back}>
+                    ←
+                  </button>
+                  <span class="fc-artifact-kind">{t(artifact().kind)}</span>
+                  <span class="fc-artifact-viewer-title" dir="auto">
+                    {artifact().title}
+                  </span>
+                  <span class="fc-artifact-viewer-actions">
+                    <Show when={artifact().path && props.canOpenFiles}>
+                      <button
+                        class="fc-button fc-button-primary"
+                        type="button"
+                        onClick={() => props.onOpenInEditor(resolvedPath(artifact())!)}
+                      >
+                        {t("VS Code")}
+                      </button>
+                      <button
+                        class="fc-button"
+                        type="button"
+                        onClick={() => props.onOpenPath(resolvedPath(artifact())!)}
+                      >
+                        {t("Open")}
+                      </button>
+                    </Show>
+                    <Show when={artifact().path}>
+                      <button class="fc-button" type="button" onClick={() => props.onCopy(resolvedPath(artifact())!)}>
+                        {t("Copy path")}
+                      </button>
+                    </Show>
+                  </span>
+                </div>
+                <div class="fc-artifact-viewer-body">
+                  <ArtifactBody artifact={artifact()} />
+                </div>
+                {/* Retention (H-14): nothing expires by default, and a pinned one is never swept. */}
+                <div class="fc-artifact-retention">
                   <Show
-                    when={files().length > 0}
-                    fallback={<div class="fc-runs-empty">{t("This session has not written anything yet.")}</div>}
-                  >
-                    <div class="fc-artifact-files">
-                      <For each={files()}>
-                        {(path) => (
-                          <div class="fc-artifact-file">
-                            <span class="fc-artifact-file-name" title={path}>
-                              {fileName(path)}
-                            </span>
-                            <span class="fc-artifact-file-path" title={path}>
-                              {path}
-                            </span>
-                            <FileActions path={path} />
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                </Show>
-              </div>
-            </>
-          }
-        >
-          {(artifact) => (
-            <div class="fc-artifact-viewer">
-              <div class="fc-artifact-viewer-bar">
-                <button class="fc-icon-button" type="button" aria-label={t("Back")} title={t("Back")} onClick={back}>
-                  ←
-                </button>
-                <span class="fc-artifact-kind">{t(artifact().kind)}</span>
-                <span class="fc-artifact-viewer-title" dir="auto">
-                  {artifact().title}
-                </span>
-                <span class="fc-artifact-viewer-actions">
-                  <Show when={artifact().path && props.canOpenFiles}>
-                    <button
-                      class="fc-button fc-button-primary"
-                      type="button"
-                      onClick={() => props.onOpenInEditor(resolvedPath(artifact())!)}
-                    >
-                      {t("VS Code")}
-                    </button>
-                    <button class="fc-button" type="button" onClick={() => props.onOpenPath(resolvedPath(artifact())!)}>
-                      {t("Open")}
-                    </button>
-                  </Show>
-                  <Show when={artifact().path}>
-                    <button class="fc-button" type="button" onClick={() => props.onCopy(resolvedPath(artifact())!)}>
-                      {t("Copy path")}
-                    </button>
-                  </Show>
-                </span>
-              </div>
-              <div class="fc-artifact-viewer-body">
-                <ArtifactBody artifact={artifact()} />
-              </div>
-              {/* Retention (H-14): nothing expires by default, and a pinned one is never swept. */}
-              <div class="fc-artifact-retention">
-                <Show
-                  when={artifact().expiresAt}
-                  fallback={
-                    <button
-                      class="fc-button"
-                      type="button"
-                      disabled={!props.serverAvailable}
-                      onClick={() => props.onUpdate(artifact().id, { expiresAt: Date.now() + FORGET_DAYS * DAY_MS })}
-                    >
-                      {t("Forget in {n} days", { n: FORGET_DAYS })}
-                    </button>
-                  }
-                >
-                  {(at) => (
-                    <>
-                      <span class="fc-routine-muted">{t("Forgotten on {when}", { when: when(at()) })}</span>
+                    when={artifact().expiresAt}
+                    fallback={
                       <button
                         class="fc-button"
                         type="button"
                         disabled={!props.serverAvailable}
-                        onClick={() => props.onUpdate(artifact().id, { expiresAt: null })}
+                        onClick={() => props.onUpdate(artifact().id, { expiresAt: Date.now() + FORGET_DAYS * DAY_MS })}
                       >
-                        {t("Keep indefinitely")}
+                        {t("Forget in {n} days", { n: FORGET_DAYS })}
                       </button>
-                    </>
-                  )}
+                    }
+                  >
+                    {(at) => (
+                      <>
+                        <span class="fc-routine-muted">{t("Forgotten on {when}", { when: when(at()) })}</span>
+                        <button
+                          class="fc-button"
+                          type="button"
+                          disabled={!props.serverAvailable}
+                          onClick={() => props.onUpdate(artifact().id, { expiresAt: null })}
+                        >
+                          {t("Keep indefinitely")}
+                        </button>
+                      </>
+                    )}
+                  </Show>
+                </div>
+                <Show when={artifact().truncated}>
+                  <p class="fc-artifact-note">{t("Only the first part was kept.")}</p>
                 </Show>
               </div>
-              <Show when={artifact().truncated}>
-                <p class="fc-artifact-note">{t("Only the first part was kept.")}</p>
-              </Show>
-            </div>
-          )}
-        </Show>
-      </section>
+            )}
+          </Show>
+        </section>
+      </PanelBoundary>
     </Show>
   )
 }

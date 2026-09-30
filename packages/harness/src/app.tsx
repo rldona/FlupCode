@@ -1164,9 +1164,9 @@ export const App: Component = () => {
   const listFiles = (path?: string) => {
     const directory = vcsDirectory()
     if (!directory) return Promise.resolve([])
-    return createClient(serverUrl())
-      .file.list({ directory, ...(path ? { path } : {}) })
-      .catch(() => [])
+    // A failed listing rejects so the files screen can say so and offer a retry, instead of
+    // showing an empty folder.
+    return createClient(serverUrl()).file.list({ directory, ...(path ? { path } : {}) })
   }
   const searchFileEntries = async (query: string) =>
     (await createClient(serverUrl()).file.find({ query, limit: 40 })).data

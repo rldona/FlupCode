@@ -185,3 +185,27 @@ test("an artifact's path reaches the bridge absolute, joined to its directory", 
     .poll(() => page.evaluate(() => (window as unknown as { __copied: string[] }).__copied))
     .toEqual(["/work/demo/.flupcode/artifacts/report.md"])
 })
+
+test("the search and the open artifact are still there after leaving the screen", async ({ page }) => {
+  await onboard(page)
+  await engine(page, [])
+  await harness(page, [
+    { id: "d1", kind: "document", title: "Page", producer: "agent", mime: "text/html", createdAt: now, content: "<h1>Hello</h1>" },
+    { id: "d2", kind: "document", title: "Readme", producer: "agent", mime: "text/markdown", createdAt: now, content: "# Title\n\nbody" },
+  ])
+  await page.goto("/artifacts")
+
+  await page.getByLabel("Search artifacts").fill("Read")
+  await expect(page.locator(".fc-artifact-card")).toHaveCount(1)
+  await page.locator(".fc-nav-item", { hasText: "Workflows" }).click()
+  await expect(page.getByRole("heading", { name: "Artifacts", exact: true })).toHaveCount(0)
+  await page.locator(".fc-nav-item", { hasText: "Artifacts" }).click()
+  await expect(page.getByLabel("Search artifacts")).toHaveValue("Read")
+  await expect(page.locator(".fc-artifact-card")).toHaveCount(1)
+
+  await page.locator(".fc-artifact-card", { hasText: "Readme" }).locator(".fc-artifact-card-main").click()
+  await expect(page.locator(".fc-artifact-markdown")).toContainText("Title")
+  await page.locator(".fc-nav-item", { hasText: "Workflows" }).click()
+  await page.locator(".fc-nav-item", { hasText: "Artifacts" }).click()
+  await expect(page.locator(".fc-artifact-markdown")).toContainText("Title")
+})
