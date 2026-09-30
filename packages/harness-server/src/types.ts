@@ -696,11 +696,23 @@ export type StoredDecisionInput = Omit<
 
 /** How decisions are listed; an absent field is not a filter (FH-015). */
 export type DecisionFilter = {
+  /** One decision by id, so a client can focus a decision that is not on the page it has (AH-E05). */
+  id?: string
   sessionID?: string
   episodeID?: string
   kind?: DecisionKind
+  /**
+   * Whether the harness acted on the answer (AH-E05): `true` is a non-shadow row outside the holdout
+   * control arm, `false` is every row that was only recorded (shadow, or held out).
+   */
+  acted?: boolean
+  /** A keyset cursor (AH-E05): only rows strictly older than this `(createdAt, id)` in list order. */
+  before?: DecisionCursor
   limit?: number
 }
+
+/** Where a page of the decision audit ended: the last row's `createdAt` and `id` (AH-E05). */
+export type DecisionCursor = { createdAt: number; id: string }
 
 /**
  * The decision audit (FH-015).

@@ -519,7 +519,7 @@ test("the decision audit paints the row and the explanation, and offers no actio
   await page.goto("/decisions")
 
   await expect(page.getByRole("heading", { name: "Decisions", exact: true })).toBeVisible()
-  const row = page.locator(".fc-context-row", { hasText: "completion" })
+  const row = page.locator(".fc-context-row", { hasText: "Is the task done" })
   await expect(row).toContainText("typesafe")
   await expect(row).toContainText("Degraded")
 
@@ -569,7 +569,7 @@ test("a 500 on the decision audit is said inline, and the app stays usable", asy
   // Still usable: asking again once the server is back paints the audit.
   status = 200
   await alert.getByRole("button", { name: "Try again" }).click()
-  await expect(page.locator(".fc-context-row", { hasText: "completion" })).toBeVisible()
+  await expect(page.locator(".fc-context-row", { hasText: "Is the task done" })).toBeVisible()
   await expect(alert).toHaveCount(0)
   await expect(page.getByText("FlupCode couldn't start")).toHaveCount(0)
 })
@@ -585,7 +585,7 @@ test("an explanation that fails is said inside the dialog, and another decision 
   })
   await page.goto("/decisions")
 
-  await page.locator(".fc-context-row", { hasText: "completion" }).click()
+  await page.locator(".fc-context-row", { hasText: "Is the task done" }).click()
   const dialog = page.getByRole("dialog", { name: "Decision" })
   await expect(dialog.getByRole("alert")).toContainText("This decision could not be read")
   await expect(dialog).toContainText("decision not found")
@@ -611,7 +611,7 @@ test("the dialog reads the decision that is open, never the one before it", asyn
   })
   await page.goto("/decisions")
 
-  await page.locator(".fc-context-row", { hasText: "completion" }).click()
+  await page.locator(".fc-context-row", { hasText: "Is the task done" }).click()
   const dialog = page.getByRole("dialog", { name: "Decision" })
   await expect(dialog).toContainText("Is this complete?")
   await dialog.getByRole("button", { name: "Close" }).click()
@@ -944,6 +944,7 @@ test("View decision opens that decision, and Stop turn aborts the running turn",
     capabilities: ["adaptive-guardrails", "adaptive-decisions"],
     guardrailsStatus: loopStatus,
     running,
+    decisions: [{ ...decision, id: "failure:ses_ad:bash:a", kind: "guardrails" }],
     explain: (id) => ({ json: { data: explanationOf(id, "Is this a loop?") } }),
   })
   await page.goto("/")
@@ -953,7 +954,7 @@ test("View decision opens that decision, and Stop turn aborts the running turn",
   await expect.poll(() => calls.enginePosts).toContain("/session/ses_ad/abort")
 
   await banner.getByRole("button", { name: "View decision" }).click()
-  await expect(page).toHaveURL(/\/decisions$/)
+  await expect(page).toHaveURL(/\/decisions\?decision=/)
   const dialog = page.getByRole("dialog", { name: "Decision" })
   await expect(dialog).toContainText("failure:ses_ad:bash:a")
   await expect(dialog).toContainText("Is this a loop?")

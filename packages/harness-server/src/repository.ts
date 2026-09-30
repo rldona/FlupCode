@@ -365,6 +365,8 @@ CREATE TABLE IF NOT EXISTS adaptive_decision (
 CREATE INDEX IF NOT EXISTS adaptive_decision_episode ON adaptive_decision(episode_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_session ON adaptive_decision(session_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_kind ON adaptive_decision(kind, created_at DESC);
+-- The unfiltered audit page (AH-E05) walks this in list order and seeks to the keyset cursor.
+CREATE INDEX IF NOT EXISTS adaptive_decision_created ON adaptive_decision(created_at DESC, id DESC);
 CREATE INDEX IF NOT EXISTS adaptive_decision_hash ON adaptive_decision(inputs_hash);
 -- The purge deletes shadow vs acting rows by updated_at; without this it scanned the table.
 CREATE INDEX IF NOT EXISTS adaptive_decision_shadow_updated ON adaptive_decision(shadow, updated_at);
@@ -2657,6 +2659,21 @@ export class SqliteRoutineRepository implements RoutineRepository {
     if (filter.kind) {
       clauses.push(`kind = ?${values.length + 1}`)
       values.push(filter.kind)
+    }
+    if (filter.id) {
+      clauses.push(`id = ?${values.length + 1}`)
+      values.push(filter.id)
+    }
+    if (filter.acted !== undefined) {
+      const acted = "shadow = 0 AND (arm IS NULL OR arm <> 'control')"
+      clauses.push(filter.acted ? `(${acted})` : `NOT (${acted})`)
+    }
+    if (filter.before) {
+      // Keyset pagination in the same order as the listing, so a page never repeats or skips a row
+      // written while the reader was paging, and no OFFSET scan grows with the page number.
+      const at = values.length + 1
+      clauses.push(`(created_at < ?${at} OR (created_at = ?${at} AND id < ?${at + 1}))`)
+      values.push(filter.before.createdAt, filter.before.id)
     }
     const limit = normalizeEpisodeLimit(filter.limit)
     const where = clauses.length > 0 ? ` WHERE ${clauses.join(" AND ")}` : ""

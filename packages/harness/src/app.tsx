@@ -3,7 +3,7 @@ import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
 import { createResource } from "./resource"
 import { createReconciledList } from "./reconciled"
-import { compareFromSearch, screenFromPath, searchForCompare, urlForScreen, type Screen } from "./screen"
+import { compareFromSearch, decisionFromSearch, screenFromPath, searchForCompare, searchForDecision, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
 import { SessionCosts } from "./components/SessionCosts"
@@ -484,6 +484,8 @@ export const App: Component = () => {
   // The pair a comparison link names (H-44). Kept beside the screen because both arrive in the same
   // address: a best-of-n lands on /compare?left=…&right=…, and a reload comes back to the same pair.
   const [compareArgs, setCompareArgs] = createSignal(compareFromSearch(window.location.search))
+  // The decision the audit opens on (AH-E05); a link to it is `showScreen("decisions", searchForDecision(id))`.
+  const [decisionFocus, setDecisionFocus] = createSignal(decisionFromSearch(window.location.search))
   const showScreen = (next: Screen | undefined, search?: string) => {
     const same = screen() === next
     setScreen(next)
@@ -495,6 +497,7 @@ export const App: Component = () => {
         ? urlForScreen(next, window.location)
         : urlForScreen(next, { search, hash: window.location.hash }),
     )
+    setDecisionFocus(decisionFromSearch(window.location.search))
   }
   const routinesOpen = () => screen() === "routines"
   const runsOpen = () => screen() === "runs"
@@ -504,12 +507,6 @@ export const App: Component = () => {
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
   const decisionsOpen = () => screen() === "decisions"
-  // The decision the guardrail banner asked to open (AH-E03); it lasts while the screen is open, so
-  // reaching the screen any other way later opens no stale decision.
-  const [decisionFocus, setDecisionFocus] = createSignal<string>()
-  createEffect(() => {
-    if (!decisionsOpen()) setDecisionFocus(undefined)
-  })
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
@@ -544,6 +541,7 @@ export const App: Component = () => {
     const follow = () => {
       setScreen(screenFromPath(window.location.pathname))
       setCompareArgs(compareFromSearch(window.location.search))
+      setDecisionFocus(decisionFromSearch(window.location.search))
     }
     window.addEventListener("popstate", follow)
     onCleanup(() => window.removeEventListener("popstate", follow))
@@ -5729,7 +5727,7 @@ export const App: Component = () => {
                 serverUrl={harnessServerUrl()}
                 sessionID={selected()}
                 capabilities={harnessCapabilities()}
-                focusID={decisionFocus()}
+                focusDecisionID={decisionFocus()}
                 onClose={() => leaveScreen()}
               />
             </PanelBoundary>
@@ -5907,10 +5905,7 @@ export const App: Component = () => {
             <PanelBoundary name={t("The conversation")}>
               <GuardrailBanner
                 status={liveGuardrail()}
-                onViewDecision={(decisionID) => {
-                  setDecisionFocus(decisionID)
-                  showScreen("decisions")
-                }}
+                onViewDecision={(decisionID) => showScreen("decisions", searchForDecision(decisionID))}
                 onStopTurn={stopSession}
                 onDismiss={() => setGuardrailDismissed(liveGuardrail()?.decisionID)}
               />

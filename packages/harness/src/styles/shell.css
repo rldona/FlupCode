@@ -11350,6 +11350,77 @@ button.fc-status {
   background: color-mix(in srgb, var(--fc-text) 5%, transparent);
 }
 
+/* The decision audit (AH-E05): filters over the list, a pill for whether the harness acted, and the
+   row a banner or a "Why?" link opened the screen on. */
+.fc-decisions-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--fc-space-3);
+}
+
+.fc-decisions-filter {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
+.fc-decisions-filters .fc-tab {
+  min-height: 32px;
+}
+
+.fc-decision-pill {
+  flex: none;
+  padding: 2px 8px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-pill);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-xs);
+  white-space: nowrap;
+}
+
+.fc-decision-pill-acted {
+  border-color: var(--fc-accent);
+  background: var(--fc-accent-soft);
+  color: var(--fc-text);
+}
+
+.fc-decision-confidence {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.fc-context-screen .fc-decision-focused {
+  background: var(--fc-accent-soft);
+  box-shadow: inset 3px 0 0 var(--fc-accent);
+}
+
+.fc-decisions-more {
+  display: flex;
+  justify-content: center;
+  padding-top: var(--fc-space-3);
+}
+
+.fc-decision-advanced {
+  margin-top: var(--fc-space-3);
+}
+
+.fc-decision-advanced summary {
+  /* Kept a list item so the disclosure triangle stays; the padding makes it a 32px target. */
+  padding: 6px 0;
+  line-height: 20px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+  cursor: pointer;
+}
+
+.fc-decision-id {
+  user-select: all;
+}
+
 .fc-context-excerpt {
   flex: 1;
   overflow: hidden;

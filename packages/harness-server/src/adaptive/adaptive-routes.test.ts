@@ -9,6 +9,7 @@ import { createDecisionService } from "./decision-service"
 import { createAdaptiveEgressGuard } from "./egress"
 import { DEFAULT_DECISION_POLICY } from "./decision"
 import type { DecisionRequest } from "./decision"
+import type { StoredDecisionInput } from "../types"
 
 const open = (options: HarnessHandlerOptions = {}) => {
   const repository = new SqliteRoutineRepository(":memory:")
@@ -218,5 +219,100 @@ describe("the decision audit routes (FH-015)", () => {
     const announced = await (await handler(new Request("http://x/harness/health"))).json()
     expect(announced.capabilities).toContain("adaptive-decisions")
     repository.close()
+  })
+
+  describe("a page of the audit (AH-E05)", () => {
+    const row = (index: number, overrides: Partial<StoredDecisionInput> = {}): StoredDecisionInput => ({
+      id: `d:${String(index).padStart(3, "0")}`,
+      kind: index % 2 === 0 ? "completion" : "skillRelevance",
+      sessionID: "ses_1",
+      inputsHash: "a".repeat(64),
+      stateSummary: {},
+      answer: true,
+      baselineAnswer: true,
+      baselineRule: "default",
+      provider: "baseline",
+      source: "baseline",
+      degraded: false,
+      latencyMs: 1,
+      policy: DEFAULT_DECISION_POLICY,
+      // Every third row acted; one of the acting ones sat in the holdout control arm.
+      shadow: index % 3 !== 0,
+      ...(index === 3 ? { arm: "control" as const } : {}),
+      ...overrides,
+    })
+    const page = async (handler: (request: Request) => Promise<Response>, query: string) => {
+      const response = await handler(new Request(`http://x/harness/adaptive/decisions?${query}`))
+      expect(response.status).toBe(200)
+      return (await response.json()) as { data: Array<{ id: string; kind: string; shadow: boolean; arm?: string }>; nextCursor?: string }
+    }
+    const seed = (repository: SqliteRoutineRepository) =>
+      // Pairs share a timestamp, so the cursor has to break ties by id to neither repeat nor skip.
+      Array.from({ length: 25 }, (_, index) => repository.createDecision(row(index), 1_000 + Math.floor(index / 2)))
+
+    test("pages newest first with a stable cursor until every row was read exactly once", async () => {
+      const { repository, handler } = seeded()
+      seed(repository)
+      const first = await page(handler, "limit=10")
+      expect(first.data.map((entry) => entry.id)).toEqual(
+        Array.from({ length: 10 }, (_, index) => `d:${String(24 - index).padStart(3, "0")}`),
+      )
+      expect(first.nextCursor).toBe("1007,d:015")
+      // A row written between two pages is newer than the cursor, so it cannot shift the next page.
+      repository.createDecision(row(99), 5_000)
+      const second = await page(handler, `limit=10&before=${encodeURIComponent(first.nextCursor!)}`)
+      const third = await page(handler, `limit=10&before=${encodeURIComponent(second.nextCursor!)}`)
+      expect(third.data).toHaveLength(5)
+      expect(third.nextCursor).toBeUndefined()
+      const ids = [...first.data, ...second.data, ...third.data].map((entry) => entry.id)
+      expect(new Set(ids).size).toBe(25)
+      expect(ids).not.toContain("d:099")
+      repository.close()
+    })
+
+    test("a page exactly full says there is nothing after it, and no limit keeps the old whole list", async () => {
+      const { repository, handler } = seeded()
+      seed(repository)
+      expect((await page(handler, "limit=25")).nextCursor).toBeUndefined()
+      const all = await page(handler, "")
+      expect(all.data).toHaveLength(25)
+      expect(all.nextCursor).toBeUndefined()
+      repository.close()
+    })
+
+    test("filters by kind and by whether the harness acted, and pages inside the filter", async () => {
+      const { repository, handler } = seeded()
+      seed(repository)
+      const kind = await page(handler, "kind=completion&limit=5")
+      expect(kind.data.every((entry) => entry.kind === "completion")).toBe(true)
+      expect(kind.data).toHaveLength(5)
+      const rest = await page(handler, `kind=completion&limit=10&before=${encodeURIComponent(kind.nextCursor!)}`)
+      expect(rest.nextCursor).toBeUndefined()
+      expect(new Set([...kind.data, ...rest.data].map((entry) => entry.id)).size).toBe(13)
+
+      const acted = await page(handler, "acted=true")
+      expect(acted.data.map((entry) => entry.id).sort()).toEqual(
+        ["d:000", "d:006", "d:009", "d:012", "d:015", "d:018", "d:021", "d:024"],
+      )
+      const recorded = await page(handler, "acted=false")
+      expect(recorded.data).toHaveLength(17)
+      // The held-out row was not applied, so it is only recorded even though it is not shadow.
+      expect(recorded.data.map((entry) => entry.id)).toContain("d:003")
+      expect((await page(handler, "acted=maybe")).data).toHaveLength(25)
+      repository.close()
+    })
+
+    test("reads one decision by id, and a cursor that does not parse is ignored", async () => {
+      const { repository, handler } = seeded()
+      seed(repository)
+      expect((await page(handler, "id=d:007")).data.map((entry) => entry.id)).toEqual(["d:007"])
+      expect((await page(handler, "id=d:nope")).data).toEqual([])
+      expect((await page(handler, "limit=3&before=garbage")).data.map((entry) => entry.id)).toEqual([
+        "d:024",
+        "d:023",
+        "d:022",
+      ])
+      repository.close()
+    })
   })
 })

@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test"
-import { compareFromSearch, screenFromPath, searchForCompare, urlForScreen } from "./screen"
+import {
+  compareFromSearch,
+  decisionFromSearch,
+  screenFromPath,
+  searchForCompare,
+  searchForDecision,
+  urlForScreen,
+} from "./screen"
 
 describe("the screen in the URL", () => {
   test("reads the screens it knows, with or without a trailing slash", () => {
@@ -36,5 +43,18 @@ describe("the runs a comparison link names (H-44)", () => {
     expect(compareFromSearch("?left=a&right=b")).toEqual({ left: "a", right: "b" })
     expect(compareFromSearch("?left=a")).toEqual({ left: "a", right: undefined })
     expect(compareFromSearch("")).toEqual({ left: undefined, right: undefined })
+  })
+})
+
+describe("the decision a link focuses (AH-E05)", () => {
+  test("round-trips an id that carries the characters decision ids have", () => {
+    const id = "skillRelevance:ses_1:msg 2&x"
+    expect(decisionFromSearch(searchForDecision(id))).toBe(id)
+  })
+
+  test("is nothing without the parameter, or with it empty", () => {
+    expect(decisionFromSearch("")).toBeUndefined()
+    expect(decisionFromSearch("?decision=")).toBeUndefined()
+    expect(decisionFromSearch("?left=a")).toBeUndefined()
   })
 })

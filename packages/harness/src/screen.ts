@@ -73,3 +73,16 @@ export function searchForCompare(ids: string[]) {
   const search = params.toString()
   return search ? `?${search}` : ""
 }
+
+/**
+ * The decision a link opens the decision audit on (AH-E05): `/decisions?decision=<id>`, which the
+ * guardrail banner's "View decision" and the session chip's "Why?" point at.
+ */
+export function decisionFromSearch(search: string): string | undefined {
+  return new URLSearchParams(search).get("decision") || undefined
+}
+
+/** Where the decision audit focused on this decision lives (AH-E05). */
+export function searchForDecision(id: string) {
+  return `?${new URLSearchParams({ decision: id })}`
+}
