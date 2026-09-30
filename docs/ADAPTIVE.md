@@ -1108,8 +1108,11 @@ always safe.
   `jev.{endpoint,model,timeoutMs,maxInputTokens}`, `budget.hotReserveFraction`,
   `context.{keepThreshold,dropThreshold,budget}`, `learning.{minToolCalls,snapshotKeep,maxInputChars,
   maxBodyChars,draftTimeoutMs,archiveAfter,model}`, `relevance.{maxSkills,rosterTtlMs,
-  timeoutMs}` and `retention.*Days`. `TYPESAFE_API_KEY` stays **environment-only**; the panel reports
-  whether it is present and never edits it ([ADR-0017](adr/0017-jev-egress-and-governance.md)).
+  timeoutMs}` and `retention.*Days`. The predictive model's key is never in the config block: it comes
+  from `TYPESAFE_API_KEY` (which keeps precedence, and which the panel only reports) or from the
+  encrypted vault, where the panel saves it write-only behind a confirmation
+  (`/harness/adaptive/model-key`, capability `adaptive-model-key`); it is read on every request, so
+  saving needs no restart ([ADR-0017](adr/0017-jev-egress-and-governance.md), amended 2026-09-30).
 - **Provenance and precedence.** The panel shows each switch's effective value and where it comes
   from — `env > block > default`, the same precedence the resolver applies
   ([ADR-0017](adr/0017-jev-egress-and-governance.md)) — so a value forced by the environment looks
@@ -1122,8 +1125,11 @@ always safe.
   unload learned skills: they are ordinary files on disk and the engine keeps loading them, because
   there is no seam in the engine to stop that. The panel says so and never promises a total stop.
   With the master off, each switch it stops (every boolean switch except retention, which
-  sweeps regardless) keeps its own value but is marked "inactive: the master switch is off". The Jev row also
-  says when `TYPESAFE_API_KEY` is missing, since decisions then fall back to the built-in rules. The
+  sweeps regardless) keeps its own value but is marked "inactive: the master switch is off". The Predictive
+  model section follows the order the reader has to go in — the data each provider may receive, the
+  key, then "Use the predictive model" — and a blocked switch names exactly what is missing (a
+  project, a decision, sending data turned on, the key), since without the key decisions fall back to
+  the built-in rules. The
   same is true of a successful write to `enabled`: it travels the warning `skills-still-load`.
 - **Levels and capability cards (AH-E01).** The panel leads with a level — Off, Observe, Assist or
   Custom — and four cards: Context (Off · Observing · Acting), Skill suggestion (`relevance`), Loop

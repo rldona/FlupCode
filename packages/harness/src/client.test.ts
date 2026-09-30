@@ -627,6 +627,30 @@ test("a config patch sends the patch and the confirmation, and keeps the warning
   expect(answer.warnings).toEqual(["skills-still-load"])
 })
 
+test("the model key is written and removed with the bearer and the confirmation, and never read back", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls, { data: { source: "stored", storable: true } })
+
+  const answer = await withLoopbackToken(async () => {
+    const client = createHarnessClient("http://harness")
+    const saved = await client.adaptive.modelKey.set("test-key-not-real")
+    await client.adaptive.modelKey.remove()
+    return saved
+  })
+
+  expect(calls).toEqual([
+    {
+      method: "PUT",
+      path: "/harness/adaptive/model-key",
+      search: "",
+      auth: "Bearer tok",
+      body: { key: "test-key-not-real", confirm: true },
+    },
+    { method: "DELETE", path: "/harness/adaptive/model-key", search: "", auth: "Bearer tok", body: { confirm: true } },
+  ])
+  expect(answer.data).toEqual({ source: "stored", storable: true })
+})
+
 test("a refused config write keeps the code, the fields and what is missing", async () => {
   const calls: AdaptiveCall[] = []
   recordingAdaptive(
@@ -759,6 +783,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     voi: false,
     runtimeAlerts: false,
     session: false,
+    modelKey: false,
   })
   expect(
     adaptiveSurfaces([
@@ -774,6 +799,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-voi",
       "adaptive-runtime-alerts",
       "adaptive-session",
+      "adaptive-model-key",
     ]),
   ).toEqual({
     config: true,
@@ -788,6 +814,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     voi: true,
     runtimeAlerts: true,
     session: true,
+    modelKey: true,
   })
 })
 
@@ -805,6 +832,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     voi: false,
     runtimeAlerts: false,
     session: false,
+    modelKey: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
@@ -825,6 +853,8 @@ test("each adaptive surface is offered only for its own capability", () => {
   expect(adaptiveSurfaces(["adaptive-voi"]).decisions).toBe(false)
   expect(adaptiveSurfaces(["adaptive-session"]).session).toBe(true)
   expect(adaptiveSurfaces(["adaptive-session"]).decisions).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-model-key"]).modelKey).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-config"]).modelKey).toBe(false)
   expect(adaptiveSurfaces(["something-else"])).toEqual({
     config: false,
     decisions: false,
@@ -838,6 +868,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     voi: false,
     runtimeAlerts: false,
     session: false,
+    modelKey: false,
   })
 })
 

@@ -61,6 +61,7 @@ import type {
   Workflow,
   WorkflowFile,
   AdaptiveConfigView,
+  AdaptiveModelKeyStatus,
   AdaptiveRuntimeAlert,
   DecisionExplanation,
   GuardrailStatus,
@@ -1282,6 +1283,8 @@ export type AdaptiveSurfaces = {
   runtimeAlerts: boolean
   /** The per-session override and turn summary behind the composer's chip (AH-E02); writer's bearer only. */
   session: boolean
+  /** Saving and removing the predictive model's key; announced only with the writer's bearer. */
+  modelKey: boolean
 }
 
 export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
@@ -1298,6 +1301,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     voi: capabilities.includes("adaptive-voi"),
     runtimeAlerts: capabilities.includes("adaptive-runtime-alerts"),
     session: capabilities.includes("adaptive-session"),
+    modelKey: capabilities.includes("adaptive-model-key"),
   }
 }
 
@@ -1938,6 +1942,22 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           harnessAuthorizedEnvelope<AdaptiveConfigView>(baseUrl, "/harness/adaptive/config", {
             method: "PATCH",
             body: JSON.stringify({ patch: input.patch, confirm: input.confirm === true }),
+          }),
+      },
+      /**
+       * The predictive model's key: written, removed, never read back. Both writes are sent only
+       * after a person confirmed them, so `confirm` travels with them.
+       */
+      modelKey: {
+        set: (key: string) =>
+          harnessAuthorizedEnvelope<AdaptiveModelKeyStatus>(baseUrl, "/harness/adaptive/model-key", {
+            method: "PUT",
+            body: JSON.stringify({ key, confirm: true }),
+          }),
+        remove: () =>
+          harnessAuthorizedEnvelope<AdaptiveModelKeyStatus>(baseUrl, "/harness/adaptive/model-key", {
+            method: "DELETE",
+            body: JSON.stringify({ confirm: true }),
           }),
       },
       runtime: {

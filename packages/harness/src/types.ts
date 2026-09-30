@@ -826,11 +826,20 @@ export type AdaptiveLearningLimitHit = {
   max: number
 }
 
+/** What `/harness/adaptive/model-key` answers: where the key comes from, never the key. */
+export type AdaptiveModelKeyStatus = { source: "env" | "stored" | "none"; storable: boolean }
+
 /** `GET /harness/adaptive/config`: the settings surface as the panel reads it. */
 export type AdaptiveConfigView = {
   effective: AdaptiveSettings
   source: Record<string, AdaptiveProvenance>
-  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean }
+  /**
+   * `typesafeKeyPresent` is true when the environment or the vault holds the predictive model's key;
+   * `typesafeKeySource` says which, and is absent from an older server.
+   */
+  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean; typesafeKeySource?: "env" | "stored" | "none" }
+  /** Whether the key can be saved on this machine (a vault key exists); absent from an older server. */
+  modelKeyStorable?: boolean
   /** `alerts` are the unacknowledged runtime changes (AH-D05); absent from an older server. */
   runtime: {
     runtime: "legacy" | "v2" | "unknown"

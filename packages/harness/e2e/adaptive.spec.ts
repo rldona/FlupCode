@@ -49,7 +49,8 @@ type View = {
     budget: { monthlyTokens: number; hotReserveFraction: number }
   }
   source: Record<string, "env" | "block" | "default">
-  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean }
+  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean; typesafeKeySource?: "env" | "stored" | "none" }
+  modelKeyStorable?: boolean
   runtime: { runtime: string; degraded: boolean; checkedAt: number }
   capabilities: Record<string, unknown>
   canWrite: boolean
@@ -480,6 +481,7 @@ test("retention and the predictive model ask for a confirmation before the write
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
     view: view({
+      env: { adaptiveDisabled: false, typesafeKeyPresent: true },
       effective: {
         ...view().effective,
         egress: { providers: { jev: { enabled: true, projects: ["/work/demo"], kinds: { skillReflection: true } } } },
@@ -499,7 +501,7 @@ test("retention and the predictive model ask for a confirmation before the write
   await confirm.getByRole("button", { name: "Write it" }).click()
   await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { retention: { enabled: true } }, confirm: true })
 
-  // The predictive model carries the same confirmation, and its guard is met by the consent already there.
+  // The predictive model carries the same confirmation, and its guard is met by the consent and key already there.
   await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
   await dialog.getByRole("switch", { name: "Use the predictive model" }).click()
   await expect(page.getByRole("dialog", { name: "Confirm change" })).toBeVisible()
@@ -1207,4 +1209,173 @@ test("View decision opens that decision, and Stop turn aborts the running turn",
   const dialog = page.getByRole("dialog", { name: "Decision" })
   await expect(dialog).toContainText("failure:ses_ad:bash:a")
   await expect(dialog).toContainText("Is this a loop?")
+})
+
+// ── The predictive model's setup, in order, and its write-only key ─────────────────────────────
+
+/** Merges a nested patch into a view the way the server's writer would, arrays replaced whole. */
+const applyPatch = (target: Record<string, unknown>, patch: Record<string, unknown>): Record<string, unknown> =>
+  Object.fromEntries(
+    [...new Set([...Object.keys(target), ...Object.keys(patch)])].map((key) => {
+      const next = patch[key]
+      const before = target[key]
+      if (next === undefined) return [key, before]
+      if (typeof next === "object" && next !== null && !Array.isArray(next))
+        return [
+          key,
+          applyPatch(
+            typeof before === "object" && before !== null ? (before as Record<string, unknown>) : {},
+            next as Record<string, unknown>,
+          ),
+        ]
+      return [key, next]
+    }),
+  )
+
+/** A settings server that keeps what it was told: the config writes and the model key's status. */
+async function keyServer(page: Page, start: View) {
+  const state = { view: start, puts: [] as unknown[], deletes: [] as unknown[] }
+  await page.route("http://127.0.0.1:9097/harness/adaptive/config", (route) => {
+    const request = route.request()
+    if (request.method() === "PATCH") {
+      const body = request.postDataJSON() as { patch: Record<string, unknown> }
+      state.view = { ...state.view, effective: applyPatch(state.view.effective, body.patch) as View["effective"] }
+    }
+    return route.fulfill({ json: { data: state.view, warnings: [] } })
+  })
+  await page.route("http://127.0.0.1:9097/harness/adaptive/model-key", (route) => {
+    const request = route.request()
+    const body = request.postDataJSON() as unknown
+    if (request.method() === "PUT") state.puts.push(body)
+    if (request.method() === "DELETE") state.deletes.push(body)
+    const source = request.method() === "PUT" ? "stored" : "none"
+    state.view = {
+      ...state.view,
+      env: { adaptiveDisabled: false, typesafeKeyPresent: source === "stored", typesafeKeySource: source },
+    }
+    return route.fulfill({ json: { data: { source, storable: true } } })
+  })
+  return state
+}
+
+const confirmWrite = async (page: Page) => {
+  const confirm = page.getByRole("dialog", { name: "Confirm change" })
+  await confirm.getByRole("button", { name: "Write it" }).click()
+  await expect(confirm).toBeHidden()
+}
+
+test("the predictive model is set up in order, each blocked switch says what it still needs, and the key never comes back", async ({
+  page,
+}) => {
+  const KEY = "test-key-not-real-0001"
+  await openApp(page, { capabilities: ["adaptive-config", "adaptive-model-key"] })
+  const server = await keyServer(
+    page,
+    view({ egressProviders: ["jev"], modelKeyStorable: true, env: { adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" } }),
+  )
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+
+  const project = dialog.getByLabel("Project path for jev")
+  const decision = dialog.getByRole("switch", { name: "Whether the task is finished for jev" })
+  const send = dialog.getByRole("switch", { name: "Send data to jev" })
+  const keyField = dialog.getByLabel("Predictive model key")
+  const use = dialog.getByRole("switch", { name: "Use the predictive model" })
+
+  // The order the reader has to follow: projects, decisions, sending data, the key, then the switch.
+  const tops = await Promise.all([project, decision, send, keyField, use].map(async (entry) => (await entry.boundingBox())!.y))
+  expect(tops).toEqual([...tops].sort((a, b) => a - b))
+
+  await expect(use).toBeDisabled()
+  await expect(dialog.getByText("Missing: a project, a decision, sending data to jev turned on, and the model key")).toBeVisible()
+  await expect(send).toBeDisabled()
+  await expect(dialog.getByText("Missing: a project and a decision", { exact: true })).toBeVisible()
+
+  await project.fill("/work/demo")
+  await dialog.getByRole("button", { name: "Add project" }).click()
+  await confirmWrite(page)
+  await expect(dialog.getByText("Missing: a decision", { exact: true })).toBeVisible()
+  await expect(dialog.getByText("Missing: a decision, sending data to jev turned on, and the model key")).toBeVisible()
+
+  await decision.click()
+  await confirmWrite(page)
+  await expect(send).toBeEnabled()
+  await send.click()
+  await confirmWrite(page)
+  await expect(dialog.getByText("Missing: the model key", { exact: true })).toBeVisible()
+  await expect(use).toBeDisabled()
+
+  // The key: a password field, saved only after a confirmation that says what happens to it.
+  await expect(keyField).toHaveAttribute("type", "password")
+  await keyField.fill(KEY)
+  await dialog.getByRole("button", { name: "Save key" }).click()
+  const confirm = page.getByRole("dialog", { name: "Save the key?" })
+  await expect(confirm).toContainText("stored encrypted on this machine")
+  await expect(confirm).toContainText("used only for calls to the predictive model's provider")
+  expect(server.puts).toHaveLength(0)
+  await confirm.getByRole("button", { name: "Save key" }).click()
+  await expect.poll(() => server.puts).toEqual([{ key: KEY, confirm: true }])
+
+  await expect(dialog.getByText("Key saved")).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Change" })).toBeVisible()
+  await expect(dialog.getByRole("button", { name: "Remove", exact: true }).last()).toBeVisible()
+  await expect(keyField).toHaveCount(0)
+  // Never echoed: not in the markup, and not in any field's value.
+  expect(await page.content()).not.toContain(KEY)
+  expect(await page.evaluate((key) => [...document.querySelectorAll("input")].some((input) => input.value.includes(key)), KEY)).toBe(
+    false,
+  )
+
+  await expect(use).toBeEnabled()
+  await use.click()
+  await confirmWrite(page)
+  await expect(use).toBeChecked()
+})
+
+test("a key set by the environment is only reported, with no field to change it", async ({ page }) => {
+  await openApp(page, {
+    capabilities: ["adaptive-config", "adaptive-model-key"],
+    view: view({ modelKeyStorable: true, env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" } }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+  await expect(dialog.getByText("Key set by the environment.")).toBeVisible()
+  await expect(dialog.getByLabel("Predictive model key")).toHaveCount(0)
+  await expect(dialog.getByRole("button", { name: "Change" })).toHaveCount(0)
+})
+
+test("a saved key can be removed, after a confirmation that says what removing it means", async ({ page }) => {
+  await openApp(page, { capabilities: ["adaptive-config", "adaptive-model-key"] })
+  const server = await keyServer(
+    page,
+    view({ modelKeyStorable: true, env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" } }),
+  )
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+  await expect(dialog.getByText("Key saved")).toBeVisible()
+  // Change opens an empty field: the saved value is never put back into it.
+  await dialog.getByRole("button", { name: "Change" }).click()
+  await expect(dialog.getByLabel("Predictive model key")).toHaveValue("")
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await dialog.getByText("Key saved").locator("..").getByRole("button", { name: "Remove" }).click()
+  const confirm = page.getByRole("dialog", { name: "Remove the key?" })
+  await expect(confirm).toContainText("built-in rules decide")
+  await confirm.getByRole("button", { name: "Remove" }).click()
+  await expect.poll(() => server.deletes).toEqual([{ confirm: true }])
+  await expect(dialog.getByLabel("Predictive model key")).toBeVisible()
+})
+
+test("without a vault the panel says the key cannot be stored here and points to the environment", async ({ page }) => {
+  await openApp(page, {
+    capabilities: ["adaptive-config", "adaptive-model-key"],
+    view: view({ modelKeyStorable: false, env: { adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" } }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+  await expect(dialog.getByText(/cannot store the key.*TYPESAFE_API_KEY/)).toBeVisible()
+  await expect(dialog.getByLabel("Predictive model key")).toHaveCount(0)
 })

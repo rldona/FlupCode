@@ -55,6 +55,8 @@ import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptiv
 import { armsFor } from "./adaptive/holdout"
 import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
+import { handleModelKeyRequest } from "./adaptive/model-key-routes"
+import type { ModelKey } from "./adaptive/model-key"
 import { handleSessionOverrideRequest } from "./adaptive/session-override"
 import type { SessionOverrides } from "./adaptive/session-override"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
@@ -441,6 +443,8 @@ export type HarnessHandlerOptions = {
   adaptiveToken?: string
   /** The adaptive settings surface (FH-070): reads the settings and writes the switches. */
   adaptiveConfig?: AdaptiveConfigSurface
+  /** The predictive model's key (ADR-0017, amended): saved to the vault, never read back. */
+  modelKey?: ModelKey
   /** The per-session override (AH-E02): the pause and exclusions the composer's chip writes. */
   overrides?: SessionOverrides
   /** The address the server listens on, so a `Host` naming it is accepted (AH-A05). */
@@ -598,6 +602,15 @@ export const createHarnessHandler = (
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleAdaptiveConfigRequest(request, options.adaptiveConfig)
+    }
+    // The predictive model's key (ADR-0017, amended). It sits beside the settings writer and takes the
+    // same bearer, obligatorily for every method: the status says where a key comes from, the writes
+    // store or remove one, and no answer ever carries the key. Without the bearer it is a 404.
+    if (path[1] === "adaptive" && path[2] === "model-key" && path.length === 3 && options.modelKey) {
+      if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleModelKeyRequest(request, options.modelKey)
     }
     // The per-session override and the turn the composer's chip describes (AH-E02). Both are a
     // browser's, so they take the artifacts bearer. Like the settings writer, the override writes only
@@ -784,6 +797,8 @@ export const createHarnessHandler = (
           // The settings surface is its own capability: a client must not read it as the runtime
           // probe's (FH-070). It is announced whenever the service was built, token or not.
           ...(options.adaptiveConfig ? (["adaptive-config"] as const) : []),
+          // The model key's routes need the writer's bearer, so they are announced only with it.
+          ...(options.modelKey && options.token ? (["adaptive-model-key"] as const) : []),
           // The decision audit is announced apart from the probe: a client must not read it as the
           // runtime probe's own capability (FH-015).
           ...(options.decisions ? (["adaptive-decisions"] as const) : []),

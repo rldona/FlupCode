@@ -25,6 +25,7 @@ import { budgetMonth } from "./providers/budget"
 import { learningModel } from "./learning/draft"
 import type { RuntimeAlert, RuntimeCapabilities, RuntimeKind } from "./runtime"
 import type { ProjectLimitHit } from "./learning/limits"
+import type { ModelKeySource, ModelKeyStatus } from "./model-key"
 
 /** A rejected patch, or a write that could not be made, in the shape the HTTP contract reports. */
 export class AdaptiveConfigError extends Error {
@@ -261,7 +262,13 @@ export type AdaptiveUsageView = {
 export type AdaptiveConfigView = {
   effective: AdaptiveConfig
   source: Record<string, AdaptiveProvenance>
-  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean }
+  /**
+   * `typesafeKeyPresent` is true when either source has the predictive model's key; the source says
+   * which, so the panel can tell a key the environment set from one it saved (ADR-0017, amended).
+   */
+  env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean; typesafeKeySource: ModelKeySource }
+  /** Whether the panel can save the key: false without a vault key, when only the environment can. */
+  modelKeyStorable: boolean
   /** `alerts` are the runtime changes not yet acknowledged (AH-D05), oldest first. */
   runtime: { runtime: RuntimeKind; degraded: boolean; checkedAt: number; alerts: RuntimeAlert[] }
   capabilities: RuntimeCapabilities
@@ -318,19 +325,27 @@ export type AdaptiveConfigViewInput = {
   smallModel?: () => string | undefined
   models?: readonly EgressSubject[]
   learningLimits?: ProjectLimitHit[]
+  /** Where the predictive model's key comes from; without it only the environment is read. */
+  modelKey?: ModelKeyStatus
 }
 
 /** The read model, assembled from the raw block, the resolver and the calls the server already holds. */
 export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConfigView {
   const env = input.env
   const draftModel = learningModel(input.resolved.learning, input.smallModel)
+  const modelKey = input.modelKey ?? {
+    source: typeof env.TYPESAFE_API_KEY === "string" && env.TYPESAFE_API_KEY.trim() !== "" ? "env" : "none",
+    storable: false,
+  }
   return {
     effective: input.resolved,
     source: adaptiveSource(input.block, env),
     env: {
       adaptiveDisabled: env.FLUPCODE_ADAPTIVE_DISABLED === "1",
-      typesafeKeyPresent: typeof env.TYPESAFE_API_KEY === "string" && env.TYPESAFE_API_KEY.trim() !== "",
+      typesafeKeyPresent: modelKey.source !== "none",
+      typesafeKeySource: modelKey.source,
     },
+    modelKeyStorable: modelKey.storable,
     runtime: {
       runtime: input.runtime.runtime,
       degraded: input.runtime.degraded,
@@ -659,6 +674,8 @@ export type AdaptiveConfigSurfaceDeps = {
   models?: readonly EgressSubject[]
   /** The learning caps reached right now (AH-F03); none when the learning loop is not wired. */
   learningLimits?: () => ProjectLimitHit[]
+  /** Where the predictive model's key comes from, read live (ADR-0017, amended). */
+  modelKey?: () => ModelKeyStatus
   now?: () => number
 }
 
@@ -696,6 +713,7 @@ export function createAdaptiveConfigSurface(deps: AdaptiveConfigSurfaceDeps): Ad
       ...(deps.smallModel ? { smallModel: deps.smallModel } : {}),
       ...(deps.models ? { models: deps.models } : {}),
       ...(deps.learningLimits ? { learningLimits: deps.learningLimits() } : {}),
+      ...(deps.modelKey ? { modelKey: deps.modelKey() } : {}),
     })
   }
 

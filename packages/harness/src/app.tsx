@@ -130,6 +130,7 @@ import { ExternalLinkDialog } from "./components/ExternalLinkDialog"
 import { permissionMode } from "./permission-modes"
 import { StashDialog } from "./components/StashDialog"
 import { SettingsPanel, type SettingsSection } from "./components/SettingsPanel"
+import type { ModelKeyChange } from "./components/AdaptiveSettingsPanel"
 import { McpAuthNotice } from "./components/McpAuthNotice"
 import { needsOAuth } from "./components/McpManager"
 import { RoutinesPanel } from "./components/RoutinesPanel"
@@ -1036,6 +1037,14 @@ export const App: Component = () => {
   const [adaptiveSaving, setAdaptiveSaving] = createSignal(false)
   const [adaptiveWarnings, setAdaptiveWarnings] = createSignal<string[]>([])
   const [adaptiveError, setAdaptiveError] = createSignal<AdaptiveConfigError>()
+  const adaptiveFailed = (cause: unknown) => {
+    setAdaptiveWarnings([])
+    setAdaptiveError(
+      cause instanceof AdaptiveConfigError
+        ? cause
+        : new AdaptiveConfigError(cause instanceof Error ? cause.message : String(cause), "internal_error"),
+    )
+  }
   const patchAdaptive = (patch: Record<string, unknown>, confirm: boolean) => {
     setAdaptiveSaving(true)
     setAdaptiveError(undefined)
@@ -1046,14 +1055,21 @@ export const App: Component = () => {
         setAdaptiveError(undefined)
         setAdaptiveRevision((value) => value + 1)
       })
-      .catch((cause: unknown) => {
+      .catch(adaptiveFailed)
+      .finally(() => setAdaptiveSaving(false))
+  }
+  // The predictive model's key: saved or removed, then the view is re-read so the panel says where
+  // the key now comes from. The key is passed straight through and kept nowhere here.
+  const changeModelKey = (change: ModelKeyChange) => {
+    setAdaptiveSaving(true)
+    setAdaptiveError(undefined)
+    const modelKey = createHarnessClient(harnessServerUrl()).adaptive.modelKey
+    void ("key" in change ? modelKey.set(change.key) : modelKey.remove())
+      .then(() => {
         setAdaptiveWarnings([])
-        setAdaptiveError(
-          cause instanceof AdaptiveConfigError
-            ? cause
-            : new AdaptiveConfigError(cause instanceof Error ? cause.message : String(cause), "internal_error"),
-        )
+        setAdaptiveRevision((value) => value + 1)
       })
+      .catch(adaptiveFailed)
       .finally(() => setAdaptiveSaving(false))
   }
   // Dismissing the runtime alerts (AH-D05) re-reads the view, so the panel draws what the server kept.
@@ -6397,6 +6413,7 @@ export const App: Component = () => {
         }}
         onAdaptivePatch={patchAdaptive}
         onAdaptiveAcknowledgeRuntime={acknowledgeRuntime}
+        onAdaptiveModelKey={changeModelKey}
         onClose={() => setSettingsOpen(false)}
       />
       <FilesPanel

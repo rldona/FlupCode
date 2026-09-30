@@ -36,6 +36,7 @@ import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
 import { createRetryingModel } from "./adaptive/providers/retry"
 import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
+import { createModelKey } from "./adaptive/model-key"
 import { createSmallLlmModel } from "./adaptive/providers/small-llm"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
@@ -136,21 +137,27 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const adaptiveToken = isLoopbackHostname(hostname)
     ? options.adaptiveToken ?? readAdaptiveToken(options.adaptiveTokenFile ?? adaptiveTokenFile())
     : undefined
+  // The predictive model's key (ADR-0017, amended): the environment first, then the vault, where the
+  // panel saves it bound to the Jev endpoint's origin. Read on every request, so saving needs no restart.
+  const modelKey = createModelKey({ env: process.env, vault, endpoint: () => adaptive.current().jev.endpoint })
   // Every secret this process holds is deleted by value from whatever leaves or is persisted: the
-  // harness's own bearers and the vault's credentials, the latter decrypted on each call so a
-  // credential saved after startup is covered too.
+  // harness's own bearers, the model key from the environment and the vault's credentials (a stored
+  // model key among them), the latter decrypted on each call so a credential saved after startup is
+  // covered too.
   const egress = createAdaptiveEgressGuard({
     config: () => adaptive.current(),
-    secrets: () => [browserToken, adaptiveToken, ...(vault?.secrets() ?? [])].filter((secret) => secret !== undefined),
+    secrets: () =>
+      [browserToken, adaptiveToken, process.env.TYPESAFE_API_KEY?.trim() || undefined, ...(vault?.secrets() ?? [])].filter(
+        (secret) => secret !== undefined,
+      ),
   })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // AH-C05: the value-of-information gate and answer cache, read from the decision audit's labels.
   const valueGate = createValueGate({ repository, config: () => adaptive.current() })
-  // The key comes from the environment, never from the config block (ADR-0017). The client is built
+  // The key comes from `modelKey`, never from the config block (ADR-0017). The client is built
   // always; the service only reaches it when a kind is assigned to Jev (by default: `jev.enabled`)
   // and Jev's own consent (`egress.providers.jev`, or the legacy keys) lists the project and the kind,
   // so an off install makes no call.
-  const apiKey = process.env.TYPESAFE_API_KEY
   // FH-013: the model is wrapped with the strict per-attempt timeout, bounded retries and
   // `Retry-After`, so they are on the live path and not only in tests; a failure that survives them
   // is recorded degraded with its reason.
@@ -160,7 +167,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
         fetch: defaultJevFetch,
         egress,
         config: () => adaptive.current().jev,
-        ...(apiKey ? { apiKey } : {}),
+        apiKey: modelKey.resolve,
       }),
     }),
   })
@@ -361,6 +368,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     canWrite: Boolean(browserToken),
     adaptiveTokenPresent: Boolean(adaptiveToken),
     env: process.env,
+    modelKey: modelKey.status,
     smallModel: globalSmallModel,
     models,
     // The caps each project has reached (AH-F03), counted live on every read of the view.
@@ -390,6 +398,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       proposalReview: createProposalReview({ repository, curator }),
       learnedSkillActions: curator,
       adaptiveConfig,
+      modelKey,
       overrides,
       ...(adaptiveToken
         ? {
@@ -446,6 +455,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     runtimeProbe,
     decisions,
     egress,
+    modelKey,
     stop: async () => {
       clearInterval(sweep)
       clearInterval(probeInterval)

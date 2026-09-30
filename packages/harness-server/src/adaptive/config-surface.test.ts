@@ -601,9 +601,21 @@ describe("the read model", () => {
     ...overrides,
   })
 
-  test("assembles the documented shape", () => {
+  test("the model key is present from either source, and the view says which (ADR-0017, amended)", () => {
+    const stored = adaptiveConfigView(viewInput({ modelKey: { source: "stored", storable: true } }))
+    expect(stored.env).toMatchObject({ typesafeKeyPresent: true, typesafeKeySource: "stored" })
+    expect(stored.modelKeyStorable).toBe(true)
+    const none = adaptiveConfigView(viewInput({ modelKey: { source: "none", storable: false } }))
+    expect(none.env).toMatchObject({ typesafeKeyPresent: false, typesafeKeySource: "none" })
+    expect(none.modelKeyStorable).toBe(false)
+    // Without the key service only the environment is read, and a blank value is no key.
+    expect(adaptiveConfigView(viewInput({ env: { TYPESAFE_API_KEY: "  " } })).env.typesafeKeySource).toBe("none")
+  })
+
+    test("assembles the documented shape", () => {
     const view = adaptiveConfigView(viewInput({ env: { TYPESAFE_API_KEY: "k" } }))
-    expect(view.env).toEqual({ adaptiveDisabled: false, typesafeKeyPresent: true })
+    expect(view.env).toEqual({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" })
+    expect(view.modelKeyStorable).toBe(false)
     expect(view.runtime).toEqual({ runtime: "legacy", degraded: false, checkedAt: 0, alerts: [] })
     expect(view.canWrite).toBe(true)
     expect(view.writer).toEqual({ path: "/cfg/opencode.jsonc", exists: true })

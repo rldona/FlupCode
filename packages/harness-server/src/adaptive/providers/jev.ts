@@ -97,8 +97,11 @@ export function createJevClient(input: {
   fetch: JevFetch
   egress: EgressGuard
   config: () => JevConfig
-  /** Resolved from the environment by the caller; never part of the config block. */
-  apiKey?: string
+  /**
+   * Asked on every request, so a key saved or removed after startup is the one the next call carries
+   * (ADR-0017, amended). The caller reads the environment first, then the vault; never the config block.
+   */
+  apiKey?: () => string | undefined | Promise<string | undefined>
   now?: () => number
   timers?: JevTimers
 }): JevClient {
@@ -114,9 +117,10 @@ export function createJevClient(input: {
     }, timeoutMs)
     const signal = caller ? AbortSignal.any([caller, controller.signal]) : controller.signal
     try {
+      const apiKey = await input.apiKey?.()
       return await input.fetch({
         url: input.config().endpoint,
-        headers: { "content-type": "application/json", ...(input.apiKey ? { authorization: `Bearer ${input.apiKey}` } : {}) },
+        headers: { "content-type": "application/json", ...(apiKey ? { authorization: `Bearer ${apiKey}` } : {}) },
         body,
         signal,
       })

@@ -30,7 +30,7 @@ import { PermissionsPanel } from "./PermissionsPanel"
 import { KEYBIND_ACTIONS, type KeybindAction, type Keybinds } from "../keybinds"
 import { resetUsage, restoreUsage, usageResetAt } from "../usage-reset"
 import { TEXT_SIZES, appTextSize, chatTextSize, setAppTextSize, setChatTextSize } from "../text-size"
-import { AdaptiveSettingsPanel, type AdaptiveSettingsState } from "./AdaptiveSettingsPanel"
+import { AdaptiveSettingsPanel, type AdaptiveSettingsState, type ModelKeyChange } from "./AdaptiveSettingsPanel"
 
 type SettingsPanelProps = {
   open: boolean
@@ -165,6 +165,7 @@ type SettingsPanelProps = {
   adaptive: AdaptiveSettingsState
   onAdaptivePatch: (patch: Record<string, unknown>, confirm: boolean) => void
   onAdaptiveAcknowledgeRuntime: () => void
+  onAdaptiveModelKey: (change: ModelKeyChange) => void
   onClose: () => void
 }
 
@@ -730,6 +731,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   voi={props.adaptive.voi}
                   onPatch={props.onAdaptivePatch}
                   onAcknowledgeRuntime={props.onAdaptiveAcknowledgeRuntime}
+                  onModelKey={props.onAdaptiveModelKey}
                 />
               </Show>
 

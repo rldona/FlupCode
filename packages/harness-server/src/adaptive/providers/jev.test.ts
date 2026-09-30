@@ -526,3 +526,19 @@ describe("JevClient failures", () => {
     expect(failure).toMatchObject({ reason: "timeout" })
   })
 })
+
+describe("JevClient key", () => {
+  test("asks for the key on every request, so a key saved after startup needs no restart", async () => {
+    const { fetch, calls } = recorder(() => json({ model: "jev-1", answers: answersFor(questions.length) }))
+    const keys: Array<string | undefined> = [undefined, "test-key-one", "test-key-two"]
+    const client = createJevClient({ fetch, egress: allowed(), config: jevConfig, apiKey: async () => keys.shift() })
+    await client.predictOne(stateOf(completion()), questions)
+    await client.predictOne(stateOf(completion()), questions)
+    await client.predictOne(stateOf(completion()), questions)
+    expect(calls.map((call) => call.headers.authorization)).toEqual([
+      undefined,
+      "Bearer test-key-one",
+      "Bearer test-key-two",
+    ])
+  })
+})
