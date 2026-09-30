@@ -47,6 +47,8 @@ export type SelectionInput = {
   roster: readonly SkillRosterEntry[]
   /** The names the decision selected (`answer.load`). */
   loaded: readonly string[]
+  /** The episode the selection belongs to; with it, a repeated report of one episode counts once. */
+  episodeID?: string
 }
 
 export type SkillCurator = {
@@ -58,7 +60,7 @@ export type SkillCurator = {
    * the store keeps checking collision and the marker live, so the roster is only the lint's fast-fail.
    */
   promote(proposal: SkillProposal, at?: number, roster?: readonly SkillRosterEntry[]): PromoteResult
-  /** Records one `skillRelevance` opportunity, and a `load` for each skill it selected. */
+  /** Records one `skillRelevance` opportunity, and a `load` for each skill it selected; once per episode. */
   recordSelection(input: SelectionInput): void
   /** The body a `patch` will improve, read from disk; the re-read is counted as a `view`. */
   readExisting(projectID: string, name: string): { name: string; description: string; body: string } | undefined
@@ -218,6 +220,8 @@ export function createSkillCurator(deps: {
       if (!entry.learned) continue
       const sidecar = deps.store.readSidecar(input.projectID, entry.name)
       if (!sidecar) continue
+      const counted = sidecar.countedEpisodes ?? []
+      if (input.episodeID !== undefined && counted.includes(input.episodeID)) continue
       const chosen = selected.has(entry.name)
       const usage: SkillUsage = {
         ...sidecar.usage,
@@ -227,7 +231,13 @@ export function createSkillCurator(deps: {
       const events: LedgerEvent[] = chosen
         ? [{ at: now(), event: "usage", kind: "load", total: usage.load }]
         : []
-      deps.store.updateSidecar({ projectID: input.projectID, name: entry.name, usage, events })
+      deps.store.updateSidecar({
+        projectID: input.projectID,
+        name: entry.name,
+        usage,
+        events,
+        ...(input.episodeID !== undefined ? { countedEpisodes: [...counted, input.episodeID] } : {}),
+      })
     }
   }
 

@@ -15,7 +15,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { skillReport } from "../../skills"
 import type { SkillProposal } from "../learning/proposal"
-import { createLearnedStore, learnedRoots, SNAPSHOT_KEEP } from "./learned-store"
+import { COUNTED_EPISODES_KEEP, createLearnedStore, learnedRoots, SNAPSHOT_KEEP } from "./learned-store"
 import { createSkillCurator } from "./curator"
 
 let root = ""
@@ -392,5 +392,50 @@ describe("cross-project isolation: a learned skill never leaks or collides acros
     // The recompute for the other project finds no learned collision: nothing of ours is touched.
     expect(skills.reconcile(other)).toEqual([])
     expect(existsSync(join(learned, "shared", "SKILL.md"))).toBe(true)
+  })
+})
+
+describe("a selection counts once per episode (AH-A07)", () => {
+  const usageEvents = () =>
+    readFileSync(join(learned, "fix-failing-test", ".ledger.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .filter((line) => JSON.parse(line).event === "usage")
+
+  test("a repeated report of one episode moves the counters once; another episode moves them again", () => {
+    const skills = curator()
+    expect(skills.promote(proposal()).ok).toBe(true)
+    const select = (episodeID: string) =>
+      skills.recordSelection({ projectID: project, episodeID, roster: skills.roster(project), loaded: ["fix-failing-test"] })
+
+    select("episode:run:a")
+    select("episode:run:a")
+    expect(store().readSidecar(project, "fix-failing-test")!.usage).toMatchObject({ load: 1, opportunities: 1 })
+    expect(usageEvents()).toHaveLength(1)
+
+    select("episode:run:b")
+    expect(store().readSidecar(project, "fix-failing-test")!.usage).toMatchObject({ load: 2, opportunities: 2 })
+  })
+
+  test("a patch keeps the memory of the episodes its counters already include", () => {
+    const skills = curator()
+    skills.promote(proposal())
+    skills.recordSelection({ projectID: project, episodeID: "episode:run:a", roster: skills.roster(project), loaded: [] })
+    expect(skills.promote(proposal({ intent: "patch", targetSkill: "fix-failing-test", body: body("Patched. ") })).ok).toBe(
+      true,
+    )
+    skills.recordSelection({ projectID: project, episodeID: "episode:run:a", roster: skills.roster(project), loaded: [] })
+    expect(store().readSidecar(project, "fix-failing-test")!.usage.opportunities).toBe(1)
+  })
+
+  test("the memory is bounded: only the most recent episodes are remembered", () => {
+    const skills = curator()
+    skills.promote(proposal())
+    const episodes = Array.from({ length: COUNTED_EPISODES_KEEP + 3 }, (_, index) => `episode:run:${index}`)
+    for (const episodeID of episodes)
+      skills.recordSelection({ projectID: project, episodeID, roster: skills.roster(project), loaded: [] })
+    const sidecar = store().readSidecar(project, "fix-failing-test")!
+    expect(sidecar.usage.opportunities).toBe(episodes.length)
+    expect(sidecar.countedEpisodes).toEqual(episodes.slice(-COUNTED_EPISODES_KEEP))
   })
 })
