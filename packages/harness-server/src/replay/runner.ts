@@ -15,6 +15,8 @@ import type { TranscriptMessage } from "../engine"
 import type { SessionMetricTurn } from "../adaptive/session-metrics"
 import { fixtureDirectory, gitHead } from "./fixture"
 import type { ReplayFixture, ReplayModel } from "./fixture"
+import { spawnEngine } from "./spawn"
+import type { EngineSpawn } from "./spawn"
 
 export type ReplayVariant = {
   name: string
@@ -28,6 +30,13 @@ export type ReplayVariant = {
    * restored after it. Only the fields that surface allows can be patched.
    */
   adaptive?: Record<string, unknown>
+  /**
+   * Opencode config for a throwaway engine started for this variant alone (AH-D01), e.g.
+   * `{ "compaction": { "prune": true } }` or `{ "tool_output": { "max_bytes": 16384 } }`. It is
+   * layered over the user's config through `OPENCODE_CONFIG_CONTENT`; the engine is stopped after
+   * the variant. Exclusive with `engine`.
+   */
+  engineConfig?: Record<string, unknown>
 }
 
 export type ReplayTokens = { input: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number }
@@ -83,9 +92,32 @@ export type ReplayReport = {
   seed: null
   tolerance: number
   isolation: "worktree" | "in-place"
+  /** What each variant changed, so the report says what it measured. */
+  variants: ReplayVariant[]
+  /** The variant every other one is compared with: the one named `baseline`, else the first. */
+  baseline: string
   runs: ReplayRun[]
   aggregates: ReplayAggregate[]
+  comparisons: ReplayComparison[]
 }
+
+/**
+ * One variant against the baseline, over the fixtures both ran. Means are per fixture first, then
+ * summed (tokens, USD, wall time) or averaged (completion), so a long fixture weighs what it costs.
+ */
+export type ReplayComparison = {
+  variant: string
+  fixtures: number
+  uncachedInput: ReplayDelta
+  usd: ReplayDelta
+  wallMs: ReplayDelta
+  /** Completion rate difference in percentage points. */
+  completionPp: number
+  /** The preregistered rule: uncached input does not grow and completion drops by at most 1 pp. */
+  recommended: boolean
+}
+
+export type ReplayDelta = { baseline: number; variant: number; delta: number; relative: number }
 
 export type ReplayOptions = {
   fixtures: ReplayFixture[]
@@ -94,6 +126,8 @@ export type ReplayOptions = {
   engine: string
   /** The harness that holds `session_metrics` and the adaptive settings; optional. */
   harness?: { url: string; token?: string }
+  /** How to start a throwaway engine for variants with `engineConfig`. */
+  spawn?: EngineSpawn
   /** `worktree` (default) replays each repetition in a fresh engine worktree of the project. */
   isolation?: "worktree" | "in-place"
   /** Overrides every fixture's folder. */
@@ -114,21 +148,48 @@ export async function runReplay(options: ReplayOptions): Promise<ReplayReport> {
   const tolerance = options.tolerance ?? 0.05
   const isolation = options.isolation ?? "worktree"
   const log = options.log ?? (() => {})
+  const conflict = options.variants.find((variant) => variant.engineConfig && variant.engine)
+  if (conflict) throw new Error(`Variant ${conflict.name}: engineConfig starts its own engine, so it cannot set engine`)
+  if (!options.spawn && options.variants.some((variant) => variant.engineConfig))
+    throw new Error("A variant with engineConfig needs a spawn command for its engine")
   const runs: ReplayRun[] = []
   for (const variant of options.variants) {
-    const engine = new Engine(variant.engine ?? options.engine)
-    const restore = await applyAdaptive(options.harness, variant.adaptive)
+    const spawned =
+      variant.engineConfig && options.spawn
+        ? await spawnEngine(options.spawn, variant.engineConfig).catch((cause: unknown) => new Error(messageOf(cause)))
+        : undefined
+    if (spawned instanceof Error) {
+      // Earlier variants already spent money: record this one as failed rather than lose the report.
+      log(`${variant.name}: ${spawned.message}`)
+      runs.push(
+        ...options.fixtures.flatMap((fixture) =>
+          Array.from({ length: repeat }, (_, index) =>
+            failed({ fixture: fixture.id, variant: variant.name, repetition: index + 1 }, spawned.message),
+          ),
+        ),
+      )
+      continue
+    }
+    if (spawned) log(`${variant.name}: engine ${spawned.url} (pid ${spawned.pid}) with ${JSON.stringify(variant.engineConfig)}`)
     try {
-      for (const fixture of options.fixtures) {
-        for (const repetition of Array.from({ length: repeat }, (_, index) => index + 1)) {
-          log(`${fixture.id} × ${variant.name} #${repetition}`)
-          runs.push(await replayOnce({ options, engine, fixture, variant, repetition, isolation }))
+      const engine = new Engine(spawned?.url ?? variant.engine ?? options.engine)
+      const restore = await applyAdaptive(options.harness, variant.adaptive)
+      try {
+        for (const fixture of options.fixtures) {
+          for (const repetition of Array.from({ length: repeat }, (_, index) => index + 1)) {
+            log(`${fixture.id} × ${variant.name} #${repetition}`)
+            runs.push(await replayOnce({ options, engine, fixture, variant, repetition, isolation }))
+          }
         }
+      } finally {
+        await restore()
       }
     } finally {
-      await restore()
+      await spawned?.stop()
     }
   }
+  const aggregates = aggregate(runs, tolerance)
+  const baseline = options.variants.find((variant) => variant.name === "baseline")?.name ?? options.variants[0]!.name
   return {
     version: 1,
     startedAt,
@@ -139,8 +200,11 @@ export async function runReplay(options: ReplayOptions): Promise<ReplayReport> {
     seed: null,
     tolerance,
     isolation,
+    variants: options.variants,
+    baseline,
     runs,
-    aggregates: aggregate(runs, tolerance),
+    aggregates,
+    comparisons: compare(aggregates, baseline),
   }
 }
 
@@ -363,6 +427,37 @@ export function stat(values: number[]): ReplayStat {
   return { mean, p50, min: sorted[0]!, max: sorted.at(-1)!, spread }
 }
 
+/** Every variant but the baseline, against it, over the fixtures both have. */
+export function compare(aggregates: ReplayAggregate[], baseline: string): ReplayComparison[] {
+  const reference = new Map(
+    aggregates.filter((row) => row.variant === baseline).map((row) => [row.fixture, row] as const),
+  )
+  const variants = Map.groupBy(
+    aggregates.filter((row) => row.variant !== baseline && reference.has(row.fixture)),
+    (row) => row.variant,
+  )
+  return [...variants.entries()].map(([variant, rows]) => {
+    const pairs = rows.map((row) => ({ row, base: reference.get(row.fixture)! }))
+    const delta = (read: (row: ReplayAggregate) => number): ReplayDelta => {
+      const before = pairs.reduce((sum, pair) => sum + read(pair.base), 0)
+      const after = pairs.reduce((sum, pair) => sum + read(pair.row), 0)
+      return { baseline: before, variant: after, delta: after - before, relative: before === 0 ? 0 : after / before - 1 }
+    }
+    const uncachedInput = delta((row) => row.uncachedInput.mean)
+    const completionPp =
+      (pairs.reduce((sum, pair) => sum + pair.row.completionRate - pair.base.completionRate, 0) / pairs.length) * 100
+    return {
+      variant,
+      fixtures: pairs.length,
+      uncachedInput,
+      usd: delta((row) => row.usd.mean),
+      wallMs: delta((row) => row.wallMs.mean),
+      completionPp,
+      recommended: uncachedInput.delta <= 0 && completionPp >= -1,
+    }
+  })
+}
+
 export function renderMarkdown(report: ReplayReport) {
   const rows = report.aggregates.map((row) =>
     [
@@ -392,6 +487,7 @@ export function renderMarkdown(report: ReplayReport) {
     "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ...rows.map((row) => `| ${row} |`),
     "",
+    ...(report.comparisons.length > 0 ? comparisonSection(report) : []),
     ...(failures.length > 0
       ? [
           "## Notes",
@@ -406,6 +502,58 @@ export function renderMarkdown(report: ReplayReport) {
         ]
       : []),
   ].join("\n")
+}
+
+/** Δ per variant against the baseline, and the preregistered recommendation (AH-D01, §14.3). */
+function comparisonSection(report: ReplayReport) {
+  const fixtures = new Set(report.aggregates.map((row) => row.fixture)).size
+  const describe = (name: string) => {
+    const variant = report.variants.find((entry) => entry.name === name)
+    const changes = {
+      ...(variant?.engineConfig ? { engine: variant.engineConfig } : {}),
+      ...(variant?.adaptive ? { adaptive: variant.adaptive } : {}),
+      ...(variant?.model ? { model: `${variant.model.providerID}/${variant.model.modelID}` } : {}),
+      ...(variant?.agent ? { agent: variant.agent } : {}),
+    }
+    return Object.keys(changes).length > 0 ? `\`${JSON.stringify(changes)}\`` : "—"
+  }
+  const recommended = report.comparisons.filter((row) => row.recommended)
+  return [
+    `## Against ${report.baseline}`,
+    "",
+    "Sums of the per-fixture means over the fixtures both variants ran; completion is the mean difference in percentage points.",
+    "",
+    "| Variant | Changes | Fixtures | Δ uncached input | Δ completion | Δ wall time | Δ USD | Recommended |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    ...report.comparisons.map(
+      (row) =>
+        `| ${[
+          row.variant,
+          describe(row.variant),
+          row.fixtures,
+          `${signed(Math.round(row.uncachedInput.delta))} (${signedPercent(row.uncachedInput.relative)})`,
+          `${signed(Number(row.completionPp.toFixed(1)))} pp`,
+          `${signed(Number((row.wallMs.delta / 1000).toFixed(1)))}s (${signedPercent(row.wallMs.relative)})`,
+          `${row.usd.delta < 0 ? "-" : "+"}$${Math.abs(row.usd.delta).toFixed(4)} (${signedPercent(row.usd.relative)})`,
+          row.recommended ? "yes" : "no",
+        ].join(" | ")} |`,
+    ),
+    "",
+    "## Recommendation",
+    "",
+    "Preregistered rule: a lever is recommended when Δ uncached input ≤ 0 **and** Δ completion ≥ −1 pp.",
+    "",
+    ...(recommended.length > 0
+      ? recommended.map((row) => `- **${row.variant}**: ${describe(row.variant)}`)
+      : ["- None of the variants meets the rule: keep the current defaults."]),
+    ...(fixtures < 30
+      ? [
+          "",
+          `Provisional: ${fixtures} fixture${fixtures === 1 ? "" : "s"}. Defaults and the D02/D03 thresholds are fixed only from a report over 30 or more exported sessions.`,
+        ]
+      : []),
+    "",
+  ]
 }
 
 function failed(
@@ -431,6 +579,8 @@ const totalTokens = (tokens: ReplayTokens) =>
 const tokens = (value: ReplayStat) =>
   `${Math.round(value.mean)} (p50 ${Math.round(value.p50)}, ±${percent(value.spread)})`
 const percent = (value: number) => `${(value * 100).toFixed(1)}%`
+const signed = (value: number) => `${value > 0 ? "+" : ""}${value}`
+const signedPercent = (value: number) => `${value > 0 ? "+" : ""}${percent(value)}`
 const messageOf = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
