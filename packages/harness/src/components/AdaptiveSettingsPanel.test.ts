@@ -235,10 +235,26 @@ describe("which writes need confirming", () => {
     expect(withoutModel).toContain("nothing is sent until one is")
     expect(confirmationMessage("retention.enabled", true, view())).toContain("Learned skills are never removed.")
     expect(confirmationMessage("jev.enabled", true, view())).toContain("redacted, size-limited decision inputs")
-    // A field without its own words still says which one it is, never a blank dialog.
+    // A field without its own words still says what a write means, never a blank dialog or its path.
     expect(confirmationMessage("something.else", true, view())).toBe(
-      "Writing to something.else needs confirmation. The change is written to the config file.",
+      "This changes what the adaptive harness may do or send. The change is written to the config file.",
     )
+  })
+
+  test("widening a provider's consent says who receives what, never the field it writes (AH-E06)", () => {
+    const before = consenting({ jev: { projects: ["/p"], kinds: { completion: true } } })
+    const projects = confirmationMessage("egress.providers.jev.projects", ["/p", "/q"], before)
+    expect(projects).toBe(
+      "jev may then receive redacted, size-limited decision inputs from /q. The change is written to the config file.",
+    )
+    const kinds = confirmationMessage("egress.providers.jev.kinds", { completion: true, skillRelevance: true }, before)
+    expect(kinds).toContain("jev may then receive redacted, size-limited inputs to decide: Which skills fit.")
+    for (const message of [projects, kinds]) expect(message).not.toMatch(/egress|providers\.|skillRelevance/)
+    setLocale("es")
+    expect(confirmationMessage("egress.providers.jev.kinds", { skillRelevance: true }, before)).toContain(
+      "para decidir: Qué skills encajan.",
+    )
+    setLocale("en")
   })
 
   test("a switch without confirmation never asks", () => {

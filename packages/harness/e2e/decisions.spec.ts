@@ -216,6 +216,9 @@ test("a link to a decision on the page scrolls to it and highlights it", async (
   const row = page.locator('.fc-decision-row[data-decision-id="d:00030"]')
   await expect(row).toHaveAttribute("aria-current", "true")
   await expect(row).toBeInViewport()
+  // The link opens the decision's dialog, which holds the focus; closing it lands on the row (AH-E06).
+  await expect(page.getByRole("dialog", { name: "Decision" })).toBeFocused()
+  await page.keyboard.press("Escape")
   await expect(row).toBeFocused()
   await expect(page.getByText("Linked decision")).toHaveCount(0)
 })
@@ -228,6 +231,8 @@ test("a link to a decision beyond the page reads it by id and pins it above the 
   const pinned = page.locator(".fc-usage-block", { hasText: "Linked decision" })
   const row = pinned.locator('.fc-decision-row[data-decision-id="d:09999"]')
   await expect(row).toHaveAttribute("aria-current", "true")
+  await expect(page.getByRole("dialog", { name: "Decision" })).toBeFocused()
+  await page.keyboard.press("Escape")
   await expect(row).toBeFocused()
   expect(server.queries.some((query) => query.get("id") === "d:09999")).toBe(true)
   await expect(rows(page)).toHaveCount(51)

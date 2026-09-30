@@ -13,6 +13,7 @@ import type {
 } from "../types"
 import { Toggle } from "./Toggle"
 import { ConfirmDialog } from "./ConfirmDialog"
+import { Segmented } from "./Segmented"
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -551,15 +552,16 @@ export function warningKey(warning: string): string {
 }
 
 /**
- * What the confirmation dialog says before a write. Turning learning on is an egress decision of its
- * own — the draft goes to the small model's provider, not to Jev — so the dialog says what is sent
- * and to whom instead of the generic line.
+ * What the confirmation dialog says before a write: the consequence — what is sent, to whom, or what
+ * is removed — never the field path it writes (AH-E06). Turning learning on is a data-sharing decision
+ * of its own — the draft goes to the small model's provider, not to the predictive model — so the
+ * dialog says what is sent and to whom.
  */
 export function confirmationMessage(path: string, value: unknown, view: AdaptiveConfigView): string {
   const consent = consentPath(path)
   if (consent?.leaf === "enabled" && value === true)
     return t(
-      "Consenting to {provider}: redacted, bounded decision inputs for the listed projects and kinds are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.",
+      "Consenting to {provider}: redacted, size-limited decision inputs for the listed projects and decisions are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.",
       { provider: consent.provider },
     )
   if (path === "retention.enabled" && value === true)
@@ -570,8 +572,23 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
     return t(
       "The predictive model receives redacted, size-limited decision inputs for the projects and decisions you allowed. The change is written to the config file.",
     )
+  if (consent?.leaf === "projects" && Array.isArray(value)) {
+    const known = new Set(consentOf(view, consent.provider)?.projects ?? [])
+    return t(
+      "{provider} may then receive redacted, size-limited decision inputs from {projects}. The change is written to the config file.",
+      { provider: consent.provider, projects: value.filter((project) => !known.has(project)).join(", ") },
+    )
+  }
+  if (consent?.leaf === "kinds" && isRecord(value)) {
+    const before = consentOf(view, consent.provider)?.kinds ?? {}
+    const added = Object.keys(value).filter((kind) => value[kind] === true && before[kind] !== true)
+    return t(
+      "{provider} may then receive redacted, size-limited inputs to decide: {kinds}. The change is written to the config file.",
+      { provider: consent.provider, kinds: added.map((kind) => t(KIND_LABELS[kind] ?? kind)).join(", ") },
+    )
+  }
   if (path !== "learning.enabled" || value !== true)
-    return t("Writing to {field} needs confirmation. The change is written to the config file.", { field: path })
+    return t("This changes what the adaptive harness may do or send. The change is written to the config file.")
   const chars = view.effective.learning.maxInputChars
   const model = view.learningDraft?.model
   if (model)
@@ -772,21 +789,20 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             </h4>
             <span class="fc-settings-hint">{t(card.capability.description)}</span>
           </span>
-          <div class="fc-adaptive-segments" role="group" aria-labelledby={titleID}>
-            <For each={choices()}>
-              {(choice) => (
-                <button
-                  class="fc-adaptive-segment"
-                  type="button"
-                  aria-pressed={selected() === choice.id}
-                  disabled={locked() || !!choiceProblem(card.view, props.capabilities, choice)}
-                  onClick={() => selected() !== choice.id && proposeLeaves(choice.leaves)}
-                >
-                  {t(choice.label)}
-                </button>
-              )}
-            </For>
-          </div>
+          <Segmented
+            labelledBy={titleID}
+            options={choices().map((choice) => ({
+              id: choice.id,
+              label: t(choice.label),
+              unavailable: !!choiceProblem(card.view, props.capabilities, choice),
+            }))}
+            value={selected()}
+            locked={locked()}
+            onSelect={(id) => {
+              const choice = choices().find((entry) => entry.id === id)
+              if (choice) proposeLeaves(choice.leaves)
+            }}
+          />
         </div>
         <Status status={capabilityStatus(card.view, props.capabilities, card.capability)} />
         <For each={blocked()}>
@@ -974,25 +990,22 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                     </h4>
                     <span class="fc-settings-hint">{t(LEVEL_HINTS[level()])}</span>
                   </span>
-                  <div class="fc-adaptive-segments" role="group" aria-labelledby="fc-adaptive-level">
-                    <For each={ADAPTIVE_LEVELS}>
-                      {(option) => (
-                        <button
-                          class="fc-adaptive-segment"
-                          type="button"
-                          aria-pressed={level() === option}
-                          disabled={
-                            locked() ||
-                            !!levelProblem(view(), props.capabilities, option) ||
-                            (option === "custom" && (level() === "observe" || level() === "assist"))
-                          }
-                          onClick={() => chooseLevel(option)}
-                        >
-                          {t(LEVEL_LABELS[option])}
-                        </button>
-                      )}
-                    </For>
-                  </div>
+                  <Segmented
+                    labelledBy="fc-adaptive-level"
+                    options={ADAPTIVE_LEVELS.map((option) => ({
+                      id: option,
+                      label: t(LEVEL_LABELS[option]),
+                      unavailable:
+                        !!levelProblem(view(), props.capabilities, option) ||
+                        (option === "custom" && (level() === "observe" || level() === "assist")),
+                    }))}
+                    value={level()}
+                    locked={locked()}
+                    onSelect={(id) => {
+                      const next = ADAPTIVE_LEVELS.find((option) => option === id)
+                      if (next) chooseLevel(next)
+                    }}
+                  />
                 </div>
                 <p class="fc-settings-hint">
                   {t("Off stops every capability at once. Nothing is deleted, and skills already learned still load.")}
@@ -1061,6 +1074,9 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                 </For>
               </Show>
               {/* What may leave the machine, provider by provider (AH-C03). */}
+              <Show when={consentProviders(view()).length > 0}>
+                <h4 class="fc-settings-subtitle">{t("Data shared with the predictive model")}</h4>
+              </Show>
               <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
             </details>
 
@@ -1154,17 +1170,24 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               </div>
             </details>
 
-            <Show when={props.warnings.length > 0}>
+            {/* A write answers later, so what it says is announced: the region is always mounted and
+                only its text changes, which is what every screen reader reads out. */}
+            <div role="status" aria-live="polite">
+              <Show when={props.saving}>
+                <span class="fc-sr-only">{t("Saving…")}</span>
+              </Show>
               <For each={props.warnings}>
                 {(warning) => <div class="fc-settings-hint">{t(warningKey(warning))}</div>}
               </For>
-            </Show>
+            </div>
             <Show when={props.error}>
               {(failure) => {
                 const feedback = () => feedbackFor(failure().code, failure().missing)
                 return (
                   <>
-                    <p class="fc-run-error">{t(feedback().message)}</p>
+                    <p class="fc-run-error" role="alert">
+                      {t(feedback().message)}
+                    </p>
                     <Show when={(failure().fields?.length ?? 0) > 0 || feedback().missing.length > 0}>
                       <details class="fc-adaptive-more">
                         <summary>{t("Details")}</summary>

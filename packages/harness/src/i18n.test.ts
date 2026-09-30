@@ -58,3 +58,97 @@ describe("t", () => {
     setLocale("en")
   })
 })
+
+/**
+ * The adaptive surfaces (AH-E06): Settings → Adaptive, the composer chip, the Decisions screen, the
+ * guardrail banner, the Skills screen's Learned section, and the Context and cost screens, which also
+ * show adaptive results. Plus the module that holds their shared copy.
+ */
+const ADAPTIVE_SURFACES = [
+  "components/AdaptiveSettingsPanel.tsx",
+  "components/AdaptiveChip.tsx",
+  "components/DecisionsPanel.tsx",
+  "components/GuardrailBanner.tsx",
+  "components/SkillCatalogue.tsx",
+  "components/ContextPanel.tsx",
+  "components/SessionCosts.tsx",
+  "components/UsagePanel.tsx",
+  "adaptive-copy.ts",
+]
+
+/**
+ * The words of the audit's copy table (§7.4) that a reader should never meet: the internal names for
+ * the predictive model, observe-only mode, the data-sharing allowlist, the skill-fit decision and the
+ * built-in-rules fallback. "jev" may still appear as a provider's *name* — that is data the server
+ * sends, never a string of the app — so it is only jargon when the app itself writes it.
+ */
+const JARGON = /\bjev\b|\bshadow\b|egress|skillRelevance|\bdegraded\b|\bdegradad[oa]\b/i
+
+/**
+ * The prose string literals of a source file: the ones with a space or a capital, which is what a
+ * reader is shown. Identifiers, config paths ("jev.enabled") and ids ("egress-allowlist") are neither,
+ * class lists and key names are not copy, and comments are dropped first — they are for the next
+ * developer, who may say "shadow".
+ */
+function proseLiterals(file: string) {
+  const code = readFileSync(join(import.meta.dir, file), "utf8")
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/.*$/gm, "$1")
+  return [...code.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)]
+    .map((match) => JSON.parse(`"${match[1]}"`) as string)
+    .filter((text) => /\s/.test(text.trim()) || /^[A-Z]/.test(text))
+    .filter((text) => !text.split(/\s+/).every((word) => word.startsWith("fc-")))
+    .filter((text) => !/^(Escape|Enter|Tab|Home|End|Arrow(Up|Down|Left|Right))$/.test(text))
+}
+
+/** Every key and every translation of the Spanish map, a multi-line one included. */
+function spanishEntries() {
+  const start = source.indexOf("const ES:")
+  const body = source.slice(start, source.indexOf("\n}", start))
+  const quoted = [...body.matchAll(/"((?:[^"\\\n]|\\.)*)"/g)].map((match) => JSON.parse(`"${match[1]}"`) as string)
+  return [...keysInOrder(), ...quoted]
+}
+
+describe("the adaptive surfaces' copy (AH-E06)", () => {
+  test("no string the adaptive surfaces show uses the internal jargon", () => {
+    const offenders = ADAPTIVE_SURFACES.flatMap((file) =>
+      proseLiterals(file)
+        .filter((text) => JARGON.test(text))
+        .map((text) => `${file}: ${text}`),
+    )
+    expect(offenders).toEqual([])
+  })
+
+  test("no key or translation of the Spanish map uses it either", () => {
+    expect(spanishEntries().filter((text) => JARGON.test(text))).toEqual([])
+  })
+
+  test("every string the adaptive surfaces show has a Spanish translation", () => {
+    const translated = new Set(spanishEntries())
+    const missing = ADAPTIVE_SURFACES.flatMap((file) =>
+      proseLiterals(file)
+        .filter((text) => !translated.has(text))
+        .map((text) => `${file}: ${text}`),
+    )
+    expect(missing).toEqual([])
+  })
+
+  test("the copy table of §7.4 reads the same in both languages", () => {
+    setLocale("es")
+    expect(t("Predictive model")).toBe("Modelo predictivo")
+    expect(t("Which skills fit")).toBe("Qué skills encajan")
+    expect(t("Observe only: nothing was filtered.")).toBe("Solo observar: no se filtró nada.")
+    expect(t("Data shared with the predictive model")).toBe("Datos compartidos con el modelo predictivo")
+    expect(t("Built-in rules were used ({reason})", { reason: "x" })).toBe("Se usaron reglas integradas (x)")
+    setLocale("en")
+  })
+
+  test("the checks above are reading real files, not empty lists", () => {
+    // A regular expression that matched nothing would make every check here pass for ever.
+    expect(proseLiterals("components/AdaptiveSettingsPanel.tsx").length).toBeGreaterThan(100)
+    expect(spanishEntries().length).toBeGreaterThan(600)
+    // And the jargon pattern does catch the words it is for.
+    for (const word of ["Jev", "Shadow only", "Egress allowlist", "skillRelevance", "Degraded"])
+      expect(JARGON.test(word)).toBe(true)
+  })
+})

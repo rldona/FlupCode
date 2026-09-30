@@ -256,7 +256,7 @@ const openSettings = async (page: Page, section: string) => {
 /** The acting capabilities: a server that resolved the adaptive token announces them. */
 const ACTING = ["adaptive-config", "adaptive-relevance", "adaptive-guardrails"]
 
-const levels = (dialog: ReturnType<Page["getByRole"]>) => dialog.getByRole("group", { name: "Level" })
+const levels = (dialog: ReturnType<Page["getByRole"]>) => dialog.getByRole("radiogroup", { name: "Level" })
 
 test("the level Off is the kill switch, and it never promises to stop loading learned skills", async ({ page }) => {
   const calls = await openApp(page, {
@@ -275,15 +275,15 @@ test("the level Off is the kill switch, and it never promises to stop loading le
 
   // The honest copy is there before anything is touched: learned skills keep loading.
   await expect(dialog.getByText(/skills already learned still load/)).toBeVisible()
-  await expect(levels(dialog).getByRole("button", { name: "Observe" })).toHaveAttribute("aria-pressed", "true")
+  await expect(levels(dialog).getByRole("radio", { name: "Observe" })).toHaveAttribute("aria-checked", "true")
   await expect(dialog.getByText("Active · observing, nothing is changed")).toBeVisible()
 
   // Off writes only the master switch, as one plain patch: every child keeps its value.
-  await levels(dialog).getByRole("button", { name: "Off" }).click()
+  await levels(dialog).getByRole("radio", { name: "Off" }).click()
   await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { enabled: false }, confirm: false })
 
   // What the server answers is what is shown: the level, each card's reason, the learned skills note.
-  await expect(levels(dialog).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true")
+  await expect(levels(dialog).getByRole("radio", { name: "Off" })).toHaveAttribute("aria-checked", "true")
   await expect(dialog.getByText("Inactive: the level is Off.")).toBeVisible()
   await expect(dialog.getByText("Learned skills still load from disk.")).toBeVisible()
   await dialog.locator("summary").filter({ hasText: "Advanced" }).click()
@@ -302,10 +302,10 @@ test("switches that match no preset read as Custom, and each level travels as on
   const dialog = await openSettings(page, "Adaptive")
 
   // Shadow off with context on is no preset: the level is derived as Custom.
-  await expect(levels(dialog).getByRole("button", { name: "Custom" })).toHaveAttribute("aria-pressed", "true")
+  await expect(levels(dialog).getByRole("radio", { name: "Custom" })).toHaveAttribute("aria-checked", "true")
   await expect(dialog.getByText("Your own mix of the capabilities below.")).toBeVisible()
 
-  await levels(dialog).getByRole("button", { name: "Observe" }).click()
+  await levels(dialog).getByRole("radio", { name: "Observe" }).click()
   await expect
     .poll(() => calls.patches.at(0)?.body)
     .toEqual({
@@ -318,9 +318,9 @@ test("switches that match no preset read as Custom, and each level travels as on
       },
       confirm: false,
     })
-  await expect(levels(dialog).getByRole("button", { name: "Observe" })).toHaveAttribute("aria-pressed", "true")
+  await expect(levels(dialog).getByRole("radio", { name: "Observe" })).toHaveAttribute("aria-checked", "true")
 
-  await levels(dialog).getByRole("button", { name: "Assist" }).click()
+  await levels(dialog).getByRole("radio", { name: "Assist" }).click()
   await expect
     .poll(() => calls.patches.at(1)?.body)
     .toEqual({
@@ -342,15 +342,15 @@ test("without the acting token Assist and the acting cards are not offered, and 
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await expect(levels(dialog).getByRole("button", { name: "Assist" })).toBeDisabled()
+  await expect(levels(dialog).getByRole("radio", { name: "Assist" })).toBeDisabled()
   await expect(
     dialog.getByText("Assist is not available: This server was started without permission to act on sessions."),
   ).toBeVisible()
   await expect(
-    dialog.getByRole("group", { name: "Skill suggestion" }).getByRole("button", { name: "Suggesting" }),
+    dialog.getByRole("radiogroup", { name: "Skill suggestion" }).getByRole("radio", { name: "Suggesting" }),
   ).toBeDisabled()
   await expect(
-    dialog.getByRole("group", { name: "Loop warnings" }).getByRole("button", { name: "Warning" }),
+    dialog.getByRole("radiogroup", { name: "Loop warnings" }).getByRole("radio", { name: "Warning" }),
   ).toBeDisabled()
   expect(calls.patches).toHaveLength(0)
 })
@@ -369,13 +369,13 @@ test("loop warnings are a card from the server's list, and a choice travels as a
   await expect(
     dialog.getByText("Warns you when the agent repeats the same step. It never pauses the turn."),
   ).toBeVisible()
-  const loops = dialog.getByRole("group", { name: "Loop warnings" })
-  await expect(loops.getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true")
-  await loops.getByRole("button", { name: "Warning" }).click()
+  const loops = dialog.getByRole("radiogroup", { name: "Loop warnings" })
+  await expect(loops.getByRole("radio", { name: "Off" })).toHaveAttribute("aria-checked", "true")
+  await loops.getByRole("radio", { name: "Warning" }).click()
   await expect
     .poll(() => calls.patches.at(0)?.body)
     .toEqual({ patch: { guardrails: { enabled: true } }, confirm: false })
-  await expect(loops.getByRole("button", { name: "Warning" })).toHaveAttribute("aria-pressed", "true")
+  await expect(loops.getByRole("radio", { name: "Warning" })).toHaveAttribute("aria-checked", "true")
   await expect(dialog.getByText("Active · watching for repeated steps")).toBeVisible()
   expect(calls.patches).toHaveLength(1)
 })
@@ -393,8 +393,8 @@ test("a leaf the server does not list is not drawn, and a newly listed switch re
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await expect(dialog.getByRole("group", { name: "Context" })).toBeVisible()
-  await expect(dialog.getByRole("group", { name: "Loop warnings" })).toHaveCount(0)
+  await expect(dialog.getByRole("radiogroup", { name: "Context" })).toBeVisible()
+  await expect(dialog.getByRole("radiogroup", { name: "Loop warnings" })).toHaveCount(0)
   await dialog.locator("summary").filter({ hasText: "Data & budget" }).click()
   await expect(dialog.getByRole("switch", { name: "Clean up old history" })).toHaveCount(0)
   await dialog.locator("summary").filter({ hasText: "Advanced" }).click()
@@ -520,12 +520,111 @@ test("learning asks first, since its drafts leave the machine", async ({ page })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await dialog.getByRole("group", { name: "Learning" }).getByRole("button", { name: "Proposing" }).click()
+  await dialog.getByRole("radiogroup", { name: "Learning" }).getByRole("radio", { name: "Proposing" }).click()
   const confirm = page.getByRole("dialog", { name: "Confirm change" })
   await expect(confirm).toContainText("objective and evidence")
   expect(calls.patches).toHaveLength(0)
   await confirm.getByRole("button", { name: "Write it" }).click()
   await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { learning: { enabled: true } }, confirm: true })
+})
+
+// ── AH-E06: the selectors and the confirmation work from the keyboard ─────────────────────────
+
+test("the level is one Tab stop, the arrows walk the levels that can be picked, and Space picks", async ({ page }) => {
+  const observe = view({ effective: { ...view().effective, shadow: true } })
+  const assist = view({
+    effective: { ...observe.effective, relevance: { enabled: true }, guardrails: { enabled: true } },
+  })
+  const calls = await openApp(page, {
+    capabilities: ACTING,
+    view: observe,
+    patchResponse: () => ({ json: { data: assist, warnings: [] }, nextView: assist }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  const group = levels(dialog)
+  const radio = (name: string) => group.getByRole("radio", { name })
+
+  // One Tab stop: only the picked level is in the tab order.
+  await expect(radio("Observe")).toHaveAttribute("tabindex", "0")
+  for (const other of ["Off", "Assist", "Custom"]) await expect(radio(other)).toHaveAttribute("tabindex", "-1")
+
+  // The arrows move the focus without writing anything; Custom is only offered from a mix, so it is skipped.
+  await radio("Observe").focus()
+  await page.keyboard.press("ArrowRight")
+  await expect(radio("Assist")).toBeFocused()
+  await page.keyboard.press("ArrowRight")
+  await expect(radio("Off")).toBeFocused()
+  await page.keyboard.press("ArrowLeft")
+  await expect(radio("Assist")).toBeFocused()
+  await page.keyboard.press("Home")
+  await expect(radio("Off")).toBeFocused()
+  await page.keyboard.press("End")
+  await expect(radio("Assist")).toBeFocused()
+  expect(calls.patches).toHaveLength(0)
+
+  // Space picks the focused level, and the focus stays on it once the server answers.
+  await page.keyboard.press("Space")
+  await expect
+    .poll(() => calls.patches.at(0)?.body)
+    .toEqual({
+      patch: {
+        enabled: true,
+        shadow: true,
+        context: { enabled: true, apply: false },
+        relevance: { enabled: true },
+        guardrails: { enabled: true },
+      },
+      confirm: false,
+    })
+  await expect(radio("Assist")).toHaveAttribute("aria-checked", "true")
+  await expect(radio("Assist")).toBeFocused()
+  await expect(radio("Assist")).toHaveAttribute("tabindex", "0")
+})
+
+test("the confirmation takes the focus, Escape cancels it, and the focus goes back to the choice", async ({ page }) => {
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-config"],
+    view: view({
+      effective: {
+        ...view().effective,
+        egress: { providers: { jev: { enabled: false, projects: ["/work/demo"], kinds: { skillReflection: true } } } },
+      },
+    }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  const learning = dialog.getByRole("radiogroup", { name: "Learning" })
+
+  await learning.getByRole("radio", { name: "Off" }).focus()
+  await page.keyboard.press("ArrowRight")
+  await expect(learning.getByRole("radio", { name: "Proposing" })).toBeFocused()
+  await page.keyboard.press("Enter")
+
+  const confirm = page.getByRole("dialog", { name: "Confirm change" })
+  await expect(confirm).toBeFocused()
+  // The dialog is described by its consequence, which a screen reader reads with its name.
+  await expect(confirm).toHaveAccessibleDescription(/objective and evidence/)
+  // Tab stays inside the dialog.
+  for (let step = 0; step < 4; step++) {
+    await page.keyboard.press("Tab")
+    expect(await confirm.evaluate((node) => node.contains(document.activeElement))).toBe(true)
+  }
+
+  await page.keyboard.press("Escape")
+  await expect(confirm).toHaveCount(0)
+  await expect(learning.getByRole("radio", { name: "Proposing" })).toBeFocused()
+  // Only the confirmation closed: the settings stay open, and nothing was written.
+  await expect(dialog).toBeVisible()
+  expect(calls.patches).toHaveLength(0)
+
+  // Enter on Cancel cancels; it never confirms.
+  await page.keyboard.press("Enter")
+  await expect(confirm).toBeFocused()
+  await confirm.getByRole("button", { name: "Cancel" }).focus()
+  await page.keyboard.press("Enter")
+  await expect(confirm).toHaveCount(0)
+  expect(calls.patches).toHaveLength(0)
 })
 
 // ── AH-C03: consent per provider ─────────────────────────────────────────────────────────────
@@ -588,9 +687,9 @@ test("FLUPCODE_ADAPTIVE_DISABLED=1 holds the level at Off and blocks every write
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await expect(levels(dialog).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true")
-  await expect(levels(dialog).getByRole("button", { name: "Observe" })).toBeDisabled()
-  await expect(levels(dialog).getByRole("button", { name: "Custom" })).toBeDisabled()
+  await expect(levels(dialog).getByRole("radio", { name: "Off" })).toHaveAttribute("aria-checked", "true")
+  await expect(levels(dialog).getByRole("radio", { name: "Observe" })).toBeDisabled()
+  await expect(levels(dialog).getByRole("radio", { name: "Custom" })).toBeDisabled()
   await expect(dialog.getByText("Set by the environment: the level stays Off.")).toBeVisible()
   await expect(dialog.getByText("Inactive: set to Off by the environment.")).toBeVisible()
   await dialog.locator("summary").filter({ hasText: "Advanced" }).click()
@@ -648,7 +747,7 @@ test("the decision audit paints the row and the explanation, and offers no actio
   await expect(page.getByRole("heading", { name: "Decisions", exact: true })).toBeVisible()
   const row = page.locator(".fc-context-row", { hasText: "Is the task done" })
   await expect(row).toContainText("typesafe")
-  await expect(row).toContainText("Degraded")
+  await expect(row).toContainText("Built-in rules were used (the model took too long)")
 
   await row.click()
   const dialog = page.getByRole("dialog", { name: "Decision" })
@@ -658,8 +757,16 @@ test("the decision audit paints the row and the explanation, and offers no actio
   await expect(dialog.getByText("Baseline")).toBeVisible()
   await expect(dialog).toContainText("$0.0031 · 812 input tokens")
 
+  await expect(dialog).toContainText("Built-in rules were used (the model took too long)")
+
   // Reading only: there is no route that approves, merges or archives a decision.
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive/i })).toHaveCount(0)
+
+  // The dialog takes the focus as it opens, Escape closes it, and the focus returns to the row (AH-E06).
+  await expect(dialog).toBeFocused()
+  await page.keyboard.press("Escape")
+  await expect(dialog).toHaveCount(0)
+  await expect(row).toBeFocused()
 })
 
 const explanationOf = (id: string, question: string) => ({
@@ -795,7 +902,7 @@ test("the context plan paints each disposition and reason, and offers no action"
 
   const block = page.locator(".fc-context-plan")
   await expect(block.getByText("Context plan")).toBeVisible()
-  await expect(block).toContainText("Shadow only: nothing was filtered.")
+  await expect(block).toContainText("Observe only: nothing was filtered.")
   // The refinement names the model that made it, whichever it was (AH-C02).
   await expect(block).toContainText("Refined by jev")
   await expect(block).toContainText("Archive · superseded")
