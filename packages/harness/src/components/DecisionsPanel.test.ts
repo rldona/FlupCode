@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test"
-import { confidenceText, costText, describeAnswer, explanationFor, kindText, latencyText } from "./DecisionsPanel"
+import {
+  confidenceText,
+  costText,
+  describeAnswer,
+  explanationFor,
+  kindText,
+  labelMark,
+  latencyText,
+  outcomeText,
+} from "./DecisionsPanel"
 import type { DecisionExplanation } from "../types"
 
 describe("an answer as one line", () => {
@@ -67,5 +76,20 @@ describe("the provider-neutral audit (AH-C02)", () => {
   test("a kind this build does not know is shown by the value stored", () => {
     expect(kindText({ kind: "unknown", raw: { kind: "future-kind" } })).toBe("future-kind")
     expect(kindText({ kind: "completion" })).toBe("completion")
+  })
+})
+
+describe("the real outcome (AH-C06)", () => {
+  test("a row carries a tick, a cross or a question mark, and nothing before it is labelled", () => {
+    expect(labelMark({ outcome: "correct", source: "skill-loads", labeledAt: 1 })).toBe("✓")
+    expect(labelMark({ outcome: "incorrect", source: "skill-loads", labeledAt: 1 })).toBe("✗")
+    expect(labelMark({ outcome: "unknown", source: "max-age", labeledAt: 1 })).toBe("?")
+    expect(labelMark(undefined)).toBeUndefined()
+  })
+
+  test("the dialog says the outcome in words", () => {
+    expect(outcomeText("correct")).toBe("Correct")
+    expect(outcomeText("incorrect")).toBe("Incorrect")
+    expect(outcomeText("unknown")).toBe("Not judgeable")
   })
 })

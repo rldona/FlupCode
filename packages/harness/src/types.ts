@@ -845,8 +845,23 @@ export type StoredDecision = {
   shadow: boolean
   /** The session's holdout arm (AH-B05): `control` was decided and audited but not applied. */
   arm?: "control" | "treatment"
+  /** The outcome label (AH-C06), once the labeler judged the decision. */
+  label?: DecisionLabel
   createdAt: number
   updatedAt: number
+}
+
+export type DecisionLabelOutcome = "correct" | "incorrect" | "unknown"
+
+/**
+ * How a decision scored against what actually happened (AH-C06). Mirrors `harness-server`'s own
+ * type: the answer's outcome, the baseline answer's against the same truth, and what produced it.
+ */
+export type DecisionLabel = {
+  outcome: DecisionLabelOutcome
+  baselineOutcome?: DecisionLabelOutcome
+  source: string
+  labeledAt: number
 }
 
 /**
@@ -887,6 +902,7 @@ export type DecisionExplanation = {
   episodeID?: string
   evidenceRefs: string[]
   decidedAt: number
+  label?: DecisionLabel
 }
 
 export type ItemDisposition = "keep" | "archive" | "drop"

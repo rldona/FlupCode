@@ -82,6 +82,8 @@ export type DecisionExplanation = {
   episodeID?: string
   evidenceRefs: string[]
   decidedAt: number
+  /** The outcome label (AH-C06), once the labeler judged it. */
+  label?: StoredDecision["label"]
 }
 
 /**
@@ -439,6 +441,7 @@ export function createDecisionService(deps: {
       ...(decision.episodeID !== undefined ? { episodeID: decision.episodeID } : {}),
       evidenceRefs: episode?.evidenceRefs ?? [],
       decidedAt: decision.createdAt,
+      ...(decision.label !== undefined ? { label: decision.label } : {}),
     }
   }
 

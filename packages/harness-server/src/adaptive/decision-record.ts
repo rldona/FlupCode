@@ -49,7 +49,7 @@ export type DecisionRow = {
   provider_version: string | null
   cost_usd: number | null
   input_tokens: number | null
-  /** `{ outcome, source }` as JSON (AH-C06); `labeled_at` is its own column so it can be queried. */
+  /** `{ outcome, baselineOutcome?, source }` as JSON (AH-C06); `labeled_at` is its own column so it can be queried. */
   label: string | null
   labeled_at: number | null
   created_at: number
@@ -229,5 +229,10 @@ const readSource = (row: DecisionRow): { value: DecisionSource | "unknown"; prov
 const parseLabel = (value: string | null, labeledAt: number | null): DecisionLabel | undefined => {
   const parsed = parseObject(value)
   if (!isDecisionLabelOutcome(parsed.outcome) || typeof parsed.source !== "string" || labeledAt === null) return undefined
-  return { outcome: parsed.outcome, source: parsed.source, labeledAt }
+  return {
+    outcome: parsed.outcome,
+    ...(isDecisionLabelOutcome(parsed.baselineOutcome) ? { baselineOutcome: parsed.baselineOutcome } : {}),
+    source: parsed.source,
+    labeledAt,
+  }
 }
