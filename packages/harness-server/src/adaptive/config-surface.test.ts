@@ -70,6 +70,7 @@ describe("the writable allowlist", () => {
       "guardrails.enabled",
       "toolTrim.enabled",
       "jev.enabled",
+      "models.*",
       "egress.providers.*.enabled",
       "egress.providers.*.projects",
       "egress.providers.*.kinds",
@@ -435,6 +436,110 @@ describe("moving an old config to per-provider consent (AH-C03)", () => {
   })
 })
 
+describe("assigning a model per decision (models.*)", () => {
+  const REGISTRY = [
+    { id: "jev", locality: "remote", name: "Jev", needsKey: true },
+    { id: "small-llm", locality: "remote", name: "Small model (through the engine)", supports: ["skillRelevance", "completion", "failure"] },
+    { id: "local-embed", locality: "local", supports: ["contextItem"] },
+  ] as const
+  const assign = (input: PlanOverrides) => plan({ models: REGISTRY, ...input })
+  const refuse = (input: PlanOverrides) => rejection({ models: REGISTRY, ...input })
+  const consented = { egress: { providers: { "small-llm": { enabled: true, projects: ["/p"], kinds: { skillRelevance: true } } } } }
+
+  test("a registered model that supports the kind is written, with no confirmation", () => {
+    const result = assign({ patch: { models: { skillRelevance: "small-llm" } }, block: consented })
+    expect(result.warnings).toEqual([])
+    expect(resolveAdaptiveConfig({ block: result.blockAfter, env: {} }).models).toEqual({ skillRelevance: "small-llm" })
+  })
+
+  test("an unknown id, or a model that cannot answer that kind, is refused by field", () => {
+    expect(refuse({ patch: { models: { completion: "nope" } } })).toMatchObject({
+      status: 422,
+      code: "unknown-model",
+      fields: ["models.completion"],
+    })
+    expect(refuse({ patch: { models: { contextItem: "small-llm" } } })).toMatchObject({
+      code: "unknown-model",
+      fields: ["models.contextItem"],
+    })
+    // Without a registry nothing is known, so no id can be assigned.
+    expect(rejection({ patch: { models: { completion: "jev" } } }).code).toBe("unknown-model")
+  })
+
+  test("an unknown kind, or a value that is not an id, is refused before the registry is read", () => {
+    expect(refuse({ patch: { models: { notAKind: "jev" } } })).toMatchObject({
+      code: "unsupported-field",
+      fields: ["models.notAKind"],
+    })
+    expect(refuse({ patch: { models: { completion: 3 } } }).code).toBe("invalid-value")
+    expect(refuse({ patch: { models: { completion: "a.b" } } }).code).toBe("invalid-value")
+  })
+
+  test("null clears a kind and baseline pins it, whatever the registry holds", () => {
+    const block = { models: { completion: "jev" } }
+    expect(assign({ patch: { models: { completion: null } }, block }).blockAfter).toEqual({ models: {} })
+    expect(assign({ patch: { models: { completion: "baseline" } }, block }).warnings).toEqual([])
+  })
+
+  test("assigning a remote model without that provider's consent for the kind warns, and a local one never does", () => {
+    expect(assign({ patch: { models: { completion: "small-llm" } }, block: consented }).warnings).toEqual(["model-no-consent"])
+    expect(assign({ patch: { models: { completion: "jev" } } }).warnings).toEqual(["model-no-consent"])
+    expect(assign({ patch: { models: { contextItem: "local-embed" } } }).warnings).toEqual([])
+    // Consent given in the same patch counts: the guards read the config after it.
+    const both = assign({
+      patch: {
+        models: { completion: "small-llm" },
+        egress: { providers: { "small-llm": { kinds: { completion: true } } } },
+      },
+      block: consented,
+      confirm: true,
+    })
+    expect(both.warnings).toEqual([])
+  })
+
+  test("with the legacy jev.enabled on, one assignment pins every other kind to Jev and turns it off", () => {
+    const block = {
+      jev: { enabled: true },
+      egress: { projects: ["/p"], kinds: { completion: true } },
+    }
+    const before = resolveAdaptiveConfig({ block, env: {} })
+    const result = assign({ patch: { models: { skillRelevance: "small-llm" } }, block })
+    const after = resolveAdaptiveConfig({ block: result.blockAfter, env: {} })
+    expect(after.jev.enabled).toBe(false)
+    expect(after.models).toEqual({ ...before.models, skillRelevance: "small-llm" })
+    // Jev's legacy consent moves to its own entry, so turning jev.enabled off revokes nothing.
+    expect(after.egress.providers.jev).toEqual(before.egress.providers.jev)
+    expect(result.blockAfter.egress).toMatchObject({ providers: { jev: { enabled: true, projects: ["/p"] } } })
+  })
+
+  test("the panel's own migration patch, every kind named and jev.enabled off, is written as sent", () => {
+    const block = { jev: { enabled: true }, egress: { providers: { jev: { enabled: true, projects: ["/p"], kinds: { completion: true } } } } }
+    const result = assign({
+      patch: { jev: { enabled: false }, models: { completion: "jev", skillRelevance: null, contextItem: "jev" } },
+      block,
+    })
+    expect(result.leaves.filter((leaf) => leaf.path === "jev.enabled")).toHaveLength(1)
+    const after = resolveAdaptiveConfig({ block: result.blockAfter, env: {} })
+    expect(after.jev.enabled).toBe(false)
+    expect(after.models.completion).toBe("jev")
+    expect(after.models.skillRelevance).toBeUndefined()
+    // The kinds the patch did not name keep Jev, as they resolved before it.
+    expect(after.models.failure).toBe("jev")
+    expect(after.egress.providers.jev).toEqual(resolveAdaptiveConfig({ block, env: {} }).egress.providers.jev)
+  })
+
+  test("without the legacy switch an assignment writes only its own leaf", () => {
+    const result = assign({ patch: { models: { completion: "jev" } }, block: {} })
+    expect(result.leaves.map((leaf) => leaf.path)).toEqual(["models.completion"])
+  })
+
+  test("a models entry reports its provenance per kind", () => {
+    const source = adaptiveSource({ models: { completion: "jev", skillRelevance: 3 } }, {})
+    expect(source["models.completion"]).toBe("block")
+    expect(source["models.skillRelevance"]).toBe("default")
+  })
+})
+
 describe("warnings", () => {
   test("context.apply warns that promotion is evaluation-gated", () => {
     expect(plan({ patch: { context: { apply: true } } }).warnings).toEqual(["evaluation-gated"])
@@ -540,6 +645,9 @@ describe("source provenance (env > block > default)", () => {
   })
 })
 
+/** A descriptor's path with its `*` filled: a provider id for consent, a decision kind for `models`. */
+const concreteLeaf = (path: string) => path.replace("*", path.startsWith("models.") ? "completion" : "jev")
+
 describe("source mirrors the resolver on partial and malformed blocks", () => {
   test("every writable leaf is block only when the block carries its declared type", () => {
     const block = {
@@ -556,9 +664,10 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       budget: { monthlyTokens: 10 },
       compaction: { anchors: false },
       selection: { enabled: false, coldGapMs: 360_000 },
+      models: { completion: "jev" },
     }
     const source = adaptiveSource(block, {})
-    for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("block")
+    for (const field of WRITABLE_FIELDS) expect(source[concreteLeaf(field.path)]).toBe("block")
   })
 
   test("a mistyped writable leaf is default and the effective value is its default, not the bad one", () => {
@@ -576,9 +685,10 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       budget: { monthlyTokens: -5 },
       compaction: { anchors: "off" },
       selection: { enabled: "true", coldGapMs: 1.5 },
+      models: { completion: 5 },
     }
     const source = adaptiveSource(block, {})
-    for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("default")
+    for (const field of WRITABLE_FIELDS) expect(source[concreteLeaf(field.path)]).toBe("default")
 
     const effective = resolveAdaptiveConfig({ block, env: {} })
     expect(effective.enabled).toBe(true)
@@ -697,6 +807,28 @@ describe("the read model", () => {
       { id: "local-embed", locality: "local" },
     ] as const
     expect(adaptiveConfigView(viewInput({ resolved, models })).egressProviders).toEqual(["jev", "small-llm", "other"])
+  })
+
+  test("serves the registry with the names a reader is shown, what each answers and what it needs", () => {
+    const models = [
+      { id: "jev", locality: "remote", name: "Jev", needsKey: true },
+      { id: "small-llm", locality: "remote", name: "Small model (through the engine)", supports: ["completion"] },
+      { id: "local-embed", locality: "local" },
+    ] as const
+    expect(adaptiveConfigView(viewInput({ models })).models).toEqual([
+      { id: "jev", name: "Jev", locality: "remote", supports: expect.arrayContaining(["completion", "skillReflection"]), needsConsent: true, needsKey: true },
+      { id: "small-llm", name: "Small model (through the engine)", locality: "remote", supports: ["completion"], needsConsent: true, needsKey: false },
+      // A model without a name is shown by its id; a local one needs no consent.
+      { id: "local-embed", name: "local-embed", locality: "local", supports: expect.any(Array), needsConsent: false, needsKey: false },
+    ])
+    expect(adaptiveConfigView(viewInput()).models).toEqual([])
+  })
+
+  test("the legacy jev.enabled reads as every kind assigned to Jev", () => {
+    const resolved = createAdaptiveConfig({ read: () => ({ jev: { enabled: true } }), env: {} }).current()
+    const view = adaptiveConfigView(viewInput({ resolved }))
+    expect(view.effective.models.completion).toBe("jev")
+    expect(view.effective.models.skillRelevance).toBe("jev")
   })
 
   test("names the model a learning draft is sent to: the learning model first, then small_model", () => {

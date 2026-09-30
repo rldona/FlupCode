@@ -5,6 +5,7 @@ import type { AdaptiveConfigError } from "../client"
 import type {
   AdaptiveConfigView,
   AdaptiveLearningLimitHit,
+  AdaptiveModel,
   AdaptiveRuntimeAlert,
   AdaptiveProvenance,
   AdaptiveProviderConsent,
@@ -33,8 +34,69 @@ export type AdaptiveProblem = "env-disabled" | "no-adaptive-token" | "egress-all
  */
 export function writableField(view: AdaptiveConfigView, path: string): AdaptiveWritableField | undefined {
   const consent = consentPath(path)
-  const wanted = consent ? `egress.providers.*.${consent.leaf}` : path
+  const wanted = consent ? `egress.providers.*.${consent.leaf}` : path.startsWith("models.") ? "models.*" : path
   return view.writable.find((field) => field.path === wanted)
+}
+
+/**
+ * The name a reader is shown for a model or provider id, as the server's registry says it, translated
+ * when the app knows the words. An id the registry does not name (an older server, or a provider only
+ * the config file mentions) is shown as it is.
+ */
+export function modelName(view: AdaptiveConfigView, id: string): string {
+  return t(view.models?.find((model) => model.id === id)?.name ?? id)
+}
+
+/** The registered models that can answer a kind, for its selector. */
+export function assignableModels(view: AdaptiveConfigView, kind: string): AdaptiveModel[] {
+  return (view.models ?? []).filter((model) => model.supports.includes(kind))
+}
+
+/**
+ * The model that answers a kind, or undefined for none. The server resolves the legacy `jev.enabled`
+ * into `effective.models` (every kind the block does not name asks Jev), so this is the effective
+ * assignment either way.
+ */
+export function assignedModel(view: AdaptiveConfigView, kind: string): string | undefined {
+  const models = view.effective.models ?? {}
+  const id = Object.hasOwn(models, kind) ? models[kind] : undefined
+  return typeof id === "string" ? id : undefined
+}
+
+/**
+ * The leaves choosing a model for a kind writes; null is none. While the legacy `jev.enabled` is on it
+ * assigns Jev to every kind without an entry, so the first choice writes the whole effective assignment
+ * as an explicit `models` block and turns `jev.enabled` off in the same patch: the two never disagree,
+ * and no kind changes but the one chosen.
+ */
+export function assignmentLeaves(view: AdaptiveConfigView, kind: string, id: string | null): Record<string, unknown> {
+  if (!view.effective.jev.enabled) return { [`models.${kind}`]: id }
+  return {
+    ...Object.fromEntries(Object.entries(view.effective.models ?? {}).map(([entry, model]) => [`models.${entry}`, model])),
+    [`models.${kind}`]: id,
+    "jev.enabled": false,
+  }
+}
+
+/**
+ * What a kind's model still needs before it can answer, in the order its provider's section draws it:
+ * a project, this decision, sending data turned on, then the key. A local model needs no consent.
+ */
+export function missingForKind(view: AdaptiveConfigView, kind: string, id: string): MissingItem[] {
+  const model = view.models?.find((entry) => entry.id === id)
+  const provider = modelName(view, id)
+  const consent = consentOf(view, id)
+  const needsConsent = model?.needsConsent ?? true
+  return [
+    ...(needsConsent && (consent?.projects.length ?? 0) === 0 ? [{ key: "a project" }] : []),
+    ...(needsConsent && consent?.kinds[kind] !== true
+      ? [{ key: "this decision allowed for {provider}", params: { provider } }]
+      : []),
+    ...(needsConsent && consent?.enabled !== true
+      ? [{ key: "sending data to {provider} turned on", params: { provider } }]
+      : []),
+    ...(model?.needsKey === true && !view.env.typesafeKeyPresent ? [{ key: "the model key" }] : []),
+  ]
 }
 
 /** The provider and leaf of a consent path (`egress.providers.<id>.<leaf>`), or undefined. */
@@ -115,7 +177,7 @@ export function missingFor(view: AdaptiveConfigView, path: string): MissingItem[
     ...((current?.projects.length ?? 0) === 0 ? [{ key: "a project" }] : []),
     ...(Object.values(current?.kinds ?? {}).some(Boolean) ? [] : [{ key: "a decision" }]),
     ...(path === "jev.enabled" && current?.enabled !== true
-      ? [{ key: "sending data to {provider} turned on", params: { provider } }]
+      ? [{ key: "sending data to {provider} turned on", params: { provider: modelName(view, provider) } }]
       : []),
     ...(path === "jev.enabled" && !view.env.typesafeKeyPresent ? [{ key: "the model key" }] : []),
   ]
@@ -444,16 +506,27 @@ function inertStatus(view: AdaptiveConfigView): CapabilityStatus | undefined {
 }
 
 /**
- * The predictive model's state: not configured, waiting for its key, paused because the value gate
- * (AH-C05) judged it does not pay for itself, or active.
+ * The predictive models' state, derived from the assignments: not configured while no decision has a
+ * model, else which model answers each decision and what each still waits for — its provider's
+ * permission or its key — or paused because the value gate (AH-C05) judged it does not pay for itself.
  */
 export function predictiveStatus(view: AdaptiveConfigView, voi?: ValueGateSnapshot): CapabilityStatus {
-  const consented = Object.values(view.effective.egress.providers).some((consent) => consent.enabled)
-  if (!view.effective.jev.enabled && !consented) return { tone: "off", key: "Not configured" }
+  const rows = ADAPTIVE_KINDS.flatMap((kind) => {
+    const id = assignedModel(view, kind)
+    return id === undefined ? [] : [{ kind, id, missing: missingForKind(view, kind, id) }]
+  })
+  if (rows.length === 0) return { tone: "off", key: "Not configured" }
   const inert = inertStatus(view)
   if (inert) return inert
-  if (view.effective.jev.enabled && !view.env.typesafeKeyPresent)
-    return { tone: "waiting", key: "Active · waiting for the model key" }
+  const assignments = rows
+    .map((row) => {
+      const words = { kind: t(KIND_LABELS[row.kind] ?? row.kind), model: modelName(view, row.id) }
+      if (row.missing.length === 0) return t("{kind}: {model}", words)
+      const reason = row.missing.some((item) => item.key !== "the model key") ? "needs permission" : "key missing"
+      return t("{kind}: {model} ({reason})", { ...words, reason: t(reason) })
+    })
+    .join(" · ")
+  if (rows.every((row) => row.missing.length > 0)) return { tone: "waiting", key: "{assignments}", params: { assignments } }
   const gates = voi?.enabled ? voi.kinds : []
   const paused = gates.filter((gate) => gate.state === "paused").length
   if (gates.length > 0 && paused === gates.length)
@@ -464,7 +537,7 @@ export function predictiveStatus(view: AdaptiveConfigView, voi?: ValueGateSnapsh
       key: "Active · paused for {paused} of {total} decisions, for low value",
       params: { paused, total: gates.length },
     }
-  return { tone: "active", key: "Active · in use" }
+  return { tone: "active", key: "{assignments}", params: { assignments } }
 }
 
 /** What the predictive model cost over the value gate's window, in USD, rounded for reading. */
@@ -613,6 +686,7 @@ const FEEDBACK: Record<string, string> = {
   "invalid-key": "The key cannot be empty.",
   "vault-unavailable": "This machine cannot store the key: its encrypted store is not available.",
   "invalid-endpoint": "The predictive model's address is not valid, so the key was not saved.",
+  "unknown-model": "That model is not available for this decision on this server.",
 }
 
 export function feedbackFor(code: string, missing?: string[]): AdaptiveFeedback {
@@ -636,6 +710,8 @@ const WARNINGS: Record<string, string> = {
   "learning-draft-egress": "Learning drafts are sent, redacted, to the configured small model's provider.",
   "classifier-no-consent":
     "The predictive model cannot review sessions, so skills are proposed with built-in rules on this machine.",
+  "model-no-consent":
+    "The model is chosen, but it cannot receive this decision until you allow sharing it with its provider. Built-in rules decide meanwhile.",
 }
 
 export function warningKey(warning: string): string {
@@ -653,7 +729,7 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
   if (consent?.leaf === "enabled" && value === true)
     return t(
       "Consenting to {provider}: redacted, size-limited decision inputs for the listed projects and decisions are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.",
-      { provider: consent.provider },
+      { provider: modelName(view, consent.provider) },
     )
   if (path === "retention.enabled" && value === true)
     return t(
@@ -667,7 +743,7 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
     const known = new Set(consentOf(view, consent.provider)?.projects ?? [])
     return t(
       "{provider} may then receive redacted, size-limited decision inputs from {projects}. The change is written to the config file.",
-      { provider: consent.provider, projects: value.filter((project) => !known.has(project)).join(", ") },
+      { provider: modelName(view, consent.provider), projects: value.filter((project) => !known.has(project)).join(", ") },
     )
   }
   if (consent?.leaf === "kinds" && isRecord(value)) {
@@ -675,7 +751,7 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
     const added = Object.keys(value).filter((kind) => value[kind] === true && before[kind] !== true)
     return t(
       "{provider} may then receive redacted, size-limited inputs to decide: {kinds}. The change is written to the config file.",
-      { provider: consent.provider, kinds: added.map((kind) => t(KIND_LABELS[kind] ?? kind)).join(", ") },
+      { provider: modelName(view, consent.provider), kinds: added.map((kind) => t(KIND_LABELS[kind] ?? kind)).join(", ") },
     )
   }
   if (path !== "learning.enabled" || value !== true)
@@ -969,18 +1045,20 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
   }
 
   /**
-   * One remote provider's consent: its switch, the projects and the decisions it may receive. Each
-   * row names the provider, and consenting to one never covers another.
+   * One remote provider's section: the projects and the decisions it may receive, its switch, and —
+   * only for a model that needs one — its key. Each row names the provider by the name the server
+   * gives it, and consenting to one never covers another.
    */
-  const ProviderConsent = (row: { provider: string }) => {
+  const ProviderConsent = (row: { provider: string; view: AdaptiveConfigView }) => {
     const [project, setProject] = createSignal("")
     const path = (leaf: string) => `egress.providers.${row.provider}.${leaf}`
+    const name = () => modelName(row.view, row.provider)
     const projects = () => (props.view ? consentOf(props.view, row.provider)?.projects : undefined) ?? []
     const kinds = () => (props.view ? consentOf(props.view, row.provider)?.kinds : undefined) ?? {}
     return (
       <>
         <Show when={field(path("enabled")) || field(path("projects")) || field(path("kinds"))}>
-          <div class="fc-settings-subtitle">{t("Sharing with {provider}", { provider: row.provider })}</div>
+          <div class="fc-settings-subtitle">{t("Sharing with {provider}", { provider: name() })}</div>
         </Show>
         <Show when={field(path("projects"))}>
           <Show
@@ -1015,7 +1093,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
           <Show when={!readOnly()}>
             <div class="fc-field-row" classList={{ "fc-settings-refused": refused(path("projects")) }}>
               <label class="fc-field">
-                <span>{t("Project path for {provider}", { provider: row.provider })}</span>
+                <span>{t("Project path for {provider}", { provider: name() })}</span>
                 <input
                   class="fc-question-custom"
                   dir="ltr"
@@ -1044,7 +1122,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                 <span>{t(KIND_LABELS[kind] ?? kind)}</span>
                 <Toggle
                   checked={kinds()[kind] === true}
-                  label={t("{kind} for {provider}", { kind: t(KIND_LABELS[kind] ?? kind), provider: row.provider })}
+                  label={t("{kind} for {provider}", { kind: t(KIND_LABELS[kind] ?? kind), provider: name() })}
                   disabled={locked()}
                   onToggle={() => propose(path("kinds"), { ...kinds(), [kind]: kinds()[kind] !== true })}
                 />
@@ -1052,12 +1130,59 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             )}
           </For>
         </Show>
-        <Switch path={path("enabled")} label="Send data to {provider}" params={{ provider: row.provider }}>
+        <Switch path={path("enabled")} label="Send data to {provider}" params={{ provider: name() }}>
           <span class="fc-settings-hint">
-            {t("Needs confirmation. Covers {provider} only.", { provider: row.provider })}
+            {t("Needs confirmation. Covers {provider} only.", { provider: name() })}
           </span>
         </Switch>
+        <Show when={row.view.models?.find((model) => model.id === row.provider)?.needsKey}>
+          <ModelKeyRow view={row.view} />
+        </Show>
       </>
+    )
+  }
+
+  /**
+   * Which model answers one decision: None, or a registered model that can answer it, by its name. A
+   * chosen model that still waits for something says exactly what, and where the legacy single switch
+   * assigned it, the first choice here saves one choice per decision instead.
+   */
+  const KindModel = (row: { kind: string; view: AdaptiveConfigView }) => {
+    const id = `fc-adaptive-model-${row.kind}`
+    const current = () => assignedModel(row.view, row.kind)
+    const options = () => {
+      const assignable = assignableModels(row.view, row.kind).map((model) => model.id)
+      const chosen = current()
+      return chosen === undefined || assignable.includes(chosen) ? assignable : [...assignable, chosen]
+    }
+    const missing = () => {
+      const chosen = current()
+      return chosen === undefined ? [] : missingForKind(row.view, row.kind, chosen)
+    }
+    return (
+      <div class="fc-settings-row" classList={{ "fc-settings-refused": refused(`models.${row.kind}`) }}>
+        <span class="fc-settings-usage">
+          <label for={id}>{t(KIND_LABELS[row.kind] ?? row.kind)}</label>
+          <Show when={missing().length > 0}>
+            <span class="fc-settings-hint">{missingText(missing())}</span>
+          </Show>
+        </span>
+        <select
+          id={id}
+          class="fc-toolbar-select"
+          value={current() ?? ""}
+          disabled={locked()}
+          onChange={(event) => {
+            const next = event.currentTarget.value
+            // The select shows the server's value until the answer comes back with the new one.
+            event.currentTarget.value = current() ?? ""
+            proposeLeaves(assignmentLeaves(row.view, row.kind, next === "" ? null : next))
+          }}
+        >
+          <option value="">{t("None (built-in rules)")}</option>
+          <For each={options()}>{(model) => <option value={model}>{modelName(row.view, model)}</option>}</For>
+        </select>
+      </div>
     )
   }
 
@@ -1275,16 +1400,35 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                   "A predictive model can double-check some of these decisions. It only receives redacted, size-limited inputs, only for the projects you allow, and only from the providers you allow below.",
                 )}
               </p>
-              {/* In the order the reader has to do it (§7.4): what may leave the machine, provider by
-                  provider (AH-C03), then the key, then the switch that uses both. */}
+              {/* Which model answers each decision (AH-C01), then what each remote provider may receive
+                  (AH-C03) with its key where it needs one: every row above says what it still waits for. */}
+              <Show when={field("models.completion")}>
+                <h4 class="fc-settings-subtitle">{t("Which model answers each decision")}</h4>
+                <For each={ADAPTIVE_KINDS}>{(kind) => <KindModel kind={kind} view={view()} />}</For>
+                <Show when={view().effective.jev.enabled}>
+                  <p class="fc-settings-hint">
+                    {t(
+                      "These choices come from the older single switch. Changing one saves a choice per decision and turns that switch off.",
+                    )}
+                  </p>
+                </Show>
+              </Show>
               <Show when={consentProviders(view()).length > 0}>
                 <h4 class="fc-settings-subtitle">{t("Data shared with the predictive model")}</h4>
               </Show>
-              <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
-              <ModelKeyRow view={view()} />
-              <Switch path="jev.enabled" label="Use the predictive model">
-                <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
-              </Switch>
+              <For each={consentProviders(view())}>
+                {(provider) => <ProviderConsent provider={provider} view={view()} />}
+              </For>
+              {/* An older server neither names its models nor assigns them per decision: its key row and
+                  its single switch stay as they were. */}
+              <Show when={!view().models}>
+                <ModelKeyRow view={view()} />
+              </Show>
+              <Show when={!field("models.completion")}>
+                <Switch path="jev.enabled" label="Use the predictive model">
+                  <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
+                </Switch>
+              </Show>
               <Show when={props.voi?.enabled && props.voi.kinds.length > 0}>
                 <div class="fc-settings-subtitle">{t("Is it worth asking?")}</div>
                 <For each={props.voi?.kinds ?? []}>

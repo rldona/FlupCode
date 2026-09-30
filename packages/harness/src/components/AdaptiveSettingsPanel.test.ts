@@ -2,6 +2,11 @@ import { describe, expect, test } from "bun:test"
 import {
   CAPABILITIES,
   advancedFields,
+  assignableModels,
+  assignedModel,
+  assignmentLeaves,
+  missingForKind,
+  modelName,
   capabilityChoice,
   capabilityChoices,
   capabilityStatus,
@@ -313,6 +318,7 @@ describe("the server's answer said in the reader's words", () => {
       "invalid-key",
       "vault-unavailable",
       "invalid-endpoint",
+      "unknown-model",
     ]
     for (const code of codes) expect(feedbackFor(code).message).not.toBe("The change could not be saved.")
   })
@@ -326,6 +332,9 @@ describe("the server's answer said in the reader's words", () => {
       "The predictive model cannot review sessions, so skills are proposed with built-in rules on this machine.",
     )
     expect(warningKey("evaluation-gated")).toBe("Applying is configured, but promotion waits for the offline evaluation.")
+    expect(warningKey("model-no-consent")).toBe(
+      "The model is chosen, but it cannot receive this decision until you allow sharing it with its provider. Built-in rules decide meanwhile.",
+    )
   })
 
   test("provenance is said where it comes from", () => {
@@ -795,33 +804,82 @@ describe("the Learning card's freeze and limits (AH-F03)", () => {
   })
 })
 
-describe("the predictive model's state", () => {
-  test("not configured until it or a provider's consent is on", () => {
+/** The registry as the server serves it (AH-C01), with the names a reader is shown. */
+const MODELS = [
+  { id: "jev", name: "Jev", locality: "remote" as const, supports: ["completion", "skillRelevance", "contextItem", "skillReflection", "failure"], needsConsent: true, needsKey: true },
+  { id: "small-llm", name: "Small model (through the engine)", locality: "remote" as const, supports: ["skillRelevance", "completion", "failure"], needsConsent: true, needsKey: false },
+]
+const MODEL_FIELD: AdaptiveWritableField = { path: "models.*", type: "model", confirmation: "none", guard: "none", warning: "model-no-consent" }
+
+/** A view with the registry, the given assignments and consents, and whether the key is set. */
+const assigning = (
+  models: Record<string, string>,
+  providers: Record<string, Partial<{ enabled: boolean; projects: string[]; kinds: Record<string, boolean> }>> = {},
+  key = false,
+  jevEnabled = false,
+): AdaptiveConfigView => {
+  const base = consenting(providers)
+  return {
+    ...base,
+    models: MODELS,
+    writable: [...WRITABLE, MODEL_FIELD],
+    env: { adaptiveDisabled: false, typesafeKeyPresent: key },
+    effective: { ...base.effective, models, jev: { enabled: jevEnabled } },
+  }
+}
+const ALLOWED = { enabled: true, projects: ["/p"], kinds: { completion: true, skillRelevance: true } }
+
+describe("the predictive models' state, from the assignments", () => {
+  test("not configured while no decision has a model", () => {
     expect(predictiveStatus(view()).key).toBe("Not configured")
+    // Consent alone assigns nothing.
+    expect(predictiveStatus(assigning({}, { jev: ALLOWED })).key).toBe("Not configured")
   })
 
-  test("on without its key is active but waiting", () => {
-    expect(predictiveStatus(view({ jev: { enabled: true } }))).toEqual({
-      tone: "waiting",
-      key: "Active · waiting for the model key",
-    })
+  test("says which model answers each decision by its name, and what each still waits for", () => {
+    const status = predictiveStatus(assigning({ skillRelevance: "small-llm", completion: "jev" }, { jev: ALLOWED, "small-llm": ALLOWED }))
+    expect(status.tone).toBe("active")
+    expect(t(status.key, status.params)).toBe(
+      "Whether the task is finished: Jev (key missing) · Which skills fit: Small model (through the engine)",
+    )
+    const waiting = predictiveStatus(assigning({ completion: "small-llm" }))
+    expect(waiting.tone).toBe("waiting")
+    expect(t(waiting.key, waiting.params)).toBe("Whether the task is finished: Small model (through the engine) (needs permission)")
+  })
+
+  test("the legacy single switch reads as every decision answered by Jev", () => {
+    const legacy = assigning({ completion: "jev", skillRelevance: "jev", contextItem: "jev", skillReflection: "jev" }, { jev: ALLOWED }, true, true)
+    const status = predictiveStatus(legacy)
+    expect(t(status.key, status.params)).toBe(
+      "Whether the task is finished: Jev · Which skills fit: Jev · Which context to keep: Jev (needs permission) · Whether a session is worth learning from: Jev (needs permission)",
+    )
   })
 
   test("paused for low value when the value gate pauses every decision it serves", () => {
-    const on = { ...view({ jev: { enabled: true } }), env: { adaptiveDisabled: false, typesafeKeyPresent: true } }
-    expect(predictiveStatus(on).key).toBe("Active · in use")
+    const on = assigning({ completion: "jev" }, { jev: ALLOWED }, true)
+    expect(t(predictiveStatus(on).key, predictiveStatus(on).params)).toBe("Whether the task is finished: Jev")
     expect(predictiveStatus(on, snapshot([gate("completion", "paused"), gate("contextItem", "paused")])).key).toBe(
       "Paused: it is not adding enough value",
     )
     const partly = predictiveStatus(on, snapshot([gate("completion", "paused"), gate("contextItem", "asking")]))
     expect(t(partly.key, partly.params)).toBe("Active · paused for 1 of 2 decisions, for low value")
-    expect(predictiveStatus(on, { ...snapshot([gate("completion", "paused")]), enabled: false }).key).toBe(
-      "Active · in use",
-    )
   })
 
   test("the level off makes it inactive with that reason", () => {
-    expect(predictiveStatus(view({ jev: { enabled: true }, enabled: false })).key).toBe("Inactive: the level is Off.")
+    const off = assigning({ completion: "jev" })
+    expect(predictiveStatus({ ...off, effective: { ...off.effective, enabled: false } }).key).toBe("Inactive: the level is Off.")
+  })
+
+  test("reads the same in Spanish, the model names included", () => {
+    setLocale("es")
+    try {
+      const status = predictiveStatus(assigning({ skillRelevance: "small-llm", completion: "jev" }, { "small-llm": ALLOWED }))
+      expect(t(status.key, status.params)).toBe(
+        "Si la tarea está terminada: Jev (falta permiso) · Qué skills encajan: Modelo pequeño (a través del motor)",
+      )
+    } finally {
+      setLocale("en")
+    }
   })
 
   test("its cost is the value gate's, rounded for reading", () => {
@@ -830,6 +888,113 @@ describe("the predictive model's state", () => {
     ).toBe("0.0021")
     expect(predictiveCost(snapshot([gate("completion", "asking", 1.234)]))).toBe("1.23")
     expect(predictiveCost(undefined)).toBe("0.0000")
+  })
+})
+
+describe("choosing a model per decision (AH-C01)", () => {
+  test("the selector is offered only when the server lists models.*", () => {
+    expect(writableField(assigning({}), "models.completion")?.path).toBe("models.*")
+    expect(writableField(view(), "models.completion")).toBeUndefined()
+  })
+
+  test("each decision offers the registered models that can answer it, by their names", () => {
+    const current = assigning({})
+    expect(assignableModels(current, "completion").map((model) => modelName(current, model.id))).toEqual([
+      "Jev",
+      "Small model (through the engine)",
+    ])
+    expect(assignableModels(current, "contextItem").map((model) => model.id)).toEqual(["jev"])
+    // An id the registry does not name is shown as it is: it is data, not copy.
+    expect(modelName(current, "other")).toBe("other")
+    expect(modelName(view(), "jev")).toBe("jev")
+  })
+
+  test("the selector shows the effective assignment, the legacy switch's included", () => {
+    const legacy = assigning({ completion: "jev", skillRelevance: "jev" }, {}, false, true)
+    expect(assignedModel(legacy, "completion")).toBe("jev")
+    expect(assignedModel(assigning({}), "completion")).toBeUndefined()
+  })
+
+  test("a choice writes its own leaf, and null for none", () => {
+    expect(assignmentLeaves(assigning({ completion: "jev" }), "skillRelevance", "small-llm")).toEqual({
+      "models.skillRelevance": "small-llm",
+    })
+    expect(assignmentLeaves(assigning({ completion: "jev" }), "completion", null)).toEqual({ "models.completion": null })
+  })
+
+  test("under the legacy switch the first choice writes every assignment explicitly and turns the switch off", () => {
+    const legacy = assigning({ completion: "jev", skillRelevance: "jev", failure: "jev" }, {}, false, true)
+    const leaves = assignmentLeaves(legacy, "skillRelevance", "small-llm")
+    expect(leaves).toEqual({
+      "models.completion": "jev",
+      "models.skillRelevance": "small-llm",
+      "models.failure": "jev",
+      "jev.enabled": false,
+    })
+    // One patch, with no confirmation: turning a switch off and assigning are not consent.
+    expect(Object.entries(leaves).some(([path, value]) => needsConfirmation(path, value, legacy))).toBe(false)
+    expect(patchOf(leaves)).toEqual({
+      models: { completion: "jev", skillRelevance: "small-llm", failure: "jev" },
+      jev: { enabled: false },
+    })
+  })
+
+  test("each row says what its model still needs: its provider's project, this decision, sending data, the key", () => {
+    const said = (current: AdaptiveConfigView, kind: string, id: string) => {
+      const items = missingForKind(current, kind, id)
+      return items.length > 0 ? missingText(items) : undefined
+    }
+    expect(said(assigning({}), "completion", "jev")).toBe(
+      "Missing: a project, this decision allowed for Jev, sending data to Jev turned on, and the model key",
+    )
+    expect(said(assigning({}, { jev: ALLOWED }), "completion", "jev")).toBe("Missing: the model key")
+    expect(said(assigning({}, { jev: ALLOWED }, true), "completion", "jev")).toBeUndefined()
+    // Consent is per decision: Jev may decide completion, not which context to keep.
+    expect(said(assigning({}, { jev: ALLOWED }, true), "contextItem", "jev")).toBe("Missing: this decision allowed for Jev")
+    // The small model needs no key.
+    expect(said(assigning({}, { "small-llm": { projects: ["/p"] } }), "completion", "small-llm")).toBe(
+      "Missing: this decision allowed for Small model (through the engine) and sending data to Small model (through the engine) turned on",
+    )
+  })
+
+  test("a local model needs no consent", () => {
+    const local = { ...assigning({}), models: [{ id: "local-embed", name: "Local", locality: "local" as const, supports: ["contextItem"], needsConsent: false, needsKey: false }] }
+    expect(missingForKind(local, "contextItem", "local-embed")).toEqual([])
+  })
+
+  test("every provider-facing text uses the display name, never the raw id", () => {
+    const current = assigning({}, { "small-llm": {} })
+    const texts = [
+      confirmationMessage("egress.providers.jev.enabled", true, current),
+      confirmationMessage("egress.providers.small-llm.projects", ["/p"], current),
+      confirmationMessage("egress.providers.small-llm.kinds", { completion: true }, current),
+      missingText(missingFor(current, "jev.enabled")),
+    ]
+    for (const text of texts) {
+      expect(text).not.toMatch(/\bjev\b|small-llm/)
+    }
+    expect(texts[0]).toContain("covers Jev only")
+    expect(texts[1]).toContain("Small model (through the engine) may then receive")
+  })
+
+  test("the selector's words are translated", () => {
+    setLocale("es")
+    try {
+      for (const key of [
+        "Which model answers each decision",
+        "None (built-in rules)",
+        "this decision allowed for {provider}",
+        "needs permission",
+        "key missing",
+        "Small model (through the engine)",
+        "These choices come from the older single switch. Changing one saves a choice per decision and turns that switch off.",
+      ])
+        expect(t(key)).not.toBe(key)
+      expect(modelName(assigning({}), "small-llm")).toBe("Modelo pequeño (a través del motor)")
+      expect(modelName(assigning({}), "jev")).toBe("Jev")
+    } finally {
+      setLocale("en")
+    }
   })
 })
 

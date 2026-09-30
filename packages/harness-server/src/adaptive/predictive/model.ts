@@ -83,6 +83,13 @@ export type PredictiveModel = {
   readonly id: string
   /** A `remote` model is only asked for kinds and projects the egress guard allows. */
   readonly locality: "local" | "remote"
+  /**
+   * The name a reader is shown for it ("Jev", "Small model (through the engine)"); the id is only
+   * what the config file says. The settings view serves it with the registry so no client spells it.
+   */
+  readonly name?: string
+  /** Whether it needs the predictive model key (ADR-0017, amended) before it can answer. */
+  readonly needsKey?: boolean
   /** The kinds it can answer; a kind assigned to a model that does not support it keeps the baseline. */
   readonly supports: readonly DecisionKind[]
   predict(state: PredictionState, questions: readonly Question[], options: PredictOptions): Promise<Prediction>

@@ -63,6 +63,7 @@ export function createSmallLlmModel(input: {
   const now = input.now ?? Date.now
   return {
     ...SMALL_LLM,
+    name: "Small model (through the engine)",
     supports: SMALL_LLM_KINDS,
     async predict(state, questions, options): Promise<Prediction> {
       if (questions.length === 0) throw new DecisionUnavailable("malformed")

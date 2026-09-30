@@ -141,6 +141,28 @@ credential vault (`vault.ts`, AES-256-GCM under the vault key):
   as is the environment's key.
 - Without a vault key nothing can be stored; the panel says so and points to the environment variable.
 
+## Amendment (2026-09-30): models are assigned per decision from the settings surface
+
+Since AH-C01/C03 the backend asks one registered model per decision kind (`adaptive.models.<kind>`)
+under that provider's own consent (`egress.providers.<id>`), but the settings surface could only
+write the legacy `jev.enabled`, which assigns Jev to every kind. The contract now says:
+
+- `models.<kind>` is writable (descriptor `models.*`, type `model`): a registered id that supports the
+  kind, `"baseline"`, or `null` for none. An unknown id, or one whose model cannot answer that kind,
+  is refused with `422 unknown-model` and the field.
+- **Assigning is not consent.** It asks no confirmation and has no guard: nothing leaves the machine
+  until the provider's own consent allows the project and the kind, which keeps its confirmation.
+  Assigning a remote model without that consent answers the warning `model-no-consent`, like
+  `classifier-no-consent` for learning.
+- The view serves the registry as `models: [{ id, name, locality, supports, needsConsent, needsKey }]`,
+  so the panel shows each model by its name ("Jev", "Small model (through the engine)") and raw ids
+  stay in the config file. Only a model with `needsKey` (Jev) has the key row of the amendment above.
+- **Legacy `jev.enabled`** is still read (every kind without a `models` entry asks Jev) and still
+  writable. A patch that writes any `models.*` leaf while `jev.enabled` is on pins every kind neither
+  the block nor the patch names to `"jev"`, turns `jev.enabled` off and moves Jev's legacy consent
+  into `egress.providers.jev`, so the move changes no assignment and revokes nothing. The panel sends
+  that whole block itself in the same patch; the server does it for any other client.
+
 ## Alternatives considered
 
 | Alternative | Why it is not adopted |

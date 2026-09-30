@@ -17,10 +17,18 @@ import type { ParseError } from "jsonc-parser"
 import { configDirectory } from "../context"
 import { applyEditsToFile, ConfigWriteError, isFile, tryReadConfigText } from "../config-write"
 import type { AdaptiveUsageRepository } from "../types"
-import { LEGACY_EGRESS_PROVIDER, PROVIDER_ID_PATTERN, legacyEgressProvider, resolveAdaptiveConfig } from "./config"
+import {
+  BASELINE_MODEL,
+  LEGACY_EGRESS_PROVIDER,
+  PROVIDER_ID_PATTERN,
+  legacyEgressProvider,
+  resolveAdaptiveConfig,
+} from "./config"
 import type { AdaptiveConfig } from "./config"
 import type { EgressSubject } from "./egress"
 import { decisionKinds, isDecisionKind } from "./decision"
+import type { DecisionKind } from "./decision"
+import type { PredictiveModel } from "./predictive/model"
 import { budgetMonth } from "./providers/budget"
 import { learningModel } from "./learning/draft"
 import type { RuntimeAlert, RuntimeCapabilities, RuntimeKind } from "./runtime"
@@ -41,7 +49,7 @@ export class AdaptiveConfigError extends Error {
   }
 }
 
-export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number" | "count"
+export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number" | "count" | "model"
 export type AdaptiveConfirmation = "none" | "required" | "widening"
 export type AdaptiveGuard = "none" | "env-disabled" | "adaptive-token" | "egress-allowlist"
 export type AdaptiveWarning =
@@ -51,10 +59,12 @@ export type AdaptiveWarning =
   | "skills-still-load"
   | "learning-draft-egress"
   | "classifier-no-consent"
+  | "model-no-consent"
 
 /**
  * One switch the settings panel may render; the list is the whole allowlist. A `*` segment stands for
- * a provider id (`egress.providers.*.enabled`), which must match `PROVIDER_ID_PATTERN`.
+ * a provider id (`egress.providers.*.enabled`), which must match `PROVIDER_ID_PATTERN`, or for a
+ * decision kind (`models.*`).
  */
 export type WritableField = {
   path: string
@@ -100,8 +110,14 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   // The trim's plugin calls the loopback with the adaptive bearer, so without one it could never act.
   { path: "toolTrim.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   // `jev.enabled` assigns Jev to every kind without a `models` entry; it may only be turned on once
-  // Jev's own consent (`egress.providers.jev`) is on with a project and a kind.
+  // Jev's own consent (`egress.providers.jev`) is on with a project and a kind. Legacy: the settings
+  // panel assigns models per kind instead, and a patch that does turns it off (`legacyAssignmentLeaves`).
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
+  // The model per decision kind (AH-C01): a registered id that supports the kind, `"baseline"`, or
+  // null for none. Assigning is not consent: nothing leaves the machine until that provider's own
+  // `egress.providers.<id>` allows the project and the kind, so it asks no confirmation and warns
+  // when that consent is still missing.
+  { path: "models.*", type: "model", confirmation: "none", guard: "none", warning: "model-no-consent" },
   // Consent per remote provider (AH-C03): turning one on, or widening what it may receive, is an
   // egress decision about that provider only, and asks for confirmation.
   { path: "egress.providers.*.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
@@ -127,6 +143,8 @@ function writableFor(segments: readonly string[]): WritableField | undefined {
   if (segments.some((segment) => segment.includes(".") || segment === "*")) return undefined
   const exact = WRITABLE_BY_PATH.get(segments.join("."))
   if (exact) return exact
+  if (segments[0] === "models" && segments.length === 2 && isDecisionKind(segments[1]))
+    return WRITABLE_BY_PATH.get("models.*")
   const [root, group, id, leaf, ...rest] = segments
   if (root !== "egress" || group !== "providers" || id === undefined || leaf === undefined || rest.length > 0)
     return undefined
@@ -173,6 +191,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const budget = usageOf(block.budget)
   const compaction = usageOf(block.compaction)
   const selection = usageOf(block.selection)
+  const models = usageOf(block.models)
   const pick = (fromEnv: boolean, fromBlock: boolean): AdaptiveProvenance => (fromEnv ? "env" : fromBlock ? "block" : "default")
   const envNumber = (name: string) => positiveNumberFrom(Number(env[name]))
   return {
@@ -192,6 +211,9 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     "jev.enabled": pick(false, typeof jev.enabled === "boolean"),
     "retention.enabled": pick(false, typeof retention.enabled === "boolean"),
     ...providerSources(providers, jev, egress),
+    ...Object.fromEntries(
+      decisionKinds().map((kind) => [`models.${kind}`, pick(false, typeof models[kind] === "string")] as const),
+    ),
     "budget.monthlyTokens": pick(false, positiveNumberFrom(budget.monthlyTokens) !== undefined),
     "compaction.anchors": pick(false, typeof compaction.anchors === "boolean"),
     "selection.enabled": pick(false, typeof selection.enabled === "boolean"),
@@ -293,7 +315,25 @@ export type AdaptiveConfigView = {
    * the config already names. A local model needs no consent and is not listed.
    */
   egressProviders: string[]
+  /**
+   * The registered predictive models, for the per-decision selectors: the name a reader is shown, the
+   * kinds each can answer, whether it needs a provider's consent (a remote one) and whether it needs
+   * the model key. Raw ids appear only in the config file.
+   */
+  models: AdaptiveModelView[]
 }
+
+export type AdaptiveModelView = {
+  id: string
+  name: string
+  locality: "local" | "remote"
+  supports: DecisionKind[]
+  needsConsent: boolean
+  needsKey: boolean
+}
+
+/** A registered model as the surface reads it: its egress identity plus what the settings show. */
+export type RegisteredModel = EgressSubject & Partial<Pick<PredictiveModel, "name" | "needsKey" | "supports">>
 
 /** Whether a document already declares `flupcode.adaptive`, read with the same JSONC rules as writing. */
 function declaresAdaptive(path: string): boolean {
@@ -331,7 +371,7 @@ export type AdaptiveConfigViewInput = {
   canWrite: boolean
   writer: { path: string; exists: boolean }
   smallModel?: () => string | undefined
-  models?: readonly EgressSubject[]
+  models?: readonly RegisteredModel[]
   learningLimits?: ProjectLimitHit[]
   /** Where the predictive model's key comes from; without it only the environment is read. */
   modelKey?: ModelKeyStatus
@@ -377,6 +417,14 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
         ...Object.keys(input.resolved.egress.providers),
       ]),
     ],
+    models: (input.models ?? []).map((model) => ({
+      id: model.id,
+      name: model.name ?? model.id,
+      locality: model.locality,
+      supports: [...(model.supports ?? decisionKinds())],
+      needsConsent: model.locality === "remote",
+      needsKey: model.needsKey === true,
+    })),
   }
 }
 
@@ -398,8 +446,8 @@ export type PlanAdaptivePatchInput = {
   adaptiveTokenPresent: boolean
   runtimeKind: RuntimeKind
   smallModel?: string | undefined
-  /** The registered models, so a guard knows a local model needs no consent. */
-  models?: readonly EgressSubject[]
+  /** The registered models, so a guard knows a local model needs no consent and `models.*` is checked. */
+  models?: readonly RegisteredModel[]
 }
 
 /**
@@ -445,6 +493,8 @@ function validLeaf(field: WritableField, value: unknown): boolean {
       return positiveNumberFrom(value) !== undefined
     case "count":
       return Number.isInteger(value) && positiveNumberFrom(value) !== undefined
+    case "model":
+      return typeof value === "string" && PROVIDER_ID_PATTERN.test(value)
     default:
       return false
   }
@@ -499,7 +549,11 @@ function widenedConsent(before: AdaptiveConfig, after: AdaptiveConfig): string[]
  */
 function legacyConsentLeaves(leaves: readonly PatchLeaf[], block: Record<string, unknown>): PatchLeaf[] {
   const prefix = ["egress", "providers", LEGACY_EGRESS_PROVIDER]
-  const touches = leaves.some((leaf) => prefix.every((segment, index) => leaf.segments[index] === segment))
+  // Retiring `jev.enabled` for a per-kind assignment would also drop the legacy consent it switched,
+  // so that consent moves too.
+  const touches =
+    leaves.some((leaf) => prefix.every((segment, index) => leaf.segments[index] === segment)) ||
+    (leaves.some((leaf) => leaf.segments[0] === "models") && usageOf(block.jev).enabled === true)
   const egress = usageOf(block.egress)
   if (!touches || isPlainObject(usageOf(egress.providers)[LEGACY_EGRESS_PROVIDER])) return []
   const legacy = legacyEgressProvider(block)
@@ -523,10 +577,56 @@ function legacyConsentLeaves(leaves: readonly PatchLeaf[], block: Record<string,
  */
 function classifierReady(config: AdaptiveConfig, models: readonly EgressSubject[] | undefined): boolean {
   const id = config.models.skillReflection
-  if (id === undefined) return false
+  return id !== undefined && mayAsk(config, models, id, "skillReflection")
+}
+
+/**
+ * Whether model `id` may be asked `kind` for at least one project, read as the egress guard reads it
+ * at call time: a local model needs no consent, a remote one its own switch, a project and the kind.
+ */
+function mayAsk(config: AdaptiveConfig, models: readonly EgressSubject[] | undefined, id: string, kind: DecisionKind): boolean {
   if (models?.find((model) => model.id === id)?.locality === "local") return true
   const consent = Object.hasOwn(config.egress.providers, id) ? config.egress.providers[id] : undefined
-  return consent !== undefined && consent.enabled && consent.projects.length > 0 && consent.kinds.skillReflection === true
+  return consent !== undefined && consent.enabled && consent.projects.length > 0 && consent.kinds[kind] === true
+}
+
+/**
+ * The `models.*` leaves naming an id no registered model answers for that kind. `"baseline"` and null
+ * are always valid; an id the registry does not hold would silently keep the baseline, so it is refused.
+ */
+function unknownModels(leaves: readonly PatchLeaf[], models: readonly RegisteredModel[]): string[] {
+  return leaves
+    .filter((leaf) => leaf.segments[0] === "models" && typeof leaf.value === "string" && leaf.value !== BASELINE_MODEL)
+    .filter((leaf) => {
+      const model = models.find((entry) => entry.id === leaf.value)
+      const kind = leaf.segments[1]
+      return !model || !isDecisionKind(kind) || !(model.supports ?? decisionKinds()).includes(kind)
+    })
+    .map((leaf) => leaf.path)
+}
+
+/**
+ * The leaves that retire the legacy `jev.enabled` assignment when a patch assigns a model per kind.
+ *
+ * `jev.enabled` assigns Jev to every kind the `models` block does not name, so writing one kind while it
+ * stays on would leave the two disagreeing about the others. The patch therefore pins every kind neither
+ * the block nor the patch names to `"jev"` — what it resolves to today — and turns `jev.enabled` off,
+ * so the move itself changes no assignment. A patch that turns `jev.enabled` on itself is left as asked.
+ */
+function legacyAssignmentLeaves(leaves: readonly PatchLeaf[], block: Record<string, unknown>): PatchLeaf[] {
+  const assigns = leaves.some((leaf) => leaf.segments[0] === "models")
+  const jevLeaf = leaves.find((leaf) => leaf.path === "jev.enabled")
+  if (!assigns || usageOf(block.jev).enabled !== true || jevLeaf?.value === true) return []
+  const named = new Set([
+    ...Object.keys(usageOf(block.models)),
+    ...leaves.filter((leaf) => leaf.segments[0] === "models").map((leaf) => leaf.segments[1]),
+  ])
+  return [
+    ...decisionKinds()
+      .filter((kind) => !named.has(kind))
+      .map((kind) => ({ path: `models.${kind}`, segments: ["models", kind], value: LEGACY_EGRESS_PROVIDER })),
+    ...(jevLeaf ? [] : [{ path: "jev.enabled", segments: ["jev", "enabled"], value: false }]),
+  ]
 }
 
 /**
@@ -548,7 +648,15 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (invalid.length > 0)
     throw new AdaptiveConfigError("A patch value does not match its field", 422, "invalid-value", invalid)
 
-  const written = [...legacyConsentLeaves(leaves, input.block), ...leaves]
+  const unknown = unknownModels(leaves, input.models ?? [])
+  if (unknown.length > 0)
+    throw new AdaptiveConfigError("No registered model answers that decision under this id", 422, "unknown-model", unknown)
+
+  const written = [
+    ...legacyConsentLeaves(leaves, input.block),
+    ...leaves,
+    ...legacyAssignmentLeaves(leaves, input.block),
+  ]
   const blockAfter = cloneBlock(input.block)
   for (const leaf of written) setAt(blockAfter, leaf.segments, leaf.value === null ? undefined : leaf.value)
 
@@ -629,6 +737,17 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (setsTrue("learning.enabled") && !classifier) warnings.push("classifier-no-consent")
   if (classifier && !effectiveAfter.learning.model && !input.smallModel) warnings.push("no-model")
   if (setsTrue("enabled")) warnings.push("skills-still-load")
+  // Assigning a remote model is not consent: until its provider may receive that kind for a project,
+  // the kind keeps the built-in rules, and the reader is told so rather than left to guess.
+  const unconsented = leaves.some(
+    (leaf) =>
+      leaf.segments[0] === "models" &&
+      typeof leaf.value === "string" &&
+      leaf.value !== BASELINE_MODEL &&
+      isDecisionKind(leaf.segments[1]) &&
+      !mayAsk(effectiveAfter, input.models, leaf.value, leaf.segments[1]),
+  )
+  if (unconsented) warnings.push("model-no-consent")
 
   return { leaves: written, warnings, blockAfter }
 }
@@ -673,8 +792,8 @@ export type AdaptiveConfigSurfaceDeps = {
   adaptiveTokenPresent: boolean
   env?: NodeJS.ProcessEnv
   smallModel?: () => string | undefined
-  /** The registered predictive models: the view lists the remote ones for consent. */
-  models?: readonly EgressSubject[]
+  /** The registered predictive models: the view lists them with their names, the remote ones for consent. */
+  models?: readonly RegisteredModel[]
   /** The learning caps reached right now (AH-F03); none when the learning loop is not wired. */
   learningLimits?: () => ProjectLimitHit[]
   /** Where the predictive model's key comes from, read live (ADR-0017, amended). */
