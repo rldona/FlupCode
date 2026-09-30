@@ -116,11 +116,6 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       console.warn(`[flupcode] adaptive retention failed: ${cause instanceof Error ? cause.message : String(cause)}`)
     }
   }
-  purge()
-  const sweep = setInterval(() => {
-    repository.removeExpiredArtifacts()
-    purge()
-  }, 60 * 60 * 1000)
   const startup = adaptive.current()
   const egress = createAdaptiveEgressGuard({ config: () => adaptive.current() })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
@@ -229,12 +224,6 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     episodes,
     context,
   })
-  scheduler.start()
-  // After the scheduler started, so a run it recovered as failed is swept and backfilled.
-  episodes.start()
-  // The shadow's backstop: a restart cannot see the close callbacks it missed, so terminal episodes
-  // without a decision are swept on the same boundary cadence as the episodes themselves.
-  shadow.start()
   // The learning manager (FH-034): it reflects on closed episodes and sweeps for terminal ones with
   // no job. The draft is the only model call, through a throwaway engine session, and only when a
   // model is resolved and the project opted in; with learning off it never fires.
@@ -255,14 +244,11 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     onError: (cause) =>
       console.error(`Could not reflect on a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
-  learning.start()
   // The runtime probe (FH-000): which runtime the engine is on, so a gate never assumes the legacy
-  // hooks. It refreshes off the critical path at startup and on its own interval; a caller asking
-  // for the route refreshes within the same TTL.
+  // hooks. It refreshes off the critical path once serving starts and on its own interval; a caller
+  // asking for the route refreshes within the same TTL.
   const runtimeConfig = startup.runtime
   const runtimeProbe = options.runtimeProbe ?? createRuntimeProbe({ engineURL, config: runtimeConfig })
-  void runtimeProbe.refresh()
-  const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
   // The acting relevance line (FH-04): the one policy point a live turn reaches. It reuses the same
   // decision service, roster and runtime probe; with the feature off it returns a null line and the
   // turn is byte-identical. The probe is built just above because the service reads its capabilities.
@@ -319,6 +305,23 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(adaptiveToken ? { adaptiveToken, relevance, guardrails } : {}),
     }),
   })
+  // Background work starts only once the port is bound: a harness that fails to bind throws above
+  // with no scheduler, sweep, learning pass or timer left running behind it. The handler cannot see
+  // a request before these synchronous starts finish.
+  purge()
+  const sweep = setInterval(() => {
+    repository.removeExpiredArtifacts()
+    purge()
+  }, 60 * 60 * 1000)
+  scheduler.start()
+  // After the scheduler started, so a run it recovered as failed is swept and backfilled.
+  episodes.start()
+  // The shadow's backstop: a restart cannot see the close callbacks it missed, so terminal episodes
+  // without a decision are swept on the same boundary cadence as the episodes themselves.
+  shadow.start()
+  learning.start()
+  void runtimeProbe.refresh()
+  const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
   return {
     server,
     repository,
