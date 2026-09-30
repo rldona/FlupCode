@@ -452,6 +452,18 @@ chat turn spent: the usage screen only knows runs, and the engine only keeps ses
 - **Access.** The `POST` takes the dedicated `adaptive-token`; without one it is a 404 and the
   `adaptive-metrics` capability is absent. `GET /harness/adaptive/metrics?sessionID=` returns one
   session's turns to the browser under the artifacts bearer.
+- **Summary (AH-B02).** `GET /harness/adaptive/metrics/sessions?since=&directory=&limit=` adds every
+  session's turns up in one read, under the same artifacts bearer: tokens by kind, USD, the cached
+  share (`cacheRead / (input + cacheRead + cacheWrite)`), nearest-rank p50/p95 of the turn duration
+  (`endedAt - startedAt`) and of the time to first token, and the tools ranked by output bytes. A turn
+  counts when it ended inside the window (`since`, epoch ms) and belongs to the project (`directory`,
+  the metrics' project id). Sessions come newest first, cut to `limit` (50 by default, 200 at most);
+  the totals cover them all. The arithmetic is the pure `summariseSessions` in
+  `adaptive/session-summary.ts`.
+- **Where it shows.** The **Cost** screen draws a **Sessions** block under the runs, sharing their
+  window and project filter. It asks only when `/harness/health` lists `adaptive-metrics`, says so
+  when the server does not, says so when nothing was measured in the window, and reports a failed
+  read inline with **Try again**.
 
 ## Holdout
 

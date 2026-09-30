@@ -43,6 +43,7 @@ import { handleGuardrailsRequest, handleGuardrailsStatusRequest } from "./adapti
 import type { GuardrailService } from "./adaptive/guardrails"
 import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptive/session-metrics"
 import { armsFor } from "./adaptive/holdout"
+import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
 
@@ -579,6 +580,18 @@ export const createHarnessHandler = (
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleSessionMetricsRead(request, repository)
+    }
+    // Every session's summary in one read (AH-B02), so the cost screen does not ask per session.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "metrics" &&
+      path[3] === "sessions" &&
+      path.length === 4 &&
+      request.method === "GET"
+    ) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleSessionSummaryRead(request, repository)
     }
     // The read side of the guardrails (FH-062): only a browser reads the live advisory, so it takes
     // the artifacts bearer like `/harness/adaptive/decisions`, never the acting token. Reading only —

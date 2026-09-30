@@ -1058,6 +1058,21 @@ const ES: Record<string, string> = {
     "Dónde se fue el tiempo, que no siempre es dónde se fue el dinero.",
   "Open Runs": "Abrir Ejecuciones",
 
+  // Session cost (AH-B02)
+  "Every session, chat or run, measured turn by turn.": "Cada sesión, chat o ejecución, medida turno a turno.",
+  "This server does not record session metrics.": "Este servidor no registra métricas de sesión.",
+  "Session cost": "El coste por sesión",
+  "No session has been measured in this window.": "No se ha medido ninguna sesión en esta ventana.",
+  Cached: "En caché",
+  "Turn p50 / p95": "Turno p50 / p95",
+  "First token p50 / p95": "Primer token p50 / p95",
+  "Cost per session": "Coste por sesión",
+  Session: "Sesión",
+  Turns: "Turnos",
+  "First token": "Primer token",
+  "Top tools by output": "Herramientas con más salida",
+  "{n} calls": "{n} llamadas",
+
   // Checkpoints (H-15)
   Checkpoints: "Puntos de retorno",
   "A way back to how this folder looked.": "Una forma de volver a como estaba esta carpeta.",

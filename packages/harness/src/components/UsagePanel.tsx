@@ -1,4 +1,4 @@
-import { For, Show, createMemo, type Component } from "solid-js"
+import { For, Show, createMemo, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
 import { formatTokens } from "../metrics"
 import type { Spend, UsageReport } from "../types"
@@ -17,6 +17,8 @@ type UsagePanelProps = {
   onOnlyProject: (only: boolean) => void
   serverAvailable: boolean
   onOpenRuns: () => void
+  /** Every session's cost (AH-B02), drawn under the runs; it fetches and fails on its own. */
+  sessions?: JSX.Element
 }
 
 /**
@@ -223,6 +225,9 @@ export const UsagePanel: Component<UsagePanelProps> = (props) => {
             </Show>
           </div>
         </Show>
+
+        {/* Read once: a JSX prop is a getter, and reading it twice would mount the section twice. */}
+        <div class="fc-usage-sessions">{props.sessions}</div>
       </section>
     </Show>
   )

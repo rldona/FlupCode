@@ -86,6 +86,8 @@ export const ARTIFACT_LIMIT = 1_000_000
 
 /** Mirrors `documents.ts`; duplicated rather than imported to avoid a reverse dependency. */
 const DOCUMENTS_DIRECTORY = join(".flupcode", "artifacts")
+/** The most turns one cost summary reads (AH-B02): months of heavy use, and still bounded. */
+const SESSION_METRIC_TURN_CAP = 20_000
 
 /**
  * The identity of an artifact's text, so the same report written twice is recognised (H-14).
@@ -2950,6 +2952,21 @@ export class SqliteRoutineRepository implements RoutineRepository {
     const rows = this.db
       .query("SELECT * FROM session_metrics WHERE session_id = ?1 ORDER BY turn")
       .all(sessionID) as SessionMetricRow[]
+    return rows.map(sessionMetricFromRow)
+  }
+
+  /**
+   * Every session's turns in a window, for the cost screen's summary (AH-B02). The newest turns are
+   * kept when there are more than the cap, so one read can never pull the whole table into memory.
+   */
+  listSessionMetricTurns(filter: { since?: number; projectID?: string } = {}): SessionMetricTurn[] {
+    const rows = this.db
+      .query(
+        `SELECT * FROM session_metrics
+         WHERE (?1 IS NULL OR ended_at >= ?1) AND (?2 IS NULL OR project_id = ?2)
+         ORDER BY ended_at DESC LIMIT ?3`,
+      )
+      .all(filter.since ?? null, filter.projectID ?? null, SESSION_METRIC_TURN_CAP) as SessionMetricRow[]
     return rows.map(sessionMetricFromRow)
   }
 

@@ -6,6 +6,7 @@ import { createReconciledList } from "./reconciled"
 import { compareFromSearch, screenFromPath, searchForCompare, urlForScreen, type Screen } from "./screen"
 import { ChangesPanel, type DiffMode } from "./components/ChangesPanel"
 import { UsagePanel } from "./components/UsagePanel"
+import { SessionCosts } from "./components/SessionCosts"
 import { AgentsPanel } from "./components/AgentsPanel"
 import { SkillCatalogue } from "./components/SkillCatalogue"
 import { FilesPanel } from "./components/FilesPanel"
@@ -5751,6 +5752,19 @@ export const App: Component = () => {
             onOnlyProject={setUsageOnlyProject}
             serverAvailable={routinesServerAvailable()}
             onOpenRuns={() => showScreen("runs")}
+            sessions={
+              <PanelBoundary name={t("Session cost")}>
+                <SessionCosts
+                  open={usageOpen() && routinesServerAvailable()}
+                  serverUrl={harnessServerUrl()}
+                  capabilities={harnessCapabilities()}
+                  days={usageDays()}
+                  directory={usageOnlyProject() ? vcsDirectory() : undefined}
+                  titleOf={(id) => sessionList()?.find((session) => session.id === id)?.title}
+                  onOpenSession={selectSession}
+                />
+              </PanelBoundary>
+            }
           />
         </Show>
         <Show
