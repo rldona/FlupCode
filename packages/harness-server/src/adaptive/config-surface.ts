@@ -50,6 +50,7 @@ export type AdaptiveWarning =
   | "no-model"
   | "skills-still-load"
   | "learning-draft-egress"
+  | "classifier-no-consent"
 
 /**
  * One switch the settings panel may render; the list is the whole allowlist. A `*` segment stands for
@@ -78,11 +79,13 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
   // Learning drafts a skill by sending the redacted objective and evidence to the small model's
   // provider through the engine, so turning it on is an egress decision and asks for confirmation.
+  // It needs no classifier consent: without one the manager falls back to the local heuristic
+  // classifier (AH-F01), which sends nothing, and the egress guard still stops the classifier call.
   {
     path: "learning.enabled",
     type: "boolean",
     confirmation: "required",
-    guard: "egress-allowlist",
+    guard: "none",
     warning: "learning-draft-egress",
   },
   // The freeze and the caps (AH-F03) only ever narrow what learning already consented to: freezing
@@ -278,6 +281,11 @@ export type AdaptiveConfigView = {
   writable: WritableField[]
   /** The model a learning draft is sent to (`provider/model`), or null when none is resolved. */
   learningDraft: { model: string | null }
+  /**
+   * The model assigned to classify finished sessions, or null when none is, and whether it may run
+   * for at least one project. When it may not, reflection uses the built-in rules only (AH-F01).
+   */
+  learningClassifier: { model: string | null; ready: boolean }
   /** The learning caps reached right now by the projects learning worked on lately (AH-F03). */
   learningLimits: { reached: ProjectLimitHit[] }
   /**
@@ -358,6 +366,10 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
     usage: input.usage,
     writable: [...WRITABLE_FIELDS],
     learningDraft: { model: draftModel ? `${draftModel.providerID}/${draftModel.id}` : null },
+    learningClassifier: {
+      model: input.resolved.models.skillReflection ?? null,
+      ready: classifierReady(input.resolved, input.models),
+    },
     learningLimits: { reached: input.learningLimits ?? [] },
     egressProviders: [
       ...new Set([
@@ -503,13 +515,18 @@ function legacyConsentLeaves(leaves: readonly PatchLeaf[], block: Record<string,
   })
 }
 
-/** Which provider's consent `learning.enabled` depends on: the model the classification is assigned to. */
-function classifierConsent(
-  after: AdaptiveConfig,
-  models: readonly EgressSubject[] | undefined,
-): string | undefined {
-  const id = after.models.skillReflection ?? LEGACY_EGRESS_PROVIDER
-  return models?.find((model) => model.id === id)?.locality === "local" ? undefined : id
+/**
+ * Whether the model assigned to `skillReflection` may classify a session for at least one project,
+ * read as the egress guard reads it at call time: a local model needs no consent, a remote one needs
+ * its own provider's switch, a project and the kind. Only informative: the call itself is gated again
+ * per project by the egress guard, and learning without a classifier runs on the built-in rules.
+ */
+function classifierReady(config: AdaptiveConfig, models: readonly EgressSubject[] | undefined): boolean {
+  const id = config.models.skillReflection
+  if (id === undefined) return false
+  if (models?.find((model) => model.id === id)?.locality === "local") return true
+  const consent = Object.hasOwn(config.egress.providers, id) ? config.egress.providers[id] : undefined
+  return consent !== undefined && consent.enabled && consent.projects.length > 0 && consent.kinds.skillReflection === true
 }
 
 /**
@@ -566,25 +583,6 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
       "toolTrim.enabled",
     ])
 
-  // The classification goes to the model assigned to `skillReflection`, so learning needs that
-  // provider's consent for a project and the kind; a local classifier needs none.
-  const classifier = setsTrue("learning.enabled") ? classifierConsent(effectiveAfter, input.models) : undefined
-  if (classifier !== undefined) {
-    const providers = effectiveAfter.egress.providers
-    const consent = Object.hasOwn(providers, classifier) ? providers[classifier] : undefined
-    const missing: string[] = []
-    if (!consent || consent.projects.length === 0) missing.push(`egress.providers.${classifier}.projects`)
-    if (!consent?.kinds.skillReflection) missing.push(`egress.providers.${classifier}.kinds.skillReflection`)
-    if (missing.length > 0)
-      throw new AdaptiveConfigError(
-        `Enabling learning needs ${classifier}'s egress consent for the project and skillReflection`,
-        422,
-        "guard:egress-allowlist-required",
-        ["learning.enabled"],
-        missing,
-      )
-  }
-
   if (setsTrue("jev.enabled")) {
     const missing = missingConsent(effectiveAfter, LEGACY_EGRESS_PROVIDER, true)
     if (missing.length > 0)
@@ -623,8 +621,13 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (setsTrue("context.apply") || setsTrue("selection.enabled")) warnings.push("evaluation-gated")
   if (setsTrue("selection.enabled") && input.runtimeKind !== "legacy") warnings.push("runtime-inert")
   if (setsTrue("relevance.enabled") && input.runtimeKind !== "legacy") warnings.push("runtime-inert")
+  // Learning needs no classifier consent: without a classifier that may run, reflection uses the
+  // built-in rules (AH-F01), which draft nothing, so a missing drafting model is only worth saying
+  // on the model path.
+  const classifier = setsTrue("learning.enabled") && classifierReady(effectiveAfter, input.models)
   if (setsTrue("learning.enabled")) warnings.push("learning-draft-egress")
-  if (setsTrue("learning.enabled") && !effectiveAfter.learning.model && !input.smallModel) warnings.push("no-model")
+  if (setsTrue("learning.enabled") && !classifier) warnings.push("classifier-no-consent")
+  if (classifier && !effectiveAfter.learning.model && !input.smallModel) warnings.push("no-model")
   if (setsTrue("enabled")) warnings.push("skills-still-load")
 
   return { leaves: written, warnings, blockAfter }

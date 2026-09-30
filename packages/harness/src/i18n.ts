@@ -1484,6 +1484,14 @@ const ES: Record<string, string> = {
   "Active · proposing skills for your approval": "Activo · proponiendo skills para tu aprobación",
   "Active · in use": "Activo · en uso",
   "Active · waiting for a model to draft skills with": "Activo · esperando un modelo con el que redactar skills",
+  "Active · proposing skills with built-in rules: no predictive model is set to review sessions":
+    "Activo · proponiendo skills con reglas integradas: no hay ningún modelo predictivo asignado para revisar sesiones",
+  "Active · proposing skills with built-in rules: the predictive model has no permission to review sessions":
+    "Activo · proponiendo skills con reglas integradas: el modelo predictivo no tiene permiso para revisar sesiones",
+  "Active · proposing skills with built-in rules until there is a model to draft them with":
+    "Activo · proponiendo skills con reglas integradas hasta que haya un modelo con el que redactarlas",
+  "Active · proposing skills with the predictive model, for your approval":
+    "Activo · proponiendo skills con el modelo predictivo, para tu aprobación",
   "Frozen · no new proposals. Pending ones can still be reviewed, and learned skills stay in use.":
     "Congelado · sin propuestas nuevas. Las pendientes se pueden seguir revisando y las skills aprendidas siguen en uso.",
   "Paused in {project}: {used} proposals in the last 24 hours, the daily limit.":
@@ -1530,6 +1538,8 @@ const ES: Record<string, string> = {
     "* Actuando cambia lo que ve el agente, y todavía no ha superado la evaluación offline.",
   "Turning it on asks first: redacted session notes are sent to {model} to draft each skill.":
     "Activarlo pide confirmación antes: se envían notas censuradas de la sesión a {model} para redactar cada skill.",
+  "Turning it on asks first. With the built-in rules, nothing leaves this machine.":
+    "Activarlo pide confirmación antes. Con las reglas integradas, nada sale de este equipo.",
   "Turning it on asks first: redacted session notes are sent to a model to draft each skill.":
     "Activarlo pide confirmación antes: se envían notas censuradas de la sesión a un modelo para redactar cada skill.",
   "Sharing with {provider}": "Compartir con {provider}",
@@ -1603,15 +1613,21 @@ const ES: Record<string, string> = {
     "El motor pasó de la versión {from} a la {to}. Comprueba que los hooks adaptativos siguen disparándose (docs/V2-HOOKS.md).",
   "The engine ran turns on the V2 runner ({event}). The adaptive hooks do not fire on those turns.":
     "El motor ejecutó turnos en el runner V2 ({event}). En esos turnos no se disparan los hooks adaptativos.",
-  "There is no model for a draft, so nothing will be written.":
-    "No hay modelo para un borrador, así que no se escribirá nada.",
+  "There is no model to draft skills with, so the built-in rules propose them instead.":
+    "No hay modelo con el que redactar skills, así que las proponen las reglas integradas.",
+  "The predictive model cannot review sessions, so skills are proposed with built-in rules on this machine.":
+    "El modelo predictivo no puede revisar sesiones, así que las skills se proponen con reglas integradas en este equipo.",
   "Learned skills still load from disk.": "Las skills aprendidas siguen cargando desde el disco.",
   "Learning drafts are sent, redacted, to the configured small model's provider.":
     "Los borradores del aprendizaje se envían, sin secretos, al proveedor del modelo pequeño configurado.",
   "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to {model} and its provider. The change is written to the config file.":
     "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor a {model} y su proveedor. El cambio se escribe en el archivo de configuración.",
-  "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so nothing is sent until one is. The change is written to the config file.":
-    "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor al proveedor del modelo pequeño configurado. Todavía no hay modelo configurado, así que no se envía nada hasta que lo haya. El cambio se escribe en el archivo de configuración.",
+  "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so until one is the built-in rules propose skills on this machine. The change is written to the config file.":
+    "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor al proveedor del modelo pequeño configurado. Todavía no hay modelo configurado, así que hasta que lo haya las skills las proponen las reglas integradas en este equipo. El cambio se escribe en el archivo de configuración.",
+  "Learning proposes skills with built-in rules on this machine, so nothing is sent: the predictive model cannot review sessions. If it later may, up to {chars} characters of each qualifying session's objective and evidence, with secrets redacted, are sent through the engine to {model} and its provider to draft the skill. The change is written to the config file.":
+    "El aprendizaje propone skills con reglas integradas en este equipo, así que no se envía nada: el modelo predictivo no puede revisar sesiones. Si más adelante puede, hasta {chars} caracteres del objetivo y la evidencia de cada sesión que cumple los requisitos, con los secretos eliminados, se envían a través del motor a {model} y su proveedor para redactar la skill. El cambio se escribe en el archivo de configuración.",
+  "Learning proposes skills with built-in rules on this machine, so nothing is sent: the predictive model cannot review sessions. If it later may, up to {chars} characters of each qualifying session's objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider to draft the skill. The change is written to the config file.":
+    "El aprendizaje propone skills con reglas integradas en este equipo, así que no se envía nada: el modelo predictivo no puede revisar sesiones. Si más adelante puede, hasta {chars} caracteres del objetivo y la evidencia de cada sesión que cumple los requisitos, con los secretos eliminados, se envían a través del motor al proveedor del modelo pequeño configurado para redactar la skill. El cambio se escribe en el archivo de configuración.",
   "from the environment": "del entorno",
   "from the config file": "del archivo de configuración",
   default: "por defecto",

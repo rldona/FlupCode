@@ -273,12 +273,10 @@ describe("refusals", () => {
     expect((await response.json()).code).toBe("guard:no-adaptive-token")
   })
 
-  test("guard:egress-allowlist-required with the missing fields", async () => {
+  test("learning without the classifier's consent asks only for confirmation", async () => {
     const response = await patch({ patch: { learning: { enabled: true } } })
-    expect(await response.json()).toMatchObject({
-      code: "guard:egress-allowlist-required",
-      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds.skillReflection"],
-    })
+    expect(response.status).toBe(422)
+    expect(await response.json()).toMatchObject({ code: "confirmation-required", fields: ["learning.enabled"] })
   })
 
   test("guard:egress-allowlist-required for Jev, with both missing leaves", async () => {

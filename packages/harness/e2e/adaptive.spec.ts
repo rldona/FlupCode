@@ -22,7 +22,7 @@ const WRITABLE = [
     path: "learning.enabled",
     type: "boolean",
     confirmation: "required",
-    guard: "egress-allowlist",
+    guard: "none",
     warning: "learning-draft-egress",
   },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
@@ -58,6 +58,8 @@ type View = {
   usage: { month: string; tokensSpent: number; calls: number; monthlyTokens: number; hotReserveFraction: number }
   writable: typeof WRITABLE
   egressProviders?: string[]
+  learningDraft?: { model: string | null }
+  learningClassifier?: { model: string | null; ready: boolean }
 }
 
 const view = (over: Partial<View> = {}): View => ({
@@ -415,14 +417,19 @@ test("every inert card says why: the level, the runtime, missing permission, a m
         learning: { enabled: true, maxInputChars: 8000 },
         jev: { enabled: true },
       },
+      learningDraft: { model: "openai/mini" },
+      learningClassifier: { model: "jev", ready: false },
     }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
   await expect(dialog.getByText("Inactive: this engine's newer session runtime cannot run it yet.")).toBeVisible()
+  // Learning is never inert for lack of permission: the built-in rules propose, and the card says so.
   await expect(
-    dialog.getByText("Inactive: it needs your permission to share data with the model provider."),
+    dialog.getByText(
+      "Active · proposing skills with built-in rules: the predictive model has no permission to review sessions",
+    ),
   ).toBeVisible()
   // The predictive model's state is on its collapsed summary, so it is read without opening it.
   await expect(dialog.getByText("Active · waiting for the model key").first()).toBeVisible()
@@ -528,6 +535,38 @@ test("learning asks first, since its drafts leave the machine", async ({ page })
   expect(calls.patches).toHaveLength(0)
   await confirm.getByRole("button", { name: "Write it" }).click()
   await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { learning: { enabled: true } }, confirm: true })
+})
+
+test("without any permission Proposing can be chosen, and learning proposes with the built-in rules", async ({ page }) => {
+  const off = view({ learningDraft: { model: "openai/mini" }, learningClassifier: { model: null, ready: false } })
+  const on = { ...off, effective: { ...off.effective, learning: { enabled: true, maxInputChars: 8000 } } }
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-config"],
+    view: off,
+    patchResponse: () => ({
+      json: { data: on, warnings: ["learning-draft-egress", "classifier-no-consent"] },
+      nextView: on,
+    }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  const learning = dialog.getByRole("radiogroup", { name: "Learning" })
+
+  await expect(learning.getByRole("radio", { name: "Proposing" })).toBeEnabled()
+  await expect(dialog.getByText(/Proposing is not available/)).toHaveCount(0)
+  await expect(dialog.getByText("Turning it on asks first. With the built-in rules, nothing leaves this machine.")).toBeVisible()
+  await learning.getByRole("radio", { name: "Proposing" }).click()
+  const confirm = page.getByRole("dialog", { name: "Confirm change" })
+  await expect(confirm).toContainText("built-in rules on this machine, so nothing is sent")
+  await confirm.getByRole("button", { name: "Write it" }).click()
+  await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { learning: { enabled: true } }, confirm: true })
+
+  await expect(
+    dialog.getByText("Active · proposing skills with built-in rules: no predictive model is set to review sessions"),
+  ).toBeVisible()
+  await expect(
+    dialog.getByText("The predictive model cannot review sessions, so skills are proposed with built-in rules on this machine."),
+  ).toBeVisible()
 })
 
 // ── AH-E06: the selectors and the confirmation work from the keyboard ─────────────────────────

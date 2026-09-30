@@ -196,17 +196,47 @@ describe("guards", () => {
     expect(plan({ patch: { guardrails: { enabled: true } } }).leaves).toHaveLength(1)
   })
 
-  test("enabling learning needs the classifier's consent for a project and skillReflection", () => {
-    const error = rejection({ patch: { learning: { enabled: true } } })
-    expect(error).toMatchObject({
-      code: "guard:egress-allowlist-required",
-      fields: ["learning.enabled"],
-      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds.skillReflection"],
+  test("enabling learning needs no classifier consent: it warns that the built-in rules classify", () => {
+    // No classifier assigned at all: the heuristic classifier (AH-F01) runs locally.
+    const unassigned = plan({ patch: { learning: { enabled: true } }, confirm: true })
+    expect(unassigned.leaves.map((leaf) => leaf.path)).toEqual(["learning.enabled"])
+    expect(unassigned.warnings).toEqual(["learning-draft-egress", "classifier-no-consent"])
+    // A remote classifier without its provider's consent for the kind is the same path.
+    const unconsented = plan({
+      patch: { learning: { enabled: true } },
+      block: {
+        models: { skillReflection: "small-llm" },
+        egress: { providers: { "small-llm": { enabled: true, projects: ["/p"], kinds: { completion: true } } } },
+      },
+      models: [{ id: "small-llm", locality: "remote" }],
+      confirm: true,
     })
-    // The consent asked for is the one of the model `skillReflection` is assigned to.
-    expect(
-      rejection({ patch: { learning: { enabled: true } }, block: { models: { skillReflection: "small-llm" } } }).missing,
-    ).toEqual(["egress.providers.small-llm.projects", "egress.providers.small-llm.kinds.skillReflection"])
+    expect(unconsented.warnings).toEqual(["learning-draft-egress", "classifier-no-consent"])
+    // Consent with its switch off does not let the classifier run either.
+    const switchedOff = plan({
+      patch: { learning: { enabled: true } },
+      block: {
+        models: { skillReflection: "small-llm" },
+        egress: { providers: { "small-llm": { enabled: false, projects: ["/p"], kinds: { skillReflection: true } } } },
+      },
+      confirm: true,
+      smallModel: "openai/gpt-4o-mini",
+    })
+    expect(switchedOff.warnings).toEqual(["learning-draft-egress", "classifier-no-consent"])
+  })
+
+  test("enabling learning with the classifier's consent carries no classifier warning", () => {
+    const built = plan({
+      patch: { learning: { enabled: true } },
+      block: {
+        models: { skillReflection: "small-llm" },
+        egress: { providers: { "small-llm": { enabled: true, projects: ["/p"], kinds: { skillReflection: true } } } },
+      },
+      models: [{ id: "small-llm", locality: "remote" }],
+      confirm: true,
+      smallModel: "openai/gpt-4o-mini",
+    })
+    expect(built.warnings).toEqual(["learning-draft-egress"])
   })
 
   test("a local classifier needs no consent for learning", () => {
@@ -215,8 +245,10 @@ describe("guards", () => {
       block: { models: { skillReflection: "local-embed" } },
       models: [{ id: "local-embed", locality: "local" }],
       confirm: true,
+      smallModel: "openai/gpt-4o-mini",
     })
     expect(built.leaves.map((leaf) => leaf.path)).toEqual(["learning.enabled"])
+    expect(built.warnings).toEqual(["learning-draft-egress"])
   })
 
   test("enabling learning passes when the block already allowlists it", () => {
@@ -300,13 +332,17 @@ describe("confirmation", () => {
     expect(plan({ ...shared, confirm: true }).leaves).toHaveLength(1)
   })
 
-  test("learning needs confirmation once its allowlist is satisfied: the draft leaves the machine", () => {
+  test("learning needs confirmation, with or without the classifier's consent: the draft leaves the machine", () => {
     const shared = {
       block: { egress: { projects: ["/p"], kinds: { skillReflection: true } } },
       patch: { learning: { enabled: true } },
     }
     expect(rejection(shared)).toMatchObject({ code: "confirmation-required", fields: ["learning.enabled"] })
     expect(plan({ ...shared, confirm: true }).leaves).toHaveLength(1)
+    expect(rejection({ patch: { learning: { enabled: true } } })).toMatchObject({
+      code: "confirmation-required",
+      fields: ["learning.enabled"],
+    })
     // Turning it off is never gated behind a dialog.
     expect(plan({ ...shared, patch: { learning: { enabled: false } } }).leaves).toHaveLength(1)
   })
@@ -409,8 +445,8 @@ describe("warnings", () => {
     expect(plan({ patch: { relevance: { enabled: true } }, runtimeKind: "legacy" }).warnings).toEqual([])
   })
 
-  test("learning always warns the draft egress, and no-model without a model", () => {
-    const allowlisted = { egress: { projects: ["/p"], kinds: { skillReflection: true } } }
+  test("learning always warns the draft egress, and no-model on the model path without a model", () => {
+    const allowlisted = { jev: { enabled: true }, egress: { projects: ["/p"], kinds: { skillReflection: true } } }
     expect(plan({ patch: { learning: { enabled: true } }, block: allowlisted, confirm: true }).warnings).toEqual([
       "learning-draft-egress",
       "no-model",
@@ -623,6 +659,25 @@ describe("the read model", () => {
     expect(view.writable).toHaveLength(WRITABLE_FIELDS.length)
     expect(view.effective.enabled).toBe(true)
     expect(view.learningDraft).toEqual({ model: null })
+    expect(view.learningClassifier).toEqual({ model: null, ready: false })
+  })
+
+  test("says whether the session classifier may run, as the egress guard reads its consent", () => {
+    const classifier = (block: Record<string, unknown>) =>
+      adaptiveConfigView(viewInput({ resolved: createAdaptiveConfig({ read: () => block, env: {} }).current() }))
+        .learningClassifier
+    expect(classifier({ jev: { enabled: true } })).toEqual({ model: "jev", ready: false })
+    expect(
+      classifier({ jev: { enabled: true }, egress: { projects: ["/p"], kinds: { completion: true } } }),
+    ).toEqual({ model: "jev", ready: false })
+    expect(
+      classifier({ jev: { enabled: true }, egress: { projects: ["/p"], kinds: { skillReflection: true } } }),
+    ).toEqual({ model: "jev", ready: true })
+    const local = createAdaptiveConfig({ read: () => ({ models: { skillReflection: "local-embed" } }), env: {} }).current()
+    expect(
+      adaptiveConfigView(viewInput({ resolved: local, models: [{ id: "local-embed", locality: "local" }] }))
+        .learningClassifier,
+    ).toEqual({ model: "local-embed", ready: true })
   })
 
   test("carries the probe's unacknowledged runtime alerts (AH-D05)", () => {

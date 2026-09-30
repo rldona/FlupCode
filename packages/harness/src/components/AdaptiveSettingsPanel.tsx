@@ -79,18 +79,10 @@ export function fieldProblem(
   )
     return "no-adaptive-token"
   if (field.guard !== "egress-allowlist") return undefined
-  const ready = (provider: string, needsEnabled: boolean, kind?: string) => {
+  const ready = (provider: string, needsEnabled: boolean) => {
     const consent = consentOf(view, provider)
     if (!consent || consent.projects.length === 0 || (needsEnabled && !consent.enabled)) return false
-    return kind ? consent.kinds[kind] === true : Object.values(consent.kinds).some(Boolean)
-  }
-  if (path === "learning.enabled") {
-    // The classification goes to the model `skillReflection` is assigned to. One without a consent
-    // row is not a remote provider the panel knows (a local model needs none): the server decides.
-    const classifier = view.effective.models?.skillReflection ?? "jev"
-    if (consentProviders(view).includes(classifier) && !ready(classifier, false, "skillReflection"))
-      return "egress-allowlist"
-    return undefined
+    return Object.values(consent.kinds).some(Boolean)
   }
   if (path === "jev.enabled") return ready("jev", true) ? undefined : "egress-allowlist"
   const consent = consentPath(path)
@@ -395,9 +387,31 @@ export function capabilityStatus(
       tone: "waiting",
       key: "Frozen · no new proposals. Pending ones can still be reviewed, and learned skills stay in use.",
     }
-  if (capability.id === "learning" && view.learningDraft?.model === null)
-    return { tone: "waiting", key: "Active · waiting for a model to draft skills with" }
+  if (capability.id === "learning") return learningStatus(view)
   return { tone: "active", key: ACTIVE[choice] ?? "Active · in use" }
+}
+
+/**
+ * Which path Learning proposes with (AH-F01): the predictive model when it may review sessions, else
+ * the built-in rules, which run on this machine. On the model path a missing drafting model also
+ * falls back to the built-in rules. An older server that does not say is read from the draft alone.
+ */
+function learningStatus(view: AdaptiveConfigView): CapabilityStatus {
+  const classifier = view.learningClassifier
+  if (classifier && !classifier.ready)
+    return {
+      tone: "active",
+      key:
+        classifier.model === null
+          ? "Active · proposing skills with built-in rules: no predictive model is set to review sessions"
+          : "Active · proposing skills with built-in rules: the predictive model has no permission to review sessions",
+    }
+  if (view.learningDraft?.model === null)
+    return classifier
+      ? { tone: "waiting", key: "Active · proposing skills with built-in rules until there is a model to draft them with" }
+      : { tone: "waiting", key: "Active · waiting for a model to draft skills with" }
+  if (classifier) return { tone: "active", key: "Active · proposing skills with the predictive model, for your approval" }
+  return { tone: "active", key: ACTIVE.proposing! }
 }
 
 const LIMIT_TEXT: Record<AdaptiveLearningLimitHit["limit"], string> = {
@@ -617,9 +631,11 @@ export function refusedField(error: AdaptiveConfigError | undefined, path: strin
 const WARNINGS: Record<string, string> = {
   "evaluation-gated": "Applying is configured, but promotion waits for the offline evaluation.",
   "runtime-inert": "Configured, but inert on this runtime.",
-  "no-model": "There is no model for a draft, so nothing will be written.",
+  "no-model": "There is no model to draft skills with, so the built-in rules propose them instead.",
   "skills-still-load": "Learned skills still load from disk.",
   "learning-draft-egress": "Learning drafts are sent, redacted, to the configured small model's provider.",
+  "classifier-no-consent":
+    "The predictive model cannot review sessions, so skills are proposed with built-in rules on this machine.",
 }
 
 export function warningKey(warning: string): string {
@@ -666,13 +682,25 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
     return t("This changes what the adaptive harness may do or send. The change is written to the config file.")
   const chars = view.effective.learning.maxInputChars
   const model = view.learningDraft?.model
+  // With the built-in rules nothing is drafted remotely, but the switch is still the draft's consent
+  // for when the predictive model may review sessions, so the dialog says both.
+  if (view.learningClassifier?.ready === false && model)
+    return t(
+      "Learning proposes skills with built-in rules on this machine, so nothing is sent: the predictive model cannot review sessions. If it later may, up to {chars} characters of each qualifying session's objective and evidence, with secrets redacted, are sent through the engine to {model} and its provider to draft the skill. The change is written to the config file.",
+      { chars, model },
+    )
+  if (view.learningClassifier?.ready === false)
+    return t(
+      "Learning proposes skills with built-in rules on this machine, so nothing is sent: the predictive model cannot review sessions. If it later may, up to {chars} characters of each qualifying session's objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider to draft the skill. The change is written to the config file.",
+      { chars },
+    )
   if (model)
     return t(
       "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to {model} and its provider. The change is written to the config file.",
       { chars, model },
     )
   return t(
-    "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so nothing is sent until one is. The change is written to the config file.",
+    "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so until one is the built-in rules propose skills on this machine. The change is written to the config file.",
     { chars },
   )
 }
@@ -915,11 +943,13 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         </Show>
         <Show when={card.capability.id === "learning"}>
           <p class="fc-settings-hint">
-            {card.view.learningDraft?.model
-              ? t("Turning it on asks first: redacted session notes are sent to {model} to draft each skill.", {
-                  model: card.view.learningDraft.model,
-                })
-              : t("Turning it on asks first: redacted session notes are sent to a model to draft each skill.")}
+            {card.view.learningClassifier?.ready === false
+              ? t("Turning it on asks first. With the built-in rules, nothing leaves this machine.")
+              : card.view.learningDraft?.model
+                ? t("Turning it on asks first: redacted session notes are sent to {model} to draft each skill.", {
+                    model: card.view.learningDraft.model,
+                  })
+                : t("Turning it on asks first: redacted session notes are sent to a model to draft each skill.")}
           </p>
           <For each={learningLimitLines(card.view)}>
             {(line) => (
