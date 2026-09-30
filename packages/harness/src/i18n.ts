@@ -1563,6 +1563,22 @@ const ES: Record<string, string> = {
   "Possible loop": "Posible bucle",
   "View decision": "Ver decisión",
   "Stop turn": "Parar turno",
+  "Open file": "Abrir fichero",
+  Disable: "Desactivar",
+  Enable: "Activar",
+  "Disable learned skill": "Desactivar skill aprendida",
+  "Enable learned skill": "Activar skill aprendida",
+  "Archive learned skill": "Archivar skill aprendida",
+  "Reject proposal": "Rechazar propuesta",
+  "The skill will no longer be offered in new sessions of this project. Its file is kept, and you can enable it again.":
+    "La skill dejará de ofrecerse en las sesiones nuevas de este proyecto. Su fichero se conserva y puedes volver a activarla.",
+  "The skill will be offered again in new sessions of this project.":
+    "La skill volverá a ofrecerse en las sesiones nuevas de este proyecto.",
+  "The skill will no longer be offered in new sessions and leaves this list. Its file moves to the project's archive; nothing is deleted.":
+    "La skill dejará de ofrecerse en las sesiones nuevas y sale de esta lista. Su fichero pasa al archivo del proyecto; no se borra nada.",
+  "The skill will not be installed and the agent will never see it. The proposal is closed as rejected.":
+    "La skill no se instalará y el agente nunca la verá. La propuesta se cierra como rechazada.",
+  "The learned skill could not be changed: {reason}": "No se pudo cambiar la skill aprendida: {reason}",
   "a tool": "una herramienta",
   "{count} identical calls to {tool} in a row": "{count} llamadas idénticas a {tool} seguidas",
   "{count} identical errors from {tool} in a row": "{count} errores idénticos de {tool} seguidos",

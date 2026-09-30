@@ -32,6 +32,7 @@ let xdg = ""
 let project = ""
 let learned = ""
 let archive = ""
+let disabledRoot = ""
 let outside = ""
 const saved: Record<string, string | undefined> = {}
 
@@ -51,6 +52,7 @@ beforeEach(() => {
   // Both roots live inside the project, as the store now requires; the override only renames them.
   learned = join(project, ".opencode", "custom-learned")
   archive = join(project, ".opencode", "custom-archive")
+  disabledRoot = join(project, ".opencode", "custom-disabled")
   outside = join(root, "outside")
   for (const directory of [home, config, xdg, project, outside]) mkdirSync(directory, { recursive: true })
   for (const key of ["OPENCODE_CONFIG_DIR", "XDG_CONFIG_HOME", "OPENCODE_TEST_HOME", "HOME"]) {
@@ -72,7 +74,11 @@ afterEach(() => {
 })
 
 /** The store tests point at temp roots; the scannable test uses the real project-scoped default. */
-const overrides = () => ({ FLUPCODE_ADAPTIVE_LEARNED_ROOT: learned, FLUPCODE_ADAPTIVE_LEARNED_ARCHIVE: archive })
+const overrides = () => ({
+  FLUPCODE_ADAPTIVE_LEARNED_ROOT: learned,
+  FLUPCODE_ADAPTIVE_LEARNED_ARCHIVE: archive,
+  FLUPCODE_ADAPTIVE_LEARNED_DISABLED: disabledRoot,
+})
 
 const store = (env: NodeJS.ProcessEnv = overrides()) => createLearnedStore({ env })
 
@@ -89,8 +95,9 @@ describe("the learned root (FH-040)", () => {
     expect(learnedRoots("/work/project", {})).toEqual({
       learned: join("/work/project", ".opencode", "skills", "flupcode-learned"),
       archive: join("/work/project", ".opencode", "flupcode-learned-archive"),
+      disabled: join("/work/project", ".opencode", "flupcode-learned-disabled"),
     })
-    expect(learnedRoots("/work/project", overrides())).toEqual({ learned, archive })
+    expect(learnedRoots("/work/project", overrides())).toEqual({ learned, archive, disabled: disabledRoot })
   })
 
   test("the default snapshot count and the learning config agree", () => {
@@ -339,6 +346,113 @@ describe("archive is a move", () => {
       reason: "path-escape",
     })
     expect(existsSync(join(target, "fix-failing-test"))).toBe(false)
+  })
+})
+
+describe("a person's moves (AH-E04)", () => {
+  const ledgerOf = (folder: string) =>
+    readFileSync(join(folder, ".ledger.jsonl"), "utf8")
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+
+  test("disable moves the skill out of skills/, enable moves it back, and both are logged", () => {
+    const defaults = createLearnedStore({ env: {} })
+    expect(defaults.write(input()).ok).toBe(true)
+    const roots = learnedRoots(project, {})
+
+    const disabled = defaults.disable({ projectID: project, name: "fix-failing-test" })
+    expect(disabled).toEqual({ ok: true, path: join(roots.disabled, "fix-failing-test") })
+    // The disabled root is outside `skills/`: the engine's catalogue no longer has the skill.
+    expect(skillReport(project, project).some((file) => file.name === "fix-failing-test")).toBe(false)
+    expect(defaults.readSidecar(project, "fix-failing-test")).toBeUndefined()
+    expect(defaults.read(project, "fix-failing-test", "disabled")).toMatchObject({ description: "Use when a test fails" })
+    expect(defaults.listDisabled(project)).toEqual([
+      expect.objectContaining({ name: "fix-failing-test", sidecar: expect.objectContaining({ state: "probation" }) }),
+    ])
+    expect(ledgerOf(join(roots.disabled, "fix-failing-test")).at(-1)).toMatchObject({ event: "disabled", reason: "human" })
+
+    expect(defaults.enable({ projectID: project, name: "fix-failing-test" })).toEqual({
+      ok: true,
+      path: join(roots.learned, "fix-failing-test"),
+    })
+    expect(skillReport(project, project).find((file) => file.name === "fix-failing-test")).toMatchObject({ loaded: true })
+    expect(defaults.listDisabled(project)).toEqual([])
+    expect(defaults.readSidecar(project, "fix-failing-test")).toMatchObject({ state: "probation" })
+    expect(ledgerOf(join(roots.learned, "fix-failing-test")).at(-1)).toMatchObject({ event: "enabled", reason: "human" })
+  })
+
+  test("retire archives from the learned root or from the disabled one", () => {
+    expect(store().write(input()).ok).toBe(true)
+    expect(store().write(input({ name: "second-skill" })).ok).toBe(true)
+    expect(store().disable({ projectID: project, name: "second-skill" }).ok).toBe(true)
+
+    expect(store().retire({ projectID: project, name: "fix-failing-test" })).toEqual({
+      ok: true,
+      path: join(archive, "fix-failing-test"),
+    })
+    expect(store().retire({ projectID: project, name: "second-skill" })).toEqual({
+      ok: true,
+      path: join(archive, "second-skill"),
+    })
+    expect(store().listDisabled(project)).toEqual([])
+    for (const name of ["fix-failing-test", "second-skill"]) {
+      expect(JSON.parse(readFileSync(join(archive, name, ".sidecar.json"), "utf8"))).toMatchObject({ state: "archived" })
+      expect(ledgerOf(join(archive, name)).at(-1)).toMatchObject({ event: "archived", reason: "human" })
+    }
+  })
+
+  test("they are not gated by the learning switch: turning learning off never takes away unloading", () => {
+    expect(store().write(input()).ok).toBe(true)
+    const gated = createLearnedStore({ env: overrides(), enabled: () => false })
+    expect(gated.disable({ projectID: project, name: "fix-failing-test" }).ok).toBe(true)
+    expect(gated.enable({ projectID: project, name: "fix-failing-test" }).ok).toBe(true)
+    expect(gated.retire({ projectID: project, name: "fix-failing-test" }).ok).toBe(true)
+  })
+
+  test("enable refuses a name a human skill took in the meantime, and never overwrites", () => {
+    const defaults = createLearnedStore({ env: {} })
+    expect(defaults.write(input()).ok).toBe(true)
+    expect(defaults.disable({ projectID: project, name: "fix-failing-test" }).ok).toBe(true)
+    const human = join(project, ".opencode", "skills", "fix-failing-test", "SKILL.md")
+    write(human, humanSkill("fix-failing-test"))
+    expect(defaults.enable({ projectID: project, name: "fix-failing-test" })).toEqual({
+      ok: false,
+      reason: "name-collision",
+    })
+    expect(readFileSync(human, "utf8")).toBe(humanSkill("fix-failing-test"))
+    rmSync(join(project, ".opencode", "skills", "fix-failing-test"), { recursive: true })
+
+    // A learned skill installed under the same name since is never replaced by the disabled one.
+    expect(defaults.write(input({ body: "A newer body." })).ok).toBe(true)
+    expect(defaults.enable({ projectID: project, name: "fix-failing-test" })).toEqual({ ok: false, reason: "exists" })
+    expect(defaults.read(project, "fix-failing-test")?.body).toContain("A newer body.")
+  })
+
+  test("refuses what is not there, what a human wrote, and what the harness did not sign", () => {
+    expect(store().disable({ projectID: project, name: "missing" })).toEqual({ ok: false, reason: "not-found" })
+    expect(store().enable({ projectID: project, name: "missing" })).toEqual({ ok: false, reason: "not-found" })
+    expect(store().disable({ projectID: project, name: "../escape" })).toEqual({ ok: false, reason: "invalid-name" })
+    write(join(learned, "human", "SKILL.md"), humanSkill("human"))
+    expect(store().disable({ projectID: project, name: "human" })).toEqual({ ok: false, reason: "not-self-authored" })
+    expect(existsSync(join(learned, "human", "SKILL.md"))).toBe(true)
+
+    // A committed learned-looking folder in the disabled root is neither listed nor moved back.
+    write(
+      join(disabledRoot, "planted", "SKILL.md"),
+      serialiseLearnedSkill({ name: "planted", description: "Planted", body: "Do it." }),
+    )
+    expect(store().listDisabled(project)).toEqual([])
+    expect(store().enable({ projectID: project, name: "planted" })).toEqual({ ok: false, reason: "unverified" })
+    expect(existsSync(join(learned, "planted"))).toBe(false)
+  })
+
+  test("keeps the disabled root out of git", () => {
+    mkdirSync(join(project, ".git"), { recursive: true })
+    const defaults = createLearnedStore({ env: {} })
+    expect(defaults.write(input()).ok).toBe(true)
+    expect(defaults.disable({ projectID: project, name: "fix-failing-test" }).ok).toBe(true)
+    expect(readFileSync(join(project, ".git", "info", "exclude"), "utf8")).toContain("/.opencode/flupcode-learned-disabled/")
   })
 })
 

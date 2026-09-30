@@ -681,6 +681,26 @@ test("the audits are asked for under their own paths, with the filter and the be
   expect(calls.every((call) => call.auth === "Bearer tok")).toBe(true)
 })
 
+test("a learned-skill action names the skill and the project, and always sends the confirmation", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls, { data: { name: "parser-fix", status: "disabled" }, changed: true })
+
+  const answer = await withLoopbackToken(() =>
+    createHarnessClient("http://harness").adaptive.learnedSkills.act("parser-fix", "disable", "/work/demo"),
+  )
+
+  expect(answer).toEqual({ name: "parser-fix", status: "disabled" })
+  expect(calls).toEqual([
+    {
+      method: "POST",
+      path: "/harness/adaptive/learned-skills/parser-fix/disable",
+      search: "",
+      auth: "Bearer tok",
+      body: { projectID: "/work/demo", confirm: true },
+    },
+  ])
+})
+
 test("a guardrail status of null is a live answer, not a failure", async () => {
   const calls: AdaptiveCall[] = []
   recordingAdaptive(calls, { data: null })
@@ -712,6 +732,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     learnedSkills: false,
     guardrails: false,
     review: false,
+    manageSkills: false,
     metrics: false,
     voi: false,
     runtimeAlerts: false,
@@ -725,6 +746,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-skills",
       "adaptive-guardrails",
       "adaptive-proposals-review",
+      "adaptive-skills-manage",
       "adaptive-metrics",
       "adaptive-voi",
       "adaptive-runtime-alerts",
@@ -737,6 +759,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     learnedSkills: true,
     guardrails: true,
     review: true,
+    manageSkills: true,
     metrics: true,
     voi: true,
     runtimeAlerts: true,
@@ -752,6 +775,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     learnedSkills: false,
     guardrails: false,
     review: false,
+    manageSkills: false,
     metrics: false,
     voi: false,
     runtimeAlerts: false,
@@ -763,6 +787,9 @@ test("each adaptive surface is offered only for its own capability", () => {
   // Reading proposals is not reviewing them: the writer is its own capability (AH-A04).
   expect(adaptiveSurfaces(["adaptive-proposals"]).review).toBe(false)
   expect(adaptiveSurfaces(["adaptive-proposals-review"]).review).toBe(true)
+  // Reading learned skills is not acting on them (AH-E04).
+  expect(adaptiveSurfaces(["adaptive-skills"]).manageSkills).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-skills-manage"]).manageSkills).toBe(true)
   expect(adaptiveSurfaces(["adaptive-skills"]).learnedSkills).toBe(true)
   expect(adaptiveSurfaces(["adaptive-guardrails"]).guardrails).toBe(true)
   expect(adaptiveSurfaces(["adaptive-guardrails"]).decisions).toBe(false)
@@ -778,6 +805,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     learnedSkills: false,
     guardrails: false,
     review: false,
+    manageSkills: false,
     metrics: false,
     voi: false,
     runtimeAlerts: false,

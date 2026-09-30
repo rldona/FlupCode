@@ -1033,4 +1033,10 @@ export type LearnedSkill = {
   learned: boolean
   state?: LearnedSkillState
   usage?: LearnedSkillUsage
+  /** A person disabled it (AH-E04): its file sits outside `skills/`, so no new session loads it. */
+  disabled?: boolean
+  /** Where its `SKILL.md` is on the machine running the harness, for "Open file". */
+  path?: string
+  /** Its text, on the detail read only. */
+  body?: string
 }

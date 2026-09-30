@@ -362,6 +362,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       proposals: repository,
       learnedSkills: curator,
       proposalReview: createProposalReview({ repository, curator }),
+      learnedSkillActions: curator,
       adaptiveConfig,
       ...(adaptiveToken
         ? {

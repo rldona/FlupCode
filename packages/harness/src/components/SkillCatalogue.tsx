@@ -3,7 +3,7 @@ import { t } from "../i18n"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
-import type { AgentFile, LearnedSkillState, SkillFile, SkillProposal } from "../types"
+import type { AgentFile, LearnedSkill, LearnedSkillState, SkillFile, SkillProposal } from "../types"
 import type { SkillInfo } from "../engine-types"
 import type { SkillSourceKind, SkillSources } from "../skill-sources"
 import { skillAccess } from "../skill-access"
@@ -29,6 +29,9 @@ type SkillCatalogueProps = {
   serverUrl: string
   projectID?: string
   capabilities: string[]
+  /** Only the desktop app can open a local file; a browser reads a learned skill in place instead. */
+  canOpenFiles: boolean
+  onOpenInEditor: (path: string) => void
   /** Extra places the engine reads skills from: folders and URLs (H-27). */
   sources: SkillSources
   /** Agent files, so each skill can say who loads it (SK-1, like H-34 does for MCP). */
@@ -75,6 +78,51 @@ export const learnedStateLabel = (state: LearnedSkillState | undefined): string 
 /** What became of a proposal, as the catalogue shows it (FH-073). */
 export const proposalStatusLabel = (status: SkillProposal["status"]): string =>
   status.charAt(0).toUpperCase() + status.slice(1)
+
+/** A learned skill's badge: "Disabled" when a person turned it off, otherwise its lifecycle state. */
+export const learnedSkillLabel = (skill: Pick<LearnedSkill, "state" | "disabled">): string =>
+  skill.disabled ? "Disabled" : learnedStateLabel(skill.state)
+
+export type LearnedAction = "disable" | "enable" | "archive"
+
+/**
+ * What a person can do to an installed learned skill (AH-E04): disable or enable it, and archive it
+ * from either place — only when the server announced the actions, which it does only with its bearer.
+ */
+export const learnedSkillActions = (
+  skill: Pick<LearnedSkill, "disabled">,
+  surfaces: { manageSkills: boolean },
+): LearnedAction[] => (surfaces.manageSkills ? [skill.disabled ? "enable" : "disable", "archive"] : [])
+
+/**
+ * The confirmation of each action, in terms of what changes for the person — whether new sessions are
+ * offered the skill, and where its file goes — never the route or the field it writes.
+ */
+export const learnedActionCopy = (action: LearnedAction | "reject") =>
+  ({
+    disable: {
+      title: "Disable learned skill",
+      message:
+        "The skill will no longer be offered in new sessions of this project. Its file is kept, and you can enable it again.",
+      confirmLabel: "Disable",
+    },
+    enable: {
+      title: "Enable learned skill",
+      message: "The skill will be offered again in new sessions of this project.",
+      confirmLabel: "Enable",
+    },
+    archive: {
+      title: "Archive learned skill",
+      message:
+        "The skill will no longer be offered in new sessions and leaves this list. Its file moves to the project's archive; nothing is deleted.",
+      confirmLabel: "Archive",
+    },
+    reject: {
+      title: "Reject proposal",
+      message: "The skill will not be installed and the agent will never see it. The proposal is closed as rejected.",
+      confirmLabel: "Reject",
+    },
+  })[action]
 
 /**
  * Whether a proposal gets Approve / Reject (AH-A04): only a staged one, and only when the server
@@ -182,8 +230,8 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
   const orphans = createMemo(() => (props.skillsLoading ? [] : withoutFiles(props.skills, props.files)))
 
   // The learning audit (FH-073): what a reflection drafted and what the curator installed. A staged
-  // proposal is only installed when a person approves it here (AH-A04); merging and archiving are
-  // later phases, so no button here promises them.
+  // proposal is only installed when a person approves it here (AH-A04), and an installed skill is
+  // disabled, enabled or archived here too (AH-E04). Merging is a later phase, so nothing promises it.
   const learning = () => adaptiveSurfaces(props.capabilities)
   const [proposals, proposalActions] = createResource(
     () => (props.open && learning().proposals && props.projectID ? props.projectID : undefined),
@@ -211,10 +259,56 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
       })
   }
 
+  const [rejecting, setRejecting] = createSignal<SkillProposal>()
+  const [acting, setActing] = createSignal<{ skill: LearnedSkill; action: LearnedAction }>()
+  const [actionBusy, setActionBusy] = createSignal<string>()
+  const [actionProblem, setActionProblem] = createSignal<string>()
+  const act = (skill: LearnedSkill, action: LearnedAction) => {
+    const projectID = props.projectID
+    setActing(undefined)
+    if (!projectID) return
+    setActionBusy(skill.name)
+    setActionProblem(undefined)
+    void createHarnessClient(props.serverUrl)
+      .adaptive.learnedSkills.act(skill.name, action, projectID)
+      .catch((error: unknown) => setActionProblem(error instanceof Error ? error.message : String(error)))
+      .finally(() => {
+        setActionBusy(undefined)
+        void learnedActions.refetch()
+      })
+  }
+  // "Open file" hands the path to the editor where the desktop bridge exists; a browser cannot open a
+  // local file, so there the skill's text is read from the harness and shown in place.
+  const [shown, setShown] = createSignal<{ name: string; body?: string }>()
+  const openSkill = (skill: LearnedSkill) => {
+    if (props.canOpenFiles && skill.path) {
+      props.onOpenInEditor(skill.path)
+      return
+    }
+    if (shown()?.name === skill.name || !props.projectID) {
+      setShown(undefined)
+      return
+    }
+    setShown({ name: skill.name })
+    const settle = (body: string) => setShown((current) => (current?.name === skill.name ? { name: skill.name, body } : current))
+    createHarnessClient(props.serverUrl)
+      .adaptive.learnedSkills.get(skill.name, { projectID: props.projectID })
+      .then((detail) => settle(detail.body ?? ""))
+      .catch((error: unknown) => settle(error instanceof Error ? error.message : String(error)))
+  }
+  const pendingConfirm = () => {
+    const pending = acting()
+    if (pending) return { name: pending.skill.name, ...learnedActionCopy(pending.action) }
+    const proposal = rejecting()
+    if (proposal) return { name: proposal.name ?? proposal.targetSkill ?? proposal.id, ...learnedActionCopy("reject") }
+    return undefined
+  }
+
   createEffect(() => {
     if (!props.open) {
       setCreating(false)
       setOpenPath(undefined)
+      setShown(undefined)
     }
   })
 
@@ -612,7 +706,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                             <small dir="auto">{skill.description}</small>
                           </span>
                           <span class="fc-artifact-kind" dir="ltr">
-                            {t(learnedStateLabel(skill.state))}
+                            {t(learnedSkillLabel(skill))}
                           </span>
                           <Show when={skill.usage}>
                             {(usage) => (
@@ -624,10 +718,46 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                               </span>
                             )}
                           </Show>
+                          <span class="fc-skill-review-actions">
+                            <Show when={skill.path}>
+                              <button
+                                class="fc-button"
+                                type="button"
+                                aria-expanded={props.canOpenFiles ? undefined : shown()?.name === skill.name}
+                                onClick={() => openSkill(skill)}
+                              >
+                                {t("Open file")}
+                              </button>
+                            </Show>
+                            <For each={learnedSkillActions(skill, learning())}>
+                              {(action) => (
+                                <button
+                                  class="fc-button"
+                                  type="button"
+                                  disabled={actionBusy() === skill.name}
+                                  onClick={() => setActing({ skill, action })}
+                                >
+                                  {t(learnedActionCopy(action).confirmLabel)}
+                                </button>
+                              )}
+                            </For>
+                          </span>
+                          <Show when={shown()?.name === skill.name}>
+                            <pre class="fc-pr-log fc-skill-learned-body" dir="auto">
+                              {shown()?.body ?? t("Reading…")}
+                            </pre>
+                          </Show>
                         </div>
                       )}
                     </For>
                   </div>
+                </Show>
+                <Show when={actionProblem()}>
+                  {(problem) => (
+                    <p class="fc-run-error" role="alert">
+                      {t("The learned skill could not be changed: {reason}", { reason: problem() })}
+                    </p>
+                  )}
                 </Show>
               </Show>
 
@@ -686,7 +816,7 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                                 class="fc-button"
                                 type="button"
                                 disabled={reviewBusy() === proposal.id}
-                                onClick={() => review(proposal, "reject")}
+                                onClick={() => setRejecting(proposal)}
                               >
                                 {t("Reject")}
                               </button>
@@ -722,6 +852,27 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                   </div>
                 </ConfirmDialog>
               </Show>
+              <ConfirmDialog
+                open={pendingConfirm() !== undefined}
+                title={t(pendingConfirm()?.title ?? "")}
+                message={t(pendingConfirm()?.message ?? "")}
+                confirmLabel={t(pendingConfirm()?.confirmLabel ?? "")}
+                onClose={() => {
+                  setActing(undefined)
+                  setRejecting(undefined)
+                }}
+                onConfirm={() => {
+                  const pending = acting()
+                  const proposal = rejecting()
+                  setRejecting(undefined)
+                  if (pending) act(pending.skill, pending.action)
+                  if (proposal) review(proposal, "reject")
+                }}
+              >
+                <strong class="fc-skill-review" dir="auto">
+                  {pendingConfirm()?.name}
+                </strong>
+              </ConfirmDialog>
             </section>
           </Show>
         </div>
