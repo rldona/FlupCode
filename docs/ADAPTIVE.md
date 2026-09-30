@@ -188,7 +188,10 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   once and a rejection is not asked again. With no candidate the job keeps the model path's reason.
   **Combination rule:** the model path wins when it can run; the heuristic is its fallback and never
   overrides a classifier that answered `not-reusable`. It needs no egress consent because nothing
-  leaves the machine; `learning.enabled` remains the switch. The eval
+  leaves the machine — the candidate is a local template, never drafted by a remote model — and
+  `learning.enabled` remains the switch. So turning learning on does not need the classifier's
+  consent: the settings writer accepts it and warns `classifier-no-consent`, and the Learning card
+  says which path runs ("Proposing with built-in rules" or "with the predictive model"). The eval
   (`heuristics-eval.test.ts`, corpus in `fixtures/heuristics/`) replays 26 labelled synthetic episodes
   and asserts precision ≥ 0.6 (currently 0.89, recall 0.89). For the manual review on real data,
   `bun run reflect:heuristics -- [--db <path>] [--limit 200] [--project <dir>] [--json]` in
@@ -264,7 +267,10 @@ confirmation and no egress guard, since they only narrow what `learning.enabled`
 The draft is built from an episode's objective and evidence, and evidence can carry untrusted tool
 output (a web page, a README, an issue). A skill installed from it unreviewed would be a prompt
 injection that persists into every later session of the project, so the only path from `proposed`
-to `skills/` is a person (AH-A04).
+to `skills/` is a person (AH-A04). This holds whichever path proposed it: a proposal from the
+built-in rules (AH-F01, `modelVersion: heuristic/*`) — the path learning takes when the classifier
+has no consent — is staged and approved exactly like a drafted one, which is why turning learning on
+does not need the classifier's consent.
 
 - **`POST /harness/adaptive/proposals/:id/approve`** with `{ "confirm": true }` installs the proposal
   through the curator → store (the single writer, which signs the provenance) and marks it
@@ -334,9 +340,9 @@ to `skills/` is a person (AH-A04).
 | `adaptive.learning.frozen = true` | new reflection jobs (reason `frozen`), classification and draft | staged proposals (still approvable), learned skills, the lifecycle |
 | a per-project cap reached (`adaptive.learning.limits.*`) | new jobs for that project (reason `limit:<name>`) | other projects, staged proposals, learned skills |
 | `adaptive.enabled = false` / `FLUPCODE_ADAPTIVE_DISABLED=1` | additionally, every decision and the shadow | episodes, evidence, base harness, learned skills |
-| `adaptive.jev.enabled = false` (default) and no `models.skillReflection` | no model is assigned ⇒ job `egress-denied`, no proposal | learned skills keep loading |
-| the classifier's provider consent is off, lacks the project, or lacks `kinds.skillReflection` | no egress ⇒ no classification and no draft | learned skills keep loading |
-| no `learning.model` and no `small_model` | the draft ⇒ job `no-model`; no write | learned skills keep loading |
+| `adaptive.jev.enabled = false` (default) and no `models.skillReflection` | no model is assigned ⇒ no remote classification and no draft; the built-in rules may still stage a proposal (else job `egress-denied`) | learned skills keep loading |
+| the classifier's provider consent is off, lacks the project, or lacks `kinds.skillReflection` | no egress ⇒ no remote classification and no draft; the built-in rules may still stage a proposal | learned skills keep loading |
+| no `learning.model` and no `small_model` | the draft ⇒ the built-in rules may still stage a proposal (else job `no-model`) | learned skills keep loading |
 
 - **Measurement.** The falsifiable claim of 3b is **selection/recall**, offline: a PROBATION skill
   is selected by the deterministic `skillRelevance` shadow for the objective it should serve, with
@@ -1219,7 +1225,7 @@ always safe.
   | `shadow` | boolean | — | — |
   | `context.enabled` | boolean | — | — |
   | `context.apply` | boolean | warning `evaluation-gated` ([ADR-0018](adr/0018-context-selection-seam.md)) | — |
-  | `learning.enabled` | boolean | the classifier's provider consent: a project **and** `kinds.skillReflection` (none for a local classifier) ([ADR-0020](adr/0020-learning-persistence-and-egress.md)); warning `learning-draft-egress` | **yes**: the draft goes to the small model's provider |
+  | `learning.enabled` | boolean | — : without the classifier's consent reflection uses the built-in rules ([ADR-0020](adr/0020-learning-persistence-and-egress.md), amended); warnings `learning-draft-egress`, and `classifier-no-consent` when the classifier cannot run | **yes**: on the model path the draft goes to the small model's provider |
   | `learning.frozen` | boolean | — ; drawn as **Freeze learning** in the Learning card ([Limits and freeze](#limits-and-freeze)) | — |
   | `learning.limits.{proposalsPerDay,maxLearnedSkills,patchesPerWeek}` | whole number ≥ 1 (clamped to its ceiling) | — ; no control in the panel | — |
   | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
@@ -1271,7 +1277,8 @@ always safe.
   `writable` are written or compared, and the level is derived: Off while the master is off, a
   preset when every listed leaf matches, Custom otherwise (choosing Custom from Off only turns the
   master back on). Each card shows a derived state with its reason — the level, the environment, a
-  missing acting token, missing consent, a V2 runtime, a missing draft model — and the predictive
+  missing acting token, missing consent, a V2 runtime, which path Learning proposes with (built-in
+  rules or the predictive model, from the view's `learningClassifier`) — and the predictive
   model, data and budget, and the provenance/config file live in collapsed sections below.
 - **Write contract.** `PATCH /harness/adaptive/config` with `{ "patch": { … }, "confirm": false }`.
   The patch is **nested**, mirroring `flupcode.adaptive`, and carries only allowlisted leaves; a key

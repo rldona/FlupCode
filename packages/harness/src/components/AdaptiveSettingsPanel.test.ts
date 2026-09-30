@@ -44,7 +44,7 @@ const WRITABLE: AdaptiveWritableField[] = [
     path: "learning.enabled",
     type: "boolean",
     confirmation: "required",
-    guard: "egress-allowlist",
+    guard: "none",
     warning: "learning-draft-egress",
   },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
@@ -130,18 +130,12 @@ describe("which fields are offered", () => {
     expect(fieldProblem(field, view(), ["adaptive-relevance"])).toBeUndefined()
   })
 
-  test("learning needs its classifier's consent for a project and skillReflection", () => {
+  test("learning needs no classifier consent: without it, the built-in rules propose", () => {
     const field = writableField(view(), "learning.enabled")!
-    expect(fieldProblem(field, view(), [])).toBe("egress-allowlist")
-    expect(fieldProblem(field, consenting({ jev: { projects: ["/p"] } }), [])).toBe("egress-allowlist")
-    expect(
-      fieldProblem(field, consenting({ jev: { projects: ["/p"], kinds: { skillReflection: true } } }), []),
-    ).toBeUndefined()
-    // Another provider's consent is not the classifier's.
-    const small = consenting({ "small-llm": { projects: ["/p"], kinds: { skillReflection: true } } })
-    expect(fieldProblem(field, small, [])).toBe("egress-allowlist")
-    const assigned = { ...small, effective: { ...small.effective, models: { skillReflection: "small-llm" } } }
-    expect(fieldProblem(field, assigned, [])).toBeUndefined()
+    expect(fieldProblem(field, view(), [])).toBeUndefined()
+    expect(fieldProblem(field, consenting({ jev: { projects: ["/p"] } }), [])).toBeUndefined()
+    // Even a descriptor that still names the old guard is not blocked by the panel.
+    expect(fieldProblem({ ...field, guard: "egress-allowlist" }, view(), [])).toBeUndefined()
   })
 
   test("jev needs its own consent on, with any project and any kind", () => {
@@ -228,6 +222,23 @@ describe("which writes need confirming", () => {
     expect(needsConfirmation("learning.enabled", false, view())).toBe(false)
   })
 
+  test("with the built-in rules, the learning dialog says nothing is sent, and where drafts would go", () => {
+    const builtIn = {
+      ...view(),
+      learningDraft: { model: "openai/gpt-4o-mini" },
+      learningClassifier: { model: null, ready: false },
+    }
+    const message = confirmationMessage("learning.enabled", true, builtIn)
+    expect(message).toContain("built-in rules on this machine, so nothing is sent")
+    expect(message).toContain("openai/gpt-4o-mini")
+    const noDraft = confirmationMessage("learning.enabled", true, { ...builtIn, learningDraft: { model: null } })
+    expect(noDraft).toContain("so nothing is sent")
+    expect(noDraft).toContain("small model's provider")
+    // On the model path the dialog is the draft's own.
+    const modelPath = { ...builtIn, learningClassifier: { model: "jev", ready: true } }
+    expect(confirmationMessage("learning.enabled", true, modelPath)).toStartWith("Learning drafts a skill")
+  })
+
   test("the learning dialog says what is sent and to which model", () => {
     const withModel = { ...view(), learningDraft: { model: "openai/gpt-4o-mini" } }
     const message = confirmationMessage("learning.enabled", true, withModel)
@@ -236,7 +247,7 @@ describe("which writes need confirming", () => {
     expect(message).toContain("openai/gpt-4o-mini")
     const withoutModel = confirmationMessage("learning.enabled", true, { ...view(), learningDraft: { model: null } })
     expect(withoutModel).toContain("small model's provider")
-    expect(withoutModel).toContain("nothing is sent until one is")
+    expect(withoutModel).toContain("until one is the built-in rules propose skills on this machine")
     expect(confirmationMessage("retention.enabled", true, view())).toContain("Learned skills are never removed.")
     expect(confirmationMessage("jev.enabled", true, view())).toContain("redacted, size-limited decision inputs")
     // A field without its own words still says what a write means, never a blank dialog or its path.
@@ -310,6 +321,9 @@ describe("the server's answer said in the reader's words", () => {
     expect(warningKey("skills-still-load")).toBe("Learned skills still load from disk.")
     expect(warningKey("learning-draft-egress")).toBe(
       "Learning drafts are sent, redacted, to the configured small model's provider.",
+    )
+    expect(warningKey("classifier-no-consent")).toBe(
+      "The predictive model cannot review sessions, so skills are proposed with built-in rules on this machine.",
     )
     expect(warningKey("evaluation-gated")).toBe("Applying is configured, but promotion waits for the offline evaluation.")
   })
@@ -546,8 +560,9 @@ describe("the capability cards", () => {
     const suggesting = capabilityChoices(view(), card("suggestions"))[1]!
     expect(choiceProblem(view(), ["adaptive-config"], suggesting)).toBe("no-adaptive-token")
     expect(choiceProblem(view(), ACTING, suggesting)).toBeUndefined()
+    // Proposing needs no consent: without it the built-in rules propose (AH-F01).
     const proposing = capabilityChoices(view(), card("learning"))[1]!
-    expect(choiceProblem(view(), ACTING, proposing)).toBe("egress-allowlist")
+    expect(choiceProblem(view(), ACTING, proposing)).toBeUndefined()
     // Turning something off is never guarded.
     expect(choiceProblem(view(), [], capabilityChoices(view(), card("suggestions"))[0]!)).toBeUndefined()
   })
@@ -567,6 +582,18 @@ describe("the capability cards", () => {
     ])
   })
 })
+
+/** Learning on, once per path the card can say: built-in rules (no model, no permission, no draft) or the model. */
+const LEARNING_PATHS: AdaptiveConfigView[] = [
+  { model: null, ready: false, draft: "openai/mini" },
+  { model: "jev", ready: false, draft: "openai/mini" },
+  { model: "jev", ready: true, draft: null },
+  { model: "jev", ready: true, draft: "openai/mini" },
+].map((path) => ({
+  ...view({ learning: { enabled: true, maxInputChars: 1 } }),
+  learningDraft: { model: path.draft },
+  learningClassifier: { model: path.model, ready: path.ready },
+}))
 
 describe("a card's effective state", () => {
   const status = (current: AdaptiveConfigView, id: string, capabilities = ACTING) =>
@@ -590,11 +617,6 @@ describe("a card's effective state", () => {
     expect(status({ ...on, runtime: { ...on.runtime, runtime: "v2" } }, "suggestions").key).toBe(
       "Inactive: this engine's newer session runtime cannot run it yet.",
     )
-    const learning = view({ learning: { enabled: true, maxInputChars: 1 } })
-    expect(status(learning, "learning")).toEqual({
-      tone: "inactive",
-      key: "Inactive: it needs your permission to share data with the model provider.",
-    })
   })
 
   test("the runtime only makes the hook-based capabilities inert", () => {
@@ -602,6 +624,34 @@ describe("a card's effective state", () => {
     const onV2 = { ...v2, runtime: { ...v2.runtime, runtime: "v2" as const } }
     expect(status(onV2, "loops").tone).toBe("inactive")
     expect(status(onV2, "context").tone).toBe("active")
+  })
+
+  test("learning says which path proposes: the built-in rules or the predictive model", () => {
+    const on = view({ learning: { enabled: true, maxInputChars: 1 } })
+    const draft = { learningDraft: { model: "openai/mini" } }
+    expect(status({ ...on, ...draft, learningClassifier: { model: null, ready: false } }, "learning")).toEqual({
+      tone: "active",
+      key: "Active · proposing skills with built-in rules: no predictive model is set to review sessions",
+    })
+    expect(status({ ...on, ...draft, learningClassifier: { model: "jev", ready: false } }, "learning")).toEqual({
+      tone: "active",
+      key: "Active · proposing skills with built-in rules: the predictive model has no permission to review sessions",
+    })
+    // The built-in rules draft nothing, so a missing drafting model does not matter on that path.
+    expect(
+      status({ ...on, learningDraft: { model: null }, learningClassifier: { model: null, ready: false } }, "learning")
+        .tone,
+    ).toBe("active")
+    expect(status({ ...on, ...draft, learningClassifier: { model: "jev", ready: true } }, "learning")).toEqual({
+      tone: "active",
+      key: "Active · proposing skills with the predictive model, for your approval",
+    })
+    expect(
+      status({ ...on, learningDraft: { model: null }, learningClassifier: { model: "jev", ready: true } }, "learning"),
+    ).toEqual({
+      tone: "waiting",
+      key: "Active · proposing skills with built-in rules until there is a model to draft them with",
+    })
   })
 
   test("learning without a model is active but waiting", () => {
@@ -631,6 +681,7 @@ describe("a card's effective state", () => {
       ]),
       status(view({ relevance: { enabled: true } }), "suggestions", ["adaptive-config"]).key,
       status(view({ learning: { enabled: true, maxInputChars: 1 } }), "learning").key,
+      ...LEARNING_PATHS.map((current) => status(current, "learning").key),
       problemKey("env-disabled"),
       problemKey("no-adaptive-token"),
       problemKey("egress-allowlist"),
@@ -645,6 +696,7 @@ describe("a card's effective state", () => {
         status(view(), "context").key,
         status(view({ relevance: { enabled: true }, enabled: false }), "suggestions").key,
         status(view({ relevance: { enabled: true } }), "suggestions", ["adaptive-config"]).key,
+        ...LEARNING_PATHS.map((current) => status(current, "learning").key),
         ...CAPABILITIES.flatMap((capability) => [capability.title, capability.description]),
       ]
       for (const key of keys) expect(t(key)).not.toBe(key)

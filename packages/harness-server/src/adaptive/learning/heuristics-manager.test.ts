@@ -172,6 +172,54 @@ describe("heuristic reflection in the manager (AH-F01)", () => {
     expect(existsSync(learnedPath("fix-bun-test-src-math-test-ts"))).toBe(false)
   })
 
+  test("learning on without the classifier's consent never asks the classifier nor drafts remotely", async () => {
+    // The settings writer lets learning on without the classifier's consent; the egress guard is
+    // what keeps the remote classifier from being asked, per project, at call time.
+    const repository = repositoryFor()
+    let classifications = 0
+    let drafts = 0
+    const unconsented = (block: Record<string, unknown>) =>
+      resolveAdaptiveConfig({
+        block: { jev: { enabled: true }, learning: { enabled: true, minToolCalls: 5, model: "prov/small" }, ...block },
+        env: {},
+      })
+    const configs = [
+      // Consent for another kind only.
+      unconsented({ egress: { projects: [project], kinds: { completion: true } } }),
+      // Consent for the kind, but for another project.
+      unconsented({ egress: { projects: [join(root, "elsewhere")], kinds: { skillReflection: true } } }),
+      // A remote classifier the config names without any consent row.
+      unconsented({ models: { skillReflection: "small-llm" } }),
+    ]
+    for (const [index, config] of configs.entries()) {
+      const manager = managerFor({
+        repository,
+        config,
+        trace: redFixGreen(),
+        service: service(undefined, () => (classifications += 1)),
+        drafter: {
+          draft: async () => {
+            drafts += 1
+            return undefined
+          },
+        },
+      })
+      const id = `episode:session:ses_${index}`
+      manager.onEpisodeClosed(episode({ id, sessionID: `ses_${index}`, evidenceRefs: [`session:ses_${index}`] }))
+      await settle()
+      expect(repository.getReflectionJob(id)?.decisionID ?? repository.getReflectionJob(id)?.reason).toMatch(
+        /^heuristic:|^heuristic-duplicate$/,
+      )
+    }
+    expect(classifications).toBe(0)
+    expect(drafts).toBe(0)
+    // The built-in rules staged the lesson once, for a person to approve.
+    expect(repository.getProposal("proposal:episode:session:ses_0")).toMatchObject({
+      status: "proposed",
+      modelVersion: "heuristic/fix-verify",
+    })
+  })
+
   test("the learning caps (AH-F03) hold on the heuristic path too", async () => {
     const repository = repositoryFor()
     const steps = redFixGreen()

@@ -1,6 +1,6 @@
 # ADR-0020: Learning persistence, cadence and egress
 
-- **Status:** Accepted; amended 2026-09-30 (AH-A04, human approval before install)
+- **Status:** Accepted; amended 2026-09-30 (AH-A04, human approval before install; AH-F01, built-in rules without a classifier)
 - **Date:** 2026-09-29
 - **Related:** ADR-0016 (harness boundary), ADR-0017 (Jev egress and governance), ADR-0018 (context selection seam), ADR-0019 (learned skill lifecycle and provenance), `flupcode-adaptive-harness-plan.md` §8 / §9 / §11 / §13 / §14 / §19, `fh-phase3b-design.md`
 
@@ -243,3 +243,20 @@ installing it through the curator (ADR-0019 §2); `POST …/reject` closes it as
 `human-rejected`. §2's reason for persisting the redacted body — a proposal exists for human review —
 is now the mechanism rather than a possibility, and §9's selection metric is measured after that
 approval.
+
+## Amendment (2026-09-30, AH-F01): learning without a classifier uses the built-in rules
+
+§5's "classification is the door … 3b does not learn without Jev" no longer holds. When the model
+path cannot run — no `skillReflection` classifier, or one whose provider has not consented for the
+project and the kind — the manager falls back to the local heuristic classifier (`heuristics.ts`).
+It sends nothing off the machine, drafts nothing remotely (its candidate is a local template), and its
+proposals go through the same redaction, lint and `proposed` staging, so they still need a person's
+approval (AH-A04, ADR-0022). The egress condition on the classification itself is unchanged: the
+egress guard still refuses the remote call per project at call time.
+
+The settings writer therefore no longer refuses `learning.enabled = true` without the classifier's
+consent (`guard:egress-allowlist-required` is gone for that switch; its guard is `none`). Turning
+learning on still asks for confirmation and travels the `learning-draft-egress` warning, because on
+the model path the draft goes to the small model's provider and `learning.enabled` is that consent.
+When the classifier cannot run, the write also travels `classifier-no-consent` ("reflection uses the
+built-in rules only"), and `no-model` is only said on the model path, where a draft is attempted.

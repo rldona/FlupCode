@@ -854,6 +854,12 @@ export type AdaptiveConfigView = {
   writable: AdaptiveWritableField[]
   /** The model a learning draft is sent to (`provider/model`); absent from an older server. */
   learningDraft?: { model: string | null }
+  /**
+   * The model assigned to review finished sessions (null when none is) and whether it may run for at
+   * least one project; when it may not, Learning proposes with the built-in rules. Absent from an
+   * older server.
+   */
+  learningClassifier?: { model: string | null; ready: boolean }
   /** The learning caps reached right now, per project (AH-F03); absent from an older server. */
   learningLimits?: { reached: AdaptiveLearningLimitHit[] }
   /** The providers a consent row is drawn for: the registered remote models, then any configured. */
