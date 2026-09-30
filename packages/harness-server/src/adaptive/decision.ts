@@ -298,11 +298,27 @@ export type PlanScoreSource = Extract<DecisionSource, "baseline" | "model">
 export const DECISION_LABEL_OUTCOMES = ["correct", "incorrect", "unknown"] as const
 export type DecisionLabelOutcome = (typeof DECISION_LABEL_OUTCOMES)[number]
 
-/** A per-kind outcome label, with what produced it (an episode outcome, a person, a replay). */
-export type DecisionLabel = {
+/**
+ * A per-kind outcome label as it is written (AH-C06): how the answer scored, how the baseline answer
+ * would have scored against the same observed outcome (the counterfactual an uplift needs), and what
+ * produced it (an episode outcome, the skill loads of a turn, a replay).
+ */
+export type DecisionLabelInput = {
   outcome: DecisionLabelOutcome
+  baselineOutcome?: DecisionLabelOutcome
   source: string
-  labeledAt: number
+}
+
+/** A label as it is read back, with when it was written. */
+export type DecisionLabel = DecisionLabelInput & { labeledAt: number }
+
+/** How a kind's decisions in a window read: how many there were and how their labels came out. */
+export type DecisionLabelCounts = {
+  eligible: number
+  labeled: number
+  correct: number
+  incorrect: number
+  unknown: number
 }
 
 export type DegradedReason =

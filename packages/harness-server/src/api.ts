@@ -31,6 +31,7 @@ import { handleCredentialRequest } from "./credential-routes"
 import type { CredentialVault } from "./vault"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { handleDecisionRequest } from "./adaptive/decision-routes"
+import { handleLabelCoverageRead } from "./adaptive/labeler"
 import type { DecisionService } from "./adaptive/decision-service"
 import { handleContextPlanRequest } from "./adaptive/context-routes"
 import type { ContextManager } from "./adaptive/context-manager"
@@ -484,6 +485,20 @@ export const createHarnessHandler = (
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleDecisionRequest(request, path.slice(2), options.decisions)
+    }
+    // The labeling coverage (AH-C06): how many decisions per kind carry an outcome label. It is
+    // derived from the decision audit, so it takes the same bearer; reading only.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "labels" &&
+      path[3] === "coverage" &&
+      path.length === 4 &&
+      request.method === "GET" &&
+      options.decisions
+    ) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleLabelCoverageRead(request, repository)
     }
     // The context plan audit (FH-022) is as sensitive as the decision audit: it says what a run or
     // an episode was observed to carry. Same bearer, reading only — there is no route that plans.

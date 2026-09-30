@@ -76,7 +76,7 @@ import type { ReflectionRow } from "./adaptive/learning/reflection-job"
 import { proposalFromRow, proposalRowFrom } from "./adaptive/learning/proposal-record"
 import type { SkillProposalRow } from "./adaptive/learning/proposal-record"
 import type { RetentionCutoffs, RetentionPurge } from "./adaptive/retention"
-import type { DecisionKind } from "./adaptive/decision"
+import type { DecisionKind, DecisionLabelCounts, DecisionLabelInput } from "./adaptive/decision"
 import { applyObservation, emptyTurn } from "./adaptive/session-metrics"
 import type { MetricObservation, SessionMetricTurn } from "./adaptive/session-metrics"
 import type { Arm, HoldoutCapability } from "./adaptive/holdout"
@@ -2612,6 +2612,67 @@ export class SqliteRoutineRepository implements RoutineRepository {
     } catch {
       return 0
     }
+  }
+
+  // ---- outcome labels (AH-C06) ------------------------------------------------------------------
+
+  /**
+   * Unlabelled decisions of the given kinds created no later than `settledBefore`, oldest first and
+   * strictly after the `(createdAt, id)` cursor, so a sweep can walk the backlog page by page and a
+   * page of still-unknowable rows never starves the ones behind it.
+   */
+  listUnlabeledDecisions(input: {
+    kinds: readonly DecisionKind[]
+    settledBefore: number
+    after?: { createdAt: number; id: string }
+    limit: number
+  }): StoredDecision[] {
+    if (input.kinds.length === 0) return []
+    const kinds = input.kinds.map((_, index) => `?${index + 5}`).join(", ")
+    const rows = this.db
+      .query(
+        `SELECT * FROM adaptive_decision
+         WHERE label IS NULL AND created_at <= ?1 AND kind IN (${kinds})
+           AND (created_at > ?2 OR (created_at = ?2 AND id > ?3))
+         ORDER BY created_at, id LIMIT ?4`,
+      )
+      .all(
+        input.settledBefore,
+        input.after?.createdAt ?? -1,
+        input.after?.id ?? "",
+        input.limit,
+        ...input.kinds,
+      ) as DecisionRow[]
+    return rows.map(decisionFromRow)
+  }
+
+  /**
+   * Writes a decision's outcome label once. A row that already carries one is left alone, so a
+   * second sweep, or two racing ones, cannot relabel it; `updated_at` is not moved, because a label
+   * is not a new capture and must not extend the row's retention.
+   */
+  labelDecision(id: string, label: DecisionLabelInput, at = Date.now()): boolean {
+    return (
+      this.db
+        .query("UPDATE adaptive_decision SET label = ?2, labeled_at = ?3 WHERE id = ?1 AND label IS NULL")
+        .run(id, JSON.stringify(label), at).changes > 0
+    )
+  }
+
+  /** How many decisions of a kind were created in a window, and how their labels read. */
+  countDecisionLabels(input: { kind: DecisionKind; since: number; until: number }): DecisionLabelCounts {
+    // A label edited by hand into something that is not JSON counts as labelled, never as a throw.
+    return this.db
+      .query(
+        `SELECT COUNT(*) AS eligible,
+                COALESCE(SUM(CASE WHEN label IS NOT NULL THEN 1 ELSE 0 END), 0) AS labeled,
+                COALESCE(SUM(CASE WHEN json_extract(CASE WHEN json_valid(label) THEN label END, '$.outcome') = 'correct' THEN 1 ELSE 0 END), 0) AS correct,
+                COALESCE(SUM(CASE WHEN json_extract(CASE WHEN json_valid(label) THEN label END, '$.outcome') = 'incorrect' THEN 1 ELSE 0 END), 0) AS incorrect,
+                COALESCE(SUM(CASE WHEN json_extract(CASE WHEN json_valid(label) THEN label END, '$.outcome') = 'unknown' THEN 1 ELSE 0 END), 0) AS unknown
+         FROM adaptive_decision
+         WHERE kind = ?1 AND created_at >= ?2 AND created_at <= ?3`,
+      )
+      .get(input.kind, input.since, input.until) as DecisionLabelCounts
   }
 
   // ---- context plans (FH-022) -----------------------------------------------------------------

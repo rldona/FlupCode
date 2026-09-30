@@ -37,6 +37,7 @@ import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/pro
 import { createDecisionService } from "./adaptive/decision-service"
 import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
+import { createOutcomeLabeler } from "./adaptive/labeler"
 import { createLearnedStore } from "./adaptive/skills/learned-store"
 import { createSkillCurator } from "./adaptive/skills/curator"
 import { createLearningDrafter } from "./adaptive/learning/draft"
@@ -217,6 +218,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     onError: (cause) =>
       console.error(`Could not record an adaptive decision: ${cause instanceof Error ? cause.message : String(cause)}`),
   })
+  // The outcome labeler (AH-C06) joins each decision with what happened after it and writes its
+  // label once the outcome is knowable. It is a writer, so it obeys the kill switch, read live.
+  const labeler = createOutcomeLabeler({
+    repository,
+    enabled: () => adaptive.current().enabled,
+    key: () => key ?? resolveInstallationKey(),
+    onError: (cause) =>
+      console.error(`Could not label adaptive decisions: ${cause instanceof Error ? cause.message : String(cause)}`),
+  })
   // The learning manager is built after the scheduler (it drafts through the engine), so the close
   // callback reaches it through this holder; the callback is only ever invoked once serving starts.
   let learning: LearningRunner | undefined
@@ -344,6 +354,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // The shadow's backstop: a restart cannot see the close callbacks it missed, so terminal episodes
   // without a decision are swept on the same boundary cadence as the episodes themselves.
   shadow.start()
+  labeler.start()
   learning.start()
   void runtimeProbe.refresh()
   const probeInterval = setInterval(() => void runtimeProbe.refresh(), runtimeConfig.ttlMs)
@@ -362,6 +373,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       clearInterval(probeInterval)
       learning?.stop()
       shadow.stop()
+      labeler.stop()
       episodes.stop()
       scheduler.stop()
       await browser?.stop().catch(() => undefined)

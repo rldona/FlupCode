@@ -3,7 +3,7 @@ import { t } from "../i18n"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
-import type { DecisionExplanation, StoredDecision } from "../types"
+import type { DecisionExplanation, DecisionLabel, DecisionLabelOutcome, StoredDecision } from "../types"
 import { PanelFailure } from "./PanelBoundary"
 
 type DecisionsPanelProps = {
@@ -46,6 +46,14 @@ export function costText(costUsd: number | undefined, inputTokens: number | unde
   ].filter((part) => part !== undefined)
   return parts.length > 0 ? parts.join(" · ") : undefined
 }
+
+/** A label as the row's suffix: a tick, a cross, or a question mark for a judged-unknowable one. */
+export const labelMark = (label: DecisionLabel | undefined) =>
+  label === undefined ? undefined : label.outcome === "correct" ? "✓" : label.outcome === "incorrect" ? "✗" : "?"
+
+/** A label outcome in words, for the dialog. */
+export const outcomeText = (outcome: DecisionLabelOutcome) =>
+  outcome === "correct" ? t("Correct") : outcome === "incorrect" ? t("Incorrect") : t("Not judgeable")
 
 /** The kind as stored: a kind this build does not know is shown by its raw value, not as "unknown". */
 export const kindText = (decision: Pick<StoredDecision, "kind" | "raw">) => decision.raw?.kind ?? decision.kind
@@ -194,6 +202,7 @@ const DecisionRow: Component<{ decision: StoredDecision; onExplain: () => void }
       {formatDateTime(props.decision.createdAt)} · {latencyText(props.decision.latencyMs)}
       {props.decision.degraded ? ` · ${t("Degraded")}` : ""}
       {props.decision.arm === "control" ? ` · ${t("Held out")}` : ""}
+      {labelMark(props.decision.label) ? ` · ${labelMark(props.decision.label)}` : ""}
     </span>
     <Show when={confidenceText(props.decision.confidence)}>
       {(confidence) => <span class="fc-usage-cost">{confidence()}</span>}
@@ -227,6 +236,20 @@ const Explanation: Component<{ detail: DecisionExplanation }> = (props) => (
         {describeAnswer(props.detail.baseline.answer)} · {props.detail.baseline.rule}
       </span>
     </div>
+    <Show when={props.detail.label}>
+      {(label) => (
+        <div class="fc-usage-row">
+          <span class="fc-usage-key">{t("Real outcome")}</span>
+          <span class="fc-context-excerpt">
+            {labelMark(label())} {outcomeText(label().outcome)}
+            {label().baselineOutcome
+              ? ` · ${t("baseline: {outcome}", { outcome: outcomeText(label().baselineOutcome!) })}`
+              : ""}
+            {` · ${label().source}`}
+          </span>
+        </div>
+      )}
+    </Show>
     <div class="fc-usage-row">
       <span class="fc-usage-key">{t("Provider")}</span>
       <span class="fc-context-excerpt" dir="auto">
