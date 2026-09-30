@@ -762,6 +762,9 @@ export type AdaptiveWritableField = {
   warning?: AdaptiveWarning
 }
 
+/** One remote provider's consent: whether it may be sent anything, for which projects and kinds. */
+export type AdaptiveProviderConsent = { enabled: boolean; projects: string[]; kinds: Record<string, boolean> }
+
 /** The values the panel draws, narrowed from the server's resolved `AdaptiveConfig`. */
 export type AdaptiveSettings = {
   enabled: boolean
@@ -771,7 +774,10 @@ export type AdaptiveSettings = {
   relevance: { enabled: boolean }
   guardrails: { enabled: boolean }
   jev: { enabled: boolean }
-  egress: { projects: string[]; kinds: Record<string, boolean> }
+  /** The predictive model per kind; `skillReflection`'s decides whose consent learning needs. */
+  models?: Record<string, string>
+  /** Consent per remote provider (AH-C03), keyed by the predictive model id. */
+  egress: { providers: Record<string, AdaptiveProviderConsent> }
   retention: { enabled: boolean }
   budget: { monthlyTokens: number; hotReserveFraction: number }
 }
@@ -810,6 +816,8 @@ export type AdaptiveConfigView = {
   writable: AdaptiveWritableField[]
   /** The model a learning draft is sent to (`provider/model`); absent from an older server. */
   learningDraft?: { model: string | null }
+  /** The providers a consent row is drawn for: the registered remote models, then any configured. */
+  egressProviders?: string[]
 }
 
 /** Who answered a decision (AH-C02): the rule alone, a model, or the rule after a model did not win. */

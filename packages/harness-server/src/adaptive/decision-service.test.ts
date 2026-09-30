@@ -765,7 +765,7 @@ describe("the predictive model registry (AH-C01)", () => {
     expect(model.seen).toHaveLength(0)
   })
 
-  test("a remote model is only asked for a project and kind the egress guard lets out", async () => {
+  test("a remote model is only asked for a project and kind its own provider's consent lets out", async () => {
     const model = registered(
       "fake-remote",
       "remote",
@@ -774,12 +774,59 @@ describe("the predictive model registry (AH-C01)", () => {
     const denied = serviceFor({ models: { completion: "fake-remote" } }, model)
     expect((await denied.service.predict(completion())).source).toBe("baseline")
     denied.repository.close()
+
+    // Jev's consent (the legacy keys) is Jev's alone: another remote model stays unasked.
+    const jevConsent = serviceFor({ ...jevOn, models: { completion: "fake-remote" } }, model)
+    expect((await jevConsent.service.predict(completion())).source).toBe("baseline")
+    jevConsent.repository.close()
     expect(model.seen).toHaveLength(0)
 
-    const allowed = serviceFor({ ...jevOn, models: { completion: "fake-remote" } }, model)
+    const consent = { enabled: true, projects: ["/work/project"], kinds: { completion: true } }
+    const allowed = serviceFor(
+      { egress: { providers: { "fake-remote": consent } }, models: { completion: "fake-remote" } },
+      model,
+    )
     expect(await allowed.service.predict(completion())).toMatchObject({ source: "model", provider: "fake-remote" })
     allowed.repository.close()
     expect(model.seen).toHaveLength(1)
+  })
+
+  test("modelFor gates per provider: two remote models and one local, each under its own rule", async () => {
+    const yes = { q0: { probabilities: { yes: 0.9, no: 0.1 } } }
+    const jev = registered("jev", "remote", answering(yes, "jev"))
+    const small = registered("small-llm", "remote", answering(yes, "small-llm"))
+    const local = registered("local-embed", "local", answering(yes, "local-embed"))
+    const consent = { enabled: true, projects: ["/work/project"], kinds: { completion: true, failure: true } }
+    const decide = async (block: Record<string, unknown>, assigned: string) => {
+      const repository = new SqliteRoutineRepository(":memory:")
+      const config = resolveAdaptiveConfig({ block: { ...block, models: { completion: assigned } }, env: {} })
+      const service = createDecisionService({
+        repository,
+        config: () => config,
+        egress: createAdaptiveEgressGuard({ config: () => config }),
+        models: [jev, small, local],
+        governor: createGovernor({ config: () => config.governor, store: repository, now: () => NOW }),
+        now: () => NOW,
+      })
+      const result = await service.predict(completion())
+      repository.close()
+      return result.provider
+    }
+
+    // Consenting to small-llm lets small-llm out and nothing else: Jev stays unasked.
+    const smallOnly = { egress: { providers: { "small-llm": consent } } }
+    expect(await decide(smallOnly, "small-llm")).toBe("small-llm")
+    expect(await decide(smallOnly, "jev")).toBe("deterministic")
+    // And the other way round.
+    const jevOnly = { egress: { providers: { jev: consent } } }
+    expect(await decide(jevOnly, "jev")).toBe("jev")
+    expect(await decide(jevOnly, "small-llm")).toBe("deterministic")
+    // A local model needs no consent at all, but the kill switch stops it.
+    expect(await decide({}, "local-embed")).toBe("local-embed")
+    expect(await decide({ enabled: false, ...jevOnly }, "local-embed")).toBe("deterministic")
+    expect(jev.seen).toHaveLength(1)
+    expect(small.seen).toHaveLength(1)
+    expect(local.seen).toHaveLength(1)
   })
 
   test("answers that do not read as the kind's answer degrade as malformed", async () => {

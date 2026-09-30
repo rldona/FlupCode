@@ -24,23 +24,27 @@ const completionRequest: DecisionRequest<"completion"> = {
   },
 }
 
+const JEV = { id: "jev", locality: "remote" } as const
+const SMALL = { id: "small-llm", locality: "remote" } as const
+const LOCAL = { id: "local-embed", locality: "local" } as const
+
 describe("EgressGuard.allows", () => {
   test("nothing leaves by default, for any kind or project", () => {
     const guard = createEgressGuard({ config: () => configFor({}) })
     for (const kind of decisionKinds()) {
-      expect(guard.allows(kind, "/work/project")).toBe(false)
-      expect(guard.allows(kind, undefined)).toBe(false)
+      expect(guard.allows(JEV, kind, "/work/project")).toBe(false)
+      expect(guard.allows(JEV, kind, undefined)).toBe(false)
     }
   })
 
-  test("requires the global switch, the project list and the kind allowlist together", () => {
+  test("legacy keys: requires the global switch, the project list and the kind allowlist together", () => {
     const globalOnly = createEgressGuard({ config: () => configFor({ jev: { enabled: true } }) })
-    expect(globalOnly.allows("completion", "/work/project")).toBe(false)
+    expect(globalOnly.allows(JEV, "completion", "/work/project")).toBe(false)
 
     const projectButNoKind = createEgressGuard({
       config: () => configFor({ jev: { enabled: true }, egress: { projects: ["/work/project"] } }),
     })
-    expect(projectButNoKind.allows("completion", "/work/project")).toBe(false)
+    expect(projectButNoKind.allows(JEV, "completion", "/work/project")).toBe(false)
 
     const allowed = createEgressGuard({
       config: () =>
@@ -49,17 +53,59 @@ describe("EgressGuard.allows", () => {
           egress: { projects: ["/work/project"], kinds: { completion: true } },
         }),
     })
-    expect(allowed.allows("completion", "/work/project")).toBe(true)
-    expect(allowed.allows("completion", "/other/project")).toBe(false)
-    expect(allowed.allows("skillRelevance", "/work/project")).toBe(false)
-    expect(allowed.allows("completion", undefined)).toBe(false)
+    expect(allowed.allows(JEV, "completion", "/work/project")).toBe(true)
+    expect(allowed.allows(JEV, "completion", "/other/project")).toBe(false)
+    expect(allowed.allows(JEV, "skillRelevance", "/work/project")).toBe(false)
+    expect(allowed.allows(JEV, "completion", undefined)).toBe(false)
+    // The legacy consent was always Jev's: it never lets another remote provider out.
+    expect(allowed.allows(SMALL, "completion", "/work/project")).toBe(false)
   })
 
-  test("the global switch off keeps everything in, even with project and kind listed", () => {
+  test("the legacy switch off keeps everything in, even with project and kind listed", () => {
     const guard = createEgressGuard({
       config: () => configFor({ egress: { projects: ["/work/project"], kinds: { completion: true } } }),
     })
-    expect(guard.allows("completion", "/work/project")).toBe(false)
+    expect(guard.allows(JEV, "completion", "/work/project")).toBe(false)
+  })
+
+  test("consent is per provider: one provider's consent never lets another out", () => {
+    const consent = { enabled: true, projects: ["/work/project"], kinds: { completion: true } }
+    const small = createEgressGuard({ config: () => configFor({ egress: { providers: { "small-llm": consent } } }) })
+    expect(small.allows(SMALL, "completion", "/work/project")).toBe(true)
+    expect(small.allows(JEV, "completion", "/work/project")).toBe(false)
+
+    const jev = createEgressGuard({ config: () => configFor({ egress: { providers: { jev: consent } } }) })
+    expect(jev.allows(JEV, "completion", "/work/project")).toBe(true)
+    expect(jev.allows(SMALL, "completion", "/work/project")).toBe(false)
+
+    const unswitched = createEgressGuard({
+      config: () => configFor({ egress: { providers: { "small-llm": { ...consent, enabled: false } } } }),
+    })
+    expect(unswitched.allows(SMALL, "completion", "/work/project")).toBe(false)
+    // A provider id that happens to name an object prototype key is not a consent.
+    expect(unswitched.allows({ id: "constructor", locality: "remote" }, "completion", "/work/project")).toBe(false)
+  })
+
+  test("a local model needs no consent, but the kill switch stops it like every other model", () => {
+    const open = createEgressGuard({ config: () => configFor({}) })
+    for (const kind of decisionKinds()) expect(open.allows(LOCAL, kind, undefined)).toBe(true)
+
+    const consent = { enabled: true, projects: ["/work/project"], kinds: { completion: true } }
+    const killed = createEgressGuard({
+      config: () => configFor({ enabled: false, egress: { providers: { jev: consent } } }),
+    })
+    expect(killed.allows(LOCAL, "completion", "/work/project")).toBe(false)
+    expect(killed.allows(JEV, "completion", "/work/project")).toBe(false)
+
+    const envKilled = createEgressGuard({
+      config: () =>
+        resolveAdaptiveConfig({
+          block: { egress: { providers: { jev: consent } } },
+          env: { FLUPCODE_ADAPTIVE_DISABLED: "1" },
+        }),
+    })
+    expect(envKilled.allows(LOCAL, "completion", "/work/project")).toBe(false)
+    expect(envKilled.allows(JEV, "completion", "/work/project")).toBe(false)
   })
 })
 

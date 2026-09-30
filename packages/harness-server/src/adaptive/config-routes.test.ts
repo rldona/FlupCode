@@ -277,7 +277,7 @@ describe("refusals", () => {
     const response = await patch({ patch: { learning: { enabled: true } } })
     expect(await response.json()).toMatchObject({
       code: "guard:egress-allowlist-required",
-      missing: ["egress.projects", "egress.kinds.skillReflection"],
+      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds.skillReflection"],
     })
   })
 
@@ -287,7 +287,7 @@ describe("refusals", () => {
     expect(await response.json()).toMatchObject({
       code: "guard:egress-allowlist-required",
       fields: ["jev.enabled"],
-      missing: ["egress.projects", "egress.kinds"],
+      missing: ["egress.providers.jev.projects", "egress.providers.jev.kinds"],
     })
   })
 
@@ -305,47 +305,60 @@ describe("refusals", () => {
     expect(await response.json()).toMatchObject({ code: "confirmation-required", fields: ["jev.enabled"] })
   })
 
-  test("widening egress.projects needs confirmation, and confirming writes it", async () => {
+  test("widening a provider's projects needs confirmation, and confirming writes it", async () => {
     const handler = open({
-      adaptiveConfig: surface({ block: { egress: { projects: ["/a"] } } }),
+      adaptiveConfig: surface({ block: { egress: { providers: { "small-llm": { projects: ["/a"] } } } } }),
       token: TOKEN,
     })
+    const widened = { egress: { providers: { "small-llm": { projects: ["/a", "/b"] } } } }
     const refused = await call(handler, "/harness/adaptive/config", {
       method: "PATCH",
-      body: { patch: { egress: { projects: ["/a", "/b"] } } },
+      body: { patch: widened },
       token: TOKEN,
     })
     expect(refused.status).toBe(422)
-    expect(await refused.json()).toMatchObject({ code: "confirmation-required", fields: ["egress.projects"] })
+    expect(await refused.json()).toMatchObject({
+      code: "confirmation-required",
+      fields: ["egress.providers.small-llm.projects"],
+    })
 
     const accepted = await call(handler, "/harness/adaptive/config", {
       method: "PATCH",
-      body: { patch: { egress: { projects: ["/a", "/b"] } }, confirm: true },
+      body: { patch: widened, confirm: true },
       token: TOKEN,
     })
     expect(accepted.status).toBe(200)
     // The surface reads a fixed block in this test, so the write is asserted where it landed.
     const written = JSON.parse(readFileSync(join(config, "opencode.jsonc"), "utf8"))
-    expect(written.flupcode.adaptive.egress.projects).toEqual(["/a", "/b"])
+    expect(written.flupcode.adaptive.egress.providers["small-llm"].projects).toEqual(["/a", "/b"])
+    expect(written.flupcode.adaptive.egress.providers.jev).toBeUndefined()
   })
 
-  test("widening egress.kinds needs confirmation", async () => {
+  test("widening a provider's kinds needs confirmation", async () => {
     const handler = open({
-      adaptiveConfig: surface({ block: { egress: { kinds: { completion: true } } } }),
+      adaptiveConfig: surface({ block: { egress: { projects: ["/p"], kinds: { completion: true } } } }),
       token: TOKEN,
     })
     const response = await call(handler, "/harness/adaptive/config", {
       method: "PATCH",
-      body: { patch: { egress: { kinds: { completion: true, failure: true } } } },
+      body: { patch: { egress: { providers: { jev: { kinds: { completion: true, failure: true } } } } } },
       token: TOKEN,
     })
     expect(response.status).toBe(422)
-    expect(await response.json()).toMatchObject({ code: "confirmation-required", fields: ["egress.kinds"] })
+    expect(await response.json()).toMatchObject({
+      code: "confirmation-required",
+      fields: ["egress.providers.jev.kinds"],
+    })
   })
 
-  test("an egress kind that is not a decision kind is an invalid-value", async () => {
-    const response = await patch({ patch: { egress: { kinds: { nope: true } } }, confirm: true })
-    expect(await response.json()).toMatchObject({ code: "invalid-value", fields: ["egress.kinds"] })
+  test("a provider kind that is not a decision kind is an invalid-value", async () => {
+    const response = await patch({ patch: { egress: { providers: { jev: { kinds: { nope: true } } } } }, confirm: true })
+    expect(await response.json()).toMatchObject({ code: "invalid-value", fields: ["egress.providers.jev.kinds"] })
+  })
+
+  test("the legacy top-level egress keys are an unsupported-field", async () => {
+    const response = await patch({ patch: { egress: { projects: ["/a"] } }, confirm: true })
+    expect(await response.json()).toMatchObject({ code: "unsupported-field", fields: ["egress.projects"] })
   })
 
   // A directory at the candidate name is the unreadable case without `chmod` (which root ignores).

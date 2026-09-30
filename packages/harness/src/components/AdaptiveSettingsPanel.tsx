@@ -2,11 +2,16 @@ import { For, Show, createEffect, createSignal, type Component, type JSX } from 
 import { t } from "../i18n"
 import { adaptiveSurfaces } from "../client"
 import type { AdaptiveConfigError } from "../client"
-import type { AdaptiveConfigView, AdaptiveProvenance, AdaptiveWritableField } from "../types"
+import type {
+  AdaptiveConfigView,
+  AdaptiveProvenance,
+  AdaptiveProviderConsent,
+  AdaptiveWritableField,
+} from "../types"
 import { Toggle } from "./Toggle"
 import { ConfirmDialog } from "./ConfirmDialog"
 
-/** The decision kinds E8 shows when editing the egress allowlist: the four the server ships. */
+/** The decision kinds E8 shows when editing a provider's consent: the four the server ships. */
 export const ADAPTIVE_KINDS = ["completion", "skillRelevance", "contextItem", "skillReflection"] as const
 
 /** Why a switch cannot be offered, with the words the panel shows. */
@@ -19,7 +24,27 @@ export type AdaptiveProblem = "env-disabled" | "no-adaptive-token" | "egress-all
  * drawn, and the whole allowlist stays server-owned.
  */
 export function writableField(view: AdaptiveConfigView, path: string): AdaptiveWritableField | undefined {
-  return view.writable.find((field) => field.path === path)
+  const consent = consentPath(path)
+  const wanted = consent ? `egress.providers.*.${consent.leaf}` : path
+  return view.writable.find((field) => field.path === wanted)
+}
+
+/** The provider and leaf of a consent path (`egress.providers.<id>.<leaf>`), or undefined. */
+export function consentPath(path: string): { provider: string; leaf: string } | undefined {
+  const [root, group, provider, leaf, ...rest] = path.split(".")
+  if (root !== "egress" || group !== "providers" || !provider || !leaf || rest.length > 0) return undefined
+  return { provider, leaf }
+}
+
+/** One provider's resolved consent, or undefined when the server reports none for it. */
+export function consentOf(view: AdaptiveConfigView, provider: string): AdaptiveProviderConsent | undefined {
+  const providers = view.effective.egress.providers
+  return Object.hasOwn(providers, provider) ? providers[provider] : undefined
+}
+
+/** The providers a consent row is drawn for: the server's list, else every provider it resolved. */
+export function consentProviders(view: AdaptiveConfigView): string[] {
+  return view.egressProviders ?? Object.keys(view.effective.egress.providers)
 }
 
 /**
@@ -28,13 +53,15 @@ export function writableField(view: AdaptiveConfigView, path: string): AdaptiveW
  * The server evaluates the guards on the effective config *after* the patch, so this mirrors the
  * parts a single switch cannot change: the environment, the acting token (announced by the
  * `adaptive-relevance` and `adaptive-guardrails` capabilities, both only when the server resolved it)
- * and the egress allowlist the switch itself needs. A switch whose guard already fails is drawn
- * disabled with the reason, never as a control that would only 422.
+ * and the provider consent the switch itself needs. A switch whose guard already fails is drawn
+ * disabled with the reason, never as a control that would only 422. `path` is the concrete leaf, for a
+ * consent descriptor whose own path names its provider as `*`.
  */
 export function fieldProblem(
   field: AdaptiveWritableField,
   view: AdaptiveConfigView,
   capabilities: readonly string[],
+  path = field.path,
 ): AdaptiveProblem | undefined {
   if (field.guard === "env-disabled" && view.env.adaptiveDisabled) return "env-disabled"
   if (
@@ -43,13 +70,23 @@ export function fieldProblem(
     !capabilities.includes("adaptive-guardrails")
   )
     return "no-adaptive-token"
-  if (field.guard === "egress-allowlist") {
-    const projects = view.effective.egress.projects
-    const kinds = view.effective.egress.kinds
-    if (field.path === "learning.enabled") {
-      if (projects.length === 0 || kinds.skillReflection !== true) return "egress-allowlist"
-    } else if (projects.length === 0 || !Object.values(kinds).some(Boolean)) return "egress-allowlist"
+  if (field.guard !== "egress-allowlist") return undefined
+  const ready = (provider: string, needsEnabled: boolean, kind?: string) => {
+    const consent = consentOf(view, provider)
+    if (!consent || consent.projects.length === 0 || (needsEnabled && !consent.enabled)) return false
+    return kind ? consent.kinds[kind] === true : Object.values(consent.kinds).some(Boolean)
   }
+  if (path === "learning.enabled") {
+    // The classification goes to the model `skillReflection` is assigned to. One without a consent
+    // row is not a remote provider the panel knows (a local model needs none): the server decides.
+    const classifier = view.effective.models?.skillReflection ?? "jev"
+    if (consentProviders(view).includes(classifier) && !ready(classifier, false, "skillReflection"))
+      return "egress-allowlist"
+    return undefined
+  }
+  if (path === "jev.enabled") return ready("jev", true) ? undefined : "egress-allowlist"
+  const consent = consentPath(path)
+  if (consent && !ready(consent.provider, false)) return "egress-allowlist"
   return undefined
 }
 
@@ -57,7 +94,7 @@ export function fieldProblem(
 export function problemKey(problem: AdaptiveProblem): string {
   if (problem === "env-disabled") return "Disabled by FLUPCODE_ADAPTIVE_DISABLED=1"
   if (problem === "no-adaptive-token") return "This switch needs the acting token, which this server does not have."
-  return "Enabling this needs a project and a kind in the egress allowlist first."
+  return "Enabling this needs the provider's egress consent, with a project and a kind, first."
 }
 
 /** The switches the master `enabled` stops on the server; retention sweeps run regardless of it. */
@@ -91,15 +128,18 @@ export function nextBudgetDraft(draft: string, before: string | undefined, after
   return draft
 }
 
-/** Whether a value widens the egress allowlist, which the server only writes with `confirm: true`. */
+/** Whether a value widens a provider's consent, which the server only writes with `confirm: true`. */
 function widens(path: string, value: unknown, view: AdaptiveConfigView): boolean {
-  if (path === "egress.projects" && Array.isArray(value)) {
-    const before = new Set(view.effective.egress.projects)
-    return value.some((project) => typeof project === "string" && !before.has(project))
+  const consent = consentPath(path)
+  if (!consent) return false
+  const before = consentOf(view, consent.provider)
+  if (consent.leaf === "projects" && Array.isArray(value)) {
+    const known = new Set(before?.projects ?? [])
+    return value.some((project) => typeof project === "string" && !known.has(project))
   }
-  if (path === "egress.kinds" && value && typeof value === "object" && !Array.isArray(value)) {
+  if (consent.leaf === "kinds" && value && typeof value === "object" && !Array.isArray(value)) {
     return Object.entries(value as Record<string, unknown>).some(
-      ([kind, on]) => on === true && view.effective.egress.kinds[kind] !== true,
+      ([kind, on]) => on === true && before?.kinds[kind] !== true,
     )
   }
   return false
@@ -177,6 +217,12 @@ export function warningKey(warning: string): string {
  * and to whom instead of the generic line.
  */
 export function confirmationMessage(path: string, value: unknown, view: AdaptiveConfigView): string {
+  const consent = consentPath(path)
+  if (consent?.leaf === "enabled" && value === true)
+    return t(
+      "Consenting to {provider}: redacted, bounded decision inputs for the listed projects and kinds are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.",
+      { provider: consent.provider },
+    )
   if (path !== "learning.enabled" || value !== true)
     return t("Writing to {field} needs confirmation. The change is written to the config file.", { field: path })
   const chars = view.effective.learning.maxInputChars
@@ -227,7 +273,6 @@ type AdaptiveSettingsPanelProps = AdaptiveSettingsState & {
  */
 export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (props) => {
   const [pending, setPending] = createSignal<PendingConfirm>()
-  const [project, setProject] = createSignal("")
   const [budget, setBudget] = createSignal("")
 
   // The server's budget as last seen, so a write to another switch does not wipe an unsaved draft.
@@ -249,7 +294,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
   const problem = (path: string) => {
     const view = props.view
     const entry = field(path)
-    return view && entry ? fieldProblem(entry, view, props.capabilities) : undefined
+    return view && entry ? fieldProblem(entry, view, props.capabilities, path) : undefined
   }
   const value = (path: string) => {
     const view = props.view
@@ -274,8 +319,10 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         return effective.jev.enabled
       case "retention.enabled":
         return effective.retention.enabled
-      default:
-        return false
+      default: {
+        const consent = consentPath(path)
+        return consent?.leaf === "enabled" ? consentOf(view, consent.provider)?.enabled === true : false
+      }
     }
   }
   const provenance = (path: string) => {
@@ -294,11 +341,16 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
     props.onPatch(patch, false)
   }
   /** One boolean row, drawn only when the server lists its leaf as writable. */
-  const Switch = (row: { path: string; label: string; children?: JSX.Element }) => (
+  const Switch = (row: {
+    path: string
+    label: string
+    params?: Record<string, string | number>
+    children?: JSX.Element
+  }) => (
     <Show when={field(row.path)}>
       <div class="fc-settings-row" classList={{ "fc-settings-refused": refused(row.path) }}>
         <span class="fc-settings-usage">
-          <span>{t(row.label)}</span>
+          <span>{t(row.label, row.params)}</span>
           {row.children}
           <Show when={problem(row.path)}>
             {(reason) => <span class="fc-settings-hint">{t(problemKey(reason()))}</span>}
@@ -309,13 +361,108 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         </span>
         <Toggle
           checked={value(row.path)}
-          label={t(row.label)}
+          label={t(row.label, row.params)}
           disabled={locked() || !!problem(row.path)}
           onToggle={() => propose(row.path, !value(row.path))}
         />
       </div>
     </Show>
   )
+
+  /**
+   * One remote provider's consent: its switch, the projects and the kinds it may receive. Each row
+   * names the provider, and consenting to one never covers another.
+   */
+  const ProviderConsent = (row: { provider: string }) => {
+    const [project, setProject] = createSignal("")
+    const path = (leaf: string) => `egress.providers.${row.provider}.${leaf}`
+    const projects = () => (props.view ? consentOf(props.view, row.provider)?.projects : undefined) ?? []
+    const kinds = () => (props.view ? consentOf(props.view, row.provider)?.kinds : undefined) ?? {}
+    return (
+      <>
+        <Show when={field(path("enabled")) || field(path("projects")) || field(path("kinds"))}>
+          <div class="fc-settings-subtitle">{t("Egress consent: {provider}", { provider: row.provider })}</div>
+        </Show>
+        <Switch path={path("enabled")} label="Send data to {provider}" params={{ provider: row.provider }}>
+          <span class="fc-settings-hint">
+            {t("Needs confirmation. Covers {provider} only.", { provider: row.provider })}
+          </span>
+        </Switch>
+        <Show when={field(path("projects"))}>
+          <Show
+            when={projects().length > 0}
+            fallback={<div class="fc-settings-hint">{t("No projects allowed yet.")}</div>}
+          >
+            <For each={projects()}>
+              {(allowed) => (
+                <div class="fc-usage-row" classList={{ "fc-settings-refused": refused(path("projects")) }}>
+                  <span class="fc-usage-key" dir="auto" title={allowed}>
+                    {allowed}
+                  </span>
+                  <Show when={!readOnly()}>
+                    <button
+                      class="fc-button"
+                      type="button"
+                      disabled={locked()}
+                      onClick={() =>
+                        propose(
+                          path("projects"),
+                          projects().filter((entry) => entry !== allowed),
+                        )
+                      }
+                    >
+                      {t("Remove")}
+                    </button>
+                  </Show>
+                </div>
+              )}
+            </For>
+          </Show>
+          <Show when={!readOnly()}>
+            <div class="fc-field-row" classList={{ "fc-settings-refused": refused(path("projects")) }}>
+              <label class="fc-field">
+                <span>{t("Project path for {provider}", { provider: row.provider })}</span>
+                <input
+                  class="fc-question-custom"
+                  dir="ltr"
+                  value={project()}
+                  onInput={(event) => setProject(event.currentTarget.value)}
+                />
+              </label>
+              <button
+                class="fc-button"
+                type="button"
+                disabled={locked() || !project().trim()}
+                onClick={() => {
+                  propose(path("projects"), [...projects(), project().trim()])
+                  setProject("")
+                }}
+              >
+                {t("Add project")}
+              </button>
+            </div>
+          </Show>
+        </Show>
+        <Show when={field(path("kinds"))}>
+          <For each={ADAPTIVE_KINDS}>
+            {(kind) => (
+              <div class="fc-settings-row" classList={{ "fc-settings-refused": refused(path("kinds")) }}>
+                <span class="fc-usage-key" dir="ltr">
+                  {kind}
+                </span>
+                <Toggle
+                  checked={kinds()[kind] === true}
+                  label={t("{kind} for {provider}", { kind, provider: row.provider })}
+                  disabled={locked()}
+                  onToggle={() => propose(path("kinds"), { ...kinds(), [kind]: kinds()[kind] !== true })}
+                />
+              </div>
+            )}
+          </For>
+        </Show>
+      </>
+    )
+  }
 
   return (
     <section class="fc-settings-section" aria-label={t("Adaptive")}>
@@ -400,88 +547,8 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
             </Switch>
 
-            {/* Egress: what may leave the machine, project by project and kind by kind. */}
-            <Show when={field("egress.projects") || field("egress.kinds")}>
-              <div class="fc-settings-subtitle">{t("Egress allowlist")}</div>
-            </Show>
-            <Show when={field("egress.projects")}>
-              <Show
-                when={view().effective.egress.projects.length > 0}
-                fallback={<div class="fc-settings-hint">{t("No projects allowed yet.")}</div>}
-              >
-                <For each={view().effective.egress.projects}>
-                  {(allowed) => (
-                    <div class="fc-usage-row" classList={{ "fc-settings-refused": refused("egress.projects") }}>
-                      <span class="fc-usage-key" dir="auto" title={allowed}>
-                        {allowed}
-                      </span>
-                      <Show when={!readOnly()}>
-                        <button
-                          class="fc-button"
-                          type="button"
-                          disabled={locked()}
-                          onClick={() =>
-                            propose(
-                              "egress.projects",
-                              view().effective.egress.projects.filter((entry) => entry !== allowed),
-                            )
-                          }
-                        >
-                          {t("Remove")}
-                        </button>
-                      </Show>
-                    </div>
-                  )}
-                </For>
-              </Show>
-              <Show when={!readOnly()}>
-                <div class="fc-field-row" classList={{ "fc-settings-refused": refused("egress.projects") }}>
-                  <label class="fc-field">
-                    <span>{t("Project path")}</span>
-                    <input
-                      class="fc-question-custom"
-                      dir="ltr"
-                      value={project()}
-                      onInput={(event) => setProject(event.currentTarget.value)}
-                    />
-                  </label>
-                  <button
-                    class="fc-button"
-                    type="button"
-                    disabled={locked() || !project().trim()}
-                    onClick={() => {
-                      propose("egress.projects", [...view().effective.egress.projects, project().trim()])
-                      setProject("")
-                    }}
-                  >
-                    {t("Add project")}
-                  </button>
-                </div>
-              </Show>
-            </Show>
-
-            <Show when={field("egress.kinds")}>
-              <For each={ADAPTIVE_KINDS}>
-                {(kind) => (
-                  <div class="fc-settings-row" classList={{ "fc-settings-refused": refused("egress.kinds") }}>
-                    <span class="fc-usage-key" dir="ltr">
-                      {kind}
-                    </span>
-                    <Toggle
-                      checked={view().effective.egress.kinds[kind] === true}
-                      label={kind}
-                      disabled={locked()}
-                      onToggle={() =>
-                        propose("egress.kinds", {
-                          ...view().effective.egress.kinds,
-                          [kind]: view().effective.egress.kinds[kind] !== true,
-                        })
-                      }
-                    />
-                  </div>
-                )}
-              </For>
-            </Show>
+            {/* Egress: what may leave the machine, provider by provider (AH-C03). */}
+            <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
 
             <Show when={field("budget.monthlyTokens")}>
               <div class="fc-settings-row" classList={{ "fc-settings-refused": refused("budget.monthlyTokens") }}>

@@ -85,7 +85,7 @@ describe("the skillReflection kind (FH-031)", () => {
 
   test("with Jev off the answer is inert and the egress kind is off by default", async () => {
     const { repository, service, config } = serviceFor({})
-    expect(config.egress.kinds.skillReflection).toBe(false)
+    expect(config.egress.providers.jev?.kinds.skillReflection).toBe(false)
 
     const result = await service.predict(reflection())
     expect(result.source).toBe("baseline")

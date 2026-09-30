@@ -17,8 +17,9 @@ import type { ParseError } from "jsonc-parser"
 import { configDirectory } from "../context"
 import { applyEditsToFile, ConfigWriteError, isFile, tryReadConfigText } from "../config-write"
 import type { AdaptiveUsageRepository } from "../types"
-import { resolveAdaptiveConfig } from "./config"
+import { LEGACY_EGRESS_PROVIDER, PROVIDER_ID_PATTERN, legacyEgressProvider, resolveAdaptiveConfig } from "./config"
 import type { AdaptiveConfig } from "./config"
+import type { EgressSubject } from "./egress"
 import { decisionKinds, isDecisionKind } from "./decision"
 import { budgetMonth } from "./providers/budget"
 import { learningModel } from "./learning/draft"
@@ -48,7 +49,10 @@ export type AdaptiveWarning =
   | "skills-still-load"
   | "learning-draft-egress"
 
-/** One switch the settings panel may render; the list is the whole allowlist. */
+/**
+ * One switch the settings panel may render; the list is the whole allowlist. A `*` segment stands for
+ * a provider id (`egress.providers.*.enabled`), which must match `PROVIDER_ID_PATTERN`.
+ */
 export type WritableField = {
   path: string
   type: AdaptiveFieldType
@@ -81,14 +85,31 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+  // `jev.enabled` assigns Jev to every kind without a `models` entry; it may only be turned on once
+  // Jev's own consent (`egress.providers.jev`) is on with a project and a kind.
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
-  { path: "egress.projects", type: "string-list", confirmation: "widening", guard: "none" },
-  { path: "egress.kinds", type: "kinds", confirmation: "widening", guard: "none" },
+  // Consent per remote provider (AH-C03): turning one on, or widening what it may receive, is an
+  // egress decision about that provider only, and asks for confirmation.
+  { path: "egress.providers.*.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
+  { path: "egress.providers.*.projects", type: "string-list", confirmation: "widening", guard: "none" },
+  { path: "egress.providers.*.kinds", type: "kinds", confirmation: "widening", guard: "none" },
   { path: "retention.enabled", type: "boolean", confirmation: "required", guard: "none" },
   { path: "budget.monthlyTokens", type: "number", confirmation: "none", guard: "none" },
 ]
 
 const WRITABLE_BY_PATH = new Map(WRITABLE_FIELDS.map((field) => [field.path, field]))
+
+/** The descriptor a concrete leaf path writes through, a provider id matching the `*` segment. */
+function writableFor(segments: readonly string[]): WritableField | undefined {
+  // A dotted key would be written as one key the resolver never reads; a literal `*` is not an id.
+  if (segments.some((segment) => segment.includes(".") || segment === "*")) return undefined
+  const exact = WRITABLE_BY_PATH.get(segments.join("."))
+  if (exact) return exact
+  const [root, group, id, leaf, ...rest] = segments
+  if (root !== "egress" || group !== "providers" || id === undefined || leaf === undefined || rest.length > 0)
+    return undefined
+  return PROVIDER_ID_PATTERN.test(id) ? WRITABLE_BY_PATH.get(`egress.providers.*.${leaf}`) : undefined
+}
 
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
@@ -124,6 +145,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const jev = usageOf(block.jev)
   const retention = usageOf(block.retention)
   const egress = usageOf(block.egress)
+  const providers = usageOf(egress.providers)
   const budget = usageOf(block.budget)
   const pick = (fromEnv: boolean, fromBlock: boolean): AdaptiveProvenance => (fromEnv ? "env" : fromBlock ? "block" : "default")
   const envNumber = (name: string) => positiveNumberFrom(Number(env[name]))
@@ -137,8 +159,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     "guardrails.enabled": pick(false, typeof guardrails.enabled === "boolean"),
     "jev.enabled": pick(false, typeof jev.enabled === "boolean"),
     "retention.enabled": pick(false, typeof retention.enabled === "boolean"),
-    "egress.projects": pick(false, Array.isArray(egress.projects)),
-    "egress.kinds": pick(false, isPlainObject(egress.kinds)),
+    ...providerSources(providers, jev, egress),
     "budget.monthlyTokens": pick(false, positiveNumberFrom(budget.monthlyTokens) !== undefined),
     "runtime.enabled": pick(env.FLUPCODE_ADAPTIVE_PROBE_DISABLED === "1", typeof probe.enabled === "boolean"),
     "runtime.ttlMs": pick(envNumber("FLUPCODE_ADAPTIVE_PROBE_TTL_MS") !== undefined, positiveNumberFrom(probe.ttlMs) !== undefined),
@@ -170,6 +191,32 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   }
 }
 
+/**
+ * The provenance of each provider's consent leaves. Jev without a `providers.jev` entry reads the
+ * legacy keys (`jev.enabled`, `egress.projects`, `egress.kinds`), so their presence is its provenance.
+ */
+function providerSources(
+  providers: Record<string, unknown>,
+  jev: Record<string, unknown>,
+  egress: Record<string, unknown>,
+): Record<string, AdaptiveProvenance> {
+  const legacy = isPlainObject(providers[LEGACY_EGRESS_PROVIDER])
+    ? []
+    : [
+        [LEGACY_EGRESS_PROVIDER, { enabled: jev.enabled, projects: egress.projects, kinds: egress.kinds }] as const,
+      ]
+  const configured = Object.entries(providers).flatMap(([id, entry]) =>
+    PROVIDER_ID_PATTERN.test(id) && isPlainObject(entry) ? [[id, entry] as const] : [],
+  )
+  return Object.fromEntries(
+    [...legacy, ...configured].flatMap(([id, entry]) => [
+      [`egress.providers.${id}.enabled`, typeof entry.enabled === "boolean" ? "block" : "default"],
+      [`egress.providers.${id}.projects`, Array.isArray(entry.projects) ? "block" : "default"],
+      [`egress.providers.${id}.kinds`, isPlainObject(entry.kinds) ? "block" : "default"],
+    ]),
+  )
+}
+
 // ---- reading (A3) ------------------------------------------------------------------------------
 
 export type AdaptiveUsageView = {
@@ -192,6 +239,11 @@ export type AdaptiveConfigView = {
   writable: WritableField[]
   /** The model a learning draft is sent to (`provider/model`), or null when none is resolved. */
   learningDraft: { model: string | null }
+  /**
+   * The providers a consent row is shown for: every registered remote model, then any other provider
+   * the config already names. A local model needs no consent and is not listed.
+   */
+  egressProviders: string[]
 }
 
 /** Whether a document already declares `flupcode.adaptive`, read with the same JSONC rules as writing. */
@@ -229,6 +281,7 @@ export type AdaptiveConfigViewInput = {
   canWrite: boolean
   writer: { path: string; exists: boolean }
   smallModel?: () => string | undefined
+  models?: readonly EgressSubject[]
 }
 
 /** The read model, assembled from the raw block, the resolver and the calls the server already holds. */
@@ -249,6 +302,12 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
     usage: input.usage,
     writable: [...WRITABLE_FIELDS],
     learningDraft: { model: draftModel ? `${draftModel.providerID}/${draftModel.id}` : null },
+    egressProviders: [
+      ...new Set([
+        ...(input.models ?? []).filter((model) => model.locality === "remote").map((model) => model.id),
+        ...Object.keys(input.resolved.egress.providers),
+      ]),
+    ],
   }
 }
 
@@ -270,10 +329,12 @@ export type PlanAdaptivePatchInput = {
   adaptiveTokenPresent: boolean
   runtimeKind: RuntimeKind
   smallModel?: string | undefined
+  /** The registered models, so a guard knows a local model needs no consent. */
+  models?: readonly EgressSubject[]
 }
 
 /**
- * How deep a patch may nest before it is refused. Every writable leaf is at most two segments deep,
+ * How deep a patch may nest before it is refused. Every writable leaf is at most four segments deep,
  * so anything past this is not a settings patch: it is a mistake or an attempt to make the walker
  * do unbounded work. A segment carrying a dot is refused separately — the official client nests,
  * and a literal `"budget.monthlyTokens"` key would be written as one key the resolver never reads.
@@ -285,9 +346,7 @@ function collectLeaves(patch: Record<string, unknown>): PatchLeaf[] {
   const leaves: PatchLeaf[] = []
   const walk = (value: unknown, prefix: string[]): void => {
     const path = prefix.join(".")
-    const writable =
-      prefix.length > 0 && prefix.every((segment) => !segment.includes(".")) && WRITABLE_BY_PATH.has(path)
-    if (writable) {
+    if (prefix.length > 0 && writableFor(prefix)) {
       leaves.push({ path, segments: prefix, value })
       return
     }
@@ -302,8 +361,7 @@ function collectLeaves(patch: Record<string, unknown>): PatchLeaf[] {
 }
 
 /** Whether a leaf is outside the allowlist, whether by its path or by a dotted segment in a key. */
-const isRejectedLeaf = (leaf: PatchLeaf): boolean =>
-  !WRITABLE_BY_PATH.has(leaf.path) || leaf.segments.some((segment) => segment.includes("."))
+const isRejectedLeaf = (leaf: PatchLeaf): boolean => writableFor(leaf.segments) === undefined
 
 function validLeaf(field: WritableField, value: unknown): boolean {
   if (value === null) return true
@@ -346,13 +404,54 @@ function setAt(root: Record<string, unknown>, segments: string[], value: unknown
   else node[last] = value
 }
 
-const widensProjects = (before: AdaptiveConfig, after: AdaptiveConfig): boolean => {
-  const previous = new Set(before.egress.projects)
-  return after.egress.projects.some((project) => !previous.has(project))
+/** The consent leaves a patch widens, per provider: a project added, or a kind turned on. */
+function widenedConsent(before: AdaptiveConfig, after: AdaptiveConfig): string[] {
+  return Object.entries(after.egress.providers).flatMap(([id, consent]) => {
+    const previous = Object.hasOwn(before.egress.providers, id) ? before.egress.providers[id] : undefined
+    const projects = new Set(previous?.projects ?? [])
+    return [
+      ...(consent.projects.some((project) => !projects.has(project)) ? [`egress.providers.${id}.projects`] : []),
+      ...(decisionKinds().some((kind) => consent.kinds[kind] && !previous?.kinds[kind])
+        ? [`egress.providers.${id}.kinds`]
+        : []),
+    ]
+  })
 }
 
-const widensKinds = (before: AdaptiveConfig, after: AdaptiveConfig): boolean =>
-  decisionKinds().some((kind) => after.egress.kinds[kind] && !before.egress.kinds[kind])
+/**
+ * The leaves that move Jev's legacy consent into `egress.providers.jev` before a patch edits it.
+ *
+ * Once `providers.jev` exists the legacy keys stop granting anything, so writing only the leaf the
+ * patch names would silently drop the rest of an old config's consent. Each leaf the patch does not
+ * name is carried over as it resolves today, so the move itself changes no behaviour and the old keys
+ * are left in the file untouched.
+ */
+function legacyConsentLeaves(leaves: readonly PatchLeaf[], block: Record<string, unknown>): PatchLeaf[] {
+  const prefix = ["egress", "providers", LEGACY_EGRESS_PROVIDER]
+  const touches = leaves.some((leaf) => prefix.every((segment, index) => leaf.segments[index] === segment))
+  const egress = usageOf(block.egress)
+  if (!touches || isPlainObject(usageOf(egress.providers)[LEGACY_EGRESS_PROVIDER])) return []
+  const legacy = legacyEgressProvider(block)
+  const carried = {
+    enabled: legacy.enabled,
+    projects: legacy.projects,
+    kinds: Object.fromEntries(Object.entries(legacy.kinds).filter(([, on]) => on)),
+  }
+  return Object.entries(carried).flatMap(([key, value]) => {
+    const segments = [...prefix, key]
+    const path = segments.join(".")
+    return leaves.some((leaf) => leaf.path === path) ? [] : [{ path, segments, value }]
+  })
+}
+
+/** Which provider's consent `learning.enabled` depends on: the model the classification is assigned to. */
+function classifierConsent(
+  after: AdaptiveConfig,
+  models: readonly EgressSubject[] | undefined,
+): string | undefined {
+  const id = after.models.skillReflection ?? LEGACY_EGRESS_PROVIDER
+  return models?.find((model) => model.id === id)?.locality === "local" ? undefined : id
+}
 
 /**
  * Turns a patch into the leaf edits to write, or throws the rejection the contract reports.
@@ -368,18 +467,22 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
     throw new AdaptiveConfigError("The patch names fields this surface does not write", 422, "unsupported-field", unsupported)
 
   const invalid = leaves
-    .filter((leaf) => !validLeaf(WRITABLE_BY_PATH.get(leaf.path)!, leaf.value))
+    .filter((leaf) => !validLeaf(writableFor(leaf.segments)!, leaf.value))
     .map((leaf) => leaf.path)
   if (invalid.length > 0)
     throw new AdaptiveConfigError("A patch value does not match its field", 422, "invalid-value", invalid)
 
+  const written = [...legacyConsentLeaves(leaves, input.block), ...leaves]
   const blockAfter = cloneBlock(input.block)
-  for (const leaf of leaves) setAt(blockAfter, leaf.segments, leaf.value === null ? undefined : leaf.value)
+  for (const leaf of written) setAt(blockAfter, leaf.segments, leaf.value === null ? undefined : leaf.value)
 
   const effectiveBefore = resolveAdaptiveConfig({ block: input.block, env: input.env })
   const effectiveAfter = resolveAdaptiveConfig({ block: blockAfter, env: input.env })
 
   const setsTrue = (path: string): boolean => leaves.some((leaf) => leaf.path === path && leaf.value === true)
+  const consentsTurnedOn = leaves.filter(
+    (leaf) => leaf.segments[0] === "egress" && leaf.segments[3] === "enabled" && leaf.value === true,
+  )
 
   if (setsTrue("enabled") && input.env.FLUPCODE_ADAPTIVE_DISABLED === "1")
     throw new AdaptiveConfigError("Adaptive is disabled by FLUPCODE_ADAPTIVE_DISABLED=1", 422, "env-disabled", ["enabled"])
@@ -394,13 +497,18 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
       "guardrails.enabled",
     ])
 
-  if (setsTrue("learning.enabled")) {
+  // The classification goes to the model assigned to `skillReflection`, so learning needs that
+  // provider's consent for a project and the kind; a local classifier needs none.
+  const classifier = setsTrue("learning.enabled") ? classifierConsent(effectiveAfter, input.models) : undefined
+  if (classifier !== undefined) {
+    const providers = effectiveAfter.egress.providers
+    const consent = Object.hasOwn(providers, classifier) ? providers[classifier] : undefined
     const missing: string[] = []
-    if (effectiveAfter.egress.projects.length === 0) missing.push("egress.projects")
-    if (!effectiveAfter.egress.kinds.skillReflection) missing.push("egress.kinds.skillReflection")
+    if (!consent || consent.projects.length === 0) missing.push(`egress.providers.${classifier}.projects`)
+    if (!consent?.kinds.skillReflection) missing.push(`egress.providers.${classifier}.kinds.skillReflection`)
     if (missing.length > 0)
       throw new AdaptiveConfigError(
-        "Enabling learning needs an egress allowlist for the project and skillReflection",
+        `Enabling learning needs ${classifier}'s egress consent for the project and skillReflection`,
         422,
         "guard:egress-allowlist-required",
         ["learning.enabled"],
@@ -409,15 +517,26 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   }
 
   if (setsTrue("jev.enabled")) {
-    const missing: string[] = []
-    if (effectiveAfter.egress.projects.length === 0) missing.push("egress.projects")
-    if (!Object.values(effectiveAfter.egress.kinds).some(Boolean)) missing.push("egress.kinds")
+    const missing = missingConsent(effectiveAfter, LEGACY_EGRESS_PROVIDER, true)
     if (missing.length > 0)
       throw new AdaptiveConfigError(
-        "Enabling Jev needs an egress allowlist",
+        "Enabling Jev needs Jev's egress consent",
         422,
         "guard:egress-allowlist-required",
         ["jev.enabled"],
+        missing,
+      )
+  }
+
+  for (const leaf of consentsTurnedOn) {
+    const id = leaf.segments[2]!
+    const missing = missingConsent(effectiveAfter, id, false)
+    if (missing.length > 0)
+      throw new AdaptiveConfigError(
+        `Consenting to ${id} needs a project and a kind for it`,
+        422,
+        "guard:egress-allowlist-required",
+        [leaf.path],
         missing,
       )
   }
@@ -426,8 +545,8 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (setsTrue("retention.enabled")) confirmFields.push("retention.enabled")
   if (setsTrue("learning.enabled")) confirmFields.push("learning.enabled")
   if (setsTrue("jev.enabled")) confirmFields.push("jev.enabled")
-  if (widensProjects(effectiveBefore, effectiveAfter)) confirmFields.push("egress.projects")
-  if (widensKinds(effectiveBefore, effectiveAfter)) confirmFields.push("egress.kinds")
+  confirmFields.push(...consentsTurnedOn.map((leaf) => leaf.path))
+  confirmFields.push(...widenedConsent(effectiveBefore, effectiveAfter))
   if (confirmFields.length > 0 && !input.confirm)
     throw new AdaptiveConfigError("This change needs confirmation", 422, "confirmation-required", confirmFields)
 
@@ -438,7 +557,17 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (setsTrue("learning.enabled") && !effectiveAfter.learning.model && !input.smallModel) warnings.push("no-model")
   if (setsTrue("enabled")) warnings.push("skills-still-load")
 
-  return { leaves, warnings, blockAfter }
+  return { leaves: written, warnings, blockAfter }
+}
+
+/** The consent leaves a provider still lacks: a project, a kind and, when asked, the switch itself. */
+function missingConsent(config: AdaptiveConfig, id: string, needsEnabled: boolean): string[] {
+  const consent = Object.hasOwn(config.egress.providers, id) ? config.egress.providers[id] : undefined
+  return [
+    ...(needsEnabled && !consent?.enabled ? [`egress.providers.${id}.enabled`] : []),
+    ...(!consent || consent.projects.length === 0 ? [`egress.providers.${id}.projects`] : []),
+    ...(!consent || !Object.values(consent.kinds).some(Boolean) ? [`egress.providers.${id}.kinds`] : []),
+  ]
 }
 
 /** Applies every leaf edit in order; a later leaf is positioned against the text the earlier one left. */
@@ -469,6 +598,8 @@ export type AdaptiveConfigSurfaceDeps = {
   adaptiveTokenPresent: boolean
   env?: NodeJS.ProcessEnv
   smallModel?: () => string | undefined
+  /** The registered predictive models: the view lists the remote ones for consent. */
+  models?: readonly EgressSubject[]
   now?: () => number
 }
 
@@ -503,6 +634,7 @@ export function createAdaptiveConfigSurface(deps: AdaptiveConfigSurfaceDeps): Ad
       canWrite: deps.canWrite,
       writer: writerTarget(),
       ...(deps.smallModel ? { smallModel: deps.smallModel } : {}),
+      ...(deps.models ? { models: deps.models } : {}),
     })
   }
 
@@ -515,6 +647,7 @@ export function createAdaptiveConfigSurface(deps: AdaptiveConfigSurfaceDeps): Ad
       adaptiveTokenPresent: deps.adaptiveTokenPresent,
       runtimeKind: deps.runtime().runtime,
       smallModel: deps.smallModel?.(),
+      ...(deps.models ? { models: deps.models } : {}),
     })
     // A patch with no leaves is a read: it must not create or rewrite the file just to say so.
     if (plan.leaves.length === 0) return { view: read(), warnings: plan.warnings }

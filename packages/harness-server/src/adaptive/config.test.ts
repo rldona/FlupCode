@@ -63,7 +63,7 @@ describe("resolveAdaptiveConfig", () => {
       models: {},
       jev: DEFAULT_JEV_CONFIG,
       budget: DEFAULT_BUDGET_CONFIG,
-      egress: { enabled: false, projects: [], kinds: allKindsOff() },
+      egress: { providers: { jev: { enabled: false, projects: [], kinds: allKindsOff() } } },
       governor: DEFAULT_GOVERNOR_CONFIG,
       context: DEFAULT_CONTEXT_CONFIG,
       learning: DEFAULT_LEARNING_CONFIG,
@@ -104,11 +104,11 @@ describe("resolveAdaptiveConfig", () => {
     expect(config.governor.monthlyTokenBudget).toBe(5000)
     expect(config.governor.hotReserveFraction).toBe(0.5)
     expect(config.governor.breakerFailures).toBe(DEFAULT_GOVERNOR_CONFIG.breakerFailures)
-    expect(config.egress.enabled).toBe(true)
-    expect(config.egress.projects).toEqual(["/work/project"])
-    expect(config.egress.kinds.completion).toBe(true)
-    expect(config.egress.kinds.skillRelevance).toBe(false)
-    expect(config.egress.kinds.skillReflection).toBe(false)
+    expect(config.egress.providers.jev?.enabled).toBe(true)
+    expect(config.egress.providers.jev?.projects).toEqual(["/work/project"])
+    expect(config.egress.providers.jev?.kinds.completion).toBe(true)
+    expect(config.egress.providers.jev?.kinds.skillRelevance).toBe(false)
+    expect(config.egress.providers.jev?.kinds.skillReflection).toBe(false)
     expect(config.decisions.completion).toEqual({ allowJev: false, minConfidence: 0.9, minProbability: 0.5, timeoutMs: 400 })
     expect(config.decisions.skillRelevance).toEqual(DEFAULT_DECISION_POLICY)
   })
@@ -149,8 +149,8 @@ describe("resolveAdaptiveConfig", () => {
     expect(config.shadow).toBe(true)
     expect(config.jev).toEqual(DEFAULT_JEV_CONFIG)
     expect(config.budget).toEqual(DEFAULT_BUDGET_CONFIG)
-    expect(config.egress.projects).toEqual(["/p"])
-    expect(config.egress.kinds).toEqual(allKindsOff())
+    expect(config.egress.providers.jev?.projects).toEqual(["/p"])
+    expect(config.egress.providers.jev?.kinds).toEqual(allKindsOff())
     expect(config.decisions.completion).toEqual(DEFAULT_DECISION_POLICY)
   })
 
@@ -363,6 +363,97 @@ describe("the model per kind (AH-C01)", () => {
       env: {},
     })
     expect(config.models).toEqual(everyKind("jev"))
+  })
+})
+
+describe("egress consent per provider (AH-C03)", () => {
+  const kindsOn = (...on: DecisionKind[]) => ({ ...allKindsOff(), ...Object.fromEntries(on.map((kind) => [kind, true])) })
+
+  test("an old config reads as Jev's consent alone, exactly as before", () => {
+    const config = resolveAdaptiveConfig({
+      block: {
+        jev: { enabled: true },
+        egress: { enabled: false, projects: ["/p"], kinds: { completion: true, skillReflection: true } },
+      },
+      env: {},
+    })
+    // `egress.enabled` was never read: `jev.enabled` was the switch, and still is for an old file.
+    expect(config.egress).toEqual({
+      providers: { jev: { enabled: true, projects: ["/p"], kinds: kindsOn("completion", "skillReflection") } },
+    })
+    expect(config.models).toMatchObject({ completion: "jev", skillReflection: "jev" })
+
+    const off = resolveAdaptiveConfig({ block: { egress: { projects: ["/p"], kinds: { completion: true } } }, env: {} })
+    expect(off.egress.providers.jev).toEqual({ enabled: false, projects: ["/p"], kinds: kindsOn("completion") })
+  })
+
+  test("the new shape keeps each provider's consent apart", () => {
+    const config = resolveAdaptiveConfig({
+      block: {
+        egress: {
+          providers: {
+            "small-llm": { enabled: true, projects: ["/p"], kinds: { skillRelevance: true } },
+            jev: { enabled: false, projects: ["/q"], kinds: { completion: true } },
+          },
+        },
+      },
+      env: {},
+    })
+    expect(config.egress.providers).toEqual({
+      jev: { enabled: false, projects: ["/q"], kinds: kindsOn("completion") },
+      "small-llm": { enabled: true, projects: ["/p"], kinds: kindsOn("skillRelevance") },
+    })
+    // Consenting to a provider assigns no model: Jev is not asked for anything.
+    expect(config.models).toEqual({})
+  })
+
+  test("once providers.jev exists the legacy keys grant Jev nothing; jev.enabled only assigns it", () => {
+    const config = resolveAdaptiveConfig({
+      block: {
+        jev: { enabled: true },
+        egress: { projects: ["/p"], kinds: { completion: true }, providers: { jev: { projects: ["/p"] } } },
+      },
+      env: {},
+    })
+    expect(config.egress.providers.jev).toEqual({ enabled: false, projects: ["/p"], kinds: allKindsOff() })
+    expect(config.models.completion).toBe("jev")
+  })
+
+  test("a mixed config reads Jev from the legacy keys and every other provider from its entry", () => {
+    const config = resolveAdaptiveConfig({
+      block: {
+        jev: { enabled: true },
+        egress: {
+          projects: ["/p"],
+          kinds: { completion: true },
+          providers: { "small-llm": { enabled: true, projects: ["/other"], kinds: { skillRelevance: true } } },
+        },
+      },
+      env: {},
+    })
+    expect(config.egress.providers.jev).toEqual({ enabled: true, projects: ["/p"], kinds: kindsOn("completion") })
+    expect(config.egress.providers["small-llm"]).toEqual({
+      enabled: true,
+      projects: ["/other"],
+      kinds: kindsOn("skillRelevance"),
+    })
+  })
+
+  test("a malformed provider entry or id is ignored rather than guessed", () => {
+    const config = resolveAdaptiveConfig({
+      block: {
+        egress: {
+          providers: {
+            "bad id": { enabled: true, projects: ["/p"], kinds: { completion: true } },
+            "small-llm": "yes",
+            local: { enabled: "yes", projects: ["/p", 3], kinds: { completion: 1, nope: true } },
+          },
+        },
+      },
+      env: {},
+    })
+    expect(Object.keys(config.egress.providers).sort()).toEqual(["jev", "local"])
+    expect(config.egress.providers.local).toEqual({ enabled: false, projects: ["/p"], kinds: allKindsOff() })
   })
 })
 

@@ -8,6 +8,7 @@ import type { AdaptiveConfig } from "../config"
 import { resolveAdaptiveConfig } from "../config"
 import type { DecisionKind, DecisionRequest, DecisionResult, DecisionSpec, SkillReflectionAnswer } from "../decision"
 import { createAdaptiveEgressGuard } from "../egress"
+import type { EgressSubject } from "../egress"
 import type { SessionEpisode } from "../episode"
 import type { SkillDraft, SkillDraftRequest, SkillDrafter } from "./draft"
 import { createLearningDrafter } from "./draft"
@@ -163,6 +164,7 @@ const managerFor = (input: {
   onError?: (cause: unknown) => void
   smallModel?: () => string | undefined
   sweepLimit?: number
+  models?: readonly EgressSubject[]
 }) =>
   createLearningManager({
     repository: input.repository,
@@ -175,6 +177,7 @@ const managerFor = (input: {
     ...(input.onError ? { onError: input.onError } : {}),
     ...(input.smallModel ? { smallModel: input.smallModel } : {}),
     ...(input.sweepLimit !== undefined ? { sweepLimit: input.sweepLimit } : {}),
+    ...(input.models ? { models: input.models } : {}),
   })
 
 /** The manager enqueues; a macrotask flushes every microtask the reflection awaits. */
@@ -356,6 +359,51 @@ describe("the learning manager (FH-034)", () => {
     await settle()
     expect(classification).toBe(0)
     expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "skipped", reason: "egress-denied" })
+  })
+
+  test("the classification needs its own model's provider consent, never another provider's", async () => {
+    const repository = repositoryFor()
+    let classification = 0
+    const consent = { enabled: true, projects: [project], kinds: { skillReflection: true } }
+    // skillReflection is assigned to Jev, but only small-llm has consent: nothing is classified.
+    const manager = managerFor({
+      repository,
+      service: reflectionService({ onCall: () => (classification += 1) }),
+      config: resolveAdaptiveConfig({
+        block: {
+          jev: { enabled: true },
+          egress: { providers: { "small-llm": consent } },
+          learning: { enabled: true, minToolCalls: 5, model: "prov/small" },
+        },
+        env: {},
+      }),
+      drafter: drafters().drafter,
+    })
+    manager.onEpisodeClosed(episode())
+    await settle()
+    expect(classification).toBe(0)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "skipped", reason: "egress-denied" })
+  })
+
+  test("a local classifier needs no consent: the reflection is classified", async () => {
+    const repository = repositoryFor()
+    let classification = 0
+    const manager = managerFor({
+      repository,
+      service: reflectionService({ onCall: () => (classification += 1) }),
+      config: resolveAdaptiveConfig({
+        block: {
+          models: { skillReflection: "local-embed" },
+          learning: { enabled: true, minToolCalls: 5, model: "prov/small" },
+        },
+        env: {},
+      }),
+      drafter: drafters().drafter,
+      models: [{ id: "local-embed", locality: "local" }],
+    })
+    manager.onEpisodeClosed(episode())
+    await settle()
+    expect(classification).toBe(1)
   })
 
   test("the kill switch never deletes a skill already written", async () => {

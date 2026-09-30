@@ -1411,9 +1411,14 @@ const ES: Record<string, string> = {
   Jev: "Jev",
   "Needs confirmation.": "Requiere confirmación.",
   Retention: "Retención",
-  "Egress allowlist": "Allowlist de egreso",
+  "Egress consent: {provider}": "Consentimiento de egreso: {provider}",
+  "Send data to {provider}": "Enviar datos a {provider}",
+  "Needs confirmation. Covers {provider} only.": "Requiere confirmación. Cubre solo a {provider}.",
+  "{kind} for {provider}": "{kind} para {provider}",
+  "Consenting to {provider}: redacted, bounded decision inputs for the listed projects and kinds are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.":
+    "Consentir a {provider}: las entradas de decisión, redactadas y acotadas, de los proyectos y kinds listados se envían a {provider}. Cubre solo a {provider}, a ningún otro proveedor. El cambio se escribe en el archivo de configuración.",
   "No projects allowed yet.": "Todavía no hay proyectos permitidos.",
-  "Project path": "Ruta del proyecto",
+  "Project path for {provider}": "Ruta del proyecto para {provider}",
   "Add project": "Añadir proyecto",
   "Monthly token budget": "Presupuesto mensual de tokens",
   "Spent {spent} of {cap} this month.": "Gastados {spent} de {cap} este mes.",
@@ -1433,8 +1438,8 @@ const ES: Record<string, string> = {
   "Inactive: the master switch is off.": "Inactivo: el interruptor principal está apagado.",
   "Key missing: decisions fall back to built-in rules.":
     "Falta la clave: las decisiones vuelven a las reglas integradas.",
-  "Enabling this needs a project and a kind in the egress allowlist first.":
-    "Activar esto necesita antes un proyecto y un kind en la allowlist de egreso.",
+  "Enabling this needs the provider's egress consent, with a project and a kind, first.":
+    "Activar esto necesita antes el consentimiento de egreso del proveedor, con un proyecto y un kind.",
   "This settings surface does not write that field.": "Esta superficie de ajustes no escribe ese campo.",
   "That value is not valid for this setting.": "Ese valor no es válido para este ajuste.",
   "This change needs confirmation.": "Este cambio requiere confirmación.",
