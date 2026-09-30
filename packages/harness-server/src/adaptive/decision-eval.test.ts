@@ -132,7 +132,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
   })
 
   test("dedupe: two identical concurrent states collapse into one call", async () => {
-    const governor = createGovernor({ config: DEFAULT_GOVERNOR_CONFIG, store, now: () => NOW })
+    const governor = createGovernor({ config: () => DEFAULT_GOVERNOR_CONFIG, store, now: () => NOW })
     let calls = 0
     const work = async () => {
       calls += 1

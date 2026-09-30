@@ -121,6 +121,75 @@ describe("fallback status mapping", () => {
   })
 })
 
+describe("fallback retry bounds (AH-A06)", () => {
+  const rateLimited = (retryAfterMs: number): DecisionProvider & { calls: number } => {
+    const provider = {
+      id: "jev",
+      calls: 0,
+      answer: async (): Promise<never> => {
+        provider.calls += 1
+        throw new DecisionUnavailable("rate-limited", { retryAfterMs })
+      },
+    }
+    return provider
+  }
+
+  test("a hot call makes one attempt and never sleeps on a Retry-After", async () => {
+    const external = rateLimited(30_000)
+    const sleeps: number[] = []
+    const fallback = createFallbackProvider({
+      external,
+      maxAttempts: 3,
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+    })
+    const result = await fallback.answer(request, signal, { mode: "hot" })
+
+    expect(external.calls).toBe(1)
+    expect(sleeps).toEqual([])
+    expect(result.answer).toEqual(deterministicAnswer)
+    expect(result).toMatchObject({ degraded: true, degradedReason: "rate-limited", retryAfterMs: 30_000 })
+  })
+
+  test("a batch caps Retry-After at maxDelayMs", async () => {
+    const external = rateLimited(30_000)
+    const sleeps: number[] = []
+    const fallback = createFallbackProvider({
+      external,
+      maxAttempts: 3,
+      maxDelayMs: 2_000,
+      sleep: async (ms) => {
+        sleeps.push(ms)
+      },
+    })
+    await fallback.answer(request, signal, { mode: "batch" })
+
+    expect(sleeps).toEqual([2_000, 2_000])
+    expect(external.calls).toBe(3)
+  })
+
+  test("a batch retry sleep ends as soon as the caller aborts", async () => {
+    const external = rateLimited(30_000)
+    const fallback = createFallbackProvider({ external, maxAttempts: 3, maxDelayMs: 60_000 })
+    const controller = new AbortController()
+    setTimeout(() => controller.abort(), 20)
+    const startedAt = Date.now()
+    const result = await fallback.answer(request, controller.signal, { mode: "batch" })
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    expect(external.calls).toBe(1)
+    expect(result.degradedReason).toBe("rate-limited")
+  })
+
+  test("a retry the budget gate refuses is not made", async () => {
+    const external = rateLimited(10)
+    const fallback = createFallbackProvider({ external, maxAttempts: 3, sleep: async () => {} })
+    await fallback.answer(request, signal, { mode: "batch", retry: () => false })
+    expect(external.calls).toBe(1)
+  })
+})
+
 describe("fallback under the governor", () => {
   const governorConfig: GovernorConfig = {
     monthlyTokenBudget: 100_000,
@@ -135,19 +204,15 @@ describe("fallback under the governor", () => {
       external,
       now,
       maxAttempts: 1,
-      onFailure: (reason, retryAfterMs) => {
-        governor.recordFailure(reason)
-        if (retryAfterMs !== undefined) governor.recordRateLimit(retryAfterMs)
-      },
-      onSuccess: () => governor.recordSuccess(),
     })
+    // The governor records the outcome the fallback reports; nothing is wired by hand.
     return () => governor.runHot("completion", 1, (callSignal) => fallback.answer(request, callSignal))
   }
 
   test("the breaker opens after consecutive failures and recovers through one probe", async () => {
     let clock = 0
     let down = true
-    const governor = createGovernor({ config: governorConfig, store: memStore(), now: () => clock })
+    const governor = createGovernor({ config: () => governorConfig, store: memStore(), now: () => clock })
     const external: DecisionProvider = {
       id: "jev",
       answer: async () => {
@@ -175,7 +240,7 @@ describe("fallback under the governor", () => {
   test("an exhausted budget never reaches the provider", async () => {
     let calls = 0
     const governor = createGovernor({
-      config: { ...governorConfig, monthlyTokenBudget: 10 },
+      config: () => ({ ...governorConfig, monthlyTokenBudget: 10 }),
       store: memStore(),
     })
     const external: DecisionProvider = {
@@ -194,5 +259,43 @@ describe("fallback under the governor", () => {
     expect(failure).toBeInstanceOf(DecisionUnavailable)
     expect(failure).toMatchObject({ reason: "budget-exhausted" })
     expect(calls).toBe(1)
+  })
+
+  test("every attempt is charged to the budget: three attempts account three estimates", async () => {
+    const store = memStore()
+    const governor = createGovernor({ config: () => governorConfig, store })
+    let calls = 0
+    const external: DecisionProvider = {
+      id: "jev",
+      answer: async () => {
+        calls += 1
+        throw new DecisionUnavailable("network")
+      },
+    }
+    const fallback = createFallbackProvider({ external, maxAttempts: 3, sleep: async () => {} })
+    await governor.runBatch("completion", 10, (callSignal, retry) =>
+      fallback.answer(request, callSignal, { mode: "batch", retry }),
+    )
+
+    expect(calls).toBe(3)
+    expect(governor.state().tokensSpent).toBe(30)
+    expect(store.adaptiveUsage(governor.state().month).calls).toBe(3)
+  })
+
+  test("a retry stops when the budget cannot cover another attempt", async () => {
+    const governor = createGovernor({ config: () => ({ ...governorConfig, monthlyTokenBudget: 20 }), store: memStore() })
+    let calls = 0
+    const external: DecisionProvider = {
+      id: "jev",
+      answer: async () => {
+        calls += 1
+        throw new DecisionUnavailable("network")
+      },
+    }
+    const fallback = createFallbackProvider({ external, maxAttempts: 3, sleep: async () => {} })
+    await governor.runHot("completion", 10, (callSignal, retry) => fallback.answer(request, callSignal, { retry }))
+
+    expect(calls).toBe(2)
+    expect(governor.state().tokensSpent).toBe(20)
   })
 })
