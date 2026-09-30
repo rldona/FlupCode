@@ -6,6 +6,7 @@
 // sync is never resolved against a stale docs/UPSTREAM.md.
 //
 //   bun script/upstream-inventory.ts            check, exits 1 on undeclared files
+//   INVENTORY_SINCE=<sha> bun script/...          only fail on undeclared files touched since <sha>
 //   bun script/upstream-inventory.ts --update   rewrite the inventory from the current diff
 
 import { $ } from "bun"
@@ -36,6 +37,20 @@ const changed = (await $`git diff --name-only ${BASE} -- packages`.text())
 const undeclared = changed.filter((item) => !declared.some((entry) => covers(entry, item)))
 const stale = declared.filter((entry) => !changed.some((item) => covers(entry, item)))
 
+// The diff against the mirror is two-sided: whenever upstream moves ahead of the last sync, its new
+// files show up as "changed" too. A pull request is only judged on the files it touches itself, so
+// the check does not turn red on a date; the rest is reported, not failed.
+const since = process.env.INVENTORY_SINCE
+const touched = since
+  ? new Set(
+      (await $`git diff --name-only ${since}...HEAD -- packages`.text())
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean),
+    )
+  : undefined
+const blocking = touched ? undeclared.filter((item) => touched.has(item)) : undeclared
+
 if (process.argv.includes("--update")) {
   const header = (await Bun.file(file).text()).split("\n").filter((line) => line.startsWith("#"))
   await Bun.write(file, [...header, "", ...collapse(changed, declared), ""].join("\n"))
@@ -45,18 +60,22 @@ if (process.argv.includes("--update")) {
 
 for (const entry of stale) console.log(`::warning::${entry} no longer differs from ${BASE}; drop it from ${INVENTORY}`)
 
-if (undeclared.length === 0) {
-  console.log(`${INVENTORY}: ${changed.length} changed files, all declared`)
+const outside = undeclared.length - blocking.length
+if (outside > 0)
+  console.log(`::notice::${outside} undeclared file(s) differ from ${BASE} but are not touched by this change`)
+
+if (blocking.length === 0) {
+  console.log(`${INVENTORY}: ${changed.length} changed files, none undeclared in this change`)
   process.exit(0)
 }
 
-for (const item of undeclared)
+for (const item of blocking)
   console.log(`::error file=${item}::${item} changes an upstream package and is not declared in ${INVENTORY}`)
 
 console.log(
   [
     "",
-    `${undeclared.length} file(s) change an upstream package without being declared.`,
+    `${blocking.length} file(s) change an upstream package without being declared.`,
     "",
     "Every such file is a conflict on every upstream sync, and docs/UPSTREAM.md is what tells the",
     "resolver whether to keep ours, take upstream, re-add a registry line or regenerate. Either move",

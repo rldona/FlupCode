@@ -108,7 +108,7 @@ build passes.
 
 ### Pushing
 
-Every push costs a CI run (`harness`: build, unit and e2e on Linux and Windows). Commit locally
+Every push costs a CI run (`harness`: typecheck, unit, build and e2e on Linux). Commit locally
 while iterating and push once the PR is ready, then batch follow-up tweaks into one push instead
 of one push per small change.
 
@@ -118,12 +118,15 @@ Merges happen on GitHub, never from Vercel, and one PR at a time:
 
 1. **Rebase** the branch onto the current `origin/power` if it is behind, and push with
    `--force-with-lease`.
-2. **Wait for CI** on that exact commit: the `harness` workflow must finish green. Never merge on red
-   or while it is still running.
-3. **Merge with rebase**, which keeps the history linear with no merge commits:
+2. **Wait for CI** on that exact commit: `gate` (the last job of the `harness` workflow) is the
+   required check on `power` and must finish green. It runs on every PR and only passes when the
+   build and the upstream inventory passed, or were skipped because the PR does not touch their
+   paths. Never merge on red or while it is still running.
+3. **Merge with squash** (rebase-merge is disabled; an upstream sync uses a merge commit, see
+   [UPSTREAM.md](./UPSTREAM.md#merge-methods)):
 
    ```bash
-   gh pr merge <number> --rebase
+   gh pr merge <number> --squash --repo rldona/FlupCode
    ```
 
 4. **Several PRs:** merge them in order, infrastructure and CI changes first. After each merge,

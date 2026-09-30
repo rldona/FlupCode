@@ -1,30 +1,12 @@
 name: harness
 
+# No `paths` filter on the triggers: `gate` is the required check on `power`, and a required check
+# must report on every pull request. The `changes` job decides what actually needs to run.
 on:
   push:
     branches: [power]
-    paths:
-      - "packages/harness/**"
-      - "packages/harness-desktop/**"
-      - "packages/harness-server/**"
-      - "packages/remote/**"
-      - "packages/relay/**"
-      - "packages/flupcode-cli/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/harness.yml"
   pull_request:
     branches: [power]
-    paths:
-      - "packages/harness/**"
-      - "packages/harness-desktop/**"
-      - "packages/harness-server/**"
-      - "packages/remote/**"
-      - "packages/relay/**"
-      - "packages/flupcode-cli/**"
-      - "package.json"
-      - "bun.lock"
-      - ".github/workflows/harness.yml"
   workflow_dispatch:
 
 permissions:
@@ -35,10 +17,61 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      harness: ${{ steps.filter.outputs.harness }}
+      inventory: ${{ steps.filter.outputs.inventory }}
+    steps:
+      # Fails closed: whenever the changed files cannot be listed completely, everything runs.
+      - name: Detect changed paths
+        id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.sha }}
+        run: |
+          set -uo pipefail
+          all() {
+            echo "harness=true" >> "$GITHUB_OUTPUT"
+            echo "inventory=$([ "$EVENT" = pull_request ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+            echo "Running everything: $1"
+            exit 0
+          }
+          # The files API stops at 3000 entries and compare at 300: a full page means a partial list.
+          case "$EVENT" in
+            pull_request)
+              files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[].filename') || all "cannot list PR files"
+              [ "$(printf '%s\n' "$files" | grep -c .)" -ge 3000 ] && all "PR lists 3000+ files"
+              ;;
+            push)
+              case "$BEFORE" in ""|0000000000000000000000000000000000000000) all "no previous commit" ;; esac
+              files=$(gh api "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.files[].filename') || all "cannot compare commits"
+              [ "$(printf '%s\n' "$files" | grep -c .)" -ge 300 ] && all "push lists 300+ files"
+              ;;
+            *) all "event $EVENT" ;;
+          esac
+          matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
+          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          inventory=false
+          [ "$EVENT" = pull_request ] && inventory=$(matches '^(packages/|docs/upstream-inventory\.txt$|script/upstream-inventory\.ts$|\.github/workflows/harness\.yml$)')
+          echo "inventory=$inventory" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
   build:
+    needs: changes
+    if: needs.changes.outputs.harness == 'true'
     # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026 and a build that
     # changes its own OS on a calendar date is a build that breaks on one.
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -72,6 +105,9 @@ jobs:
           bun run --cwd packages/flupcode-cli test
           bun run --cwd packages/harness-server test
 
+      - name: Test harness
+        run: bun run --cwd packages/harness test
+
       - name: Build
         run: bun run --cwd packages/harness build
 
@@ -84,3 +120,49 @@ jobs:
           name: flupcode-web
           path: packages/harness/dist
           retention-days: 14
+
+  inventory:
+    needs: changes
+    if: needs.changes.outputs.inventory == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream mirror
+        # The inventory is defined against the mirror, which a PR checkout does not bring.
+        run: git fetch origin dev:refs/remotes/origin/dev
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # No install: the script only shells out to git.
+      - name: Check inventory
+        env:
+          INVENTORY_SINCE: ${{ github.event.pull_request.base.sha }}
+        run: bun script/upstream-inventory.ts
+
+  # The one required check on `power`. A job skipped because its paths did not change is a pass; a
+  # failed or cancelled one, or a `changes` job that could not decide, is not.
+  gate:
+    needs: [changes, build, inventory]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Check results
+        env:
+          CHANGES: ${{ needs.changes.result }}
+          BUILD: ${{ needs.build.result }}
+          INVENTORY: ${{ needs.inventory.result }}
+        run: |
+          echo "changes=$CHANGES build=$BUILD inventory=$INVENTORY"
+          [ "$CHANGES" = success ] || exit 1
+          for result in "$BUILD" "$INVENTORY"; do
+            case "$result" in success|skipped) ;; *) exit 1 ;; esac
+          done
