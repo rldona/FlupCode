@@ -41,6 +41,7 @@ import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
 import { handleGuardrailsRequest, handleGuardrailsStatusRequest } from "./adaptive/guardrails-routes"
 import type { GuardrailService } from "./adaptive/guardrails"
+import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptive/session-metrics"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
 
@@ -552,6 +553,25 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleGuardrailsRequest(request, options.guardrails)
     }
+    // The per-turn cost baseline (AH-B01): the metrics plugin posts each observation on the loopback
+    // with the dedicated bearer, never the browser one. Numbers only; without a token it is a 404.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "metrics" &&
+      path.length === 3 &&
+      request.method === "POST" &&
+      options.adaptiveToken
+    ) {
+      if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleSessionMetricsRequest(request, repository)
+    }
+    // Its read side takes the artifacts bearer, like the other adaptive audits a browser reads.
+    if (path[1] === "adaptive" && path[2] === "metrics" && path.length === 3 && request.method === "GET") {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleSessionMetricsRead(request, repository)
+    }
     // The read side of the guardrails (FH-062): only a browser reads the live advisory, so it takes
     // the artifacts bearer like `/harness/adaptive/decisions`, never the acting token. Reading only —
     // there is no route that makes a guardrail act.
@@ -608,6 +628,8 @@ export const createHarnessHandler = (
           ...(options.relevance && options.adaptiveToken ? (["adaptive-relevance"] as const) : []),
           // The failure/loop guardrails (FH-060–063): the same dedicated bearer and the same rule.
           ...(options.guardrails && options.adaptiveToken ? (["adaptive-guardrails"] as const) : []),
+          // The per-turn cost baseline (AH-B01): the plugin's POST needs the dedicated bearer too.
+          ...(options.adaptiveToken ? (["adaptive-metrics"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The

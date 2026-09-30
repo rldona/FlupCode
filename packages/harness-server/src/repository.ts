@@ -77,6 +77,8 @@ import { proposalFromRow, proposalRowFrom } from "./adaptive/learning/proposal-r
 import type { SkillProposalRow } from "./adaptive/learning/proposal-record"
 import type { RetentionCutoffs, RetentionPurge } from "./adaptive/retention"
 import type { DecisionKind } from "./adaptive/decision"
+import { applyObservation, emptyTurn } from "./adaptive/session-metrics"
+import type { MetricObservation, SessionMetricTurn } from "./adaptive/session-metrics"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
 export const ARTIFACT_LIMIT = 1_000_000
@@ -420,6 +422,43 @@ CREATE INDEX IF NOT EXISTS skill_proposals_status ON skill_proposals(status, cre
 -- The purge deletes rejected proposals by updated_at and correlates decision_id.
 CREATE INDEX IF NOT EXISTS skill_proposals_decision ON skill_proposals(decision_id);
 CREATE INDEX IF NOT EXISTS skill_proposals_status_updated ON skill_proposals(status, updated_at);
+-- The per-turn cost baseline (AH-B01): one row per turn, folded from the metrics plugin.
+CREATE TABLE IF NOT EXISTS session_metrics (
+  session_id TEXT NOT NULL,
+  turn_id TEXT NOT NULL,
+  turn INTEGER NOT NULL,
+  project_id TEXT,
+  provider_id TEXT,
+  model_id TEXT,
+  agent TEXT,
+  requests INTEGER NOT NULL DEFAULT 0,
+  input_tokens INTEGER NOT NULL DEFAULT 0,
+  output_tokens INTEGER NOT NULL DEFAULT 0,
+  reasoning_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_read_tokens INTEGER NOT NULL DEFAULT 0,
+  cache_write_tokens INTEGER NOT NULL DEFAULT 0,
+  cost REAL NOT NULL DEFAULT 0,
+  model_ms INTEGER NOT NULL DEFAULT 0,
+  first_token_ms INTEGER,
+  tool_calls INTEGER NOT NULL DEFAULT 0,
+  tool_errors INTEGER NOT NULL DEFAULT 0,
+  tool_output_bytes INTEGER NOT NULL DEFAULT 0,
+  tools_json TEXT NOT NULL DEFAULT '{}',
+  compactions INTEGER NOT NULL DEFAULT 0,
+  skills_json TEXT NOT NULL DEFAULT '[]',
+  started_at INTEGER NOT NULL,
+  ended_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, turn_id)
+);
+CREATE INDEX IF NOT EXISTS session_metrics_session_turn ON session_metrics(session_id, turn);
+CREATE INDEX IF NOT EXISTS session_metrics_ended ON session_metrics(ended_at);
+-- Observations already folded: the engine can deliver the same event to more than one plugin
+-- instance, and a second copy must not be a second request.
+CREATE TABLE IF NOT EXISTS session_metric_seen (
+  id TEXT PRIMARY KEY,
+  at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS session_metric_seen_at ON session_metric_seen(at);
 `
 
 /**
@@ -2806,6 +2845,94 @@ export class SqliteRoutineRepository implements RoutineRepository {
     })()
   }
 
+  // ---- session metrics (AH-B01) ----------------------------------------------------------------
+
+  /**
+   * Folds one plugin observation into its turn, once. Returns false when the observation was seen
+   * before and nothing changed. A new turn takes the next ordinal of its session.
+   */
+  recordSessionMetric(
+    input: { sessionID: string; projectID?: string; observation: MetricObservation },
+    now = Date.now(),
+  ): boolean {
+    return this.db.transaction(() => {
+      const fresh = this.db
+        .query("INSERT OR IGNORE INTO session_metric_seen (id, at) VALUES (?1, ?2)")
+        .run(`${input.sessionID}:${input.observation.kind}:${input.observation.id}`, now).changes
+      if (fresh === 0) return false
+      const row = this.db
+        .query("SELECT * FROM session_metrics WHERE session_id = ?1 AND turn_id = ?2")
+        .get(input.sessionID, input.observation.turnID) as SessionMetricRow | null
+      const turn = row
+        ? sessionMetricFromRow(row)
+        : emptyTurn({
+            sessionID: input.sessionID,
+            turnID: input.observation.turnID,
+            turn: this.nextSessionTurn(input.sessionID),
+            ...(input.projectID ? { projectID: input.projectID } : {}),
+            now,
+          })
+      const next = applyObservation(turn, input.observation, now)
+      this.db
+        .query(
+          `INSERT OR REPLACE INTO session_metrics (
+             session_id, turn_id, turn, project_id, provider_id, model_id, agent, requests,
+             input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,
+             cost, model_ms, first_token_ms, tool_calls, tool_errors, tool_output_bytes, tools_json,
+             compactions, skills_json, started_at, ended_at
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
+             ?19, ?20, ?21, ?22, ?23, ?24)`,
+        )
+        .run(
+          next.sessionID,
+          next.turnID,
+          next.turn,
+          next.projectID ?? null,
+          next.providerID ?? null,
+          next.modelID ?? null,
+          next.agent ?? null,
+          next.requests,
+          next.tokens.input,
+          next.tokens.output,
+          next.tokens.reasoning,
+          next.tokens.cacheRead,
+          next.tokens.cacheWrite,
+          next.cost,
+          next.modelMs,
+          next.firstTokenMs ?? null,
+          next.toolCalls,
+          next.toolErrors,
+          next.toolOutputBytes,
+          JSON.stringify(next.tools),
+          next.compactions,
+          JSON.stringify(next.skills),
+          next.startedAt,
+          next.endedAt,
+        )
+      return true
+    })()
+  }
+
+  /** One session's turns, in the order they were first heard of. */
+  listSessionMetrics(sessionID: string): SessionMetricTurn[] {
+    const rows = this.db
+      .query("SELECT * FROM session_metrics WHERE session_id = ?1 ORDER BY turn")
+      .all(sessionID) as SessionMetricRow[]
+    return rows.map(sessionMetricFromRow)
+  }
+
+  /** The dedupe ledger only has to outlive a redelivery, so old entries are dropped. */
+  pruneSessionMetricSeen(before: number): number {
+    return this.db.query("DELETE FROM session_metric_seen WHERE at < ?1").run(before).changes
+  }
+
+  private nextSessionTurn(sessionID: string) {
+    const row = this.db.query("SELECT MAX(turn) AS turn FROM session_metrics WHERE session_id = ?1").get(sessionID) as {
+      turn: number | null
+    }
+    return (row.turn ?? 0) + 1
+  }
+
   // ---- action credentials (WA-5) ---------------------------------------------------------------
 
   /**
@@ -2924,4 +3051,62 @@ export const routineLockKey = (routineID: string) => `routine:${routineID}`
 function defaultDatabasePath() {
   const base = process.env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")
   return join(base, "flupcode", "harness.sqlite")
+}
+
+type SessionMetricRow = {
+  session_id: string
+  turn_id: string
+  turn: number
+  project_id: string | null
+  provider_id: string | null
+  model_id: string | null
+  agent: string | null
+  requests: number
+  input_tokens: number
+  output_tokens: number
+  reasoning_tokens: number
+  cache_read_tokens: number
+  cache_write_tokens: number
+  cost: number
+  model_ms: number
+  first_token_ms: number | null
+  tool_calls: number
+  tool_errors: number
+  tool_output_bytes: number
+  tools_json: string
+  compactions: number
+  skills_json: string
+  started_at: number
+  ended_at: number
+}
+
+function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
+  return {
+    sessionID: row.session_id,
+    turnID: row.turn_id,
+    turn: row.turn,
+    ...(row.project_id ? { projectID: row.project_id } : {}),
+    ...(row.provider_id ? { providerID: row.provider_id } : {}),
+    ...(row.model_id ? { modelID: row.model_id } : {}),
+    ...(row.agent ? { agent: row.agent } : {}),
+    requests: row.requests,
+    tokens: {
+      input: row.input_tokens,
+      output: row.output_tokens,
+      reasoning: row.reasoning_tokens,
+      cacheRead: row.cache_read_tokens,
+      cacheWrite: row.cache_write_tokens,
+    },
+    cost: row.cost,
+    modelMs: row.model_ms,
+    ...(row.first_token_ms !== null ? { firstTokenMs: row.first_token_ms } : {}),
+    toolCalls: row.tool_calls,
+    toolErrors: row.tool_errors,
+    toolOutputBytes: row.tool_output_bytes,
+    tools: JSON.parse(row.tools_json),
+    compactions: row.compactions,
+    skills: JSON.parse(row.skills_json),
+    startedAt: row.started_at,
+    endedAt: row.ended_at,
+  }
 }
