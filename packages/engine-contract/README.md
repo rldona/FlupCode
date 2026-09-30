@@ -12,6 +12,12 @@ an aborted turn, and the routes the harness reads outside a turn. Each one recor
 `fixtures/<v1|v2>/`: the session's event types, the transcript's roles, part types and tool
 statuses, and the keys of the responses FlupCode reads.
 
+`test/plugins.test.ts` (ticket V2-03) starts a second engine with FlupCode's 14 engine plugins
+installed from `packages/remote/src/engine-plugins.ts`, a stand-in harness-server, and the tokens
+and config the desktop writes. The engine refuses a plugin silently, so each test checks what one
+plugin leaves behind once its hooks fire: a file it writes, a tool it registers, or a call it makes
+to harness-server. A new plugin without an entry there fails the suite.
+
 ```bash
 bun run --cwd packages/engine-contract test
 ```

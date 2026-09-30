@@ -11,7 +11,14 @@ import { detectEngine } from "@flupcode/remote/engine-kind"
  * touches the user's `opencode.db`. `FLUPCODE_CONTRACT_ENGINE` points the suite at another engine
  * (a released 1.x binary, or 2.x for V2-06): a command line where `{port}` is the port to listen on.
  */
-export async function startEngine(input: { modelUrl: string; config?: Record<string, unknown> }) {
+export async function startEngine(input: {
+  modelUrl: string
+  config?: Record<string, unknown>
+  /** Layered over the isolated environment. `OPENCODE_PURE: undefined` lets plugins load. */
+  env?: Record<string, string | undefined>
+  /** Runs once the isolated home exists and before the engine starts, e.g. to install plugins. */
+  prepare?: (home: string) => Promise<void>
+}) {
   // The real path: macOS hands out `/var/...`, a link to `/private/var/...`, and the engine asks for
   // an external-directory permission when a tool reads a path that is not under the one it resolved.
   const root = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-contract-")))
@@ -19,13 +26,14 @@ export async function startEngine(input: { modelUrl: string; config?: Record<str
   const project = join(root, "project")
   mkdirSync(home, { recursive: true })
   mkdirSync(project, { recursive: true })
+  await input.prepare?.(home)
   const password = crypto.randomUUID()
   const port = freePort()
   const child = Bun.spawn(
     engineCommand().map((part) => part.replaceAll("{port}", String(port))),
     {
       cwd: project,
-      env: {
+      env: definedOnly({
         PATH: process.env.PATH ?? "",
         HOME: home,
         OPENCODE_TEST_HOME: home,
@@ -43,7 +51,8 @@ export async function startEngine(input: { modelUrl: string; config?: Record<str
         // No plugins from npm or the user: this suite is about the engine's own contract. The plugin
         // smoke test (V2-03) turns this off and installs FlupCode's plugins on purpose.
         OPENCODE_PURE: "1",
-      },
+        ...input.env,
+      }),
       stdin: "ignore",
       stdout: "ignore",
       stderr: "pipe",
@@ -67,7 +76,7 @@ export async function startEngine(input: { modelUrl: string; config?: Record<str
   while (Date.now() < deadline) {
     if (child.exitCode !== null || child.signalCode) break
     const detected = await detectEngine(url, fetch, { headers: { authorization } })
-    if (detected.kind !== "none") return { url, authorization, project, detected, stop }
+    if (detected.kind !== "none") return { url, authorization, home, project, detected, stop }
     await Bun.sleep(250)
   }
   await stop()
@@ -114,6 +123,10 @@ function stubConfig(modelUrl: string) {
       },
     },
   }
+}
+
+function definedOnly(env: Record<string, string | undefined>) {
+  return Object.fromEntries(Object.entries(env).filter((entry): entry is [string, string] => entry[1] !== undefined))
 }
 
 /** A port nothing listens on right now: the OS picks it, the probe lets it go. */

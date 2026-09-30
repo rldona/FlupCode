@@ -62,7 +62,7 @@ jobs:
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
           echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
-          echo "engine=$(matches '^(packages/(core|opencode|llm|server|protocol|schema|client|plugin|sdk|session-ui|engine-contract)/|docs/upstream-inventory\.txt$|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "engine=$(matches '^(packages/(core|opencode|llm|server|protocol|schema|client|plugin|sdk|session-ui|engine-contract|remote)/|docs/upstream-inventory\.txt$|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           inventory=false
           [ "$EVENT" = pull_request ] && inventory=$(matches '^(packages/|docs/upstream-inventory\.txt$|script/upstream-inventory\.ts$|\.github/workflows/harness\.yml$)')
           echo "inventory=$inventory" >> "$GITHUB_OUTPUT"
@@ -160,7 +160,8 @@ jobs:
           done
 
       # The engine as FlupCode drives it: a real `opencode serve` from this checkout, isolated, with a
-      # stub model, checked against the recorded fixtures (V2-02).
+      # stub model, checked against the recorded fixtures (V2-02), and with FlupCode's engine plugins
+      # installed, each one checked by what it leaves behind (V2-03).
       - name: Engine contract
         env:
           CI: "1"
