@@ -223,7 +223,7 @@ describe("E7 / FH-060–063 evaluation: failure/loop guardrails (offline, record
     const result = await run(load("failure-jev-recorded"))
     expect(result).toMatchObject({
       verdict: "intervene",
-      source: "jev",
+      source: "model",
       degraded: false,
       risk: { risk: "CONFIRM", raiseOnly: true },
     })

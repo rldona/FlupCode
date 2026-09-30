@@ -88,7 +88,7 @@ describe("the skillReflection kind (FH-031)", () => {
     expect(config.egress.kinds.skillReflection).toBe(false)
 
     const result = await service.predict(reflection())
-    expect(result.source).toBe("deterministic")
+    expect(result.source).toBe("baseline")
     expect(result.answer).toEqual({ reusable: false, intent: "add" })
     repository.close()
   })
@@ -118,7 +118,7 @@ describe("the skillReflection kind (FH-031)", () => {
     )
 
     const result = await service.predict(reflection())
-    expect(result.source).toBe("jev")
+    expect(result.source).toBe("model")
     expect(result.answer).toEqual({ reusable: true, intent: "patch", target: "testing" })
     repository.close()
   })

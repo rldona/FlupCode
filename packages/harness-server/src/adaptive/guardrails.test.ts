@@ -127,7 +127,7 @@ describe("a detected loop", () => {
       repeatedErrors: 0,
       steps: "unsupported",
       decisionID: "failure:ses_1:bash:a",
-      source: "deterministic",
+      source: "baseline",
       degraded: false,
       risk: { risk: "ALLOW", raiseOnly: true },
     })

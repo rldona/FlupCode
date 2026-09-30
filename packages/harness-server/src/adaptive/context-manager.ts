@@ -12,7 +12,14 @@
  * it returns the parts untouched. The runner seam that calls it is FH-024.
  */
 
-import type { ContextItem, DecisionRequest, DecisionSource, DegradedReason, ItemDisposition } from "./decision"
+import type {
+  ContextItem,
+  DecisionRequest,
+  DecisionSource,
+  DegradedReason,
+  ItemDisposition,
+  PlanScoreSource,
+} from "./decision"
 import { DROPPABLE_CONTEXT_KINDS, PROTECTED_CONTEXT_KINDS } from "./decision"
 import type { AdaptiveConfig } from "./config"
 import { classifyEpisode, classifyRunPrompt } from "./context"
@@ -38,10 +45,12 @@ import type {
 /** The repository the manager reads plans and episodes from, and writes plans to. */
 export type ContextManagerRepository = ContextPlanRepository & Pick<EpisodeRepository, "getEpisode">
 
-/** What a Jev refinement reports back; the manager merges it per item on top of the baseline. */
+/** What a model refinement reports back; the manager merges it per item on top of the baseline. */
 export type ContextRefinement = {
   dispositions: Record<string, ItemDisposition>
   source: DecisionSource
+  /** The model that answered, when one did; it names the plan's refinement and each moved item. */
+  provider?: string
   degraded: boolean
   degradedReason?: DegradedReason
   /** The `contextItem` decision row the attempt wrote, if it ran at all. */
@@ -121,7 +130,8 @@ const isProtectedEntry = (entry: ContextPlanEntry): boolean =>
 
 type Refined = {
   scores: ContextScore[]
-  source: "deterministic" | "jev"
+  source: PlanScoreSource
+  provider?: string
   degraded: boolean
   degradedReason?: DegradedReason
   decisionID?: string
@@ -160,6 +170,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
       objectiveHash: objectiveHash(input.objective),
       entries,
       scoreSource: input.refined.source,
+      ...(input.refined.provider ? { scoreProvider: input.refined.provider } : {}),
       degraded: input.refined.degraded,
       ...(input.refined.degradedReason ? { degradedReason: input.refined.degradedReason } : {}),
       // The manager never filters the prompt itself: applying is FH-024 and opt-in.
@@ -191,6 +202,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
     return {
       dispositions: Object.fromEntries(result.answer.decisions.map((entry) => [entry.id, entry.disposition])),
       source: result.source,
+      provider: result.provider,
       degraded: result.degraded,
       ...(result.degradedReason ? { degradedReason: result.degradedReason } : {}),
       // The service writes the row under the same id whenever it runs (it was asked).
@@ -207,23 +219,25 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
    * past `budget.total` or a per-class budget (ADR-0018 §3).
    */
   const refine = async (input: ContextRefinementInput, mode: PredictionMode): Promise<Refined> => {
-    if (input.ambiguous.length === 0) return { scores: [...input.baseline], source: "deterministic", degraded: false }
+    if (input.ambiguous.length === 0) return { scores: [...input.baseline], source: "baseline", degraded: false }
     const answer = deps.refine
       ? await deps.refine(input).catch(() => undefined)
       : await refineViaService(input, mode).catch(() => undefined)
-    if (!answer) return { scores: [...input.baseline], source: "deterministic", degraded: true }
+    if (!answer) return { scores: [...input.baseline], source: "baseline", degraded: true }
     const ambiguous = new Set(input.ambiguous.map((entry) => entry.id))
     const merged = input.baseline.map((entry) => {
-      if (answer.source !== "jev" || !ambiguous.has(entry.id)) return entry
+      if (answer.source !== "model" || !ambiguous.has(entry.id)) return entry
       const disposition = answer.dispositions[entry.id]
       if (disposition === undefined) return entry
       const safe: ItemDisposition =
         disposition === "drop" && !DROPPABLE_CONTEXT_KINDS.includes(entry.kind) ? "archive" : disposition
-      return { ...entry, disposition: safe, reason: "jev" }
+      // The reason names the model that moved the item, the way it always read "jev" for Jev.
+      return { ...entry, disposition: safe, reason: answer.provider ?? "model" }
     })
     return {
       scores: applyContextBudget(merged, deps.config().context.budget),
-      source: answer.source === "jev" ? "jev" : "deterministic",
+      source: answer.source === "model" ? "model" : "baseline",
+      ...(answer.source === "model" && answer.provider ? { provider: answer.provider } : {}),
       degraded: answer.degraded,
       ...(answer.degradedReason ? { degradedReason: answer.degradedReason } : {}),
       ...(answer.decisionID ? { decisionID: answer.decisionID } : {}),
@@ -283,6 +297,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
         id: planID(scopeID),
         scores: refined.scores,
         scoreSource: refined.source,
+        ...(refined.provider ? { scoreProvider: refined.provider } : {}),
         degraded: refined.degraded,
         createdAt: at,
       })
@@ -331,6 +346,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
         id: planID(episode.id),
         scores: refined.scores,
         scoreSource: refined.source,
+        ...(refined.provider ? { scoreProvider: refined.provider } : {}),
         degraded: refined.degraded,
         createdAt: at,
       })

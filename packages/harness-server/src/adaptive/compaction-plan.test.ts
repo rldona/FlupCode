@@ -48,7 +48,7 @@ describe("compactionPlanFrom (FH-022)", () => {
     expect(plan.drop.map((entry) => entry.id)).toEqual(["d"])
     expect(plan.archive[0]!.reason).toBe("ambiguous")
     expect(plan.drop[0]!.reason).toBe("low-value-payload")
-    expect(plan.scoreSource).toBe("deterministic")
+    expect(plan.scoreSource).toBe("baseline")
     expect(plan.degraded).toBe(false)
   })
 

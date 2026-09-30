@@ -272,16 +272,38 @@ export type DecisionRequest<Q extends DecisionKind = DecisionKind> = {
 /** The distributive union: matching on `kind` narrows `state` and `answer` together. */
 export type AnyDecisionRequest = { [Q in DecisionKind]: DecisionRequest<Q> }[DecisionKind]
 
-export type DecisionSource = "deterministic" | "jev" | "fallback"
+/**
+ * Who answered a decision, whichever model was involved (AH-C02).
+ *
+ * `baseline` means no model was consulted and the deterministic rule answered; `model` means a
+ * predictive model answered and cleared the policy; `fallback` means a model was consulted but the
+ * rule answered anyway (it failed or fell below the thresholds). Which model it was lives in the
+ * audit's `provider_id`, never in the source.
+ */
+export const DECISION_SOURCES = ["baseline", "model", "fallback"] as const
+export type DecisionSource = (typeof DECISION_SOURCES)[number]
 
 /**
- * The `source` a decision records when a predictive model answered, whichever model it was.
- *
- * The persisted value is still the historical `"jev"`: the audit keeps it byte for byte until the v2
- * schema migrates it to a neutral source plus a provider column (AH-C02). The model that answered is
- * already in `provider`.
+ * Who scored a context plan. A plan is either the scorer's alone or refined by a model on top of it;
+ * a model that was consulted and did not win leaves the plan the scorer's (`baseline`).
  */
-export const MODEL_SOURCE: DecisionSource = "jev"
+export type PlanScoreSource = Extract<DecisionSource, "baseline" | "model">
+
+/**
+ * The outcome a decision is later labelled with (AH-C06 fills it; AH-C02 only reserves the column).
+ *
+ * `unknown` is a real label — the outcome was looked at and could not be judged — which is different
+ * from a decision that carries no label at all.
+ */
+export const DECISION_LABEL_OUTCOMES = ["correct", "incorrect", "unknown"] as const
+export type DecisionLabelOutcome = (typeof DECISION_LABEL_OUTCOMES)[number]
+
+/** A per-kind outcome label, with what produced it (an episode outcome, a person, a replay). */
+export type DecisionLabel = {
+  outcome: DecisionLabelOutcome
+  source: string
+  labeledAt: number
+}
 
 export type DegradedReason =
   | "timeout"
@@ -321,7 +343,10 @@ export const isDecisionKind = (value: unknown): value is DecisionKind =>
   typeof value === "string" && Object.prototype.hasOwnProperty.call(DECISION_KINDS, value)
 
 export const isDecisionSource = (value: unknown): value is DecisionSource =>
-  value === "deterministic" || value === "jev" || value === "fallback"
+  typeof value === "string" && (DECISION_SOURCES as readonly string[]).includes(value)
+
+export const isDecisionLabelOutcome = (value: unknown): value is DecisionLabelOutcome =>
+  typeof value === "string" && (DECISION_LABEL_OUTCOMES as readonly string[]).includes(value)
 
 /** The hash of a question: kind plus its already-redacted state. The policy is not part of it. */
 export function decisionInputsHash(kind: DecisionKind, redactedState: string): string {

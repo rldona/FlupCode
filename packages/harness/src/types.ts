@@ -812,6 +812,9 @@ export type AdaptiveConfigView = {
   learningDraft?: { model: string | null }
 }
 
+/** Who answered a decision (AH-C02): the rule alone, a model, or the rule after a model did not win. */
+export type DecisionSource = "baseline" | "model" | "fallback" | "unknown"
+
 /** One audited decision (FH-015). Mirrors `harness-server`'s own type. */
 export type StoredDecision = {
   id: string
@@ -829,7 +832,13 @@ export type StoredDecision = {
   provider: string
   attemptedProvider?: string
   modelVersion?: string
-  source: "deterministic" | "jev" | "fallback"
+  /** Provider-neutral since AH-C02; `unknown` is a stored value this build does not know, kept in `raw`. */
+  source: DecisionSource
+  providerID?: string
+  providerVersion?: string
+  costUsd?: number
+  inputTokens?: number
+  raw?: { kind?: string; source?: string }
   degraded: boolean
   degradedReason?: string
   latencyMs: number
@@ -861,10 +870,15 @@ export type DecisionExplanation = {
   answer: unknown
   baseline: { answer: unknown; rule: string }
   why: string
-  source: "deterministic" | "jev" | "fallback"
+  source: DecisionSource
   provider: string
   attemptedProvider?: string
   modelVersion?: string
+  providerID?: string
+  providerVersion?: string
+  costUsd?: number
+  inputTokens?: number
+  raw?: { kind?: string; source?: string }
   confidence?: number
   probabilities?: Record<string, number>
   latencyMs: number
@@ -899,7 +913,10 @@ export type StoredPlan = {
   projectID?: string
   objectiveHash: string
   entries: ContextPlanEntry[]
-  scoreSource: "deterministic" | "jev"
+  /** `model` names the model that refined the plan in `scoreProvider` (AH-C02). */
+  scoreSource: "baseline" | "model" | "unknown"
+  scoreProvider?: string
+  rawScoreSource?: string
   degraded: boolean
   degradedReason?: string
   applied: boolean

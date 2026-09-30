@@ -129,7 +129,7 @@ describe("ContextManager.plan (FH-022/023)", () => {
     expect(plan!.id).toBe(planID("run-1:task-1"))
     expect(plan!.keep.map((entry) => entry.id)).toEqual(["obj", "mem", "file"])
     expect(plan!.archive.map((entry) => entry.id)).toEqual(["art"])
-    expect(plan!.scoreSource).toBe("deterministic")
+    expect(plan!.scoreSource).toBe("baseline")
     expect(plan!.degraded).toBe(false)
 
     const stored = repository.getPlan(planID("run-1:task-1"))!
@@ -192,7 +192,7 @@ describe("ContextManager.plan (FH-022/023)", () => {
     const plan = await manager.plan(planInput({ parts: noAmbiguity }))
     expect(countingService.calls()).toBe(0)
     expect(setupOne.repository.listDecisions()).toHaveLength(0)
-    expect(plan!.scoreSource).toBe("deterministic")
+    expect(plan!.scoreSource).toBe("baseline")
     setupOne.repository.close()
   })
 
@@ -203,11 +203,13 @@ describe("ContextManager.plan (FH-022/023)", () => {
     const plan = await manager.plan(planInput({ projectID: "/work/project" }))
 
     expect(jev.seen).toEqual([["art"]])
-    expect(plan!.scoreSource).toBe("jev")
+    expect(plan!.scoreSource).toBe("model")
+    expect(plan!.scoreProvider).toBe("jev")
     expect(plan!.keep.map((entry) => entry.id)).toContain("art")
     expect(plan!.archive).toHaveLength(0)
-    // The plan links the decision row the question wrote.
+    // The plan links the decision row the question wrote, and names the model that refined it.
     const stored = repository.getPlan(planID("run-1:task-1"))!
+    expect(stored.scoreProvider).toBe("jev")
     expect(stored.decisionID).toBe(decisionID("contextItem", "run-1:task-1"))
     expect(repository.getDecision(stored.decisionID!)).toBeDefined()
     repository.close()
@@ -249,7 +251,7 @@ describe("ContextManager.plan (FH-022/023)", () => {
     const manager = managerFor({ repository, ...rest })
     const plan = await manager.plan(planInput({ projectID: "/work/project" }))
 
-    expect(plan!.scoreSource).toBe("deterministic")
+    expect(plan!.scoreSource).toBe("baseline")
     expect(plan!.degraded).toBe(true)
     expect(plan!.archive.map((entry) => entry.id)).toEqual(["art"])
     expect(repository.getPlan(planID("run-1:task-1"))!.degradedReason).toBe("low-confidence")
@@ -260,7 +262,7 @@ describe("ContextManager.plan (FH-022/023)", () => {
     const { repository, ...rest } = setup()
     const manager = managerFor({ repository, ...rest }, { refine: async (): Promise<ContextRefinement | undefined> => undefined })
     const plan = await manager.plan(planInput())
-    expect(plan!.scoreSource).toBe("deterministic")
+    expect(plan!.scoreSource).toBe("baseline")
     expect(plan!.degraded).toBe(true)
     expect(plan!.archive.map((entry) => entry.id)).toEqual(["art"])
     repository.close()
@@ -331,7 +333,7 @@ describe("ContextManager.plan (FH-022/023)", () => {
 
     const manager = managerFor({ repository, ...rest })
     const plan = await manager.plan(planInput({ projectID: "/work/project" }))
-    expect(plan!.scoreSource).toBe("jev")
+    expect(plan!.scoreSource).toBe("model")
     expect(jev.seen).toEqual([["art"]])
     repository.close()
   })
@@ -350,7 +352,7 @@ describe("ContextManager.plan (FH-022/023)", () => {
     const manager = managerFor({ repository, ...rest })
     const plan = await manager.plan(planInput({ projectID: "/work/project" }))
 
-    expect(plan!.scoreSource).toBe("deterministic")
+    expect(plan!.scoreSource).toBe("baseline")
     expect(plan!.degraded).toBe(true)
     expect(plan!.archive.map((entry) => entry.id)).toContain("art")
     expect(repository.getPlan(planID("run-1:task-1"))!.degradedReason).toBe("timeout")
@@ -403,7 +405,7 @@ describe("ContextManager.planEpisode (FH-023)", () => {
     )
     const fileID = opaqueItemID("file", "src/other.ts", KEY)
     expect(jev.seen).toEqual([[fileID]])
-    expect(plan!.scoreSource).toBe("jev")
+    expect(plan!.scoreSource).toBe("model")
     expect(plan!.keep.map((entry) => entry.id)).toContain(fileID)
     const stored = repository.getPlan(planID("episode:run:1"))!
     expect(stored.decisionID).toBe(decisionID("contextItem", "episode:run:1"))
@@ -445,7 +447,7 @@ describe("ContextManager.explainPlan (FH-022)", () => {
     const explanation = manager.explainPlan(planID(stored.id))!
     expect(explanation.evidenceRefs).toEqual(["session:ses_1", "task:one"])
     expect(explanation.decision?.id).toBe(decisionID("contextItem", stored.id))
-    expect(explanation.decision?.source).toBe("jev")
+    expect(explanation.decision?.source).toBe("model")
     expect(manager.explainPlan(planID("missing"))).toBeUndefined()
     repository.close()
   })
@@ -491,7 +493,7 @@ describe("ContextManager.apply (FH-022)", () => {
       drop: [
         { id: "mem", kind: "memory", score: 0, disposition: "drop", reason: "corrupt", protected: false, tokens: 1 },
       ],
-      scoreSource: "deterministic",
+      scoreSource: "baseline",
       degraded: false,
       createdAt: NOW,
     }
@@ -510,7 +512,7 @@ describe("ContextManager.apply (FH-022)", () => {
       drop: [
         { id: "art", kind: "artifact", score: 0, disposition: "keep", reason: "corrupt", protected: false, tokens: 1 },
       ],
-      scoreSource: "deterministic",
+      scoreSource: "baseline",
       degraded: false,
       createdAt: NOW,
     }

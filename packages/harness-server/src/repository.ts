@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite"
 import type { UsageRow } from "./usage"
-import { mkdirSync } from "node:fs"
+import { mkdirSync, readdirSync, rmSync, statSync } from "node:fs"
 import { homedir } from "node:os"
-import { dirname, isAbsolute, join, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, sep } from "node:path"
 import {
   normalizeEpisodeLimit,
   normalizeOutcome,
@@ -338,6 +338,14 @@ CREATE TABLE IF NOT EXISTS adaptive_decision (
   latency_ms INTEGER NOT NULL DEFAULT 0,
   policy_json TEXT NOT NULL DEFAULT '{}',
   shadow INTEGER NOT NULL DEFAULT 1,
+  -- The provider-neutral audit (AH-C02): a table created here already has the columns the numbered
+  -- migration adds to one written before them, so a recreated table never misses them.
+  provider_id TEXT,
+  provider_version TEXT,
+  cost_usd REAL,
+  input_tokens INTEGER,
+  label TEXT,
+  labeled_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -361,6 +369,7 @@ CREATE TABLE IF NOT EXISTS adaptive_plan (
   archive_count INTEGER NOT NULL DEFAULT 0,
   drop_count INTEGER NOT NULL DEFAULT 0,
   score_source TEXT NOT NULL,
+  score_provider TEXT,
   degraded INTEGER NOT NULL DEFAULT 0,
   degraded_reason TEXT,
   applied INTEGER NOT NULL DEFAULT 0,
@@ -474,6 +483,18 @@ INSERT OR IGNORE INTO runs (id, source_type, source_id, session_id, status, star
 DROP TABLE routine_runs;
 DROP TABLE routine_locks;
 `
+
+/**
+ * The schema version every database had before versioned migrations existed (AH-C02).
+ *
+ * Until then the shape was kept by `CREATE TABLE IF NOT EXISTS` plus `addColumn`, which is additive
+ * and idempotent and still runs first on every start. A database with no `schema_version` row is at
+ * this version; everything past it is a numbered migration that runs once, in order.
+ */
+const LEGACY_SCHEMA_VERSION = 1
+
+/** How many pre-migration backups are kept beside the database; older ones are removed. */
+const BACKUPS_KEPT = 3
 
 type RoutineRow = {
   id: string
@@ -1036,9 +1057,11 @@ export class SqliteRoutineRepository implements RoutineRepository {
   readonly db: Database
   private readonly listeners = new Set<(entry: StoredEvent) => void>()
 
-  constructor(path = process.env.FLUPCODE_HARNESS_DB ?? defaultDatabasePath()) {
+  constructor(private readonly path = process.env.FLUPCODE_HARNESS_DB ?? defaultDatabasePath()) {
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true })
     this.db = new Database(path, { create: true })
+    // A database with no tables yet has no rows a migration could rewrite, so it needs no backup.
+    const fresh = (this.db.query("SELECT COUNT(*) AS count FROM sqlite_master").get() as { count: number }).count === 0
     this.db.exec(schema)
     const legacy = this.db
       .query("SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'routine_runs'")
@@ -1075,6 +1098,122 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("session_metrics", "arms_json", "TEXT")
     this.migrateDocumentPaths()
     this.migrateEvidenceSize()
+    this.migrate(fresh)
+  }
+
+  /**
+   * Run the numbered migrations this database has not had yet, each once and in order (AH-C02).
+   *
+   * The version lives in a `schema_version` table rather than `PRAGMA user_version`: both are
+   * transactional, but the table keeps a history — which migration ran, when, and the backup taken
+   * before it — that a single integer cannot, and it cannot collide with another tool that sets
+   * `user_version` on the same file. Each migration and its version row commit together, so a crash
+   * leaves the database at a version it fully reached and the next start resumes from there.
+   *
+   * Before the first migration that rewrites rows, the file is copied with `VACUUM INTO` (outside any
+   * transaction). A backup that cannot be taken stops the start rather than rewriting without one.
+   */
+  private migrate(fresh: boolean) {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS schema_version (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at INTEGER NOT NULL,
+      backup TEXT
+    )`)
+    const current =
+      (this.db.query("SELECT MAX(version) AS version FROM schema_version").get() as { version: number | null })
+        .version ?? LEGACY_SCHEMA_VERSION
+    const pending = this.migrations().filter((migration) => migration.version > current)
+    if (pending.length === 0) return
+    const backup =
+      !fresh && this.path !== ":memory:" && pending.some((migration) => migration.rewrites)
+        ? this.backup(current)
+        : null
+    for (const migration of pending) {
+      this.db.transaction(() => {
+        migration.up()
+        this.db
+          .query("INSERT INTO schema_version (version, name, applied_at, backup) VALUES (?1, ?2, ?3, ?4)")
+          .run(migration.version, migration.name, Date.now(), backup)
+      })()
+    }
+  }
+
+  /** The numbered migrations, oldest first. A version is never reused or edited once released. */
+  private migrations() {
+    return [
+      {
+        version: 2,
+        name: "decision-audit-v2",
+        rewrites: true,
+        up: () => this.migrateDecisionAudit(),
+      },
+    ]
+  }
+
+  /**
+   * The provider-neutral decision audit (AH-C02).
+   *
+   * `source` moves from `deterministic | jev | fallback` to `baseline | model | fallback`, and which
+   * model was involved moves to `provider_id`. A `jev` row answered by a model: its id is the one the
+   * row already named (`attempted_provider`, or `provider` before that column existed). A `fallback`
+   * row consulted a model that did not win; its id is only known when `attempted_provider` was
+   * recorded, and is left missing rather than guessed otherwise. Historical cost and tokens were never
+   * measured, so they stay `NULL`, not zero. A source outside the v1 vocabulary is left as it is: the
+   * reader keeps the row and exposes the raw value.
+   *
+   * A plan's `score_source` is migrated the same way rather than only tolerated on read, so the
+   * stored vocabulary is one; its model is taken from the decision it points at, `jev` otherwise
+   * (the only model that could refine a plan before this version).
+   */
+  private migrateDecisionAudit() {
+    this.addColumn("adaptive_decision", "provider_id", "TEXT")
+    this.addColumn("adaptive_decision", "provider_version", "TEXT")
+    this.addColumn("adaptive_decision", "cost_usd", "REAL")
+    this.addColumn("adaptive_decision", "input_tokens", "INTEGER")
+    this.addColumn("adaptive_decision", "label", "TEXT")
+    this.addColumn("adaptive_decision", "labeled_at", "INTEGER")
+    this.addColumn("adaptive_plan", "score_provider", "TEXT")
+    this.db.exec(`
+      UPDATE adaptive_decision
+         SET source = 'model',
+             provider_id = COALESCE(provider_id, attempted_provider, provider),
+             provider_version = COALESCE(provider_version, model_version)
+       WHERE source = 'jev';
+      UPDATE adaptive_decision SET source = 'baseline' WHERE source = 'deterministic';
+      UPDATE adaptive_decision
+         SET provider_id = COALESCE(provider_id, attempted_provider),
+             provider_version = COALESCE(provider_version, model_version)
+       WHERE source = 'fallback';
+      UPDATE adaptive_plan
+         SET score_source = 'model',
+             score_provider = COALESCE(
+               score_provider,
+               (SELECT d.provider_id FROM adaptive_decision d WHERE d.id = adaptive_plan.decision_id AND d.source = 'model'),
+               'jev'
+             )
+       WHERE score_source = 'jev';
+      UPDATE adaptive_plan SET score_source = 'baseline' WHERE score_source = 'deterministic';
+    `)
+  }
+
+  /**
+   * Copy the database beside itself as `<db>.bak-v<from>-<timestamp>` and keep the newest few.
+   *
+   * `VACUUM INTO` writes a consistent copy through SQLite itself, WAL included, so no half-written
+   * page is copied; it must run outside a transaction, which is why it runs before the first one.
+   */
+  private backup(from: number) {
+    const target = `${this.path}.bak-v${from}-${new Date().toISOString().replace(/[:.]/g, "-")}`
+    this.db.query("VACUUM INTO ?1").run(target)
+    const prefix = `${basename(this.path)}.bak-v`
+    readdirSync(dirname(this.path))
+      .filter((name) => name.startsWith(prefix))
+      .map((name) => join(dirname(this.path), name))
+      .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)
+      .slice(BACKUPS_KEPT)
+      .forEach((stale) => rmSync(stale, { force: true }))
+    return target
   }
 
   /**
@@ -2354,9 +2493,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
              id, session_id, episode_id, project_id, kind, inputs_hash, state_summary_json, answer_json,
              baseline_answer_json, baseline_rule, confidence, probabilities_json, provider, attempted_provider,
              model_version, source, degraded, degraded_reason, latency_ms, policy_json, shadow, created_at, updated_at,
-             arm
+             arm, provider_id, provider_version, cost_usd, input_tokens
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
-             ?24)
+             ?24, ?25, ?26, ?27, ?28)
            ON CONFLICT(id) DO UPDATE SET
              session_id = excluded.session_id,
              episode_id = excluded.episode_id,
@@ -2379,6 +2518,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
              policy_json = excluded.policy_json,
              shadow = excluded.shadow,
              arm = excluded.arm,
+             provider_id = excluded.provider_id,
+             provider_version = excluded.provider_version,
+             cost_usd = excluded.cost_usd,
+             input_tokens = excluded.input_tokens,
              updated_at = excluded.updated_at`,
         )
         .run(
@@ -2406,6 +2549,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
           row.created_at,
           row.updated_at,
           row.arm,
+          row.provider_id,
+          row.provider_version,
+          row.cost_usd,
+          row.input_tokens,
         )
     } catch {
       // An audit that cannot be written is dropped, never raised into the decision.
@@ -2446,11 +2593,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
       const rows = this.db
         .query(`SELECT * FROM adaptive_decision${where} ORDER BY created_at DESC, id DESC${tail}`)
         .all(...values) as DecisionRow[]
-      // A row whose JSON is corrupt is decoded defensively by `decisionFromRow`, never thrown.
-      return rows.flatMap((row) => {
-        const decision = decisionFromRow(row)
-        return decision ? [decision] : []
-      })
+      // A row whose JSON is corrupt, or whose kind or source this build does not know, is decoded
+      // defensively by `decisionFromRow` and kept, never thrown or dropped (AH-C02).
+      return rows.map(decisionFromRow)
     } catch {
       // An unreadable audit page answers empty rather than taking the endpoint down.
       return []
@@ -2486,8 +2631,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
           `INSERT INTO adaptive_plan (
              id, run_id, task_id, episode_id, session_id, project_id, objective_hash, items_json,
              item_count, keep_count, archive_count, drop_count, score_source, degraded, degraded_reason,
-             applied, tokens_before, tokens_after, decision_id, truncated, created_at, updated_at
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)
+             applied, tokens_before, tokens_after, decision_id, truncated, created_at, updated_at, score_provider
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
            ON CONFLICT(id) DO UPDATE SET
              run_id = excluded.run_id,
              task_id = excluded.task_id,
@@ -2501,6 +2646,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
              archive_count = excluded.archive_count,
              drop_count = excluded.drop_count,
              score_source = excluded.score_source,
+             score_provider = excluded.score_provider,
              degraded = excluded.degraded,
              degraded_reason = excluded.degraded_reason,
              applied = excluded.applied,
@@ -2533,6 +2679,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
           row.truncated,
           row.created_at,
           row.updated_at,
+          row.score_provider,
         )
     } catch {
       // An audit that cannot be written is dropped, never raised into the plan.
@@ -2584,11 +2731,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
       const rows = this.db
         .query(`SELECT * FROM adaptive_plan${where} ORDER BY created_at DESC, id DESC${tail}`)
         .all(...values) as PlanRow[]
-      // A row whose JSON is corrupt is decoded defensively by `planFromRow`, never thrown.
-      return rows.flatMap((row) => {
-        const plan = planFromRow(row)
-        return plan ? [plan] : []
-      })
+      // A row whose JSON is corrupt, or whose score source this build does not know, is decoded
+      // defensively by `planFromRow` and kept, never thrown or dropped (AH-C02).
+      return rows.map(planFromRow)
     } catch {
       // An unreadable plan page answers empty rather than taking the endpoint down.
       return []

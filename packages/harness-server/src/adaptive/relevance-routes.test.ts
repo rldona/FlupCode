@@ -26,7 +26,7 @@ const ADAPTIVE = "adaptive-secret"
 const result: RelevanceResult = {
   line: "<skill_relevance>Possibly relevant skills: testing. Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>",
   decisionID: "skillRelevance:ses_1:msg_1",
-  source: "deterministic",
+  source: "baseline",
   degraded: false,
   skills: ["testing"],
   reason: "ok",

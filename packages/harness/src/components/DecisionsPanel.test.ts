@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { confidenceText, describeAnswer, explanationFor, latencyText } from "./DecisionsPanel"
+import { confidenceText, costText, describeAnswer, explanationFor, kindText, latencyText } from "./DecisionsPanel"
 import type { DecisionExplanation } from "../types"
 
 describe("an answer as one line", () => {
@@ -38,8 +38,8 @@ describe("the explanation in the dialog", () => {
     answer: true,
     baseline: { answer: false, rule: "default" },
     why: "because",
-    source: "deterministic",
-    provider: "baseline",
+    source: "baseline",
+    provider: "deterministic",
     latencyMs: 12,
     degraded: false,
     evidenceRefs: [],
@@ -54,5 +54,18 @@ describe("the explanation in the dialog", () => {
     // The resource keeps the last value while the next id loads, and after that id fails.
     expect(explanationFor({ id: "a", detail: detail("a") }, "b")).toBeUndefined()
     expect(explanationFor(undefined, "b")).toBeUndefined()
+  })
+})
+
+describe("the provider-neutral audit (AH-C02)", () => {
+  test("a model's cost reads in dollars and input tokens, and an unmeasured one is nothing", () => {
+    expect(costText(0.0031, 812)).toBe("$0.0031 · 812 input tokens")
+    expect(costText(0, 0)).toBe("$0.0000 · 0 input tokens")
+    expect(costText(undefined, undefined)).toBeUndefined()
+  })
+
+  test("a kind this build does not know is shown by the value stored", () => {
+    expect(kindText({ kind: "unknown", raw: { kind: "future-kind" } })).toBe("future-kind")
+    expect(kindText({ kind: "completion" })).toBe("completion")
   })
 })

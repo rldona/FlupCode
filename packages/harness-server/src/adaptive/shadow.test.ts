@@ -388,7 +388,7 @@ describe("the skillRelevance usage seam (FH-043)", () => {
       return {
         kind: request.kind,
         answer,
-        source: "deterministic",
+        source: "baseline",
         provider: "stub",
         latencyMs: 0,
         degraded: false,

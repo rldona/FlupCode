@@ -9,7 +9,7 @@
  */
 
 import { createHash } from "node:crypto"
-import type { ContextItemKind, DegradedReason, ItemDisposition } from "./decision"
+import type { ContextItemKind, DegradedReason, ItemDisposition, PlanScoreSource } from "./decision"
 import { isContextItemKind, ITEM_DISPOSITIONS } from "./decision"
 import type { ContextPlanEntry, StoredPlan, StoredPlanInput } from "../types"
 
@@ -36,6 +36,8 @@ export type PlanRow = {
   archive_count: number
   drop_count: number
   score_source: string
+  /** The model that refined the plan (AH-C02); `null` for a scorer-only plan. */
+  score_provider: string | null
   degraded: number
   degraded_reason: string | null
   applied: number
@@ -50,8 +52,19 @@ export type PlanRow = {
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const isScoreSource = (value: string): value is "deterministic" | "jev" =>
-  value === "deterministic" || value === "jev"
+/**
+ * The score source, reading the v1 vocabulary as the v2 one (AH-C02): the migration rewrites
+ * `jev`/`deterministic` once, and an older build started against a migrated database can still write
+ * them afterwards.
+ */
+const readScoreSource = (row: PlanRow): { value: PlanScoreSource | "unknown"; provider?: string } => {
+  const provider = row.score_provider ?? undefined
+  if (row.score_source === "jev") return { value: "model", provider: provider ?? "jev" }
+  if (row.score_source === "deterministic") return { value: "baseline" }
+  if (row.score_source === "baseline" || row.score_source === "model")
+    return { value: row.score_source, ...(provider ? { provider } : {}) }
+  return { value: "unknown", ...(provider ? { provider } : {}) }
+}
 
 const isDisposition = (value: unknown): value is ItemDisposition =>
   typeof value === "string" && ITEM_DISPOSITIONS.some((candidate) => candidate === value)
@@ -105,6 +118,7 @@ export const planRowFrom = (input: StoredPlanInput, now: number): PlanRow => {
     archive_count: count("archive"),
     drop_count: count("drop"),
     score_source: input.scoreSource,
+    score_provider: input.scoreProvider ?? null,
     degraded: input.degraded ? 1 : 0,
     degraded_reason: input.degradedReason ?? null,
     applied: input.applied ? 1 : 0,
@@ -147,9 +161,12 @@ const parseEntries = (value: string): ContextPlanEntry[] => {
   }
 }
 
-/** The row as it is read: an unknown score source is dropped rather than guessed at. */
-export const planFromRow = (row: PlanRow): StoredPlan | undefined => {
-  if (!isScoreSource(row.score_source)) return undefined
+/**
+ * The row as it is read: an unknown score source keeps the plan, reads `"unknown"` and exposes the
+ * stored value in `rawScoreSource` (AH-C02), the same tolerance the decision audit has.
+ */
+export const planFromRow = (row: PlanRow): StoredPlan => {
+  const source = readScoreSource(row)
   const degradedReason = parseReason(row.degraded_reason)
   return {
     id: row.id,
@@ -160,7 +177,9 @@ export const planFromRow = (row: PlanRow): StoredPlan | undefined => {
     ...(row.project_id ? { projectID: row.project_id } : {}),
     objectiveHash: row.objective_hash,
     entries: parseEntries(row.items_json),
-    scoreSource: row.score_source,
+    scoreSource: source.value,
+    ...(source.provider ? { scoreProvider: source.provider } : {}),
+    ...(source.value === "unknown" ? { rawScoreSource: row.score_source } : {}),
     degraded: row.degraded !== 0,
     ...(degradedReason ? { degradedReason } : {}),
     applied: row.applied !== 0,
