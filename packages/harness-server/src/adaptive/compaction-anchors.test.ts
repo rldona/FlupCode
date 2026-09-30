@@ -161,6 +161,15 @@ describe("the anchors route", () => {
     expect(await off.json()).toEqual({ data: {} })
   })
 
+  test("a control-arm session of the holdout gets no block (AH-G01)", async () => {
+    const handler = open({ compactionAnchors: () => true, holdoutFraction: () => 0.5 })
+    // At a 0.5 share `ses_2` draws control for anchors and `ses_1` treatment.
+    const control = await handler(post({ projectID: DIRECTORY, sessionID: "ses_2", goal: "Ship it" }))
+    expect(await control.json()).toEqual({ data: {} })
+    const treatment = await handler(post({ projectID: DIRECTORY, sessionID: "ses_1", goal: "Ship it" }))
+    expect(((await treatment.json()) as { data: { block?: string } }).data.block).toContain("Goal: Ship it")
+  })
+
   test("only the dedicated bearer opens it, and without that token it is not a route", async () => {
     expect((await open({ compactionAnchors: () => true })(post({ sessionID: "ses_1" }, "other"))).status).toBe(403)
     expect((await open({ adaptiveToken: undefined })(post({ sessionID: "ses_1" }))).status).toBe(404)

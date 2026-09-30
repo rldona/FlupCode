@@ -5,7 +5,7 @@
 
 import { describe, expect, test } from "bun:test"
 import { resolveAdaptiveConfig } from "./config"
-import { armFor, armsFor } from "./holdout"
+import { HOLDOUT_CAPABILITIES, armFor, armsFor } from "./holdout"
 
 const ids = Array.from({ length: 1000 }, (_, index) => `ses_${index.toString(36)}_${(index * 7919).toString(16)}`)
 
@@ -20,7 +20,22 @@ describe("armFor", () => {
     expect(ids.map((id) => armFor(id, "guardrails", 0.2))).toEqual(ids.map((id) => armFor(id, "guardrails", 0.2)))
     const disagree = ids.filter((id) => armFor(id, "relevance", 0.2) !== armFor(id, "guardrails", 0.2)).length
     expect(disagree).toBeGreaterThan(0)
-    expect(armsFor("ses_1", 0.2)).toEqual({ relevance: armFor("ses_1", "relevance", 0.2), guardrails: armFor("ses_1", "guardrails", 0.2) })
+    expect(armsFor("ses_1", 0.2)).toEqual({
+      relevance: armFor("ses_1", "relevance", 0.2),
+      guardrails: armFor("ses_1", "guardrails", 0.2),
+      toolTrim: armFor("ses_1", "toolTrim", 0.2),
+      anchors: armFor("ses_1", "anchors", 0.2),
+      selection: armFor("ses_1", "selection", 0.2),
+    })
+  })
+
+  test("every capability the promotion criteria compare has an arm (AH-G01)", () => {
+    expect([...HOLDOUT_CAPABILITIES]).toEqual(["relevance", "guardrails", "toolTrim", "anchors", "selection"])
+    for (const capability of HOLDOUT_CAPABILITIES) {
+      const control = ids.filter((id) => armFor(id, capability, 0.2) === "control").length
+      expect(control / ids.length).toBeGreaterThanOrEqual(0.17)
+      expect(control / ids.length).toBeLessThanOrEqual(0.23)
+    }
   })
 
   test("a zero share holds out nothing", () => {

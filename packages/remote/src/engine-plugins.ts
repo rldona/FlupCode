@@ -2709,7 +2709,7 @@ function selectForCache(messages, policy) {
  * fetched when the plugin loads and refreshed on a timer, then latched per session and changed only at
  * a cold step, so a switch flipped mid-session cannot rewrite a warm cache. A session paused from the
  * composer's chip (AH-E02) arrives in `pausedSessions` and latches off the same way, at its next cold
- * step. Off unless the harness says otherwise; any failure leaves the messages exactly as they arrived.
+ * step; so does a control-arm session of the holdout (`holdoutFraction`, AH-B05/AH-G01). Off unless the harness says otherwise; any failure leaves the messages exactly as they arrived.
  */
 export const CACHE_SELECTION_PLUGIN = {
   file: "flupcode-cache-selection.js",
@@ -2717,6 +2717,7 @@ export const CACHE_SELECTION_PLUGIN = {
 // the provider's prompt cache has expired anyway, so the trim never rewrites a cached prefix. Off
 // unless the harness says so; any failure leaves the messages untouched. Regenerated when FlupCode
 // starts the engine; edits here are overwritten.
+import { createHash } from "node:crypto"
 import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -2798,6 +2799,19 @@ function policyOf(data) {
   }
 }
 
+// The holdout share (AH-B05, AH-G01); anything outside [0, 0.5] holds nothing out.
+function holdoutOf(data) {
+  const value = data ? data.holdoutFraction : undefined
+  return typeof value === "number" && value >= 0 && value <= 0.5 ? value : 0
+}
+
+// The same draw as armFor in packages/harness-server/src/adaptive/holdout.ts: a control session keeps
+// the off policy for its whole life, so the live evaluation can compare it against trimmed sessions.
+function control(sessionID, fraction) {
+  if (fraction <= 0) return false
+  return createHash("sha256").update("selection:" + sessionID).digest().readUInt32BE(0) / 2 ** 32 < fraction
+}
+
 // The sessions a person paused (AH-E02); anything but a list of ids is no pause at all.
 function pausedOf(data) {
   const list = data && Array.isArray(data.pausedSessions) ? data.pausedSessions : []
@@ -2814,7 +2828,7 @@ async function refresh(base, token) {
   const data = body && typeof body === "object" ? body.data : undefined
   const next = policyOf(data)
   // A malformed answer leaves the last good policy to expire on its own.
-  if (next) policy = { ...next, paused: pausedOf(data), at: Date.now() }
+  if (next) policy = { ...next, paused: pausedOf(data), holdout: holdoutOf(data), at: Date.now() }
 }
 
 function currentPolicy(now) {
@@ -2858,8 +2872,10 @@ export const flupcodeCacheSelection = async () => {
         const sessionID = sessionOf(messages)
         if (!sessionID) return
         const current = currentPolicy(Date.now())
-        // A paused session is offered the off policy; the latch still waits for a cold step to take it.
-        const offered = current.paused && current.paused.has(sessionID) ? { ...current, enabled: false } : current
+        // A paused or held-out session is offered the off policy; the latch still waits for a cold step
+        // to take it, so a share changed mid-session never rewrites a warm cache.
+        const held = (current.paused && current.paused.has(sessionID)) || control(sessionID, current.holdout || 0)
+        const offered = held ? { ...current, enabled: false } : current
         const effective = latched(sessionID, messages, offered)
         if (!effective.enabled) return
         const result = selectForCache(messages, effective)

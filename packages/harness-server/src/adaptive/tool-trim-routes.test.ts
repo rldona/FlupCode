@@ -55,6 +55,23 @@ describe("the tool-trim route", () => {
     repository.close()
   })
 
+  test("a control-arm session of the holdout keeps its output whole and stores nothing (AH-G01)", async () => {
+    const config = () =>
+      resolveAdaptiveConfig({
+        block: { toolTrim: { enabled: true, thresholdBytes: 4_096 }, holdout: { fraction: 0.5 } },
+        env: {},
+      })
+    const { repository, handler } = open({ adaptiveToken: ADAPTIVE, toolTrimConfig: config })
+    // At a 0.5 share `ses_1` draws control for the trim and `ses_b` treatment.
+    const control = (await (await handler(trim({ sessionID: "ses_1", tool: "bash", output: bigOutput() }))).json()).data
+    expect(control).toMatchObject({ trimmed: false, reason: "holdout" })
+    expect(control.retryAfterMs).toBeUndefined()
+    const treatment = (await (await handler(trim({ sessionID: "ses_b", tool: "bash", output: bigOutput() }))).json()).data
+    expect(treatment.trimmed).toBe(true)
+    expect(repository.getToolEvidence("ses_1", treatment.ref)).toBeUndefined()
+    repository.close()
+  })
+
   test("leaves an output whole when the trim is off, and asks the plugin to stay quiet", async () => {
     for (const config of [configWith({ enabled: false }), configWith({}, false)]) {
       const { repository, handler } = open({ adaptiveToken: ADAPTIVE, toolTrimConfig: config })
