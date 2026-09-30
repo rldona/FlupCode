@@ -485,6 +485,22 @@ export const createHarnessHandler = (
       const state = await options.runtimeProbe.refresh()
       return json({ data: { ...state, capabilities: options.runtimeProbe.capabilities() } })
     }
+    // Dismissing the runtime alerts (AH-D05) writes the probe's watch, so it takes the writer bearer
+    // like the settings PATCH; without that bearer the route does not exist.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "runtime" &&
+      path[3] === "acknowledge" &&
+      path.length === 4 &&
+      request.method === "POST" &&
+      options.runtimeProbe &&
+      options.token
+    ) {
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      await options.runtimeProbe.acknowledge()
+      return json({ data: { alerts: options.runtimeProbe.alerts() } })
+    }
     // The decision audit (FH-015) is as sensitive as `/harness/artifacts`: it carries what a session
     // was observed to be doing, so it takes the same bearer when one is configured. Reading only —
     // there is no route that makes a decision.
@@ -681,6 +697,8 @@ export const createHarnessHandler = (
           ...(options.token ? (["action-profiles"] as const) : []),
           // The probe is built with the server, so it is announced whenever the route is (FH-000).
           ...(options.runtimeProbe ? (["adaptive"] as const) : []),
+          // Dismissing its alerts writes, so it is announced only when the writer bearer exists (AH-D05).
+          ...(options.runtimeProbe && options.token ? (["adaptive-runtime-alerts"] as const) : []),
           // The settings surface is its own capability: a client must not read it as the runtime
           // probe's (FH-070). It is announced whenever the service was built, token or not.
           ...(options.adaptiveConfig ? (["adaptive-config"] as const) : []),

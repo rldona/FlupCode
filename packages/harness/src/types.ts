@@ -803,12 +803,26 @@ export type AdaptiveUsage = {
   hotReserveFraction: number
 }
 
+/** A change the runtime probe saw in what the engine offers the adaptive plugins (AH-D05). */
+export type AdaptiveRuntimeAlert = {
+  kind: "runtime-changed" | "engine-version-changed" | "v2-turns-observed"
+  from?: string
+  to: string
+  at: number
+}
+
 /** `GET /harness/adaptive/config`: the settings surface as the panel reads it. */
 export type AdaptiveConfigView = {
   effective: AdaptiveSettings
   source: Record<string, AdaptiveProvenance>
   env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean }
-  runtime: { runtime: "legacy" | "v2" | "unknown"; degraded: boolean; checkedAt: number }
+  /** `alerts` are the unacknowledged runtime changes (AH-D05); absent from an older server. */
+  runtime: {
+    runtime: "legacy" | "v2" | "unknown"
+    degraded: boolean
+    checkedAt: number
+    alerts?: AdaptiveRuntimeAlert[]
+  }
   capabilities: AdaptiveRuntimeCapabilities
   canWrite: boolean
   writer: { path: string; exists: boolean }

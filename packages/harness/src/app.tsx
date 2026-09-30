@@ -1043,6 +1043,19 @@ export const App: Component = () => {
       })
       .finally(() => setAdaptiveSaving(false))
   }
+  // Dismissing the runtime alerts (AH-D05) re-reads the view, so the panel draws what the server kept.
+  const acknowledgeRuntime = () => {
+    setAdaptiveSaving(true)
+    void createHarnessClient(harnessServerUrl())
+      .adaptive.runtime.acknowledge()
+      .then(() => setAdaptiveRevision((value) => value + 1))
+      .catch((cause: unknown) =>
+        setAdaptiveError(
+          new AdaptiveConfigError(cause instanceof Error ? cause.message : String(cause), "internal_error"),
+        ),
+      )
+      .finally(() => setAdaptiveSaving(false))
+  }
 
   // The live guardrail advisory (FH-062, ADR-0023). It reads the read-only `status` route while a
   // session is selected and the server announced the surface; the tick re-reads it so a loop appears
@@ -6340,6 +6353,7 @@ export const App: Component = () => {
           error: adaptiveError(),
         }}
         onAdaptivePatch={patchAdaptive}
+        onAdaptiveAcknowledgeRuntime={acknowledgeRuntime}
         onClose={() => setSettingsOpen(false)}
       />
       <FilesPanel

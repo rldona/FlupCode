@@ -1,7 +1,15 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
 import { join } from "node:path"
-import { classifyRuntime, createRuntimeProbe, runtimeProbeFilePath } from "./runtime"
-import type { EngineHealth } from "./runtime"
+import {
+  classifyRuntime,
+  createRuntimeProbe,
+  runtimeProbeFilePath,
+  runtimeWatchFilePath,
+  watchRuntime,
+} from "./runtime"
+import type { EngineHealth, RuntimeCanary, RuntimeWatch } from "./runtime"
 import type { RuntimeProbeConfig } from "./runtime-config"
 
 const config: RuntimeProbeConfig = { enabled: true, ttlMs: 60_000, override: "auto", versionMap: {} }
@@ -79,7 +87,12 @@ describe("classifyRuntime", () => {
     expect(noPid.runtime).toBe("unknown")
     expect(noPid.evidence.reason).toBe("canary-unreadable")
 
-    const noBoot = classifyRuntime({ config, engine: reachable, canary: { pid: 12345, token, hookAt: 1001 }, now: 2000 })
+    const noBoot = classifyRuntime({
+      config,
+      engine: reachable,
+      canary: { pid: 12345, token, hookAt: 1001 },
+      now: 2000,
+    })
     expect(noBoot.runtime).toBe("unknown")
     expect(noBoot.evidence.reason).toBe("canary-unreadable")
 
@@ -339,5 +352,160 @@ describe("createRuntimeProbe", () => {
     const garbage = await garbageEngine.refresh(true)
     expect(garbage.runtime).toBe("unknown")
     expect(garbage.evidence.reason).toBe("engine-unreachable")
+  })
+})
+
+describe("watchRuntime (AH-D05)", () => {
+  const empty: RuntimeWatch = { alerts: [], acknowledgedAt: 0 }
+  const legacyCanary: RuntimeCanary = {
+    pid: 1,
+    loadedAt: 900,
+    token,
+    hookAt: 950,
+    hook: "experimental.chat.system.transform",
+  }
+  const v2Canary: RuntimeCanary = { pid: 2, loadedAt: 900, token: "2:900", v2At: 950, event: "session.next.prompted" }
+  const classify = (canary: RuntimeCanary | undefined, engine: EngineHealth = reachable, now = 1000) =>
+    classifyRuntime({ config, engine, ...(canary ? { canary } : {}), now })
+
+  test("the first definitive observation sets the baseline and raises nothing", () => {
+    const watch = watchRuntime(empty, classify(legacyCanary))
+    expect(watch).toEqual({ runtime: "legacy", version: "1.2.3", alerts: [], acknowledgedAt: 0 })
+  })
+
+  test("a switch from legacy to v2 raises a runtime change", () => {
+    const before = watchRuntime(empty, classify(legacyCanary))
+    const after = watchRuntime(before, classify(v2Canary, reachable, 2000))
+    expect(after.runtime).toBe("v2")
+    expect(after.alerts).toEqual([{ kind: "runtime-changed", from: "legacy", to: "v2", at: 2000 }])
+  })
+
+  test("a new engine version raises a version change", () => {
+    const before = watchRuntime(empty, classify(legacyCanary))
+    const after = watchRuntime(before, classify(legacyCanary, { reachable: true, version: "1.3.0" }, 2000))
+    expect(after.version).toBe("1.3.0")
+    expect(after.alerts).toEqual([{ kind: "engine-version-changed", from: "1.2.3", to: "1.3.0", at: 2000 }])
+  })
+
+  test("an unknown reading moves nothing: an engine that is down is not a change", () => {
+    const before = watchRuntime(empty, classify(legacyCanary))
+    const down = watchRuntime(before, classify(undefined, { reachable: false }, 2000))
+    expect(down).toEqual(before)
+    const back = watchRuntime(down, classify(legacyCanary, reachable, 3000))
+    expect(back.alerts).toEqual([])
+  })
+
+  test("a config override is the reader's statement, not the engine changing", () => {
+    const before = watchRuntime(empty, classify(legacyCanary))
+    const overridden = watchRuntime(
+      before,
+      classifyRuntime({ config: { ...config, override: "v2" }, engine: reachable, canary: legacyCanary, now: 2000 }),
+    )
+    expect(overridden.runtime).toBe("legacy")
+    expect(overridden.alerts).toEqual([])
+  })
+
+  test("V2 turns in a process whose legacy hook fired raise one alert per engine boot", () => {
+    const mixed: RuntimeCanary = { ...legacyCanary, v2At: 960, event: "session.next.step.started" }
+    const state = classify(mixed, reachable, 2000)
+    // The legacy hook is still the classification's proof, which is exactly why this needs its own alert.
+    expect(state.runtime).toBe("legacy")
+    const first = watchRuntime(empty, state)
+    expect(first.alerts).toEqual([{ kind: "v2-turns-observed", to: "session.next.step.started", at: 2000 }])
+    const again = watchRuntime(first, classify({ ...mixed, v2At: 990 }, reachable, 3000))
+    expect(again.alerts).toHaveLength(1)
+    const rebooted = watchRuntime(
+      again,
+      classify({ ...mixed, loadedAt: 2500, hookAt: 2600, v2At: 2700 }, reachable, 4000),
+    )
+    expect(rebooted.alerts).toHaveLength(2)
+  })
+
+  test("the history is bounded", () => {
+    const flapping = Array.from({ length: 30 }, (_, index) => index).reduce(
+      (watch, index) =>
+        watchRuntime(watch, classify(index % 2 === 0 ? legacyCanary : v2Canary, reachable, 1000 + index)),
+      empty,
+    )
+    expect(flapping.alerts).toHaveLength(20)
+    expect(flapping.alerts.at(-1)?.at).toBe(1029)
+  })
+})
+
+describe("the probe's runtime alerts (AH-D05)", () => {
+  const legacy = JSON.stringify({ pid: 1, loadedAt: 900, token, hookAt: 950 })
+  const v2 = JSON.stringify({ pid: 2, loadedAt: 900, token: "2:900", v2At: 950, event: "session.next.prompted" })
+
+  test("raises an alert when the runtime changes, and acknowledging clears it", async () => {
+    let clock = 1000
+    let canary = legacy
+    const instance = createRuntimeProbe({
+      engineURL: "http://127.0.0.1:4096",
+      config,
+      now: () => clock,
+      engineHealth: async () => reachable,
+      readFile: async () => canary,
+    })
+    await instance.refresh(true)
+    expect(instance.alerts()).toEqual([])
+
+    canary = v2
+    clock = 2000
+    await instance.refresh(true)
+    expect(instance.alerts()).toEqual([{ kind: "runtime-changed", from: "legacy", to: "v2", at: 2000 }])
+
+    clock = 3000
+    await instance.acknowledge()
+    expect(instance.alerts()).toEqual([])
+  })
+
+  test("persists the baseline, so a harness restarted onto a V2 engine still warns", async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), "fc-runtime-watch-"))
+    const watchFile = runtimeWatchFilePath(directory)
+    const start = (canary: string, clock: number) =>
+      createRuntimeProbe({
+        engineURL: "http://127.0.0.1:4096",
+        config,
+        now: () => clock,
+        engineHealth: async () => reachable,
+        readFile: async () => canary,
+        watchFile,
+      })
+    try {
+      await start(legacy, 1000).refresh(true)
+      expect(await Bun.file(watchFile).json()).toMatchObject({ runtime: "legacy", version: "1.2.3" })
+
+      const restarted = start(v2, 2000)
+      await restarted.refresh(true)
+      expect(restarted.alerts()).toEqual([{ kind: "runtime-changed", from: "legacy", to: "v2", at: 2000 }])
+
+      await restarted.acknowledge()
+      const again = start(v2, 3000)
+      await again.refresh(true)
+      expect(again.alerts()).toEqual([])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  test("a watch file that is not a watch starts fresh instead of failing the probe", async () => {
+    const directory = await mkdtemp(join(os.tmpdir(), "fc-runtime-watch-"))
+    const watchFile = runtimeWatchFilePath(directory)
+    await Bun.write(watchFile, "{ not json")
+    try {
+      const instance = createRuntimeProbe({
+        engineURL: "http://127.0.0.1:4096",
+        config,
+        now: () => 1000,
+        engineHealth: async () => reachable,
+        readFile: async () => legacy,
+        watchFile,
+      })
+      expect((await instance.refresh(true)).runtime).toBe("legacy")
+      expect(instance.alerts()).toEqual([])
+      expect(await Bun.file(watchFile).json()).toMatchObject({ runtime: "legacy" })
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

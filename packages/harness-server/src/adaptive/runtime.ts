@@ -1,3 +1,4 @@
+import { rename } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
 import { engineAuthorization } from "../engine"
@@ -55,6 +56,25 @@ export type RuntimeCapabilities = {
   checkedAt: number
 }
 
+/**
+ * A change in what the engine offers the adaptive plugins (AH-D05). `runtime-changed` and
+ * `engine-version-changed` compare against the last definitive observation; `v2-turns-observed` is
+ * one engine process serving turns on both runners, where the legacy hook proof hides the V2 ones.
+ */
+export type RuntimeAlertKind = "runtime-changed" | "engine-version-changed" | "v2-turns-observed"
+
+export type RuntimeAlert = { kind: RuntimeAlertKind; from?: string; to: string; at: number }
+
+/** The baseline the alerts compare against, and the alerts themselves, as the harness persists them. */
+export type RuntimeWatch = {
+  runtime?: Exclude<RuntimeKind, "unknown">
+  version?: string
+  /** The engine boot (`loadedAt`) a `v2-turns-observed` alert was raised for: one alert per process. */
+  mixedSince?: number
+  alerts: RuntimeAlert[]
+  acknowledgedAt: number
+}
+
 export type RuntimeProbeDeps = {
   engineURL: string
   config?: Partial<RuntimeProbeConfig>
@@ -63,13 +83,21 @@ export type RuntimeProbeDeps = {
   engineHealth?: (url: string) => Promise<EngineHealth>
   filePath?: string
   env?: NodeJS.ProcessEnv
+  /** Where the runtime watch persists; without one it lives in memory for the process only. */
+  watchFile?: string
 }
 
 export type RuntimeProbe = {
   state(): RuntimeState
   refresh(force?: boolean): Promise<RuntimeState>
   capabilities(): RuntimeCapabilities
+  /** The runtime changes raised since the last acknowledgement, oldest first. */
+  alerts(): RuntimeAlert[]
+  acknowledge(): Promise<void>
 }
+
+/** A bounded history: the UI shows the recent changes, not every flap of a long-lived harness. */
+const MAX_ALERTS = 20
 
 const HEALTH_TIMEOUT_MS = 1500
 
@@ -165,6 +193,59 @@ function capabilitiesOf(state: RuntimeState): RuntimeCapabilities {
   }
 }
 
+/**
+ * The watch after one classification (AH-D05).
+ *
+ * Only definitive evidence moves the baseline: an `unknown` (engine down, no turn yet) says nothing
+ * about a change, and a config override is the reader's own statement rather than the engine's. The
+ * first definitive observation only sets the baseline, since there is nothing to compare it with.
+ */
+export function watchRuntime(watch: RuntimeWatch, state: RuntimeState): RuntimeWatch {
+  const observed =
+    state.runtime !== "unknown" && state.evidence.reason !== "config-override" ? state.runtime : undefined
+  const version = state.evidence.engine.reachable ? state.evidence.engine.version : undefined
+  // Mixed turns only matter when the legacy hook is the proof; a disabled probe stays silent.
+  const mixed = state.evidence.reason === "legacy-hook-fired" ? mixedBoot(state.evidence.canary) : undefined
+  const raised: RuntimeAlert[] = [
+    ...(observed && watch.runtime && observed !== watch.runtime
+      ? [{ kind: "runtime-changed" as const, from: watch.runtime, to: observed, at: state.checkedAt }]
+      : []),
+    ...(version && watch.version && version !== watch.version
+      ? [{ kind: "engine-version-changed" as const, from: watch.version, to: version, at: state.checkedAt }]
+      : []),
+    ...(mixed && mixed.loadedAt !== watch.mixedSince
+      ? [{ kind: "v2-turns-observed" as const, to: mixed.event, at: state.checkedAt }]
+      : []),
+  ]
+  const runtime = observed ?? watch.runtime
+  const baseline = version ?? watch.version
+  const mixedSince = mixed?.loadedAt ?? watch.mixedSince
+  return {
+    ...(runtime ? { runtime } : {}),
+    ...(baseline ? { version: baseline } : {}),
+    ...(mixedSince !== undefined ? { mixedSince } : {}),
+    alerts: [...watch.alerts, ...raised].slice(-MAX_ALERTS),
+    acknowledgedAt: watch.acknowledgedAt,
+  }
+}
+
+/**
+ * Both proofs inside one engine process. The engine mounts the legacy and the V2 routes side by side,
+ * so a client driving V2 gets turns the adaptive hooks never see, while the classification still
+ * reads the legacy hook and answers `legacy`.
+ */
+function mixedBoot(canary: RuntimeCanary | undefined) {
+  if (!canary || typeof canary.loadedAt !== "number") return undefined
+  if (typeof canary.hookAt !== "number" || canary.hookAt <= 0 || canary.hookAt < canary.loadedAt) return undefined
+  if (typeof canary.v2At !== "number" || canary.v2At <= 0 || canary.v2At < canary.loadedAt) return undefined
+  return { loadedAt: canary.loadedAt, event: canary.event ?? "session.next" }
+}
+
+/** Default path of the persisted watch, beside the harness database it belongs with. */
+export function runtimeWatchFilePath(databaseDirectory: string): string {
+  return join(databaseDirectory, "runtime-watch.json")
+}
+
 const initialUnknown = (url: string): RuntimeState => ({
   runtime: "unknown",
   degraded: true,
@@ -225,6 +306,46 @@ const readCanary = async (
   }
 }
 
+const RUNTIME_KINDS = ["legacy", "v2"] as const
+
+const ALERT_KINDS: readonly RuntimeAlertKind[] = ["runtime-changed", "engine-version-changed", "v2-turns-observed"]
+
+const asAlert = (value: unknown): RuntimeAlert[] => {
+  if (!isPlainObject(value)) return []
+  const kind = ALERT_KINDS.find((known) => known === value.kind)
+  if (!kind || typeof value.to !== "string" || typeof value.at !== "number") return []
+  return [{ kind, ...(typeof value.from === "string" ? { from: value.from } : {}), to: value.to, at: value.at }]
+}
+
+/** Only fields of the shape the probe writes survive; anything else starts a fresh watch. */
+const asWatch = (value: unknown): RuntimeWatch => {
+  if (!isPlainObject(value)) return { alerts: [], acknowledgedAt: 0 }
+  const runtime = RUNTIME_KINDS.find((kind) => kind === value.runtime)
+  return {
+    ...(runtime ? { runtime } : {}),
+    ...(typeof value.version === "string" ? { version: value.version } : {}),
+    ...(typeof value.mixedSince === "number" ? { mixedSince: value.mixedSince } : {}),
+    alerts: Array.isArray(value.alerts) ? value.alerts.flatMap(asAlert).slice(-MAX_ALERTS) : [],
+    acknowledgedAt: typeof value.acknowledgedAt === "number" ? value.acknowledgedAt : 0,
+  }
+}
+
+const readWatch = async (path: string | undefined): Promise<RuntimeWatch> => {
+  if (!path) return { alerts: [], acknowledgedAt: 0 }
+  const value: unknown = await Bun.file(path)
+    .json()
+    .catch(() => undefined)
+  return asWatch(value)
+}
+
+// Atomic like the canary: a harness killed mid-write must not leave a watch it cannot read back.
+const writeWatch = async (path: string | undefined, watch: RuntimeWatch) => {
+  if (!path) return
+  const temp = `${path}.tmp-${process.pid}`
+  await Bun.write(temp, JSON.stringify(watch))
+  await rename(temp, path)
+}
+
 /**
  * A probe over the engine's lifecycle.
  *
@@ -242,6 +363,20 @@ export function createRuntimeProbe(deps: RuntimeProbeDeps): RuntimeProbe {
 
   let cached = initialUnknown(deps.engineURL)
   let inflight: Promise<RuntimeState> | undefined
+  // Loaded once, on first use; every later change is written back so a restart keeps the baseline.
+  let watch: RuntimeWatch | undefined
+  const loadWatch = async () => {
+    watch = watch ?? (await readWatch(deps.watchFile))
+    return watch
+  }
+
+  // A watch that cannot be written still holds in memory; the probe never fails over it.
+  const observe = async (state: RuntimeState) => {
+    const previous = await loadWatch()
+    const next = watchRuntime(previous, state)
+    watch = next
+    if (JSON.stringify(next) !== JSON.stringify(previous)) await writeWatch(deps.watchFile, next).catch(() => {})
+  }
 
   const investigate = async (): Promise<RuntimeState> => {
     const engine = await health(deps.engineURL).catch(() => ({ reachable: false }))
@@ -259,8 +394,9 @@ export function createRuntimeProbe(deps: RuntimeProbeDeps): RuntimeProbe {
       if (!force && cached.checkedAt > 0 && now() - cached.checkedAt < config.ttlMs) return cached
       if (inflight) return await inflight
       inflight = investigate()
-        .then((state) => {
+        .then(async (state) => {
           cached = state
+          await observe(state).catch(() => {})
           return state
         })
         .catch(() => cached)
@@ -277,5 +413,11 @@ export function createRuntimeProbe(deps: RuntimeProbeDeps): RuntimeProbe {
     state: () => cached,
     refresh,
     capabilities: () => capabilitiesOf(cached),
+    alerts: () => (watch ? watch.alerts.filter((alert) => alert.at > (watch?.acknowledgedAt ?? 0)) : []),
+    acknowledge: async () => {
+      const current = await loadWatch()
+      watch = { ...current, acknowledgedAt: now() }
+      await writeWatch(deps.watchFile, watch).catch(() => {})
+    },
   }
 }

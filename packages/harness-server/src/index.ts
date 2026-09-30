@@ -1,5 +1,6 @@
+import { dirname } from "node:path"
 import { createHarnessHandler } from "./api"
-import { SqliteRoutineRepository } from "./repository"
+import { SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { seedTemplates } from "./workflow"
 import { createBrowserRuntime, resolveBrowserExecutable } from "./browser"
@@ -25,7 +26,7 @@ import { createAdaptiveConfig } from "./adaptive/config"
 import { retentionCutoffs } from "./adaptive/retention"
 import { createAdaptiveEgressGuard } from "./adaptive/egress"
 import { resolveInstallationKey } from "./adaptive/installation-key"
-import { createRuntimeProbe } from "./adaptive/runtime"
+import { createRuntimeProbe, runtimeWatchFilePath } from "./adaptive/runtime"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { createRelevanceService } from "./adaptive/relevance"
 import { createGuardrailService } from "./adaptive/guardrails"
@@ -70,7 +71,8 @@ export type HarnessServerOptions = {
 }
 
 export function createHarnessServer(options: HarnessServerOptions = {}) {
-  const repository = new SqliteRoutineRepository(options.databasePath)
+  const databasePath = options.databasePath ?? process.env.FLUPCODE_HARNESS_DB ?? defaultDatabasePath()
+  const repository = new SqliteRoutineRepository(databasePath)
   // Forget what was told to expire (H-14). At startup, so a server that was away for a while acts
   // on it, and hourly after that. Pinned ones are never touched, and nothing expires by default.
   repository.removeExpiredArtifacts()
@@ -301,7 +303,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // hooks. It refreshes off the critical path once serving starts and on its own interval; a caller
   // asking for the route refreshes within the same TTL.
   const runtimeConfig = startup.runtime
-  const runtimeProbe = options.runtimeProbe ?? createRuntimeProbe({ engineURL, config: runtimeConfig })
+  // Its watch (AH-D05) persists beside the database, so a harness restarted with a V2 engine still
+  // compares against what it saw before; an in-memory database keeps the watch in memory too.
+  const runtimeProbe =
+    options.runtimeProbe ??
+    createRuntimeProbe({
+      engineURL,
+      config: runtimeConfig,
+      ...(databasePath === ":memory:" ? {} : { watchFile: runtimeWatchFilePath(dirname(databasePath)) }),
+    })
   // The acting relevance line (FH-04): the one policy point a live turn reaches. It reuses the same
   // decision service, roster and runtime probe; with the feature off it returns a null line and the
   // turn is byte-identical. The probe is built just above because the service reads its capabilities.
@@ -327,6 +337,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const adaptiveConfig = createAdaptiveConfigSurface({
     config: adaptive,
     runtime: () => runtimeProbe.state(),
+    alerts: () => runtimeProbe.alerts(),
     capabilities: () => runtimeProbe.capabilities(),
     repository,
     canWrite: Boolean(browserToken),

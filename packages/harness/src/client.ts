@@ -61,6 +61,7 @@ import type {
   Workflow,
   WorkflowFile,
   AdaptiveConfigView,
+  AdaptiveRuntimeAlert,
   DecisionExplanation,
   GuardrailStatus,
   LearnedSkill,
@@ -1273,6 +1274,8 @@ export type AdaptiveSurfaces = {
   metrics: boolean
   /** The value-of-information gate's status per kind (AH-C05). */
   voi: boolean
+  /** Dismissing the runtime probe's change alerts (AH-D05); announced only with the writer's bearer. */
+  runtimeAlerts: boolean
 }
 
 export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
@@ -1286,6 +1289,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     review: capabilities.includes("adaptive-proposals-review"),
     metrics: capabilities.includes("adaptive-metrics"),
     voi: capabilities.includes("adaptive-voi"),
+    runtimeAlerts: capabilities.includes("adaptive-runtime-alerts"),
   }
 }
 
@@ -1926,6 +1930,12 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           harnessAuthorizedEnvelope<AdaptiveConfigView>(baseUrl, "/harness/adaptive/config", {
             method: "PATCH",
             body: JSON.stringify({ patch: input.patch, confirm: input.confirm === true }),
+          }),
+      },
+      runtime: {
+        acknowledge: () =>
+          harnessAuthorizedJson<{ alerts: AdaptiveRuntimeAlert[] }>(baseUrl, "/harness/adaptive/runtime/acknowledge", {
+            method: "POST",
           }),
       },
       decisions: {

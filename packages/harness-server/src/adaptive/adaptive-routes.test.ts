@@ -63,6 +63,60 @@ describe("the adaptive capabilities route", () => {
   })
 })
 
+describe("the runtime alert acknowledgement (AH-D05)", () => {
+  const changing = () => {
+    let canary: unknown = { pid: 1, loadedAt: 100, token: "1:100", hookAt: 200 }
+    let clock = 1_000
+    const probe = createRuntimeProbe({
+      engineURL: "http://127.0.0.1:4096",
+      now: () => clock,
+      engineHealth: async () => ({ reachable: true, version: "1.2.3" }),
+      readFile: async () => JSON.stringify(canary),
+    })
+    return {
+      probe,
+      switchToV2: async () => {
+        canary = { pid: 2, loadedAt: 100, token: "2:100", v2At: 200, event: "session.next.prompted" }
+        clock = 2_000
+        await probe.refresh(true)
+      },
+    }
+  }
+  const acknowledge = (token?: string) =>
+    new Request("http://x/harness/adaptive/runtime/acknowledge", {
+      method: "POST",
+      ...(token ? { headers: { authorization: `Bearer ${token}` } } : {}),
+    })
+
+  test("clears the alerts with the writer bearer and is announced with it", async () => {
+    const runtime = changing()
+    await runtime.probe.refresh(true)
+    await runtime.switchToV2()
+    expect(runtime.probe.alerts()).toHaveLength(1)
+    const { repository, handler } = open({ runtimeProbe: runtime.probe, token: "writer" })
+    const health = await (await handler(new Request("http://x/harness/health"))).json()
+    expect(health.capabilities).toContain("adaptive-runtime-alerts")
+
+    expect((await handler(acknowledge("wrong"))).status).toBe(403)
+    expect(runtime.probe.alerts()).toHaveLength(1)
+
+    const response = await handler(acknowledge("writer"))
+    expect(response.status).toBe(200)
+    expect((await response.json()).data.alerts).toEqual([])
+    expect(runtime.probe.alerts()).toEqual([])
+    repository.close()
+  })
+
+  test("does not exist without the writer bearer", async () => {
+    const runtime = changing()
+    const { repository, handler } = open({ runtimeProbe: runtime.probe })
+    const health = await (await handler(new Request("http://x/harness/health"))).json()
+    expect(health.capabilities).not.toContain("adaptive-runtime-alerts")
+    expect((await handler(acknowledge())).status).toBe(404)
+    repository.close()
+  })
+})
+
 describe("the decision audit routes (FH-015)", () => {
   const serviceFor = (repository: SqliteRoutineRepository) => {
     const config = resolveAdaptiveConfig({ block: {}, env: {} })

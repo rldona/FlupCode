@@ -4,6 +4,7 @@ import { adaptiveSurfaces } from "../client"
 import type { AdaptiveConfigError } from "../client"
 import type {
   AdaptiveConfigView,
+  AdaptiveRuntimeAlert,
   AdaptiveProvenance,
   AdaptiveProviderConsent,
   AdaptiveWritableField,
@@ -238,6 +239,27 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
   )
 }
 
+/**
+ * What a runtime alert says (AH-D05), as a template for `t` and its holes. The acting plugins ride on
+ * legacy hooks the V2 runner never calls (docs/V2-HOOKS.md), so every alert says what that costs.
+ */
+export function runtimeAlertText(alert: AdaptiveRuntimeAlert): { key: string; params: Record<string, string> } {
+  if (alert.kind === "runtime-changed")
+    return {
+      key: "The engine runtime changed from {from} to {to}. Relevance and guardrails rely on legacy hooks; check docs/V2-HOOKS.md.",
+      params: { from: alert.from ?? "?", to: alert.to },
+    }
+  if (alert.kind === "engine-version-changed")
+    return {
+      key: "The engine changed from version {from} to {to}. Check that the adaptive hooks still fire (docs/V2-HOOKS.md).",
+      params: { from: alert.from ?? "?", to: alert.to },
+    }
+  return {
+    key: "The engine ran turns on the V2 runner ({event}). The adaptive hooks do not fire on those turns.",
+    params: { event: alert.to },
+  }
+}
+
 /** Where a leaf's value comes from, as a key for `t`. */
 export function sourceKey(provenance: AdaptiveProvenance): string {
   if (provenance === "env") return "from the environment"
@@ -261,6 +283,8 @@ export type AdaptiveSettingsState = {
 
 type AdaptiveSettingsPanelProps = AdaptiveSettingsState & {
   onPatch: (patch: Record<string, unknown>, confirm: boolean) => void
+  /** Dismisses the runtime alerts (AH-D05); offered only when the server announced the route. */
+  onAcknowledgeRuntime: () => void
 }
 
 /**
@@ -486,6 +510,33 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
           <>
             <Show when={readOnly()}>
               <div class="fc-routines-notice">{t("Read-only: this server has no writer token.")}</div>
+            </Show>
+
+            {/* The runtime probe's warnings (AH-D05): a V2 engine, or a change since the last look. */}
+            <Show when={view().runtime.runtime === "v2"}>
+              <div class="fc-routines-notice" role="status">
+                {t(
+                  "The engine runs V2 sessions: the adaptive hooks do not fire there, so relevance and guardrails stay inert.",
+                )}
+              </div>
+            </Show>
+            <Show when={(view().runtime.alerts ?? []).length > 0}>
+              <div class="fc-routines-notice" role="status">
+                <span class="fc-settings-usage">
+                  <span>{t("The engine runtime changed")}</span>
+                  <For each={view().runtime.alerts ?? []}>
+                    {(alert) => {
+                      const text = runtimeAlertText(alert)
+                      return <span class="fc-settings-hint">{t(text.key, text.params)}</span>
+                    }}
+                  </For>
+                </span>
+                <Show when={adaptiveSurfaces(props.capabilities).runtimeAlerts}>
+                  <button class="fc-button" type="button" disabled={props.saving} onClick={props.onAcknowledgeRuntime}>
+                    {t("Dismiss")}
+                  </button>
+                </Show>
+              </div>
             </Show>
 
             {/* The kill switch (FH-074). The copy never promises more than the engine can do. */}

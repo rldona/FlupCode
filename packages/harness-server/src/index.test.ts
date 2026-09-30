@@ -29,6 +29,8 @@ const probe = (refresh: RuntimeProbe["refresh"]): RuntimeProbe => ({
   state: unknownState,
   refresh,
   capabilities: () => capabilities,
+  alerts: () => [],
+  acknowledge: async () => {},
 })
 
 /**

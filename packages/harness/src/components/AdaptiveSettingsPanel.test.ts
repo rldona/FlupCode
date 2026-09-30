@@ -9,11 +9,13 @@ import {
   patchLeaf,
   problemKey,
   refusedField,
+  runtimeAlertText,
   sourceKey,
   warningKey,
   writableField,
 } from "./AdaptiveSettingsPanel"
 import { AdaptiveConfigError } from "../client"
+import { setLocale, t } from "../i18n"
 import type { AdaptiveConfigView, AdaptiveWritableField } from "../types"
 
 const WRITABLE: AdaptiveWritableField[] = [
@@ -326,5 +328,41 @@ describe("the budget draft", () => {
 
   test("a draft that was saved matches the server's new value", () => {
     expect(nextBudgetDraft("5000", "100000", "5000")).toBe("5000")
+  })
+})
+
+describe("the runtime alert (AH-D05)", () => {
+  test("a runtime change names both runtimes and where the hook map lives", () => {
+    const text = runtimeAlertText({ kind: "runtime-changed", from: "legacy", to: "v2", at: 1 })
+    expect(t(text.key, text.params)).toBe(
+      "The engine runtime changed from legacy to v2. Relevance and guardrails rely on legacy hooks; check docs/V2-HOOKS.md.",
+    )
+  })
+
+  test("a version change names both versions", () => {
+    const text = runtimeAlertText({ kind: "engine-version-changed", from: "1.2.3", to: "1.3.0", at: 1 })
+    expect(t(text.key, text.params)).toContain("from version 1.2.3 to 1.3.0")
+  })
+
+  test("V2 turns name the event that proved them", () => {
+    const text = runtimeAlertText({ kind: "v2-turns-observed", to: "session.next.prompted", at: 1 })
+    expect(t(text.key, text.params)).toContain("(session.next.prompted)")
+  })
+
+  test("every alert is translated in Spanish", () => {
+    setLocale("es")
+    try {
+      const alerts = [
+        { kind: "runtime-changed" as const, from: "legacy", to: "v2", at: 1 },
+        { kind: "engine-version-changed" as const, from: "1", to: "2", at: 1 },
+        { kind: "v2-turns-observed" as const, to: "session.next.prompted", at: 1 },
+      ]
+      for (const alert of alerts) {
+        const text = runtimeAlertText(alert)
+        expect(t(text.key, text.params)).not.toBe(text.key)
+      }
+    } finally {
+      setLocale("en")
+    }
   })
 })
