@@ -1,8 +1,10 @@
-import { For, Show, createMemo, createResource, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import type { FileSystemEntry } from "../engine-types"
 import type { FileText } from "../types"
 import { t } from "../i18n"
 import { highlight, languageFor } from "../highlight"
+import { createResource } from "../resource"
+import { PanelFailure } from "./PanelBoundary"
 
 type FilesPanelProps = {
   open: boolean
@@ -31,7 +33,7 @@ export const FilesPanel: Component<FilesPanelProps> = (props) => {
   const [openDirs, setOpenDirs] = createSignal<Set<string>>(new Set())
 
   const rootKey = createMemo(() => (props.open && props.directory ? props.directory : undefined))
-  const [root] = createResource(rootKey, () => props.list())
+  const [root, rootActions] = createResource(rootKey, () => props.list())
 
   const childrenOf = (path: string) => (path === "" ? (root() ?? []) : (children()[path] ?? []))
   const isOpenDirectory = (path: string) => openDirs().has(path)
@@ -77,7 +79,7 @@ export const FilesPanel: Component<FilesPanelProps> = (props) => {
     setOpenDirs(next)
   }
 
-  const [searchResults] = createResource(
+  const [searchResults, searchActions] = createResource(
     () => (query().trim() ? query().trim() : undefined),
     (value) => props.search(value),
   )
@@ -113,32 +115,54 @@ export const FilesPanel: Component<FilesPanelProps> = (props) => {
               when={!query().trim()}
               fallback={
                 <Show
-                  when={(searchResults() ?? []).length > 0}
+                  when={!searchResults.failure() || searchResults.loading}
                   fallback={
-                    <p class="fc-settings-hint">
-                      {searchResults.loading ? t("Searching…") : t("Nothing matched.")}
-                    </p>
+                    <PanelFailure
+                      inline
+                      title={t("{name} could not be read", { name: t("The search") })}
+                      error={searchResults.failure()!}
+                      onRetry={() => void searchActions.refetch()}
+                    />
                   }
                 >
-                  <ul class="fc-files-list">
-                    <For each={searchResults()}>
-                      {(entry) => (
-                        <li>
-                          <button
-                            class="fc-files-entry"
-                            classList={{ "fc-files-entry-active": selected() === entry.path }}
-                            type="button"
-                            onClick={() => void open(entry.path)}
-                          >
-                            <span class="fc-files-name">{entry.path}</span>
-                          </button>
-                        </li>
-                      )}
-                    </For>
-                  </ul>
+                  <Show
+                    when={(searchResults() ?? []).length > 0}
+                    fallback={
+                      <p class="fc-settings-hint">
+                        {searchResults.loading ? t("Searching…") : t("Nothing matched.")}
+                      </p>
+                    }
+                  >
+                    <ul class="fc-files-list">
+                      <For each={searchResults()}>
+                        {(entry) => (
+                          <li>
+                            <button
+                              class="fc-files-entry"
+                              classList={{ "fc-files-entry-active": selected() === entry.path }}
+                              type="button"
+                              onClick={() => void open(entry.path)}
+                            >
+                              <span class="fc-files-name">{entry.path}</span>
+                            </button>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  </Show>
                 </Show>
               }
             >
+              <Show when={!root.loading && root.failure()}>
+                {(error) => (
+                  <PanelFailure
+                    inline
+                    title={t("{name} could not be read", { name: t("The folder") })}
+                    error={error()}
+                    onRetry={() => void rootActions.refetch()}
+                  />
+                )}
+              </Show>
               <ul class="fc-files-list">
                 <For each={childrenOf("")}>
                   {(entry) => (

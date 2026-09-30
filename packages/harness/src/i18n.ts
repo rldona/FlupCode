@@ -233,6 +233,11 @@ const ES: Record<string, string> = {
   "The sidebar": "la barra lateral",
   "The side panels": "los paneles laterales",
   "The context panel": "el panel de contexto",
+  "The files screen": "la pantalla de archivos",
+  "The artifacts screen": "la pantalla de artefactos",
+  "The folder": "la carpeta",
+  "The search": "la búsqueda",
+  "This artifact": "este artefacto",
   Runs: "Ejecuciones",
   "What the harness server is working on, task by task.": "En qué está trabajando el servidor, tarea a tarea.",
   "The harness server is not reachable, so this is the last it said.":

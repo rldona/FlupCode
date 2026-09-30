@@ -1164,9 +1164,9 @@ export const App: Component = () => {
   const listFiles = (path?: string) => {
     const directory = vcsDirectory()
     if (!directory) return Promise.resolve([])
-    return createClient(serverUrl())
-      .file.list({ directory, ...(path ? { path } : {}) })
-      .catch(() => [])
+    // A failed listing rejects so the files screen can say so and offer a retry, instead of
+    // showing an empty folder.
+    return createClient(serverUrl()).file.list({ directory, ...(path ? { path } : {}) })
   }
   const searchFileEntries = async (query: string) =>
     (await createClient(serverUrl()).file.find({ query, limit: 40 })).data
@@ -5661,20 +5661,24 @@ export const App: Component = () => {
             onDelete={deleteWorkflowFile}
             onRun={(workflow) => setLaunching({ workflow })}
           />
-          <ArtifactsPanel
-            open={artifactsOpen()}
-            artifacts={artifactList()}
-            sessionFiles={artifacts()}
-            serverAvailable={artifactsAvailable()}
-            canOpenFiles={canOpenLocalFiles()}
-            rawArtifact={(id) => createHarnessClient(harnessServerUrl()).artifacts.raw(id)}
-            onCopy={copyPath}
-            onRemove={removeArtifact}
-            onUpdate={updateArtifact}
-            onOpenRun={() => showScreen("runs")}
-            onOpenPath={(path) => void openLocalPath(path)}
-            onOpenInEditor={(path) => void openInEditor(path)}
-          />
+          <Show when={artifactsOpen()}>
+            <PanelBoundary name={t("The artifacts screen")}>
+              <ArtifactsPanel
+                open={artifactsOpen()}
+                artifacts={artifactList()}
+                sessionFiles={artifacts()}
+                serverAvailable={artifactsAvailable()}
+                canOpenFiles={canOpenLocalFiles()}
+                rawArtifact={(id) => createHarnessClient(harnessServerUrl()).artifacts.raw(id)}
+                onCopy={copyPath}
+                onRemove={removeArtifact}
+                onUpdate={updateArtifact}
+                onOpenRun={() => showScreen("runs")}
+                onOpenPath={(path) => void openLocalPath(path)}
+                onOpenInEditor={(path) => void openInEditor(path)}
+              />
+            </PanelBoundary>
+          </Show>
           <ComparePanel
             open={compareOpen()}
             runs={runs()}
@@ -6416,14 +6420,18 @@ export const App: Component = () => {
         onAdaptiveModelKey={changeModelKey}
         onClose={() => setSettingsOpen(false)}
       />
-      <FilesPanel
-        open={filesOpen()}
-        directory={vcsDirectory()}
-        list={listFiles}
-        search={searchFileEntries}
-        read={readFileText}
-        onClose={() => leaveScreen()}
-      />
+      <Show when={filesOpen()}>
+        <PanelBoundary name={t("The files screen")}>
+          <FilesPanel
+            open={filesOpen()}
+            directory={vcsDirectory()}
+            list={listFiles}
+            search={searchFileEntries}
+            read={readFileText}
+            onClose={() => leaveScreen()}
+          />
+        </PanelBoundary>
+      </Show>
       <FolderDialog
         open={folderOpen()}
         initial={targetDirectory()}

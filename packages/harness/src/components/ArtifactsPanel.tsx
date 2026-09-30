@@ -1,4 +1,4 @@
-import { For, Show, createMemo, createResource, createSignal, onCleanup, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
 import { formatDateTime } from "../dates"
 import type { Artifact, ArtifactKind } from "../types"
@@ -6,6 +6,8 @@ import { viewerFor, viewerNeedsRaw } from "../artifact-view"
 import { openImagePreview } from "../image-preview"
 import { isAbsolutePath, joinPath } from "../folder"
 import { Markdown } from "./Markdown"
+import { PanelFailure } from "./PanelBoundary"
+import { createResource } from "../resource"
 
 type ArtifactsPanelProps = {
   open: boolean
@@ -129,7 +131,7 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
     // unless it already carries its content. The URL is revoked when this body goes away or the
     // artifact changes, so opening many does not leak one blob per view (WA-9).
     const wantsRaw = () => viewer() === "pdf" || (viewer() === "image" && !body.artifact.content)
-    const [raw] = createResource(
+    const [raw, rawActions] = createResource(
       () => (wantsRaw() ? body.artifact.id : undefined),
       async (id) => {
         const url = await props.rawArtifact(id)
@@ -143,6 +145,16 @@ export const ArtifactsPanel: Component<ArtifactsPanelProps> = (props) => {
         when={!viewerNeedsRaw(viewer()) || body.artifact.path || body.artifact.content}
         fallback={<p class="fc-artifact-note">{t("This artifact has nothing to show.")}</p>}
       >
+        <Show when={wantsRaw() && !raw.loading && raw.failure()}>
+          {(error) => (
+            <PanelFailure
+              inline
+              title={t("{name} could not be read", { name: t("This artifact") })}
+              error={error()}
+              onRetry={() => void rawActions.refetch()}
+            />
+          )}
+        </Show>
         <Show when={viewer() === "markdown"}>
           <div class="fc-artifact-markdown">
             <Markdown text={body.artifact.content ?? ""} />
