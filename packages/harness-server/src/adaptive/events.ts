@@ -36,11 +36,14 @@ export function episodeEventsDirectory(): string {
   return join(base, "flupcode", "events")
 }
 
-/** The events a session left, or an empty set: a broken or missing file reads as nothing. */
-export function episodeEvents(sessionID: string): EpisodeEvents {
+/**
+ * The events a session left, or an empty set: a broken or missing file reads as nothing. `directory`
+ * lets the live evaluation read next to the database it was pointed at (AH-G02).
+ */
+export function episodeEvents(sessionID: string, directory = episodeEventsDirectory()): EpisodeEvents {
   if (!/^[A-Za-z0-9_-]+$/.test(sessionID)) return { events: [] }
   try {
-    const parsed = JSON.parse(readFileSync(join(episodeEventsDirectory(), `${sessionID}.json`), "utf8")) as {
+    const parsed = JSON.parse(readFileSync(join(directory, `${sessionID}.json`), "utf8")) as {
       events?: unknown
     }
     return { events: readEvents(parsed?.events) }

@@ -123,6 +123,8 @@ export type CompactionAnchorDeps = {
   enabled: () => boolean
   /** The session override (AH-E02): a paused session gets no block, from its next compaction. */
   paused?: (sessionID: string) => boolean
+  /** The holdout (AH-B05, AH-G01): a control-arm session gets no block, so its compactions are the baseline. */
+  control?: (sessionID: string) => boolean
   readSignals?: (sessionID: string) => EpisodeSignals
   readEvents?: (sessionID: string) => EpisodeEvents
   /** The session's stored episode objective, used when the plugin captured no goal. */
@@ -139,7 +141,7 @@ export async function handleCompactionAnchorsRequest(request: Request, deps: Com
   if (!isPlainObject(body)) return error("An anchors request needs a JSON body", "bad_request", 400)
   const sessionID = boundedString(body.sessionID, ID_LIMIT)
   if (sessionID === undefined) return error("An anchors request needs a sessionID", "bad_request", 400)
-  if (!deps.enabled() || deps.paused?.(sessionID)) return json({ data: {} })
+  if (!deps.enabled() || deps.paused?.(sessionID) || deps.control?.(sessionID)) return json({ data: {} })
   const projectID = boundedString(body.projectID, PROJECT_LIMIT)
   const reads = Array.isArray(body.reads)
     ? body.reads.slice(0, MOST_READ_PATHS).flatMap((path) => {

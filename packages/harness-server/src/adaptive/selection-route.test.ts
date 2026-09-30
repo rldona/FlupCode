@@ -38,11 +38,22 @@ describe("the selection policy route", () => {
       minSavingsTokens: 4_096,
       coldGapMs: 360_000,
       pausedSessions: [],
+      holdoutFraction: 0,
     })
     expect((await handler(get(BROWSER))).status).toBe(403)
     expect((await handler(get())).status).toBe(403)
     const health = await (await handler(new Request("http://127.0.0.1:4097/harness/health"))).json()
     expect(health.capabilities).toContain("adaptive-selection")
+    repository.close()
+  })
+
+  test("carries the holdout share, so the plugin can leave control sessions alone (AH-G01)", async () => {
+    const { repository, handler } = open({
+      adaptiveToken: ADAPTIVE,
+      selectionPolicy: () => DEFAULT_SELECTION_CONFIG,
+      holdoutFraction: () => 0.3,
+    })
+    expect((await (await handler(get(ADAPTIVE))).json()).data.holdoutFraction).toBe(0.3)
     repository.close()
   })
 

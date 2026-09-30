@@ -13,8 +13,12 @@ import { createHash } from "node:crypto"
 
 export type Arm = "control" | "treatment"
 
-/** The capabilities that act on a live session today; each is held out on its own. */
-export const HOLDOUT_CAPABILITIES = ["relevance", "guardrails"] as const
+/**
+ * The capabilities that act on a live session today; each is held out on its own. `toolTrim`,
+ * `anchors` and `selection` joined with the preregistered promotion criteria (AH-G01, ADR-0025), so
+ * every capability the live evaluation compares has a control arm.
+ */
+export const HOLDOUT_CAPABILITIES = ["relevance", "guardrails", "toolTrim", "anchors", "selection"] as const
 export type HoldoutCapability = (typeof HOLDOUT_CAPABILITIES)[number]
 
 export function armFor(sessionID: string, capability: HoldoutCapability, fraction: number): Arm {
@@ -23,10 +27,10 @@ export function armFor(sessionID: string, capability: HoldoutCapability, fractio
 }
 
 export function armsFor(sessionID: string, fraction: number): Record<HoldoutCapability, Arm> {
-  return {
-    relevance: armFor(sessionID, "relevance", fraction),
-    guardrails: armFor(sessionID, "guardrails", fraction),
-  }
+  // `fromEntries` forgets the keys; every capability is mapped, so the record is total.
+  return Object.fromEntries(
+    HOLDOUT_CAPABILITIES.map((capability) => [capability, armFor(sessionID, capability, fraction)]),
+  ) as Record<HoldoutCapability, Arm>
 }
 
 export function isArm(value: unknown): value is Arm {

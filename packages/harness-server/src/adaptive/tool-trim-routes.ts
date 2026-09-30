@@ -19,6 +19,7 @@
  */
 
 import type { AdaptiveConfig } from "./config"
+import { armFor } from "./holdout"
 import { TOOL_EVIDENCE_REF_PATTERN, evidenceRange, trimSkip, trimmedOutput } from "./tool-trim"
 
 export type ToolEvidenceStore = {
@@ -67,6 +68,10 @@ export async function handleToolTrimRequest(request: Request, deps: ToolTrimDeps
   if (skip !== undefined) return json({ data: { trimmed: false, reason: skip, policy } })
   // No `retryAfterMs`: the plugin's back-off is global, and a pause holds for this session only.
   if (deps.paused?.(sessionID)) return json({ data: { trimmed: false, reason: "session-paused", policy } })
+  // The control arm (AH-B05, AH-G01): the output reaches the model whole, so the live evaluation can
+  // compare trimmed sessions against untouched ones. Nothing is stored for a control session.
+  if (armFor(sessionID, "toolTrim", adaptive.holdout.fraction) === "control")
+    return json({ data: { trimmed: false, reason: "holdout", policy } })
 
   // The replacement is rendered only after the store confirmed the whole output: no ref is handed out
   // that does not read back.

@@ -52,7 +52,7 @@ import { handleEvidenceReadRequest, handleToolTrimRequest } from "./adaptive/too
 import type { GuardrailService } from "./adaptive/guardrails"
 import { handleCompactionAnchorsRequest } from "./adaptive/compaction-anchors"
 import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptive/session-metrics"
-import { armsFor } from "./adaptive/holdout"
+import { armFor, armsFor } from "./adaptive/holdout"
 import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import { handleModelKeyRequest } from "./adaptive/model-key-routes"
@@ -689,9 +689,11 @@ export const createHarnessHandler = (
     ) {
       if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      const holdout = options.holdoutFraction
       return handleCompactionAnchorsRequest(request, {
         enabled: options.compactionAnchors ?? (() => false),
         ...(options.overrides ? { paused: options.overrides.paused } : {}),
+        ...(holdout ? { control: (sessionID: string) => armFor(sessionID, "anchors", holdout()) === "control" } : {}),
         objective: (sessionID) => {
           const objective = repository.listEpisodes({ sessionID, limit: 1 })[0]?.objective
           // The coordinator's generic placeholder says nothing about the goal.
@@ -714,7 +716,15 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       // The plugin latches its policy per session, so a pause travels as the list of paused sessions
       // and takes effect at that session's next cold step (AH-E02, docs/ADAPTIVE.md).
-      return json({ data: { ...options.selectionPolicy(), pausedSessions: options.overrides?.pausedSessions() ?? [] } })
+      // The holdout share travels too: the plugin draws each session's arm with the same hash as
+      // `armFor`, so a control session stays on the off policy for its whole life (AH-B05, AH-G01).
+      return json({
+        data: {
+          ...options.selectionPolicy(),
+          pausedSessions: options.overrides?.pausedSessions() ?? [],
+          holdoutFraction: options.holdoutFraction?.() ?? 0,
+        },
+      })
     }
     // The recoverable tool-output trim (AH-D02): the plugin posts a finished output and the
     // `evidence_read` tool reads a stored one back, both on the loopback with the dedicated bearer.

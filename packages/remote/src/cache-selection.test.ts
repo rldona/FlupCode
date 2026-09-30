@@ -524,6 +524,35 @@ describe("CACHE_SELECTION_PLUGIN", () => {
     expect(resumed[1]!.parts[0]!.state.output).toStartWith("[Old read output")
   })
 
+  test("a control-arm session of the holdout keeps its messages whole; a treatment session is trimmed", async () => {
+    // At a 0.5 share `ses_2` draws control for selection and `ses_1` treatment, as armFor does.
+    const fixture = harness({ current: { ...ENABLED, holdoutFraction: 0.5 } })
+    const hooks = await open(fixture.url)
+    await settle(fixture.requests, 1)
+    const transform = hooks["experimental.chat.messages.transform"]!
+    const as = (sessionID: string) =>
+      [...history(), ...coldTurn()].map((message) => ({ ...message, info: { ...message.info, sessionID } }))
+    const control = as("ses_2")
+    const snapshot = bytes(control)
+    await transform({}, { messages: control })
+    expect(bytes(control)).toBe(snapshot)
+    const treatment = as("ses_1")
+    await transform({}, { messages: treatment })
+    expect(treatment[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+  })
+
+  test("a share outside [0, 0.5] holds nothing out", async () => {
+    const fixture = harness({ current: { ...ENABLED, holdoutFraction: 0.9 } })
+    const hooks = await open(fixture.url)
+    await settle(fixture.requests, 1)
+    const messages = [...history(), ...coldTurn()].map((message) => ({
+      ...message,
+      info: { ...message.info, sessionID: "ses_2" },
+    }))
+    await hooks["experimental.chat.messages.transform"]!({}, { messages })
+    expect(messages[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+  })
+
   test("is off without an answer, on a non-200 or a malformed policy, and never throws", async () => {
     for (const current of [
       undefined,
