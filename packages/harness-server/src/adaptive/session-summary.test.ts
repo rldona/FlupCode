@@ -24,6 +24,8 @@ const turn = (over: Partial<SessionMetricTurn> & { sessionID: string; turn: numb
   toolOutputBytes: 0,
   tools: {},
   compactions: 0,
+  rereadsAfterCompaction: 0,
+  summaryTokens: 0,
   skills: [],
   startedAt: 1_000,
   endedAt: 2_000,

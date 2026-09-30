@@ -70,6 +70,7 @@ describe("the writable allowlist", () => {
       "egress.providers.*.kinds",
       "retention.enabled",
       "budget.monthlyTokens",
+      "compaction.anchors",
     ])
   })
 
@@ -467,6 +468,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       retention: { enabled: false },
       egress: { projects: [], kinds: {} },
       budget: { monthlyTokens: 10 },
+      compaction: { anchors: false },
     }
     const source = adaptiveSource(block, {})
     for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("block")
@@ -484,6 +486,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       retention: { enabled: 1 },
       egress: { projects: "nope", kinds: [] },
       budget: { monthlyTokens: -5 },
+      compaction: { anchors: "off" },
     }
     const source = adaptiveSource(block, {})
     for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("default")

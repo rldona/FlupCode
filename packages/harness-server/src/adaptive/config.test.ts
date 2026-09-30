@@ -3,6 +3,7 @@ import {
   BASELINE_MODEL,
   DEFAULT_ADAPTIVE_TTL_MS,
   DEFAULT_BUDGET_CONFIG,
+  DEFAULT_COMPACTION_CONFIG,
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
   DEFAULT_GUARDRAILS_CONFIG,
@@ -80,6 +81,7 @@ describe("resolveAdaptiveConfig", () => {
           typeof DEFAULT_VOI_KIND_CONFIG
         >,
       },
+      compaction: DEFAULT_COMPACTION_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)
@@ -552,5 +554,13 @@ describe("the value-of-information gate config (AH-C05)", () => {
     expect(voi).toMatchObject(DEFAULT_VOI_CONFIG)
     expect(voi.kinds.completion).toEqual(DEFAULT_VOI_KIND_CONFIG)
     expect(voi.kinds.failure).toEqual(DEFAULT_VOI_KIND_CONFIG)
+  })
+})
+
+describe("compaction slice", () => {
+  test("anchors are on unless the block says false", () => {
+    expect(resolveAdaptiveConfig({ env: {} }).compaction.anchors).toBe(true)
+    expect(resolveAdaptiveConfig({ block: { compaction: { anchors: false } }, env: {} }).compaction.anchors).toBe(false)
+    expect(resolveAdaptiveConfig({ block: { compaction: { anchors: "no" } }, env: {} }).compaction.anchors).toBe(true)
   })
 })

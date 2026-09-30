@@ -182,6 +182,13 @@ export type LearningConfig = {
   model?: string
 }
 
+/**
+ * The compaction slice (AH-D04): whether the engine's compaction prompt receives the session's
+ * anchors. On by default: the block is capped, redacted and fail-open — a slow or absent harness adds
+ * nothing — and it only enriches a prompt the engine already builds; the summary stays the engine's.
+ */
+export type CompactionConfig = { anchors: boolean }
+
 export type AdaptiveConfig = {
   /** Kill switch: stops decisions, shadow and Jev. It does not touch episodes or the base harness. */
   enabled: boolean
@@ -202,6 +209,7 @@ export type AdaptiveConfig = {
   guardrails: GuardrailsConfig
   holdout: HoldoutConfig
   voi: VoiConfig
+  compaction: CompactionConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -307,6 +315,8 @@ export const DEFAULT_VOI_CONFIG: Omit<VoiConfig, "kinds"> = {
   statsTtlMs: 30_000,
   cacheMaxEntries: 500,
 }
+
+export const DEFAULT_COMPACTION_CONFIG: CompactionConfig = { anchors: true }
 
 /** The validation strategy's 20% holdout (audit §14.2). */
 export const DEFAULT_HOLDOUT_CONFIG: HoldoutConfig = { fraction: 0.2 }
@@ -569,6 +579,12 @@ function resolveGuardrailsConfig(block: Record<string, unknown>): GuardrailsConf
   }
 }
 
+/** The compaction slice: only an explicit `false` turns the anchors off. */
+function resolveCompactionConfig(block: Record<string, unknown>): CompactionConfig {
+  const compaction = isPlainObject(block.compaction) ? block.compaction : {}
+  return { anchors: typeof compaction.anchors === "boolean" ? compaction.anchors : DEFAULT_COMPACTION_CONFIG.anchors }
+}
+
 /** The holdout share: a number in [0, 0.5], else the default. `0` is an explicit off. */
 function resolveHoldoutConfig(block: Record<string, unknown>): HoldoutConfig {
   const holdout = isPlainObject(block.holdout) ? block.holdout : {}
@@ -724,6 +740,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     guardrails,
     holdout: resolveHoldoutConfig(block),
     voi: resolveVoiConfig(block),
+    compaction: resolveCompactionConfig(block),
   }
 }
 

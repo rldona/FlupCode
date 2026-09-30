@@ -95,6 +95,9 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   { path: "egress.providers.*.kinds", type: "kinds", confirmation: "widening", guard: "none" },
   { path: "retention.enabled", type: "boolean", confirmation: "required", guard: "none" },
   { path: "budget.monthlyTokens", type: "number", confirmation: "none", guard: "none" },
+  // The compaction anchors (AH-D04) only enrich the engine's own prompt and are capped and
+  // fail-open, so they toggle freely; the replay runner flips them to measure their effect.
+  { path: "compaction.anchors", type: "boolean", confirmation: "none", guard: "none" },
 ]
 
 const WRITABLE_BY_PATH = new Map(WRITABLE_FIELDS.map((field) => [field.path, field]))
@@ -147,6 +150,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const egress = usageOf(block.egress)
   const providers = usageOf(egress.providers)
   const budget = usageOf(block.budget)
+  const compaction = usageOf(block.compaction)
   const pick = (fromEnv: boolean, fromBlock: boolean): AdaptiveProvenance => (fromEnv ? "env" : fromBlock ? "block" : "default")
   const envNumber = (name: string) => positiveNumberFrom(Number(env[name]))
   return {
@@ -161,6 +165,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     "retention.enabled": pick(false, typeof retention.enabled === "boolean"),
     ...providerSources(providers, jev, egress),
     "budget.monthlyTokens": pick(false, positiveNumberFrom(budget.monthlyTokens) !== undefined),
+    "compaction.anchors": pick(false, typeof compaction.anchors === "boolean"),
     "runtime.enabled": pick(env.FLUPCODE_ADAPTIVE_PROBE_DISABLED === "1", typeof probe.enabled === "boolean"),
     "runtime.ttlMs": pick(envNumber("FLUPCODE_ADAPTIVE_PROBE_TTL_MS") !== undefined, positiveNumberFrom(probe.ttlMs) !== undefined),
     "runtime.override": pick(runtimeOverrideFrom(env.FLUPCODE_ADAPTIVE_RUNTIME) !== undefined, runtimeOverrideFrom(block.runtime) !== undefined),

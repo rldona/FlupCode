@@ -446,8 +446,8 @@ chat turn spent: the usage screen only knows runs, and the engine only keeps ses
   gap in the baseline.
 - **Storage.** `session_metrics` keeps one row per turn — the user message that opened it — with the
   provider requests, uncached input, output, reasoning, cache read/write tokens, USD, time in model
-  steps, time to first output, tool calls, errors and output bytes (overall and per tool), compactions
-  and the skills loaded. Every session is covered, interactive or run, because the engine emits the
+  steps, time to first output, tool calls, errors and output bytes (overall and per tool), compactions,
+  re-reads after compaction, summary tokens and the skills loaded. Every session is covered, interactive or run, because the engine emits the
   same events for both. `session_metric_seen` makes each observation count once and is pruned after
   two days.
 - **Access.** The `POST` takes the dedicated `adaptive-token`; without one it is a 404 and the
@@ -465,6 +465,40 @@ chat turn spent: the usage screen only knows runs, and the engine only keeps ses
   window and project filter. It asks only when `/harness/health` lists `adaptive-metrics`, says so
   when the server does not, says so when nothing was measured in the window, and reports a failed
   read inline with **Try again**.
+
+## Compaction anchors
+
+Summarising stays in the engine (audit §10.4); FlupCode only enriches the prompt of its
+`experimental.session.compacting` hook with a small block of facts a generative summary tends to lose
+(AH-D04).
+
+- **What.** One `<compaction_anchors>` block: the session's **goal** (its first user text, else the
+  stored episode objective), the **files edited** (from `episode-signals`), the **files read** (the
+  newest `read` paths the plugin saw, not already listed as edited) and the **open errors**: a failing shell no later run of the
+  same command fixed, with the file and line when a failure reader recognises the output, and a failed
+  `edit`/`write`/`apply_patch` no later successful call of that tool followed. Failed reads and
+  provider errors are not anchors. The window is the session: the engine compacts a session, and the
+  signal ring already keeps only its newest 200 calls. Newest facts come first.
+- **Cap.** Every value is redacted with the shared patterns, stripped of `<`/`>` and bounded (goal 300
+  characters, each line 200; at most 15 edited, 15 read and 5 errors); lines are added until the next would pass **1,536 bytes**, tags
+  included — a few hundred tokens against a compaction prompt that carries the whole conversation.
+- **Plugin.** `COMPACTION_ANCHORS_PLUGIN` (`flupcode-compaction-anchors.js`) captures the goal in
+  `experimental.chat.messages.transform` and the read paths in `tool.execute.after`, then `POST`s them
+  to `/harness/adaptive/anchors` under the dedicated `adaptive-token` (a `POST`, because the goal is
+  the user's own words and must not travel in a URL). It pushes the answer onto `output.context` only
+  when it is exactly the fixed block under the cap. The request has a 1 s deadline
+  (`FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS`); a timeout, a non-200, a malformed answer or a missing token
+  adds nothing, so compaction never waits on or fails because of the harness. Only the legacy runtime
+  calls the hook today.
+- **Switch.** `compaction.anchors`, **on by default**: the block is capped, redacted and fail-open, and
+  it only enriches a prompt the engine already builds. The adaptive kill switch turns it off too. It is
+  writable through the settings surface, so a replay variant can compare it off and on.
+- **Metric.** The metrics plugin flags a successful `read` of a file the session read before its last
+  compaction (`reread: true`, each file once per compaction; the path never leaves the engine), and
+  `session_metrics` sums them in `rereads_after_compaction`. `summary_tokens` adds the output tokens
+  of the `compaction` agent's steps. The replay report adds a **Compaction** table (compactions,
+  re-reads after compaction and summary tokens per repetition) whenever a run compacted, which is what
+  the acceptance compares: fewer re-reads, summary tokens up by no more than 10%.
 
 ## Holdout
 

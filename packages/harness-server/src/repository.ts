@@ -1097,6 +1097,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("reflection_job", "claimed_at", "INTEGER")
     this.addColumn("adaptive_decision", "arm", "TEXT")
     this.addColumn("session_metrics", "arms_json", "TEXT")
+    this.addColumn("session_metrics", "rereads_after_compaction", "INTEGER NOT NULL DEFAULT 0")
+    this.addColumn("session_metrics", "summary_tokens", "INTEGER NOT NULL DEFAULT 0")
     this.migrateDocumentPaths()
     this.migrateEvidenceSize()
     this.migrate(fresh)
@@ -3165,9 +3167,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
              session_id, turn_id, turn, project_id, provider_id, model_id, agent, requests,
              input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,
              cost, model_ms, first_token_ms, tool_calls, tool_errors, tool_output_bytes, tools_json,
-             compactions, skills_json, started_at, ended_at, arms_json
+             compactions, skills_json, started_at, ended_at, arms_json, rereads_after_compaction,
+             summary_tokens
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-             ?19, ?20, ?21, ?22, ?23, ?24, ?25)`,
+             ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26, ?27)`,
         )
         .run(
           next.sessionID,
@@ -3195,6 +3198,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
           next.startedAt,
           next.endedAt,
           next.arms ? JSON.stringify(next.arms) : null,
+          next.rereadsAfterCompaction,
+          next.summaryTokens,
         )
       return true
     })()
@@ -3381,6 +3386,8 @@ type SessionMetricRow = {
   started_at: number
   ended_at: number
   arms_json: string | null
+  rereads_after_compaction: number
+  summary_tokens: number
 }
 
 function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
@@ -3408,6 +3415,8 @@ function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
     toolOutputBytes: row.tool_output_bytes,
     tools: JSON.parse(row.tools_json),
     compactions: row.compactions,
+    rereadsAfterCompaction: row.rereads_after_compaction,
+    summaryTokens: row.summary_tokens,
     skills: JSON.parse(row.skills_json),
     startedAt: row.started_at,
     endedAt: row.ended_at,
