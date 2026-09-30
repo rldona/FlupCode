@@ -12,6 +12,8 @@ export type Breaker = {
   state(): BreakerState
   /** Whether this call may reach the provider; it reserves the single half-open probe. */
   allow(): boolean
+  /** Whether `allow` would admit a call now, without reserving the probe. */
+  wouldAllow(): boolean
   recordSuccess(): void
   recordFailure(): void
 }
@@ -49,6 +51,11 @@ export function createBreaker(input: {
     return true
   }
 
+  const wouldAllow = (): boolean => {
+    if (current === "open") return now() - openedAt >= cooldownMs
+    return current === "closed" || !probeReserved
+  }
+
   const recordSuccess = () => {
     consecutiveFailures = 0
     probeReserved = false
@@ -75,5 +82,5 @@ export function createBreaker(input: {
     return current
   }
 
-  return { state, allow, recordSuccess, recordFailure }
+  return { state, allow, wouldAllow, recordSuccess, recordFailure }
 }

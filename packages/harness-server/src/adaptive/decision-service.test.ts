@@ -54,7 +54,7 @@ const serviceFor = (block: unknown, external?: DecisionProvider) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const config = resolveAdaptiveConfig({ block, env: {} })
   const egress = createAdaptiveEgressGuard({ config: () => config })
-  const governor = createGovernor({ config: config.governor, store: repository, now: () => NOW })
+  const governor = createGovernor({ config: () => config.governor, store: repository, now: () => NOW })
   const service = createDecisionService({
     repository,
     config: () => config,
@@ -422,6 +422,48 @@ describe("the decision service (FH-015)", () => {
     expect(answered.source).toBe("jev")
     expect(bounded.aborted).toBe(false)
     batch.repository.close()
+  })
+
+  test("a hot 429 with Retry-After: 30 returns the baseline within the hot timeout (AH-A06)", async () => {
+    let calls = 0
+    const limited: DecisionProvider = {
+      id: "jev",
+      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
+        calls += 1
+        throw new DecisionUnavailable("rate-limited", { retryAfterMs: 30_000 })
+      },
+    }
+    // The production wiring: real sleep, default attempts and delays.
+    const external = createFallbackProvider({ external: limited })
+    const { repository, service } = serviceFor(jevOn, external)
+    const startedAt = Date.now()
+    const result = await service.predict(completion(), "hot")
+
+    expect(Date.now() - startedAt).toBeLessThan(DEFAULT_DECISION_POLICY.timeoutMs)
+    expect(calls).toBe(1)
+    expect(result).toMatchObject({ source: "fallback", degraded: true, degradedReason: "rate-limited" })
+    repository.close()
+  })
+
+  test("five concurrent identical predictions that fail share one breaker failure (AH-A06)", async () => {
+    let calls = 0
+    const down: DecisionProvider = {
+      id: "jev",
+      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
+        calls += 1
+        await Promise.resolve()
+        throw new DecisionUnavailable("timeout")
+      },
+    }
+    const external = createFallbackProvider({ external: down, maxAttempts: 1, now: () => NOW })
+    const { repository, service, governor } = serviceFor({ ...jevOn, governor: { breakerFailures: 2 } }, external)
+    const results = await Promise.all([1, 2, 3, 4, 5].map(() => service.predict(completion(), "hot")))
+
+    expect(calls).toBe(1)
+    expect(results.every((result) => result.degradedReason === "timeout")).toBe(true)
+    // Five per-caller recordings would have opened a threshold of two.
+    expect(governor.state().breaker).toBe("closed")
+    repository.close()
   })
 
   test("a corrupt audit row decodes defensively instead of taking the endpoint down", () => {

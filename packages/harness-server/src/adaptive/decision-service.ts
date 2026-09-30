@@ -25,7 +25,7 @@ import type { EgressGuard } from "./egress"
 import { boundAnswer, boundSummary, decisionID } from "./decision-record"
 import { deterministicBaseline } from "./providers/deterministic"
 import type { DeterministicBaseline } from "./providers/deterministic"
-import { DecisionUnavailable } from "./providers/provider"
+import { degradedReasonOf } from "./providers/provider"
 import type { DecisionProvider } from "./providers/provider"
 import { governorKey } from "./providers/governor"
 import type { Governor } from "./providers/governor"
@@ -203,21 +203,20 @@ export function createDecisionService(deps: {
       // The hot path never acquires a limiter slot, so a saturating batch cannot delay a live turn
       // (ADR-0017 §4). Batch stays on the limiter for background work. The hot call is bounded end to
       // end by the request's own timeout: the deadline aborts the provider, so a live turn never waits
-      // for Jev beyond `timeoutMs` even when the provider hangs.
+      // for Jev beyond `timeoutMs` even when the provider hangs. The mode reaches the provider too, so a
+      // hot call makes a single attempt and never sleeps on a `Retry-After`.
       const deadline = mode === "hot" ? AbortSignal.timeout(request.policy.timeoutMs) : undefined
       const key = governorKey(request.kind, hash, config.jev.model)
       const tokens = estimateTokens(body)
-      const work = (signal: AbortSignal) => provider.answer(request, deadline ? AbortSignal.any([signal, deadline]) : signal)
+      const work = (signal: AbortSignal, retry: () => boolean) =>
+        provider.answer(request, deadline ? AbortSignal.any([signal, deadline]) : signal, { mode, retry })
+      // The governor records the outcome once per flight, so this caller records nothing: a shared
+      // failure seen by several joiners must count once toward the breaker and the limiter.
       const raw = mode === "hot" ? await governor.runHot(key, tokens, work) : await governor.runBatch(key, tokens, work)
       // A wrapping provider (the FH-013 fallback) already exhausted its retries and handed back the
       // deterministic answer. Honor its outcome instead of relabelling it as a Jev win.
-      if (raw.degraded) {
-        const reason = raw.degradedReason ?? "network"
-        governor.recordFailure(reason)
-        if (reason === "rate-limited") governor.recordRateLimit()
-        return degrade(reason, raw.latencyMs ?? now() - startedAt, raw.attemptedProvider ?? provider.id)
-      }
-      governor.recordSuccess()
+      if (raw.degraded)
+        return degrade(raw.degradedReason ?? "network", raw.latencyMs ?? now() - startedAt, raw.attemptedProvider ?? provider.id)
       const latencyMs = now() - startedAt
       // Confidence is calibrated here, once, for every provider: a provider reports its probabilities
       // and, optionally, its own confidence in the chosen answer; the recorded confidence is the
@@ -251,19 +250,7 @@ export function createDecisionService(deps: {
         degraded: false,
       }
     } catch (cause) {
-      // An aborted deadline is a timeout, not a network fault: the hot path must record the reason it
-      // actually degraded for.
-      const reason =
-        cause instanceof DecisionUnavailable
-          ? cause.reason
-          : cause instanceof Error && (cause.name === "AbortError" || cause.name === "TimeoutError")
-            ? "timeout"
-            : "network"
-      governor.recordFailure(reason)
-      // A 429 is a 429: the limiter backs off whether or not the provider named a `Retry-After`.
-      if (reason === "rate-limited")
-        governor.recordRateLimit(cause instanceof DecisionUnavailable ? cause.retryAfterMs : undefined)
-      return degrade(reason, now() - startedAt, provider.id)
+      return degrade(degradedReasonOf(cause), now() - startedAt, provider.id)
     }
   }
 

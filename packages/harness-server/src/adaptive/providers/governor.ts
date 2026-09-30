@@ -8,6 +8,10 @@
  * scoped per mode, so a live turn never joins an in-flight background batch; identical concurrent
  * questions inside the same mode collapse into one outbound call.
  *
+ * The outcome is recorded once per flight, inside it: joiners share the answer and never multiply
+ * breaker or limiter feedback. The budget is charged per attempt (the first before the call, each
+ * retry through the gate handed to `work`) and its limits are read from the live config.
+ *
  * The transport lives in `jev.ts` and the fallback in `fallback.ts`; this module knows about work,
  * not about HTTP.
  */
@@ -19,7 +23,7 @@ import { createBudget } from "./budget"
 import type { BudgetStore } from "./budget"
 import { createLimiter } from "./limiter"
 import type { LimiterConfig } from "./limiter"
-import { DecisionUnavailable } from "./provider"
+import { DecisionUnavailable, degradedReasonOf } from "./provider"
 import { createSingleFlight } from "./single-flight"
 
 export type GovernorConfig = {
@@ -55,11 +59,17 @@ export type GovernorState = {
   inflight: number
 }
 
+/**
+ * The work a flight runs once. `retry` reserves one more attempt's estimate before a retry and
+ * returns `false` when the budget cannot cover it.
+ */
+export type GovernedWork<T> = (signal: AbortSignal, retry: () => boolean) => Promise<T>
+
 export type Governor = {
   /** Hot path: no queue, only breaker and budget. */
-  runHot<T>(key: string, tokens: number, work: (signal: AbortSignal) => Promise<T>): Promise<T>
+  runHot<T>(key: string, tokens: number, work: GovernedWork<T>): Promise<T>
   /** Batch: adaptive concurrency, still sharing breaker, budget and single-flight with the hot path. */
-  runBatch<T>(key: string, tokens: number, work: (signal: AbortSignal) => Promise<T>): Promise<T>
+  runBatch<T>(key: string, tokens: number, work: GovernedWork<T>): Promise<T>
   recordSuccess(): void
   recordFailure(reason: DegradedReason): void
   recordRateLimit(retryAfterMs?: number): void
@@ -79,8 +89,18 @@ const BREAKER_REASONS: ReadonlySet<DegradedReason> = new Set([
   "malformed",
 ])
 
+/** A settled flight that fell back: a wrapping provider (the FH-013 fallback) reports it this way. */
+const isDegraded = (
+  value: unknown,
+): value is { degraded: true; degradedReason?: DegradedReason; retryAfterMs?: number } =>
+  typeof value === "object" && value !== null && "degraded" in value && value.degraded === true
+
 export function createGovernor(input: {
-  config: GovernorConfig
+  /**
+   * The live config. The budget limits are read on every reservation; the breaker and limiter keep
+   * state, so their settings are taken once at construction.
+   */
+  config: () => GovernorConfig
   store: GovernorStore
   now?: () => number
   sleep?: (ms: number) => Promise<void>
@@ -88,23 +108,24 @@ export function createGovernor(input: {
 }): Governor {
   const now = input.now ?? Date.now
   const onLog = input.onLog
+  const startup = input.config()
   const breaker = createBreaker({
-    failures: input.config.breakerFailures,
-    cooldownMs: input.config.breakerCooldownMs,
+    failures: startup.breakerFailures,
+    cooldownMs: startup.breakerCooldownMs,
     now,
     onStateChange: (state) => onLog?.({ kind: "breaker", state, at: now() }),
   })
   const budget = createBudget({
-    monthlyTokens: input.config.monthlyTokenBudget,
-    hotReserveFraction: input.config.hotReserveFraction,
+    limits: () => {
+      const config = input.config()
+      return { monthlyTokens: config.monthlyTokenBudget, hotReserveFraction: config.hotReserveFraction }
+    },
     store: input.store,
     now,
   })
-  const limiter = createLimiter({ config: input.config.limiter, now, sleep: input.sleep })
+  const limiter = createLimiter({ config: startup.limiter, now, sleep: input.sleep })
   const flight = createSingleFlight()
   let softCapLoggedFor: string | undefined
-
-  const admit = (): DegradedReason | undefined => (breaker.allow() ? undefined : "breaker-open")
 
   /** Reserves the estimated spend, logs an exhausted budget, and reports the soft cap once a month. */
   const reserve = (tokens: number, mode: "hot" | "batch"): boolean => {
@@ -119,26 +140,47 @@ export function createGovernor(input: {
     return true
   }
 
-  const run = async <T>(mode: "hot" | "batch", key: string, tokens: number, work: (signal: AbortSignal) => Promise<T>): Promise<T> => {
+  const recordSuccess = () => {
+    breaker.recordSuccess()
+    limiter.recordSuccess()
+  }
+  const recordFailure = (reason: DegradedReason) => {
+    if (BREAKER_REASONS.has(reason)) breaker.recordFailure()
+  }
+  const recordRateLimit = (retryAfterMs?: number) => {
+    limiter.recordRateLimit(retryAfterMs)
+    onLog?.({ kind: "rate-limited", retryAfterMs, concurrency: limiter.concurrency() })
+  }
+  const recordDegraded = (reason: DegradedReason, retryAfterMs?: number) => {
+    recordFailure(reason)
+    // A 429 is a 429: the limiter backs off whether or not the provider named a `Retry-After`.
+    if (reason === "rate-limited") recordRateLimit(retryAfterMs)
+  }
+
+  const run = async <T>(mode: "hot" | "batch", key: string, tokens: number, work: GovernedWork<T>): Promise<T> => {
     // Hot and batch never share an in-flight promise: a live turn must not join a background batch
     // and inherit its limiter wait (ADR-0017 §4). Breaker, budget and limiter stay shared below, and
     // the hot path keeps its own deadline. The accepted cost is that one identical question hot and
     // one batch no longer collapse into a single outbound call.
     return flight.run(`${mode}\u0000${key}`, async () => {
+      // A refusing breaker is checked before the budget, so a refused call writes nothing to usage.
+      if (!breaker.wouldAllow()) throw new DecisionUnavailable("breaker-open")
       // The reservation happens inside the flight: a deduped caller shares the answer and reserves
       // nothing, and the estimate is persisted before the call so a later failure still counts.
       if (!reserve(tokens, mode)) throw new DecisionUnavailable("budget-exhausted")
-      // The half-open probe is reserved only once the budget has admitted the call, so an early exit
-      // can never strand a probe; a denial here never reserved one (see `Breaker.allow`).
-      const denied = admit()
-      if (denied) {
-        budget.release(tokens)
-        throw new DecisionUnavailable(denied)
-      }
+      // Reserves the half-open probe only once the budget admitted the call, so an exhausted budget
+      // never strands it. Nothing runs between `wouldAllow` and here, so this admits.
+      breaker.allow()
       const controller = new AbortController()
       if (mode === "batch") await limiter.acquire()
       try {
-        return await work(controller.signal)
+        const value = await work(controller.signal, () => reserve(tokens, mode))
+        if (isDegraded(value)) recordDegraded(value.degradedReason ?? "network", value.retryAfterMs)
+        else recordSuccess()
+        return value
+      } catch (error) {
+        recordDegraded(degradedReasonOf(error), error instanceof DecisionUnavailable ? error.retryAfterMs : undefined)
+        throw error
       } finally {
         if (mode === "batch") limiter.release()
       }
@@ -148,17 +190,9 @@ export function createGovernor(input: {
   return {
     runHot: (key, tokens, work) => run("hot", key, tokens, work),
     runBatch: (key, tokens, work) => run("batch", key, tokens, work),
-    recordSuccess: () => {
-      breaker.recordSuccess()
-      limiter.recordSuccess()
-    },
-    recordFailure: (reason) => {
-      if (BREAKER_REASONS.has(reason)) breaker.recordFailure()
-    },
-    recordRateLimit: (retryAfterMs) => {
-      limiter.recordRateLimit(retryAfterMs)
-      onLog?.({ kind: "rate-limited", retryAfterMs, concurrency: limiter.concurrency() })
-    },
+    recordSuccess,
+    recordFailure,
+    recordRateLimit,
     state: () => ({
       month: budget.month(),
       tokensSpent: budget.spent().tokens,

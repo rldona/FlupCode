@@ -38,12 +38,29 @@ export type ProviderAnswer<Q extends DecisionKind> = {
   attemptedProvider?: string
   degraded?: boolean
   degradedReason?: DegradedReason
+  /** The last `Retry-After` the provider named, so the governor can pause the limiter for it. */
+  retryAfterMs?: number
+}
+
+/**
+ * How the governor lets a wrapping provider attempt the call. A provider that answers directly
+ * ignores it: it makes exactly one attempt anyway.
+ */
+export type AttemptOptions = {
+  /** `hot` is a single attempt with no retry sleep: a live turn cannot sit out a `Retry-After`. */
+  mode?: "hot" | "batch"
+  /** Accounts one more attempt against the budget before a retry; `false` means stop retrying. */
+  retry?: () => boolean
 }
 
 export type DecisionProvider = {
   readonly id: string
   /** The raw answer, or a typed `DecisionUnavailable` when it cannot answer. */
-  answer<Q extends DecisionKind>(request: DecisionRequest<Q>, signal: AbortSignal): Promise<ProviderAnswer<Q>>
+  answer<Q extends DecisionKind>(
+    request: DecisionRequest<Q>,
+    signal: AbortSignal,
+    options?: AttemptOptions,
+  ): Promise<ProviderAnswer<Q>>
 }
 
 /** A provider that could not answer, with the reason that keeps `degraded` honest. */
@@ -56,6 +73,13 @@ export class DecisionUnavailable extends Error {
     this.name = "DecisionUnavailable"
     this.retryAfterMs = options.retryAfterMs
   }
+}
+
+/** The reason a thrown error degrades a decision: an aborted deadline is a timeout, not a network fault. */
+export const degradedReasonOf = (error: unknown): DegradedReason => {
+  if (error instanceof DecisionUnavailable) return error.reason
+  if (error instanceof Error && (error.name === "AbortError" || error.name === "TimeoutError")) return "timeout"
+  return "network"
 }
 
 /**

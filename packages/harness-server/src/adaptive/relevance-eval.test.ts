@@ -159,7 +159,7 @@ const stack = (
       spent.calls += calls
     },
   }
-  const governor = createGovernor({ config: config.governor, store, now: () => NOW })
+  const governor = createGovernor({ config: () => config.governor, store, now: () => NOW })
   const spy = { calls: 0 }
   const fetch: JevFetch = async () => {
     spy.calls += 1

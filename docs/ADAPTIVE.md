@@ -268,6 +268,13 @@ what the promotion fixes and, where it is not landed yet, what stands today.
   never joins an in-flight background batch and waits for the adaptive limiter; breaker, budget and
   limiter stay shared, and the hot path keeps its own deadline (ADR-0017 §4). The accepted cost is
   that one identical question hot and one batch no longer collapse into a single call.
+- **Retries, feedback and budget.** A hot call makes a single attempt and never sleeps on a
+  `Retry-After`; a batch retry waits at most `maxDelayMs` (the `Retry-After` is capped, the limiter
+  still pauses for all of it) and the wait ends when the caller aborts. The governor records each
+  flight's outcome once, so joiners of one failed call count one breaker failure and one limiter
+  back-off. Every attempt reserves its estimate (a retry the budget cannot cover is not made), an
+  open breaker refuses before the budget is touched, and the budget limits are read from the live
+  config, so a `budget.monthlyTokens` change is enforced without a restart.
 - **Reverse-collision: the human wins.** If a loaded human skill and a learned skill share a name, the
   learned one is excluded from the curator roster (fail-closed: never offered, selected, counted or
   proposed for a patch) and reconciled durably — archived through the single writer with reason

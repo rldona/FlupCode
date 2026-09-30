@@ -126,7 +126,7 @@ const stack = (fixture: Fixture, options: { degraded?: boolean } = {}) => {
       spent.calls += calls
     },
   }
-  const governor = createGovernor({ config: config.governor, store, now: () => NOW })
+  const governor = createGovernor({ config: () => config.governor, store, now: () => NOW })
   const fetch: JevFetch = async (input) => {
     if (options.degraded) throw recordedTimeout()
     return recordedFetch(fixture)(input)

@@ -49,7 +49,7 @@ const harness = (block: unknown = {}) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const config = configFor(block)
   const egress = createAdaptiveEgressGuard({ config: () => config })
-  const governor = createGovernor({ config: config.governor, store: repository, now: () => NOW })
+  const governor = createGovernor({ config: () => config.governor, store: repository, now: () => NOW })
   const service = createDecisionService({ repository, config: () => config, egress, governor, now: () => NOW })
   return { repository, config, egress, service }
 }

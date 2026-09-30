@@ -123,7 +123,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   }, 60 * 60 * 1000)
   const startup = adaptive.current()
   const egress = createAdaptiveEgressGuard({ config: () => adaptive.current() })
-  const governor = createGovernor({ config: startup.governor, store: repository })
+  const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // The key comes from the environment, never from the config block (ADR-0017). The client is built
   // always; the service only reaches it when Jev is enabled, the project is allowlisted and the kind
   // is allowlisted, so an off install makes no call.

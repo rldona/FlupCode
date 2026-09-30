@@ -3,8 +3,9 @@
  *
  * The policy is a soft cap: when the month is exhausted Jev is disabled and logged, and the session
  * is never refused. A fraction of the budget is reserved for the hot path, so a background batch
- * cannot spend what a live turn needs. Spend is checked before a call and confirmed after it, with
- * the estimate of the caller's input as the unit.
+ * cannot spend what a live turn needs. Spend is reserved before every attempt, with the estimate of
+ * the caller's input as the unit. The limits are read on every check, so a budget changed in the
+ * live config is enforced without a restart.
  */
 
 export type BudgetUsage = { tokens: number; calls: number }
@@ -30,25 +31,24 @@ export type Budget = {
    * beyond counting it once.
    */
   reserve(tokens: number, mode: BudgetMode): boolean
-  /** Reverses a reservation that never reached the provider (a governance rejection before `work`). */
-  release(tokens: number, calls?: number): void
 }
 
 /** `YYYY-MM` in UTC, so every process on the machine agrees on where the month ends. */
 export const budgetMonth = (now: number): string => new Date(now).toISOString().slice(0, 7)
 
 export function createBudget(input: {
-  monthlyTokens: number
-  hotReserveFraction: number
+  limits: () => { monthlyTokens: number; hotReserveFraction: number }
   store: BudgetStore
   now?: () => number
 }): Budget {
   const now = input.now ?? Date.now
-  const monthlyTokens = Math.max(0, input.monthlyTokens)
-  const fraction = Math.min(1, Math.max(0, input.hotReserveFraction))
   // The batch may only spend what is left once the hot path's reserve is set aside.
-  const cap = (mode: BudgetMode): number =>
-    mode === "hot" ? monthlyTokens : monthlyTokens - monthlyTokens * fraction
+  const cap = (mode: BudgetMode): number => {
+    const limits = input.limits()
+    const monthlyTokens = Math.max(0, limits.monthlyTokens)
+    if (mode === "hot") return monthlyTokens
+    return monthlyTokens - monthlyTokens * Math.min(1, Math.max(0, limits.hotReserveFraction))
+  }
 
   const month = () => budgetMonth(now())
   const spent = () => input.store.adaptiveUsage(month())
@@ -63,6 +63,5 @@ export function createBudget(input: {
       input.store.addAdaptiveUsage(month(), tokens, 1, now())
       return true
     },
-    release: (tokens, calls = 1) => input.store.addAdaptiveUsage(month(), -tokens, -calls, now()),
   }
 }

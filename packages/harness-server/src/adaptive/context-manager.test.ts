@@ -43,7 +43,7 @@ const setup = (block: unknown = {}, external?: DecisionProvider) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const config = configFor(block)
   const egress = createAdaptiveEgressGuard({ config: () => config })
-  const governor = createGovernor({ config: config.governor, store: repository, now: () => NOW })
+  const governor = createGovernor({ config: () => config.governor, store: repository, now: () => NOW })
   const service = createDecisionService({
     repository,
     config: () => config,
