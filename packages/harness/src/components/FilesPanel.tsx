@@ -4,7 +4,7 @@ import type { FileText } from "../types"
 import { t } from "../i18n"
 import { highlight, languageFor } from "../highlight"
 import { createResource } from "../resource"
-import { PanelFailure } from "./PanelBoundary"
+import { PanelBoundary, PanelFailure } from "./PanelBoundary"
 
 type FilesPanelProps = {
   open: boolean
@@ -88,136 +88,138 @@ export const FilesPanel: Component<FilesPanelProps> = (props) => {
 
   return (
     <Show when={props.open}>
-      <section class="fc-routines-screen" aria-label={t("Files")}>
-        <div class="fc-routines-header">
-          <div>
-            <div class="fc-routines-kicker">{props.directory ? basename(props.directory) : t("Files")}</div>
-            <h1>{t("Files")}</h1>
-            <p>{t("Look at what is in the folder, and search it.")}</p>
+      <PanelBoundary name={t("The files screen")}>
+        <section class="fc-routines-screen" aria-label={t("Files")}>
+          <div class="fc-routines-header">
+            <div>
+              <div class="fc-routines-kicker">{props.directory ? basename(props.directory) : t("Files")}</div>
+              <h1>{t("Files")}</h1>
+              <p>{t("Look at what is in the folder, and search it.")}</p>
+            </div>
+            <div class="fc-routines-header-actions">
+              <button class="fc-button" type="button" onClick={props.onClose}>
+                {t("Back to sessions")}
+              </button>
+            </div>
           </div>
-          <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" onClick={props.onClose}>
-              {t("Back to sessions")}
-            </button>
-          </div>
-        </div>
 
-        <div class="fc-files-layout">
-          <div class="fc-files-tree">
-            <input
-              class="fc-input fc-files-search"
-              placeholder={t("Search files")}
-              value={query()}
-              aria-label={t("Search files")}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-            />
-            <Show
-              when={!query().trim()}
-              fallback={
-                <Show
-                  when={!searchResults.failure() || searchResults.loading}
-                  fallback={
-                    <PanelFailure
-                      inline
-                      title={t("{name} could not be read", { name: t("The search") })}
-                      error={searchResults.failure()!}
-                      onRetry={() => void searchActions.refetch()}
-                    />
-                  }
-                >
+          <div class="fc-files-layout">
+            <div class="fc-files-tree">
+              <input
+                class="fc-input fc-files-search"
+                placeholder={t("Search files")}
+                value={query()}
+                aria-label={t("Search files")}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+              />
+              <Show
+                when={!query().trim()}
+                fallback={
                   <Show
-                    when={(searchResults() ?? []).length > 0}
+                    when={!searchResults.failure() || searchResults.loading}
                     fallback={
-                      <p class="fc-settings-hint">
-                        {searchResults.loading ? t("Searching…") : t("Nothing matched.")}
-                      </p>
+                      <PanelFailure
+                        inline
+                        title={t("{name} could not be read", { name: t("The search") })}
+                        error={searchResults.failure()!}
+                        onRetry={() => void searchActions.refetch()}
+                      />
                     }
                   >
-                    <ul class="fc-files-list">
-                      <For each={searchResults()}>
-                        {(entry) => (
-                          <li>
-                            <button
-                              class="fc-files-entry"
-                              classList={{ "fc-files-entry-active": selected() === entry.path }}
-                              type="button"
-                              onClick={() => void open(entry.path)}
-                            >
-                              <span class="fc-files-name">{entry.path}</span>
-                            </button>
-                          </li>
-                        )}
-                      </For>
-                    </ul>
+                    <Show
+                      when={(searchResults() ?? []).length > 0}
+                      fallback={
+                        <p class="fc-settings-hint">
+                          {searchResults.loading ? t("Searching…") : t("Nothing matched.")}
+                        </p>
+                      }
+                    >
+                      <ul class="fc-files-list">
+                        <For each={searchResults()}>
+                          {(entry) => (
+                            <li>
+                              <button
+                                class="fc-files-entry"
+                                classList={{ "fc-files-entry-active": selected() === entry.path }}
+                                type="button"
+                                onClick={() => void open(entry.path)}
+                              >
+                                <span class="fc-files-name">{entry.path}</span>
+                              </button>
+                            </li>
+                          )}
+                        </For>
+                      </ul>
+                    </Show>
                   </Show>
-                </Show>
-              }
-            >
-              <Show when={!root.loading && root.failure()}>
-                {(error) => (
-                  <PanelFailure
-                    inline
-                    title={t("{name} could not be read", { name: t("The folder") })}
-                    error={error()}
-                    onRetry={() => void rootActions.refetch()}
-                  />
-                )}
-              </Show>
-              <ul class="fc-files-list">
-                <For each={childrenOf("")}>
-                  {(entry) => (
-                    <TreeEntry
-                      entry={entry}
-                      depth={0}
-                      selected={selected()}
-                      childrenOf={childrenOf}
-                      isOpen={isOpenDirectory}
-                      onToggle={toggle}
+                }
+              >
+                <Show when={!root.loading && root.failure()}>
+                  {(error) => (
+                    <PanelFailure
+                      inline
+                      title={t("{name} could not be read", { name: t("The folder") })}
+                      error={error()}
+                      onRetry={() => void rootActions.refetch()}
                     />
                   )}
-                </For>
-              </ul>
-            </Show>
-          </div>
-
-          <div class="fc-files-viewer">
-            <Show when={selected()} fallback={<div class="fc-runs-empty">{t("Pick a file to read it.")}</div>}>
-              <div class="fc-files-viewer-head">
-                <span class="fc-files-viewer-path" title={selected()}>
-                  {selected()}
-                </span>
-                <Show when={file()}>
-                  {(text) => (
-                    <span class="fc-files-viewer-meta">
-                      {text().bytes.toLocaleString()} {t("bytes")}
-                      <Show when={text().truncated}> · {t("showing the beginning")}</Show>
-                    </span>
-                  )}
                 </Show>
-              </div>
-              <Show when={fileLoading()}>
-                <div class="fc-runs-empty">{t("Reading…")}</div>
-              </Show>
-              <Show when={fileError()}>{(message) => <div class="fc-routines-notice">{message()}</div>}</Show>
-              <Show when={file()?.binary}>
-                <div class="fc-runs-empty">{t("That file is not text.")}</div>
-              </Show>
-              <Show when={file() && !file()!.binary}>
-                <div class="fc-files-code">
-                  <For each={lines()}>
-                    {(line, index) => (
-                      <div class="fc-files-code-line">
-                        <span class="fc-files-code-no">{index() + 1}</span>
-                        <span class="fc-files-code-text" innerHTML={highlight(line, languageFor(selected() ?? ""))} />
-                      </div>
+                <ul class="fc-files-list">
+                  <For each={childrenOf("")}>
+                    {(entry) => (
+                      <TreeEntry
+                        entry={entry}
+                        depth={0}
+                        selected={selected()}
+                        childrenOf={childrenOf}
+                        isOpen={isOpenDirectory}
+                        onToggle={toggle}
+                      />
                     )}
                   </For>
-                </div>
+                </ul>
               </Show>
-            </Show>
+            </div>
+
+            <div class="fc-files-viewer">
+              <Show when={selected()} fallback={<div class="fc-runs-empty">{t("Pick a file to read it.")}</div>}>
+                <div class="fc-files-viewer-head">
+                  <span class="fc-files-viewer-path" title={selected()}>
+                    {selected()}
+                  </span>
+                  <Show when={file()}>
+                    {(text) => (
+                      <span class="fc-files-viewer-meta">
+                        {text().bytes.toLocaleString()} {t("bytes")}
+                        <Show when={text().truncated}> · {t("showing the beginning")}</Show>
+                      </span>
+                    )}
+                  </Show>
+                </div>
+                <Show when={fileLoading()}>
+                  <div class="fc-runs-empty">{t("Reading…")}</div>
+                </Show>
+                <Show when={fileError()}>{(message) => <div class="fc-routines-notice">{message()}</div>}</Show>
+                <Show when={file()?.binary}>
+                  <div class="fc-runs-empty">{t("That file is not text.")}</div>
+                </Show>
+                <Show when={file() && !file()!.binary}>
+                  <div class="fc-files-code">
+                    <For each={lines()}>
+                      {(line, index) => (
+                        <div class="fc-files-code-line">
+                          <span class="fc-files-code-no">{index() + 1}</span>
+                          <span class="fc-files-code-text" innerHTML={highlight(line, languageFor(selected() ?? ""))} />
+                        </div>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              </Show>
+            </div>
           </div>
-        </div>
-      </section>
+        </section>
+      </PanelBoundary>
     </Show>
   )
 }

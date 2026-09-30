@@ -93,3 +93,21 @@ test("searching reaches files below the open folder", async ({ page }) => {
   await result.click()
   await expect(page.locator(".fc-files-viewer-path")).toHaveText("src/server.ts")
 })
+
+test("the open file and the search text are still there after leaving the screen", async ({ page }) => {
+  await openApp(page)
+  await page.goto("/files")
+
+  await page.locator(".fc-files-entry", { hasText: "README.md" }).click()
+  await expect(page.locator(".fc-files-viewer-path")).toHaveText("README.md")
+  await page.getByLabel("Search files").fill("server")
+  await expect(page.locator(".fc-files-entry", { hasText: "src/server.ts" })).toBeVisible()
+
+  await page.getByRole("button", { name: "Back to sessions" }).click()
+  await expect(page.getByRole("heading", { name: "Files" })).toHaveCount(0)
+  await page.goBack()
+
+  await expect(page.getByRole("heading", { name: "Files" })).toBeVisible()
+  await expect(page.getByLabel("Search files")).toHaveValue("server")
+  await expect(page.locator(".fc-files-viewer-path")).toHaveText("README.md")
+})

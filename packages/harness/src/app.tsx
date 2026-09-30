@@ -5661,24 +5661,20 @@ export const App: Component = () => {
             onDelete={deleteWorkflowFile}
             onRun={(workflow) => setLaunching({ workflow })}
           />
-          <Show when={artifactsOpen()}>
-            <PanelBoundary name={t("The artifacts screen")}>
-              <ArtifactsPanel
-                open={artifactsOpen()}
-                artifacts={artifactList()}
-                sessionFiles={artifacts()}
-                serverAvailable={artifactsAvailable()}
-                canOpenFiles={canOpenLocalFiles()}
-                rawArtifact={(id) => createHarnessClient(harnessServerUrl()).artifacts.raw(id)}
-                onCopy={copyPath}
-                onRemove={removeArtifact}
-                onUpdate={updateArtifact}
-                onOpenRun={() => showScreen("runs")}
-                onOpenPath={(path) => void openLocalPath(path)}
-                onOpenInEditor={(path) => void openInEditor(path)}
-              />
-            </PanelBoundary>
-          </Show>
+          <ArtifactsPanel
+            open={artifactsOpen()}
+            artifacts={artifactList()}
+            sessionFiles={artifacts()}
+            serverAvailable={artifactsAvailable()}
+            canOpenFiles={canOpenLocalFiles()}
+            rawArtifact={(id) => createHarnessClient(harnessServerUrl()).artifacts.raw(id)}
+            onCopy={copyPath}
+            onRemove={removeArtifact}
+            onUpdate={updateArtifact}
+            onOpenRun={() => showScreen("runs")}
+            onOpenPath={(path) => void openLocalPath(path)}
+            onOpenInEditor={(path) => void openInEditor(path)}
+          />
           <ComparePanel
             open={compareOpen()}
             runs={runs()}
@@ -6420,18 +6416,14 @@ export const App: Component = () => {
         onAdaptiveModelKey={changeModelKey}
         onClose={() => setSettingsOpen(false)}
       />
-      <Show when={filesOpen()}>
-        <PanelBoundary name={t("The files screen")}>
-          <FilesPanel
-            open={filesOpen()}
-            directory={vcsDirectory()}
-            list={listFiles}
-            search={searchFileEntries}
-            read={readFileText}
-            onClose={() => leaveScreen()}
-          />
-        </PanelBoundary>
-      </Show>
+      <FilesPanel
+        open={filesOpen()}
+        directory={vcsDirectory()}
+        list={listFiles}
+        search={searchFileEntries}
+        read={readFileText}
+        onClose={() => leaveScreen()}
+      />
       <FolderDialog
         open={folderOpen()}
         initial={targetDirectory()}
