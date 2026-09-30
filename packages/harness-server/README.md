@@ -94,15 +94,23 @@ The server listens on `127.0.0.1:4097` by default (`FLUPCODE_HARNESS_PORT`, `FLU
 
 Access (WA-9, AH-A05):
 
-- **Bearer.** `/harness/browser/*`, `/harness/actions/*`, `/harness/credentials`,
-  `/harness/action-profiles`, `/harness/artifacts*`, `/harness/events` and every `/harness/runs*`
-  route answer **403** `invalid_token` without `Authorization: Bearer <token>`, where the token is
-  `<configDir>/browser-token` (or `FLUPCODE_BROWSER_TOKEN`). The desktop app hands it to the renderer;
-  a plain browser tab has none, so those surfaces are refused there. The artifacts, events and runs
-  only ask for it when a token exists, which the entrypoint always creates unless the write fails.
-  `vite` dev in `packages/harness` (never `build`/`preview`) serves the same token to a same-origin
-  loopback tab through `/@flupcode/dev-token.js`, so local development keeps working. A hosted or
-  built web tab without the desktop has no runs until a pairing flow exists.
+- **Bearer.** `/harness/browser/*`, `/harness/actions/*`, `/harness/credentials` and
+  `/harness/action-profiles` always answer **403** `invalid_token` without
+  `Authorization: Bearer <token>`, where the token is `<configDir>/browser-token` (or
+  `FLUPCODE_BROWSER_TOKEN`). When a token exists — the entrypoint always creates one unless the write
+  fails — **every other `/harness` route asks for it too**: runs, best-of-n, task retry/cancel,
+  workflows, routines, git, checkpoints, artifacts, the event stream, and the reads that carry
+  prompts, files or config (context, files, config files, skills, agents, commands, memory, stash…).
+  The `Origin` check accepts any loopback port, so without this another page on `localhost` could
+  start agent runs. Only three things stay open: `GET /harness/health`, a share link
+  (`GET /harness/shares/:id`, read as a plain link whose id is the secret), and `/harness/adaptive/*`,
+  where each surface keeps its own guard (the acting line's dedicated token, or this bearer) and its
+  ordinary-404 rule. Without a token nothing is compared and every route answers as before. The
+  desktop app hands the token to the renderer and to the remote host's routine notifier; a plain
+  browser tab has none, so it is refused. `vite` dev in `packages/harness` (never `build`/`preview`)
+  serves the same token to a same-origin loopback tab through `/@flupcode/dev-token.js`, so local
+  development keeps working. A hosted or built web tab without the desktop has no harness until a
+  pairing flow exists.
 - **Host.** Every request whose `Host` is not a loopback name (`127.0.0.1`, `::1`, `localhost`,
   `*.localhost`) or the address the server listens on answers **403** `invalid_host`, which stops a
   DNS-rebinding page. On a wildcard listener (`0.0.0.0`, `::`) any IP literal is also accepted. A

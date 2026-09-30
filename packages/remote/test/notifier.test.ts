@@ -56,6 +56,41 @@ describe("watchHarnessEvents", () => {
     expect(seen[0]?.detail).toBe("success")
   })
 
+  // AH-A05: with a token configured the harness refuses its event stream and routines without it.
+  test("with the harness's token it presents the bearer and receives the routine's events", async () => {
+    const seen: Seen[] = []
+    const auth: Array<[string, string | null]> = []
+    const open = harness([routineRun()])
+    const guarded = ((url: string | URL | Request, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("authorization")
+      auth.push([new URL(String(url)).pathname, authorization])
+      if (authorization !== "Bearer secret-token")
+        return Promise.resolve(new Response(JSON.stringify({ code: "invalid_token" }), { status: 403 }))
+      return open(url, init)
+    }) as unknown as typeof globalThis.fetch
+
+    const refused = watchHarnessEvents({ harness: "http://h", fetch: guarded, onNotification: (n) => seen.push(n) })
+    await Bun.sleep(30)
+    refused.stop()
+    expect(seen).toEqual([])
+
+    auth.length = 0
+    const watcher = watchHarnessEvents({
+      harness: "http://h",
+      token: "secret-token",
+      fetch: guarded,
+      onNotification: (notification) => seen.push(notification),
+    })
+    await Bun.sleep(30)
+    watcher.stop()
+
+    expect(seen).toEqual([{ kind: "finished", sessionID: "ses_root", session: "Nightly audit", detail: "success" }])
+    expect(auth).toEqual([
+      ["/harness/events", "Bearer secret-token"],
+      ["/harness/routines/rt_1", "Bearer secret-token"],
+    ])
+  })
+
   test("a failed run is reported as a failure", async () => {
     const seen: Seen[] = []
     const watcher = watchHarnessEvents({

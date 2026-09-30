@@ -410,6 +410,15 @@ import { capturedPrompts, instructionsFor, readInstruction, usedTools } from "./
 
 const splitPath = (request: Request) => new URL(request.url).pathname.split("/").filter(Boolean)
 
+/**
+ * The routes the blanket bearer check leaves alone (AH-A05). A share link is read at a plain link,
+ * so its unguessable id is the secret. `/harness/adaptive/*` is answered above, each surface under
+ * its own guard — the acting line's dedicated token, or the browser bearer — and a surface that was
+ * not built must stay an ordinary 404 there rather than turn into a 403 here.
+ */
+const openToAnyCaller = (request: Request, path: string[]) =>
+  path[1] === "adaptive" || (request.method === "GET" && path[1] === "shares" && path.length === 3)
+
 export type HarnessHandlerOptions = {
   browser?: BrowserRuntime
   token?: string
@@ -779,14 +788,6 @@ export const createHarnessHandler = (
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleGuardrailsStatusRequest(request, options.guardrails)
     }
-    // What the runs left behind is served to any page that reaches the loopback port — its bytes and
-    // its listing. When a token was configured it is the same bearer that guards the browser, so a
-    // page that is not this app cannot read it (WA-9). Without a token there is nothing to compare,
-    // and the routes answer as before.
-    if (path[1] === "artifacts" && options.token) {
-      if (!tokenMatches(options.token, bearerFrom(request)))
-        return json({ error: "Forbidden", code: "invalid_token" }, 403)
-    }
     // Says what this server can answer, so a newer client does not ask an older one for routes it
     // does not have and leave a 404 in the console (H-18). `browser` is only here when the runtime
     // was actually built: the kill switch and a missing token leave it out (WA-1).
@@ -840,19 +841,16 @@ export const createHarnessHandler = (
           ...(options.overrides && options.token ? (["adaptive-session"] as const) : []),
         ],
       })
-    // Everything the server changes, in order, so a client follows along instead of asking. The
-    // stream carries prompts and outputs, so with a token configured it asks for the bearer like
-    // every other sensitive surface; without one it answers as before.
-    if (path[1] === "events" && request.method === "GET") {
-      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
-        return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return eventStream(repository, resumeFrom(request))
-    }
-    // Runs start agent turns on the user's machine and carry their prompts, so with a token
-    // configured every `/harness/runs*` route asks for the same bearer as the artifacts (AH-A05):
-    // a page that is not this app cannot read the token, so it can neither list nor start one.
-    if (path[1] === "runs" && options.token && !tokenMatches(options.token, bearerFrom(request)))
+    // The `Origin` check above accepts any loopback port, so it cannot tell this app from another
+    // page on `localhost`. Every route below starts work (runs, best-of-n, retries, workflows,
+    // routines, git), writes the user's files or reads their prompts and artifacts, so with a token
+    // configured each one asks for the bearer that guards the browser (WA-9, AH-A05): a page that is
+    // not this app cannot read the token, so it can neither read what the runs left behind nor start
+    // one. Without a token nothing is compared and every route answers as before.
+    if (options.token && !openToAnyCaller(request, path) && !tokenMatches(options.token, bearerFrom(request)))
       return json({ error: "Forbidden", code: "invalid_token" }, 403)
+    // Everything the server changes, in order, so a client follows along instead of asking.
+    if (path[1] === "events" && request.method === "GET") return eventStream(repository, resumeFrom(request))
     // Runs, whatever asked for them. A routine's own are still under its own path.
     if (path[1] === "runs" && request.method === "GET" && !path[2]) return json({ data: repository.listRuns() })
     if (path[1] === "runs" && request.method === "POST" && !path[2]) {

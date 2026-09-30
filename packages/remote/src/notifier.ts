@@ -155,10 +155,16 @@ export function watchEngineEvents(input: {
 export function watchHarnessEvents(input: {
   /** Harness server base URL, e.g. `http://127.0.0.1:4097`. */
   harness: string
+  /**
+   * The harness's loopback bearer (`browser-token`). With a token configured the harness refuses
+   * `/harness/events` and `/harness/routines/*` without it (AH-A05), so no routine would ever notify.
+   */
+  token?: string
   fetch?: typeof globalThis.fetch
   onNotification: (notification: EngineNotification) => void
 }) {
   const doFetch = input.fetch ?? globalThis.fetch
+  const authorization: Record<string, string> = input.token ? { authorization: `Bearer ${input.token}` } : {}
   const controller = new AbortController()
   // Notified runs, so one that changes twice at the end is not pushed twice.
   const notified = new Set<string>()
@@ -168,6 +174,7 @@ export function watchHarnessEvents(input: {
     const cached = names.get(routineID)
     if (cached) return cached
     const response = await doFetch(new URL(`/harness/routines/${encodeURIComponent(routineID)}`, input.harness), {
+      headers: authorization,
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(5_000)]),
     }).catch(() => undefined)
     const body = response?.ok
@@ -200,7 +207,7 @@ export function watchHarnessEvents(input: {
 
   void streamEvents({
     url: new URL("/harness/events", input.harness),
-    headers: { accept: "text/event-stream" },
+    headers: { accept: "text/event-stream", ...authorization },
     fetch: doFetch,
     signal: controller.signal,
     onEvent: handle,

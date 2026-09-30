@@ -1433,6 +1433,155 @@ describe("the runs surface's bearer and host (AH-A05)", () => {
   })
 })
 
+describe("the bearer on every other route (AH-A05)", () => {
+  const withToken = () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    return { repository, handler: createHarnessHandler(repository, scheduler, { token: "secret-token" }) }
+  }
+  const bearer = { authorization: "Bearer secret-token" }
+  // Everything that starts or changes work, and every read that carries prompts, files or config.
+  const guardedRoutes = [
+    ["POST", "/harness/best-of-n"],
+    ["POST", "/harness/tasks/task_1/retry"],
+    ["POST", "/harness/tasks/task_1/cancel"],
+    ["GET", "/harness/events"],
+    ["GET", "/harness/session-prefs"],
+    ["PATCH", "/harness/session-prefs/ses_1"],
+    ["GET", "/harness/stash"],
+    ["POST", "/harness/stash"],
+    ["DELETE", "/harness/stash/stash_1"],
+    ["GET", "/harness/packs"],
+    ["POST", "/harness/packs"],
+    ["DELETE", "/harness/packs/pack_1"],
+    ["POST", "/harness/shares"],
+    ["GET", "/harness/memory?directory=/tmp"],
+    ["POST", "/harness/memory"],
+    ["DELETE", "/harness/memory/note_1"],
+    ["GET", "/harness/usage"],
+    ["GET", "/harness/context?directory=/tmp"],
+    ["GET", "/harness/context/file?directory=/tmp&path=AGENTS.md"],
+    ["GET", "/harness/context/system-prompt?sessionID=ses_1"],
+    ["GET", "/harness/context/tool-uses?sessionID=ses_1"],
+    ["GET", "/harness/agents"],
+    ["POST", "/harness/agents"],
+    ["DELETE", "/harness/agents?name=a"],
+    ["GET", "/harness/skills"],
+    ["GET", "/harness/skills/file?name=a"],
+    ["POST", "/harness/skills"],
+    ["DELETE", "/harness/skills?name=a"],
+    ["GET", "/harness/commands"],
+    ["POST", "/harness/commands"],
+    ["DELETE", "/harness/commands?name=a"],
+    ["GET", "/harness/config-files"],
+    ["GET", "/harness/config-files/read?path=/etc/hosts"],
+    ["POST", "/harness/config-files/export"],
+    ["GET", "/harness/files/read?directory=/tmp&path=a"],
+    ["GET", "/harness/findings"],
+    ["PATCH", "/harness/findings/finding_1/resolved"],
+    ["GET", "/harness/checkpoints?directory=/tmp"],
+    ["POST", "/harness/checkpoints"],
+    ["GET", "/harness/checkpoints/cp_1/plan"],
+    ["POST", "/harness/checkpoints/cp_1/restore"],
+    ["DELETE", "/harness/checkpoints/cp_1"],
+    ["POST", "/harness/git/commit"],
+    ["POST", "/harness/git/discard"],
+    ["POST", "/harness/git/message"],
+    ["POST", "/harness/git/branch"],
+    ["GET", "/harness/git/branch?directory=/tmp"],
+    ["GET", "/harness/git/pr?directory=/tmp"],
+    ["GET", "/harness/git/pr/log?directory=/tmp&job=1"],
+    ["POST", "/harness/git/pr"],
+    ["GET", "/harness/workflows"],
+    ["GET", "/harness/workflows/ship"],
+    ["PUT", "/harness/workflows/ship"],
+    ["DELETE", "/harness/workflows/ship"],
+    ["POST", "/harness/workflows/ship/runs"],
+    ["GET", "/harness/routines"],
+    ["POST", "/harness/routines"],
+    ["GET", "/harness/routines/rt_1"],
+    ["PATCH", "/harness/routines/rt_1"],
+    ["PATCH", "/harness/routines/rt_1/enabled"],
+    ["DELETE", "/harness/routines/rt_1"],
+    ["GET", "/harness/routines/rt_1/runs"],
+    ["POST", "/harness/routines/rt_1/runs"],
+    ["POST", "/harness/routines/rt_1/runs/run_1/stop"],
+  ] as const
+
+  test("refuses every route without the bearer or with a wrong one, and changes nothing", async () => {
+    const { handler, repository } = withToken()
+    for (const [method, path] of guardedRoutes) {
+      for (const headers of [new Headers(), new Headers({ authorization: "Bearer wrong" })]) {
+        const refused = await handler(
+          new Request(`http://127.0.0.1:4097${path}`, {
+            method,
+            headers,
+            ...(method === "GET" || method === "DELETE" ? {} : { body: JSON.stringify(input) }),
+          }),
+        )
+        expect([method, path, refused.status]).toEqual([method, path, 403])
+        expect((await refused.json()).code).toBe("invalid_token")
+      }
+    }
+    expect(repository.list()).toEqual([])
+    expect(repository.listRuns()).toEqual([])
+    repository.close()
+  })
+
+  test("answers with the bearer: a routine is created, listed and removed", async () => {
+    const { handler, repository } = withToken()
+    const created = await handler(
+      new Request("http://127.0.0.1:4097/harness/routines", { method: "POST", headers: bearer, body: JSON.stringify(input) }),
+    )
+    expect(created.status).toBe(201)
+    const routine = (await created.json()).data
+    const listed = await handler(new Request("http://127.0.0.1:4097/harness/routines", { headers: bearer }))
+    expect((await listed.json()).data.map((entry: { id: string }) => entry.id)).toEqual([routine.id])
+    const removed = await handler(
+      new Request(`http://127.0.0.1:4097/harness/routines/${routine.id}`, { method: "DELETE", headers: bearer }),
+    )
+    expect(removed.status).toBe(200)
+    const workflows = await handler(new Request("http://127.0.0.1:4097/harness/workflows?directory=/nonexistent", { headers: bearer }))
+    expect(workflows.status).toBe(200)
+    repository.close()
+  })
+
+  test("the health and a share link stay open, since a link cannot carry a header", async () => {
+    const { handler, repository } = withToken()
+    const health = await handler(new Request("http://127.0.0.1:4097/harness/health"))
+    expect(health.status).toBe(200)
+    const shared = await handler(
+      new Request("http://127.0.0.1:4097/harness/shares", {
+        method: "POST",
+        headers: bearer,
+        body: JSON.stringify({ title: "T", markdown: "# hi" }),
+      }),
+    )
+    const url = (await shared.json()).data.url
+    const read = await handler(new Request(`http://127.0.0.1:4097${url}`))
+    expect(read.status).toBe(200)
+    expect(await read.text()).toBe("# hi")
+    repository.close()
+  })
+
+  test("without a token configured nothing is compared, and the routes answer as before", async () => {
+    const { handler, repository } = open()
+    const created = await handler(
+      new Request("http://127.0.0.1:4097/harness/routines", { method: "POST", body: JSON.stringify(input) }),
+    )
+    expect(created.status).toBe(201)
+    const listed = await handler(new Request("http://127.0.0.1:4097/harness/routines"))
+    expect((await listed.json()).data).toHaveLength(1)
+    const retry = await handler(new Request("http://127.0.0.1:4097/harness/tasks/missing/retry", { method: "POST" }))
+    expect(retry.status).toBe(404)
+    const bestOfN = await handler(
+      new Request("http://127.0.0.1:4097/harness/best-of-n", { method: "POST", body: JSON.stringify({}) }),
+    )
+    expect(bestOfN.status).toBe(400)
+    repository.close()
+  })
+})
+
 describe("harness commands API", () => {
   test("writes, lists and removes a command file, and refuses a name that would escape", async () => {
     const { handler, repository } = open()
