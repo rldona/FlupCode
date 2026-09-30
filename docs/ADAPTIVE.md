@@ -719,6 +719,75 @@ It is deterministic and local: no model is asked.
   - The plugin needs the legacy `tool.execute.after` hook and plugin tools (see D05 for V2).
   - There is no per-session holdout arm yet.
 
+## Per-step selection
+
+Cache-aware selection of old tool outputs (AH-D03, audit §10.4 "reduce real context",
+[ADR-0024](adr/0024-cache-aware-selection.md)). A **PoC, off by default**, measured only by replay.
+
+- **The caching constraint.** The engine sets cache breakpoints on the first two system messages and
+  the last two conversation messages of every request (`applyCaching`). So each step reads the whole
+  previous conversation from the cache (≈ 0.1× input). Changing an old byte rewrites everything after
+  it at the cache-write price (1.25× for Anthropic's 5-minute cache). Trimming an old pair at a warm
+  step pays back only after about 11.5 · (C − T)/T further steps, so it almost always costs more.
+  The ADR has the math.
+- **What it does instead.** It trims only at a **cold boundary**: a user message created more than
+  `coldGapMs` after the previous assistant message completed. The cache has expired by then, so the
+  whole conversation is written again anyway. The trimmed set is a function of the history before
+  each boundary, so every later step renders the same bytes until the next boundary. Trimming saves
+  the write at the boundary and the read on every step after it.
+- **Rules.**
+  - It replaces only the output of a completed tool part with a short placeholder. When D02 stored
+    the output, the placeholder points to `evidence_read` with its ref.
+  - Every tool call keeps its result, and no message or part is added or removed.
+  - It never touches the system prompt, a user message, text or reasoning, errored calls, the exempt
+    tools (`skill`, `task`, `todowrite`, `todoread`), outputs under 1,024 characters, the
+    `keepRecentTurns` turns before a boundary, or anything after the last boundary.
+  - A boundary that would save fewer than `minSavingsTokens` trims nothing.
+- **Plugin.** `CACHE_SELECTION_PLUGIN` (`flupcode-cache-selection.js`) runs the pure `selectForCache`
+  (inlined from `CACHE_SELECTION_SOURCE`) in `experimental.chat.messages.transform` and writes the
+  result back into the engine's array.
+  - **No network in the hook.** The policy comes from `GET /harness/adaptive/selection` (adaptive
+    bearer). It is fetched when the plugin loads and every 30 s on a timer.
+  - **Latched per session.** A session's policy changes only at one of its cold steps, so flipping
+    the switch never rewrites a warm cache.
+  - **Fail open.** No answer, a stale or malformed policy, or any error leaves the messages untouched.
+- **Config.** `adaptive.selection`:
+
+  | Key | Default | Bound |
+  | --- | --- | --- |
+  | `enabled` | `false` | also needs the kill switch on and a legacy runtime (probe) |
+  | `keepRecentTurns` | `2` | 0–50 |
+  | `minSavingsTokens` | `4096` | ≥ 0 |
+  | `coldGapMs` | `3900000` (65 min, past every cache TTL) | 1 ms – 24 h; 360000 suits Anthropic's 5-minute default |
+
+  `selection.enabled` (adaptive-token guard, warning `evaluation-gated`) and `selection.coldGapMs`
+  are writable through the settings surface so a replay variant can set them. The settings panel has
+  no control for either.
+- **Composition.** A11 relevance and D04 anchors only read user text in the same hook, and selection
+  returns every user message as the same object, so their order does not matter.
+  - A11's line lives in the second system message. When it changes between requests, it rewrites
+    the conversation cache on its own.
+  - Selection never adds a change at a warm step.
+  - Making the line cache-stable is an A11 follow-up.
+- **Replay (the acceptance).** From `packages/harness-server`, with the plugin installed (FlupCode
+  restarted on this build) and the adaptive token present:
+
+  ```sh
+  # Acceptance: both arms pause 6.5 min between prompts, so every turn starts cold.
+  bun run replay -- --variants fixtures/replay/variants/selection.json --repeat 3 --yes
+  # Falsification: trimming at warm steps, which the ADR predicts costs more.
+  bun run replay -- --variants fixtures/replay/variants/selection-warm.json --repeat 3 --yes
+  ```
+
+  Promote only with Δ USD < 0, Δ completion ≥ −1 pp and 0 turn errors. With the default
+  `keepRecentTurns: 2`, a fixture needs at least four prompts, with large tool outputs early on,
+  before anything is trimmed.
+- **Limits.**
+  - A cold start inside a turn (a long tool run) is not seen, because the list carries no request
+    time.
+  - An engine restart after a policy change can cost one rewrite in a warm session.
+  - The hook fires only on the legacy runner (D05).
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting
@@ -754,6 +823,8 @@ always safe.
   | `egress.providers.<id>.kinds` | boolean-map | validated against `isDecisionKind` | **yes** when it widens |
   | `retention.enabled` | boolean | — | **yes** ([ADR-0022](adr/0022-loopback-auth-retention-and-rollback.md)) |
   | `budget.monthlyTokens` | number > 0 | — | — |
+  | `selection.enabled` | boolean | a resolved `adaptive-token`; warning `evaluation-gated` ([ADR-0024](adr/0024-cache-aware-selection.md)); no control in the panel, replay only | — |
+  | `selection.coldGapMs` | number > 0 | — ; replay only | — |
 
   Read-only in E8: `runtime.*`, `episode.*`, `decisions.*`,
   `jev.{endpoint,model,timeoutMs,maxInputTokens}`, `budget.hotReserveFraction`,

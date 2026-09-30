@@ -1,0 +1,4 @@
+[
+  { "name": "baseline", "adaptive": { "selection": { "enabled": false } } },
+  { "name": "selection-every-turn", "adaptive": { "selection": { "enabled": true, "coldGapMs": 1 } } }
+]

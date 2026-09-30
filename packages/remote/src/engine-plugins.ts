@@ -2568,6 +2568,303 @@ export const flupcodeToolTrim = async () => {
 `,
 }
 
+/**
+ * The pure selection behind CACHE_SELECTION_PLUGIN (AH-D03, ADR-0024), as plain JavaScript source. It
+ * is inlined into the plugin, which may import no package, and tests evaluate the same text, so the
+ * code the engine runs is the code the tests prove.
+ *
+ * `selectForCache(messages, policy)` takes the engine's `{ info, parts }` list and returns
+ * `{ messages, trimmed, savedTokens }`. It never mutates its input: an untouched message keeps its
+ * object, a message with a trimmed part is a shallow copy. Only the output of a completed tool part is
+ * ever replaced, so every tool call keeps its result and no message or part is added or removed.
+ *
+ * Prompt caching decides everything here: the provider caches the request prefix, so changing a byte
+ * the previous request already sent rewrites everything after it at the cache-write price. The trimmed
+ * set therefore changes only at a **cold boundary**, a user message sent after the conversation's
+ * cache has expired (the gap since the previous assistant message completed is past `coldGapMs`),
+ * where the whole conversation is written again anyway. The set is a function of the history before
+ * each boundary, so every later step reproduces it byte for byte until the next boundary.
+ */
+export const CACHE_SELECTION_SOURCE = String.raw`// Tools whose whole output stays the point long after the call: a loaded skill's instructions, a
+// subagent's answer and the todo list. They are never trimmed.
+const SELECTION_EXEMPT_TOOLS = ["skill", "task", "todowrite", "todoread"]
+
+// Outputs shorter than this save less than the placeholder costs to read; they are left alone.
+const SELECTION_MIN_OUTPUT_CHARS = 1024
+
+const SELECTION_REF = /^[0-9a-f]{16}$/
+const SELECTION_REF_IN_OUTPUT = /evidence:([0-9a-f]{16})/
+
+// The engine's own estimate: four characters a token.
+function selectionTokens(text) {
+  return Math.ceil(text.length / 4)
+}
+
+// A user message is a cold boundary when the message right before it is an assistant message that
+// completed more than coldGapMs before the user message was created. The request that sends it goes
+// out no earlier than that, so its conversation cache has expired: nothing it trims was cached. A user
+// message after another user message, or after an assistant message without a completion time, is
+// never a boundary, so a race between a queued message and a running step cannot move the set.
+function coldBoundary(messages, index, coldGapMs) {
+  const info = messages[index] && messages[index].info
+  const before = index > 0 && messages[index - 1] ? messages[index - 1].info : undefined
+  if (!info || info.role !== "user" || !before || before.role !== "assistant") return false
+  const created = info.time && info.time.created
+  const completed = before.time && before.time.completed
+  return typeof created === "number" && typeof completed === "number" && created - completed > coldGapMs
+}
+
+// Whether the step this list is sent on is cold: its last message opens a turn at a cold boundary.
+function coldStep(messages, coldGapMs) {
+  return Array.isArray(messages) && messages.length > 0 && coldBoundary(messages, messages.length - 1, coldGapMs)
+}
+
+function selectionRef(state) {
+  const held = state.metadata && typeof state.metadata === "object" ? state.metadata.evidenceRef : undefined
+  if (typeof held === "string" && SELECTION_REF.test(held)) return held
+  const found = SELECTION_REF_IN_OUTPUT.exec(state.output)
+  return found ? found[1] : undefined
+}
+
+// The placeholder depends only on the part, so every later step renders the same bytes.
+function selectionPlaceholder(part) {
+  const ref = selectionRef(part.state)
+  return (
+    "[Old " + part.tool + " output (" + part.state.output.length + " characters) cleared by FlupCode to save context. " +
+    (ref ? "The full output is kept: call evidence_read with ref " + ref + "." : "Run the tool again if you still need it.") +
+    "]"
+  )
+}
+
+function selectionTrimmable(part) {
+  if (!part || part.type !== "tool" || typeof part.tool !== "string") return false
+  if (SELECTION_EXEMPT_TOOLS.includes(part.tool)) return false
+  const state = part.state
+  if (!state || state.status !== "completed" || typeof state.output !== "string") return false
+  // The engine's own prune already clears a compacted output; touching it again would change nothing.
+  if (state.time && state.time.compacted) return false
+  return state.output.length >= SELECTION_MIN_OUTPUT_CHARS
+}
+
+function selectForCache(messages, policy) {
+  const trimmed = new Map()
+  const users = []
+  let savedTokens = 0
+  messages.forEach((message, boundary) => {
+    const isUser = message && message.info && message.info.role === "user"
+    if (!coldBoundary(messages, boundary, policy.coldGapMs)) {
+      if (isUser) users.push(boundary)
+      return
+    }
+    // The last keepRecentTurns turns before the boundary stay whole; a turn starts at a user message.
+    const keep = policy.keepRecentTurns
+    const protectedFrom = keep === 0 ? boundary : users.length >= keep ? users[users.length - keep] : 0
+    users.push(boundary)
+    const candidates = messages.slice(0, protectedFrom).flatMap((candidate, index) => {
+      if (!candidate || !candidate.info || candidate.info.role !== "assistant" || !Array.isArray(candidate.parts)) return []
+      return candidate.parts.flatMap((part, at) => {
+        if (!selectionTrimmable(part) || (trimmed.get(index) && trimmed.get(index).has(at))) return []
+        const saving = selectionTokens(part.state.output) - selectionTokens(selectionPlaceholder(part))
+        return saving > 0 ? [{ index: index, at: at, saving: saving }] : []
+      })
+    })
+    const saving = candidates.reduce((sum, candidate) => sum + candidate.saving, 0)
+    // Below the floor the information lost is not worth the tokens: this boundary trims nothing new.
+    if (candidates.length === 0 || saving < policy.minSavingsTokens) return
+    candidates.forEach((candidate) => {
+      if (!trimmed.has(candidate.index)) trimmed.set(candidate.index, new Set())
+      trimmed.get(candidate.index).add(candidate.at)
+    })
+    savedTokens += saving
+  })
+  if (trimmed.size === 0) return { messages: messages, trimmed: 0, savedTokens: 0 }
+  const selected = messages.map((message, index) => {
+    const parts = trimmed.get(index)
+    if (!parts) return message
+    return {
+      ...message,
+      parts: message.parts.map((part, at) => {
+        if (!parts.has(at)) return part
+        // Attachments go with the output they belong to, as the engine's own prune does.
+        const state = { ...part.state, output: selectionPlaceholder(part) }
+        if (Array.isArray(state.attachments)) state.attachments = []
+        return { ...part, state: state }
+      }),
+    }
+  })
+  return {
+    messages: selected,
+    trimmed: [...trimmed.values()].reduce((sum, parts) => sum + parts.size, 0),
+    savedTokens: savedTokens,
+  }
+}`
+
+/**
+ * cache-selection: per-step, cache-aware selection of old tool outputs (AH-D03, ADR-0024). On
+ * `experimental.chat.messages.transform` it replaces old, large tool outputs with a short placeholder,
+ * only as `selectForCache` above allows: never at a warm step, never a user message, never the recent
+ * turns, never a tool call without its result.
+ *
+ * The hook makes no network call. The policy (`GET /harness/adaptive/selection`, adaptive bearer) is
+ * fetched when the plugin loads and refreshed on a timer, then latched per session and changed only at
+ * a cold step, so a switch flipped mid-session cannot rewrite a warm cache. Off unless the harness
+ * says otherwise; any failure leaves the messages exactly as they arrived.
+ */
+export const CACHE_SELECTION_PLUGIN = {
+  file: "flupcode-cache-selection.js",
+  source: String.raw`// Installed by FlupCode. Replaces old, large tool outputs with a short placeholder at the steps where
+// the provider's prompt cache has expired anyway, so the trim never rewrites a cached prefix. Off
+// unless the harness says so; any failure leaves the messages untouched. Regenerated when FlupCode
+// starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+${CACHE_SELECTION_SOURCE}
+
+// The policy is refreshed on this timer, outside the hook: the hook itself never waits on a network.
+const REFRESH_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_SELECTION_REFRESH_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 30 * 1000
+})()
+
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_SELECTION_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000
+})()
+
+// A policy the harness has not confirmed for this long is treated as off for new latches.
+const POLICY_TTL_MS = 5 * 60 * 1000
+
+// Kept in step with SELECTION_* in packages/harness-server/src/adaptive/config.ts. Without a policy a
+// step is judged cold against the most conservative gap: past every cache TTL the engine can ask for.
+const DEFAULT_COLD_GAP_MS = 65 * 60 * 1000
+const MAX_KEEP_RECENT_TURNS = 50
+const MAX_COLD_GAP_MS = 24 * 60 * 60 * 1000
+
+const OFF = { enabled: false, keepRecentTurns: 2, minSavingsTokens: 4096, coldGapMs: DEFAULT_COLD_GAP_MS }
+
+const MAX_SESSIONS = 500
+
+let policy = undefined
+let timer = undefined
+const latches = new Map()
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  // The adaptive routes have their own secret (ADR-0022): the browser bearer must not open them.
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+function integerIn(value, min, max) {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+}
+
+// Anything but the exact shape the harness serves is off: a peer holding the loopback port cannot
+// turn the trim on with a malformed answer.
+function policyOf(data) {
+  if (!data || typeof data !== "object" || typeof data.enabled !== "boolean") return undefined
+  if (!integerIn(data.keepRecentTurns, 0, MAX_KEEP_RECENT_TURNS)) return undefined
+  if (!integerIn(data.minSavingsTokens, 0, Number.MAX_SAFE_INTEGER)) return undefined
+  if (!integerIn(data.coldGapMs, 1, MAX_COLD_GAP_MS)) return undefined
+  return {
+    enabled: data.enabled,
+    keepRecentTurns: data.keepRecentTurns,
+    minSavingsTokens: data.minSavingsTokens,
+    coldGapMs: data.coldGapMs,
+  }
+}
+
+async function refresh(base, token) {
+  const response = await fetch(base + "/harness/adaptive/selection", {
+    headers: { authorization: "Bearer " + token },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  }).catch(() => undefined)
+  if (!response || !response.ok) return
+  const body = await response.json().catch(() => undefined)
+  const next = policyOf(body && typeof body === "object" ? body.data : undefined)
+  // A malformed answer leaves the last good policy to expire on its own.
+  if (next) policy = { ...next, at: Date.now() }
+}
+
+function currentPolicy(now) {
+  return policy && now - policy.at <= POLICY_TTL_MS ? policy : OFF
+}
+
+// The policy a session runs under changes only at a cold step, where nothing is cached to lose. A
+// session first seen mid-way (a new engine) takes the current policy.
+function latched(sessionID, messages, current) {
+  const held = latches.get(sessionID)
+  const next = !held || coldStep(messages, current.coldGapMs) ? current : held
+  latches.delete(sessionID)
+  latches.set(sessionID, next)
+  while (latches.size > MAX_SESSIONS) latches.delete(latches.keys().next().value)
+  return next
+}
+
+function sessionOf(messages) {
+  const info = messages.find((message) => message && message.info && typeof message.info.sessionID === "string")
+  return info ? info.info.sessionID : undefined
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeCacheSelection = async () => {
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+  if (!timer) {
+    void refresh(base, token)
+    timer = setInterval(() => void refresh(base, token), REFRESH_MS)
+    if (typeof timer.unref === "function") timer.unref()
+  }
+
+  return {
+    "experimental.chat.messages.transform": async (_input, output) => {
+      try {
+        const messages = output && output.messages
+        if (!Array.isArray(messages) || messages.length === 0) return
+        const sessionID = sessionOf(messages)
+        if (!sessionID) return
+        const effective = latched(sessionID, messages, currentPolicy(Date.now()))
+        if (!effective.enabled) return
+        const result = selectForCache(messages, effective)
+        // The engine keeps its own reference to this array, so the selection is written back in place.
+        result.messages.forEach((message, index) => {
+          if (message !== messages[index]) messages[index] = message
+        })
+      } catch {
+        // Fail open: the messages reach the model exactly as they arrived.
+      }
+    },
+  }
+}
+`,
+}
+
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
   TOOL_USES_PLUGIN,
@@ -2582,6 +2879,7 @@ const PLUGINS = [
   SESSION_METRICS_PLUGIN,
   COMPACTION_ANCHORS_PLUGIN,
   TOOL_TRIM_PLUGIN,
+  CACHE_SELECTION_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

@@ -74,6 +74,24 @@ wall time and Δ USD, and a recommendation by the preregistered rule (Δ uncache
 some long enough to compact): the D02/D03 thresholds are fixed from it, not from the synthetic
 example.
 
+## Cache-aware selection (AH-D03)
+
+`variants/selection.json` is the acceptance run for per-step selection (ADR-0024). Both arms wait
+6.5 minutes between prompts (`idleMs`, not counted in wall time), so Anthropic's 5-minute prompt cache
+has expired and every turn starts cold. That is the only place the selection trims. The
+`selection-cold` arm turns it on with a 6-minute `coldGapMs`. `variants/selection-warm.json` is the
+falsification arm: it trims at warm steps, and the ADR predicts it costs more.
+
+It needs the plugin installed (FlupCode restarted on a build that has it) and the adaptive token
+present. With the default `keepRecentTurns: 2`, it only trims fixtures of four or more prompts.
+
+```sh
+bun run replay -- --variants fixtures/replay/variants/selection.json --repeat 3 --yes
+bun run replay -- --variants fixtures/replay/variants/selection-warm.json --repeat 3 --yes
+```
+
+Promote only with Δ USD < 0, Δ completion ≥ −1 pp and 0 turn errors (no rejected request).
+
 Reports land in `reports/<timestamp>/report.json` and `report.md`: tokens (uncached input, cached,
 output), USD and wall time per repetition, the verify result, mean, p50 and spread per fixture ×
 variant, and each variant's deltas against the baseline. The engine exposes no sampling seed, so the report says `seed: null` and pins the model on

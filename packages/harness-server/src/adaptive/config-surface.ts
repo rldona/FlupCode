@@ -100,6 +100,11 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   // The compaction anchors (AH-D04) only enrich the engine's own prompt and are capped and
   // fail-open, so they toggle freely; the replay runner flips them to measure their effect.
   { path: "compaction.anchors", type: "boolean", confirmation: "none", guard: "none" },
+  // Per-step selection (AH-D03) is writable only so a replay variant can switch it and set its cold
+  // gap; the settings panel draws no control for either, and it stays off until the replay promotes it.
+  // Its plugin reads the policy with the adaptive bearer, so without one it could never act.
+  { path: "selection.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token", warning: "evaluation-gated" },
+  { path: "selection.coldGapMs", type: "number", confirmation: "none", guard: "none" },
 ]
 
 const WRITABLE_BY_PATH = new Map(WRITABLE_FIELDS.map((field) => [field.path, field]))
@@ -154,6 +159,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const providers = usageOf(egress.providers)
   const budget = usageOf(block.budget)
   const compaction = usageOf(block.compaction)
+  const selection = usageOf(block.selection)
   const pick = (fromEnv: boolean, fromBlock: boolean): AdaptiveProvenance => (fromEnv ? "env" : fromBlock ? "block" : "default")
   const envNumber = (name: string) => positiveNumberFrom(Number(env[name]))
   return {
@@ -170,6 +176,8 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     ...providerSources(providers, jev, egress),
     "budget.monthlyTokens": pick(false, positiveNumberFrom(budget.monthlyTokens) !== undefined),
     "compaction.anchors": pick(false, typeof compaction.anchors === "boolean"),
+    "selection.enabled": pick(false, typeof selection.enabled === "boolean"),
+    "selection.coldGapMs": pick(false, Number.isInteger(selection.coldGapMs) && positiveNumberFrom(selection.coldGapMs) !== undefined),
     "runtime.enabled": pick(env.FLUPCODE_ADAPTIVE_PROBE_DISABLED === "1", typeof probe.enabled === "boolean"),
     "runtime.ttlMs": pick(envNumber("FLUPCODE_ADAPTIVE_PROBE_TTL_MS") !== undefined, positiveNumberFrom(probe.ttlMs) !== undefined),
     "runtime.override": pick(runtimeOverrideFrom(env.FLUPCODE_ADAPTIVE_RUNTIME) !== undefined, runtimeOverrideFrom(block.runtime) !== undefined),
@@ -513,6 +521,11 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
       "guardrails.enabled",
     ])
 
+  if (setsTrue("selection.enabled") && !input.adaptiveTokenPresent)
+    throw new AdaptiveConfigError("Enabling per-step selection needs a resolved adaptive token", 422, "guard:no-adaptive-token", [
+      "selection.enabled",
+    ])
+
   if (setsTrue("toolTrim.enabled") && !input.adaptiveTokenPresent)
     throw new AdaptiveConfigError("Enabling the tool-output trim needs a resolved adaptive token", 422, "guard:no-adaptive-token", [
       "toolTrim.enabled",
@@ -572,7 +585,8 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
     throw new AdaptiveConfigError("This change needs confirmation", 422, "confirmation-required", confirmFields)
 
   const warnings: string[] = []
-  if (setsTrue("context.apply")) warnings.push("evaluation-gated")
+  if (setsTrue("context.apply") || setsTrue("selection.enabled")) warnings.push("evaluation-gated")
+  if (setsTrue("selection.enabled") && input.runtimeKind !== "legacy") warnings.push("runtime-inert")
   if (setsTrue("relevance.enabled") && input.runtimeKind !== "legacy") warnings.push("runtime-inert")
   if (setsTrue("learning.enabled")) warnings.push("learning-draft-egress")
   if (setsTrue("learning.enabled") && !effectiveAfter.learning.model && !input.smallModel) warnings.push("no-model")

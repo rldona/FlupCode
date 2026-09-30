@@ -37,6 +37,12 @@ export type ReplayVariant = {
    * the variant. Exclusive with `engine`.
    */
   engineConfig?: Record<string, unknown>
+  /**
+   * Milliseconds to wait between one prompt going idle and the next prompt (AH-D03), so the provider's
+   * prompt cache expires between turns as it does when a person steps away. The wait is not counted in
+   * the wall time. Give the baseline the same wait, or the comparison measures the pause.
+   */
+  idleMs?: number
 }
 
 export type ReplayTokens = { input: number; cacheRead: number; cacheWrite: number; output: number; reasoning: number }
@@ -156,6 +162,10 @@ export async function runReplay(options: ReplayOptions): Promise<ReplayReport> {
   if (conflict) throw new Error(`Variant ${conflict.name}: engineConfig starts its own engine, so it cannot set engine`)
   if (!options.spawn && options.variants.some((variant) => variant.engineConfig))
     throw new Error("A variant with engineConfig needs a spawn command for its engine")
+  const idle = options.variants.find(
+    (variant) => variant.idleMs !== undefined && !(Number.isInteger(variant.idleMs) && variant.idleMs >= 0),
+  )
+  if (idle) throw new Error(`Variant ${idle.name}: idleMs must be a whole number of milliseconds`)
   const runs: ReplayRun[] = []
   for (const variant of options.variants) {
     const spawned =
@@ -250,8 +260,15 @@ async function replayOnce(input: {
     if (session instanceof Error) return failed(base, session.message)
     // Wall time is the turns alone: creating the worktree and the session is not the work measured.
     const started = Date.now()
+    const idleMs = input.variant.idleMs ?? 0
+    // Only the waits that happened are taken out of the wall time: a turn that failed stops them.
+    let idled = 0
     const turn = await (async () => {
-      for (const text of input.fixture.prompts) {
+      for (const [index, text] of input.fixture.prompts.entries()) {
+        if (index > 0 && idleMs > 0) {
+          await Bun.sleep(idleMs)
+          idled += idleMs
+        }
         await input.engine.prompt({
           sessionID: session.id,
           directory,
@@ -270,7 +287,7 @@ async function replayOnce(input: {
       () => undefined,
       (cause: unknown) => messageOf(cause),
     )
-    const wallMs = Date.now() - started
+    const wallMs = Date.now() - started - idled
     const messages = await input.engine.messages(session.id, directory).catch(() => [])
     const usage = await measure(options, session.id, messages)
     const turnErrors = messages.filter((message) => message.info?.role === "assistant" && message.info.error).length

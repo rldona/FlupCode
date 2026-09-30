@@ -110,6 +110,11 @@ async function runCommand(argv: string[]) {
         ...spawned.map((variant) => `  ${variant.name}: OPENCODE_CONFIG_CONTENT=${JSON.stringify(variant.engineConfig)}`),
       ].join("\n"),
     )
+  const idle = variants.filter((variant) => variant.idleMs)
+  if (idle.length > 0)
+    console.log(
+      `Idle between prompts: ${idle.map((variant) => `${variant.name} ${Math.round((variant.idleMs ?? 0) / 1000)}s`).join(", ")} (not counted in wall time).`,
+    )
   if (!args.yes) {
     console.log("Each prompt is a real, paid model turn. Re-run with --yes to start.")
     return

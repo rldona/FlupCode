@@ -51,7 +51,7 @@ import { armsFor } from "./adaptive/holdout"
 import { handleSessionSummaryRead } from "./adaptive/session-summary"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
-import type { AdaptiveConfig } from "./adaptive/config"
+import type { AdaptiveConfig, SelectionConfig } from "./adaptive/config"
 
 const json = (value: unknown, status = 200) =>
   new Response(JSON.stringify(value), {
@@ -424,6 +424,8 @@ export type HarnessHandlerOptions = {
   compactionAnchors?: () => boolean
   /** The live adaptive config the tool-output trim reads its switch and bounds from (AH-D02). */
   toolTrimConfig?: () => AdaptiveConfig
+  /** The effective per-step selection policy (AH-D03): its switch already folds in the kill switch and the probe gate. */
+  selectionPolicy?: () => SelectionConfig
   /** The live holdout share, so a metrics row records the session's arms (AH-B05). */
   holdoutFraction?: () => number
   /** The dedicated loopback bearer of the acting line; the route is closed without it (ADR-0022). */
@@ -645,6 +647,21 @@ export const createHarnessHandler = (
         },
       })
     }
+    // Per-step selection (AH-D03): the plugin reads its policy on a timer, outside the engine hook, with
+    // the dedicated bearer. A GET because it carries nothing; without a token it is a 404 and the plugin
+    // stays off.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "selection" &&
+      path.length === 3 &&
+      request.method === "GET" &&
+      options.selectionPolicy &&
+      options.adaptiveToken
+    ) {
+      if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return json({ data: options.selectionPolicy() })
+    }
     // The recoverable tool-output trim (AH-D02): the plugin posts a finished output and the
     // `evidence_read` tool reads a stored one back, both on the loopback with the dedicated bearer.
     // Without a token neither route exists and the capability is not announced.
@@ -743,6 +760,8 @@ export const createHarnessHandler = (
           ...(options.adaptiveToken ? (["adaptive-metrics"] as const) : []),
           // The tool-output trim (AH-D02): both routes need the dedicated bearer and the config reader.
           ...(options.toolTrimConfig && options.adaptiveToken ? (["adaptive-tool-trim"] as const) : []),
+          // Per-step selection (AH-D03): the policy route needs the dedicated bearer too.
+          ...(options.selectionPolicy && options.adaptiveToken ? (["adaptive-selection"] as const) : []),
         ],
       })
     // Everything the server changes, in order, so a client follows along instead of asking. The
