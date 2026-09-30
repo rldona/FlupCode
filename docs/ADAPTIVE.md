@@ -121,6 +121,11 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   before any model call. A quiet episode produces **zero** jobs and zero spend; a busy episode
   produces **at most one**. The cadence is a safety net, not the trigger, and a job is terminal after
   its first attempt: a second close or the sweep never re-reflects.
+- **Claimed before it spends.** A pass first inserts the episode's `pending` job (insert-if-absent)
+  and reflects only if it created it, so a restart mid-draft or two harness processes on one database
+  never classify or draft the same episode twice. The claim carries `claimed_at` and a 10-minute lease:
+  a `pending` job older than that belongs to a process that died, and the sweep takes it over
+  (`attempts` counts the claims) instead of leaving it `pending` forever.
 - **Jev classifies; the small model drafts.** A dedicated `skillReflection` decision answers
   *reusable?*, *which intent?* (`add`/`patch`; `merge`/`drop` are rejected with a reason) and *which
   existing skill?*. Its deterministic baseline is **inert** (`reusable: false`), so with Jev off
@@ -188,7 +193,9 @@ provenance-carrying files the engine loads like any other. The design is fixed b
   `patch` counts improvements, `opportunities` counts every time the skill could have been chosen,
   and the rate is `recallRate = load / max(opportunities, 1)`. `view` counts the harness re-reading a
   body to prepare a `patch`; there is no seam to observe the model opening a skill, so `view == 0`
-  still means "unknown", not "unused".
+  still means "unknown", not "unused". A selection counts **once per episode**: the shadow never runs
+  two passes of one episode at a time, and the sidecar remembers the last 32 episodes it counted
+  (`countedEpisodes`), so a startup sweep racing a close cannot count an opportunity twice.
 - **The permission ceiling is a rule in the writer.** A learned skill can never create, widen or
   bypass a permission; it is at most one more skill, evaluated by the engine like any other.
 

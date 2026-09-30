@@ -81,11 +81,23 @@ export function reflectionGateBatch(episodes: readonly SessionEpisode[], config:
 export const DEFAULT_REFLECTION_SWEEP_LIMIT = 50
 
 /**
+ * How long a `pending` claim holds before another pass may take it over. A reflection is one
+ * classification and one bounded draft, far below this; a claim older than it belongs to a process
+ * that died mid-reflection, and without a lease that episode would stay `pending` forever.
+ */
+export const REFLECTION_LEASE_MS = 10 * 60_000
+
+/** Whether a pass may claim the episode: no job yet, or a `pending` one whose claim has expired. */
+export const reflectionClaimable = (job: StoredReflectionJob | undefined, now: number, leaseMs: number): boolean =>
+  job === undefined || (job.status === "pending" && (job.claimedAt ?? job.updatedAt) < now - leaseMs)
+
+/**
  * The episodes a sweep should reflect on: terminal (they have an `endedAt`) and with no job yet.
  *
  * This is the same criterion the Phase 2 shadow uses, and the job primary key is what makes "already
  * tried" a fact: an episode with a job — done, skipped or failed — is never reconsidered, so the
- * sweep neither re-reflects nor re-spends.
+ * sweep neither re-reflects nor re-spends. The caller decides what counts as a job: the manager
+ * treats an expired `pending` claim as none, so a crashed reflection is retried.
  */
 export function reflectionCandidates(input: {
   episodes: readonly SessionEpisode[]
@@ -115,11 +127,13 @@ export type StoredReflectionJob = {
   decisionID?: string
   proposalID?: string
   attempts: number
+  /** When the current `pending` claim was taken; only `claimReflectionJob` writes it. */
+  claimedAt?: number
   createdAt: number
   updatedAt: number
 }
 
-export type StoredReflectionJobInput = Omit<StoredReflectionJob, "createdAt" | "updatedAt">
+export type StoredReflectionJobInput = Omit<StoredReflectionJob, "createdAt" | "updatedAt" | "claimedAt">
 
 export type ReflectionJobFilter = {
   projectID?: string
@@ -137,12 +151,13 @@ export type ReflectionRow = {
   decision_id: string | null
   proposal_id: string | null
   attempts: number
+  claimed_at: number | null
   created_at: number
   updated_at: number
 }
 
 /** The row as it is written: absent optionals stored as `null`. */
-export const reflectionJobRowFrom = (input: StoredReflectionJobInput, now: number): ReflectionRow => ({
+export const reflectionJobRowFrom = (input: StoredReflectionJobInput, now: number): Omit<ReflectionRow, "claimed_at"> => ({
   episode_id: input.episodeID,
   session_id: input.sessionID ?? null,
   project_id: input.projectID ?? null,
@@ -167,6 +182,7 @@ export const reflectionJobFromRow = (row: ReflectionRow): StoredReflectionJob | 
     ...(row.decision_id ? { decisionID: row.decision_id } : {}),
     ...(row.proposal_id ? { proposalID: row.proposal_id } : {}),
     attempts: row.attempts,
+    ...(typeof row.claimed_at === "number" ? { claimedAt: row.claimed_at } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }

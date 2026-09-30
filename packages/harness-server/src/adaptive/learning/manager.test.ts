@@ -15,6 +15,7 @@ import { Engine } from "../../engine"
 import type { SkillProposal } from "./proposal"
 import type { ReflectionService } from "./manager"
 import { REFLECTION_FAILED_REASON, createLearningManager } from "./manager"
+import { REFLECTION_LEASE_MS } from "./reflection-job"
 import { handleProposalRequest } from "../learning-routes"
 import { createLearnedStore } from "../skills/learned-store"
 import { createSkillCurator } from "../skills/curator"
@@ -819,5 +820,74 @@ describe("the draft timeout (AH-A02)", () => {
     expect(repository.getProposal("proposal:episode:run:1")).toBeUndefined()
     expect(engine.interrupted).toEqual(["draft-session"])
     expect(engine.deleted).toEqual(["draft-session"])
+  })
+})
+
+describe("the durable reflection claim (AH-A07)", () => {
+  test("two managers sharing one database reflect an episode once", async () => {
+    const repository = repositoryFor()
+    let classification = 0
+    const draft = drafters()
+    const managers = [1, 2].map(() =>
+      managerFor({
+        repository,
+        service: reflectionService({ onCall: () => (classification += 1) }),
+        config: configFor(),
+        drafter: draft.drafter,
+      }),
+    )
+    for (const manager of managers) manager.onEpisodeClosed(episode())
+    await settle()
+
+    expect(classification).toBe(1)
+    expect(draft.calls()).toBe(1)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "done", attempts: 1 })
+  })
+
+  test("a pending claim older than the lease is reclaimed by the sweep and finished", async () => {
+    const repository = repositoryFor()
+    // A process that claimed the episode and died mid-draft, past the lease.
+    expect(
+      repository.claimReflectionJob(
+        { episodeID: "episode:run:1", sessionID: "ses_1", projectID: project },
+        NOW - REFLECTION_LEASE_MS - 1,
+        REFLECTION_LEASE_MS,
+      ),
+    ).toBe(true)
+    repository.createEpisode(episode(), NOW)
+    const draft = drafters()
+    const manager = managerFor({ repository, service: reflectionService({}), config: configFor(), drafter: draft.drafter })
+
+    expect(manager.sweep()).toBe(1)
+    await settle()
+
+    expect(draft.calls()).toBe(1)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "done", attempts: 2 })
+  })
+
+  test("a live pending claim blocks the sweep and a close", async () => {
+    const repository = repositoryFor()
+    repository.claimReflectionJob(
+      { episodeID: "episode:run:1", sessionID: "ses_1", projectID: project },
+      NOW - 60_000,
+      REFLECTION_LEASE_MS,
+    )
+    repository.createEpisode(episode(), NOW)
+    let classification = 0
+    const draft = drafters()
+    const manager = managerFor({
+      repository,
+      service: reflectionService({ onCall: () => (classification += 1) }),
+      config: configFor(),
+      drafter: draft.drafter,
+    })
+
+    expect(manager.sweep()).toBe(0)
+    manager.onEpisodeClosed(episode())
+    await settle()
+
+    expect(classification).toBe(0)
+    expect(draft.calls()).toBe(0)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "pending", attempts: 1 })
   })
 })

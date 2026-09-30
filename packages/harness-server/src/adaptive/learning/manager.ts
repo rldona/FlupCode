@@ -4,9 +4,11 @@
  * It hangs off the coordinator's terminal callback and a sweep, exactly like the shadow, and it is
  * asynchronous and inert to failure by construction: a session is never blocked and never fails, so
  * a reflection that goes wrong is recorded and dropped. The durable guarantee is the `reflection_job`
- * primary key (`episode_id`): once an episode has a job — done, skipped or failed — it is never
- * reflected again, so a second close or a restart cannot spend twice. An in-process set closes the
- * gap while the first pass is still running, which is the only window the row does not cover yet.
+ * primary key (`episode_id`): a pass first claims the episode by inserting a `pending` row, and only
+ * the pass that claimed it reflects, so a second close, a restart or a second harness process on the
+ * same database cannot spend twice. Once the job is terminal — done, skipped or failed — it is never
+ * reflected again; a `pending` claim older than `REFLECTION_LEASE_MS` is a process that died
+ * mid-reflection, and the sweep takes it over rather than leaving the episode stuck.
  *
  * Nothing here writes a skill: the manager validates and asks the curator, which owns the single
  * write path (ADR-0019 §2). The classification and the draft are gated by the learning switch, the
@@ -26,7 +28,9 @@ import type { StoredSkillProposalInput } from "./proposal-record"
 import { contentHashOf } from "../skills/learned-store"
 import {
   DEFAULT_REFLECTION_SWEEP_LIMIT,
+  REFLECTION_LEASE_MS,
   reflectionCandidates,
+  reflectionClaimable,
   reflectionGate,
   reflectionSignals,
 } from "./reflection-job"
@@ -77,6 +81,8 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
   const onError = deps.onError ?? (() => {})
   const now = deps.now ?? Date.now
   const sweepLimit = deps.sweepLimit ?? DEFAULT_REFLECTION_SWEEP_LIMIT
+  // The durable claim covers other processes; this also keeps a pass of this process that outlives
+  // its own lease from being taken over by this process's next sweep.
   const inFlight = new Set<string>()
 
   const jobFor = (
@@ -250,8 +256,14 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
     const config = deps.config()
     if (!config.enabled || !config.learning.enabled) return
     if (episode.endedAt === undefined) return
-    if (deps.repository.getReflectionJob(episode.id)) return
     if (inFlight.has(episode.id)) return
+    // Claimed before any model call: a terminal job or another live claim means someone else reflects.
+    const claimed = deps.repository.claimReflectionJob(
+      { episodeID: episode.id, sessionID: episode.sessionID, projectID: episode.projectID },
+      now(),
+      REFLECTION_LEASE_MS,
+    )
+    if (!claimed) return
     inFlight.add(episode.id)
     try {
       await orchestrate(episode, config)
@@ -296,7 +308,7 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       if (!config.learning.enabled) return 0
       return reflectionCandidates({
         episodes,
-        hasJob: (episodeID) => deps.repository.getReflectionJob(episodeID) !== undefined,
+        hasJob: (episodeID) => !reflectionClaimable(deps.repository.getReflectionJob(episodeID), now(), REFLECTION_LEASE_MS),
         limit: sweepLimit,
       }).reduce((count, episode) => {
         onEpisodeClosed(episode)

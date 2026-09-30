@@ -384,6 +384,7 @@ CREATE TABLE IF NOT EXISTS reflection_job (
   decision_id TEXT,
   proposal_id TEXT,
   attempts INTEGER NOT NULL DEFAULT 0,
+  claimed_at INTEGER,
   created_at INTEGER NOT NULL,
   updated_at INTEGER NOT NULL
 );
@@ -1027,6 +1028,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("artifacts", "expires_at", "INTEGER")
     this.addColumn("adaptive_decision", "attempted_provider", "TEXT")
     this.addColumn("adaptive_plan", "truncated", "INTEGER NOT NULL DEFAULT 0")
+    this.addColumn("reflection_job", "claimed_at", "INTEGER")
     this.migrateDocumentPaths()
     this.migrateEvidenceSize()
   }
@@ -2552,7 +2554,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
              reason = excluded.reason,
              decision_id = excluded.decision_id,
              proposal_id = excluded.proposal_id,
-             attempts = excluded.attempts,
+             attempts = MAX(reflection_job.attempts, excluded.attempts),
              updated_at = excluded.updated_at`,
         )
         .run(
@@ -2571,6 +2573,34 @@ export class SqliteRoutineRepository implements RoutineRepository {
       // An audit that cannot be written is dropped, never raised into the episode.
     }
     return this.getReflectionJob(row.episode_id) ?? { ...input, createdAt: now, updatedAt: now }
+  }
+
+  /**
+   * Claims the episode's reflection for this process, before any model call: `true` only when this
+   * call inserted the `pending` row or took over a `pending` one whose claim is older than `leaseMs`
+   * (a process that died mid-draft). A terminal job or a live claim answers `false`, so a restart or
+   * a second harness process on the same database never reflects the same episode twice. The insert
+   * and the takeover are one statement, which SQLite serialises across connections.
+   */
+  claimReflectionJob(
+    input: { episodeID: string; sessionID?: string; projectID?: string },
+    now: number,
+    leaseMs: number,
+  ): boolean {
+    const claimed = this.db
+      .query(
+        `INSERT INTO reflection_job (
+           episode_id, session_id, project_id, status, attempts, claimed_at, created_at, updated_at
+         ) VALUES (?1, ?2, ?3, 'pending', 1, ?4, ?4, ?4)
+         ON CONFLICT(episode_id) DO UPDATE SET
+           attempts = reflection_job.attempts + 1,
+           claimed_at = excluded.claimed_at,
+           updated_at = excluded.updated_at
+         WHERE reflection_job.status = 'pending'
+           AND COALESCE(reflection_job.claimed_at, reflection_job.updated_at) < ?5`,
+      )
+      .run(input.episodeID, input.sessionID ?? null, input.projectID ?? null, now, now - leaseMs)
+    return claimed.changes > 0
   }
 
   getReflectionJob(episodeID: string): StoredReflectionJob | undefined {

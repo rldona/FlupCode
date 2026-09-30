@@ -1025,3 +1025,53 @@ describe("the adaptive retention purge (FH-082, ADR-0022 §2)", () => {
     repository.close()
   })
 })
+
+describe("the reflection claim (AH-A07)", () => {
+  const LEASE = 600_000
+  const claim = (repository: SqliteRoutineRepository, now: number) =>
+    repository.claimReflectionJob({ episodeID: "episode:run:1", sessionID: "ses_1", projectID: "/work/project" }, now, LEASE)
+
+  test("one claimant wins; a live claim or a terminal job refuses; an expired claim is taken over", () => {
+    const repository = open()
+    expect(claim(repository, 1_000)).toBe(true)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "pending", attempts: 1, claimedAt: 1_000 })
+    // Still inside the lease: a second process or a restart does not reflect it again.
+    expect(claim(repository, 1_000 + LEASE)).toBe(false)
+    // Past the lease: the claimant died, so the episode is not left pending forever.
+    expect(claim(repository, 1_001 + LEASE)).toBe(true)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ attempts: 2, claimedAt: 1_001 + LEASE })
+
+    // The terminal write keeps the attempts the claims counted, and a finished job is never claimed.
+    repository.createReflectionJob(
+      { episodeID: "episode:run:1", sessionID: "ses_1", projectID: "/work/project", status: "done", attempts: 1 },
+      2_000 + LEASE,
+    )
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "done", attempts: 2 })
+    expect(claim(repository, 10 * LEASE)).toBe(false)
+    repository.close()
+  })
+
+  test("a database written before the claim column gains it, and its old pending rows are reclaimable", () => {
+    const path = scratch()
+    const before = open(path)
+    // Put it back the way a server without the claim left it, with a job stuck in `pending`.
+    before.db.exec("DROP TABLE reflection_job")
+    before.db.exec(`CREATE TABLE reflection_job (
+      episode_id TEXT PRIMARY KEY, session_id TEXT, project_id TEXT, status TEXT NOT NULL, reason TEXT,
+      decision_id TEXT, proposal_id TEXT, attempts INTEGER NOT NULL DEFAULT 0,
+      created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+    )`)
+    before.db.exec(
+      "INSERT INTO reflection_job (episode_id, status, attempts, created_at, updated_at) VALUES ('episode:run:1', 'pending', 1, 1000, 1000)",
+    )
+    before.close()
+
+    const after = open(path)
+    expect(after.getReflectionJob("episode:run:1")?.claimedAt).toBeUndefined()
+    // Without a claim time the lease runs from the last update.
+    expect(claim(after, 1_000 + LEASE)).toBe(false)
+    expect(claim(after, 1_001 + LEASE)).toBe(true)
+    expect(after.getReflectionJob("episode:run:1")).toMatchObject({ status: "pending", attempts: 2 })
+    after.close()
+  })
+})
