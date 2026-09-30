@@ -16,6 +16,7 @@ import {
   TOOL_TRIM_READ_BYTES_CEILING,
   DEFAULT_HOLDOUT_CONFIG,
   DEFAULT_LEARNING_CONFIG,
+  LEARNING_LIMIT_CEILINGS,
   DEFAULT_RELEVANCE_CONFIG,
   DEFAULT_RETENTION_CONFIG,
   DEFAULT_VOI_CONFIG,
@@ -229,6 +230,8 @@ describe("resolveAdaptiveConfig", () => {
       staleAfter: DEFAULT_LEARNING_CONFIG.staleAfter,
       archiveAfter: DEFAULT_LEARNING_CONFIG.archiveAfter,
       model: "prov/small",
+      frozen: false,
+      limits: DEFAULT_LEARNING_CONFIG.limits,
     })
 
     // A malformed slice falls back to off and the conservative numbers rather than guessing.
@@ -237,6 +240,37 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(malformed.learning).toEqual(DEFAULT_LEARNING_CONFIG)
+  })
+
+  test("the learning freeze and caps (AH-F03) default safe, read their block and clamp", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} }).learning
+    expect(defaults.frozen).toBe(false)
+    expect(defaults.limits).toEqual({ proposalsPerDay: 5, maxLearnedSkills: 20, patchesPerWeek: 5 })
+
+    const configured = resolveAdaptiveConfig({
+      block: { learning: { frozen: true, limits: { proposalsPerDay: 2, maxLearnedSkills: 7.9, patchesPerWeek: 3 } } },
+      env: {},
+    }).learning
+    expect(configured.frozen).toBe(true)
+    expect(configured.limits).toEqual({ proposalsPerDay: 2, maxLearnedSkills: 7, patchesPerWeek: 3 })
+
+    // Past its ceiling a cap is clamped, never lifted; a typo cannot turn a cap into no cap.
+    const huge = resolveAdaptiveConfig({
+      block: { learning: { limits: { proposalsPerDay: 1e9, maxLearnedSkills: 1e9, patchesPerWeek: 1e9 } } },
+      env: {},
+    }).learning
+    expect(huge.limits).toEqual(LEARNING_LIMIT_CEILINGS)
+
+    // Zero, a fraction below one, a negative, a string or a non-object block fall back to the default.
+    const malformed = resolveAdaptiveConfig({
+      block: { learning: { frozen: "yes", limits: { proposalsPerDay: 0, maxLearnedSkills: 0.5, patchesPerWeek: "9" } } },
+      env: {},
+    }).learning
+    expect(malformed.frozen).toBe(false)
+    expect(malformed.limits).toEqual(DEFAULT_LEARNING_CONFIG.limits)
+    expect(resolveAdaptiveConfig({ block: { learning: { limits: [3] } }, env: {} }).learning.limits).toEqual(
+      DEFAULT_LEARNING_CONFIG.limits,
+    )
   })
 
   test("the relevance slice is off by default and reads its block", () => {

@@ -62,6 +62,10 @@ describe("the writable allowlist", () => {
       "context.enabled",
       "context.apply",
       "learning.enabled",
+      "learning.frozen",
+      "learning.limits.proposalsPerDay",
+      "learning.limits.maxLearnedSkills",
+      "learning.limits.patchesPerWeek",
       "relevance.enabled",
       "guardrails.enabled",
       "toolTrim.enabled",
@@ -428,6 +432,30 @@ describe("warnings", () => {
     })
   })
 
+  test("the freeze and the caps (AH-F03) write without confirmation or egress consent", () => {
+    // Freezing and capping only narrow what learning already consented to, so neither asks.
+    const frozen = plan({ patch: { learning: { frozen: true } } })
+    expect(frozen.leaves.map((leaf) => leaf.path)).toEqual(["learning.frozen"])
+    expect(frozen.warnings).toEqual([])
+    const capped = plan({ patch: { learning: { limits: { proposalsPerDay: 3, maxLearnedSkills: 10, patchesPerWeek: 2 } } } })
+    expect(capped.blockAfter).toEqual({ learning: { limits: { proposalsPerDay: 3, maxLearnedSkills: 10, patchesPerWeek: 2 } } })
+    // Unfreezing needs nothing either: the egress decision was `learning.enabled` itself.
+    expect(plan({ patch: { learning: { frozen: false } }, block: { learning: { frozen: true } } }).warnings).toEqual([])
+  })
+
+  test("a cap must be a positive whole count; stopping the loop is the freeze's job", () => {
+    for (const value of [0, -1, 2.5, "5", true])
+      expect(rejection({ patch: { learning: { limits: { proposalsPerDay: value } } } })).toMatchObject({
+        code: "invalid-value",
+        fields: ["learning.limits.proposalsPerDay"],
+      })
+    expect(rejection({ patch: { learning: { limits: { daily: 3 } } } })).toMatchObject({
+      code: "unsupported-field",
+      fields: ["learning.limits.daily"],
+    })
+    expect(rejection({ patch: { learning: { frozen: "yes" } } })).toMatchObject({ code: "invalid-value" })
+  })
+
   test("turning the master on reminds that learned skills keep loading", () => {
     expect(plan({ patch: { enabled: true } }).warnings).toEqual(["skills-still-load"])
   })
@@ -482,7 +510,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       enabled: false,
       shadow: false,
       context: { enabled: false, apply: false },
-      learning: { enabled: false },
+      learning: { enabled: false, frozen: false, limits: { proposalsPerDay: 1, maxLearnedSkills: 2, patchesPerWeek: 3 } },
       relevance: { enabled: false },
       guardrails: { enabled: false },
       toolTrim: { enabled: false },
@@ -502,7 +530,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       enabled: "yes",
       shadow: 1,
       context: { enabled: 1, apply: "sure" },
-      learning: { enabled: 1 },
+      learning: { enabled: 1, frozen: "yes", limits: { proposalsPerDay: 0, maxLearnedSkills: 0.5, patchesPerWeek: "3" } },
       relevance: { enabled: "true" },
       guardrails: { enabled: "true" },
       toolTrim: { enabled: "true" },

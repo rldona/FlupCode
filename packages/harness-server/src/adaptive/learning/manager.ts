@@ -15,7 +15,8 @@
  * reaches `skills/` when a person approves it through the review route, which asks the curator — the
  * single write path (ADR-0019 §2) — to install it (AH-A04). The classification and the draft are gated by the learning switch, the
  * egress allowlist and a resolved model, and every skip is a machine-readable reason on the job. A
- * kill switch stops the reflection and the curation; it never deletes a skill already written.
+ * kill switch stops the reflection and the curation; it never deletes a skill already written. The
+ * freeze and the per-project caps (AH-F03, `./limits`) are gates too: `frozen` or `limit:<name>`.
  */
 
 import type { AdaptiveConfig } from "../config"
@@ -28,6 +29,7 @@ import type { SkillProposal } from "./proposal"
 import { proposalID } from "./proposal-record"
 import type { StoredSkillProposalInput } from "./proposal-record"
 import { contentHashOf } from "../skills/learned-store"
+import { LEARNING_FROZEN_REASON, blockingLimit, limitReason, reachedLimits } from "./limits"
 import {
   DEFAULT_REFLECTION_SWEEP_LIMIT,
   REFLECTION_LEASE_MS,
@@ -150,6 +152,13 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       jobFor(episode, "skipped", { reason: gate.reason })
       return
     }
+    // Frozen (AH-F03) stops what is new and nothing else: staged proposals stay reviewable and
+    // installed skills keep loading. An episode closed while frozen is not reflected later either, so
+    // unfreezing never releases a backlog at once.
+    if (config.learning.frozen) {
+      jobFor(episode, "skipped", { reason: LEARNING_FROZEN_REASON })
+      return
+    }
 
     // The classification is the door: without a model the guard lets out for this project, no question
     // is asked, so a reflection that could not be classified is skipped rather than answered inertly
@@ -168,6 +177,20 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
     // One roster read for the whole reflection: the classification's own view and the curator's
     // validation at write time. The store still checks collision live, so this only saves the scan.
     const roster = deps.curator.roster(episode.projectID)
+    // The caps (AH-F03) before any spend: a project whose every outcome is capped is not classified.
+    const limitHits = () =>
+      reachedLimits({
+        repository: deps.repository,
+        projectID: episode.projectID,
+        installedSkills: roster.filter((entry) => entry.learned).length,
+        limits: config.learning.limits,
+        now: now(),
+      })
+    const capped = blockingLimit(limitHits())
+    if (capped) {
+      jobFor(episode, "skipped", { reason: limitReason(capped) })
+      return
+    }
     const request: DecisionRequest<"skillReflection"> = {
       kind: "skillReflection",
       episodeID: episode.id,
@@ -191,6 +214,13 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
     }
     if (answer.intent === "patch" && !answer.target) {
       jobFor(episode, "skipped", { reason: "missing-target", decisionID })
+      return
+    }
+
+    // The intent's own cap before the draft: a full project may still patch, and patches may be capped.
+    const cappedByIntent = blockingLimit(limitHits(), answer.intent)
+    if (cappedByIntent) {
+      jobFor(episode, "skipped", { reason: limitReason(cappedByIntent), decisionID })
       return
     }
 
@@ -224,6 +254,13 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
     })
     if (!draft) {
       jobFor(episode, "skipped", { reason: "draft-failed", decisionID })
+      return
+    }
+    // Counted again after the last `await`: reflections that ran side by side cannot overshoot a cap
+    // together, since nothing below yields before the proposal is written.
+    const cappedAfterDraft = blockingLimit(limitHits(), answer.intent)
+    if (cappedAfterDraft) {
+      jobFor(episode, "skipped", { reason: limitReason(cappedAfterDraft), decisionID })
       return
     }
 

@@ -49,6 +49,7 @@ import { createSkillCurator } from "./adaptive/skills/curator"
 import { createLearningDrafter } from "./adaptive/learning/draft"
 import { createLearningManager } from "./adaptive/learning/manager"
 import type { LearningRunner } from "./adaptive/learning/manager"
+import { learningLimitStatus } from "./adaptive/learning/limits"
 import { createProposalReview } from "./adaptive/learning/review"
 
 export type HarnessServerOptions = {
@@ -352,6 +353,14 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     env: process.env,
     smallModel: globalSmallModel,
     models,
+    // The caps each project has reached (AH-F03), counted live on every read of the view.
+    learningLimits: () =>
+      learningLimitStatus({
+        repository,
+        installedSkills: (projectID) => curator.roster(projectID).filter((entry) => entry.learned).length,
+        config: adaptive.current().learning,
+        now: Date.now(),
+      }),
   })
   const server = Bun.serve({
     port: options.port ?? Number(process.env.FLUPCODE_HARNESS_PORT ?? 4097),

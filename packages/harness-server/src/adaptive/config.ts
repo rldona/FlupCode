@@ -180,6 +180,27 @@ export type LearningConfig = {
   archiveAfter: number
   /** A `provider/model` key for the drafting model; falls back to the global `small_model`. */
   model?: string
+  /**
+   * Freeze (AH-F03): while learning is on, no new reflection job is started and no proposal is drafted,
+   * but proposals already staged stay reviewable and approvable, installed skills keep loading and the
+   * lifecycle keeps ageing them. Turning learning off stops all of that; freezing only stops the new.
+   */
+  frozen: boolean
+  /** The per-project caps on what the loop may produce (AH-F03); past one, no job is started. */
+  limits: LearningLimitsConfig
+}
+
+/**
+ * Per-project learning caps (AH-F03). Each window is rolling, ending now: a day is the last 24 hours
+ * and a week the last 7 days, so the answer never depends on the time zone.
+ */
+export type LearningLimitsConfig = {
+  /** Proposals drafted for the project in the last 24 hours, whatever became of them. */
+  proposalsPerDay: number
+  /** Learned skills the project may hold: installed ones plus `add` proposals waiting for review. */
+  maxLearnedSkills: number
+  /** `patch` proposals (a revision of an existing learned skill) drafted in the last 7 days. */
+  patchesPerWeek: number
 }
 
 /**
@@ -306,6 +327,18 @@ export const DEFAULT_LEARNING_CONFIG: LearningConfig = {
   probationSample: 5,
   staleAfter: 10,
   archiveAfter: 20,
+  frozen: false,
+  limits: { proposalsPerDay: 5, maxLearnedSkills: 20, patchesPerWeek: 5 },
+}
+
+/**
+ * The most each learning cap may be raised to (AH-F03). A larger value is clamped, not refused, so a
+ * typo cannot turn a cap into no cap; the scan the manager counts over is sized from these.
+ */
+export const LEARNING_LIMIT_CEILINGS: LearningLimitsConfig = {
+  proposalsPerDay: 50,
+  maxLearnedSkills: 200,
+  patchesPerWeek: 50,
 }
 
 /**
@@ -599,6 +632,26 @@ function resolveLearningConfig(block: Record<string, unknown>): LearningConfig {
     staleAfter: positiveNumberFrom(learning.staleAfter) ?? DEFAULT_LEARNING_CONFIG.staleAfter,
     archiveAfter: positiveNumberFrom(learning.archiveAfter) ?? DEFAULT_LEARNING_CONFIG.archiveAfter,
     ...(model ? { model } : {}),
+    frozen: learning.frozen === true,
+    limits: resolveLearningLimits(isPlainObject(learning.limits) ? learning.limits : {}),
+  }
+}
+
+/**
+ * The learning caps: a whole count between 1 and its ceiling, else the default. A cap cannot be 0 —
+ * stopping the loop is what `frozen` is for — and a malformed value falls back rather than lifting it.
+ */
+function resolveLearningLimits(limits: Record<string, unknown>): LearningLimitsConfig {
+  const cap = (key: keyof LearningLimitsConfig) => {
+    const value = positiveNumberFrom(limits[key])
+    const count = value === undefined ? undefined : Math.floor(value)
+    if (count === undefined || count < 1) return DEFAULT_LEARNING_CONFIG.limits[key]
+    return Math.min(count, LEARNING_LIMIT_CEILINGS[key])
+  }
+  return {
+    proposalsPerDay: cap("proposalsPerDay"),
+    maxLearnedSkills: cap("maxLearnedSkills"),
+    patchesPerWeek: cap("patchesPerWeek"),
   }
 }
 

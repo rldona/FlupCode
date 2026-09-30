@@ -743,7 +743,7 @@ export type AdaptiveGuard = "none" | "env-disabled" | "adaptive-token" | "egress
 /** When a write to a leaf needs an explicit confirmation. */
 export type AdaptiveConfirmation = "none" | "required" | "widening"
 
-export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number"
+export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number" | "count"
 
 /** A note the server travels beside a successful write. */
 export type AdaptiveWarning =
@@ -770,7 +770,13 @@ export type AdaptiveSettings = {
   enabled: boolean
   shadow: boolean
   context: { enabled: boolean; apply: boolean }
-  learning: { enabled: boolean; maxInputChars: number }
+  /** `frozen` and `limits` (AH-F03) are absent from an older server. */
+  learning: {
+    enabled: boolean
+    maxInputChars: number
+    frozen?: boolean
+    limits?: { proposalsPerDay: number; maxLearnedSkills: number; patchesPerWeek: number }
+  }
   relevance: { enabled: boolean }
   guardrails: { enabled: boolean }
   jev: { enabled: boolean }
@@ -812,6 +818,14 @@ export type AdaptiveRuntimeAlert = {
   at: number
 }
 
+/** One learning cap a project has reached (AH-F03): what it used against the most it may. */
+export type AdaptiveLearningLimitHit = {
+  projectID: string
+  limit: "proposals-per-day" | "learned-skills" | "patches-per-week"
+  used: number
+  max: number
+}
+
 /** `GET /harness/adaptive/config`: the settings surface as the panel reads it. */
 export type AdaptiveConfigView = {
   effective: AdaptiveSettings
@@ -831,6 +845,8 @@ export type AdaptiveConfigView = {
   writable: AdaptiveWritableField[]
   /** The model a learning draft is sent to (`provider/model`); absent from an older server. */
   learningDraft?: { model: string | null }
+  /** The learning caps reached right now, per project (AH-F03); absent from an older server. */
+  learningLimits?: { reached: AdaptiveLearningLimitHit[] }
   /** The providers a consent row is drawn for: the registered remote models, then any configured. */
   egressProviders?: string[]
 }
