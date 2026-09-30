@@ -41,9 +41,17 @@ const decisions = Array.from({ length: TOTAL }, (_, index) => ({
   updatedAt: now - index * 1000,
 }))
 
+/** The registry the settings view serves (AH-C01): what a model id is called for a reader. */
+const REGISTRY = [
+  { id: "jev", name: "Jev", locality: "remote", supports: ["completion"], needsConsent: true, needsKey: true },
+  { id: "small-llm", name: "Small model (through the engine)", locality: "remote", supports: ["completion"], needsConsent: true, needsKey: false },
+]
+
 type Server = {
   /** Answers every list with the whole filtered audit, the way a server before AH-E05 did. */
   unpaged?: boolean
+  /** Announces the settings surface, whose view serves the model registry with display names. */
+  registry?: boolean
   queries: URLSearchParams[]
 }
 
@@ -57,7 +65,12 @@ async function openApp(page: Page, server: Server) {
   await page.route("http://127.0.0.1:9097/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/harness/health")
-      return route.fulfill({ json: { data: { healthy: true, capabilities: ["adaptive-decisions"] } } })
+      return route.fulfill({
+        json: {
+          data: { healthy: true, capabilities: ["adaptive-decisions", ...(server.registry ? ["adaptive-config"] : [])] },
+        },
+      })
+    if (url.pathname === "/harness/adaptive/config") return route.fulfill({ json: { data: { models: REGISTRY } } })
     if (url.pathname === "/harness/adaptive/decisions") {
       server.queries.push(url.searchParams)
       return route.fulfill({ json: listDecisions(url.searchParams, server.unpaged ?? false) })
@@ -207,6 +220,19 @@ test("the dialog is titled by what was decided, and keeps the id under Advanced"
   await expect(id).toBeHidden()
   await dialog.getByText("Advanced").click()
   await expect(id).toBeVisible()
+})
+
+test("the row and the dialog name the model by its registry name, and the raw id only without a registry", async ({
+  page,
+}) => {
+  await openApp(page, { queries: [], registry: true })
+  await page.goto("/decisions")
+  await expect(rows(page).first()).toContainText("· Jev")
+  await expect(rows(page).first()).not.toContainText("jev")
+  await rows(page).first().click()
+  const dialog = page.getByRole("dialog", { name: "Decision" })
+  await expect(dialog.locator(".fc-usage-row").filter({ hasText: "Provider" })).toContainText("Jev")
+  await expect(dialog).not.toContainText(/\bjev\b/)
 })
 
 test("a link to a decision on the page scrolls to it and highlights it", async ({ page }) => {

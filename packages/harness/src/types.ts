@@ -743,7 +743,7 @@ export type AdaptiveGuard = "none" | "env-disabled" | "adaptive-token" | "egress
 /** When a write to a leaf needs an explicit confirmation. */
 export type AdaptiveConfirmation = "none" | "required" | "widening"
 
-export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number" | "count"
+export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number" | "count" | "model"
 
 /** A note the server travels beside a successful write. */
 export type AdaptiveWarning =
@@ -752,6 +752,8 @@ export type AdaptiveWarning =
   | "no-model"
   | "skills-still-load"
   | "learning-draft-egress"
+  | "classifier-no-consent"
+  | "model-no-consent"
 
 /** One switch the settings panel may render; the server's list is the whole allowlist. */
 export type AdaptiveWritableField = {
@@ -864,6 +866,21 @@ export type AdaptiveConfigView = {
   learningLimits?: { reached: AdaptiveLearningLimitHit[] }
   /** The providers a consent row is drawn for: the registered remote models, then any configured. */
   egressProviders?: string[]
+  /** The registered predictive models, with the names a reader is shown; absent from an older server. */
+  models?: AdaptiveModel[]
+}
+
+/**
+ * One registered predictive model (AH-C01) as the settings view serves it: `name` is what the reader
+ * sees, the id only what the config file says. A remote model needs its provider's consent.
+ */
+export type AdaptiveModel = {
+  id: string
+  name: string
+  locality: "local" | "remote"
+  supports: string[]
+  needsConsent: boolean
+  needsKey: boolean
 }
 
 /** Who answered a decision (AH-C02): the rule alone, a model, or the rule after a model did not win. */

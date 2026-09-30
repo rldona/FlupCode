@@ -28,12 +28,42 @@ const WRITABLE = [
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
+  { path: "models.*", type: "model", confirmation: "none", guard: "none", warning: "model-no-consent" },
   { path: "egress.providers.*.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
   { path: "egress.providers.*.projects", type: "string-list", confirmation: "widening", guard: "none" },
   { path: "egress.providers.*.kinds", type: "kinds", confirmation: "widening", guard: "none" },
   { path: "retention.enabled", type: "boolean", confirmation: "required", guard: "none" },
   { path: "budget.monthlyTokens", type: "number", confirmation: "none", guard: "none" },
 ]
+
+/** The registry the server serves (AH-C01), with the names the reader is shown. */
+const MODELS = [
+  {
+    id: "jev",
+    name: "Jev",
+    locality: "remote",
+    supports: ["completion", "skillRelevance", "contextItem", "skillReflection", "failure"],
+    needsConsent: true,
+    needsKey: true,
+  },
+  {
+    id: "small-llm",
+    name: "Small model (through the engine)",
+    locality: "remote",
+    supports: ["skillRelevance", "completion", "failure"],
+    needsConsent: true,
+    needsKey: false,
+  },
+]
+
+/** What the legacy `jev.enabled` resolves to: every decision the server knows answered by Jev. */
+const LEGACY_MODELS = {
+  completion: "jev",
+  skillRelevance: "jev",
+  contextItem: "jev",
+  skillReflection: "jev",
+  failure: "jev",
+}
 
 type View = {
   effective: {
@@ -44,6 +74,7 @@ type View = {
     relevance: { enabled: boolean }
     guardrails: { enabled: boolean }
     jev: { enabled: boolean }
+    models?: Record<string, string>
     egress: { providers: Record<string, { enabled: boolean; projects: string[]; kinds: Record<string, boolean> }> }
     retention: { enabled: boolean }
     budget: { monthlyTokens: number; hotReserveFraction: number }
@@ -58,6 +89,7 @@ type View = {
   usage: { month: string; tokensSpent: number; calls: number; monthlyTokens: number; hotReserveFraction: number }
   writable: typeof WRITABLE
   egressProviders?: string[]
+  models?: typeof MODELS
   learningDraft?: { model: string | null }
   learningClassifier?: { model: string | null; ready: boolean }
 }
@@ -71,6 +103,7 @@ const view = (over: Partial<View> = {}): View => ({
     relevance: { enabled: false },
     guardrails: { enabled: false },
     jev: { enabled: false },
+    models: {},
     egress: { providers: { jev: { enabled: false, projects: [], kinds: {} } } },
     retention: { enabled: false },
     budget: { monthlyTokens: 100_000, hotReserveFraction: 0.2 },
@@ -83,6 +116,7 @@ const view = (over: Partial<View> = {}): View => ({
   writer: { path: "/work/.config/opencode/opencode.jsonc", exists: true },
   usage: { month: "2026-09", tokensSpent: 0, calls: 0, monthlyTokens: 100_000, hotReserveFraction: 0.2 },
   writable: WRITABLE,
+  models: MODELS,
   ...over,
 })
 
@@ -416,6 +450,7 @@ test("every inert card says why: the level, the runtime, missing permission, a m
         relevance: { enabled: true },
         learning: { enabled: true, maxInputChars: 8000 },
         jev: { enabled: true },
+        models: LEGACY_MODELS,
       },
       learningDraft: { model: "openai/mini" },
       learningClassifier: { model: "jev", ready: false },
@@ -431,8 +466,9 @@ test("every inert card says why: the level, the runtime, missing permission, a m
       "Active · proposing skills with built-in rules: the predictive model has no permission to review sessions",
     ),
   ).toBeVisible()
-  // The predictive model's state is on its collapsed summary, so it is read without opening it.
-  await expect(dialog.getByText("Active · waiting for the model key").first()).toBeVisible()
+  // The predictive models' state is on its collapsed summary, so it is read without opening it: which
+  // model answers each decision, by its name, and what it still waits for.
+  await expect(dialog.getByText(/^Whether the task is finished: Jev \(needs permission\) · Which skills fit: Jev/)).toBeVisible()
   // No jargon at the first level: nothing the reader has to decode before opening a section.
   const firstLevel = (
     await dialog.locator(".fc-adaptive-level, .fc-adaptive-card, .fc-routines-notice").allInnerTexts()
@@ -445,7 +481,11 @@ test("the value gate's pause is shown as the predictive model's state", async ({
     capabilities: ["adaptive-config", "adaptive-voi"],
     view: view({
       env: { adaptiveDisabled: false, typesafeKeyPresent: true },
-      effective: { ...view().effective, jev: { enabled: true } },
+      effective: {
+        ...view().effective,
+        models: { completion: "jev" },
+        egress: { providers: { jev: { enabled: true, projects: ["/work/demo"], kinds: { completion: true } } } },
+      },
     }),
   })
   const gate = (kind: string) => ({
@@ -484,7 +524,9 @@ test("the value gate's pause is shown as the predictive model's state", async ({
   await expect(dialog.getByText("Predictive model cost over its recent decisions: $0.0021 (USD).")).toBeVisible()
 })
 
-test("retention and the predictive model ask for a confirmation before the write leaves", async ({ page }) => {
+test("retention asks for a confirmation before the write leaves; choosing a model does not, since it is not consent", async ({
+  page,
+}) => {
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
     view: view({
@@ -508,12 +550,14 @@ test("retention and the predictive model ask for a confirmation before the write
   await confirm.getByRole("button", { name: "Write it" }).click()
   await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { retention: { enabled: true } }, confirm: true })
 
-  // The predictive model carries the same confirmation, and its guard is met by the consent and key already there.
+  // Choosing a model sends nothing by itself: what leaves the machine is the provider's consent, which
+  // already asked. So the choice is written at once, without a dialog.
   await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
-  await dialog.getByRole("switch", { name: "Use the predictive model" }).click()
-  await expect(page.getByRole("dialog", { name: "Confirm change" })).toBeVisible()
-  await page.getByRole("dialog", { name: "Confirm change" }).getByRole("button", { name: "Write it" }).click()
-  await expect.poll(() => calls.patches.at(1)?.body).toEqual({ patch: { jev: { enabled: true } }, confirm: true })
+  await dialog.getByLabel("Whether a session is worth learning from", { exact: true }).selectOption({ label: "Jev" })
+  await expect(page.getByRole("dialog", { name: "Confirm change" })).toHaveCount(0)
+  await expect
+    .poll(() => calls.patches.at(1)?.body)
+    .toEqual({ patch: { models: { skillReflection: "jev" } }, confirm: false })
 })
 
 test("learning asks first, since its drafts leave the machine", async ({ page }) => {
@@ -690,24 +734,27 @@ test("each remote provider has its own consent row, and a write names only that 
   const dialog = await openSettings(page, "Adaptive")
   await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
 
-  await expect(dialog.getByText("Sharing with jev")).toBeVisible()
-  await expect(dialog.getByText("Sharing with small-llm")).toBeVisible()
-  // small-llm has no project and no decision yet, so its consent cannot be offered; Jev's can.
-  await expect(dialog.getByRole("switch", { name: "Send data to small-llm" })).toBeDisabled()
-  await expect(dialog.getByRole("switch", { name: "Use the predictive model" })).toBeDisabled()
+  // Each provider is named as the server's registry names it; its id is only in the config file.
+  await expect(dialog.getByText("Sharing with Jev")).toBeVisible()
+  await expect(dialog.getByText("Sharing with Small model (through the engine)")).toBeVisible()
+  await expect(dialog.getByText(/small-llm/)).toHaveCount(0)
+  // The small model has no project and no decision yet, so its consent cannot be offered; Jev's can.
+  await expect(dialog.getByRole("switch", { name: "Send data to Small model (through the engine)" })).toBeDisabled()
+  // The older single switch is gone: models are chosen per decision.
+  await expect(dialog.getByRole("switch", { name: "Use the predictive model" })).toHaveCount(0)
 
   // Consenting to Jev asks first, the dialog names Jev only, and the patch touches Jev only.
-  await dialog.getByRole("switch", { name: "Send data to jev" }).click()
+  await dialog.getByRole("switch", { name: "Send data to Jev" }).click()
   const confirm = page.getByRole("dialog", { name: "Confirm change" })
-  await expect(confirm.getByText(/covers jev only/)).toBeVisible()
+  await expect(confirm.getByText(/covers Jev only/)).toBeVisible()
   expect(calls.patches).toHaveLength(0)
   await confirm.getByRole("button", { name: "Write it" }).click()
   await expect
     .poll(() => calls.patches.at(0)?.body)
     .toEqual({ patch: { egress: { providers: { jev: { enabled: true } } } }, confirm: true })
 
-  // A decision for small-llm widens small-llm's consent alone.
-  await dialog.getByRole("switch", { name: "Which skills fit for small-llm" }).click()
+  // A decision for the small model widens the small model's consent alone.
+  await dialog.getByRole("switch", { name: "Which skills fit for Small model (through the engine)" }).click()
   await page.getByRole("dialog", { name: "Confirm change" }).getByRole("button", { name: "Write it" }).click()
   await expect
     .poll(() => calls.patches.at(1)?.body)
@@ -902,7 +949,7 @@ test("the dialog reads the decision that is open, never the one before it", asyn
 
 test("the context plan paints each disposition and reason, and offers no action", async ({ page }) => {
   await openApp(page, {
-    capabilities: ["adaptive-context"],
+    capabilities: ["adaptive-context", "adaptive-config"],
     plans: [
       {
         id: "plan_1",
@@ -944,8 +991,8 @@ test("the context plan paints each disposition and reason, and offers no action"
   const block = page.locator(".fc-context-plan")
   await expect(block.getByText("Context plan")).toBeVisible()
   await expect(block).toContainText("Observe only: nothing was filtered.")
-  // The refinement names the model that made it, whichever it was (AH-C02).
-  await expect(block).toContainText("Refined by jev")
+  // The refinement names the model that made it, whichever it was (AH-C02), by its registry name.
+  await expect(block).toContainText("Refined by Jev")
   await expect(block).toContainText("Archive · superseded")
   await expect(block).toContainText("Keep · the objective")
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive/i })).toHaveCount(0)
@@ -1303,7 +1350,7 @@ const confirmWrite = async (page: Page) => {
   await expect(confirm).toBeHidden()
 }
 
-test("the predictive model is set up in order, each blocked switch says what it still needs, and the key never comes back", async ({
+test("Jev is chosen for a decision, and its row says what it still needs until consent and the key are in place; the key never comes back", async ({
   page,
 }) => {
   const KEY = "test-key-not-real-0001"
@@ -1314,36 +1361,45 @@ test("the predictive model is set up in order, each blocked switch says what it 
   )
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
+  await expect(dialog.locator("summary").filter({ hasText: "Predictive model" })).toContainText("Not configured")
   await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
 
-  const project = dialog.getByLabel("Project path for jev")
-  const decision = dialog.getByRole("switch", { name: "Whether the task is finished for jev" })
-  const send = dialog.getByRole("switch", { name: "Send data to jev" })
+  const choice = dialog.getByLabel("Whether the task is finished", { exact: true })
+  const project = dialog.getByLabel("Project path for Jev")
+  const decision = dialog.getByRole("switch", { name: "Whether the task is finished for Jev" })
+  const send = dialog.getByRole("switch", { name: "Send data to Jev" })
   const keyField = dialog.getByLabel("Predictive model key")
-  const use = dialog.getByRole("switch", { name: "Use the predictive model" })
 
-  // The order the reader has to follow: projects, decisions, sending data, the key, then the switch.
-  const tops = await Promise.all([project, decision, send, keyField, use].map(async (entry) => (await entry.boundingBox())!.y))
+  // The order the reader follows: what answers each decision, then Jev's own section — projects,
+  // decisions, sending data and, only because Jev needs one, its key.
+  const tops = await Promise.all([choice, project, decision, send, keyField].map(async (entry) => (await entry.boundingBox())!.y))
   expect(tops).toEqual([...tops].sort((a, b) => a - b))
 
-  await expect(use).toBeDisabled()
-  await expect(dialog.getByText("Missing: a project, a decision, sending data to jev turned on, and the model key")).toBeVisible()
-  await expect(send).toBeDisabled()
-  await expect(dialog.getByText("Missing: a project and a decision", { exact: true })).toBeVisible()
+  // Choosing Jev is written at once; its row then says everything it still waits for, by name.
+  await expect(choice).toHaveValue("")
+  await choice.selectOption({ label: "Jev" })
+  await expect(choice).toHaveValue("jev")
+  const missing = (text: string) => dialog.getByText(text, { exact: true })
+  await expect(
+    missing("Missing: a project, this decision allowed for Jev, sending data to Jev turned on, and the model key"),
+  ).toBeVisible()
+  await expect(dialog.locator("summary").filter({ hasText: "Predictive model" })).toContainText(
+    "Whether the task is finished: Jev (needs permission)",
+  )
 
   await project.fill("/work/demo")
   await dialog.getByRole("button", { name: "Add project" }).click()
   await confirmWrite(page)
-  await expect(dialog.getByText("Missing: a decision", { exact: true })).toBeVisible()
-  await expect(dialog.getByText("Missing: a decision, sending data to jev turned on, and the model key")).toBeVisible()
-
   await decision.click()
   await confirmWrite(page)
+  await expect(missing("Missing: sending data to Jev turned on and the model key")).toBeVisible()
   await expect(send).toBeEnabled()
   await send.click()
   await confirmWrite(page)
-  await expect(dialog.getByText("Missing: the model key", { exact: true })).toBeVisible()
-  await expect(use).toBeDisabled()
+  await expect(missing("Missing: the model key")).toBeVisible()
+  await expect(dialog.locator("summary").filter({ hasText: "Predictive model" })).toContainText(
+    "Whether the task is finished: Jev (key missing)",
+  )
 
   // The key: a password field, saved only after a confirmation that says what happens to it.
   await expect(keyField).toHaveAttribute("type", "password")
@@ -1366,10 +1422,115 @@ test("the predictive model is set up in order, each blocked switch says what it 
     false,
   )
 
-  await expect(use).toBeEnabled()
-  await use.click()
-  await confirmWrite(page)
-  await expect(use).toBeChecked()
+  // Nothing is missing any more, and the summary says Jev answers that decision.
+  await expect(dialog.getByText(/^Missing:/)).toHaveCount(0)
+  await expect(dialog.locator("summary").filter({ hasText: "Predictive model" })).toContainText(
+    "Whether the task is finished: Jev",
+  )
+  await expect(dialog.locator("summary").filter({ hasText: "Predictive model" })).not.toContainText("key missing")
+})
+
+test("the small model is chosen for a decision by its name, with no key field of its own", async ({ page }) => {
+  await openApp(page, { capabilities: ["adaptive-config"] })
+  const server = await keyServer(
+    page,
+    view({
+      egressProviders: ["jev", "small-llm"],
+      effective: {
+        ...view().effective,
+        egress: {
+          providers: {
+            jev: { enabled: false, projects: [], kinds: {} },
+            "small-llm": { enabled: true, projects: ["/work/demo"], kinds: { skillRelevance: true } },
+          },
+        },
+      },
+    }),
+  )
+  const patches: unknown[] = []
+  page.on("request", (request) => {
+    if (request.url().endsWith("/harness/adaptive/config") && request.method() === "PATCH") patches.push(request.postDataJSON())
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+
+  // Only the models that can answer a decision are offered for it: which context to keep is Jev's alone.
+  const fits = dialog.getByLabel("Which skills fit", { exact: true })
+  await expect(fits.locator("option")).toHaveText(["None (built-in rules)", "Jev", "Small model (through the engine)"])
+  await expect(dialog.getByLabel("Which context to keep", { exact: true }).locator("option")).toHaveText([
+    "None (built-in rules)",
+    "Jev",
+  ])
+  // Every decision a registered model can answer has its selector, not only the first four.
+  await expect(dialog.getByLabel("Why a step failed", { exact: true }).locator("option")).toHaveText([
+    "None (built-in rules)",
+    "Jev",
+    "Small model (through the engine)",
+  ])
+  await expect(dialog.getByRole("switch", { name: "Why a step failed for Small model (through the engine)" })).toBeVisible()
+
+  await fits.selectOption({ label: "Small model (through the engine)" })
+  await expect.poll(() => patches).toEqual([{ patch: { models: { skillRelevance: "small-llm" } }, confirm: false }])
+  await expect(fits).toHaveValue("small-llm")
+  // Its consent covers this decision and it needs no key, so its row waits for nothing.
+  await expect(dialog.locator(".fc-settings-row", { has: page.getByRole("combobox", { name: "Which skills fit", exact: true }) })).not.toContainText("Missing:")
+  await expect(dialog.locator("summary").filter({ hasText: "Predictive model" })).toContainText(
+    "Which skills fit: Small model (through the engine)",
+  )
+  // The key belongs to Jev's section alone: one key row, never one for the small model.
+  await expect(dialog.getByText("Model key", { exact: true })).toHaveCount(1)
+
+  // Back to none.
+  await fits.selectOption({ label: "None (built-in rules)" })
+  await expect.poll(() => patches.at(1)).toEqual({ patch: { models: { skillRelevance: null } }, confirm: false })
+  expect(server.puts).toHaveLength(0)
+})
+
+test("a config on the older single switch shows Jev on every decision, and the first choice saves one per decision", async ({
+  page,
+}) => {
+  await openApp(page, { capabilities: ["adaptive-config"] })
+  await keyServer(
+    page,
+    view({
+      env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" },
+      effective: {
+        ...view().effective,
+        jev: { enabled: true },
+        models: LEGACY_MODELS,
+        egress: { providers: { jev: { enabled: true, projects: ["/work/demo"], kinds: { completion: true, skillRelevance: true } } } },
+      },
+    }),
+  )
+  const patches: unknown[] = []
+  page.on("request", (request) => {
+    if (request.url().endsWith("/harness/adaptive/config") && request.method() === "PATCH") patches.push(request.postDataJSON())
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+
+  for (const label of ["Whether the task is finished", "Which skills fit", "Which context to keep", "Whether a session is worth learning from"])
+    await expect(dialog.getByLabel(label, { exact: true })).toHaveValue("jev")
+  await expect(dialog.getByText(/come from the older single switch/)).toBeVisible()
+
+  await dialog.getByLabel("Which skills fit", { exact: true }).selectOption({ label: "Small model (through the engine)" })
+  // One patch: every decision written explicitly, the one chosen changed, and the older switch off.
+  await expect
+    .poll(() => patches)
+    .toEqual([
+      {
+        patch: {
+          models: { ...LEGACY_MODELS, skillRelevance: "small-llm" },
+          jev: { enabled: false },
+        },
+        confirm: false,
+      },
+    ])
+  await expect(dialog.getByText(/come from the older single switch/)).toHaveCount(0)
+  await expect(dialog.getByLabel("Whether the task is finished", { exact: true })).toHaveValue("jev")
+  await expect(dialog.getByLabel("Which skills fit", { exact: true })).toHaveValue("small-llm")
 })
 
 test("a key set by the environment is only reported, with no field to change it", async ({ page }) => {

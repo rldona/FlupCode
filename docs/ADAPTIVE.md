@@ -961,6 +961,20 @@ _AH-C03._ Consent is given **per remote provider**, never as a generic "egress" 
   `egress.projects` / `egress.kinds` are no longer writable through the surface.
 - **Budget.** The input bound is still `jev.maxInputTokens`: the neutral input is prepared before a
   model is chosen, so it is the same whichever provider is asked.
+- **Choosing models in Settings.** Settings → Adaptive → Predictive model lists the decisions with a
+  selector each — None (built-in rules) or a registered model that can answer it, by the name the
+  server's registry gives it — and writes `models.<kind>`. Each row names what its model still waits
+  for (that provider's project, this decision, sending data, the key). Below it, each registered
+  remote provider has its own section (projects, decisions, send-data switch) and only Jev has the key
+  row; a local model has none. The collapsed summary is derived from the assignments, e.g. "Which
+  skills fit: Small model (through the engine) · Whether the task is finished: Jev (key missing)", or
+  "Not configured".
+- **Migrating off `jev.enabled`.** A config with `jev.enabled: true` and no `models` block shows Jev on
+  every decision. The first choice writes, in one patch, an explicit `models` entry for every kind as it
+  resolves today (the chosen one changed) and `jev.enabled: false`, and Jev's legacy consent moves into
+  `egress.providers.jev`; nothing else changes. The server applies the same move to any client that
+  writes a `models.*` leaf while `jev.enabled` is on ([ADR-0017](adr/0017-jev-egress-and-governance.md),
+  amended).
 
 ## The `small-llm` model
 
@@ -1230,7 +1244,8 @@ always safe.
   | `learning.limits.{proposalsPerDay,maxLearnedSkills,patchesPerWeek}` | whole number ≥ 1 (clamped to its ceiling) | — ; no control in the panel | — |
   | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
   | `guardrails.enabled` | boolean | a resolved `adaptive-token` ([ADR-0023](adr/0023-failure-loop-guardrails.md)); shown as "Loop warnings" | — |
-  | `jev.enabled` | boolean | Jev's consent: `egress.providers.jev.enabled`, a project and a kind | **yes** |
+  | `jev.enabled` | boolean | Jev's consent: `egress.providers.jev.enabled`, a project and a kind; legacy, no control when the server lists `models.*` | **yes** |
+  | `models.<kind>` | registered model id supporting the kind, `"baseline"` or `null` | unknown id ⇒ `unknown-model`; warning `model-no-consent` when that provider may not receive the kind; while `jev.enabled` is on the write also pins the other kinds to Jev and turns it off ([Egress consent per provider](#egress-consent-per-provider)) | — : assigning is not consent |
   | `egress.providers.<id>.enabled` | boolean | that provider's project and a kind | **yes** |
   | `egress.providers.<id>.projects` | string[] | — | **yes** when it widens |
   | `egress.providers.<id>.kinds` | boolean-map | validated against `isDecisionKind` | **yes** when it widens |
@@ -1261,10 +1276,12 @@ always safe.
   there is no seam in the engine to stop that. The panel says so and never promises a total stop.
   With the master off, each switch it stops (every boolean switch except retention, which
   sweeps regardless) keeps its own value but is marked "inactive: the master switch is off". The Predictive
-  model section follows the order the reader has to go in — the data each provider may receive, the
-  key, then "Use the predictive model" — and a blocked switch names exactly what is missing (a
-  project, a decision, sending data turned on, the key), since without the key decisions fall back to
-  the built-in rules. The
+  model section lists which model answers each decision, then each remote provider's section — the
+  data it may receive and, for Jev only, the key — and every row names exactly what is missing (a
+  project, this decision, sending data turned on, the key), since until then that decision falls back
+  to the built-in rules. Models and providers are shown by the names the view's `models` list serves,
+  never by id. An older server that does not list `models.*` keeps the single "Use the predictive
+  model" switch. The
   same is true of a successful write to `enabled`: it travels the warning `skills-still-load`.
 - **Levels and capability cards (AH-E01).** The panel leads with a level — Off, Observe, Assist or
   Custom — and four cards: Context (Off · Observing · Acting), Skill suggestion (`relevance`), Loop
@@ -1285,7 +1302,7 @@ always safe.
   whose segment carries a dot is refused with `unsupported-field`, because it would be written as one
   literal key the resolver never reads. `null` on a leaf deletes it (back to default); `confirm: true`
   is required by the confirmation rows above. It answers `200` with the resulting `GET` view plus
-  `warnings`, or an error with a closed `code` (`unsupported-field`, `invalid-value`,
+  `warnings`, or an error with a closed `code` (`unsupported-field`, `invalid-value`, `unknown-model`,
   `confirmation-required`, `env-disabled`, `guard:no-adaptive-token`,
   `guard:egress-allowlist-required`, `invalid-config`, `config-unreadable`) and, where useful,
   `fields`/`missing`. A body that is not JSON or lacks a `patch` object is a `400 bad_request`; an
@@ -1298,10 +1315,17 @@ always safe.
   targets `OPENCODE_CONFIG_DIR`, or the reverse) survives and the effective value is not necessarily
   the default again. The panel says so and does not present deletion as an absolute guarantee of
   restoring the default.
-- **Open decision, non-blocking.** The provider consent UI offers only the **four kinds the server
-  ships** — `completion`, `skillRelevance`, `contextItem`, `skillReflection`. A kind the writer would
-  accept but the product does not implement yet is not rendered, so the panel never promises an
-  allowlist entry that would do nothing. Widening the set is additive when a kind lands.
+- **Which kinds are drawn.** The model selectors and the provider consent rows offer **every kind a
+  registered model answers** (from the view's `models[].supports`), each under its plain name — e.g.
+  "Why a step failed" for `failure`, "How risky a tool call is" for `toolRisk` — so a kind that can be
+  assigned can also be consented to. A kind with no plain name yet is still drawn, by its id, after
+  the named ones. An older server that does not serve its registry is shown the four kinds it shipped
+  with (`completion`, `skillRelevance`, `contextItem`, `skillReflection`).
+- **Names outside Settings.** The app reads the registry once per server that announces
+  `adaptive-config` and refreshes it on every settings read, so the Decisions screen (row, dialog,
+  value-gate block), the session chip ("Consulted Jev") and the context plan ("Refined by Jev") name
+  models by the same display names. An id the registry does not hold — an old row from a removed
+  provider, the baseline — is shown as stored.
 
 ## Decisions
 

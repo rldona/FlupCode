@@ -192,6 +192,8 @@ export function createJevModel(input: { client: JevClient; now?: () => number })
   const now = input.now ?? Date.now
   return {
     ...JEV,
+    name: "Jev",
+    needsKey: true,
     supports: decisionKinds(),
     async predict(state, questions, options): Promise<Prediction> {
       // Jev cannot answer an empty question set; a state with nothing to ask is not a Jev answer.

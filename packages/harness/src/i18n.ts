@@ -1503,7 +1503,21 @@ const ES: Record<string, string> = {
   "Freeze learning": "Congelar el aprendizaje",
   "Stops new proposals without turning learning off: you can still review pending ones, and learned skills stay in use.":
     "Detiene las propuestas nuevas sin desactivar el aprendizaje: puedes seguir revisando las pendientes y las skills aprendidas siguen en uso.",
-  "Active · waiting for the model key": "Activo · esperando la clave del modelo",
+  "{kind}: {model}": "{kind}: {model}",
+  "{kind}: {model} ({reason})": "{kind}: {model} ({reason})",
+  "needs permission": "falta permiso",
+  "key missing": "falta la clave",
+  "this decision allowed for {provider}": "esta decisión permitida para {provider}",
+  "Which model answers each decision": "Qué modelo responde cada decisión",
+  "None (built-in rules)": "Ninguno (reglas integradas)",
+  "These choices come from the older single switch. Changing one saves a choice per decision and turns that switch off.":
+    "Estas opciones vienen del interruptor único anterior. Al cambiar una se guarda una opción por decisión y ese interruptor se desactiva.",
+  "That model is not available for this decision on this server.":
+    "Ese modelo no está disponible para esta decisión en este servidor.",
+  "The model is chosen, but it cannot receive this decision until you allow sharing it with its provider. Built-in rules decide meanwhile.":
+    "El modelo está elegido, pero no puede recibir esta decisión hasta que permitas compartirla con su proveedor. Mientras tanto deciden las reglas integradas.",
+  // A model's display name as the server's registry sends it (AH-C01); a brand name is not translated.
+  "Small model (through the engine)": "Modelo pequeño (a través del motor)",
   "Paused: it is not adding enough value": "En pausa: no aporta suficiente valor",
   "Active · paused for {paused} of {total} decisions, for low value":
     "Activo · en pausa en {paused} de {total} decisiones, por bajo valor",

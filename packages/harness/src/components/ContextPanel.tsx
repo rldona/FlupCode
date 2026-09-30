@@ -1,13 +1,13 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
-import { degradedText } from "../adaptive-copy"
+import { degradedText, modelDisplayName } from "../adaptive-copy"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { formatTokens } from "../metrics"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
 import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
 import { mcpLatency, mcpToolUses } from "../mcp"
-import type { CapturedPrompt, ContextReport, ItemDisposition, StoredPlan, ToolCall } from "../types"
+import type { AdaptiveModel, CapturedPrompt, ContextReport, ItemDisposition, StoredPlan, ToolCall } from "../types"
 import { duration } from "./UsagePanel"
 import { PanelFailure } from "./PanelBoundary"
 
@@ -62,11 +62,15 @@ const name = (path: string) => {
 export const roughTokens = (value: number) => Math.round(value / 4)
 
 /**
- * Who scored a plan, said with the model's own id (AH-C02): any model can refine a plan now, so the
- * line names the one that did. A source this build does not know is shown as it was stored.
+ * Who scored a plan, said with the model's registry name (AH-C02): any model can refine a plan now, so
+ * the line names the one that did. A source this build does not know is shown as it was stored.
  */
-export const scoreSourceText = (plan: Pick<StoredPlan, "scoreSource" | "scoreProvider" | "rawScoreSource">) => {
-  if (plan.scoreSource === "model") return t("Refined by {name}", { name: plan.scoreProvider ?? t("a model") })
+export const scoreSourceText = (
+  plan: Pick<StoredPlan, "scoreSource" | "scoreProvider" | "rawScoreSource">,
+  models?: readonly AdaptiveModel[],
+) => {
+  if (plan.scoreSource === "model")
+    return t("Refined by {name}", { name: plan.scoreProvider ? modelDisplayName(plan.scoreProvider, models) : t("a model") })
   if (plan.scoreSource === "baseline") return t("Deterministic")
   return plan.rawScoreSource ?? t("Unknown")
 }

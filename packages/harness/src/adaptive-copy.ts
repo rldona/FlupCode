@@ -1,4 +1,23 @@
+import { createSignal } from "solid-js"
 import { t } from "./i18n"
+import type { AdaptiveModel } from "./types"
+
+/**
+ * The predictive-model registry as the harness server last served it (AH-C01), for every surface
+ * outside Settings that names a model or provider: the Decisions screen, the session chip, the
+ * context plan. The app fills it from the settings view; until then, and on an older server, it is
+ * empty and ids are shown as they are.
+ */
+export const [adaptiveModels, setAdaptiveModels] = createSignal<readonly AdaptiveModel[]>([])
+
+/**
+ * The name a reader is shown for a model or provider id: the registry's, translated when the app
+ * knows the words. An id the registry does not hold — an old row from a removed provider, the
+ * baseline, a provider only the config file names — is shown as it is: it is data, not copy.
+ */
+export function modelDisplayName(id: string, models: readonly AdaptiveModel[] = adaptiveModels()): string {
+  return t(models.find((model) => model.id === id)?.name ?? id)
+}
 
 /**
  * Why the built-in rules answered instead of the model, in the reader's words (AH-E06). The keys are
