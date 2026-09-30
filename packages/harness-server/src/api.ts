@@ -33,6 +33,8 @@ import type { RuntimeProbe } from "./adaptive/runtime"
 import { handleDecisionRequest } from "./adaptive/decision-routes"
 import { handleLabelCoverageRead } from "./adaptive/labeler"
 import type { DecisionService } from "./adaptive/decision-service"
+import { handleValueGateRead } from "./adaptive/value-gate"
+import type { ValueGate } from "./adaptive/value-gate"
 import { handleContextPlanRequest } from "./adaptive/context-routes"
 import type { ContextManager } from "./adaptive/context-manager"
 import { handleLearnedSkillRequest, handleProposalRequest, handleProposalReviewRequest } from "./adaptive/learning-routes"
@@ -403,6 +405,8 @@ export type HarnessHandlerOptions = {
   credentials?: CredentialVault
   runtimeProbe?: RuntimeProbe
   decisions?: DecisionService
+  /** The value-of-information gate (AH-C05): read-only status per assigned kind. */
+  valueGate?: ValueGate
   context?: ContextManager
   /** The learning audit (FH-034): the drafted proposals and the learned-skill roster. */
   proposals?: ProposalReader
@@ -499,6 +503,13 @@ export const createHarnessHandler = (
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleLabelCoverageRead(request, repository)
+    }
+    // The value-of-information gate (AH-C05): whether each assigned model is asked, warming up,
+    // exploring or paused, from the decision audit's labels. Same bearer; reading only.
+    if (path[1] === "adaptive" && path[2] === "voi" && path.length === 3 && request.method === "GET" && options.valueGate) {
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleValueGateRead(options.valueGate)
     }
     // The context plan audit (FH-022) is as sensitive as the decision audit: it says what a run or
     // an episode was observed to carry. Same bearer, reading only — there is no route that plans.
@@ -652,6 +663,8 @@ export const createHarnessHandler = (
           // The decision audit is announced apart from the probe: a client must not read it as the
           // runtime probe's own capability (FH-015).
           ...(options.decisions ? (["adaptive-decisions"] as const) : []),
+          // The value gate's status is its own surface, so an older server is never asked for it.
+          ...(options.valueGate ? (["adaptive-voi"] as const) : []),
           // The context plan audit is its own surface too: announced only when it was built (FH-022).
           ...(options.context ? (["adaptive-context"] as const) : []),
           // The learning audit is two surfaces: proposals and learned skills (FH-034).

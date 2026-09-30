@@ -4,12 +4,15 @@ import {
   costText,
   describeAnswer,
   explanationFor,
+  gateStateText,
+  gateSummary,
   kindText,
   labelMark,
   latencyText,
   outcomeText,
 } from "./DecisionsPanel"
-import type { DecisionExplanation } from "../types"
+import type { DecisionExplanation, ValueGateStatus } from "../types"
+import { setLocale } from "../i18n"
 
 describe("an answer as one line", () => {
   test("a scalar is itself", () => {
@@ -91,5 +94,42 @@ describe("the real outcome (AH-C06)", () => {
     expect(outcomeText("correct")).toBe("Correct")
     expect(outcomeText("incorrect")).toBe("Incorrect")
     expect(outcomeText("unknown")).toBe("Not judgeable")
+  })
+})
+
+describe("the value-of-information gate (AH-C05)", () => {
+  const gate = (state: ValueGateStatus["state"], extra: Partial<ValueGateStatus> = {}): ValueGateStatus => ({
+    kind: "skillRelevance",
+    modelID: "jev",
+    state,
+    samples: 200,
+    disagreements: 40,
+    disagreementRate: 0.2,
+    uplift: 0,
+    valueUsd: 0,
+    costUsd: 0.001,
+    latencySamples: 0,
+    ...extra,
+  })
+
+  test("a paused kind says the model does not improve the decision", () => {
+    expect(gateStateText("paused")).toBe("The predictive model does not improve this decision; paused")
+    expect(gateSummary(gate("paused"))).toBe(
+      "The predictive model does not improve this decision; paused · 200 samples · disagreement 20% · uplift 0 pp",
+    )
+  })
+
+  test("an asked kind shows its uplift with a sign and its p95", () => {
+    expect(gateSummary(gate("asking", { uplift: 0.314, p95LatencyMs: 240 }))).toBe(
+      "Asking the model · 200 samples · disagreement 20% · uplift +31 pp · p95 240 ms",
+    )
+    expect(gateStateText("warming-up")).toBe("Warming up")
+  })
+
+  test("reads in Spanish", () => {
+    setLocale("es")
+    expect(gateStateText("paused")).toBe("El modelo predictivo no mejora esta decisión; en pausa")
+    expect(gateStateText("exploring")).toBe("Solo exploración: su valor no cubre su coste")
+    setLocale("en")
   })
 })

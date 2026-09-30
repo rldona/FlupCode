@@ -129,6 +129,33 @@ export type GuardrailsConfig = {
  */
 export type HoldoutConfig = { fraction: number }
 
+/**
+ * What one kind's value-of-information gate weighs (AH-C05). `valueOfCorrect` is what one more
+ * correct answer is worth in USD; `latencyCostUsdPerSecond` prices the time a model call adds; and
+ * `cacheTtlMs` is how long a model's answer to the same prepared input is reused (`0` turns it off).
+ */
+export type VoiKindConfig = { valueOfCorrect: number; latencyCostUsdPerSecond: number; cacheTtlMs: number }
+
+/**
+ * The value-of-information gate (AH-C05, audit §6.4). It only matters for a kind with a model assigned.
+ *
+ * `window` is how many recent labelled decisions the rolling stats read; `minSamples` is the warm-up
+ * (the model is always asked below it) and also when a pause may start; `epsilon` is the uplift at or
+ * below which the kind pauses; `explorationRate` is the share of gated decisions still sent to the
+ * model so the stats keep moving; `statsTtlMs` bounds how stale the stats may be on the hot path; and
+ * `cacheMaxEntries` bounds the answer cache.
+ */
+export type VoiConfig = {
+  enabled: boolean
+  window: number
+  minSamples: number
+  epsilon: number
+  explorationRate: number
+  statsTtlMs: number
+  cacheMaxEntries: number
+  kinds: Record<DecisionKind, VoiKindConfig>
+}
+
 export type LearningConfig = {
   /** Off by default: it gates reflection, the `skillReflection` classification, the draft and writes. */
   enabled: boolean
@@ -174,6 +201,7 @@ export type AdaptiveConfig = {
   retention: RetentionConfig
   guardrails: GuardrailsConfig
   holdout: HoldoutConfig
+  voi: VoiConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -259,6 +287,27 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
   rejectedProposalsDays: 30,
 }
 
+/**
+ * Conservative gate defaults: a one-cent-scale value per correct answer that a helpful model clears
+ * easily and a useless one never does, a tenth of a cent per second of latency, a minute of answer
+ * reuse, and the audit's N = 200 window with a 30-sample warm-up and a 5% exploration sample.
+ */
+export const DEFAULT_VOI_KIND_CONFIG: VoiKindConfig = {
+  valueOfCorrect: 0.05,
+  latencyCostUsdPerSecond: 0.001,
+  cacheTtlMs: 60_000,
+}
+
+export const DEFAULT_VOI_CONFIG: Omit<VoiConfig, "kinds"> = {
+  enabled: true,
+  window: 200,
+  minSamples: 30,
+  epsilon: 0.02,
+  explorationRate: 0.05,
+  statsTtlMs: 30_000,
+  cacheMaxEntries: 500,
+}
+
 /** The validation strategy's 20% holdout (audit §14.2). */
 export const DEFAULT_HOLDOUT_CONFIG: HoldoutConfig = { fraction: 0.2 }
 
@@ -302,6 +351,12 @@ const isPlainObject = (value: unknown): value is Record<string, unknown> =>
 
 const positiveNumberFrom = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined
+
+const nonNegativeNumberFrom = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined
+
+const positiveIntegerFrom = (value: unknown): number | undefined =>
+  typeof value === "number" && Number.isInteger(value) && value > 0 ? value : undefined
 
 const unitFrom = (value: unknown): number | undefined =>
   typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 1 ? value : undefined
@@ -526,6 +581,43 @@ function resolveHoldoutConfig(block: Record<string, unknown>): HoldoutConfig {
   }
 }
 
+/**
+ * The value-of-information gate: `adaptive.voi`, with per-kind overrides under `adaptive.voi.kinds.<kind>`.
+ * On by default, but inert for a kind without a model. A malformed number falls back to its default;
+ * `epsilon` and the unit shares must lie in [0, 1], and a cache TTL of `0` is an explicit off.
+ */
+function resolveVoiConfig(block: Record<string, unknown>): VoiConfig {
+  const voi = isPlainObject(block.voi) ? block.voi : {}
+  const kinds = isPlainObject(voi.kinds) ? voi.kinds : {}
+  const base = {
+    valueOfCorrect: nonNegativeNumberFrom(voi.valueOfCorrect) ?? DEFAULT_VOI_KIND_CONFIG.valueOfCorrect,
+    latencyCostUsdPerSecond:
+      nonNegativeNumberFrom(voi.latencyCostUsdPerSecond) ?? DEFAULT_VOI_KIND_CONFIG.latencyCostUsdPerSecond,
+    cacheTtlMs: nonNegativeNumberFrom(voi.cacheTtlMs) ?? DEFAULT_VOI_KIND_CONFIG.cacheTtlMs,
+  }
+  const kindConfig = (kind: DecisionKind): VoiKindConfig => {
+    const entry = isPlainObject(kinds[kind]) ? kinds[kind] : {}
+    return {
+      valueOfCorrect: nonNegativeNumberFrom(entry.valueOfCorrect) ?? base.valueOfCorrect,
+      latencyCostUsdPerSecond: nonNegativeNumberFrom(entry.latencyCostUsdPerSecond) ?? base.latencyCostUsdPerSecond,
+      cacheTtlMs: nonNegativeNumberFrom(entry.cacheTtlMs) ?? base.cacheTtlMs,
+    }
+  }
+  return {
+    enabled: typeof voi.enabled === "boolean" ? voi.enabled : DEFAULT_VOI_CONFIG.enabled,
+    window: positiveIntegerFrom(voi.window) ?? DEFAULT_VOI_CONFIG.window,
+    minSamples: positiveIntegerFrom(voi.minSamples) ?? DEFAULT_VOI_CONFIG.minSamples,
+    epsilon: unitFrom(voi.epsilon) ?? DEFAULT_VOI_CONFIG.epsilon,
+    explorationRate: unitFrom(voi.explorationRate) ?? DEFAULT_VOI_CONFIG.explorationRate,
+    statsTtlMs: nonNegativeNumberFrom(voi.statsTtlMs) ?? DEFAULT_VOI_CONFIG.statsTtlMs,
+    cacheMaxEntries: positiveIntegerFrom(voi.cacheMaxEntries) ?? DEFAULT_VOI_CONFIG.cacheMaxEntries,
+    kinds: Object.fromEntries(decisionKinds().map((kind) => [kind, kindConfig(kind)])) as Record<
+      DecisionKind,
+      VoiKindConfig
+    >,
+  }
+}
+
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
@@ -631,6 +723,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     retention: resolveRetentionConfig(block),
     guardrails,
     holdout: resolveHoldoutConfig(block),
+    voi: resolveVoiConfig(block),
   }
 }
 

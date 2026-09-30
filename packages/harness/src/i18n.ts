@@ -1486,6 +1486,14 @@ const ES: Record<string, string> = {
   Incorrect: "Incorrecta",
   "Not judgeable": "No evaluable",
   "baseline: {outcome}": "línea base: {outcome}",
+  "Predictive model value": "Valor del modelo predictivo",
+  "Warming up": "En calentamiento",
+  "Asking the model": "Consultando al modelo",
+  "Exploring only: its value does not cover its cost": "Solo exploración: su valor no cubre su coste",
+  "The predictive model does not improve this decision; paused":
+    "El modelo predictivo no mejora esta decisión; en pausa",
+  "{samples} samples · disagreement {disagreement} · uplift {uplift}":
+    "{samples} muestras · discrepancia {disagreement} · mejora {uplift}",
   "Context plan": "Plan de contexto",
   "No plan recorded for this session.": "No hay plan registrado para esta sesión.",
   "Applied: this plan filtered the prompt.": "Aplicado: este plan filtró el prompt.",

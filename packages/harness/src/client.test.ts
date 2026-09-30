@@ -713,6 +713,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     guardrails: false,
     review: false,
     metrics: false,
+    voi: false,
   })
   expect(
     adaptiveSurfaces([
@@ -724,6 +725,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-guardrails",
       "adaptive-proposals-review",
       "adaptive-metrics",
+      "adaptive-voi",
     ]),
   ).toEqual({
     config: true,
@@ -734,6 +736,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     guardrails: true,
     review: true,
     metrics: true,
+    voi: true,
   })
 })
 
@@ -747,6 +750,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     guardrails: false,
     review: false,
     metrics: false,
+    voi: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
@@ -760,6 +764,8 @@ test("each adaptive surface is offered only for its own capability", () => {
   expect(adaptiveSurfaces(["adaptive-guardrails"]).decisions).toBe(false)
   expect(adaptiveSurfaces(["adaptive-metrics"]).metrics).toBe(true)
   expect(adaptiveSurfaces(["adaptive-metrics"]).guardrails).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-voi"]).voi).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-voi"]).decisions).toBe(false)
   expect(adaptiveSurfaces(["something-else"])).toEqual({
     config: false,
     decisions: false,
@@ -769,6 +775,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     guardrails: false,
     review: false,
     metrics: false,
+    voi: false,
   })
 })
 

@@ -43,6 +43,7 @@ import type { DeterministicBaseline } from "./providers/deterministic"
 import { DecisionUnavailable, degradedReasonOf } from "./providers/provider"
 import { governorKey } from "./providers/governor"
 import type { Governor } from "./providers/governor"
+import type { ValueGate } from "./value-gate"
 import type {
   DecisionFilter,
   DecisionRepository,
@@ -141,6 +142,13 @@ const QUESTIONS: Record<DecisionKind, string> = {
   skillReflection: "Does this episode carry a reusable lesson, and what change does it call for?",
 }
 
+/** Why the value-of-information gate (AH-C05) did not consult the assigned model, as `explain` says it. */
+const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
+  "voi-paused": "the predictive model does not improve this decision, so the value-of-information gate paused it",
+  "voi-below-cost": "the predictive model's expected value does not cover its cost and latency",
+  "p95-over-deadline": "the predictive model's measured p95 latency exceeds this decision's deadline",
+}
+
 /**
  * What a kind's `probabilities` map means. Most kinds report one **distribution** over the labels
  * they can answer; `skillRelevance` and `skillReflection` report independent binary **gates**, one
@@ -197,6 +205,8 @@ export function createDecisionService(deps: {
   /** The static model registry; `config.models` assigns one of these ids per kind. */
   models?: readonly PredictiveModel[]
   governor?: Governor
+  /** The value-of-information gate and answer cache (AH-C05); without one every eligible model is asked. */
+  valueGate?: ValueGate
   now?: () => number
 }): DecisionService {
   const now = deps.now ?? Date.now
@@ -309,6 +319,70 @@ export function createDecisionService(deps: {
     }
   }
 
+  /**
+   * The model's answer through the value-of-information gate (AH-C05). A cached answer from the same
+   * model version for the same prepared input is reused when it still clears the policy; otherwise the
+   * gate decides whether the model is worth asking. A skipped model is not consulted at all: the row
+   * keeps `source: "baseline"` and no provider, so it never feeds the stats it was gated by.
+   */
+  const consult = async <Q extends DecisionKind>(
+    model: PredictiveModel,
+    governor: Governor,
+    request: DecisionRequest<Q>,
+    baseline: DeterministicBaseline<Q>,
+    questions: readonly Question[],
+    prepared: PreparedInput,
+    mode: PredictionMode,
+    scopeID: string,
+  ): Promise<Improved<Q>> => {
+    const gate = deps.valueGate
+    if (!gate) return improve(model, governor, request, baseline, questions, prepared, mode)
+    const cached = gate.recall(request.kind, model.id, prepared.hash)
+    if (cached && passesGate(cached.confidence, chosenProbability(request.kind, cached.probabilities), request.policy)) {
+      return {
+        // The cache key carries the kind, so the answer was read for this kind's shape.
+        answer: cached.answer as DecisionSpec[Q]["answer"],
+        source: "model",
+        provider: cached.providerID,
+        attemptedProvider: model.id,
+        providerID: cached.providerID,
+        ...(cached.version !== undefined ? { modelVersion: cached.version, providerVersion: cached.version } : {}),
+        ...(cached.confidence !== undefined ? { confidence: cached.confidence } : {}),
+        ...(cached.probabilities !== undefined ? { probabilities: cached.probabilities } : {}),
+        // Nothing was spent: no cost is recorded, so the cost and latency estimates stay on real calls.
+        latencyMs: 0,
+        degraded: false,
+      }
+    }
+    const verdict = gate.verdict({
+      kind: request.kind,
+      modelID: model.id,
+      scopeID,
+      ...(mode === "hot" ? { deadlineMs: request.policy.timeoutMs } : {}),
+    })
+    if (!verdict.ask) {
+      return {
+        answer: baseline.answer,
+        source: "baseline",
+        provider: "deterministic",
+        latencyMs: 0,
+        degraded: true,
+        degradedReason: verdict.reason,
+      }
+    }
+    const improved = await improve(model, governor, request, baseline, questions, prepared, mode)
+    if (improved.source === "model") {
+      gate.remember(request.kind, model.id, prepared.hash, {
+        answer: improved.answer,
+        providerID: improved.providerID ?? model.id,
+        ...(improved.providerVersion !== undefined ? { version: improved.providerVersion } : {}),
+        ...(improved.confidence !== undefined ? { confidence: improved.confidence } : {}),
+        ...(improved.probabilities !== undefined ? { probabilities: improved.probabilities } : {}),
+      })
+    }
+    return improved
+  }
+
   const predict = async <Q extends DecisionKind>(
     request: DecisionRequest<Q>,
     mode: PredictionMode = "batch",
@@ -339,11 +413,11 @@ export function createDecisionService(deps: {
     // Without an eligible model the deterministic answer is the answer, not a degraded one: the
     // harness is exactly as it was before any model existed, which is the opt-in posture.
     const model = modelFor(request as AnyDecisionRequest, config)
+    const scopeID = request.scopeID ?? request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
     const improved: Improved<Q> =
       model !== undefined && governor !== undefined
-        ? await improve(model, governor, request, baseline, questions, prepared, mode)
+        ? await consult(model, governor, request, baseline, questions, prepared, mode, scopeID)
         : { answer: baseline.answer, source: "baseline", provider: "deterministic", latencyMs: 0, degraded: false }
-    const scopeID = request.scopeID ?? request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
     // The audit never retains what egress would not let out (ADR-0017 §3): the answer and the
     // baseline go through the same redaction and bound before they reach the writer.
     const input: StoredDecisionInput = {
@@ -401,6 +475,8 @@ export function createDecisionService(deps: {
       return `${decision.providerID ?? decision.provider} ${decision.providerVersion ?? decision.modelVersion ?? "unknown model"} answered${confidence}, clearing the policy thresholds (minConfidence ${decision.policy.minConfidence}, minProbability ${decision.policy.minProbability}).`
     }
     if (decision.source === "baseline") {
+      const skipped = decision.degradedReason !== undefined ? GATE_SKIPS[decision.degradedReason] : undefined
+      if (skipped) return `The deterministic rule "${decision.baselineRule}" answered; no predictive model was consulted: ${skipped}.`
       return `The deterministic rule "${decision.baselineRule}" answered; no predictive model was consulted.`
     }
     if (decision.source === "unknown") {

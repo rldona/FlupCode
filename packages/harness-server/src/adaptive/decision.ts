@@ -321,17 +321,32 @@ export type DecisionLabelCounts = {
   unknown: number
 }
 
-export type DegradedReason =
-  | "timeout"
-  | "network"
-  | "rate-limited"
-  | "unauthorized"
-  | "malformed"
-  | "low-confidence"
-  | "budget-exhausted"
-  | "breaker-open"
-  | "egress-denied"
-  | "provider-disabled"
+/**
+ * Why a decision did not take a model's answer.
+ *
+ * Most reasons are faults of a consulted model (`source: "fallback"`). The last three are deliberate
+ * skips by the value-of-information gate (AH-C05): the model was not asked at all, so the row keeps
+ * `source: "baseline"` and no provider, and is marked degraded so the pause stays visible.
+ */
+export const DEGRADED_REASONS = [
+  "timeout",
+  "network",
+  "rate-limited",
+  "unauthorized",
+  "malformed",
+  "low-confidence",
+  "budget-exhausted",
+  "breaker-open",
+  "egress-denied",
+  "provider-disabled",
+  /** The model's measured uplift over the baseline is at most ε: the kind is paused for it. */
+  "voi-paused",
+  /** The model helps, but its expected value does not cover its cost and latency. */
+  "voi-below-cost",
+  /** A hot decision whose model's measured p95 latency exceeds the request deadline. */
+  "p95-over-deadline",
+] as const
+export type DegradedReason = (typeof DEGRADED_REASONS)[number]
 
 export type DecisionResult<Q extends DecisionKind = DecisionKind> = {
   kind: Q

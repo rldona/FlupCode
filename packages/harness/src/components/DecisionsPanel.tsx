@@ -3,7 +3,14 @@ import { t } from "../i18n"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
-import type { DecisionExplanation, DecisionLabel, DecisionLabelOutcome, StoredDecision } from "../types"
+import type {
+  DecisionExplanation,
+  DecisionLabel,
+  DecisionLabelOutcome,
+  StoredDecision,
+  ValueGateState,
+  ValueGateStatus,
+} from "../types"
 import { PanelFailure } from "./PanelBoundary"
 
 type DecisionsPanelProps = {
@@ -58,6 +65,30 @@ export const outcomeText = (outcome: DecisionLabelOutcome) =>
 /** The kind as stored: a kind this build does not know is shown by its raw value, not as "unknown". */
 export const kindText = (decision: Pick<StoredDecision, "kind" | "raw">) => decision.raw?.kind ?? decision.kind
 
+/** A gate state in words (AH-C05); a paused gate says why rather than only that it is paused. */
+export const gateStateText = (state: ValueGateState) =>
+  state === "warming-up"
+    ? t("Warming up")
+    : state === "asking"
+      ? t("Asking the model")
+      : state === "exploring"
+        ? t("Exploring only: its value does not cover its cost")
+        : t("The predictive model does not improve this decision; paused")
+
+/** A gate as one line: its state, then the samples, disagreement, uplift and p95 it was judged on. */
+export function gateSummary(gate: ValueGateStatus): string {
+  const uplift = Math.round(gate.uplift * 100)
+  return [
+    gateStateText(gate.state),
+    t("{samples} samples · disagreement {disagreement} · uplift {uplift}", {
+      samples: String(gate.samples),
+      disagreement: `${Math.round(gate.disagreementRate * 100)}%`,
+      uplift: `${uplift > 0 ? "+" : ""}${uplift} pp`,
+    }),
+    ...(gate.p95LatencyMs !== undefined ? [`p95 ${latencyText(gate.p95LatencyMs)}`] : []),
+  ].join(" · ")
+}
+
 /**
  * The explanation for the decision that is open. A resource keeps its last value while the next one
  * loads, so without the id check the previous decision's answer sat under the new decision's id.
@@ -82,6 +113,11 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
         sessionID === "all" ? {} : { sessionID },
       ),
   )
+  // The value gate (AH-C05) is its own surface: an older server that does not announce it is not asked.
+  const [gates, gateActions] = createResource(
+    () => (props.open && adaptiveSurfaces(props.capabilities).voi ? props.serverUrl : undefined),
+    (serverUrl) => createHarnessClient(serverUrl).adaptive.voi.get(),
+  )
   const [openID, setOpenID] = createSignal<string>()
   const [explanation, explanationActions] = createResource(openID, async (id) => ({
     id,
@@ -98,7 +134,15 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
             <p>{t("What the adaptive layer decided, and why.")}</p>
           </div>
           <div class="fc-routines-header-actions">
-            <button class="fc-button" type="button" disabled={decisions.loading} onClick={() => void actions.refetch()}>
+            <button
+              class="fc-button"
+              type="button"
+              disabled={decisions.loading}
+              onClick={() => {
+                void actions.refetch()
+                void gateActions.refetch()
+              }}
+            >
               {t("Refresh")}
             </button>
           </div>
@@ -109,6 +153,25 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
             when={available()}
             fallback={<div class="fc-routines-notice">{t("This server does not have the decision audit.")}</div>}
           >
+            <Show when={(gates()?.kinds.length ?? 0) > 0}>
+              <section class="fc-usage-block">
+                <h2>{t("Predictive model value")}</h2>
+                <For each={gates()!.kinds}>
+                  {(gate) => (
+                    <div class="fc-usage-row fc-context-row">
+                      <span class="fc-diff-status" dir="ltr">
+                        {gate.kind}
+                      </span>
+                      <span class="fc-usage-key" dir="auto">
+                        {gate.modelID}
+                        {gate.modelVersion ? ` · ${gate.modelVersion}` : ""}
+                      </span>
+                      <span class="fc-context-excerpt">{gateSummary(gate)}</span>
+                    </div>
+                  )}
+                </For>
+              </section>
+            </Show>
             <Show when={!decisions.loading && decisions.failure()}>
               {(error) => (
                 <PanelFailure

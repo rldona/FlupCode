@@ -7,7 +7,7 @@
  */
 export const CAPABILITIES = ["session-prefs", "stash", "packs", "files", "shares", "memory", "config-files"] as const
 
-/** `browser`, `web-actions`, `credentials`, `action-profiles`, `adaptive`, `adaptive-config`, `adaptive-decisions`, `adaptive-context`, `adaptive-proposals`, `adaptive-proposals-review`, `adaptive-skills`, `adaptive-relevance`, `adaptive-guardrails` and `adaptive-metrics` are not in the static list: each depends on whether its runtime, key, bearer or probe was built (WA-1, WA-2, WA-5, WA-8, FH-000, FH-070, FH-015, FH-022, FH-034, AH-A04, FH-04, FH-060–063, AH-B01). */
+/** `browser`, `web-actions`, `credentials`, `action-profiles`, `adaptive`, `adaptive-config`, `adaptive-decisions`, `adaptive-context`, `adaptive-proposals`, `adaptive-proposals-review`, `adaptive-skills`, `adaptive-relevance`, `adaptive-guardrails`, `adaptive-metrics` and `adaptive-voi` are not in the static list: each depends on whether its runtime, key, bearer or probe was built (WA-1, WA-2, WA-5, WA-8, FH-000, FH-070, FH-015, FH-022, FH-034, AH-A04, FH-04, FH-060–063, AH-B01, AH-C05). */
 export type Capability =
   | (typeof CAPABILITIES)[number]
   | "browser"
@@ -24,3 +24,4 @@ export type Capability =
   | "adaptive-relevance"
   | "adaptive-guardrails"
   | "adaptive-metrics"
+  | "adaptive-voi"

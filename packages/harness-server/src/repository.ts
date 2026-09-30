@@ -76,6 +76,7 @@ import type { ReflectionRow } from "./adaptive/learning/reflection-job"
 import { proposalFromRow, proposalRowFrom } from "./adaptive/learning/proposal-record"
 import type { SkillProposalRow } from "./adaptive/learning/proposal-record"
 import type { RetentionCutoffs, RetentionPurge } from "./adaptive/retention"
+import type { ValueSamples } from "./adaptive/value-gate"
 import type { DecisionKind, DecisionLabelCounts, DecisionLabelInput } from "./adaptive/decision"
 import { applyObservation, emptyTurn } from "./adaptive/session-metrics"
 import type { MetricObservation, SessionMetricTurn } from "./adaptive/session-metrics"
@@ -2673,6 +2674,52 @@ export class SqliteRoutineRepository implements RoutineRepository {
          WHERE kind = ?1 AND created_at >= ?2 AND created_at <= ?3`,
       )
       .get(input.kind, input.since, input.until) as DecisionLabelCounts
+  }
+
+  /**
+   * What the value-of-information gate reads for one kind and model (AH-C05), newest first.
+   *
+   * The model's current version is the newest one it reported for the kind; the samples are that
+   * version's own, so a version change starts the stats from zero. `labeled` are the decisions the
+   * model answered whose label judged both the answer and the baseline answer; `calls` are the calls
+   * that measured a cost, plus the timeouts (which carry no version but are latency the model took).
+   * Each list is bounded by `limit`, so a refresh never scans more than the window.
+   */
+  listValueSamples(input: { kind: DecisionKind; providerID: string; limit: number }): ValueSamples {
+    const newest = this.db
+      .query(
+        `SELECT provider_version FROM adaptive_decision
+         WHERE kind = ?1 AND provider_id = ?2 AND provider_version IS NOT NULL
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      )
+      .get(input.kind, input.providerID) as { provider_version: string } | null
+    const version = newest?.provider_version ?? null
+    // A label edited by hand into something that is not JSON is skipped, never a throw.
+    const judged = `json_extract(CASE WHEN json_valid(label) THEN label END, '$.outcome') IN ('correct', 'incorrect')
+      AND json_extract(CASE WHEN json_valid(label) THEN label END, '$.baselineOutcome') IN ('correct', 'incorrect')`
+    const labeled = this.db
+      .query(
+        `SELECT * FROM adaptive_decision
+         WHERE kind = ?1 AND provider_id = ?2 AND source = 'model' AND provider_version IS ?3 AND ${judged}
+         ORDER BY created_at DESC, id DESC LIMIT ?4`,
+      )
+      .all(input.kind, input.providerID, version, input.limit) as DecisionRow[]
+    const calls = this.db
+      .query(
+        `SELECT latency_ms, cost_usd FROM adaptive_decision
+         WHERE kind = ?1 AND provider_id = ?2 AND source IN ('model', 'fallback')
+           AND ((provider_version IS ?3 AND cost_usd IS NOT NULL) OR degraded_reason = 'timeout')
+         ORDER BY created_at DESC, id DESC LIMIT ?4`,
+      )
+      .all(input.kind, input.providerID, version, input.limit) as Array<{ latency_ms: number; cost_usd: number | null }>
+    return {
+      ...(version !== null ? { version } : {}),
+      labeled: labeled.map(decisionFromRow),
+      calls: calls.map((call) => ({
+        latencyMs: call.latency_ms,
+        ...(call.cost_usd !== null ? { costUsd: call.cost_usd } : {}),
+      })),
+    }
   }
 
   // ---- context plans (FH-022) -----------------------------------------------------------------

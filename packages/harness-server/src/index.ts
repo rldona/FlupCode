@@ -38,6 +38,7 @@ import { createSmallLlmModel } from "./adaptive/providers/small-llm"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
 import { createDecisionService } from "./adaptive/decision-service"
+import { createValueGate } from "./adaptive/value-gate"
 import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
 import { createOutcomeLabeler } from "./adaptive/labeler"
@@ -137,6 +138,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     secrets: () => [browserToken, adaptiveToken, ...(vault?.secrets() ?? [])].filter((secret) => secret !== undefined),
   })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
+  // AH-C05: the value-of-information gate and answer cache, read from the decision audit's labels.
+  const valueGate = createValueGate({ repository, config: () => adaptive.current() })
   // The key comes from the environment, never from the config block (ADR-0017). The client is built
   // always; the service only reaches it when a kind is assigned to Jev (by default: `jev.enabled`)
   // and Jev's own consent (`egress.providers.jev`, or the legacy keys) lists the project and the kind,
@@ -175,6 +178,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     egress,
     models,
     governor,
+    valueGate,
   })
   // Context selection (FH-022/023 and the FH-024 seam): the manager owns `contextItem` — the scorer
   // baseline, the Jev refinement of ambiguous items only, and the plan audit. The scheduler hands it
@@ -342,6 +346,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(vault ? { credentials: vault } : {}),
       runtimeProbe,
       decisions,
+      valueGate,
       context,
       proposals: repository,
       learnedSkills: curator,

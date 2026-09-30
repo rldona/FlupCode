@@ -10,6 +10,8 @@ import {
   DEFAULT_LEARNING_CONFIG,
   DEFAULT_RELEVANCE_CONFIG,
   DEFAULT_RETENTION_CONFIG,
+  DEFAULT_VOI_CONFIG,
+  DEFAULT_VOI_KIND_CONFIG,
   RELEVANCE_MAX_SKILLS_CEILING,
   RELEVANCE_TIMEOUT_MS_CEILING,
   createAdaptiveConfig,
@@ -71,6 +73,13 @@ describe("resolveAdaptiveConfig", () => {
       retention: DEFAULT_RETENTION_CONFIG,
       guardrails: DEFAULT_GUARDRAILS_CONFIG,
       holdout: DEFAULT_HOLDOUT_CONFIG,
+      voi: {
+        ...DEFAULT_VOI_CONFIG,
+        kinds: Object.fromEntries(decisionKinds().map((kind) => [kind, DEFAULT_VOI_KIND_CONFIG])) as Record<
+          DecisionKind,
+          typeof DEFAULT_VOI_KIND_CONFIG
+        >,
+      },
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)
@@ -493,5 +502,55 @@ describe("createAdaptiveConfig", () => {
     adaptive.invalidate()
     expect(adaptive.raw()).toEqual({ enabled: false })
     expect(adaptive.current().enabled).toBe(false)
+  })
+})
+
+describe("the value-of-information gate config (AH-C05)", () => {
+  test("is on by default with the audit's window, warm-up, epsilon and 5% exploration", () => {
+    const voi = resolveAdaptiveConfig({ env: {} }).voi
+    expect(voi).toMatchObject({ enabled: true, window: 200, minSamples: 30, epsilon: 0.02, explorationRate: 0.05 })
+    expect(voi.kinds.skillRelevance).toEqual(DEFAULT_VOI_KIND_CONFIG)
+  })
+
+  test("reads the global numbers and lets a kind override the value, latency cost and cache TTL", () => {
+    const voi = resolveAdaptiveConfig({
+      env: {},
+      block: {
+        voi: {
+          enabled: false,
+          window: 100,
+          minSamples: 10,
+          epsilon: 0.1,
+          explorationRate: 0.2,
+          valueOfCorrect: 0.5,
+          latencyCostUsdPerSecond: 0.01,
+          cacheTtlMs: 5_000,
+          kinds: { completion: { valueOfCorrect: 2, cacheTtlMs: 0 } },
+        },
+      },
+    }).voi
+    expect(voi).toMatchObject({ enabled: false, window: 100, minSamples: 10, epsilon: 0.1, explorationRate: 0.2 })
+    expect(voi.kinds.completion).toEqual({ valueOfCorrect: 2, latencyCostUsdPerSecond: 0.01, cacheTtlMs: 0 })
+    expect(voi.kinds.skillRelevance).toEqual({ valueOfCorrect: 0.5, latencyCostUsdPerSecond: 0.01, cacheTtlMs: 5_000 })
+  })
+
+  test("ignores malformed values rather than guessing", () => {
+    const voi = resolveAdaptiveConfig({
+      env: {},
+      block: {
+        voi: {
+          enabled: "yes",
+          window: 2.5,
+          minSamples: -1,
+          epsilon: 3,
+          explorationRate: -0.1,
+          valueOfCorrect: -1,
+          kinds: { completion: "fast", failure: { cacheTtlMs: "long" } },
+        },
+      },
+    }).voi
+    expect(voi).toMatchObject(DEFAULT_VOI_CONFIG)
+    expect(voi.kinds.completion).toEqual(DEFAULT_VOI_KIND_CONFIG)
+    expect(voi.kinds.failure).toEqual(DEFAULT_VOI_KIND_CONFIG)
   })
 })

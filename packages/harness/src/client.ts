@@ -66,6 +66,7 @@ import type {
   LearnedSkill,
   SkillProposal,
   StoredDecision,
+  ValueGateSnapshot,
   StoredPlan,
 } from "./types"
 
@@ -1270,6 +1271,8 @@ export type AdaptiveSurfaces = {
   review: boolean
   /** The per-turn cost baseline (AH-B01) and its per-session summary (AH-B02). */
   metrics: boolean
+  /** The value-of-information gate's status per kind (AH-C05). */
+  voi: boolean
 }
 
 export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
@@ -1282,6 +1285,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     guardrails: capabilities.includes("adaptive-guardrails"),
     review: capabilities.includes("adaptive-proposals-review"),
     metrics: capabilities.includes("adaptive-metrics"),
+    voi: capabilities.includes("adaptive-voi"),
   }
 }
 
@@ -1929,6 +1933,9 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           harnessAuthorizedJson<StoredDecision[]>(baseUrl, `/harness/adaptive/decisions${adaptiveQuery(filter)}`),
         explain: (id: string) =>
           harnessAuthorizedJson<DecisionExplanation>(baseUrl, `/harness/adaptive/decisions/${encodeURIComponent(id)}`),
+      },
+      voi: {
+        get: () => harnessAuthorizedJson<ValueGateSnapshot>(baseUrl, "/harness/adaptive/voi"),
       },
       plans: {
         list: (

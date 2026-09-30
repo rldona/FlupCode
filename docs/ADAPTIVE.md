@@ -562,6 +562,32 @@ _AH-C04._ The global `small_model`, asked through the engine, as a second `Predi
   (400 ms) a call almost always times out and degrades to the baseline. Use it in the shadow and in
   replay with that kind's `timeoutMs` raised (for example 60000).
 
+## Value-of-information gate
+
+A predictive model is only worth asking when it disagrees with the baseline and is right (AH-C05,
+audit §6.4). The service checks this gate before every model call.
+
+- **Stats.** For each (kind, model, version), the gate looks at the last `voi.window` (200) decisions
+  the model answered whose C06 label judges both the model and the baseline. From them it computes
+  `disagreementRate` and `uplift = acc(model | disagree) − acc(baseline | disagree)`, plus the mean
+  cost and latency. Stats are cached for `voi.statsTtlMs`. A new model version starts from zero.
+- **Rule.** Below `voi.minSamples` (30) the gate keeps asking, so the model can warm up. After that,
+  the model is asked when `disagreementRate × uplift × valueOfCorrect` exceeds
+  `cost + latencyCostUsdPerSecond × latency`. If not, the kind is `exploring`. If
+  `uplift ≤ voi.epsilon` it is `paused`. In both states about `voi.explorationRate` (5%) of decisions
+  still reach the model, picked by a deterministic hash of kind, model and scope, so the pause can
+  lift on its own.
+- **Latency.** In the hot path the model is skipped when its measured p95 for the kind exceeds the
+  request deadline (from 20 samples on). Batch never applies this rule.
+- **Cache.** Answers are reused by `inputsHash` + model + version for the kind's `cacheTtlMs`, in an
+  LRU of `voi.cacheMaxEntries`. A cache hit is recorded as `source: model` with no cost.
+- **Audit.** A decision the gate kept from the model is `source: baseline`, `degraded: true`, with
+  reason `voi-paused`, `voi-below-cost` or `p95-over-deadline`. These rows never feed the stats.
+  `GET /harness/adaptive/voi` (artifacts bearer, capability `adaptive-voi`) shows each kind's state,
+  and the Decisions screen shows it too, including "paused" when the model does not improve the kind.
+- **Config.** Everything lives under `adaptive.voi`, with per-kind overrides in
+  `adaptive.voi.kinds.<kind>`. The gate only matters for a kind that has a model assigned.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting
