@@ -18,7 +18,7 @@
 import { basename } from "node:path"
 import { skillReport } from "../../skills"
 import type { DraftLimits } from "../learning/draft"
-import type { ProposalRejection, SkillProposal } from "../learning/proposal"
+import type { ProposalRejection, ProposalValidation, SkillProposal } from "../learning/proposal"
 import { validateProposal } from "../learning/proposal"
 import type { LearnedStore, LearnedWriteRejection, LedgerEvent, SkillState, SkillUsage } from "./learned-store"
 import type { LifecycleConfig, LifecycleReason } from "./lifecycle"
@@ -54,6 +54,11 @@ export type SelectionInput = {
 export type SkillCurator = {
   /** Human and learned skills as the model would see them; learned carry their sidecar state. */
   roster(projectID: string): SkillRosterEntry[]
+  /**
+   * The lint `promote` runs (FH-033) against a roster, without writing anything. The manager stages a
+   * proposal with it, and `promote` runs it again at approval time against the live roster.
+   */
+  check(proposal: SkillProposal, roster?: readonly SkillRosterEntry[]): ProposalValidation
   /**
    * Validates (FH-033) and promotes a proposal; the only path that creates or patches a learned skill.
    * A caller that already read the roster may pass it, so one read serves the reflection and the write;
@@ -181,15 +186,19 @@ export function createSkillCurator(deps: {
     })
   }
 
-  const promote = (proposal: SkillProposal, at?: number, providedRoster?: readonly SkillRosterEntry[]): PromoteResult => {
-    // Fail-closed by construction: the kill switch is checked here too, so a caller that skips its own
-    // gate cannot install a skill with learning off. The store checks it again on the write path.
-    if (deps.enabled?.() === false) return { ok: false, reason: "disabled" }
+  const check = (proposal: SkillProposal, providedRoster?: readonly SkillRosterEntry[]): ProposalValidation => {
     // One roster read, split into the two lists the lint needs; the store still checks collision live.
     const current = providedRoster ?? roster(proposal.projectID)
     const learnedSkills = current.filter((entry) => entry.learned).map((entry) => entry.name)
     const humanSkills = current.filter((entry) => !entry.learned).map((entry) => entry.name)
-    const validation = validateProposal(proposal, { learnedSkills, humanSkills, ...(deps.limits ? { limits: deps.limits() } : {}) })
+    return validateProposal(proposal, { learnedSkills, humanSkills, ...(deps.limits ? { limits: deps.limits() } : {}) })
+  }
+
+  const promote = (proposal: SkillProposal, at?: number, providedRoster?: readonly SkillRosterEntry[]): PromoteResult => {
+    // Fail-closed by construction: the kill switch is checked here too, so a caller that skips its own
+    // gate cannot install a skill with learning off. The store checks it again on the write path.
+    if (deps.enabled?.() === false) return { ok: false, reason: "disabled" }
+    const validation = check(proposal, providedRoster)
     if (!validation.ok) return { ok: false, reason: validation.reason }
     const valid = validation.proposal
     // A patch updates the skill it named; anything else creates the name it drafted.
@@ -313,6 +322,7 @@ export function createSkillCurator(deps: {
 
   return {
     roster,
+    check,
     promote,
     recordSelection,
     readExisting,

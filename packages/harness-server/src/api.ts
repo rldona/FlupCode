@@ -34,7 +34,8 @@ import { handleDecisionRequest } from "./adaptive/decision-routes"
 import type { DecisionService } from "./adaptive/decision-service"
 import { handleContextPlanRequest } from "./adaptive/context-routes"
 import type { ContextManager } from "./adaptive/context-manager"
-import { handleLearnedSkillRequest, handleProposalRequest } from "./adaptive/learning-routes"
+import { handleLearnedSkillRequest, handleProposalRequest, handleProposalReviewRequest } from "./adaptive/learning-routes"
+import type { ProposalReview } from "./adaptive/learning/review"
 import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
 import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
@@ -402,6 +403,8 @@ export type HarnessHandlerOptions = {
   /** The learning audit (FH-034): the drafted proposals and the learned-skill roster. */
   proposals?: ProposalReader
   learnedSkills?: LearnedSkillReader
+  /** The human review of a staged proposal (AH-A04): the only route that installs a learned skill. */
+  proposalReview?: ProposalReview
   /** The acting relevance line (FH-04): the only adaptive route a live turn calls. */
   relevance?: RelevanceService
   /** The failure/loop guardrails (FH-060–063): an advisory loopback route fed by opaque digests. */
@@ -486,6 +489,15 @@ export const createHarnessHandler = (
     }
     // The learning audit (FH-034): the proposed skills a reflection drafted, and the learned skills
     // the curator installed. Same bearer as the decision audit; reading only.
+    // The human review (AH-A04) installs a skill the engine loads in every later session, so like the
+    // config writer it requires the artifacts bearer: with none configured it is an ordinary 404, never
+    // an open loopback writer. Reading stays on the audit route below.
+    if (path[1] === "adaptive" && path[2] === "proposals" && request.method === "POST" && options.proposalReview) {
+      if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleProposalReviewRequest(request, path.slice(2), options.proposalReview)
+    }
     if (path[1] === "adaptive" && path[2] === "proposals" && options.proposals) {
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
@@ -589,6 +601,8 @@ export const createHarnessHandler = (
           // The learning audit is two surfaces: proposals and learned skills (FH-034).
           ...(options.proposals ? (["adaptive-proposals"] as const) : []),
           ...(options.learnedSkills ? (["adaptive-skills"] as const) : []),
+          // The review writes, so it is announced only when its bearer exists (AH-A04).
+          ...(options.proposalReview && options.token ? (["adaptive-proposals-review"] as const) : []),
           // The acting relevance line (FH-04): announced only when the service was built and its
           // dedicated bearer was resolved, so an unauthenticated route is never advertised.
           ...(options.relevance && options.adaptiveToken ? (["adaptive-relevance"] as const) : []),

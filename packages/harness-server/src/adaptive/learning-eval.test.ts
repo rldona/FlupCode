@@ -3,7 +3,8 @@
  *
  * The assertion is selection, not outcome: a learned skill in PROBATION whose description names the
  * objective it should serve is selected by the **deterministic** `skillRelevance` baseline for that
- * objective, and never for one it should not serve (wrong-load zero). The whole loop runs on a temp
+ * objective, and never for one it should not serve (wrong-load zero). Since AH-A04 the loop stops at a
+ * staged proposal, so each metric approves it through the human review before it measures selection. The whole loop runs on a temp
  * project — human skills on disk, a fake classifier and a fake drafter, the real curator — so there
  * is no network, no engine and no model. The kill switch is asserted by byte-identity: with learning
  * off, nothing is written and the human tree does not move.
@@ -24,6 +25,7 @@ import type { SessionEpisode } from "./episode"
 import type { SkillDraft, SkillDrafter } from "./learning/draft"
 import type { ReflectionService } from "./learning/manager"
 import { createLearningManager } from "./learning/manager"
+import { createProposalReview } from "./learning/review"
 import type { SkillRosterEntry } from "./skills/curator"
 import { createSkillCurator } from "./skills/curator"
 import { createLearnedStore } from "./skills/learned-store"
@@ -202,6 +204,15 @@ const sorted = (names: readonly string[]) => [...names].sort()
 
 const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
+/** The human step (AH-A04): nothing the manager drafted is installed until this approval. */
+const approve = (repository: SqliteRoutineRepository, curator: ReturnType<typeof curatorFor>, episodeID: string) => {
+  expect(repository.getProposal(`proposal:${episodeID}`)?.status).toBe("proposed")
+  expect(createProposalReview({ repository, curator, now: () => NOW }).approve(`proposal:${episodeID}`)).toMatchObject({
+    ok: true,
+    changed: true,
+  })
+}
+
 describe("learning evaluation (FH-034, ADR-0020 §8)", () => {
   test("metric 1 — the PROBATION skill is selected for the objective it serves", async () => {
     for (const name of fixtureNames) {
@@ -225,6 +236,9 @@ describe("learning evaluation (FH-034, ADR-0020 §8)", () => {
       await settle()
 
       expect(repository.getReflectionJob(`episode:run:${name}`)?.status).toBe("done")
+      // Staged, not installed: the roster does not move until a person approves.
+      expect(sorted(loadFor(project, fixture.objective, curator.roster(project)))).toEqual(sorted(fixture.before))
+      approve(repository, curator, `episode:run:${name}`)
       expect(createLearnedStore({ env: {} }).readSidecar(project, fixture.lesson.name)).toMatchObject({
         state: "probation",
       })
@@ -238,16 +252,18 @@ describe("learning evaluation (FH-034, ADR-0020 §8)", () => {
     const project = projectFor("determinism")
     writeHumanSkills(project, fixture.roster)
     const curator = curatorFor()
+    const repository = repositoryFor()
 
     const manager = managerFor({
       config: configFor(project),
       service: reflectionService({}),
       drafter: drafterFor(fixture.lesson),
       curator,
-      repository: repositoryFor(),
+      repository,
     })
     manager.onEpisodeClosed(episodeFor(project, "episode:run:determinism"))
     await settle()
+    approve(repository, curator, "episode:run:determinism")
 
     const first = loadFor(project, fixture.objective, curator.roster(project))
     const second = loadFor(project, fixture.objective, curator.roster(project))
@@ -261,16 +277,18 @@ describe("learning evaluation (FH-034, ADR-0020 §8)", () => {
       const project = projectFor(`${name}-wrong`)
       writeHumanSkills(project, fixture.roster)
       const curator = curatorFor()
+      const repository = repositoryFor()
 
       const manager = managerFor({
         config: configFor(project),
         service: reflectionService({}),
         drafter: drafterFor(fixture.lesson),
         curator,
-        repository: repositoryFor(),
+        repository,
       })
       manager.onEpisodeClosed(episodeFor(project, `episode:run:${name}`))
       await settle()
+      approve(repository, curator, `episode:run:${name}`)
 
       const loaded = loadFor(project, fixture.objective, curator.roster(project))
       expect(loaded.filter((candidate) => fixture.wrongLoad.includes(candidate))).toEqual([])
@@ -347,14 +365,18 @@ describe("learning evaluation (FH-034, ADR-0020 §8)", () => {
     )
 
     const repository = repositoryFor()
+    const curator = curatorFor()
     const manager = managerFor({
       config: configFor(project),
       service: reflectionService({}),
       drafter: drafterFor(fixture.lesson),
+      curator,
       repository,
     })
     manager.onEpisodeClosed(episodeFor(project, "episode:run:trust"))
     await settle()
+    expect(existsSync(learnedPath(project, fixture.lesson.name))).toBe(false)
+    approve(repository, curator, "episode:run:trust")
 
     for (const entry of fixture.roster) {
       expect(readFileSync(join(project, ".opencode", "skills", entry.name, "SKILL.md"), "utf8")).toBe(before.get(entry.name)!)

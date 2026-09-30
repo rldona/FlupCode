@@ -60,6 +60,14 @@ describe("the proposal audit routes (FH-034)", () => {
     )
     expect(detail.status).toBe(200)
     expect((await detail.json()).data.name).toBe("fix-failing-test")
+
+    // The client encodes the id (`:` becomes `%3A`); the route reads the same row.
+    const encoded = await handler(
+      new Request(`http://x/harness/adaptive/proposals/${encodeURIComponent("proposal:episode:run:1")}`, {
+        headers: { authorization: "Bearer secret" },
+      }),
+    )
+    expect(encoded.status).toBe(200)
     repository.close()
   })
 

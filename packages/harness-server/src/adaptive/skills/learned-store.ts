@@ -362,6 +362,46 @@ function appendLedger(path: string, event: LedgerEvent): void {
   }
 }
 
+/**
+ * Keeps the learned root out of git (AH-A04): appends `/<root>/` to `<project>/.git/info/exclude`
+ * once, and returns whether it did.
+ *
+ * The root sits inside the project, so a `git add .` would commit what the harness learned and share
+ * it with everyone who clones. `info/exclude` is the repository's own ignore list, never the user's
+ * `.gitignore`. Only a real `.git` directory counts — a symlinked `.git` or `.git/info`, or a `.git`
+ * file (a worktree or submodule, whose exclude lives elsewhere) is left alone — and the file is opened
+ * like the ledger, without following links and refusing anything but a regular file with one link.
+ * A failure never fails the write: an unexcluded root is a hygiene gap, not a reason to lose a skill.
+ */
+export function excludeFromGit(projectID: string, root: string): boolean {
+  const git = join(projectID, ".git")
+  if (!lstatOrUndefined(git)?.isDirectory()) return false
+  const info = join(git, "info")
+  const infoStats = lstatOrUndefined(info)
+  if (infoStats && !infoStats.isDirectory()) return false
+  const line = `/${relative(projectID, root).split(sep).join("/")}/`
+  try {
+    if (!infoStats) mkdirSync(info)
+    const fd = openSync(
+      join(info, "exclude"),
+      constants.O_RDWR | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+      0o644,
+    )
+    try {
+      const stats = fstatSync(fd)
+      if (!stats.isFile() || stats.nlink > 1) return false
+      const text = readFileSync(fd, "utf8")
+      if (text.split("\n").some((entry) => entry.trim() === line)) return false
+      writeSync(fd, `${text && !text.endsWith("\n") ? "\n" : ""}${line}\n`)
+      return true
+    } finally {
+      closeSync(fd)
+    }
+  } catch {
+    return false
+  }
+}
+
 function readJson(path: string): unknown {
   try {
     return JSON.parse(readFileSync(path, "utf8")) as unknown
@@ -587,6 +627,8 @@ export function createLearnedStore(
         ? { at, event: "created", version, contentHash, reason: input.reason ?? "reflection" }
         : { at, event: "patched", version, from: contentHashOf(existing), to: contentHash }
 
+    // Before the skill is visible, so a `git add` in between cannot pick it up (AH-A04).
+    excludeFromGit(input.projectID, roots.learned)
     const createdDirectory = !existsSync(skillDir)
     try {
       mkdirSync(skillDir, { recursive: true })

@@ -19,6 +19,7 @@ import { REFLECTION_LEASE_MS } from "./reflection-job"
 import { handleProposalRequest } from "../learning-routes"
 import { createLearnedStore } from "../skills/learned-store"
 import { createSkillCurator } from "../skills/curator"
+import { createProposalReview } from "./review"
 
 const NOW = 1_700_000_000_000
 
@@ -258,7 +259,7 @@ describe("the learning manager (FH-034)", () => {
     expect(repository.getReflectionJob("episode:run:1")?.status).toBe("done")
   })
 
-  test("promotes a valid proposal into PROBATION and records the proposal", async () => {
+  test("stages a valid proposal as proposed and writes nothing under skills/ (AH-A04)", async () => {
     const repository = repositoryFor()
     const manager = managerFor({
       repository,
@@ -271,18 +272,18 @@ describe("the learning manager (FH-034)", () => {
 
     expect(repository.getReflectionJob("episode:run:1")).toMatchObject({
       status: "done",
-      reason: "promoted",
+      reason: "proposed",
       decisionID: "skillReflection:episode:run:1",
       proposalID: "proposal:episode:run:1",
     })
     const proposal = repository.getProposal("proposal:episode:run:1")!
-    expect(proposal).toMatchObject({ status: "promoted", intent: "add", name: "fix-failing-test" })
+    expect(proposal).toMatchObject({ status: "proposed", intent: "add", name: "fix-failing-test" })
+    expect(proposal.reason).toBeUndefined()
     expect(proposal.bodyHash).toHaveLength(64)
-    expect(store().readSidecar(project, "fix-failing-test")).toMatchObject({ state: "probation", version: 1 })
-    expect(skillReport(project, project).find((file) => file.name === "fix-failing-test")).toMatchObject({
-      loaded: true,
-      learned: true,
-    })
+    // The draft can carry untrusted evidence: until a person approves, the engine has nothing to load.
+    expect(existsSync(join(project, ".opencode", "skills", "flupcode-learned"))).toBe(false)
+    expect(store().readSidecar(project, "fix-failing-test")).toBeUndefined()
+    expect(skillReport(project, project).find((file) => file.name === "fix-failing-test")).toBeUndefined()
   })
 
   test("rejects merge and drop without drafting", async () => {
@@ -671,13 +672,23 @@ describe("a patch drafts from the current skill (FH-041, ADR-0019 §5)", () => {
 
     expect(seen?.existing?.body).toBe(currentBody)
     expect(seen?.existing?.description).toBe(skillProposal("existing-skill").description)
-    // The re-read is the harness opening the body, which is what 3b counts as a `view`.
+    // The re-read is the harness opening the body, which is what 3b counts as a `view`. A patch is
+    // staged like an add (AH-A04): the skill on disk is still version 1 until a person approves.
     expect(store().readSidecar(project, "existing-skill")).toMatchObject({
       state: "probation",
-      version: 2,
-      usage: { view: 1, patch: 1 },
+      version: 1,
+      usage: { view: 1, patch: 0 },
     })
-    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "done", reason: "promoted" })
+    expect(store().read(project, "existing-skill")!.body).toBe(currentBody)
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "done", reason: "proposed" })
+    expect(repository.getProposal("proposal:episode:run:1")).toMatchObject({
+      status: "proposed",
+      intent: "patch",
+      targetSkill: "existing-skill",
+    })
+
+    expect(createProposalReview({ repository, curator: skills, now: () => NOW }).approve("proposal:episode:run:1").ok).toBe(true)
+    expect(store().readSidecar(project, "existing-skill")).toMatchObject({ version: 2, usage: { view: 1, patch: 1 } })
   })
 })
 
@@ -774,12 +785,12 @@ describe("a draft carrying a secret is refused, not stored redacted and installe
     expect(proposal.body ?? "").not.toContain(literal)
   })
 
-  test("a clean draft is still promoted", async () => {
+  test("a clean draft is still staged for review", async () => {
     const repository = repositoryFor()
     const manager = managerFor({ repository, service: reflectionService({}), config: configFor(), drafter: drafters().drafter })
     manager.onEpisodeClosed(episode())
     await settle()
-    expect(repository.getProposal("proposal:episode:run:1")).toMatchObject({ status: "promoted" })
+    expect(repository.getProposal("proposal:episode:run:1")).toMatchObject({ status: "proposed" })
   })
 })
 
@@ -856,7 +867,7 @@ describe("the draft timeout (AH-A02)", () => {
     })
     manager.onEpisodeClosed(episode())
 
-    expect(await jobSettled(repository)).toMatchObject({ status: "done", reason: "promoted" })
+    expect(await jobSettled(repository)).toMatchObject({ status: "done", reason: "proposed" })
     expect(engine.interrupted).toEqual([])
     expect(engine.deleted).toEqual(["draft-session"])
   })

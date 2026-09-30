@@ -1,6 +1,6 @@
 # ADR-0019: Learned skill lifecycle and provenance
 
-- **Status:** Accepted
+- **Status:** Accepted; amended 2026-09-30 (AH-A04, human approval before install)
 - **Date:** 2026-09-29
 - **Related:** ADR-0016 (harness boundary), ADR-0017 (Jev egress and governance), ADR-0018 (context selection seam), ADR-0020 (learning persistence, cadence and egress), `flupcode-adaptive-harness-plan.md` §8 / §9 / §11 / §13 / §14 / §19, `fh-phase3b-design.md`
 
@@ -260,3 +260,18 @@ and verification commands in `fh-phase3b-design.md` §10, §13 and §14. This AD
 (`skill-store.ts`, `skill-curator.ts`). Its acceptance: the root is scannable by the real engine, a
 human skill is byte-identical after any curator run, PROBATION is not evictable, archive is a move,
 and the lifecycle is auditable from the sidecar and ledger.
+
+## Amendment (2026-09-30, AH-A04): human approval replaces the automatic install
+
+§4's "the curator installs directly into `probation`" no longer happens on its own. The manager stops
+at a `proposed` proposal and writes nothing under `skills/`; a skill is installed only when a person
+calls `POST /harness/adaptive/proposals/:id/approve` with `confirm: true` (bearer required, like
+`PATCH /harness/adaptive/config`). The approval goes through the same single writer (§2), re-runs the
+lint against the live roster and checks the stored `body_hash`, so every guarantee of this ADR still
+holds; it only puts a person in front of it. A `patch` is staged the same way. The reason: the draft
+is built from evidence that can carry untrusted tool output, and an unreviewed install would be a
+prompt injection that persists into every later session of the project.
+
+§1's root lives inside the project, so the store also appends it to `<project>/.git/info/exclude`
+(never `.gitignore`) before an install makes a skill visible, only through a real `.git` directory and
+never through a link. Details in `docs/ADAPTIVE.md` ("Human approval", "Kept out of git").
