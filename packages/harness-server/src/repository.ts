@@ -290,7 +290,10 @@ CREATE TABLE IF NOT EXISTS evidence (
   created_at INTEGER NOT NULL,
   last_read_at INTEGER
 );
-CREATE INDEX IF NOT EXISTS evidence_last_read_at ON evidence(last_read_at, created_at);
+CREATE TABLE IF NOT EXISTS evidence_total (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  bytes INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS episode_evidence (
   episode_id TEXT NOT NULL,
   hash TEXT NOT NULL,
@@ -301,6 +304,7 @@ CREATE TABLE IF NOT EXISTS episode_evidence (
   PRIMARY KEY (episode_id, hash)
 );
 CREATE INDEX IF NOT EXISTS episode_evidence_episode ON episode_evidence(episode_id, position);
+CREATE INDEX IF NOT EXISTS episode_evidence_hash ON episode_evidence(hash);
 CREATE TABLE IF NOT EXISTS adaptive_usage (
   month TEXT PRIMARY KEY,
   tokens INTEGER NOT NULL DEFAULT 0,
@@ -1024,6 +1028,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("adaptive_decision", "attempted_provider", "TEXT")
     this.addColumn("adaptive_plan", "truncated", "INTEGER NOT NULL DEFAULT 0")
     this.migrateDocumentPaths()
+    this.migrateEvidenceSize()
   }
 
   /**
@@ -1048,10 +1053,43 @@ export class SqliteRoutineRepository implements RoutineRepository {
     }
   }
 
+  /**
+   * Keep the evidence byte total without reading the store on every write (AH-A08).
+   *
+   * `size` is the stored content's UTF-8 length; rows from before the column are measured once, when
+   * it is added. Triggers keep `evidence_total` in step with every insert, content edit and delete,
+   * so a put under the limit reads one row, and an upsert of content already stored inserts nothing
+   * and counts nothing. A row written without its size (by hand) is measured as it lands. The total
+   * is recomputed from the index at every start, so a restart heals any drift, and the eviction
+   * order is indexed on the very expression it sorts by.
+   */
+  private migrateEvidenceSize() {
+    if (this.addColumn("evidence", "size", "INTEGER"))
+      this.db.exec("UPDATE evidence SET size = LENGTH(CAST(content AS BLOB))")
+    this.db.exec(`
+      DROP INDEX IF EXISTS evidence_last_read_at;
+      CREATE INDEX IF NOT EXISTS evidence_lru ON evidence(COALESCE(last_read_at, created_at), hash, size);
+      CREATE TRIGGER IF NOT EXISTS evidence_total_insert AFTER INSERT ON evidence BEGIN
+        UPDATE evidence_total SET bytes = bytes + COALESCE(NEW.size, LENGTH(CAST(NEW.content AS BLOB)));
+        UPDATE evidence SET size = LENGTH(CAST(NEW.content AS BLOB)) WHERE rowid = NEW.rowid AND size IS NULL;
+      END;
+      CREATE TRIGGER IF NOT EXISTS evidence_total_update AFTER UPDATE OF content ON evidence BEGIN
+        UPDATE evidence_total SET bytes = bytes - OLD.size + LENGTH(CAST(NEW.content AS BLOB));
+        UPDATE evidence SET size = LENGTH(CAST(NEW.content AS BLOB)) WHERE rowid = NEW.rowid;
+      END;
+      CREATE TRIGGER IF NOT EXISTS evidence_total_delete AFTER DELETE ON evidence BEGIN
+        UPDATE evidence_total SET bytes = bytes - OLD.size;
+      END;
+      INSERT OR REPLACE INTO evidence_total (id, bytes) SELECT 1, COALESCE(SUM(size), 0) FROM evidence;
+    `)
+  }
+
+  /** Add a column a database written before it existed lacks; true when it had to be added. */
   private addColumn(table: string, column: string, definition: string) {
     const columns = this.db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
-    if (columns.some((entry) => entry.name === column)) return
+    if (columns.some((entry) => entry.name === column)) return false
     this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+    return true
   }
 
   // ---- routines -------------------------------------------------------------------------------
@@ -2062,8 +2100,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
    *
    * The same text put twice is one row, so a recapture does not grow the store; a slice past the
    * limit is cut and says how much it was, because losing evidence is worse than marking it. The
-   * total is enforced after every write, and nothing here throws: no capture may fail because its
-   * evidence could not be kept.
+   * total is enforced after every write, reading one row while under it, and nothing here throws: no
+   * capture may fail because its evidence could not be kept.
    */
   putEvidence(input: EvidenceInput, now = Date.now()): EvidenceSlice | undefined {
     try {
@@ -2072,8 +2110,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
       const hash = evidenceHash(sliced.content)
       this.db
         .query(
-          `INSERT INTO evidence (hash, content, bytes, truncated, created_at, last_read_at)
-           VALUES (?1, ?2, ?3, ?4, ?5, NULL)
+          `INSERT INTO evidence (hash, content, bytes, truncated, created_at, last_read_at, size)
+           VALUES (?1, ?2, ?3, ?4, ?5, NULL, LENGTH(CAST(?2 AS BLOB)))
            ON CONFLICT(hash) DO UPDATE SET
              truncated = CASE WHEN excluded.truncated = 1 THEN 1 ELSE evidence.truncated END,
              bytes = CASE
@@ -2170,19 +2208,22 @@ export class SqliteRoutineRepository implements RoutineRepository {
   evictEvidence(input: { maxBytes?: number } = {}): number {
     try {
       const maxBytes = input.maxBytes ?? EVIDENCE_TOTAL_LIMIT
+      const total =
+        (this.db.query("SELECT bytes FROM evidence_total WHERE id = 1").get() as { bytes: number } | null)?.bytes ?? 0
+      if (total <= maxBytes) return 0
+      // Walk the LRU index only as far as the excess reaches; the rest of the store is never read.
       const rows = this.db
         .query(
-          `SELECT hash, LENGTH(CAST(content AS BLOB)) AS size FROM evidence
+          `SELECT hash, size FROM evidence
            ORDER BY COALESCE(last_read_at, created_at) ASC, hash ASC`,
         )
-        .all() as Array<{ hash: string; size: number }>
-      let total = rows.reduce((sum, row) => sum + row.size, 0)
-      if (total <= maxBytes) return 0
+        .iterate() as IterableIterator<{ hash: string; size: number }>
       const doomed: string[] = []
+      let excess = total - maxBytes
       for (const row of rows) {
-        if (total <= maxBytes) break
+        if (excess <= 0) break
         doomed.push(row.hash)
-        total -= row.size
+        excess -= row.size
       }
       if (doomed.length === 0) return 0
       return this.db.transaction(() => {
