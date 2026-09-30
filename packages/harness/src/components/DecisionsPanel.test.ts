@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { confidenceText, describeAnswer, latencyText } from "./DecisionsPanel"
+import { confidenceText, describeAnswer, explanationFor, latencyText } from "./DecisionsPanel"
+import type { DecisionExplanation } from "../types"
 
 describe("an answer as one line", () => {
   test("a scalar is itself", () => {
@@ -27,5 +28,31 @@ describe("how the numbers are said", () => {
   test("latency keeps milliseconds under a second", () => {
     expect(latencyText(240)).toBe("240 ms")
     expect(latencyText(1500)).toBe("1.5 s")
+  })
+})
+
+describe("the explanation in the dialog", () => {
+  const detail = (id: string): DecisionExplanation => ({
+    id,
+    question: `why ${id}`,
+    answer: true,
+    baseline: { answer: false, rule: "default" },
+    why: "because",
+    source: "deterministic",
+    provider: "baseline",
+    latencyMs: 12,
+    degraded: false,
+    evidenceRefs: [],
+    decidedAt: 0,
+  })
+
+  test("is the one read for the decision that is open", () => {
+    expect(explanationFor({ id: "b", detail: detail("b") }, "b")?.question).toBe("why b")
+  })
+
+  test("is nothing while another decision's answer is all there is, so the dialog says it is reading", () => {
+    // The resource keeps the last value while the next id loads, and after that id fails.
+    expect(explanationFor({ id: "a", detail: detail("a") }, "b")).toBeUndefined()
+    expect(explanationFor(undefined, "b")).toBeUndefined()
   })
 })

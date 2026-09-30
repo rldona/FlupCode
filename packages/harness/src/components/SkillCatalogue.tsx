@@ -1,11 +1,13 @@
-import { For, Show, createEffect, createMemo, createResource, createSignal, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
 import type { AgentFile, LearnedSkillState, SkillFile, SkillProposal } from "../types"
 import type { SkillInfo } from "../engine-types"
 import type { SkillSourceKind, SkillSources } from "../skill-sources"
 import { skillAccess } from "../skill-access"
+import { PanelFailure } from "./PanelBoundary"
 
 type SkillCatalogueProps = {
   open: boolean
@@ -174,11 +176,11 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
   // The learning audit (FH-073): what a reflection drafted and what the curator installed. Read
   // only — approving, merging and archiving are later phases, so no button here promises them.
   const learning = () => adaptiveSurfaces(props.capabilities)
-  const [proposals] = createResource(
+  const [proposals, proposalActions] = createResource(
     () => (props.open && learning().proposals && props.projectID ? props.projectID : undefined),
     (projectID) => createHarnessClient(props.serverUrl).adaptive.proposals.list({ projectID }),
   )
-  const [learned] = createResource(
+  const [learned, learnedActions] = createResource(
     () => (props.open && learning().learnedSkills && props.projectID ? props.projectID : undefined),
     (projectID) => createHarnessClient(props.serverUrl).adaptive.learnedSkills.list({ projectID }),
   )
@@ -557,9 +559,23 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                     <span class="fc-context-aside">{learned()!.length}</span>
                   </Show>
                 </h3>
+                <Show when={!learned.loading && learned.failure()}>
+                  {(error) => (
+                    <PanelFailure
+                      inline
+                      title={t("{name} could not be read", { name: t("The learned skills") })}
+                      error={error()}
+                      onRetry={() => void learnedActions.refetch()}
+                    />
+                  )}
+                </Show>
                 <Show
                   when={(learned()?.length ?? 0) > 0}
-                  fallback={<p class="fc-usage-note">{learned.loading ? t("Reading…") : t("None yet.")}</p>}
+                  fallback={
+                    <Show when={!learned.failure() || learned.loading}>
+                      <p class="fc-usage-note">{learned.loading ? t("Reading…") : t("None yet.")}</p>
+                    </Show>
+                  }
                 >
                   <div class="fc-routine-cards">
                     <For each={learned()}>
@@ -596,9 +612,23 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                     <span class="fc-context-aside">{proposals()!.length}</span>
                   </Show>
                 </h3>
+                <Show when={!proposals.loading && proposals.failure()}>
+                  {(error) => (
+                    <PanelFailure
+                      inline
+                      title={t("{name} could not be read", { name: t("The proposals") })}
+                      error={error()}
+                      onRetry={() => void proposalActions.refetch()}
+                    />
+                  )}
+                </Show>
                 <Show
                   when={(proposals()?.length ?? 0) > 0}
-                  fallback={<p class="fc-usage-note">{proposals.loading ? t("Reading…") : t("No proposals yet.")}</p>}
+                  fallback={
+                    <Show when={!proposals.failure() || proposals.loading}>
+                      <p class="fc-usage-note">{proposals.loading ? t("Reading…") : t("No proposals yet.")}</p>
+                    </Show>
+                  }
                 >
                   <div class="fc-routine-cards">
                     <For each={proposals()}>

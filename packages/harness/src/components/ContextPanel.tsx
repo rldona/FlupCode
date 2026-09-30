@@ -1,5 +1,6 @@
-import { For, Show, createMemo, createResource, createSignal, type Component } from "solid-js"
+import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { formatTokens } from "../metrics"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
@@ -7,6 +8,7 @@ import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
 import { mcpLatency, mcpToolUses } from "../mcp"
 import type { CapturedPrompt, ContextReport, ItemDisposition, ToolCall } from "../types"
 import { duration } from "./UsagePanel"
+import { PanelFailure } from "./PanelBoundary"
 
 export type ContextTokens = {
   input: number
@@ -114,7 +116,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
   // picked (FH-072). Asked for only when the server announced the plan audit; an older one is not
   // poked at, so there is no 404 in the console.
   const planAvailable = () => adaptiveSurfaces(props.capabilities).plans
-  const [plans] = createResource(
+  const [plans, planActions] = createResource(
     () => {
       if (!props.open || !planAvailable()) return undefined
       if (props.sessionID) return { sessionID: props.sessionID }
@@ -330,9 +332,23 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                   )}
                 </Show>
               </h2>
+              <Show when={!plans.loading && plans.failure()}>
+                {(error) => (
+                  <PanelFailure
+                    inline
+                    title={t("{name} could not be read", { name: t("The context plan") })}
+                    error={error()}
+                    onRetry={() => void planActions.refetch()}
+                  />
+                )}
+              </Show>
               <Show
                 when={plan()}
-                fallback={<p class="fc-usage-note">{plans.loading ? t("Reading…") : t("No plan recorded for this session.")}</p>}
+                fallback={
+                  <Show when={!plans.failure() || plans.loading}>
+                    <p class="fc-usage-note">{plans.loading ? t("Reading…") : t("No plan recorded for this session.")}</p>
+                  </Show>
+                }
               >
                 {(entry) => (
                   <>

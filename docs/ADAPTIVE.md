@@ -358,6 +358,10 @@ always safe.
 - **Where it is.** A dedicated **Adaptive** group in Settings (`AdaptiveSettingsPanel`), a
   **Context plan** block in the Context screen (FH-072), a **Decisions** screen (FH-071) and a
   read-only **Learned** section in the Skills screen (FH-073). None of them changes the engine.
+- **When a read fails.** A non-2xx on any of those routes (a rotated token, a purged decision, a
+  restarting sidecar) is said inline where the list or explanation would be, with **Try again**; the
+  rest of the app keeps working. Each of those screens also has its own render boundary, mounted only
+  while it is open.
 - **What the app may write.** Only the switches in the allowlist below; every other field of
   `flupcode.adaptive` is read-only in E8. The server's `writable` list is the whole contract, and the
   UI draws a control only from it, so a field the server does not list is never offered. While a

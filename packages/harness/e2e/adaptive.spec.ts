@@ -93,7 +93,11 @@ type Options = {
     nextView?: View
   }
   decisions?: unknown[]
+  /** The status the decision list answers with; read on every request, so a failure can recover. */
+  decisionsStatus?: () => number
   explanation?: unknown
+  /** Answers `GET /harness/adaptive/decisions/:id` per id, in place of `explanation`. */
+  explain?: (id: string) => Promise<{ status?: number; json: unknown }> | { status?: number; json: unknown }
   plans?: unknown[]
   proposals?: unknown[]
   learnedSkills?: unknown[]
@@ -142,10 +146,15 @@ async function openApp(page: Page, options: Options = {}) {
     }
     if (url.pathname === "/harness/adaptive/decisions") {
       calls.asked.push("decisions")
+      const status = options.decisionsStatus?.() ?? 200
+      if (status >= 400) return route.fulfill({ status, json: { error: `the audit is away (${status})` } })
       return route.fulfill({ json: { data: options.decisions ?? [] } })
     }
-    if (url.pathname.startsWith("/harness/adaptive/decisions/"))
+    if (url.pathname.startsWith("/harness/adaptive/decisions/")) {
+      const id = decodeURIComponent(url.pathname.slice("/harness/adaptive/decisions/".length))
+      if (options.explain) return Promise.resolve(options.explain(id)).then((reply) => route.fulfill(reply))
       return route.fulfill({ json: { data: options.explanation } })
+    }
     if (url.pathname === "/harness/adaptive/plans") {
       calls.asked.push("plans")
       return route.fulfill({ json: { data: options.plans ?? [] } })
@@ -425,6 +434,96 @@ test("the decision audit paints the row and the explanation, and offers no actio
 
   // Reading only: there is no route that approves, merges or archives a decision.
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive/i })).toHaveCount(0)
+})
+
+const explanationOf = (id: string, question: string) => ({
+  id,
+  question,
+  answer: { complete: false },
+  baseline: { answer: { complete: true }, rule: "default" },
+  why: "the provider timed out",
+  source: "jev",
+  provider: "typesafe",
+  latencyMs: 1500,
+  degraded: false,
+  evidenceRefs: [],
+  decidedAt: now,
+})
+
+test("a 500 on the decision audit is said inline, and the app stays usable", async ({ page }) => {
+  let status = 500
+  await openApp(page, {
+    capabilities: ["adaptive-decisions"],
+    decisions: [decision],
+    decisionsStatus: () => status,
+  })
+  await page.goto("/decisions")
+
+  // The failure sits where the list would be, instead of the root boundary's startup screen.
+  const alert = page.getByRole("alert").filter({ hasText: "The decision audit could not be read" })
+  await expect(alert).toBeVisible()
+  await expect(alert).toContainText("the audit is away (500)")
+  await expect(page.getByRole("heading", { name: "Decisions", exact: true })).toBeVisible()
+  await expect(page.getByText("No decisions recorded yet.")).toHaveCount(0)
+  await expect(page.getByText("FlupCode couldn't start")).toHaveCount(0)
+
+  // Still usable: asking again once the server is back paints the audit.
+  status = 200
+  await alert.getByRole("button", { name: "Try again" }).click()
+  await expect(page.locator(".fc-context-row", { hasText: "completion" })).toBeVisible()
+  await expect(alert).toHaveCount(0)
+  await expect(page.getByText("FlupCode couldn't start")).toHaveCount(0)
+})
+
+test("an explanation that fails is said inside the dialog, and another decision still opens", async ({ page }) => {
+  await openApp(page, {
+    capabilities: ["adaptive-decisions"],
+    decisions: [decision, { ...decision, id: "dec_2", kind: "relevance" }],
+    explain: (id) =>
+      id === "dec_1"
+        ? { status: 404, json: { error: "decision not found" } }
+        : { json: { data: explanationOf(id, "Is this relevant?") } },
+  })
+  await page.goto("/decisions")
+
+  await page.locator(".fc-context-row", { hasText: "completion" }).click()
+  const dialog = page.getByRole("dialog", { name: "Decision" })
+  await expect(dialog.getByRole("alert")).toContainText("This decision could not be read")
+  await expect(dialog).toContainText("decision not found")
+  await dialog.getByRole("button", { name: "Close" }).click()
+
+  await page.locator(".fc-context-row", { hasText: "relevance" }).click()
+  await expect(dialog).toContainText("Is this relevant?")
+  await expect(dialog.getByRole("alert")).toHaveCount(0)
+})
+
+test("the dialog reads the decision that is open, never the one before it", async ({ page }) => {
+  let answerSecond: () => void = () => {}
+  const held = new Promise<void>((resolve) => {
+    answerSecond = resolve
+  })
+  await openApp(page, {
+    capabilities: ["adaptive-decisions"],
+    decisions: [decision, { ...decision, id: "dec_2", kind: "relevance" }],
+    explain: async (id) => {
+      if (id === "dec_2") await held
+      return { json: { data: explanationOf(id, id === "dec_1" ? "Is this complete?" : "Is this relevant?") } }
+    },
+  })
+  await page.goto("/decisions")
+
+  await page.locator(".fc-context-row", { hasText: "completion" }).click()
+  const dialog = page.getByRole("dialog", { name: "Decision" })
+  await expect(dialog).toContainText("Is this complete?")
+  await dialog.getByRole("button", { name: "Close" }).click()
+
+  await page.locator(".fc-context-row", { hasText: "relevance" }).click()
+  await expect(dialog).toContainText("dec_2")
+  await expect(dialog).toContainText("Reading…")
+  await expect(dialog).not.toContainText("Is this complete?")
+
+  answerSecond()
+  await expect(dialog).toContainText("Is this relevant?")
 })
 
 test("the context plan paints each disposition and reason, and offers no action", async ({ page }) => {

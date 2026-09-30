@@ -5661,36 +5661,46 @@ export const App: Component = () => {
             serverAvailable={routinesServerAvailable()}
             onClose={() => leaveScreen()}
           />
-          <ContextPanel
-            open={contextOpen()}
-            directory={vcsDirectory()}
-            report={contextReport()}
-            loading={contextReport.loading}
-            serverAvailable={routinesServerAvailable()}
-            skills={skills()?.data ?? []}
-            agents={agents()?.data ?? []}
-            agent={agent()}
-            tools={engineTools() ?? []}
-            mcp={mcp()?.data ?? []}
-            tokens={contextTokens()}
-            compactions={compactions()}
-            prompts={capturedPrompts()}
-            promptsLoading={capturedPrompts.loading}
-            toolUses={toolUses()?.tools}
-            toolCalls={toolUses()?.calls}
-            onRead={readInstruction}
-            serverUrl={harnessServerUrl()}
-            sessionID={selected()}
-            projectID={vcsDirectory()}
-            capabilities={harnessCapabilities()}
-          />
-          <DecisionsPanel
-            open={decisionsOpen()}
-            serverUrl={harnessServerUrl()}
-            sessionID={selected()}
-            capabilities={harnessCapabilities()}
-            onClose={() => leaveScreen()}
-          />
+          <Show when={contextOpen()}>
+            {/* The adaptive screens read the harness server on their own. Each gets a boundary mounted
+                only while it is open, so a failure stays on that screen and opening it again retries. */}
+            <PanelBoundary name={t("The context screen")}>
+              <ContextPanel
+                open={contextOpen()}
+                directory={vcsDirectory()}
+                report={contextReport()}
+                loading={contextReport.loading}
+                serverAvailable={routinesServerAvailable()}
+                skills={skills()?.data ?? []}
+                agents={agents()?.data ?? []}
+                agent={agent()}
+                tools={engineTools() ?? []}
+                mcp={mcp()?.data ?? []}
+                tokens={contextTokens()}
+                compactions={compactions()}
+                prompts={capturedPrompts()}
+                promptsLoading={capturedPrompts.loading}
+                toolUses={toolUses()?.tools}
+                toolCalls={toolUses()?.calls}
+                onRead={readInstruction}
+                serverUrl={harnessServerUrl()}
+                sessionID={selected()}
+                projectID={vcsDirectory()}
+                capabilities={harnessCapabilities()}
+              />
+            </PanelBoundary>
+          </Show>
+          <Show when={decisionsOpen()}>
+            <PanelBoundary name={t("The decisions screen")}>
+              <DecisionsPanel
+                open={decisionsOpen()}
+                serverUrl={harnessServerUrl()}
+                sessionID={selected()}
+                capabilities={harnessCapabilities()}
+                onClose={() => leaveScreen()}
+              />
+            </PanelBoundary>
+          </Show>
           <AgentsPanel
             open={agentsOpen()}
             files={agentFiles() ?? []}
@@ -5706,25 +5716,29 @@ export const App: Component = () => {
             onSave={saveAgent}
             onDelete={deleteAgent}
           />
-          <SkillCatalogue
-            open={skillsScreenOpen()}
-            files={skillFiles() ?? []}
-            skills={skills()?.data ?? []}
-            loading={skillFiles.loading}
-            skillsLoading={skills.loading}
-            serverAvailable={routinesServerAvailable()}
-            hasProject={!!vcsDirectory()}
-            serverUrl={harnessServerUrl()}
-            projectID={vcsDirectory()}
-            capabilities={harnessCapabilities()}
-            sources={skillSources()}
-            agents={agentFiles() ?? []}
-            onAddSource={addSkillSource}
-            onRemoveSource={removeSkillSource}
-            onRead={readSkillFile}
-            onSave={saveSkill}
-            onDelete={deleteSkillFile}
-          />
+          <Show when={skillsScreenOpen()}>
+            <PanelBoundary name={t("The skills screen")}>
+              <SkillCatalogue
+                open={skillsScreenOpen()}
+                files={skillFiles() ?? []}
+                skills={skills()?.data ?? []}
+                loading={skillFiles.loading}
+                skillsLoading={skills.loading}
+                serverAvailable={routinesServerAvailable()}
+                hasProject={!!vcsDirectory()}
+                serverUrl={harnessServerUrl()}
+                projectID={vcsDirectory()}
+                capabilities={harnessCapabilities()}
+                sources={skillSources()}
+                agents={agentFiles() ?? []}
+                onAddSource={addSkillSource}
+                onRemoveSource={removeSkillSource}
+                onRead={readSkillFile}
+                onSave={saveSkill}
+                onDelete={deleteSkillFile}
+              />
+            </PanelBoundary>
+          </Show>
           <UsagePanel
             open={usageOpen()}
             report={usage()}
