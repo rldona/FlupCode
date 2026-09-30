@@ -1,15 +1,22 @@
 import { describe, expect, test } from "bun:test"
 import {
+  DECISION_KIND_TITLES,
+  actedText,
+  confidenceBandText,
   confidenceText,
   costText,
+  decisionActed,
+  decisionQuery,
   describeAnswer,
   explanationFor,
   gateStateText,
   gateSummary,
   kindText,
+  kindTitle,
   labelMark,
   latencyText,
   outcomeText,
+  sourceText,
 } from "./DecisionsPanel"
 import type { DecisionExplanation, ValueGateStatus } from "../types"
 import { setLocale } from "../i18n"
@@ -131,5 +138,63 @@ describe("the value-of-information gate (AH-C05)", () => {
     expect(gateStateText("paused")).toBe("El modelo predictivo no mejora esta decisión; en pausa")
     expect(gateStateText("exploring")).toBe("Solo exploración: su valor no cubre su coste")
     setLocale("en")
+  })
+})
+
+describe("a usable audit (AH-E05)", () => {
+  test("a kind reads as a title, and one this build does not know as its stored value", () => {
+    expect(kindTitle({ kind: "skillRelevance" })).toBe("Which skills fit")
+    expect(kindTitle({ kind: "unknown", raw: { kind: "future-kind" } })).toBe("future-kind")
+    setLocale("es")
+    expect(kindTitle({ kind: "skillRelevance" })).toBe("Qué skills encajan")
+    setLocale("en")
+  })
+
+  test("every kind the filter offers has a title in Spanish too", () => {
+    setLocale("es")
+    const untranslated = Object.keys(DECISION_KIND_TITLES).filter((kind) => kindTitle({ kind }) === DECISION_KIND_TITLES[kind])
+    setLocale("en")
+    expect(untranslated).toEqual([])
+  })
+
+  test("only a non-shadow row outside the holdout control arm acted", () => {
+    expect(decisionActed({ shadow: false })).toBe(true)
+    expect(decisionActed({ shadow: false, arm: "treatment" })).toBe(true)
+    expect(decisionActed({ shadow: false, arm: "control" })).toBe(false)
+    expect(decisionActed({ shadow: true })).toBe(false)
+    expect(actedText({ shadow: false })).toBe("Acted")
+    setLocale("es")
+    expect(actedText({ shadow: false })).toBe("Actuó")
+    expect(actedText({ shadow: true })).toBe("Solo registrado")
+    setLocale("en")
+  })
+
+  test("confidence reads as a band with its percentage, split at 80% and 50%", () => {
+    expect(confidenceBandText(0.82)).toBe("High (82%)")
+    expect(confidenceBandText(0.8)).toBe("High (80%)")
+    expect(confidenceBandText(0.79)).toBe("Medium (79%)")
+    expect(confidenceBandText(0.5)).toBe("Medium (50%)")
+    expect(confidenceBandText(0.12)).toBe("Low (12%)")
+    expect(confidenceBandText(undefined)).toBeUndefined()
+    setLocale("es")
+    expect(confidenceBandText(0.82)).toBe("Alta (82%)")
+    setLocale("en")
+  })
+
+  test("the source says who answered, and an unknown one keeps its stored value", () => {
+    expect(sourceText({ source: "baseline" })).toBe("Built-in rules")
+    expect(sourceText({ source: "model" })).toBe("Model")
+    expect(sourceText({ source: "fallback" })).toBe("Rules after the model")
+    expect(sourceText({ source: "unknown", raw: { source: "oracle" } })).toBe("oracle")
+  })
+
+  test("a filter set to all asks the server for nothing, and the others for what they name", () => {
+    expect(decisionQuery({ kind: "", acted: "all" })).toEqual({})
+    expect(decisionQuery({ sessionID: "ses_1", kind: "completion", acted: "acted" })).toEqual({
+      sessionID: "ses_1",
+      kind: "completion",
+      acted: true,
+    })
+    expect(decisionQuery({ kind: "", acted: "recorded" })).toEqual({ acted: false })
   })
 })

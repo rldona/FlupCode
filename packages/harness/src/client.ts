@@ -1941,6 +1941,24 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       decisions: {
         list: (filter: { sessionID?: string; episodeID?: string; kind?: string; limit?: number } = {}) =>
           harnessAuthorizedJson<StoredDecision[]>(baseUrl, `/harness/adaptive/decisions${adaptiveQuery(filter)}`),
+        /**
+         * One page of the audit (AH-E05): newest first, with the cursor of the next page when there is
+         * one. An older server ignores `limit`/`before`/`acted`, answers the whole list and no cursor.
+         */
+        page: async (filter: DecisionPageFilter) => {
+          const response = await harnessAuthorizedRequest(
+            baseUrl,
+            `/harness/adaptive/decisions${adaptiveQuery({
+              ...filter,
+              acted: filter.acted === undefined ? undefined : String(filter.acted),
+            })}`,
+          )
+          const body = (await response.json().catch(() => undefined)) as
+            | { data?: StoredDecision[]; nextCursor?: string; error?: string }
+            | undefined
+          if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
+          return { data: body?.data ?? [], nextCursor: body?.nextCursor }
+        },
         explain: (id: string) =>
           harnessAuthorizedJson<DecisionExplanation>(baseUrl, `/harness/adaptive/decisions/${encodeURIComponent(id)}`),
       },
@@ -2001,6 +2019,16 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
 }
 
 /** A filter as a query string, with the empty ones left out rather than sent as "undefined". */
+/** What a page of the decision audit is filtered by (AH-E05); an absent field is not a filter. */
+export type DecisionPageFilter = {
+  id?: string
+  sessionID?: string
+  kind?: string
+  acted?: boolean
+  before?: string
+  limit?: number
+}
+
 function adaptiveQuery(filter: Record<string, string | number | undefined>): string {
   const search = new URLSearchParams()
   for (const [key, value] of Object.entries(filter)) {

@@ -29,15 +29,25 @@ export async function handleDecisionRequest(
   if (segments[0] === "decisions" && id === undefined) {
     const params = new URL(request.url).searchParams
     const kind = params.get("kind")
+    const acted = params.get("acted")
+    const before = cursorFrom(params.get("before"))
     const rawLimit = params.get("limit")
     const limit = rawLimit === null ? undefined : normalizeEpisodeLimit(Number(rawLimit))
+    // One row past the page says whether another page exists without a second COUNT query.
+    const rows = service.decisions({
+      ...(params.get("id") ? { id: params.get("id")! } : {}),
+      ...(params.get("sessionID") ? { sessionID: params.get("sessionID")! } : {}),
+      ...(params.get("episodeID") ? { episodeID: params.get("episodeID")! } : {}),
+      ...(kind !== null && isDecisionKind(kind) ? { kind } : {}),
+      ...(acted === "true" || acted === "false" ? { acted: acted === "true" } : {}),
+      ...(before ? { before } : {}),
+      ...(limit !== undefined ? { limit: limit + 1 } : {}),
+    })
+    const data = limit !== undefined ? rows.slice(0, limit) : rows
+    const last = data.at(-1)
     return json({
-      data: service.decisions({
-        ...(params.get("sessionID") ? { sessionID: params.get("sessionID")! } : {}),
-        ...(params.get("episodeID") ? { episodeID: params.get("episodeID")! } : {}),
-        ...(kind !== null && isDecisionKind(kind) ? { kind } : {}),
-        ...(limit !== undefined ? { limit } : {}),
-      }),
+      data,
+      ...(limit !== undefined && rows.length > limit && last ? { nextCursor: `${last.createdAt},${last.id}` } : {}),
     })
   }
   if (segments[0] === "decisions" && id !== undefined) {
@@ -46,4 +56,17 @@ export async function handleDecisionRequest(
     return json({ data: explanation })
   }
   return error("Not found", "not_found", 404)
+}
+
+/**
+ * `before=<createdAt>,<id>` as the keyset the repository pages from (AH-E05). The id can itself hold
+ * commas, so only the first one splits; a cursor that does not parse is no cursor, not an error.
+ */
+function cursorFrom(value: string | null) {
+  if (!value) return undefined
+  const comma = value.indexOf(",")
+  if (comma <= 0 || comma === value.length - 1) return undefined
+  const createdAt = Number(value.slice(0, comma))
+  if (!Number.isSafeInteger(createdAt)) return undefined
+  return { createdAt, id: value.slice(comma + 1) }
 }
