@@ -7,7 +7,8 @@
  * names against the roster and `renderSkillLine` writes the fixed box.
  *
  * It is inert — a null line — whenever the feature is off, the master kill switch is on, the runtime
- * is not legacy, there is no objective or roster, nothing was selected, or anything throws. In all of
+ * is not legacy, the session's override paused it (AH-E02), there is no objective or roster, nothing
+ * was selected, or anything throws. In all of
  * those cases `system` is left byte-identical; that is the guarantee ADR-0021 §3 fixes.
  */
 
@@ -27,7 +28,15 @@ export type RelevanceRequest = {
   objective: string
 }
 
-export type RelevanceReason = "ok" | "disabled" | "runtime-not-legacy" | "no-roster" | "no-match" | "holdout" | "error"
+export type RelevanceReason =
+  | "ok"
+  | "disabled"
+  | "runtime-not-legacy"
+  | "no-roster"
+  | "no-match"
+  | "holdout"
+  | "session-paused"
+  | "error"
 
 export type RelevanceResult = {
   line: string | null
@@ -77,6 +86,8 @@ export function createRelevanceService(deps: {
   curator: { roster(projectID: string): SkillRosterEntry[] }
   runtimeProbe: { capabilities(): RuntimeCapabilities }
   config: () => AdaptiveConfig
+  /** The per-session override (AH-E02): a pause and the skills a person asked not to be suggested. */
+  overrides?: { get(sessionID: string): { paused: boolean; excludedSkills: string[] } }
   now?: () => number
   /** Test seams for the eviction bound; production uses the module constants. */
   limits?: { rosters?: number; decisions?: number }
@@ -85,7 +96,7 @@ export function createRelevanceService(deps: {
   const rosterLimit = deps.limits?.rosters ?? MAX_ROSTER_CACHE
   const decisionLimit = deps.limits?.decisions ?? MAX_DECISION_CACHE
   const rosters = new Map<string, { at: number; entries: ReturnType<typeof dedupeRoster> }>()
-  const decisions = new Map<string, { at: number; result: RelevanceResult }>()
+  const decisions = new Map<string, { at: number; excluded: string; result: RelevanceResult }>()
 
   /** The roster with a TTL, so a turn does not `readdir`/`readFile` on the hot path. */
   const rosterFor = (projectID: string, ttlMs: number): ReturnType<typeof dedupeRoster> => {
@@ -122,16 +133,23 @@ export function createRelevanceService(deps: {
       if (!canInject(deps.runtimeProbe.capabilities())) return inert(id, "runtime-not-legacy", startedAt)
       // An empty objective would only spend on Jev to select nothing; it is the same as no match.
       if (!input.objective.trim()) return inert(id, "no-match", startedAt)
+      // The override is read on every step, before the cache, so a pause or an exclusion lands on the
+      // very next provider request rather than after the turn's cached decision expires.
+      const override = deps.overrides?.get(input.sessionID) ?? { paused: false, excludedSkills: [] }
+      const excluded = [...override.excludedSkills].sort().join("\n")
 
       // The same turn (a title and the turn itself) shares one id; the cache stops the second spend.
-      // It survives the whole turn (`DECISION_TTL_MS`), so a slow step does not re-spend.
+      // It survives the whole turn (`DECISION_TTL_MS`), so a slow step does not re-spend. A changed
+      // exclusion list is a different question, so it is decided again.
       const cached = decisions.get(id)
-      if (cached && now() - cached.at < DECISION_TTL_MS) {
+      if (!override.paused && cached && cached.excluded === excluded && now() - cached.at < DECISION_TTL_MS) {
         remember(decisions, id, cached, decisionLimit)
         return { ...cached.result, latencyMs: now() - startedAt }
       }
 
-      const roster = rosterFor(input.projectID, config.relevance.rosterTtlMs)
+      const roster = rosterFor(input.projectID, config.relevance.rosterTtlMs).filter(
+        (entry) => !override.excludedSkills.includes(entry.name),
+      )
       if (roster.length === 0) return inert(id, "no-roster", startedAt)
       const arm = armFor(input.sessionID, "relevance", config.holdout.fraction)
 
@@ -153,8 +171,14 @@ export function createRelevanceService(deps: {
         projectID: input.projectID,
         arm,
       }
-      // One audited acting decision per turn: `shadow: false` (ADR-0021 §5).
+      // One audited acting decision per turn: `shadow: false` (ADR-0021 §5). A paused session is
+      // still decided and recorded — the service asks no model and marks the row `session-paused` —
+      // so the audit says why no line was injected; nothing is cached, so a resume decides afresh.
       const result = await deps.service.predict(request, "hot", false)
+      if (override.paused) {
+        decisions.delete(id)
+        return { ...inert(id, "session-paused", startedAt), source: result.source }
+      }
       const names = rankSkills({
         objective: input.objective,
         chosen: result.answer.load,
@@ -174,7 +198,7 @@ export function createRelevanceService(deps: {
         reason: rendered === null ? "no-match" : arm === "control" ? "holdout" : "ok",
         latencyMs: now() - startedAt,
       }
-      remember(decisions, id, { at: now(), result: relevance }, decisionLimit)
+      remember(decisions, id, { at: now(), excluded, result: relevance }, decisionLimit)
       return relevance
     } catch {
       // The hot path never throws toward the hook: any failure is the inert "error" result.

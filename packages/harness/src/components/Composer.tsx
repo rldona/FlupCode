@@ -1,4 +1,4 @@
-import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component } from "solid-js"
+import { For, Show, batch, createEffect, createSignal, onCleanup, onMount, type Component, type JSX } from "solid-js"
 import type { AgentInfo, FileSystemEntry, ModelInfo, ModelVariant } from "../engine-types"
 import type { Attachment, BranchState, CheckLog, CommandOption, ProjectItem } from "../types"
 import { t } from "../i18n"
@@ -109,6 +109,8 @@ type ComposerProps = {
   onOpenFolder: () => void
   onAgentChange: (agent: string) => void
   onPermissionModeChange: (id: string) => void
+  /** The session's "Adaptive" chip (AH-E02), drawn with the other context chips when the server has it. */
+  adaptiveChip?: JSX.Element
 }
 
 const DesktopComposer: Component<ComposerProps> = (props) => {
@@ -593,6 +595,7 @@ const DesktopComposer: Component<ComposerProps> = (props) => {
               {/* Always here, not only mid-turn: it is a standing preference, and a control that
                   appears only once the agent is already working is a control nobody finds. */}
               <DeliveryMenu value={props.delivery} onChange={props.onDeliveryChange} />
+              {props.adaptiveChip}
             </Show>
           </div>
 

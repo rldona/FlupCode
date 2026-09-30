@@ -2707,8 +2707,9 @@ function selectForCache(messages, policy) {
  *
  * The hook makes no network call. The policy (`GET /harness/adaptive/selection`, adaptive bearer) is
  * fetched when the plugin loads and refreshed on a timer, then latched per session and changed only at
- * a cold step, so a switch flipped mid-session cannot rewrite a warm cache. Off unless the harness
- * says otherwise; any failure leaves the messages exactly as they arrived.
+ * a cold step, so a switch flipped mid-session cannot rewrite a warm cache. A session paused from the
+ * composer's chip (AH-E02) arrives in `pausedSessions` and latches off the same way, at its next cold
+ * step. Off unless the harness says otherwise; any failure leaves the messages exactly as they arrived.
  */
 export const CACHE_SELECTION_PLUGIN = {
   file: "flupcode-cache-selection.js",
@@ -2797,6 +2798,12 @@ function policyOf(data) {
   }
 }
 
+// The sessions a person paused (AH-E02); anything but a list of ids is no pause at all.
+function pausedOf(data) {
+  const list = data && Array.isArray(data.pausedSessions) ? data.pausedSessions : []
+  return new Set(list.filter((id) => typeof id === "string").slice(0, MAX_SESSIONS))
+}
+
 async function refresh(base, token) {
   const response = await fetch(base + "/harness/adaptive/selection", {
     headers: { authorization: "Bearer " + token },
@@ -2804,9 +2811,10 @@ async function refresh(base, token) {
   }).catch(() => undefined)
   if (!response || !response.ok) return
   const body = await response.json().catch(() => undefined)
-  const next = policyOf(body && typeof body === "object" ? body.data : undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  const next = policyOf(data)
   // A malformed answer leaves the last good policy to expire on its own.
-  if (next) policy = { ...next, at: Date.now() }
+  if (next) policy = { ...next, paused: pausedOf(data), at: Date.now() }
 }
 
 function currentPolicy(now) {
@@ -2849,7 +2857,10 @@ export const flupcodeCacheSelection = async () => {
         if (!Array.isArray(messages) || messages.length === 0) return
         const sessionID = sessionOf(messages)
         if (!sessionID) return
-        const effective = latched(sessionID, messages, currentPolicy(Date.now()))
+        const current = currentPolicy(Date.now())
+        // A paused session is offered the off policy; the latch still waits for a cold step to take it.
+        const offered = current.paused && current.paused.has(sessionID) ? { ...current, enabled: false } : current
+        const effective = latched(sessionID, messages, offered)
         if (!effective.enabled) return
         const result = selectForCache(messages, effective)
         // The engine keeps its own reference to this array, so the selection is written back in place.

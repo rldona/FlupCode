@@ -146,6 +146,7 @@ import { ReplayPanel } from "./components/ReplayPanel"
 import { ComparePanel } from "./components/ComparePanel"
 import { DecisionsPanel } from "./components/DecisionsPanel"
 import { GuardrailBanner, guardrailFor, type GuardrailReading } from "./components/GuardrailBanner"
+import { AdaptiveChip } from "./components/AdaptiveChip"
 import { runSnapshot } from "./compare"
 import { MemoryPanel } from "./components/MemoryPanel"
 import { ConfigPanel } from "./components/ConfigPanel"
@@ -507,6 +508,8 @@ export const App: Component = () => {
   const usageOpen = () => screen() === "usage"
   const contextOpen = () => screen() === "context"
   const decisionsOpen = () => screen() === "decisions"
+  // The composer chip's "Why?" (AH-E02) links to the decision like the banner does.
+  const showDecision = (decisionID: string) => showScreen("decisions", searchForDecision(decisionID))
   const agentsOpen = () => screen() === "agents"
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
@@ -5849,6 +5852,11 @@ export const App: Component = () => {
                         onOpenModelPicker={() => setModelPickerOpen(true)}
                         onAgentChange={changeAgent}
                         onPermissionModeChange={changePermissionMode}
+                        adaptive={
+                          adaptiveSurfaces(harnessCapabilities()).session
+                            ? { serverUrl: harnessServerUrl(), onWhy: showDecision }
+                            : undefined
+                        }
                       />
                     )}
                   </Show>
@@ -6068,6 +6076,18 @@ export const App: Component = () => {
                 onOpenFolder={() => setFolderOpen(true)}
                 onAgentChange={changeAgent}
                 onPermissionModeChange={changePermissionMode}
+                adaptiveChip={
+                  <Show when={selected() && adaptiveSurfaces(harnessCapabilities()).session ? selected() : undefined}>
+                    {(sessionID) => (
+                      <AdaptiveChip
+                        serverUrl={harnessServerUrl()}
+                        sessionID={sessionID()}
+                        busy={generating()}
+                        onWhy={showDecision}
+                      />
+                    )}
+                  </Show>
+                }
               />
             <Show when={chatView() && !selected() && !mobileRemote()}>
               <ChatStarters onPick={(text) => setPrompt(text)} />

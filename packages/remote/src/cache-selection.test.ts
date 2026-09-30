@@ -492,6 +492,38 @@ describe("CACHE_SELECTION_PLUGIN", () => {
     expect(later[1]!.parts[0]!.state.output).toHaveLength(40_000)
   })
 
+  test("a paused session latches off at its next cold step, and other sessions keep the policy", async () => {
+    process.env.FLUPCODE_SELECTION_REFRESH_MS = "20"
+    const policy = { current: { ...ENABLED, pausedSessions: ["ses_1"] } as unknown }
+    const fixture = harness(policy)
+    const hooks = await open(fixture.url)
+    await settle(fixture.requests, 1)
+    const transform = hooks["experimental.chat.messages.transform"]!
+    const paused = [...history(), ...coldTurn()]
+    await transform({}, { messages: paused })
+    expect(paused[1]!.parts[0]!.state.output).toHaveLength(40_000)
+
+    // The same history under another session id is trimmed as before.
+    const other = [...history(), ...coldTurn()].map((message) => ({
+      ...message,
+      info: { ...message.info, sessionID: "ses_2" },
+    }))
+    await transform({}, { messages: other })
+    expect(other[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+
+    // A malformed list is no pause at all.
+    policy.current = { ...ENABLED, pausedSessions: "ses_1" }
+    await settle(fixture.requests, fixture.requests.length + 2)
+    const resumed = [
+      ...history(),
+      ...coldTurn(),
+      ...turn({ user: 0, steps: [{ completed: T + 3_000 + 8 * MINUTE, outputs: [["bash", 3_000]] }] }).slice(1),
+      ...turn({ user: T + 3_000 + 20 * MINUTE, steps: [] }),
+    ]
+    await transform({}, { messages: resumed })
+    expect(resumed[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+  })
+
   test("is off without an answer, on a non-200 or a malformed policy, and never throws", async () => {
     for (const current of [
       undefined,

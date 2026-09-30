@@ -26,6 +26,7 @@ import { t } from "../i18n"
 import { toast } from "../toast"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "../model-switch"
 import { hasModel, replacementModel } from "../model-catalog"
+import { AdaptiveChip } from "./AdaptiveChip"
 import { Composer } from "./Composer"
 import { ModelSwitchDialog } from "./ModelSwitchDialog"
 import { ModelUnavailableDock } from "./ModelUnavailableDock"
@@ -67,6 +68,8 @@ type SessionPaneProps = {
   onOpenModelPicker: () => void
   onAgentChange: (agent: string) => void
   onPermissionModeChange: (id: string) => void
+  /** The harness server when it has the per-session override (AH-E02): the pane draws the "Adaptive" chip. */
+  adaptive?: { serverUrl: string; onWhy: (decisionID: string) => void }
 }
 
 /**
@@ -511,6 +514,16 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
         onOpenFolder={() => undefined}
         onAgentChange={props.onAgentChange}
         onPermissionModeChange={props.onPermissionModeChange}
+        adaptiveChip={
+          props.adaptive ? (
+            <AdaptiveChip
+              serverUrl={props.adaptive.serverUrl}
+              sessionID={sessionID()}
+              busy={generating()}
+              onWhy={props.adaptive.onWhy}
+            />
+          ) : undefined
+        }
       />
 
       <ModelSwitchDialog

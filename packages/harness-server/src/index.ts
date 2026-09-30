@@ -30,6 +30,7 @@ import { createRuntimeProbe, runtimeWatchFilePath } from "./adaptive/runtime"
 import type { RuntimeProbe } from "./adaptive/runtime"
 import { createRelevanceService } from "./adaptive/relevance"
 import { createGuardrailService } from "./adaptive/guardrails"
+import { createSessionOverrides } from "./adaptive/session-override"
 import { createAdaptiveConfigSurface } from "./adaptive/config-surface"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
@@ -174,6 +175,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       })
     : undefined
   const models = [jev, ...(smallLlm ? [smallLlm] : [])]
+  // The per-session override (AH-E02): in memory, read by every capability on its next step.
+  const overrides = createSessionOverrides()
   const decisions = createDecisionService({
     repository,
     config: () => adaptive.current(),
@@ -181,6 +184,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     models,
     governor,
     valueGate,
+    paused: overrides.paused,
   })
   // Context selection (FH-022/023 and the FH-024 seam): the manager owns `contextItem` — the scorer
   // baseline, the Jev refinement of ambiguous items only, and the plan audit. The scheduler hands it
@@ -194,6 +198,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     config: () => adaptive.current(),
     egress,
     opaqueKey: () => key ?? resolveInstallationKey(),
+    paused: overrides.paused,
   })
   // The learned-skill store and its curator (FH-040/FH-041): the curator is the only writer of a
   // learned skill and the roster the shadow evaluates relevance against. The store is built before
@@ -320,6 +325,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     curator,
     runtimeProbe,
     config: () => adaptive.current(),
+    overrides,
   })
   // The failure/loop guardrails (FH-060–063, ADR-0023): an advisory loopback service fed by opaque
   // digests from the installed plugin. It reuses the same decision service and runtime probe; with
@@ -329,6 +335,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     service: decisions,
     runtimeProbe,
     config: () => adaptive.current(),
+    paused: overrides.paused,
   })
   // The settings surface (FH-070): reads the composed config and writes the switches back into the
   // global file. It reuses the config reader (raw + current + invalidate), the runtime probe and the
@@ -364,6 +371,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       proposalReview: createProposalReview({ repository, curator }),
       learnedSkillActions: curator,
       adaptiveConfig,
+      overrides,
       ...(adaptiveToken
         ? {
             adaptiveToken,

@@ -26,7 +26,12 @@ export type ToolEvidenceStore = {
   getToolEvidence(sessionID: string, ref: string): { content: string } | undefined
 }
 
-export type ToolTrimDeps = { store: ToolEvidenceStore; config: () => AdaptiveConfig }
+export type ToolTrimDeps = {
+  store: ToolEvidenceStore
+  config: () => AdaptiveConfig
+  /** The session override (AH-E02): a paused session's outputs are left whole from its next tool call. */
+  paused?: (sessionID: string) => boolean
+}
 
 /** How long the plugin may stay quiet while the trim is off; the switch still reacts within it. */
 export const TOOL_TRIM_RETRY_AFTER_MS = 60_000
@@ -60,6 +65,8 @@ export async function handleToolTrimRequest(request: Request, deps: ToolTrimDeps
   if (skip === "disabled")
     return json({ data: { trimmed: false, reason: skip, policy, retryAfterMs: TOOL_TRIM_RETRY_AFTER_MS } })
   if (skip !== undefined) return json({ data: { trimmed: false, reason: skip, policy } })
+  // No `retryAfterMs`: the plugin's back-off is global, and a pause holds for this session only.
+  if (deps.paused?.(sessionID)) return json({ data: { trimmed: false, reason: "session-paused", policy } })
 
   // The replacement is rendered only after the store confirmed the whole output: no ref is handed out
   // that does not read back.

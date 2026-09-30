@@ -115,6 +115,8 @@ export type ContextManagerDeps = {
   classify?: (input: { parts: readonly ContextPart[]; objective: string }) => ContextItem[]
   /** A refinement override; when absent the service is asked (the production path). */
   refine?: (input: ContextRefinementInput) => Promise<ContextRefinement | undefined>
+  /** The session override (AH-E02): a paused session is planned as if context selection were off. */
+  paused?: (sessionID: string) => boolean
 }
 
 /** A disposition that removes a part; anything else — including a corrupt value — normalises to keep. */
@@ -257,6 +259,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
   const plan = async (input: ContextPlanInput): Promise<CompactionPlan | undefined> => {
     const config = deps.config()
     if (!config.enabled || !config.context.enabled) return undefined
+    if (input.sessionID && deps.paused?.(input.sessionID)) return undefined
     const at = input.now ?? now()
     const scopeID = `${input.runID}:${input.taskID}`
     try {
@@ -310,6 +313,7 @@ export function createContextManager(deps: ContextManagerDeps): ContextManager {
   const planEpisode = async (episode: SessionEpisode, at: number = now()): Promise<CompactionPlan | undefined> => {
     const config = deps.config()
     if (!config.enabled || !config.context.enabled) return undefined
+    if (deps.paused?.(episode.sessionID)) return undefined
     try {
       const items = withArchived(episode.id, classifyEpisode({ episode, key: deps.opaqueKey() }))
       const baseline = planContextItems({

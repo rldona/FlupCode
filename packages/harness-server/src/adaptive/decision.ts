@@ -345,6 +345,8 @@ export const DEGRADED_REASONS = [
   "voi-below-cost",
   /** A hot decision whose model's measured p95 latency exceeds the request deadline. */
   "p95-over-deadline",
+  /** The session's override paused the adaptive layer (AH-E02): recorded, nothing acted, no model asked. */
+  "session-paused",
 ] as const
 export type DegradedReason = (typeof DEGRADED_REASONS)[number]
 

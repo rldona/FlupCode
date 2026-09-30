@@ -37,6 +37,7 @@ describe("the selection policy route", () => {
       keepRecentTurns: 2,
       minSavingsTokens: 4_096,
       coldGapMs: 360_000,
+      pausedSessions: [],
     })
     expect((await handler(get(BROWSER))).status).toBe(403)
     expect((await handler(get())).status).toBe(403)

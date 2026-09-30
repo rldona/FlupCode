@@ -147,6 +147,7 @@ const GATE_SKIPS: Partial<Record<DegradedReason, string>> = {
   "voi-paused": "the predictive model does not improve this decision, so the value-of-information gate paused it",
   "voi-below-cost": "the predictive model's expected value does not cover its cost and latency",
   "p95-over-deadline": "the predictive model's measured p95 latency exceeds this decision's deadline",
+  "session-paused": "the adaptive layer is paused in this session, so the decision was recorded and nothing acted on it",
 }
 
 /**
@@ -207,6 +208,8 @@ export function createDecisionService(deps: {
   governor?: Governor
   /** The value-of-information gate and answer cache (AH-C05); without one every eligible model is asked. */
   valueGate?: ValueGate
+  /** The session override (AH-E02): a paused session asks no model and records a row that did not act. */
+  paused?: (sessionID: string) => boolean
   now?: () => number
 }): DecisionService {
   const now = deps.now ?? Date.now
@@ -410,12 +413,23 @@ export function createDecisionService(deps: {
       }
     }
 
+    // A paused session (AH-E02) still records the decision, so the audit says why nothing acted, but
+    // asks no model and marks the row as not acting whatever the caller asked for.
+    const paused = request.sessionID !== undefined && deps.paused?.(request.sessionID) === true
     // Without an eligible model the deterministic answer is the answer, not a degraded one: the
     // harness is exactly as it was before any model existed, which is the opt-in posture.
-    const model = modelFor(request as AnyDecisionRequest, config)
+    const model = paused ? undefined : modelFor(request as AnyDecisionRequest, config)
     const scopeID = request.scopeID ?? request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
-    const improved: Improved<Q> =
-      model !== undefined && governor !== undefined
+    const improved: Improved<Q> = paused
+      ? {
+          answer: baseline.answer,
+          source: "baseline",
+          provider: "deterministic",
+          latencyMs: 0,
+          degraded: true,
+          degradedReason: "session-paused",
+        }
+      : model !== undefined && governor !== undefined
         ? await consult(model, governor, request, baseline, questions, prepared, mode, scopeID)
         : { answer: baseline.answer, source: "baseline", provider: "deterministic", latencyMs: 0, degraded: false }
     // The audit never retains what egress would not let out (ADR-0017 §3): the answer and the
@@ -445,7 +459,7 @@ export function createDecisionService(deps: {
       ...(improved.degradedReason !== undefined ? { degradedReason: improved.degradedReason } : {}),
       latencyMs: improved.latencyMs,
       policy: request.policy,
-      shadow,
+      shadow: shadow || paused,
       ...(request.arm !== undefined ? { arm: request.arm } : {}),
     }
     deps.repository.createDecision(input, decidedAt)

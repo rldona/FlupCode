@@ -22,7 +22,14 @@ import { elevateRisk } from "./risk"
 import type { RiskLevel } from "./risk"
 import type { RuntimeCapabilities } from "./runtime"
 
-export type GuardrailReason = "disabled" | "runtime-not-legacy" | "below-threshold" | "loop" | "error" | "holdout"
+export type GuardrailReason =
+  | "disabled"
+  | "runtime-not-legacy"
+  | "below-threshold"
+  | "loop"
+  | "error"
+  | "holdout"
+  | "session-paused"
 
 export type GuardrailResult = {
   verdict: FailureAnswer["verdict"]
@@ -73,6 +80,8 @@ export function createGuardrailService(deps: {
   service: DecisionService
   runtimeProbe: { capabilities(): RuntimeCapabilities }
   config: () => AdaptiveConfig
+  /** The session override (AH-E02): a paused session is decided and recorded, never warned. */
+  paused?: (sessionID: string) => boolean
   now?: () => number
 }): GuardrailService {
   const now = deps.now ?? Date.now
@@ -122,7 +131,11 @@ export function createGuardrailService(deps: {
     const digest = signal.argsDigest ?? signal.errorDigest ?? "none"
     const scopeID = `${input.sessionID}:${signal.tool ?? "tool"}:${digest}`
     const id = decisionID("failure", scopeID)
-    const cached = decisions.get(id)
+    // A paused session's loop is still decided — the service asks no model and records the rows as
+    // `session-paused` — so the audit shows the loop and why no warning followed. It is not cached,
+    // so a resume inside the window decides afresh.
+    const paused = deps.paused?.(input.sessionID) === true
+    const cached = paused ? undefined : decisions.get(id)
     if (cached && now() - cached.at < config.guardrails.windowMs) {
       remember(decisions, id, cached, config.guardrails.maxSessions)
       // The decision is reused; only the counts and the latency are recomposed from this observation.
@@ -157,6 +170,17 @@ export function createGuardrailService(deps: {
     const toolRisk = await deps.service.predict(toolRiskRequest, "hot", false)
     const risk = elevateRisk(native, toolRisk.answer.risk)
 
+    if (paused) {
+      return {
+        verdict: "continue",
+        reason: "session-paused",
+        repeatedCalls,
+        repeatedErrors,
+        steps: "unsupported",
+        decisionID: id,
+        latencyMs: now() - startedAt,
+      }
+    }
     const result: GuardrailResult = {
       // A control session's loop is decided and audited but not raised (AH-B05).
       verdict: arm === "control" ? "continue" : failure.answer.verdict,
@@ -183,6 +207,8 @@ export function createGuardrailService(deps: {
     if (!deps.runtimeProbe.capabilities().canObserveToolCalls) return null
     // A control session is never shown the advisory: that is what the comparison holds out (AH-B05).
     if (armFor(sessionID, "guardrails", config.holdout.fraction) === "control") return null
+    // Nor is a session its person paused (AH-E02).
+    if (deps.paused?.(sessionID) === true) return null
     const ring = rings.get(sessionID)
     if (ring === undefined) return null
     const current = now()
