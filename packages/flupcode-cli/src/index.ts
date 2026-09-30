@@ -5,6 +5,7 @@ import { homedir, hostname } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { createRemoteHost, PAIRING_TTL, type RemoteHostState, type RemoteHostStore } from "@flupcode/remote"
+import { detectEngine } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import QRCode from "qrcode"
 import pkg from "../package.json"
@@ -117,20 +118,25 @@ function engineCredentials() {
   return btoa(`${process.env.OPENCODE_SERVER_USERNAME ?? "opencode"}:${password}`)
 }
 
-async function engineHealthy(engine: string, credentials: string | undefined) {
-  return fetch(new URL("/global/health", engine), {
-    headers: credentials ? { authorization: `Basic ${credentials}` } : {},
-    signal: AbortSignal.timeout(1500),
-  })
-    .then((response) => response.ok)
-    .catch(() => false)
+function runningEngine(engine: string, credentials: string | undefined) {
+  return detectEngine(engine, fetch, { headers: credentials ? { authorization: `Basic ${credentials}` } : {} })
+}
+
+/** OpenCode 2.x drops the routes and plugin format FlupCode drives, so it is refused by name (V2-00). */
+function failUnsupported(engine: string, version: string): never {
+  fail(
+    `the engine at ${engine} is OpenCode ${version}; FlupCode requires OpenCode 1.x. ` +
+      "Install OpenCode 1.x, or start a 1.x opencode serve and pass --engine",
+  )
 }
 
 async function ensureEngine(engine: string, credentials: string | undefined, serve: boolean) {
+  const running = await runningEngine(engine, credentials)
+  if (running.kind === "v2") failUnsupported(engine, running.version)
   // Plugins live in this computer's OpenCode config, so they only matter for a local engine.
   const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
   const plugins = local ? await installEnginePlugins() : undefined
-  if (await engineHealthy(engine, credentials)) {
+  if (running.kind === "v1") {
     if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins (reasoning effort levels, context capture)."))
     return undefined
   }
@@ -145,7 +151,12 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
     shell: process.platform === "win32",
   })
   for (let attempt = 0; attempt < 60; attempt++) {
-    if (await engineHealthy(engine, credentials)) return child
+    const started = await runningEngine(engine, credentials)
+    if (started.kind === "v1") return child
+    if (started.kind === "v2") {
+      child.kill()
+      failUnsupported(engine, started.version)
+    }
     await Bun.sleep(500)
   }
   child.kill()

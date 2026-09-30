@@ -4,6 +4,7 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
+import { detectEngine } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
@@ -16,6 +17,7 @@ let child: ChildProcess | undefined
 let harnessChild: ChildProcess | undefined
 let prompted = false
 let promptedRestart = false
+let promptedUnsupported = false
 
 /**
  * The engine answers any request from any `http://localhost:*` origin, so an unsecured one lets
@@ -62,16 +64,8 @@ function authHeaders() {
   return credentials ? { authorization: `Basic ${credentials}` } : undefined
 }
 
-export async function isServerHealthy() {
-  try {
-    const response = await fetch(`${SERVER_URL}/global/health`, {
-      headers: authHeaders(),
-      signal: AbortSignal.timeout(1500),
-    })
-    return response.ok
-  } catch {
-    return false
-  }
+function runningEngine() {
+  return detectEngine(SERVER_URL, fetch, { headers: authHeaders() })
 }
 
 export async function isHarnessServerHealthy() {
@@ -212,6 +206,35 @@ function promptInstall() {
 }
 
 /**
+ * OpenCode 2.x answers where FlupCode expects its engine: the user installed it over the 1.x
+ * `opencode`, or started it by hand. FlupCode cannot drive it (no legacy routes, no plugin loader
+ * for its plugins), so it says which engine it found and how to point at a 1.x one instead of
+ * reporting the engine as missing.
+ */
+function promptUnsupportedEngine(version: string, command?: string) {
+  if (promptedUnsupported) return
+  promptedUnsupported = true
+  void dialog
+    .showMessageBox({
+      type: "warning",
+      title: "Unsupported OpenCode engine",
+      message: `FlupCode requires OpenCode 1.x, but found OpenCode ${version}`,
+      detail:
+        (command
+          ? `The engine started from "${command}" is OpenCode ${version}.`
+          : `The engine at ${SERVER_URL} is OpenCode ${version}.`) +
+        "\n\nOpenCode 2 changed the server API and the plugin format, and FlupCode does not support it yet.\n\n" +
+        "Install OpenCode 1.x, or set FLUPCODE_OPENCODE to the path of a 1.x opencode binary, then reopen FlupCode.",
+      buttons: ["Open install docs", "Continue offline"],
+      defaultId: 0,
+      cancelId: 1,
+    })
+    .then((result) => {
+      if (result.response === 0) void shell.openExternal(OPENCODE_DOCS)
+    })
+}
+
+/**
  * An engine this app did not start reads its plugins once, when it starts.
  *
  * One that was already listening when FlupCode wrote them is running without them, and nothing says
@@ -233,10 +256,14 @@ function promptPluginRestart() {
   })
 }
 
-export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "1") return
+export async function ensureServer() {
+  if (process.env.FLUPCODE_NO_SERVER === "1") return
+  const running = await runningEngine()
+  // Nothing is installed for an engine that would reject it: 2.x refuses every FlupCode plugin.
+  if (running.kind === "v2") return promptUnsupportedEngine(running.version)
   // Before any engine starts: plugins load at startup (an engine already running picks them up on restart).
   const plugins = await installEnginePlugins()
-  if (await isServerHealthy()) {
+  if (running.kind === "v1") {
     if (plugins.changed) promptPluginRestart()
     return
   }
@@ -247,6 +274,7 @@ export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "
     return
   }
 
+  console.info(`[flupcode] starting the engine: ${[engine.command, ...engine.args].join(" ")}`)
   ensureEngineCredentials()
   child = spawn(engine.command, engine.args, {
     cwd: engine.cwd,
@@ -268,7 +296,17 @@ export async function ensureServer() {  if (process.env.FLUPCODE_NO_SERVER === "
   })
 
   for (let attempt = 0; attempt < 40; attempt++) {
-    if (await isServerHealthy()) return
+    const started = await runningEngine()
+    if (started.kind === "v1") {
+      console.info(`[flupcode] engine ready: OpenCode ${started.version ?? "unknown version"}`)
+      return
+    }
+    if (started.kind === "v2") {
+      // Stopped rather than left running: nothing in FlupCode can use it, and it holds the port.
+      child?.kill()
+      child = undefined
+      return promptUnsupportedEngine(started.version, engine.command)
+    }
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
 

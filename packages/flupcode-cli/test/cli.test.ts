@@ -114,4 +114,21 @@ describe("flupcode remote", () => {
     expect(await new Response(run.stderr).text()).toContain("opencode serve --port 9")
     expect(await run.exited).toBe(1)
   })
+
+  test("refuses an OpenCode 2.x engine by name", async () => {
+    const v2 = Bun.serve({
+      port: 0,
+      fetch: (request) =>
+        new URL(request.url).pathname === "/api/info"
+          ? Response.json({ version: "2.0.20", pid: 1, urls: [], paths: { tmp: "/tmp" } })
+          : Response.json({ _tag: "NotFound" }, { status: 404 }),
+    })
+    try {
+      const run = cli("remote", "--no-serve", "--engine", v2.url.href.replace(/\/$/, ""))
+      expect(await new Response(run.stderr).text()).toContain("is OpenCode 2.0.20; FlupCode requires OpenCode 1.x")
+      expect(await run.exited).toBe(1)
+    } finally {
+      v2.stop(true)
+    }
+  })
 })

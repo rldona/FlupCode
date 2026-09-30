@@ -8,7 +8,8 @@
   "description": "FlupCode remote control protocol: secure channel, tunnel and relay framing.",
   "exports": {
     ".": "./src/index.ts",
-    "./engine-plugins": "./src/engine-plugins.ts"
+    "./engine-plugins": "./src/engine-plugins.ts",
+    "./engine-kind": "./src/engine-kind.ts"
   },
   "scripts": {
     "test": "bun test",
