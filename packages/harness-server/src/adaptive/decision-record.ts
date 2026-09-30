@@ -7,8 +7,8 @@
  * enforced by the writer (`EgressGuard.prepare`) and this module only serializes what it is handed.
  */
 
-import type { DecisionKind, DecisionPolicy, DecisionSource, DegradedReason } from "./decision"
-import { DEFAULT_DECISION_POLICY, isDecisionKind, isDecisionSource } from "./decision"
+import type { DecisionKind, DecisionLabel, DecisionPolicy, DecisionSource, DegradedReason } from "./decision"
+import { DEFAULT_DECISION_POLICY, isDecisionKind, isDecisionLabelOutcome, isDecisionSource } from "./decision"
 import type { StoredDecision, StoredDecisionInput } from "../types"
 import { isArm } from "./holdout"
 
@@ -45,6 +45,13 @@ export type DecisionRow = {
   policy_json: string
   shadow: number
   arm: string | null
+  provider_id: string | null
+  provider_version: string | null
+  cost_usd: number | null
+  input_tokens: number | null
+  /** `{ outcome, source }` as JSON (AH-C06); `labeled_at` is its own column so it can be queried. */
+  label: string | null
+  labeled_at: number | null
   created_at: number
   updated_at: number
 }
@@ -145,18 +152,34 @@ export const decisionRowFrom = (input: StoredDecisionInput, now: number): Decisi
   policy_json: JSON.stringify(input.policy),
   shadow: input.shadow ? 1 : 0,
   arm: input.arm ?? null,
+  provider_id: input.providerID ?? null,
+  provider_version: input.providerVersion ?? null,
+  cost_usd: input.costUsd ?? null,
+  input_tokens: input.inputTokens ?? null,
+  // The label has its own writer (AH-C06): the insert never sets it and the upsert leaves one alone.
+  label: null,
+  labeled_at: null,
   created_at: now,
   updated_at: now,
 })
 
-/** The row as it is read: an unknown kind or source is dropped rather than guessed at. */
-export const decisionFromRow = (row: DecisionRow): StoredDecision | undefined => {
-  if (!isDecisionKind(row.kind) || !isDecisionSource(row.source)) return undefined
+/**
+ * The row as it is read (AH-C02): an unknown kind or source keeps the row, reads `"unknown"` and
+ * exposes the stored value in `raw`, so a row written by a newer build is never lost from the audit.
+ */
+export const decisionFromRow = (row: DecisionRow): StoredDecision => {
+  const source = readSource(row)
+  const kind = isDecisionKind(row.kind) ? row.kind : "unknown"
+  const raw = {
+    ...(kind === "unknown" ? { kind: row.kind } : {}),
+    ...(source.value === "unknown" ? { source: row.source } : {}),
+  }
   const probabilities = parseNumberMap(row.probabilities_json)
   const degradedReason = parseReason(row.degraded_reason)
+  const label = parseLabel(row.label, row.labeled_at)
   return {
     id: row.id,
-    kind: row.kind,
+    kind,
     ...(row.session_id ? { sessionID: row.session_id } : {}),
     ...(row.episode_id ? { episodeID: row.episode_id } : {}),
     ...(row.project_id ? { projectID: row.project_id } : {}),
@@ -170,7 +193,13 @@ export const decisionFromRow = (row: DecisionRow): StoredDecision | undefined =>
     provider: row.provider,
     ...(row.attempted_provider ? { attemptedProvider: row.attempted_provider } : {}),
     ...(row.model_version ? { modelVersion: row.model_version } : {}),
-    source: row.source,
+    source: source.value,
+    ...(source.providerID ? { providerID: source.providerID } : {}),
+    ...(row.provider_version ? { providerVersion: row.provider_version } : {}),
+    ...(typeof row.cost_usd === "number" ? { costUsd: row.cost_usd } : {}),
+    ...(typeof row.input_tokens === "number" ? { inputTokens: row.input_tokens } : {}),
+    ...(label ? { label } : {}),
+    ...(Object.keys(raw).length > 0 ? { raw } : {}),
     degraded: row.degraded !== 0,
     ...(degradedReason ? { degradedReason } : {}),
     latencyMs: row.latency_ms,
@@ -180,4 +209,25 @@ export const decisionFromRow = (row: DecisionRow): StoredDecision | undefined =>
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }
+}
+
+/**
+ * The source, reading the v1 vocabulary as the v2 one (AH-C02).
+ *
+ * The migration rewrites `jev`/`deterministic` once, but an older build started against a migrated
+ * database can still write them afterwards, and the schema version would not let the migration run
+ * again. Reading them the way the migration maps them keeps those rows correct too.
+ */
+const readSource = (row: DecisionRow): { value: DecisionSource | "unknown"; providerID?: string } => {
+  const providerID = row.provider_id ?? undefined
+  if (row.source === "jev") return { value: "model", providerID: providerID ?? row.attempted_provider ?? row.provider }
+  if (row.source === "deterministic") return { value: "baseline", ...(providerID ? { providerID } : {}) }
+  return { value: isDecisionSource(row.source) ? row.source : "unknown", ...(providerID ? { providerID } : {}) }
+}
+
+/** A label is only read whole: an outcome this build does not know leaves the row unlabelled. */
+const parseLabel = (value: string | null, labeledAt: number | null): DecisionLabel | undefined => {
+  const parsed = parseObject(value)
+  if (!isDecisionLabelOutcome(parsed.outcome) || typeof parsed.source !== "string" || labeledAt === null) return undefined
+  return { outcome: parsed.outcome, source: parsed.source, labeledAt }
 }

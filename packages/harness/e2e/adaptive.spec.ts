@@ -410,7 +410,7 @@ const decision = {
   baselineRule: "default",
   provider: "typesafe",
   modelVersion: "m1",
-  source: "jev",
+  source: "model",
   degraded: true,
   degradedReason: "timeout",
   latencyMs: 1500,
@@ -429,9 +429,12 @@ test("the decision audit paints the row and the explanation, and offers no actio
       answer: { complete: false },
       baseline: { answer: { complete: true }, rule: "default" },
       why: "the provider timed out",
-      source: "jev",
+      source: "model",
       provider: "typesafe",
       modelVersion: "m1",
+      providerID: "typesafe",
+      costUsd: 0.0031,
+      inputTokens: 812,
       latencyMs: 1500,
       degraded: true,
       degradedReason: "timeout",
@@ -452,6 +455,7 @@ test("the decision audit paints the row and the explanation, and offers no actio
   await expect(dialog).toContainText("Is this complete?")
   await expect(dialog).toContainText("the provider timed out")
   await expect(dialog.getByText("Baseline")).toBeVisible()
+  await expect(dialog).toContainText("$0.0031 · 812 input tokens")
 
   // Reading only: there is no route that approves, merges or archives a decision.
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive/i })).toHaveCount(0)
@@ -463,7 +467,7 @@ const explanationOf = (id: string, question: string) => ({
   answer: { complete: false },
   baseline: { answer: { complete: true }, rule: "default" },
   why: "the provider timed out",
-  source: "jev",
+  source: "model",
   provider: "typesafe",
   latencyMs: 1500,
   degraded: false,
@@ -574,7 +578,8 @@ test("the context plan paints each disposition and reason, and offers no action"
             tokens: 40,
           },
         ],
-        scoreSource: "deterministic",
+        scoreSource: "model",
+        scoreProvider: "jev",
         degraded: false,
         applied: false,
         tokensBefore: 1200,
@@ -590,6 +595,8 @@ test("the context plan paints each disposition and reason, and offers no action"
   const block = page.locator(".fc-context-plan")
   await expect(block.getByText("Context plan")).toBeVisible()
   await expect(block).toContainText("Shadow only: nothing was filtered.")
+  // The refinement names the model that made it, whichever it was (AH-C02).
+  await expect(block).toContainText("Refined by jev")
   await expect(block).toContainText("Archive · superseded")
   await expect(block).toContainText("Keep · the objective")
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive/i })).toHaveCount(0)

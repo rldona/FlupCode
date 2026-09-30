@@ -24,10 +24,12 @@ import type {
 import type {
   ContextItemKind,
   DecisionKind,
+  DecisionLabel,
   DecisionPolicy,
   DecisionSource,
   DegradedReason,
   ItemDisposition,
+  PlanScoreSource,
 } from "./adaptive/decision"
 import type {
   ReflectionJobFilter,
@@ -633,11 +635,16 @@ export type AdaptiveUsageRepository = {
  *
  * It carries the inputs hash and a **redacted summary**, never the raw state: the audit is a record
  * that a decision was asked and what came back, not a second copy of what the session saw. The
- * baseline answer and the rule that produced it are stored even when Jev won, so `explain` is a read.
+ * baseline answer and the rule that produced it are stored even when a model won, so `explain` is a
+ * read.
+ *
+ * A row written by a newer build, or edited by hand, can carry a kind or source this build does not
+ * know (AH-C02). It is kept rather than dropped: `kind`/`source` read `"unknown"` and `raw` keeps the
+ * stored value, so the audit never loses a row it cannot interpret.
  */
 export type StoredDecision = {
   id: string
-  kind: DecisionKind
+  kind: DecisionKind | "unknown"
   sessionID?: string
   episodeID?: string
   projectID?: string
@@ -652,7 +659,18 @@ export type StoredDecision = {
   /** The external provider that was asked, kept apart from `provider` (who produced the answer). */
   attemptedProvider?: string
   modelVersion?: string
-  source: DecisionSource
+  source: DecisionSource | "unknown"
+  /** The predictive model consulted (AH-C02); absent when only the baseline answered. */
+  providerID?: string
+  /** The version the model reported for this answer, when it reported one. */
+  providerVersion?: string
+  /** What the model call cost; absent when nothing was measured (no call, or a call that failed). */
+  costUsd?: number
+  inputTokens?: number
+  /** The outcome label (AH-C06); absent until the decision is labelled. */
+  label?: DecisionLabel
+  /** The stored values this build could not interpret, present only when `kind` or `source` is unknown. */
+  raw?: { kind?: string; source?: string }
   degraded: boolean
   degradedReason?: DegradedReason
   latencyMs: number
@@ -664,8 +682,17 @@ export type StoredDecision = {
   updatedAt: number
 }
 
-/** What a writer supplies; the store stamps `createdAt`/`updatedAt` (FH-015). */
-export type StoredDecisionInput = Omit<StoredDecision, "createdAt" | "updatedAt">
+/**
+ * What a writer supplies; the store stamps `createdAt`/`updatedAt` (FH-015). A writer always knows the
+ * kind and source it records, and the label is written by its own path (AH-C06), never with the row.
+ */
+export type StoredDecisionInput = Omit<
+  StoredDecision,
+  "createdAt" | "updatedAt" | "kind" | "source" | "label" | "raw"
+> & {
+  kind: DecisionKind
+  source: DecisionSource
+}
 
 /** How decisions are listed; an absent field is not a filter (FH-015). */
 export type DecisionFilter = {
@@ -724,7 +751,14 @@ export type ContextPlan = {
   /** The hash of the objective, never the objective text. */
   objectiveHash: string
   entries: ContextPlanEntry[]
-  scoreSource: "deterministic" | "jev"
+  /**
+   * Who scored the plan: the deterministic scorer alone (`baseline`) or a model refinement on top of
+   * it (`model`, with the model in `scoreProvider`). A stored value this build does not know reads
+   * `unknown` and is kept in `rawScoreSource` (AH-C02).
+   */
+  scoreSource: PlanScoreSource | "unknown"
+  scoreProvider?: string
+  rawScoreSource?: string
   degraded: boolean
   degradedReason?: DegradedReason
   /** Whether the plan actually filtered the prompt; false while the seam is in shadow. */
@@ -744,7 +778,9 @@ export type StoredPlan = ContextPlan & {
 }
 
 /** What a writer supplies; the store stamps the timestamps and computes `truncated`. */
-export type StoredPlanInput = Omit<StoredPlan, "createdAt" | "updatedAt" | "truncated">
+export type StoredPlanInput = Omit<StoredPlan, "createdAt" | "updatedAt" | "truncated" | "scoreSource" | "rawScoreSource"> & {
+  scoreSource: PlanScoreSource
+}
 
 /** How plans are listed; an absent field is not a filter (FH-022). */
 export type PlanFilter = {

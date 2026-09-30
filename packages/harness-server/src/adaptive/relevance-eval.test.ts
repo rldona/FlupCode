@@ -236,7 +236,7 @@ describe("Phase 4 / PoC-3 evaluation: relevance (offline, recorded)", () => {
       if (fixture.degraded) continue
       const { repository, relevance, spy } = stack(fixture, { jev: true })
       const result = await suggest(relevance, fixture)
-      expect(result.source, name).toBe("jev")
+      expect(result.source, name).toBe("model")
       expect(result.line, name).not.toBeNull()
       for (const good of fixture.good) expect(result.skills, `${name}:${good}`).toContain(good)
       for (const wrong of fixture.wrong) expect(result.skills, `${name}:${wrong}`).not.toContain(wrong)

@@ -129,7 +129,7 @@ const reflectionService = (input: {
     return {
       kind: request.kind,
       answer: answer as DecisionSpec[Q]["answer"],
-      source: "jev",
+      source: "model",
       provider: "fake",
       confidence: input.confidence ?? 0.9,
       probabilities: { reusable: 0.9 },

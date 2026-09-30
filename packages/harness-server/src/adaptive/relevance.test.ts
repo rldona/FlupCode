@@ -38,7 +38,7 @@ const capabilities = (runtime: RuntimeKind, canInject: boolean): RuntimeCapabili
 const decision = (load: string[], over: Partial<DecisionResult<"skillRelevance">> = {}): DecisionResult<"skillRelevance"> => ({
   kind: "skillRelevance",
   answer: { load },
-  source: "deterministic",
+  source: "baseline",
   provider: "deterministic",
   latencyMs: 0,
   degraded: false,
@@ -157,7 +157,7 @@ describe("createRelevanceService", () => {
     const result = await relevance.suggest(request)
     expect(spy.calls).toEqual([{ mode: "hot", shadow: false }])
     expect(result.reason).toBe("ok")
-    expect(result.source).toBe("deterministic")
+    expect(result.source).toBe("baseline")
     expect(result.degraded).toBe(false)
     expect(result.skills).toEqual(["testing"])
     expect(result.line).toContain("testing")

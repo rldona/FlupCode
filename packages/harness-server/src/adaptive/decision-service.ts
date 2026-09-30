@@ -21,7 +21,7 @@
  * which is what makes the answer reproducible.
  */
 
-import { MODEL_SOURCE, allowsModel } from "./decision"
+import { allowsModel } from "./decision"
 import type {
   AnyDecisionRequest,
   DecisionKind,
@@ -62,11 +62,18 @@ export type DecisionExplanation = {
   answer: unknown
   baseline: { answer: unknown; rule: string }
   why: string
-  source: DecisionSource
+  source: StoredDecision["source"]
   provider: string
   /** The model that was asked, when one was, even if it could not answer. */
   attemptedProvider?: string
   modelVersion?: string
+  /** The predictive model consulted and what it cost (AH-C02); absent when only the baseline answered. */
+  providerID?: string
+  providerVersion?: string
+  costUsd?: number
+  inputTokens?: number
+  /** The stored kind or source this build could not interpret. */
+  raw?: StoredDecision["raw"]
   confidence?: number
   probabilities?: Record<string, number>
   latencyMs: number
@@ -108,6 +115,10 @@ type Improved<Q extends DecisionKind> = {
   source: DecisionSource
   provider: string
   attemptedProvider?: string
+  providerID?: string
+  providerVersion?: string
+  costUsd?: number
+  inputTokens?: number
   confidence?: number
   probabilities?: Record<string, number>
   modelVersion?: string
@@ -249,10 +260,14 @@ export function createDecisionService(deps: {
       const axes = [raw.reading.confidence, probability].filter((axis) => axis !== undefined)
       const confidence = axes.length > 0 ? Math.min(...axes) : undefined
       const version = raw.prediction.model.version
+      // The call happened, so what it cost is recorded whether or not its answer clears the gate.
       const reported = {
         ...(confidence !== undefined ? { confidence } : {}),
         ...(probabilities !== undefined ? { probabilities } : {}),
-        ...(version !== undefined ? { modelVersion: version } : {}),
+        ...(version !== undefined ? { modelVersion: version, providerVersion: version } : {}),
+        providerID: raw.prediction.model.id,
+        costUsd: raw.prediction.usage.costUsd,
+        inputTokens: raw.prediction.usage.inputTokens,
       }
       if (!passesGate(confidence, probability, request.policy)) {
         return {
@@ -268,7 +283,7 @@ export function createDecisionService(deps: {
       }
       return {
         answer: raw.reading.answer,
-        source: MODEL_SOURCE,
+        source: "model",
         provider: raw.prediction.model.id,
         attemptedProvider: model.id,
         ...reported,
@@ -277,12 +292,14 @@ export function createDecisionService(deps: {
       }
     } catch (cause) {
       // The deterministic rule answers whenever the model does not win; the row keeps who was asked
-      // (`attemptedProvider`) apart from who answered (`provider`).
+      // (`attemptedProvider`) apart from who answered (`provider`). A call that failed reports no
+      // usage, so its cost stays unmeasured rather than zero.
       return {
         answer: baseline.answer,
         source: "fallback",
         provider: "deterministic",
         attemptedProvider: model.id,
+        providerID: model.id,
         latencyMs: now() - startedAt,
         degraded: true,
         degradedReason: degradedReasonOf(cause),
@@ -306,7 +323,7 @@ export function createDecisionService(deps: {
       return {
         kind: request.kind,
         answer: baseline.answer,
-        source: "deterministic",
+        source: "baseline",
         provider: "deterministic",
         latencyMs: 0,
         degraded: false,
@@ -323,7 +340,7 @@ export function createDecisionService(deps: {
     const improved: Improved<Q> =
       model !== undefined && governor !== undefined
         ? await improve(model, governor, request, baseline, questions, prepared, mode)
-        : { answer: baseline.answer, source: "deterministic", provider: "deterministic", latencyMs: 0, degraded: false }
+        : { answer: baseline.answer, source: "baseline", provider: "deterministic", latencyMs: 0, degraded: false }
     const scopeID = request.scopeID ?? request.episodeID ?? request.sessionID ?? request.projectID ?? "unknown"
     // The audit never retains what egress would not let out (ADR-0017 §3): the answer and the
     // baseline go through the same redaction and bound before they reach the writer.
@@ -344,6 +361,10 @@ export function createDecisionService(deps: {
       ...(improved.attemptedProvider !== undefined ? { attemptedProvider: improved.attemptedProvider } : {}),
       ...(improved.modelVersion !== undefined ? { modelVersion: improved.modelVersion } : {}),
       source: improved.source,
+      ...(improved.providerID !== undefined ? { providerID: improved.providerID } : {}),
+      ...(improved.providerVersion !== undefined ? { providerVersion: improved.providerVersion } : {}),
+      ...(improved.costUsd !== undefined ? { costUsd: improved.costUsd } : {}),
+      ...(improved.inputTokens !== undefined ? { inputTokens: improved.inputTokens } : {}),
       degraded: improved.degraded,
       ...(improved.degradedReason !== undefined ? { degradedReason: improved.degradedReason } : {}),
       latencyMs: improved.latencyMs,
@@ -373,16 +394,19 @@ export function createDecisionService(deps: {
 
   /** The sentence `explain` shows: who answered, with what confidence, or why the baseline did. */
   const why = (decision: StoredDecision): string => {
-    if (decision.source === MODEL_SOURCE) {
+    if (decision.source === "model") {
       const confidence = decision.confidence !== undefined ? ` (confidence ${decision.confidence})` : ""
-      return `${decision.provider} ${decision.modelVersion ?? "unknown model"} answered${confidence}, clearing the policy thresholds (minConfidence ${decision.policy.minConfidence}, minProbability ${decision.policy.minProbability}).`
+      return `${decision.providerID ?? decision.provider} ${decision.providerVersion ?? decision.modelVersion ?? "unknown model"} answered${confidence}, clearing the policy thresholds (minConfidence ${decision.policy.minConfidence}, minProbability ${decision.policy.minProbability}).`
     }
-    if (decision.source === "deterministic") {
-      return `The deterministic rule "${decision.baselineRule}" answered; no external provider was consulted.`
+    if (decision.source === "baseline") {
+      return `The deterministic rule "${decision.baselineRule}" answered; no predictive model was consulted.`
+    }
+    if (decision.source === "unknown") {
+      return `This row records source "${decision.raw?.source ?? ""}", which this build does not recognise; the stored answer is shown as it was recorded.`
     }
     // The row keeps who was asked and who answered apart, so the sentence names the model that could
     // not answer rather than the deterministic rule that did.
-    return `The deterministic rule "${decision.baselineRule}" answered because ${decision.attemptedProvider ?? decision.provider} could not: ${decision.degradedReason ?? "unknown"}.`
+    return `The deterministic rule "${decision.baselineRule}" answered because ${decision.providerID ?? decision.attemptedProvider ?? decision.provider} could not: ${decision.degradedReason ?? "unknown"}.`
   }
 
   const explain = (id: string): DecisionExplanation | undefined => {
@@ -391,7 +415,10 @@ export function createDecisionService(deps: {
     const episode = decision.episodeID ? deps.repository.getEpisode(decision.episodeID) : undefined
     return {
       id: decision.id,
-      question: QUESTIONS[decision.kind],
+      question:
+        decision.kind === "unknown"
+          ? `A decision of kind "${decision.raw?.kind ?? ""}", which this build does not recognise.`
+          : QUESTIONS[decision.kind],
       answer: decision.answer,
       baseline: { answer: decision.baselineAnswer, rule: decision.baselineRule },
       why: why(decision),
@@ -399,6 +426,11 @@ export function createDecisionService(deps: {
       provider: decision.provider,
       ...(decision.attemptedProvider !== undefined ? { attemptedProvider: decision.attemptedProvider } : {}),
       ...(decision.modelVersion !== undefined ? { modelVersion: decision.modelVersion } : {}),
+      ...(decision.providerID !== undefined ? { providerID: decision.providerID } : {}),
+      ...(decision.providerVersion !== undefined ? { providerVersion: decision.providerVersion } : {}),
+      ...(decision.costUsd !== undefined ? { costUsd: decision.costUsd } : {}),
+      ...(decision.inputTokens !== undefined ? { inputTokens: decision.inputTokens } : {}),
+      ...(decision.raw !== undefined ? { raw: decision.raw } : {}),
       ...(decision.confidence !== undefined ? { confidence: decision.confidence } : {}),
       ...(decision.probabilities !== undefined ? { probabilities: decision.probabilities } : {}),
       latencyMs: decision.latencyMs,

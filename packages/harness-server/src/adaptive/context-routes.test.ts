@@ -66,7 +66,7 @@ describe("the context plan routes (FH-022)", () => {
     const body = await list.json()
     expect(body.data).toHaveLength(1)
     expect(body.data[0].runID).toBe("run-1")
-    expect(body.data[0].scoreSource).toBe("deterministic")
+    expect(body.data[0].scoreSource).toBe("baseline")
     expect(body.data[0].entries.map((entry: { id: string }) => entry.id)).toEqual(["obj", "art"])
 
     const explain = await handler(

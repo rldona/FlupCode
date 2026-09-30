@@ -39,7 +39,7 @@ const input = (overrides: Partial<StoredPlanInput> = {}): StoredPlanInput => ({
     entry({ id: "tool:abc", kind: "tool", disposition: "drop", reason: "low-value-payload", score: 0.1, tokens: 5 }),
     entry({ id: "file:def", kind: "file", disposition: "keep", reason: "class-weight", score: 0.75 }),
   ],
-  scoreSource: "deterministic",
+  scoreSource: "baseline",
   degraded: false,
   applied: false,
   tokensBefore: 25,
@@ -100,7 +100,7 @@ describe("planRowFrom / planFromRow (FH-022)", () => {
       id: "plan:run-1:task-1",
       runID: "run-1",
       taskID: "task-1",
-      scoreSource: "deterministic",
+      scoreSource: "baseline",
       degraded: false,
       applied: false,
       truncated: false,
@@ -141,9 +141,27 @@ describe("planRowFrom / planFromRow (FH-022)", () => {
     expect(decoded.applied).toBe(true)
   })
 
-  test("an unknown score source is dropped rather than guessed at", () => {
+  test("an unknown score source keeps the plan and exposes the raw value (AH-C02)", () => {
     const row = planRowFrom(input(), 1_000)
-    expect(planFromRow({ ...row, score_source: "mystery" })).toBeUndefined()
+    const plan = planFromRow({ ...row, score_source: "mystery" })
+    expect(plan).toMatchObject({ id: row.id, scoreSource: "unknown", rawScoreSource: "mystery" })
+    expect(plan.entries).toHaveLength(row.item_count)
+  })
+
+  test("the v1 score sources read as the v2 ones, the way the migration maps them (AH-C02)", () => {
+    const row = planRowFrom(input(), 1_000)
+    expect(planFromRow({ ...row, score_source: "jev", score_provider: null })).toMatchObject({
+      scoreSource: "model",
+      scoreProvider: "jev",
+    })
+    const baseline = planFromRow({ ...row, score_source: "deterministic" })
+    expect(baseline.scoreSource).toBe("baseline")
+    expect(baseline.rawScoreSource).toBeUndefined()
+  })
+
+  test("a model-refined plan round-trips the model that refined it", () => {
+    const plan = planFromRow(planRowFrom(input({ scoreSource: "model", scoreProvider: "small-llm" }), 1_000))
+    expect(plan).toMatchObject({ scoreSource: "model", scoreProvider: "small-llm" })
   })
 
   test("a corrupt or non-array items_json reads as empty entries", () => {

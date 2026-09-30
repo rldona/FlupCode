@@ -6,7 +6,7 @@ import { formatTokens } from "../metrics"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
 import type { AgentInfo, McpServer, SkillInfo } from "../engine-types"
 import { mcpLatency, mcpToolUses } from "../mcp"
-import type { CapturedPrompt, ContextReport, ItemDisposition, ToolCall } from "../types"
+import type { CapturedPrompt, ContextReport, ItemDisposition, StoredPlan, ToolCall } from "../types"
 import { duration } from "./UsagePanel"
 import { PanelFailure } from "./PanelBoundary"
 
@@ -59,6 +59,16 @@ const name = (path: string) => {
 
 /** Roughly how many tokens a file of this size costs. Called an estimate, because it is one. */
 export const roughTokens = (value: number) => Math.round(value / 4)
+
+/**
+ * Who scored a plan, said with the model's own id (AH-C02): any model can refine a plan now, so the
+ * line names the one that did. A source this build does not know is shown as it was stored.
+ */
+export const scoreSourceText = (plan: Pick<StoredPlan, "scoreSource" | "scoreProvider" | "rawScoreSource">) => {
+  if (plan.scoreSource === "model") return t("Refined by {name}", { name: plan.scoreProvider ?? t("a model") })
+  if (plan.scoreSource === "baseline") return t("Deterministic")
+  return plan.rawScoreSource ?? t("Unknown")
+}
 
 /**
  * What the model was given (H-17).
@@ -355,7 +365,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                     <p class="fc-usage-note">
                       {entry().applied ? t("Applied: this plan filtered the prompt.") : t("Shadow only: nothing was filtered.")}
                       {" · "}
-                      {entry().scoreSource === "jev" ? t("Refined by Jev") : t("Deterministic")}
+                      {scoreSourceText(entry())}
                       {entry().degraded ? ` · ${t("Degraded")}` : ""}
                       {" · "}
                       {formatDateTime(entry().createdAt)}

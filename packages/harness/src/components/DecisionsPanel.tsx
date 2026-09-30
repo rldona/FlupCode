@@ -36,6 +36,21 @@ export function latencyText(latencyMs: number): string {
 }
 
 /**
+ * What the model call cost, or nothing when it was not measured (AH-C02). A baseline answer and a
+ * call that failed carry no cost at all, which is different from a call that cost zero.
+ */
+export function costText(costUsd: number | undefined, inputTokens: number | undefined): string | undefined {
+  const parts = [
+    typeof costUsd === "number" ? `$${costUsd.toFixed(4)}` : undefined,
+    typeof inputTokens === "number" ? t("{count} input tokens", { count: String(inputTokens) }) : undefined,
+  ].filter((part) => part !== undefined)
+  return parts.length > 0 ? parts.join(" · ") : undefined
+}
+
+/** The kind as stored: a kind this build does not know is shown by its raw value, not as "unknown". */
+export const kindText = (decision: Pick<StoredDecision, "kind" | "raw">) => decision.raw?.kind ?? decision.kind
+
+/**
  * The explanation for the decision that is open. A resource keeps its last value while the next one
  * loads, so without the id check the previous decision's answer sat under the new decision's id.
  */
@@ -169,7 +184,7 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
 const DecisionRow: Component<{ decision: StoredDecision; onExplain: () => void }> = (props) => (
   <button class="fc-usage-row fc-context-row" type="button" onClick={props.onExplain}>
     <span class="fc-diff-status" dir="ltr">
-      {props.decision.kind}
+      {kindText(props.decision)}
     </span>
     <span class="fc-usage-key" dir="auto">
       {props.decision.provider}
@@ -219,6 +234,17 @@ const Explanation: Component<{ detail: DecisionExplanation }> = (props) => (
         {props.detail.modelVersion ? ` · ${props.detail.modelVersion}` : ""}
       </span>
     </div>
+    <Show when={costText(props.detail.costUsd, props.detail.inputTokens)}>
+      {(cost) => (
+        <div class="fc-usage-row">
+          <span class="fc-usage-key">{t("Model cost")}</span>
+          <span class="fc-context-excerpt">
+            {props.detail.providerID ? `${props.detail.providerID} · ` : ""}
+            {cost()}
+          </span>
+        </div>
+      )}
+    </Show>
     <div class="fc-usage-row">
       <span class="fc-usage-key">{t("Latency")}</span>
       <span class="fc-context-excerpt">{latencyText(props.detail.latencyMs)}</span>

@@ -27,7 +27,7 @@ const result: GuardrailResult = {
   repeatedErrors: 0,
   steps: "unsupported",
   decisionID: "failure:ses_1:bash:abc",
-  source: "deterministic",
+  source: "baseline",
   degraded: false,
   risk: { risk: "CONFIRM", raiseOnly: true },
   latencyMs: 1,

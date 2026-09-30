@@ -94,7 +94,7 @@ describe("the decision service (FH-015)", () => {
     const result = await service.predict(request)
 
     expect(external.calls).toBe(1)
-    expect(result.source).toBe("jev")
+    expect(result.source).toBe("model")
     expect(result.degraded).toBe(false)
 
     const stored = repository.getDecision(decisionID("completion", "episode:run:1"))
@@ -112,7 +112,7 @@ describe("the decision service (FH-015)", () => {
       probabilities: { complete: 0.9, not_complete: 1 - 0.9 },
       provider: "jev",
       modelVersion: "jev-1.13.0",
-      source: "jev",
+      source: "model",
       degraded: false,
       shadow: true,
     })
@@ -145,7 +145,7 @@ describe("the decision service (FH-015)", () => {
     expect(explanation).toBeDefined()
     expect(explanation).toMatchObject({
       id: "completion:episode:run:1",
-      source: "jev",
+      source: "model",
       provider: "jev",
       modelVersion: "jev-1.13.0",
       confidence: 0.9,
@@ -240,11 +240,11 @@ describe("the decision service (FH-015)", () => {
     const result = await service.predict(completion())
 
     expect(external.calls).toBe(0)
-    expect(result.source).toBe("deterministic")
+    expect(result.source).toBe("baseline")
     expect(result.provider).toBe("deterministic")
     expect(result.degraded).toBe(false)
     expect(result.answer).toEqual(result.baseline)
-    expect(repository.getDecision("completion:episode:run:1")?.source).toBe("deterministic")
+    expect(repository.getDecision("completion:episode:run:1")?.source).toBe("baseline")
     repository.close()
   })
 
@@ -253,7 +253,7 @@ describe("the decision service (FH-015)", () => {
     const { repository, service } = serviceFor({ enabled: false, ...jevOn }, external)
     const result = await service.predict(completion())
 
-    expect(result.source).toBe("deterministic")
+    expect(result.source).toBe("baseline")
     expect(external.calls).toBe(0)
     expect(repository.listDecisions()).toHaveLength(0)
     repository.close()
@@ -315,13 +315,13 @@ describe("the decision service (FH-015)", () => {
     const emptyMap = spyModel({ probabilities: {}, choice: "HIGH", confidence: 1 })
     const empty = serviceFor(routeOn, emptyMap)
     const passed = await empty.service.predict(route)
-    expect(passed).toMatchObject({ source: "jev", degraded: false, answer: { tier: "HIGH" } })
+    expect(passed).toMatchObject({ source: "model", degraded: false, answer: { tier: "HIGH" } })
     empty.repository.close()
 
     const bare = spyModel({ probabilities: {}, choice: "HIGH" })
     const none = serviceFor(routeOn, bare)
     const alsoPassed = await none.service.predict(route)
-    expect(alsoPassed).toMatchObject({ source: "jev", degraded: false, answer: { tier: "HIGH" } })
+    expect(alsoPassed).toMatchObject({ source: "model", degraded: false, answer: { tier: "HIGH" } })
     expect(alsoPassed.confidence).toBeUndefined()
     none.repository.close()
   })
@@ -368,7 +368,7 @@ describe("the decision service (FH-015)", () => {
     await held
 
     const result = await service.predict(completion(), "hot")
-    expect(result.source).toBe("jev")
+    expect(result.source).toBe("model")
     expect(external.calls).toBe(1)
     repository.close()
   })
@@ -403,7 +403,7 @@ describe("the decision service (FH-015)", () => {
     })
     const batch = serviceFor(jevOn, slow)
     const answered = await batch.service.predict({ ...completion(), policy })
-    expect(answered.source).toBe("jev")
+    expect(answered.source).toBe("model")
     expect(bounded.aborted).toBe(false)
     batch.repository.close()
   })
@@ -525,10 +525,10 @@ describe("calibrated confidence: the probability of the answer actually chosen (
 
     const no = await decide(0.05)
     expect(no.baseline).toEqual({ verdict: "complete" })
-    expect(no).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "not_complete" }, confidence: 0.95 })
+    expect(no).toMatchObject({ source: "model", degraded: false, answer: { verdict: "not_complete" }, confidence: 0.95 })
 
     const yes = await decide(0.95)
-    expect(yes).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "complete" }, confidence: 0.95 })
+    expect(yes).toMatchObject({ source: "model", degraded: false, answer: { verdict: "complete" }, confidence: 0.95 })
 
     const ambiguous = await decide(0.5)
     expect(ambiguous).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence", confidence: 0.5 })
@@ -545,10 +545,10 @@ describe("calibrated confidence: the probability of the answer actually chosen (
 
     const calm = await decide(0.05)
     expect(calm.baseline).toEqual({ verdict: "intervene" })
-    expect(calm).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "continue" }, confidence: 0.95 })
+    expect(calm).toMatchObject({ source: "model", degraded: false, answer: { verdict: "continue" }, confidence: 0.95 })
 
     const loop = await decide(0.9)
-    expect(loop).toMatchObject({ source: "jev", degraded: false, answer: { verdict: "intervene" }, confidence: 0.9 })
+    expect(loop).toMatchObject({ source: "model", degraded: false, answer: { verdict: "intervene" }, confidence: 0.9 })
 
     const unsure = await decide(0.45)
     expect(unsure).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence" })
@@ -571,10 +571,10 @@ describe("calibrated confidence: the probability of the answer actually chosen (
     // Every gate a confident no: the top per-skill probability is 0.02, yet the answer is 0.98 certain.
     const none = await decide(0.02, 0.02)
     expect(none.baseline).toEqual({ load: ["testing", "test-data"] })
-    expect(none).toMatchObject({ source: "jev", degraded: false, answer: { load: [] }, confidence: 0.98 })
+    expect(none).toMatchObject({ source: "model", degraded: false, answer: { load: [] }, confidence: 0.98 })
 
     const one = await decide(0.9, 0.02)
-    expect(one).toMatchObject({ source: "jev", degraded: false, answer: { load: ["testing"] }, confidence: 0.9 })
+    expect(one).toMatchObject({ source: "model", degraded: false, answer: { load: ["testing"] }, confidence: 0.9 })
 
     // One gate on the fence makes the whole set ambiguous, however sure the other gate is.
     const fence = await decide(0.95, 0.5)
@@ -637,7 +637,7 @@ describe("the predictive model registry (AH-C01)", () => {
     const result = await service.predict(completion("finish canary-secret-value-1234567890"))
 
     expect(result).toMatchObject({
-      source: "jev",
+      source: "model",
       provider: "fake-local",
       modelVersion: "v1",
       degraded: false,
@@ -657,7 +657,7 @@ describe("the predictive model registry (AH-C01)", () => {
     expect(repository.getDecision("completion:episode:run:1")).toMatchObject({
       provider: "fake-local",
       attemptedProvider: "fake-local",
-      source: "jev",
+      source: "model",
     })
     repository.close()
   })
@@ -676,7 +676,7 @@ describe("the predictive model registry (AH-C01)", () => {
       type: "choice",
       options: ["CONTINUE", "REVIEW", "DEBUG", "ARCHITECT", "ASK_USER"],
     })
-    expect(result).toMatchObject({ source: "jev", degraded: false, answer: { agent: "DEBUG" }, confidence: 0.8 })
+    expect(result).toMatchObject({ source: "model", degraded: false, answer: { agent: "DEBUG" }, confidence: 0.8 })
     repository.close()
   })
 
@@ -685,7 +685,7 @@ describe("the predictive model registry (AH-C01)", () => {
       registered("fake-local", "local", answering({ q0: { probabilities: { DEBUG: 0.8, CONTINUE: 0.2 }, confidence } }))
 
     const modest = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.7))
-    expect(await modest.service.predict(agentRoute())).toMatchObject({ source: "jev", confidence: 0.7 })
+    expect(await modest.service.predict(agentRoute())).toMatchObject({ source: "model", confidence: 0.7 })
     modest.repository.close()
 
     // A model cannot talk its way past the chosen probability either: 0.99 claimed, 0.8 recorded.
@@ -740,7 +740,7 @@ describe("the predictive model registry (AH-C01)", () => {
 
     expect(model.seen).toHaveLength(0)
     expect(result).toMatchObject({
-      source: "deterministic",
+      source: "baseline",
       provider: "deterministic",
       degraded: false,
       answer: { agent: "CONTINUE" },
@@ -752,7 +752,7 @@ describe("the predictive model registry (AH-C01)", () => {
     const model = registered("fake-local", "local", answering({ q0: { probabilities: { yes: 0.9, no: 0.1 } } }))
     for (const block of [{ models: { completion: "nobody" } }, { models: { completion: "baseline" } }, {}]) {
       const { repository, service } = serviceFor(block, model)
-      expect((await service.predict(completion())).source).toBe("deterministic")
+      expect((await service.predict(completion())).source).toBe("baseline")
       repository.close()
     }
     const forbidden = serviceFor({ models: { completion: "fake-local" } }, model)
@@ -760,7 +760,7 @@ describe("the predictive model registry (AH-C01)", () => {
       ...completion(),
       policy: { ...DEFAULT_DECISION_POLICY, allowJev: false },
     })
-    expect(result.source).toBe("deterministic")
+    expect(result.source).toBe("baseline")
     forbidden.repository.close()
     expect(model.seen).toHaveLength(0)
   })
@@ -772,12 +772,12 @@ describe("the predictive model registry (AH-C01)", () => {
       answering({ q0: { probabilities: { yes: 0.9, no: 0.1 } } }, "fake-remote"),
     )
     const denied = serviceFor({ models: { completion: "fake-remote" } }, model)
-    expect((await denied.service.predict(completion())).source).toBe("deterministic")
+    expect((await denied.service.predict(completion())).source).toBe("baseline")
     denied.repository.close()
     expect(model.seen).toHaveLength(0)
 
     const allowed = serviceFor({ ...jevOn, models: { completion: "fake-remote" } }, model)
-    expect(await allowed.service.predict(completion())).toMatchObject({ source: "jev", provider: "fake-remote" })
+    expect(await allowed.service.predict(completion())).toMatchObject({ source: "model", provider: "fake-remote" })
     allowed.repository.close()
     expect(model.seen).toHaveLength(1)
   })
@@ -805,6 +805,80 @@ describe("the predictive model registry (AH-C01)", () => {
         models: [model, model],
       }),
     ).toThrow("unique")
+    repository.close()
+  })
+})
+
+describe("the provider-neutral audit (AH-C02)", () => {
+  /** A model that reports what the call consumed, the way a metered remote model does. */
+  const meteredModel = (answer: Answer): PredictiveModel =>
+    fakeModel(async (questions) => ({
+      ...predictionFor(questions, answer, "small-1"),
+      usage: { inputTokens: 812, costUsd: 0.0031 },
+      model: { id: "small-llm", version: "small-1" },
+    }))
+
+  test("a model answer records source model with the model id, version, cost and tokens", async () => {
+    const { repository, service } = serviceFor(jevOn, meteredModel({ probabilities: { yes: 0.9, no: 0.1 } }))
+    await service.predict(completion())
+    expect(repository.getDecision("completion:episode:run:1")).toMatchObject({
+      source: "model",
+      provider: "small-llm",
+      providerID: "small-llm",
+      providerVersion: "small-1",
+      costUsd: 0.0031,
+      inputTokens: 812,
+    })
+    const explanation = service.explain("completion:episode:run:1")!
+    expect(explanation).toMatchObject({ providerID: "small-llm", costUsd: 0.0031, inputTokens: 812 })
+    expect(explanation.why).toContain("small-llm small-1 answered")
+    repository.close()
+  })
+
+  test("a model below the thresholds is a fallback that still records what the call cost", async () => {
+    const { repository, service } = serviceFor(jevOn, meteredModel({ probabilities: { yes: 0.52, no: 0.48 } }))
+    await service.predict(completion())
+    expect(repository.getDecision("completion:episode:run:1")).toMatchObject({
+      source: "fallback",
+      provider: "deterministic",
+      providerID: "small-llm",
+      costUsd: 0.0031,
+      inputTokens: 812,
+      degradedReason: "low-confidence",
+    })
+    repository.close()
+  })
+
+  test("a failed call names the model it asked and leaves the cost unmeasured, not zero", async () => {
+    const { repository, service } = serviceFor(jevOn, failingModel(new DecisionUnavailable("timeout")))
+    await service.predict(completion())
+    const stored = repository.getDecision("completion:episode:run:1")!
+    expect(stored).toMatchObject({ source: "fallback", providerID: "jev" })
+    expect(stored.costUsd).toBeUndefined()
+    expect(stored.inputTokens).toBeUndefined()
+    repository.close()
+  })
+
+  test("the baseline alone records no provider and no cost", async () => {
+    const { repository, service } = serviceFor({})
+    await service.predict(completion())
+    const stored = repository.getDecision("completion:episode:run:1")!
+    expect(stored.source).toBe("baseline")
+    expect(stored.providerID).toBeUndefined()
+    expect(stored.costUsd).toBeUndefined()
+    expect(service.explain(stored.id)!.why).toContain("no predictive model was consulted")
+    repository.close()
+  })
+
+  test("explain reads a row with an unknown kind and source instead of losing it", async () => {
+    const { repository, service } = serviceFor({})
+    await service.predict(completion())
+    repository.db.exec("UPDATE adaptive_decision SET kind = 'future-kind', source = 'ensemble'")
+    const explanation = service.explain("completion:episode:run:1")!
+    expect(explanation).toMatchObject({ source: "unknown", raw: { kind: "future-kind", source: "ensemble" } })
+    expect(explanation.question).toContain("future-kind")
+    expect(explanation.why).toContain("ensemble")
+    expect(service.decisions()).toHaveLength(1)
     repository.close()
   })
 })

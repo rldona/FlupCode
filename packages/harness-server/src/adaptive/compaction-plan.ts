@@ -12,7 +12,7 @@
  * reversible; a dropped payload's bytes still live in their durable source.
  */
 
-import type { ContextItem } from "./decision"
+import type { ContextItem, PlanScoreSource } from "./decision"
 import type { ContextScore } from "./scoring"
 import type { ContextPlanEntry } from "../types"
 
@@ -31,7 +31,9 @@ export type CompactionPlan = {
   keep: CompactionPlanEntry[]
   archive: CompactionPlanEntry[]
   drop: CompactionPlanEntry[]
-  scoreSource: "deterministic" | "jev"
+  scoreSource: PlanScoreSource
+  /** The model that refined the plan, when one did. */
+  scoreProvider?: string
   degraded: boolean
   createdAt: number
 }
@@ -40,7 +42,8 @@ export function compactionPlanFrom(input: {
   id: string
   scores: readonly ContextScore[]
   evidenceFor?: (id: string) => string | undefined
-  scoreSource?: "deterministic" | "jev"
+  scoreSource?: PlanScoreSource
+  scoreProvider?: string
   degraded?: boolean
   createdAt: number
 }): CompactionPlan {
@@ -53,7 +56,8 @@ export function compactionPlanFrom(input: {
     keep: entries.filter((entry) => entry.disposition === "keep"),
     archive: entries.filter((entry) => entry.disposition === "archive"),
     drop: entries.filter((entry) => entry.disposition === "drop"),
-    scoreSource: input.scoreSource ?? "deterministic",
+    scoreSource: input.scoreSource ?? "baseline",
+    ...(input.scoreProvider !== undefined ? { scoreProvider: input.scoreProvider } : {}),
     degraded: input.degraded ?? false,
     createdAt: input.createdAt,
   }

@@ -90,8 +90,10 @@ describe("defensive reading", () => {
     expect(isDecisionKind("toString")).toBe(false)
   })
 
-  test("isDecisionSource accepts the three sources only", () => {
-    expect(["deterministic", "jev", "fallback"].every(isDecisionSource)).toBe(true)
+  test("isDecisionSource accepts the three provider-neutral sources only (AH-C02)", () => {
+    expect(["baseline", "model", "fallback"].every(isDecisionSource)).toBe(true)
+    // The v1 vocabulary is not a v2 source: the reader maps it, the type never admits it.
+    expect(["deterministic", "jev"].some(isDecisionSource)).toBe(false)
     expect(isDecisionSource("other")).toBe(false)
     expect(isDecisionSource(undefined)).toBe(false)
   })

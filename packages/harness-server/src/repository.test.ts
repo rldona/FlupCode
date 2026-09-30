@@ -1,9 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test"
 import { Database } from "bun:sqlite"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readdirSync, rmSync, utimesSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { SqliteRoutineRepository, routineLockKey } from "./repository"
+import { resolveAdaptiveConfig } from "./adaptive/config"
+import { createDecisionService } from "./adaptive/decision-service"
+import { handleDecisionRequest } from "./adaptive/decision-routes"
+import { createAdaptiveEgressGuard } from "./adaptive/egress"
 import type {
   RunSource,
   StoredDecisionInput,
@@ -22,7 +26,7 @@ const plan = (overrides: Partial<StoredPlanInput> = {}): StoredPlanInput => ({
     { id: "file:abc", kind: "file", score: 0.75, disposition: "keep", reason: "class-weight", protected: false, tokens: 30 },
     { id: "tool:def", kind: "tool", score: 0.12, disposition: "drop", reason: "low-value-payload", protected: false, tokens: 5 },
   ],
-  scoreSource: "deterministic",
+  scoreSource: "baseline",
   degraded: false,
   applied: false,
   tokensBefore: 35,
@@ -189,6 +193,180 @@ describe("opening a database written by an older server", () => {
     // A plan written before the marker existed simply reads as untruncated.
     expect(after.getPlan("plan:episode:1")).toMatchObject({ id: "plan:episode:1", truncated: false })
     after.close()
+  })
+})
+
+// ---- the versioned migration of the decision audit (AH-C02) ------------------------------------
+
+/**
+ * A database the way a v1 server left it: no `schema_version`, the audit columns absent, and rows of
+ * every v1 source — plus one a newer build wrote with a source this build does not know, one with an
+ * unknown kind, and plans refined by Jev and by the scorer alone.
+ */
+const v1Fixture = (path: string) => {
+  const repository = open(path)
+  repository.db.exec(`
+    DROP TABLE schema_version;
+    ALTER TABLE adaptive_decision DROP COLUMN provider_id;
+    ALTER TABLE adaptive_decision DROP COLUMN provider_version;
+    ALTER TABLE adaptive_decision DROP COLUMN cost_usd;
+    ALTER TABLE adaptive_decision DROP COLUMN input_tokens;
+    ALTER TABLE adaptive_decision DROP COLUMN label;
+    ALTER TABLE adaptive_decision DROP COLUMN labeled_at;
+    ALTER TABLE adaptive_plan DROP COLUMN score_provider;
+  `)
+  const insert = repository.db.query(
+    `INSERT INTO adaptive_decision (id, kind, inputs_hash, answer_json, baseline_answer_json, baseline_rule, provider,
+       attempted_provider, model_version, source, degraded, degraded_reason, created_at, updated_at)
+     VALUES (?1, ?2, 'h', '{"verdict":"complete"}', '{"verdict":"complete"}', 'episode-outcome', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?9)`,
+  )
+  insert.run("completion:jev", "completion", "jev", "jev", "jev-1.13.0", "jev", 0, null, 1_000)
+  insert.run("completion:deterministic", "completion", "deterministic", null, null, "deterministic", 0, null, 1_001)
+  insert.run("completion:fallback", "completion", "deterministic", "jev", null, "fallback", 1, "timeout", 1_002)
+  // A fallback written before `attempted_provider` existed: which model it asked is not known.
+  insert.run("completion:old-fallback", "completion", "deterministic", null, null, "fallback", 1, "network", 1_003)
+  insert.run("completion:future", "completion", "ensemble", null, null, "ensemble", 0, null, 1_004)
+  insert.run("future-kind:scope", "future-kind", "deterministic", null, null, "deterministic", 0, null, 1_005)
+  const plan = repository.db.query(
+    `INSERT INTO adaptive_plan (id, objective_hash, score_source, decision_id, created_at, updated_at)
+     VALUES (?1, 'o', ?2, ?3, ?4, ?4)`,
+  )
+  plan.run("plan:jev", "jev", "contextItem:scope", 2_000)
+  plan.run("plan:deterministic", "deterministic", null, 2_001)
+  repository.close()
+}
+
+const backupsOf = (path: string) => readdirSync(dirname(path)).filter((name) => name.includes(".bak-v"))
+
+const routeIDs = async (repository: SqliteRoutineRepository) => {
+  const config = resolveAdaptiveConfig({ block: {}, env: {} })
+  const service = createDecisionService({
+    repository,
+    config: () => config,
+    egress: createAdaptiveEgressGuard({ config: () => config }),
+  })
+  const response = await handleDecisionRequest(
+    new Request("http://x/harness/adaptive/decisions"),
+    ["decisions"],
+    service,
+  )
+  const body = (await response.json()) as { data: Array<{ id: string }> }
+  return body.data.map((decision) => decision.id).sort()
+}
+
+describe("the versioned decision audit migration (AH-C02)", () => {
+  test("backs the v1 file up first, maps every source and loses no row from the decisions route", async () => {
+    const path = scratch()
+    v1Fixture(path)
+    const raw = new Database(path)
+    const before = (raw.query("SELECT id FROM adaptive_decision ORDER BY id").all() as Array<{ id: string }>).map(
+      (row) => row.id,
+    )
+    raw.close()
+
+    const repository = open(path)
+    // 0 rows lost: the same count and ids the v1 table held, through the route a client reads.
+    expect(await routeIDs(repository)).toEqual([...before].sort())
+    expect(before).toHaveLength(6)
+
+    expect(repository.getDecision("completion:jev")).toMatchObject({
+      source: "model",
+      provider: "jev",
+      providerID: "jev",
+      providerVersion: "jev-1.13.0",
+    })
+    expect(repository.getDecision("completion:deterministic")).toMatchObject({ source: "baseline" })
+    expect(repository.getDecision("completion:deterministic")?.providerID).toBeUndefined()
+    expect(repository.getDecision("completion:fallback")).toMatchObject({ source: "fallback", providerID: "jev" })
+    expect(repository.getDecision("completion:old-fallback")?.providerID).toBeUndefined()
+    // Never measured, so never invented: historical cost stays missing rather than zero.
+    expect(repository.getDecision("completion:jev")?.costUsd).toBeUndefined()
+    expect(repository.getDecision("completion:future")).toMatchObject({ source: "unknown", raw: { source: "ensemble" } })
+    expect(repository.getDecision("future-kind:scope")).toMatchObject({
+      kind: "unknown",
+      source: "baseline",
+      raw: { kind: "future-kind" },
+    })
+    // The stored vocabulary is rewritten, not only read differently.
+    const sources = repository.db.query("SELECT DISTINCT source FROM adaptive_decision ORDER BY source").all()
+    expect(sources).toEqual([{ source: "baseline" }, { source: "ensemble" }, { source: "fallback" }, { source: "model" }])
+
+    expect(repository.getPlan("plan:jev")).toMatchObject({ scoreSource: "model", scoreProvider: "jev" })
+    expect(repository.getPlan("plan:deterministic")).toMatchObject({ scoreSource: "baseline" })
+    expect(repository.listPlans()).toHaveLength(2)
+
+    // The backup was taken before the rewrite: it still holds the v1 vocabulary.
+    const [backup] = backupsOf(path)
+    expect(backup).toMatch(/^harness\.sqlite\.bak-v1-/)
+    const copy = new Database(join(dirname(path), backup!))
+    expect(copy.query("SELECT source FROM adaptive_decision WHERE id = 'completion:jev'").get()).toEqual({ source: "jev" })
+    expect((copy.query("SELECT COUNT(*) AS count FROM adaptive_decision").get() as { count: number }).count).toBe(6)
+    copy.close()
+    expect(repository.db.query("SELECT version, name, backup FROM schema_version").all()).toEqual([
+      { version: 2, name: "decision-audit-v2", backup: join(dirname(path), backup!) },
+    ])
+    repository.close()
+  })
+
+  test("a second start is a no-op: no new backup, no new version row, the same rows", async () => {
+    const path = scratch()
+    v1Fixture(path)
+    const first = open(path)
+    const decisions = first.listDecisions()
+    const plans = first.listPlans()
+    first.close()
+
+    const second = open(path)
+    expect(backupsOf(path)).toHaveLength(1)
+    expect(second.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }])
+    expect(second.listDecisions()).toEqual(decisions)
+    expect(second.listPlans()).toEqual(plans)
+    second.close()
+  })
+
+  test("a new database starts at the latest version without a backup", () => {
+    const path = scratch()
+    const repository = open(path)
+    expect(repository.db.query("SELECT version, backup FROM schema_version").all()).toEqual([
+      { version: 2, backup: null },
+    ])
+    expect(backupsOf(path)).toHaveLength(0)
+    repository.close()
+  })
+
+  test("an in-memory database migrates and is never backed up", () => {
+    const repository = open()
+    expect(repository.db.query("SELECT version FROM schema_version").all()).toEqual([{ version: 2 }])
+    repository.close()
+  })
+
+  test("only the newest backups are kept beside the database", () => {
+    const path = scratch()
+    v1Fixture(path)
+    const stale = ["2026-01-01", "2026-02-01", "2026-03-01", "2026-04-01"].map((day, index) => {
+      const file = `${path}.bak-v1-${day}T00-00-00-000Z`
+      writeFileSync(file, "")
+      utimesSync(file, index + 1, index + 1)
+      return file
+    })
+    open(path).close()
+    const kept = backupsOf(path)
+    expect(kept).toHaveLength(3)
+    // The one just taken is always among them; the oldest stale copies are the ones removed.
+    expect(kept.filter((name) => !stale.some((file) => file.endsWith(name)))).toHaveLength(1)
+    expect(kept.some((name) => stale[0]!.endsWith(name))).toBe(false)
+  })
+
+  test("a plan table recreated after the migration still has the audit column", () => {
+    const path = scratch()
+    open(path).close()
+    const dropped = open(path)
+    dropped.db.exec("DROP TABLE adaptive_plan")
+    dropped.close()
+    const reopened = open(path)
+    reopened.createPlan(plan({ scoreSource: "model", scoreProvider: "small-llm" }), 1_000)
+    expect(reopened.getPlan(plan().id)).toMatchObject({ scoreSource: "model", scoreProvider: "small-llm" })
+    reopened.close()
   })
 })
 
@@ -576,7 +754,7 @@ describe("the decision audit (FH-015)", () => {
     probabilities: { complete: 0.9, not_complete: 0.1 },
     provider: "jev",
     modelVersion: "jev-1.13.0",
-    source: "jev",
+    source: "model",
     degraded: false,
     latencyMs: 12,
     policy: { allowJev: true, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
@@ -592,7 +770,7 @@ describe("the decision audit (FH-015)", () => {
       answer: { verdict: "complete" },
       baselineRule: "episode-outcome",
       confidence: 0.9,
-      source: "jev",
+      source: "model",
       shadow: true,
     })
 
@@ -625,7 +803,7 @@ describe("the context plan audit (FH-022)", () => {
     expect(created.createdAt).toBe(1_000)
     expect(repository.getPlan("plan:episode:run:1")).toMatchObject({
       episodeID: "episode:run:1",
-      scoreSource: "deterministic",
+      scoreSource: "baseline",
       applied: false,
       truncated: false,
       tokensBefore: 35,
@@ -637,13 +815,13 @@ describe("the context plan audit (FH-022)", () => {
     ])
 
     const updated = repository.createPlan(
-      plan({ scoreSource: "jev", degraded: true, degradedReason: "low-confidence", applied: true }),
+      plan({ scoreSource: "model", degraded: true, degradedReason: "low-confidence", applied: true }),
       2_000,
     )
     expect(updated.createdAt).toBe(1_000)
     expect(updated.updatedAt).toBe(2_000)
     expect(repository.getPlan("plan:episode:run:1")).toMatchObject({
-      scoreSource: "jev",
+      scoreSource: "model",
       degraded: true,
       degradedReason: "low-confidence",
       applied: true,
@@ -854,7 +1032,7 @@ describe("the adaptive retention purge (FH-082, ADR-0022 §2)", () => {
     baselineAnswer: { verdict: "complete" },
     baselineRule: "episode-outcome",
     provider: "deterministic",
-    source: "deterministic",
+    source: "baseline",
     degraded: false,
     latencyMs: 1,
     policy: { allowJev: false, minConfidence: 0.6, minProbability: 0.5, timeoutMs: 400 },
