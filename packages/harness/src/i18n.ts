@@ -521,6 +521,12 @@ const ES: Record<string, string> = {
   "Connection blocked by the browser": "Conexión bloqueada por el navegador",
   "Authentication required": "Autenticación requerida",
   "The engine is asking for authentication": "El motor pide autenticación",
+  "This engine is OpenCode {version}; FlupCode requires OpenCode 1.x":
+    "Este motor es OpenCode {version}; FlupCode necesita OpenCode 1.x",
+  "start an OpenCode 1.x engine instead": "arranca en su lugar un motor OpenCode 1.x",
+  "Unsupported engine": "Motor no compatible",
+  "The engine at this address is OpenCode {version}. FlupCode requires OpenCode 1.x: OpenCode 2 changed the server API and the plugin format. Start an OpenCode 1.x engine, or connect to one below.":
+    "El motor en esta dirección es OpenCode {version}. FlupCode necesita OpenCode 1.x: OpenCode 2 cambió la API del servidor y el formato de los plugins. Arranca un motor OpenCode 1.x o conéctate a uno abajo.",
   "restart it without a password, or use the desktop app": "reinícialo sin contraseña o usa la app de escritorio",
   "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:":
     "Este motor se arrancó con OPENCODE_SERVER_PASSWORD, así que rechaza toda llamada desde una página del navegador — una página no puede enviar credenciales. Reinícialo sin esa variable o abre la app de escritorio de FlupCode, que inicia sesión por ti:",

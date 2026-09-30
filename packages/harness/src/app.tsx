@@ -1,6 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type Component } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
+import { openCodeV2Version } from "@flupcode/remote/engine-kind"
 import { createResource } from "./resource"
 import { setAdaptiveModels } from "./adaptive-copy"
 import { createReconciledList } from "./reconciled"
@@ -687,9 +688,18 @@ export const App: Component = () => {
       const result = await createClient(url)
         .health.get()
         .catch(() => ({ healthy: false, version: undefined as string | undefined }))
-      if (result.healthy) return { ...result, blocked: false, authRequired: false }
+      if (result.healthy) return { ...result, blocked: false, authRequired: false, unsupportedVersion: undefined }
+      // OpenCode 2.x has no `/global/health` and would read as a stopped engine. It is named instead,
+      // because the fix is a different engine, not starting this one (V2-00).
+      const unsupportedVersion = await openCodeV2Version(url, engineFetch)
+      if (unsupportedVersion) return { ...result, blocked: false, authRequired: false, unsupportedVersion }
       const status = await probeServer(url)
-      return { ...result, blocked: status === "blocked", authRequired: status === "unauthorized" }
+      return {
+        ...result,
+        blocked: status === "blocked",
+        authRequired: status === "unauthorized",
+        unsupportedVersion: undefined,
+      }
     },
   )
   // The engine answers but refuses the call: it was started with `OPENCODE_SERVER_PASSWORD`, and a
@@ -5554,23 +5564,37 @@ export const App: Component = () => {
               fallback={
                 <>
                   <Show
-                    when={serverAuthRequired()}
+                    when={health()?.unsupportedVersion}
                     fallback={
-                      <span>
-                        {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
-                        {t("start it and connect from Settings")} ·{" "}
-                        <code>env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors {window.location.origin}</code>
-                      </span>
+                      <Show
+                        when={serverAuthRequired()}
+                        fallback={
+                          <span>
+                            {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
+                            {t("start it and connect from Settings")} ·{" "}
+                            <code>
+                              env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors {window.location.origin}
+                            </code>
+                          </span>
+                        }
+                      >
+                        <span>
+                          {t("The engine is asking for authentication")} —{" "}
+                          {t("restart it without a password, or use the desktop app")} ·{" "}
+                          <code>
+                            env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors{" "}
+                            {window.location.origin}
+                          </code>
+                        </span>
+                      </Show>
                     }
                   >
-                    <span>
-                      {t("The engine is asking for authentication")} —{" "}
-                      {t("restart it without a password, or use the desktop app")} ·{" "}
-                      <code>
-                        env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors{" "}
-                        {window.location.origin}
-                      </code>
-                    </span>
+                    {(version) => (
+                      <span>
+                        {t("This engine is OpenCode {version}; FlupCode requires OpenCode 1.x", { version: version() })}{" "}
+                        — {t("start an OpenCode 1.x engine instead")}
+                      </span>
+                    )}
                   </Show>
                   <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
                     {t("Retry")}
@@ -6457,6 +6481,7 @@ export const App: Component = () => {
         serverHealthy={health()?.healthy}
         serverBlocked={health()?.blocked === true}
         serverAuthRequired={serverAuthRequired()}
+        unsupportedEngineVersion={health()?.unsupportedVersion}
         localNetwork={localNetwork()}
         allowingLocalNetwork={allowingLocalNetwork()}
         onAllowLocalNetwork={() => void allowLocalNetwork()}
