@@ -178,6 +178,7 @@ const DecisionRow: Component<{ decision: StoredDecision; onExplain: () => void }
     <span class="fc-context-excerpt">
       {formatDateTime(props.decision.createdAt)} · {latencyText(props.decision.latencyMs)}
       {props.decision.degraded ? ` · ${t("Degraded")}` : ""}
+      {props.decision.arm === "control" ? ` · ${t("Held out")}` : ""}
     </span>
     <Show when={confidenceText(props.decision.confidence)}>
       {(confidence) => <span class="fc-usage-cost">{confidence()}</span>}

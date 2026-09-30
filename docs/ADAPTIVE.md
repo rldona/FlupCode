@@ -453,6 +453,22 @@ chat turn spent: the usage screen only knows runs, and the engine only keeps ses
   `adaptive-metrics` capability is absent. `GET /harness/adaptive/metrics?sessionID=` returns one
   session's turns to the browser under the artifacts bearer.
 
+## Holdout
+
+Each acting capability leaves a share of sessions alone, so its effect can be measured against a
+control arm instead of assumed (AH-B05, audit §14.2).
+
+- **Assignment.** `armFor(sessionID, capability, fraction)` hashes `capability:sessionID` with
+  `sha256`: a session keeps its arm across turns and restarts, and each capability draws its own.
+  `holdout.fraction` sets the control share: 0.2 by default, anything from 0 to 0.5 is accepted, and
+  0 turns the holdout off.
+- **Control arm.** The decision is still made and audited with `arm: "control"`, but it is not
+  applied. The relevance line is withheld (`reason: "holdout"`). A guardrail loop answers `continue`,
+  and its status is never shown to the browser.
+- **Where it shows.** `adaptive_decision.arm` holds it, and the Decisions screen marks a held-out row.
+  `session_metrics.arms_json` stores the session's arms when a turn is first heard of, so costs can be
+  split by arm.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting

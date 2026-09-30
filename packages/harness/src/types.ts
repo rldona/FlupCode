@@ -764,6 +764,8 @@ export type StoredDecision = {
   degradedReason?: string
   latencyMs: number
   shadow: boolean
+  /** The session's holdout arm (AH-B05): `control` was decided and audited but not applied. */
+  arm?: "control" | "treatment"
   createdAt: number
   updatedAt: number
 }

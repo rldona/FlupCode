@@ -12,6 +12,7 @@
  * rather than to a guess (the same defensive style `episode.ts` uses).
  */
 
+import type { Arm } from "./holdout"
 import { createHash } from "node:crypto"
 import type { EpisodeOutcome } from "./episode"
 
@@ -256,6 +257,8 @@ export type DecisionRequest<Q extends DecisionKind = DecisionKind> = {
   episodeID?: string
   sessionID?: string
   projectID?: string
+  /** The session's holdout arm for the capability asking (AH-B05); recorded, never acted on here. */
+  arm?: Arm
 }
 
 /** The distributive union: matching on `kind` narrows `state` and `answer` together. */

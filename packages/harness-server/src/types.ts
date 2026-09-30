@@ -12,6 +12,7 @@
  * consume them, and an empty table now would only be a guess.
  */
 
+import type { Arm } from "./adaptive/holdout"
 import type {
   EpisodeFailure,
   EpisodeFilter,
@@ -657,6 +658,8 @@ export type StoredDecision = {
   latencyMs: number
   policy: DecisionPolicy
   shadow: boolean
+  /** The session's holdout arm (AH-B05): `control` means the decision was made but not applied. */
+  arm?: Arm
   createdAt: number
   updatedAt: number
 }

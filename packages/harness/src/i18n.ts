@@ -1460,6 +1460,7 @@ const ES: Record<string, string> = {
   Provider: "Proveedor",
   Latency: "Latencia",
   Degraded: "Degradado",
+  "Held out": "En control",
   "Context plan": "Plan de contexto",
   "No plan recorded for this session.": "No hay plan registrado para esta sesión.",
   "Applied: this plan filtered the prompt.": "Aplicado: este plan filtró el prompt.",

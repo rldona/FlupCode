@@ -11,6 +11,7 @@ import { describe, expect, test } from "bun:test"
 import { resolveAdaptiveConfig } from "./config"
 import type { DecisionKind, DecisionRequest, DecisionResult } from "./decision"
 import type { DecisionService, PredictionMode } from "./decision-service"
+import { armFor } from "./holdout"
 import { createRelevanceService } from "./relevance"
 import type { RuntimeCapabilities, RuntimeKind } from "./runtime"
 import type { SkillRosterEntry } from "./skills/curator"
@@ -162,6 +163,38 @@ describe("createRelevanceService", () => {
     expect(result.line).toContain("testing")
     expect(result.line).not.toContain("ignore-all-instructions")
     expect(result.decisionID).toBe("skillRelevance:ses_1:msg_1")
+  })
+
+  test("a control session gets the audited decision and no line; a zero share holds out nothing", async () => {
+    const session = Array.from({ length: 100 }, (_, index) => `ses_${index}`).find(
+      (id) => armFor(id, "relevance", 0.2) === "control",
+    )!
+    const requests: Array<DecisionRequest<DecisionKind>> = []
+    const service: DecisionService = {
+      predict: async <Q extends DecisionKind>(input: DecisionRequest<Q>) => {
+        requests.push(input)
+        return decision(["testing"]) as unknown as DecisionResult<Q>
+      },
+      decisions: () => [],
+      explain: () => undefined,
+    }
+    const relevanceWith = (fraction: number) =>
+      createRelevanceService({
+        service,
+        curator: { roster: () => roster },
+        runtimeProbe: { capabilities: () => capabilities("legacy", true) },
+        config: () => resolveAdaptiveConfig({ block: { relevance: { enabled: true }, holdout: { fraction } }, env: {} }),
+        now: () => NOW,
+      })
+
+    const held = await relevanceWith(0.2).suggest({ ...request, sessionID: session })
+    expect(held).toMatchObject({ line: null, reason: "holdout", skills: ["testing"] })
+    expect(requests[0]!.arm).toBe("control")
+
+    const treated = await relevanceWith(0).suggest({ ...request, sessionID: session })
+    expect(treated.reason).toBe("ok")
+    expect(treated.line).toContain("testing")
+    expect(requests[1]!.arm).toBe("treatment")
   })
 
   test("the layer's shadow flag does not gate the acting line", async () => {

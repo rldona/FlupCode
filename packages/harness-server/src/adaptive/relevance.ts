@@ -11,6 +11,7 @@
  * those cases `system` is left byte-identical; that is the guarantee ADR-0021 §3 fixes.
  */
 
+import { armFor } from "./holdout"
 import type { AdaptiveConfig } from "./config"
 import type { DecisionRequest, DecisionSource } from "./decision"
 import type { DecisionService } from "./decision-service"
@@ -26,7 +27,7 @@ export type RelevanceRequest = {
   objective: string
 }
 
-export type RelevanceReason = "ok" | "disabled" | "runtime-not-legacy" | "no-roster" | "no-match" | "error"
+export type RelevanceReason = "ok" | "disabled" | "runtime-not-legacy" | "no-roster" | "no-match" | "holdout" | "error"
 
 export type RelevanceResult = {
   line: string | null
@@ -132,6 +133,7 @@ export function createRelevanceService(deps: {
 
       const roster = rosterFor(input.projectID, config.relevance.rosterTtlMs)
       if (roster.length === 0) return inert(id, "no-roster", startedAt)
+      const arm = armFor(input.sessionID, "relevance", config.holdout.fraction)
 
       const request: DecisionRequest<"skillRelevance"> = {
         kind: "skillRelevance",
@@ -149,6 +151,7 @@ export function createRelevanceService(deps: {
         scopeID: `${input.sessionID}:${input.messageID}`,
         sessionID: input.sessionID,
         projectID: input.projectID,
+        arm,
       }
       // One audited acting decision per turn: `shadow: false` (ADR-0021 §5).
       const result = await deps.service.predict(request, "hot", false)
@@ -159,14 +162,16 @@ export function createRelevanceService(deps: {
         ...(result.probabilities !== undefined ? { probabilities: result.probabilities } : {}),
         maxSkills: config.relevance.maxSkills,
       })
-      const line = renderSkillLine(names) ?? null
+      const rendered = renderSkillLine(names) ?? null
+      // A control session gets the same audited decision and no line: that is the comparison (AH-B05).
+      const line = arm === "control" ? null : rendered
       const relevance: RelevanceResult = {
         line,
         decisionID: id,
         source: result.source,
         degraded: result.degraded,
         skills: names,
-        reason: line === null ? "no-match" : "ok",
+        reason: rendered === null ? "no-match" : arm === "control" ? "holdout" : "ok",
         latencyMs: now() - startedAt,
       }
       remember(decisions, id, { at: now(), result: relevance }, decisionLimit)

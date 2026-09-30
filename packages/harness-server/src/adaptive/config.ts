@@ -101,6 +101,12 @@ export type GuardrailsConfig = {
   timeoutMs: number
 }
 
+/**
+ * The per-session holdout (AH-B05): the share of sessions each acting capability leaves alone, so an
+ * online comparison has a control arm. `0` turns the holdout off; it is capped at one half.
+ */
+export type HoldoutConfig = { fraction: number }
+
 export type LearningConfig = {
   /** Off by default: it gates reflection, the `skillReflection` classification, the draft and writes. */
   enabled: boolean
@@ -143,6 +149,7 @@ export type AdaptiveConfig = {
   relevance: RelevanceConfig
   retention: RetentionConfig
   guardrails: GuardrailsConfig
+  holdout: HoldoutConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -227,6 +234,9 @@ export const DEFAULT_RETENTION_CONFIG: RetentionConfig = {
   reflectionDays: 30,
   rejectedProposalsDays: 30,
 }
+
+/** The validation strategy's 20% holdout (audit §14.2). */
+export const DEFAULT_HOLDOUT_CONFIG: HoldoutConfig = { fraction: 0.2 }
 
 /**
  * The guardrails defaults: opt-in (ADR-0023 §6), a 10-minute window with the newest 200 observations
@@ -460,6 +470,18 @@ function resolveGuardrailsConfig(block: Record<string, unknown>): GuardrailsConf
   }
 }
 
+/** The holdout share: a number in [0, 0.5], else the default. `0` is an explicit off. */
+function resolveHoldoutConfig(block: Record<string, unknown>): HoldoutConfig {
+  const holdout = isPlainObject(block.holdout) ? block.holdout : {}
+  const fraction = holdout.fraction
+  return {
+    fraction:
+      typeof fraction === "number" && Number.isFinite(fraction) && fraction >= 0 && fraction <= 0.5
+        ? fraction
+        : DEFAULT_HOLDOUT_CONFIG.fraction,
+  }
+}
+
 /** Every kind off until the block lists it; a new kind cannot arrive enabled by accident. */
 function resolveEgressKinds(value: unknown): Record<DecisionKind, boolean> {
   const kinds = isPlainObject(value) ? value : {}
@@ -539,6 +561,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     relevance: resolveRelevanceConfig(block),
     retention: resolveRetentionConfig(block),
     guardrails,
+    holdout: resolveHoldoutConfig(block),
   }
 }
 
