@@ -84,6 +84,8 @@ const view = (over: Partial<View> = {}): View => ({
 type Calls = {
   asked: string[]
   patches: Array<{ path: string; body: unknown }>
+  /** Every POST to a proposal review route (AH-A04), with its body. */
+  reviews: Array<{ path: string; body: unknown }>
   /** The query of every read of the live guardrail advisory, to pin the session it names. */
   guardrailQueries: string[]
 }
@@ -117,11 +119,13 @@ type Options = {
  * "capability absent" tests lean on.
  */
 async function openApp(page: Page, options: Options = {}) {
-  const calls: Calls = { asked: [], patches: [], guardrailQueries: [] }
+  const calls: Calls = { asked: [], patches: [], reviews: [], guardrailQueries: [] }
   const capabilities = options.capabilities ?? []
   // The settings panel re-reads the view after every write, so the mock has to remember what the
   // last answer left behind; otherwise the panel would snap back to the pre-write state.
   let current = options.view ?? view()
+  // A review changes the row the next list reads, so the mock keeps the proposals it was given.
+  const proposals = (options.proposals ?? []).map((proposal) => ({ ...(proposal as Record<string, unknown>) }))
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -167,7 +171,18 @@ async function openApp(page: Page, options: Options = {}) {
     }
     if (url.pathname === "/harness/adaptive/proposals") {
       calls.asked.push("proposals")
-      return route.fulfill({ json: { data: options.proposals ?? [] } })
+      return route.fulfill({ json: { data: proposals } })
+    }
+    const review = url.pathname.match(/^\/harness\/adaptive\/proposals\/([^/]+)\/(approve|reject)$/)
+    if (review && request.method() === "POST") {
+      calls.reviews.push({ path: url.pathname, body: request.postDataJSON() })
+      const proposal = proposals.find((entry) => entry.id === decodeURIComponent(review[1]!))
+      if (!proposal) return route.fulfill({ status: 404, json: { error: "Not found", code: "not_found" } })
+      Object.assign(
+        proposal,
+        review[2] === "approve" ? { status: "promoted" } : { status: "rejected", reason: "human-rejected" },
+      )
+      return route.fulfill({ json: { data: proposal, changed: true } })
     }
     if (url.pathname === "/harness/adaptive/learned-skills") {
       calls.asked.push("learned")
@@ -617,8 +632,56 @@ test("the learned section paints the roster and the rejected proposal, read-only
   await expect(learned).toContainText("Rejected")
   await expect(learned).toContainText("not reusable")
 
-  // Read-only by design: no approve, edit, merge or archive control exists here.
+  // Without the review capability nothing is offered: no approve, edit, merge or archive control.
   await expect(page.getByRole("button", { name: /Approve|Merge|Archive|Revive|Edit skill/i })).toHaveCount(0)
+})
+
+test("a staged proposal is installed only after a person reads it and confirms (AH-A04)", async ({ page }) => {
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-skills", "adaptive-proposals", "adaptive-proposals-review"],
+    proposals: [
+      {
+        id: "proposal:ep2",
+        episodeID: "ep2",
+        projectID: "/work/demo",
+        intent: "add",
+        name: "parser-fix",
+        description: "Use when a parser test fails",
+        body: "## Steps\nRun the parser test alone first.",
+        evidenceRefs: ["ep2"],
+        status: "proposed",
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+  })
+  await page.goto("/skills")
+
+  const learned = page.locator(".fc-skill-learned")
+  await expect(learned).toContainText("parser-fix")
+  await expect(learned).toContainText("Proposed")
+  await learned.getByRole("button", { name: "Approve" }).click()
+
+  // The dialog shows exactly what the agent would load: name, description and the whole body.
+  const dialog = page.getByRole("dialog", { name: "Review a learned skill" })
+  await expect(dialog).toContainText("The agent will see it in every session of this project.")
+  await expect(dialog).toContainText("parser-fix")
+  await expect(dialog).toContainText("Use when a parser test fails")
+  await expect(dialog).toContainText("Run the parser test alone first.")
+  expect(calls.reviews).toEqual([])
+
+  // Cancelling sends nothing.
+  await dialog.getByRole("button", { name: "Cancel" }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(calls.reviews).toEqual([])
+
+  await learned.getByRole("button", { name: "Approve" }).click()
+  await page.getByRole("dialog", { name: "Review a learned skill" }).getByRole("button", { name: "Install" }).click()
+  await expect(learned).toContainText("Promoted")
+  expect(calls.reviews).toEqual([
+    { path: "/harness/adaptive/proposals/proposal%3Aep2/approve", body: { confirm: true } },
+  ])
+  await expect(learned.getByRole("button", { name: /Approve|Reject/ })).toHaveCount(0)
 })
 
 // ── Capability absent: the surface is not offered, and no route is poked ──────────────────────

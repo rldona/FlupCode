@@ -1,4 +1,4 @@
-import { Show, type Component } from "solid-js"
+import { Show, type Component, type JSX } from "solid-js"
 import { t } from "../i18n"
 
 type ConfirmDialogProps = {
@@ -7,6 +7,8 @@ type ConfirmDialogProps = {
   message: string
   /** What the confirming button says; defaults to "Delete" because that is what asks for one. */
   confirmLabel?: string
+  /** What the person is asked to review before confirming, below the message (AH-A04). */
+  children?: JSX.Element
   onConfirm: () => void
   onClose: () => void
 }
@@ -51,6 +53,7 @@ export const ConfirmDialog: Component<ConfirmDialogProps> = (props) => {
             </button>
           </div>
           <p class="fc-confirm-message">{props.message}</p>
+          {props.children}
           <div class="fc-dialog-actions">
             <button class="fc-button" type="button" onClick={props.onClose}>
               {t("Cancel")}

@@ -1264,6 +1264,8 @@ export type AdaptiveSurfaces = {
   proposals: boolean
   learnedSkills: boolean
   guardrails: boolean
+  /** Approving and rejecting staged proposals (AH-A04); announced only when the writer's bearer exists. */
+  review: boolean
 }
 
 export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfaces {
@@ -1274,6 +1276,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     proposals: capabilities.includes("adaptive-proposals"),
     learnedSkills: capabilities.includes("adaptive-skills"),
     guardrails: capabilities.includes("adaptive-guardrails"),
+    review: capabilities.includes("adaptive-proposals-review"),
   }
 }
 
@@ -1921,6 +1924,17 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           harnessAuthorizedJson<SkillProposal[]>(baseUrl, `/harness/adaptive/proposals${adaptiveQuery(filter)}`),
         get: (id: string) =>
           harnessAuthorizedJson<SkillProposal>(baseUrl, `/harness/adaptive/proposals/${encodeURIComponent(id)}`),
+        /** Installs a staged proposal (AH-A04); called only after a person confirmed it, so `confirm` is sent. */
+        approve: (id: string) =>
+          harnessAuthorizedJson<SkillProposal>(baseUrl, `/harness/adaptive/proposals/${encodeURIComponent(id)}/approve`, {
+            method: "POST",
+            body: JSON.stringify({ confirm: true }),
+          }),
+        reject: (id: string) =>
+          harnessAuthorizedJson<SkillProposal>(baseUrl, `/harness/adaptive/proposals/${encodeURIComponent(id)}/reject`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          }),
       },
       learnedSkills: {
         list: (filter: { projectID?: string } = {}) =>

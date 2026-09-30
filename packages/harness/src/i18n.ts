@@ -1470,8 +1470,13 @@ const ES: Record<string, string> = {
   Keep: "Mantener",
   Protected: "Protegido",
   Learned: "Aprendido",
-  "Skills the harness proposed and installed itself, and what became of each. This is a read-only account.":
-    "Skills que el harness propuso e instaló por su cuenta, y qué fue de cada una. Esto es un registro de solo lectura.",
+  "Skills the harness proposed from past sessions, and what became of each. Nothing is installed until a person approves it.":
+    "Skills que el harness propuso a partir de sesiones anteriores, y qué fue de cada una. No se instala nada hasta que una persona lo aprueba.",
+  "Review a learned skill": "Revisar una skill aprendida",
+  "Install this learned skill? The agent will see it in every session of this project.":
+    "¿Instalar esta skill aprendida? El agente la verá en todas las sesiones de este proyecto.",
+  Install: "Instalar",
+  "The proposal could not be reviewed: {reason}": "No se pudo revisar la propuesta: {reason}",
   "Open a project to see what it learned.": "Abre un proyecto para ver qué ha aprendido.",
   "Learned skills": "Skills aprendidas",
   "None yet.": "Todavía ninguna.",
