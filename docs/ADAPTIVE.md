@@ -245,7 +245,12 @@ might be relevant and an engine plugin injects a single non-coercive line. The d
   is no fresh objective, or there is no roster, no candidate, an absent server, a timeout, a non-200,
   invalid JSON or an exception. Two accepted limits come from the hook surface:
   `system.transform` fires on **every** request and cannot discriminate its type, and the hook
-  **blocks the turn**, bounded only by the timeout.
+  **blocks the turn**, bounded only by the timeout. Both are kept cheap: an answer inert because the
+  feature or master switch is off or the runtime is not `legacy` carries `retryAfterMs` (60 s, the
+  probe's cadence), and the plugin skips the call until it expires (capped at 10 min), so turning
+  relevance back on reaches turns within about a minute. Three consecutive failures (timeout,
+  network, non-200, invalid JSON) open a plugin-side breaker for 60 s; then one half-open request
+  closes it on success or reopens it on failure.
 - **Relationship to ADR-0016/0017.** The seam stays inside the
   [ADR-0016](adr/0016-adaptive-harness-boundary.md) boundary: only `packages/harness-server` and
   `packages/remote` change, the plugin observes and injects over the legacy hook surface, the runtime

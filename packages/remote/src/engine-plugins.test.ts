@@ -1640,14 +1640,14 @@ describe("RELEVANCE_PLUGIN", () => {
   const LINE =
     "<skill_relevance>Possibly relevant skills: testing. Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>"
 
+  // The options are read per request, so a test can change the answer mid-way.
   const startFixture = (
-    options: { line?: string | null; status?: number; body?: string; hangMs?: number } = {},
+    options: { line?: string | null; status?: number; body?: string; hangMs?: number; retryAfterMs?: unknown } = {},
   ) => {
     const requests: Array<{ path: string; auth: string | null; body: Record<string, unknown> }> = []
     const server = Bun.serve({
       port: 0,
       fetch: async (request) => {
-        if (options.hangMs !== undefined) await new Promise((resolve) => setTimeout(resolve, options.hangMs))
         const url = new URL(request.url)
         const parsed: unknown = await request.json().catch(() => ({}))
         requests.push({
@@ -1655,6 +1655,7 @@ describe("RELEVANCE_PLUGIN", () => {
           auth: request.headers.get("authorization"),
           body: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed } : {},
         })
+        if (options.hangMs !== undefined) await new Promise((resolve) => setTimeout(resolve, options.hangMs))
         if (options.status !== undefined && options.status !== 200)
           return new Response("nope", { status: options.status })
         if (options.body !== undefined)
@@ -1668,6 +1669,7 @@ describe("RELEVANCE_PLUGIN", () => {
             degraded: false,
             reason: line === null ? "no-match" : "ok",
             latencyMs: 1,
+            ...(options.retryAfterMs !== undefined ? { retryAfterMs: options.retryAfterMs } : {}),
           },
         })
       },
@@ -1676,7 +1678,7 @@ describe("RELEVANCE_PLUGIN", () => {
       void server.stop(true)
     }
     servers.push(stop)
-    return { url: server.url.origin, requests }
+    return { url: server.url.origin, requests, options }
   }
 
   const open = async (
@@ -2033,6 +2035,149 @@ describe("RELEVANCE_PLUGIN", () => {
 
     expect(system).toEqual(["base", LINE])
     expect(fixture.requests).toHaveLength(1)
+  })
+
+  test("a retryAfterMs hint silences the plugin until it expires", async () => {
+    const fixture = startFixture({ line: null, retryAfterMs: 60_000 })
+    const { hooks } = await open({ fixture })
+    const start = new Date("2030-01-01T00:00:00Z").getTime()
+
+    setSystemTime(new Date(start))
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    expect(fixture.requests).toHaveLength(1)
+
+    // Every other provider request inside the window, this session's or another's, asks nothing.
+    await capture(hooks, [userMessage("ses_2", "msg_2", { type: "text", text: "other" })])
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    expect(await inject(hooks, "ses_2", ["base"])).toEqual(["base"])
+    setSystemTime(new Date(start + 59_000))
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    expect(fixture.requests).toHaveLength(1)
+
+    // Past the hint it asks again, and an enabled answer is injected as before.
+    fixture.options.line = LINE
+    fixture.options.retryAfterMs = undefined
+    setSystemTime(new Date(start + 61_000))
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base", LINE])
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base", LINE])
+    expect(fixture.requests).toHaveLength(3)
+  })
+
+  test("the retry hint is capped and a malformed hint is ignored", async () => {
+    const fixture = startFixture({ line: null, retryAfterMs: "60000" })
+    const { hooks } = await open({ fixture })
+    const start = new Date("2030-01-01T00:00:00Z").getTime()
+
+    setSystemTime(new Date(start))
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    await inject(hooks, "ses_1", ["base"])
+    await inject(hooks, "ses_1", ["base"])
+    expect(fixture.requests).toHaveLength(2)
+
+    fixture.options.retryAfterMs = 24 * 60 * 60 * 1000
+    await inject(hooks, "ses_1", ["base"])
+    await inject(hooks, "ses_1", ["base"])
+    expect(fixture.requests).toHaveLength(3)
+    // A day-long hint silences ten minutes at most.
+    setSystemTime(new Date(start + 10 * 60 * 1000 + 1))
+    await capture(hooks, [userMessage("ses_1", "msg_2", { type: "text", text: "again" })])
+    await inject(hooks, "ses_1", ["base"])
+    expect(fixture.requests).toHaveLength(4)
+  })
+
+  test("three consecutive failures open the breaker; a half-open success closes it", async () => {
+    const fixture = startFixture({ status: 503 })
+    const { hooks } = await open({ fixture })
+    const start = new Date("2030-01-01T00:00:00Z").getTime()
+
+    setSystemTime(new Date(start))
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    for (let index = 0; index < 3; index++) expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    expect(fixture.requests).toHaveLength(3)
+
+    // Open: no request at all for the window, and the system is untouched.
+    fixture.options.status = 200
+    for (let index = 0; index < 5; index++) expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    setSystemTime(new Date(start + 59_000))
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    expect(fixture.requests).toHaveLength(3)
+
+    // Half-open: one request goes through, succeeds, and the breaker is closed again.
+    setSystemTime(new Date(start + 61_000))
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base", LINE])
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base", LINE])
+    expect(fixture.requests).toHaveLength(5)
+  })
+
+  test("a failed half-open request reopens the breaker at once", async () => {
+    const fixture = startFixture({ body: "not json at all" })
+    const { hooks } = await open({ fixture })
+    const start = new Date("2030-01-01T00:00:00Z").getTime()
+
+    setSystemTime(new Date(start))
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    for (let index = 0; index < 4; index++) await inject(hooks, "ses_1", ["base"])
+    expect(fixture.requests).toHaveLength(3)
+
+    setSystemTime(new Date(start + 61_000))
+    await inject(hooks, "ses_1", ["base"])
+    await inject(hooks, "ses_1", ["base"])
+    expect(fixture.requests).toHaveLength(4)
+
+    fixture.options.body = undefined
+    setSystemTime(new Date(start + 122_000))
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base", LINE])
+    expect(fixture.requests).toHaveLength(5)
+  })
+
+  test("the half-open state admits one request while it is in flight", async () => {
+    const fixture = startFixture({ status: 503 })
+    const { hooks } = await open({ fixture })
+    const start = new Date("2030-01-01T00:00:00Z").getTime()
+
+    setSystemTime(new Date(start))
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    for (let index = 0; index < 3; index++) await inject(hooks, "ses_1", ["base"])
+
+    fixture.options.status = 200
+    fixture.options.hangMs = 50
+    setSystemTime(new Date(start + 61_000))
+    const [first, second] = await Promise.all([inject(hooks, "ses_1", ["base"]), inject(hooks, "ses_1", ["base"])])
+    expect(first).toEqual(["base", LINE])
+    expect(second).toEqual(["base"])
+    expect(fixture.requests).toHaveLength(4)
+  })
+
+  test("timeouts count toward the breaker, and an open breaker does not wait", async () => {
+    const fixture = startFixture({ hangMs: 300 })
+    const { hooks } = await open({ fixture, timeoutMs: 40 })
+
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    for (let index = 0; index < 3; index++) await inject(hooks, "ses_1", ["base"])
+    expect(fixture.requests).toHaveLength(3)
+
+    const started = performance.now()
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base"])
+    expect(performance.now() - started).toBeLessThan(40)
+    expect(fixture.requests).toHaveLength(3)
+  })
+
+  test("a success resets the failure count", async () => {
+    const fixture = startFixture({ status: 503 })
+    const { hooks } = await open({ fixture })
+
+    await capture(hooks, [userMessage("ses_1", "msg_1", { type: "text", text: "fix it" })])
+    await inject(hooks, "ses_1", ["base"])
+    await inject(hooks, "ses_1", ["base"])
+    fixture.options.status = 200
+    await inject(hooks, "ses_1", ["base"])
+    fixture.options.status = 503
+    await inject(hooks, "ses_1", ["base"])
+    await inject(hooks, "ses_1", ["base"])
+    fixture.options.status = 200
+    expect(await inject(hooks, "ses_1", ["base"])).toEqual(["base", LINE])
+    expect(fixture.requests).toHaveLength(6)
   })
 
   test("registers nothing without a token or a loopback base, and sends nothing", async () => {

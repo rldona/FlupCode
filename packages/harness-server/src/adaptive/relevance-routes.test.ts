@@ -17,6 +17,7 @@ import type { HarnessHandlerOptions } from "../api"
 import { SqliteRoutineRepository } from "../repository"
 import { RoutineScheduler } from "../scheduler"
 import type { RelevanceResult, RelevanceService } from "./relevance"
+import { RELEVANCE_RETRY_AFTER_MS } from "./relevance-routes"
 
 const PROJECT = tmpdir()
 /** The acting line's own secret; the browser/artifacts bearer is a different, unrelated one. */
@@ -73,6 +74,25 @@ describe("the relevance route (FH-04)", () => {
       },
     })
     repository.close()
+  })
+
+  test("an inert answer no turn can change carries a retry hint; a per-turn one does not", async () => {
+    const inert = (reason: RelevanceResult["reason"]): RelevanceResult => ({ ...result, line: null, skills: [], reason })
+    for (const reason of ["disabled", "runtime-not-legacy"] as const) {
+      const { repository, handler } = open({ relevance: service(inert(reason)), adaptiveToken: ADAPTIVE })
+      const data = (await (await handler(post(body, ADAPTIVE))).json()).data
+      expect(data.line, reason).toBeNull()
+      expect(data.retryAfterMs, reason).toBe(RELEVANCE_RETRY_AFTER_MS)
+      repository.close()
+    }
+    // A miss, an empty roster or a failure is about this turn: the next one may differ, so no hint.
+    for (const reason of ["no-match", "no-roster", "error", "ok"] as const) {
+      const answer = reason === "ok" ? result : inert(reason)
+      const { repository, handler } = open({ relevance: service(answer), adaptiveToken: ADAPTIVE })
+      const data = (await (await handler(post(body, ADAPTIVE))).json()).data
+      expect("retryAfterMs" in data, reason).toBe(false)
+      repository.close()
+    }
   })
 
   test("takes the dedicated bearer and refuses without it", async () => {

@@ -11,6 +11,10 @@
  * existing directory, or nothing — the same rule `learning-routes.ts` applies. `skills` is dropped
  * from the answer too: the plugin reads only `line`, and the list of names is an enumeration surface
  * the caller does not need.
+ *
+ * An answer that is inert for a reason no single turn can change — the feature or the master switch
+ * off, or a runtime that is not legacy — carries `retryAfterMs`, so the plugin stops asking on every
+ * provider request. Older plugins ignore the field.
  */
 
 import { statSync } from "node:fs"
@@ -61,14 +65,25 @@ function usableProject(projectID: string): string | undefined {
   }
 }
 
+/**
+ * How long the plugin may skip the call after an inert answer that no single turn can change. It
+ * matches the runtime probe's own refresh cadence (DEFAULT_RUNTIME_PROBE_CONFIG.ttlMs), so a runtime
+ * that becomes legacy, or a switch turned back on, is asked again within about the window the
+ * harness itself takes to notice.
+ */
+export const RELEVANCE_RETRY_AFTER_MS = 60_000
+
 /** The wire answer: everything the caller may see, without the skill-name list. */
-const wireResult = (result: RelevanceResult): Omit<RelevanceResult, "skills"> => ({
+const wireResult = (result: RelevanceResult) => ({
   line: result.line,
   decisionID: result.decisionID,
   source: result.source,
   degraded: result.degraded,
   reason: result.reason,
   latencyMs: result.latencyMs,
+  ...(result.reason === "disabled" || result.reason === "runtime-not-legacy"
+    ? { retryAfterMs: RELEVANCE_RETRY_AFTER_MS }
+    : {}),
 })
 
 export async function handleRelevanceRequest(request: Request, relevance: RelevanceService): Promise<Response> {
