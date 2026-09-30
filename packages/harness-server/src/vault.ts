@@ -31,6 +31,11 @@ export type CredentialVault = {
   remove(name: string): boolean
   /** The secret for this name and origin, or nothing when it is absent, foreign or unreadable. */
   resolve(input: { name: string; origin: string }): Promise<string | undefined>
+  /**
+   * Every stored secret, decrypted now, for a redactor to delete by value. It is read on each call,
+   * so a credential saved or removed a moment ago is covered; unreadable rows are skipped.
+   */
+  secrets(): string[]
 }
 
 export type CredentialStore = Pick<
@@ -130,15 +135,10 @@ export function createVault(options: { store: CredentialStore; key: Buffer }): C
     }
   }
 
-  const resolve = async (input: { name: string; origin: string }): Promise<string | undefined> => {
-    const record = readRecord(input.name)
-    if (record === undefined) return undefined
-    // The origin is checked before decrypting: a credential named for another site is not this one's,
-    // and trying the ciphertext there would only invite a confusing failure.
-    if (record.origin !== input.origin) return undefined
+  const decrypt = (record: NonNullable<ReturnType<typeof readRecord>>): string | undefined => {
     try {
       const decipher = createDecipheriv("aes-256-gcm", key, Buffer.from(record.iv, "base64"))
-      decipher.setAAD(aad(record.name, input.origin))
+      decipher.setAAD(aad(record.name, record.origin))
       decipher.setAuthTag(Buffer.from(record.tag, "base64"))
       const plaintext = Buffer.concat([
         decipher.update(Buffer.from(record.ciphertext, "base64")),
@@ -151,7 +151,29 @@ export function createVault(options: { store: CredentialStore; key: Buffer }): C
     }
   }
 
-  return { list, set, remove: (name) => store.removeActionCredential(name), resolve }
+  const resolve = async (input: { name: string; origin: string }): Promise<string | undefined> => {
+    const record = readRecord(input.name)
+    if (record === undefined) return undefined
+    // The origin is checked before decrypting: a credential named for another site is not this one's,
+    // and trying the ciphertext there would only invite a confusing failure.
+    if (record.origin !== input.origin) return undefined
+    return decrypt(record)
+  }
+
+  const secrets = (): string[] => {
+    try {
+      return store.listActionCredentials().flatMap((row) => {
+        const record = readRecord(row.name)
+        const value = record ? decrypt(record) : undefined
+        return value ? [value] : []
+      })
+    } catch {
+      // A redactor must never be the call that fails; a store it cannot list names no secret.
+      return []
+    }
+  }
+
+  return { list, set, remove: (name) => store.removeActionCredential(name), resolve, secrets }
 }
 
 /** What authentication covers: the name and the origin together, so neither can be swapped alone. */

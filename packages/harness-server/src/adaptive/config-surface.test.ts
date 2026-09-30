@@ -160,6 +160,7 @@ describe("guards", () => {
     const built = plan({
       patch: { learning: { enabled: true } },
       block: { egress: { projects: ["/p"], kinds: { skillReflection: true } } },
+      confirm: true,
     })
     expect(built.leaves.map((leaf) => leaf.path)).toEqual(["learning.enabled"])
   })
@@ -200,6 +201,17 @@ describe("confirmation", () => {
     expect(plan({ ...shared, confirm: true }).leaves).toHaveLength(1)
   })
 
+  test("learning needs confirmation once its allowlist is satisfied: the draft leaves the machine", () => {
+    const shared = {
+      block: { egress: { projects: ["/p"], kinds: { skillReflection: true } } },
+      patch: { learning: { enabled: true } },
+    }
+    expect(rejection(shared)).toMatchObject({ code: "confirmation-required", fields: ["learning.enabled"] })
+    expect(plan({ ...shared, confirm: true }).leaves).toHaveLength(1)
+    // Turning it off is never gated behind a dialog.
+    expect(plan({ ...shared, patch: { learning: { enabled: false } } }).leaves).toHaveLength(1)
+  })
+
   test("widening egress.projects needs confirmation, narrowing does not", () => {
     const block = { egress: { projects: ["/a"] } }
     expect(rejection({ patch: { egress: { projects: ["/a", "/b"] } }, block }).fields).toEqual(["egress.projects"])
@@ -225,12 +237,27 @@ describe("warnings", () => {
     expect(plan({ patch: { relevance: { enabled: true } }, runtimeKind: "legacy" }).warnings).toEqual([])
   })
 
-  test("learning without a model warns no-model", () => {
+  test("learning always warns the draft egress, and no-model without a model", () => {
     const allowlisted = { egress: { projects: ["/p"], kinds: { skillReflection: true } } }
-    expect(plan({ patch: { learning: { enabled: true } }, block: allowlisted }).warnings).toEqual(["no-model"])
+    expect(plan({ patch: { learning: { enabled: true } }, block: allowlisted, confirm: true }).warnings).toEqual([
+      "learning-draft-egress",
+      "no-model",
+    ])
     expect(
-      plan({ patch: { learning: { enabled: true } }, block: allowlisted, smallModel: "openai/gpt-4o-mini" }).warnings,
-    ).toEqual([])
+      plan({
+        patch: { learning: { enabled: true } },
+        block: allowlisted,
+        confirm: true,
+        smallModel: "openai/gpt-4o-mini",
+      }).warnings,
+    ).toEqual(["learning-draft-egress"])
+  })
+
+  test("the learning switch's descriptor announces its confirmation and its egress warning", () => {
+    expect(WRITABLE_FIELDS.find((field) => field.path === "learning.enabled")).toMatchObject({
+      confirmation: "required",
+      warning: "learning-draft-egress",
+    })
   })
 
   test("turning the master on reminds that learned skills keep loading", () => {
@@ -369,6 +396,17 @@ describe("the read model", () => {
     expect(view.usage).toEqual({ month: "2026-09", tokensSpent: 0, calls: 0, monthlyTokens: 100_000, hotReserveFraction: 0.2 })
     expect(view.writable).toHaveLength(WRITABLE_FIELDS.length)
     expect(view.effective.enabled).toBe(true)
+    expect(view.learningDraft).toEqual({ model: null })
+  })
+
+  test("names the model a learning draft is sent to: the learning model first, then small_model", () => {
+    expect(adaptiveConfigView(viewInput({ smallModel: () => "openai/gpt-4o-mini" })).learningDraft).toEqual({
+      model: "openai/gpt-4o-mini",
+    })
+    const resolved = createAdaptiveConfig({ read: () => ({ learning: { model: "anthropic/haiku" } }), env: {} }).current()
+    expect(
+      adaptiveConfigView(viewInput({ resolved, smallModel: () => "openai/gpt-4o-mini" })).learningDraft,
+    ).toEqual({ model: "anthropic/haiku" })
   })
 })
 

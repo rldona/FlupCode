@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  confirmationMessage,
   feedbackFor,
   fieldProblem,
   inactiveByMaster,
@@ -19,7 +20,13 @@ const WRITABLE: AdaptiveWritableField[] = [
   { path: "enabled", type: "boolean", confirmation: "none", guard: "env-disabled" },
   { path: "shadow", type: "boolean", confirmation: "none", guard: "none" },
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
-  { path: "learning.enabled", type: "boolean", confirmation: "none", guard: "egress-allowlist" },
+  {
+    path: "learning.enabled",
+    type: "boolean",
+    confirmation: "required",
+    guard: "egress-allowlist",
+    warning: "learning-draft-egress",
+  },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
@@ -33,7 +40,7 @@ const view = (over: Partial<AdaptiveConfigView["effective"]> = {}, envDisabled =
     enabled: true,
     shadow: false,
     context: { enabled: true, apply: false },
-    learning: { enabled: false },
+    learning: { enabled: false, maxInputChars: 8000 },
     relevance: { enabled: false },
     guardrails: { enabled: false },
     jev: { enabled: false },
@@ -147,6 +154,25 @@ describe("which writes need confirming", () => {
     expect(needsConfirmation("egress.kinds", { completion: false }, before)).toBe(false)
   })
 
+  test("learning asks when it is being turned on, since its draft leaves the machine", () => {
+    expect(needsConfirmation("learning.enabled", true, view())).toBe(true)
+    expect(needsConfirmation("learning.enabled", false, view())).toBe(false)
+  })
+
+  test("the learning dialog says what is sent and to which model", () => {
+    const withModel = { ...view(), learningDraft: { model: "openai/gpt-4o-mini" } }
+    const message = confirmationMessage("learning.enabled", true, withModel)
+    expect(message).toContain("8000 characters")
+    expect(message).toContain("objective and evidence")
+    expect(message).toContain("openai/gpt-4o-mini")
+    const withoutModel = confirmationMessage("learning.enabled", true, { ...view(), learningDraft: { model: null } })
+    expect(withoutModel).toContain("small model's provider")
+    expect(withoutModel).toContain("nothing is sent until one is")
+    expect(confirmationMessage("retention.enabled", true, view())).toBe(
+      "Writing to retention.enabled needs confirmation. The change is written to the config file.",
+    )
+  })
+
   test("a switch without confirmation never asks", () => {
     expect(needsConfirmation("shadow", true, view())).toBe(false)
   })
@@ -191,9 +217,10 @@ describe("the server's answer said in the reader's words", () => {
 
   test("the warnings the server sends have their own words", () => {
     expect(warningKey("skills-still-load")).toBe("Learned skills still load from disk.")
-    expect(warningKey("evaluation-gated")).toBe(
-      "Applying is configured, but promotion waits for the offline evaluation.",
+    expect(warningKey("learning-draft-egress")).toBe(
+      "Learning drafts are sent, redacted, to the configured small model's provider.",
     )
+    expect(warningKey("evaluation-gated")).toBe("Applying is configured, but promotion waits for the offline evaluation.")
   })
 
   test("provenance is said where it comes from", () => {

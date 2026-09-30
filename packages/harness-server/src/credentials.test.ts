@@ -96,6 +96,20 @@ describe("the credential vault", () => {
     }
     const vault = createVault({ store: failing, key: key() })
     expect(await vault.resolve({ name: "site_account", origin: "https://example.com" })).toBeUndefined()
+    expect(vault.secrets()).toEqual([])
+  })
+
+  test("secrets lists every readable value as it is now, for a redactor to delete by value", () => {
+    const repository = store()
+    const vault = createVault({ store: repository, key: key() })
+    expect(vault.secrets()).toEqual([])
+    vault.set({ name: "one", origin: "https://example.com", secret: "first-secret" })
+    vault.set({ name: "two", origin: "https://other.example", secret: "second-secret" })
+    expect(vault.secrets().sort()).toEqual(["first-secret", "second-secret"])
+    // A row sealed under another key is skipped, not an error.
+    createVault({ store: repository, key: key(2) }).set({ name: "three", origin: "https://x.example", secret: "foreign" })
+    vault.remove("one")
+    expect(vault.secrets()).toEqual(["second-secret"])
   })
 })
 

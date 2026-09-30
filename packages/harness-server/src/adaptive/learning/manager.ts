@@ -239,9 +239,15 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       proposal,
       modelVersion: `${model.providerID}/${model.id}`,
     })
+    // The secret lint reads the draft as the model wrote it: the proposal above is already redacted,
+    // so linting it would never find the secret and would install a quietly edited skill instead of
+    // refusing it. The row still keeps only the redacted text.
+    const leaked = [draft.name, draft.description, draft.body].some((text) => redactedText(deps.egress, text) !== text)
     // The proposal is stored before it is promoted: a rejected one stays reviewable with its reason.
     deps.repository.createProposal(input, now())
-    const promoted = deps.curator.promote(proposal, now(), roster)
+    const promoted = leaked
+      ? { ok: false as const, reason: "contains-secrets" as const }
+      : deps.curator.promote(proposal, now(), roster)
     if (!promoted.ok) {
       deps.repository.createProposal({ ...input, status: "rejected", reason: promoted.reason }, now())
       jobFor(episode, "skipped", { reason: promoted.reason, decisionID, proposalID: input.id })

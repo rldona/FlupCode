@@ -146,6 +146,30 @@ describe("createHarnessServer runtime probe wiring", () => {
     }
   })
 
+  test("the adaptive egress deletes the harness's own tokens and every vault value by literal", () => {
+    const browserToken = "browser-token-literal-0001"
+    const adaptiveToken = "adaptive-token-literal-0002"
+    const app = createHarnessServer({
+      port: 0,
+      databasePath: ":memory:",
+      intervalMs: 3_600_000,
+      browserToken,
+      adaptiveToken,
+      vaultKey: "ab".repeat(32),
+      runtimeProbe: probe(async () => unknownState()),
+    })
+    running = app
+    // Saved after startup: the guard reads the vault on each call, so a new credential is covered.
+    app.vault!.set({ name: "site_account", origin: "https://example.com", secret: "vault-secret-literal" })
+    const redacted = JSON.stringify(
+      app.egress.redact({ note: `b=${browserToken} a=${adaptiveToken} v=vault-secret-literal` }),
+    )
+    expect(redacted).not.toContain(browserToken)
+    expect(redacted).not.toContain(adaptiveToken)
+    expect(redacted).not.toContain("vault-secret-literal")
+    expect(redacted).toContain("[REDACTED]")
+  })
+
   test("stop clears the probe interval so it stops refreshing", async () => {
     process.env.FLUPCODE_ADAPTIVE_PROBE_TTL_MS = "5"
     const seen = { calls: 0 }
