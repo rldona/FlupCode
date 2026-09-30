@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   EVIDENCE_SLICE_LIMIT,
   EVIDENCE_TOTAL_LIMIT,
@@ -273,5 +277,127 @@ describe("evidence store (FH-006)", () => {
     expect(repository.evidenceFor(episode, NOW)).toEqual([])
     expect(repository.evictEvidence()).toBe(0)
     expect(() => repository.setEpisodeEvidence("episode:closed", [], NOW)).not.toThrow()
+  })
+})
+
+describe("incremental eviction (AH-A08)", () => {
+  const total = (repository: SqliteRoutineRepository) =>
+    (repository.db.query("SELECT bytes FROM evidence_total").get() as { bytes: number }).bytes
+  const measured = (repository: SqliteRoutineRepository) =>
+    (
+      repository.db.query("SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))), 0) AS n FROM evidence").get() as {
+        n: number
+      }
+    ).n
+
+  test("rows written before the size column are measured once and counted", () => {
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-evidence-"))
+    const path = join(directory, "harness.db")
+    // The table exactly as a build before the column wrote it, with rows in it.
+    const legacy = new Database(path, { create: true })
+    legacy.exec(`CREATE TABLE evidence (
+      hash TEXT PRIMARY KEY, content TEXT NOT NULL, bytes INTEGER, truncated INTEGER,
+      created_at INTEGER NOT NULL, last_read_at INTEGER)`)
+    legacy
+      .query("INSERT INTO evidence (hash, content, created_at) VALUES (?1, ?2, ?3)")
+      .run(evidenceHash("old"), "old", 100)
+    legacy
+      .query("INSERT INTO evidence (hash, content, created_at) VALUES (?1, ?2, ?3)")
+      .run(evidenceHash("é"), "é", 200)
+    legacy.close()
+
+    const repository = new SqliteRoutineRepository(path)
+    const sizes = repository.db.query("SELECT hash, size FROM evidence ORDER BY created_at").all()
+    expect(sizes).toEqual([
+      { hash: evidenceHash("old"), size: 3 },
+      { hash: evidenceHash("é"), size: 2 },
+    ])
+    expect(total(repository)).toBe(5)
+
+    // The backfilled sizes drive eviction like any other row: room for one, the oldest goes.
+    expect(repository.evictEvidence({ maxBytes: 2 })).toBe(1)
+    expect(repository.getEvidence(evidenceHash("é"), NOW)).toBeDefined()
+    expect(total(repository)).toBe(2)
+    repository.close()
+
+    // The total survives a restart, recomputed rather than carried over.
+    const reopened = new SqliteRoutineRepository(path)
+    expect(total(reopened)).toBe(2)
+    reopened.close()
+    rmSync(directory, { recursive: true, force: true })
+  })
+
+  test("the same content put again is not counted twice", () => {
+    const repository = open()
+    repository.putEvidence({ content: "same" }, NOW)
+    repository.putEvidence({ content: "same" }, NOW + 1)
+    repository.putEvidence({ content: "a".repeat(EVIDENCE_SLICE_LIMIT + 5) }, NOW)
+    repository.putEvidence({ content: "a".repeat(EVIDENCE_SLICE_LIMIT) }, NOW + 1)
+
+    expect(total(repository)).toBe(4 + EVIDENCE_SLICE_LIMIT)
+    expect(total(repository)).toBe(measured(repository))
+    repository.close()
+  })
+
+  test("the total follows every delete, including rows removed with their episode's links", () => {
+    const repository = open()
+    const episode = newEpisode(repository)
+    const kept = repository.putEvidence({ content: "kept" }, 100)!
+    const gone = repository.putEvidence({ content: "gone" }, 200)!
+    repository.setEpisodeEvidence(
+      episode.id,
+      [
+        { hash: gone.hash, kind: "signal", position: 0 },
+        { hash: kept.hash, kind: "signal", position: 1 },
+      ],
+      300,
+    )
+    repository.getEvidence(kept.hash, 400)
+
+    expect(repository.evictEvidence({ maxBytes: 4 })).toBe(1)
+    expect(total(repository)).toBe(4)
+    expect(total(repository)).toBe(measured(repository))
+    expect(repository.evidenceFor(episode, NOW).map((slice) => slice.content)).toEqual(["kept"])
+    repository.close()
+  })
+
+  test("eviction removes least recently used rows, in order, only until the store fits", () => {
+    const repository = open()
+    const slices = ["a", "b", "c", "d", "e"].map(
+      (letter, index) => repository.putEvidence({ content: letter.repeat(10) }, 100 + index)!,
+    )
+    // `a` was read after everything else was written, so it is the most recently used.
+    repository.getEvidence(slices[0]!.hash, 1_000)
+
+    expect(repository.evictEvidence({ maxBytes: 25 })).toBe(3)
+    const left = (
+      repository.db.query("SELECT content FROM evidence ORDER BY content").all() as Array<{ content: string }>
+    ).map((row) => row.content[0])
+    expect(left).toEqual(["a", "e"])
+    expect(total(repository)).toBe(20)
+    repository.close()
+  })
+
+  test("a put into a large store under its total does not scan it", () => {
+    const repository = open()
+    // Around 40 MB in 10 000 rows: well under the total, and big enough that a scan per put shows.
+    const insert = repository.db.query("INSERT INTO evidence (hash, content, created_at) VALUES (?1, ?2, ?3)")
+    repository.db.transaction(() => {
+      Array.from({ length: 10_000 }, (_, index) => {
+        const content = "x".repeat(4_000) + index
+        insert.run(evidenceHash(content), content, index)
+      })
+    })()
+    expect(total(repository)).toBe(measured(repository))
+
+    const puts = 50
+    const started = performance.now()
+    Array.from({ length: puts }, (_, index) => repository.putEvidence({ content: `fresh ${index}` }, NOW + index))
+    const perPut = (performance.now() - started) / puts
+
+    // A generous bound: the full scan this replaced took tens of milliseconds per put at this size.
+    expect(perPut).toBeLessThan(5)
+    expect(rows(repository)).toBe(10_000 + puts)
+    repository.close()
   })
 })
