@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync } from "node:fs"
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync } from "node:fs"
 import { homedir, tmpdir } from "node:os"
 import { join } from "node:path"
 
@@ -9,10 +9,12 @@ import { join } from "node:path"
  * OpenCode 2.x installs the same `opencode` command as 1.x, and its installer replaces the 1.x one,
  * so it is never installed globally here: the platform package is fetched from the npm registry,
  * checked against the integrity the registry publishes for it, and unpacked under FlupCode's cache.
+ * Like every package the repo installs, a version younger than bunfig's `minimumReleaseAge` is
+ * refused: an integrity check proves the bytes are the published ones, not that the publish is sound.
  * The binary is not run by this module; the contract suite and `script/opencode-v2.ts` do that with
  * an isolated home, so it never opens the user's `opencode.db`.
  */
-export const OPENCODE_V2_VERSION = "2.0.20"
+export const OPENCODE_V2_VERSION = "2.0.18"
 
 const REGISTRY = "https://registry.npmjs.org"
 
@@ -32,8 +34,15 @@ export async function installOpenCodeV2(version = OPENCODE_V2_VERSION) {
   const target = openCodeV2Path(version)
   if (existsSync(target)) return target
   const name = `@opencode/cli-${platformPackage()}`
-  const manifest = await fetchJson(`${REGISTRY}/${name.replace("/", "%2f")}/${version}`)
-  const dist = manifest.dist as { tarball?: string; integrity?: string } | undefined
+  const packument = await fetchJson(`${REGISTRY}/${name.replace("/", "%2f")}`)
+  const published = Date.parse(String((packument.time as Record<string, string> | undefined)?.[version]))
+  const age = Math.floor((Date.now() - published) / 1000)
+  if (!Number.isFinite(published) || age < minimumReleaseAge())
+    throw new Error(
+      `${name}@${version} is younger than the repo's minimumReleaseAge (bunfig.toml); pin an older version`,
+    )
+  const manifest = (packument.versions as Record<string, Record<string, unknown>> | undefined)?.[version]
+  const dist = manifest?.dist as { tarball?: string; integrity?: string } | undefined
   if (!dist?.tarball?.startsWith(`${REGISTRY}/`) || !dist.integrity?.startsWith("sha512-"))
     throw new Error(`${name}@${version} has no sha512 tarball on the registry`)
   const tarball = new Uint8Array(await (await fetchOk(dist.tarball)).arrayBuffer())
@@ -55,6 +64,12 @@ export async function installOpenCodeV2(version = OPENCODE_V2_VERSION) {
     rmSync(work, { recursive: true, force: true })
   }
   return target
+}
+
+/** The repo's `[install] minimumReleaseAge`, in seconds, so the sandbox follows the same rule as bun. */
+function minimumReleaseAge() {
+  const bunfig = readFileSync(join(import.meta.dir, "..", "..", "..", "bunfig.toml"), "utf8")
+  return Number(bunfig.match(/^minimumReleaseAge\s*=\s*(\d+)/m)?.[1] ?? 259_200)
 }
 
 /** The suffix of the platform package npm would pick for this machine. */
