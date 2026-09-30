@@ -69,8 +69,9 @@ How FlupCode is versioned and released.
    gh release edit flupcode-vX.Y.Z --notes-file notes.md
    ```
 
-   The web app (`app.flupcode.com`) and the landing deploy from `power` on merge, independently of
-   releases (see "Merging" and "Deploys" in [CONTRIBUTING.md](CONTRIBUTING.md)).
+   The web app (`app.flupcode.com`) deploys when this bump reaches `power`: its Vercel build only
+   runs for a commit that changes `packages/harness/package.json`'s version. The landing deploys
+   from `power` whenever it changes (see "Deploys" in [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 5. Verify with:
 
