@@ -420,7 +420,9 @@ describe("the skillRelevance usage seam (FH-043)", () => {
     coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry)).captureRun(run.id)
     await flush()
 
-    expect(selections).toEqual([{ projectID: "/work/project", roster: SKILLS, loaded: ["testing"] }])
+    expect(selections).toEqual([
+      { projectID: "/work/project", episodeID: runEpisodeID(run.id), roster: SKILLS, loaded: ["testing"] },
+    ])
     repository.close()
   })
 
@@ -495,6 +497,83 @@ describe("the skillRelevance usage seam (FH-043)", () => {
     // The episode row the callback saw is untouched: a tracker failure is not a session failure.
     expect(repository.getEpisode(episode.id)).toEqual(episode)
     expect(errors.some((cause) => cause instanceof Error && cause.message === "track boom")).toBe(true)
+    repository.close()
+  })
+})
+
+describe("the shadow processes one episode once (AH-A07)", () => {
+  const config = () => resolveAdaptiveConfig({ block: { shadow: true }, env: {} })
+
+  /**
+   * The real service, counting every question it is asked, so a double pass shows up as calls. It
+   * answers a macrotask later, like a Jev round trip: an answer written synchronously would let the
+   * second pass see the first one's decision and hide the race.
+   */
+  const countingService = (repository: SqliteRoutineRepository) => {
+    const service = serviceFor(repository, true)
+    const calls: DecisionKind[] = []
+    const counted: DecisionService = {
+      ...service,
+      predict: async (request, mode) => {
+        calls.push(request.kind)
+        await flush()
+        return service.predict(request, mode)
+      },
+    }
+    return { service: counted, calls }
+  }
+
+  /** Both kinds wait a macrotask each, so the passes need a few flushes to finish. */
+  const settle = () => flush().then(flush).then(flush).then(flush)
+
+  const runnerFor = (repository: SqliteRoutineRepository, service: DecisionService, selections: SkillSelection[]) =>
+    createShadowRunner({
+      service,
+      repository,
+      config,
+      readSkills: () => SKILLS,
+      trackSelection: (selection) => selections.push(selection),
+    })
+
+  test("the startup sweeps of the coordinator and the shadow decide and count an episode once", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    // A run that finished while the server was down: only the startup sweeps can find it.
+    const run = seedRun(repository)
+    const selections: SkillSelection[] = []
+    const counting = countingService(repository)
+    const shadow = runnerFor(repository, counting.service, selections)
+    const episodes = coordinatorFor(repository, (entry) => shadow.onEpisodeClosed(entry))
+    // The server's order: the coordinator enqueues the close, then the shadow sweeps synchronously.
+    episodes.start()
+    shadow.start()
+    await settle()
+    episodes.stop()
+    shadow.stop()
+
+    const episodeID = runEpisodeID(run.id)
+    for (const kind of SHADOW_KINDS) expect(repository.countDecisionsForEpisode(episodeID, kind)).toBe(1)
+    expect(counting.calls).toEqual(["completion", "skillRelevance"])
+    expect(selections).toHaveLength(1)
+    repository.close()
+  })
+
+  test("two closes of one episode in the same tick are processed once", async () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const run = seedRun(repository)
+    const selections: SkillSelection[] = []
+    const counting = countingService(repository)
+    const shadow = runnerFor(repository, counting.service, selections)
+    const episode = coordinatorFor(repository).captureRun(run.id)!
+    shadow.onEpisodeClosed(episode)
+    shadow.onEpisodeClosed(episode)
+    // A sweep while the first pass is still in flight does not enqueue it again.
+    expect(shadow.sweep()).toBe(0)
+    await settle()
+
+    expect(counting.calls).toEqual(["completion", "skillRelevance"])
+    expect(selections).toHaveLength(1)
+    // Once it finished, the episode is decided, so a later sweep has nothing to do either.
+    expect(shadow.sweep()).toBe(0)
     repository.close()
   })
 })

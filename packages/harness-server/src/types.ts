@@ -775,6 +775,8 @@ export type ContextPlanRepository = {
  */
 export type ReflectionRepository = {
   createReflectionJob(input: StoredReflectionJobInput, now?: number): StoredReflectionJob
+  /** Inserts or takes over a stale `pending` row; `true` only when this caller now owns the reflection. */
+  claimReflectionJob(input: { episodeID: string; sessionID?: string; projectID?: string }, now: number, leaseMs: number): boolean
   getReflectionJob(episodeID: string): StoredReflectionJob | undefined
   listReflectionJobs(filter?: ReflectionJobFilter): StoredReflectionJob[]
 }

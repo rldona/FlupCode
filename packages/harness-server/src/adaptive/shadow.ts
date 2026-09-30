@@ -30,6 +30,8 @@ export type SkillCandidate = { name: string; description: string; learned: boole
 /** The roster a `skillRelevance` decision was offered and the names it selected (FH-043). */
 export type SkillSelection = {
   projectID: string
+  /** The episode it was decided for, so the tracker counts one episode once (AH-A07). */
+  episodeID: string
   roster: readonly SkillCandidate[]
   loaded: readonly string[]
 }
@@ -137,7 +139,12 @@ export function createShadowRunner(deps: {
       })
       // The selection is the usage signal; the same roster the request offered is handed to the tracker.
       if (kind === "skillRelevance" && result !== undefined && deps.trackSelection !== undefined) {
-        const selection = { projectID: episode.projectID, roster: skills(), loaded: selectedSkills(result.answer) }
+        const selection = {
+          projectID: episode.projectID,
+          episodeID: episode.id,
+          roster: skills(),
+          loaded: selectedSkills(result.answer),
+        }
         deps.trackSelection(selection)
       }
     }
@@ -151,7 +158,15 @@ export function createShadowRunner(deps: {
     }
   }
 
+  // Episodes enqueued and not yet finished. Claimed synchronously, before the deferred task runs: the
+  // startup sweep of the episode coordinator enqueues a close as a microtask, and this runner's own
+  // sweep then sees the same episode still undecided; a slow batch overlapping the periodic sweep
+  // does the same. Without the claim both passes would decide and track the selection twice.
+  const inFlight = new Set<string>()
+
   const onEpisodeClosed = (episode: SessionEpisode): void => {
+    if (inFlight.has(episode.id)) return
+    inFlight.add(episode.id)
     // Enqueue only. Building the request reads skills (filesystem I/O) and, with Jev off, the
     // decisions are written synchronously; both belong to this deferred task, never to the
     // coordinator's `writeRun`/`writeSession` path.
@@ -162,6 +177,7 @@ export function createShadowRunner(deps: {
         return decideClosed(episode, config)
       })
       .catch(onError)
+      .finally(() => inFlight.delete(episode.id))
   }
 
   const sweep = (): number => {
@@ -171,6 +187,7 @@ export function createShadowRunner(deps: {
       return deps.repository
         .listEpisodes({ limit: sweepLimit })
         .filter((episode) => episode.endedAt !== undefined)
+        .filter((episode) => !inFlight.has(episode.id))
         .filter((episode) => needsWork(episode, config))
         .reduce((count, episode) => {
           onEpisodeClosed(episode)

@@ -76,7 +76,16 @@ export type SkillSidecar = {
    * the skill; absent reads as creation, which is the conservative reading.
    */
   since: SkillUsage
+  /**
+   * The most recent episodes whose `skillRelevance` selection was already counted into `usage`, newest
+   * last and bounded by `COUNTED_EPISODES_KEEP`. A selection reported twice for one episode (a restart
+   * sweep racing the close, a second process) is then counted once. Absent reads as none counted.
+   */
+  countedEpisodes?: string[]
 }
+
+/** How many counted episodes a sidecar remembers; duplicates arrive close together, not days apart. */
+export const COUNTED_EPISODES_KEEP = 32
 
 export type LedgerEvent =
   | { at: number; event: "created"; version: number; contentHash: string; proposalID?: string; reason: string }
@@ -134,6 +143,7 @@ export type LearnedSidecarUpdate = {
   state?: SkillState
   usage?: SkillUsage
   since?: SkillUsage
+  countedEpisodes?: string[]
   /** Ledger events appended after the sidecar is written, in order. */
   events?: LedgerEvent[]
   at?: number
@@ -328,6 +338,13 @@ function parseSidecar(value: unknown): SkillSidecar | undefined {
       patch: count(since, "patch"),
       opportunities: count(since, "opportunities"),
     },
+    ...(Array.isArray(value.countedEpisodes)
+      ? {
+          countedEpisodes: value.countedEpisodes
+            .filter((entry): entry is string => typeof entry === "string")
+            .slice(-COUNTED_EPISODES_KEEP),
+        }
+      : {}),
   }
 }
 
@@ -468,6 +485,8 @@ export function createLearnedStore(
       ...(input.modelVersion ? { modelVersion: input.modelVersion } : {}),
       usage,
       since: usage,
+      // A patch keeps the counters, so it keeps the memory of which episodes they already include.
+      ...(previous?.countedEpisodes ? { countedEpisodes: previous.countedEpisodes } : {}),
     }
     const event: LedgerEvent =
       existing === undefined
@@ -591,6 +610,9 @@ export function createLearnedStore(
       ...(input.state !== undefined ? { state: input.state } : {}),
       ...(input.usage !== undefined ? { usage: input.usage } : {}),
       ...(input.since !== undefined ? { since: input.since } : {}),
+      ...(input.countedEpisodes !== undefined
+        ? { countedEpisodes: input.countedEpisodes.slice(-COUNTED_EPISODES_KEEP) }
+        : {}),
       updatedAt: at,
     }
     try {
