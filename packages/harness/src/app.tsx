@@ -163,6 +163,7 @@ import { PanelBoundary } from "./components/PanelBoundary"
 import { closePane, keepExisting, openInSplit, showInFocusedPane } from "./split"
 import { closeTab, cycleTab, keepTabs, openTab, tabAfterClose } from "./tabs"
 import { publishSessionEvent } from "./session-events"
+import { createV2Transcript } from "./engine/v2-events"
 import { annotateLocalNetwork, askLocalNetwork, engineFetch } from "./transport"
 import {
   addressSpaceOf,
@@ -370,11 +371,17 @@ export const App: Component = () => {
   ) => {
     const sessionID = data?.sessionID
     if (!sessionID) return
-    if (type === "session.next.prompted" || type === "session.next.step.started") {
+    if (
+      type === "session.next.prompted" ||
+      type === "session.next.step.started" ||
+      type === "session.execution.started"
+    ) {
       setRunState((state) => (state[sessionID] ? state : { ...state, [sessionID]: true }))
       return watchRun(sessionID, 2000)
     }
     if (type === "session.next.step.ended" || type === "session.next.step.failed") return watchRun(sessionID, 700)
+    // 2.x says when a whole execution is over, every step and queued prompt included.
+    if (type.startsWith("session.execution.")) return setRunning(sessionID, false)
     // Legacy runs (chats) report their own status, which already spans every step.
     const status = data?.status?.type
     if (status === "busy" || status === "retry") {
@@ -2705,6 +2712,9 @@ export const App: Component = () => {
             void refetchPermissions()
             void refetchQuestions()
             void refetchBlocked()
+            // A 2.x engine streams the transcript here instead of on each folder's stream (V2-21). What
+            // it holds is only good for this connection: after a gap the refetch below starts over.
+            const v2Transcript = createV2Transcript()
             for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
               attempt = 0
               setStreamState("global", "live")
@@ -2716,6 +2726,28 @@ export const App: Component = () => {
                   | { sessionID?: string; status?: { type?: string; message?: string; attempt?: number } }
                   | undefined,
               )
+              // 1.x names its events `session.next.*`, so on 1.x this never matches a thing.
+              const v2 = v2Transcript.reduce(event)
+              if (v2) {
+                if (type === "session.execution.started") {
+                  publishSessionEvent({ kind: "turn", sessionID: v2.sessionID })
+                  if (v2.sessionID === selected()) setStreamedChars(0)
+                }
+                if (v2.apply) {
+                  const change = { apply: v2.apply, chars: v2.chars, delta: v2.delta }
+                  publishSessionEvent({ kind: "message", sessionID: v2.sessionID, ...change })
+                  if (v2.sessionID === selected()) {
+                    setStreamedChars((value) => value + v2.chars)
+                    applyTranscriptChange(setMessageData, change)
+                  }
+                }
+                if (v2.stale) scheduleRefetch(true, false)
+                // The end of a turn reconciles against the engine's own copy, as `session.idle` does
+                // for a folder stream.
+                const ended = type.startsWith("session.execution.") && type !== "session.execution.started"
+                if (ended || type === "session.revert.committed") scheduleRefetch(true, true)
+                continue
+              }
               if (type === "session.next.step.started") {
                 if (payload?.sessionID) publishSessionEvent({ kind: "turn", sessionID: payload.sessionID })
                 if (payload?.sessionID === selected()) {
@@ -2735,20 +2767,28 @@ export const App: Component = () => {
               // The engine rebuilds its catalog from models.dev on its own schedule (and when an
               // integration connects). The list it serves moves with it, so the picker must not keep
               // offering the snapshot taken when the page loaded.
-              if (type === "catalog.updated") {
+              // 2.x splits the same news across models, providers and its models.dev refresh.
+              if (
+                type === "catalog.updated" ||
+                type === "model.updated" ||
+                type === "provider.updated" ||
+                type === "models-dev.refreshed"
+              ) {
                 void refetchModels()
                 continue
               }
-              if (type.startsWith("permission.") || type.startsWith("question.")) {
+              // 2.x asks its questions as forms (`form.*`), and drops the `v2` from its event names.
+              const question = type.startsWith("question.") || type.startsWith("form.")
+              if (type.startsWith("permission.") || question) {
                 setActivityTick((value) => value + 1)
                 publishSessionEvent({ kind: "requests" })
               }
               if (type.startsWith("permission.")) {
-                if (type === "permission.v2.asked") notify(t("Permission needed"), "")
+                if (type === "permission.v2.asked" || type === "permission.asked") notify(t("Permission needed"), "")
                 void refetchPermissions()
                 void refetchBlocked()
-              } else if (type.startsWith("question.")) {
-                if (type === "question.v2.asked") notify(t("Question asked"), "")
+              } else if (question) {
+                if (type === "question.v2.asked" || type === "form.created") notify(t("Question asked"), "")
                 void refetchQuestions()
                 void refetchBlocked()
               } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
