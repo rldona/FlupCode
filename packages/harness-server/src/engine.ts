@@ -239,6 +239,27 @@ export class Engine {
     return unwrap(this.client.session.delete({ sessionID, ...(directory ? { directory } : {}) }))
   }
 
+  /**
+   * Who an interactive session is, for the episode it closes (AH-B03): its folder, its title and
+   * whether it is a subagent's child.
+   *
+   * `undefined` when the engine refuses it as a request (deleted, or never a session): the caller may
+   * forget it. A throw when the engine could not be asked or would not let us in, so the caller tries
+   * again later instead of forgetting a session it never saw.
+   */
+  async describeSession(sessionID: string) {
+    const result = await this.client.session.get({ sessionID })
+    const status = result.response?.status ?? 0
+    if (status >= 400 && status < 500 && status !== 401 && status !== 403) return undefined
+    const session = await unwrap(Promise.resolve(result))
+    return {
+      directory: session.directory,
+      title: session.title,
+      ...(session.parentID ? { parentID: session.parentID } : {}),
+      createdAt: session.time.created,
+    }
+  }
+
   rename(sessionID: string, title: string) {
     return unwrap(this.client.session.update({ sessionID, title }))
   }

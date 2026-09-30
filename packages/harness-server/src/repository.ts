@@ -1335,6 +1335,24 @@ export class SqliteRoutineRepository implements RoutineRepository {
     return rows.map(decodeRun)
   }
 
+  /**
+   * Which of these sessions a harness run owns, as its own thread or a task's (AH-B03).
+   *
+   * An interactive episode is only for a session no run owns: a run's sessions are the run's
+   * episode, never episodes of their own. One query for the whole batch, however long it is.
+   */
+  sessionsOwnedByRuns(sessionIDs: string[]) {
+    if (sessionIDs.length === 0) return new Set<string>()
+    const rows = this.db
+      .query(
+        `SELECT session_id FROM runs WHERE session_id IN (SELECT value FROM json_each(?1))
+         UNION
+         SELECT session_id FROM tasks WHERE session_id IN (SELECT value FROM json_each(?1))`,
+      )
+      .all(JSON.stringify(sessionIDs)) as { session_id: string }[]
+    return new Set(rows.map((row) => row.session_id))
+  }
+
   listRunning() {
     const rows = this.db
       .query("SELECT * FROM runs WHERE status IN ('running', 'awaiting') ORDER BY started_at DESC")
