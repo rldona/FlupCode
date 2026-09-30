@@ -1024,6 +1024,12 @@ export const App: Component = () => {
     () => (settingsOpen() && adaptiveSurfaces(harnessCapabilities()).config ? adaptiveRevision() : undefined),
     () => createHarnessClient(harnessServerUrl()).adaptive.config.get(),
   )
+  // The value gate (AH-C05) says whether the predictive model is paused for low value; an older server
+  // that does not announce it is not asked.
+  const [adaptiveVoi] = createResource(
+    () => (settingsOpen() && adaptiveSurfaces(harnessCapabilities()).voi ? adaptiveRevision() : undefined),
+    () => createHarnessClient(harnessServerUrl()).adaptive.voi.get(),
+  )
   const [adaptiveSaving, setAdaptiveSaving] = createSignal(false)
   const [adaptiveWarnings, setAdaptiveWarnings] = createSignal<string[]>([])
   const [adaptiveError, setAdaptiveError] = createSignal<AdaptiveConfigError>()
@@ -6367,6 +6373,7 @@ export const App: Component = () => {
           saving: adaptiveSaving(),
           warnings: adaptiveWarnings(),
           error: adaptiveError(),
+          voi: adaptiveVoi.error ? undefined : adaptiveVoi(),
         }}
         onAdaptivePatch={patchAdaptive}
         onAdaptiveAcknowledgeRuntime={acknowledgeRuntime}

@@ -727,6 +727,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   saving={props.adaptive.saving}
                   warnings={props.adaptive.warnings}
                   error={props.adaptive.error}
+                  voi={props.adaptive.voi}
                   onPatch={props.onAdaptivePatch}
                   onAcknowledgeRuntime={props.onAdaptiveAcknowledgeRuntime}
                 />
