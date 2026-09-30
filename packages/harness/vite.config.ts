@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs"
 import { defineConfig } from "vite"
 import tailwindcss from "@tailwindcss/vite"
 import solid from "vite-plugin-solid"
+import { devTokenPlugin } from "./src/vite-dev-token"
 
 // The engine version this client was generated from. `/global/health` reports the version of the
 // connected engine, so a mismatch means the UI and the engine may have drifted (ADR-0009).
@@ -13,7 +14,8 @@ export default defineConfig({
   define: {
     __FLUPCODE_ENGINE_VERSION__: JSON.stringify(sdk.version),
   },
-  plugins: [tailwindcss(), solid()],
+  // `vite` only: a plain tab gets the harness bearer the desktop would hand it (AH-A05).
+  plugins: [tailwindcss(), solid(), devTokenPlugin()],
   // The markdown renderer parses and highlights off the main thread, and a worker bundled as IIFE
   // cannot be code-split alongside the app.
   worker: { format: "es" },

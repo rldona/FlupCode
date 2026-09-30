@@ -100,6 +100,9 @@ Access (WA-9, AH-A05):
   `<configDir>/browser-token` (or `FLUPCODE_BROWSER_TOKEN`). The desktop app hands it to the renderer;
   a plain browser tab has none, so those surfaces are refused there. The artifacts, events and runs
   only ask for it when a token exists, which the entrypoint always creates unless the write fails.
+  `vite` dev in `packages/harness` (never `build`/`preview`) serves the same token to a same-origin
+  loopback tab through `/@flupcode/dev-token.js`, so local development keeps working. A hosted or
+  built web tab without the desktop has no runs until a pairing flow exists.
 - **Host.** Every request whose `Host` is not a loopback name (`127.0.0.1`, `::1`, `localhost`,
   `*.localhost`) or the address the server listens on answers **403** `invalid_host`, which stops a
   DNS-rebinding page. On a wildcard listener (`0.0.0.0`, `::`) any IP literal is also accepted. A
