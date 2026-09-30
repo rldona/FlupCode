@@ -15,6 +15,7 @@ import {
   RUNTIME_PROBE_PLUGIN,
   SESSION_METRICS_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
+  TOOL_TRIM_PLUGIN,
   TOOL_USES_PLUGIN,
   WEB_ACTIONS_PLUGIN,
   engineConfigDir,
@@ -58,6 +59,7 @@ afterEach(async () => {
   delete process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS
   delete process.env.FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS
   delete process.env.FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS
+  delete process.env.FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS
 })
 
 describe("engineConfigDir", () => {
@@ -76,7 +78,7 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(12)
+    expect(first.paths).toHaveLength(13)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
@@ -90,6 +92,7 @@ describe("installEnginePlugins", () => {
       GUARDRAILS_PLUGIN,
       SESSION_METRICS_PLUGIN,
       COMPACTION_ANCHORS_PLUGIN,
+      TOOL_TRIM_PLUGIN,
     ]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }
@@ -2739,6 +2742,185 @@ describe("COMPACTION_ANCHORS_PLUGIN", () => {
       await hooks["experimental.session.compacting"]({ sessionID: "ses_1" }, output)
       expect(output.context).toEqual([])
     }
+  })
+
+  test("registers nothing without a token or a loopback base", async () => {
+    const fixture = startFixture()
+    expect(await open({ fixture, token: false })).toEqual({})
+    process.env.FLUPCODE_HARNESS_SERVER_URL = "https://evil.example"
+    expect(await open({})).toEqual({})
+    expect(fixture.requests).toHaveLength(0)
+  })
+})
+
+describe("TOOL_TRIM_PLUGIN", () => {
+  const servers: Array<() => void> = []
+  afterEach(() => {
+    for (const stop of servers.splice(0)) stop()
+  })
+
+  type Answer = { status?: number; body?: unknown; hangMs?: number }
+  const REF = "0123456789abcdef"
+  const trimmed = (extra: Record<string, unknown> = {}) => ({
+    body: {
+      data: {
+        trimmed: true,
+        ref: REF,
+        replacement: `[trimmed] evidence:${REF}`,
+        policy: { thresholdBytes: 8_192, maxStoredBytes: 1_000_000, exempt: ["read"] },
+        ...extra,
+      },
+    },
+  })
+
+  const startFixture = (answer: (path: string, body: Record<string, unknown>) => Answer = () => trimmed()) => {
+    const requests: Array<{ path: string; auth: string | null; body: Record<string, unknown> }> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const parsed: unknown = await request.json().catch(() => ({}))
+        const body = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed } : {}
+        const path = new URL(request.url).pathname
+        requests.push({ path, auth: request.headers.get("authorization"), body })
+        const reply = answer(path, body)
+        if (reply.hangMs !== undefined) await Bun.sleep(reply.hangMs)
+        return Response.json(reply.body ?? {}, { status: reply.status ?? 200 })
+      },
+    })
+    servers.push(() => void server.stop(true))
+    return { url: server.url.origin, requests }
+  }
+
+  const open = async (options: { fixture?: { url: string } | string; token?: string | false; timeoutMs?: number } = {}) => {
+    const config = await temp()
+    const tokenDir = await temp()
+    if (options.token !== false) await writeFile(path.join(tokenDir, "adaptive-token"), options.token ?? "token-abc")
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.FLUPCODE_CONFIG_DIR = tokenDir
+    if (options.timeoutMs !== undefined) process.env.FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS = String(options.timeoutMs)
+    if (options.fixture)
+      process.env.FLUPCODE_HARNESS_SERVER_URL = typeof options.fixture === "string" ? options.fixture : options.fixture.url
+    const plugin = await installed(config, TOOL_TRIM_PLUGIN.file, "flupcodeToolTrim")
+    return plugin({ directory: "/work/project" })
+  }
+
+  const BIG = "x".repeat(10_000)
+  const after = (hooks: Awaited<ReturnType<typeof open>>, tool: string, output: unknown, sessionID = "ses_1") => {
+    const result = { title: "t", output, metadata: { truncated: false } }
+    return hooks["tool.execute.after"]({ tool, sessionID, callID: "call_1", args: {} }, result).then(() => result)
+  }
+
+  test("registers the hook and the evidence_read tool, and replaces a large output once stored", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    expect(Object.keys(hooks).sort()).toEqual(["tool", "tool.execute.after"])
+    expect(Object.keys(hooks.tool)).toEqual(["evidence_read"])
+
+    const result = await after(hooks, "bash", BIG)
+    expect(result.output).toBe(`[trimmed] evidence:${REF}`)
+    expect(result.metadata).toEqual({ truncated: false, evidenceRef: REF })
+    const request = fixture.requests[0]!
+    expect(request.path).toBe("/harness/adaptive/tool-trim")
+    expect(request.auth).toBe("Bearer token-abc")
+    expect(request.body).toEqual({ sessionID: "ses_1", tool: "bash", callID: "call_1", output: BIG })
+  })
+
+  test("never posts a small output, the recovery tool's own output or an MCP content list", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    expect((await after(hooks, "bash", "small")).output).toBe("small")
+    expect((await after(hooks, "evidence_read", BIG)).output).toBe(BIG)
+    const mcp = { content: [{ type: "text", text: BIG }] }
+    await hooks["tool.execute.after"]({ tool: "mcp_x", sessionID: "ses_1", callID: "c", args: {} }, mcp)
+    expect(mcp).toEqual({ content: [{ type: "text", text: BIG }] })
+    expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("fails open: an untrimmed answer, an error, a timeout or an absent harness leaves the output whole", async () => {
+    const answers: Answer[] = [
+      { body: { data: { trimmed: false, reason: "store-failed" } } },
+      { status: 500, body: { error: "boom" } },
+      { status: 403, body: { error: "Forbidden" } },
+      { body: "not json-shaped" },
+      { hangMs: 200, ...trimmed() },
+    ]
+    for (const answer of answers) {
+      const fixture = startFixture(() => answer)
+      const hooks = await open({ fixture, timeoutMs: 50 })
+      const result = await after(hooks, "bash", BIG)
+      expect(result.output).toBe(BIG)
+      expect(result.metadata).toEqual({ truncated: false })
+    }
+    const hooks = await open({ fixture: "http://127.0.0.1:1" })
+    expect((await after(hooks, "bash", BIG)).output).toBe(BIG)
+  })
+
+  test("refuses a replacement that does not name its ref or is not shorter than the output", async () => {
+    const answers = [
+      trimmed({ replacement: "evidence:ffffffffffffffff" }),
+      trimmed({ ref: "../escape" }),
+      trimmed({ replacement: `evidence:${REF}` + "y".repeat(20_000) }),
+      trimmed({ replacement: 42 }),
+    ]
+    for (const answer of answers) {
+      const fixture = startFixture(() => answer)
+      const hooks = await open({ fixture })
+      expect((await after(hooks, "bash", BIG)).output).toBe(BIG)
+    }
+  })
+
+  test("follows the live policy: skips outputs it says could never be trimmed, and stays quiet while off", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    await after(hooks, "bash", BIG)
+    expect(fixture.requests).toHaveLength(1)
+    // The answer's policy says 8 KiB and exempts `read`: neither of these is posted now.
+    expect((await after(hooks, "bash", "x".repeat(6_000))).output).toHaveLength(6_000)
+    expect((await after(hooks, "read", BIG)).output).toBe(BIG)
+    expect(fixture.requests).toHaveLength(1)
+
+    const off = startFixture(() => ({
+      body: { data: { trimmed: false, reason: "disabled", retryAfterMs: 60_000, policy: { thresholdBytes: 4_096, exempt: [] } } },
+    }))
+    const quiet = await open({ fixture: off })
+    await after(quiet, "bash", BIG)
+    await after(quiet, "bash", BIG)
+    expect(off.requests).toHaveLength(1)
+  })
+
+  test("three failures open the breaker", async () => {
+    const fixture = startFixture(() => ({ status: 500 }))
+    const hooks = await open({ fixture })
+    for (let attempt = 0; attempt < 5; attempt++) await after(hooks, "bash", BIG)
+    expect(fixture.requests).toHaveLength(3)
+  })
+
+  test("evidence_read asks for the calling session's ref and range and returns the harness's text", async () => {
+    const fixture = startFixture((route) =>
+      route === "/harness/adaptive/evidence/read" ? { body: { data: { text: "[evidence lines 1-2]\na\nb" } } } : trimmed(),
+    )
+    const hooks = await open({ fixture })
+    const text = await hooks.tool.evidence_read.execute({ ref: `evidence:${REF}`, range: "1-2" }, { sessionID: "ses_9" })
+    expect(text).toBe("[evidence lines 1-2]\na\nb")
+    expect(fixture.requests[0]).toMatchObject({
+      path: "/harness/adaptive/evidence/read",
+      auth: "Bearer token-abc",
+      body: { sessionID: "ses_9", ref: `evidence:${REF}`, range: "1-2" },
+    })
+  })
+
+  test("evidence_read explains a missing ref, a bad request and an unreachable store", async () => {
+    const statuses = [404, 400, 500]
+    for (const status of statuses) {
+      const fixture = startFixture(() => ({ status, body: { error: "x" } }))
+      const hooks = await open({ fixture })
+      const text = await hooks.tool.evidence_read.execute({ ref: REF, range: "" }, { sessionID: "ses_1" })
+      if (status === 404) expect(text).toContain("is not available")
+      if (status === 400) expect(text).toContain("not a readable evidence ref or range")
+      if (status === 500) expect(text).toContain("HTTP 500")
+    }
+    const hooks = await open({ fixture: "http://127.0.0.1:1" })
+    expect(await hooks.tool.evidence_read.execute({ ref: REF, range: "" }, { sessionID: "ses_1" })).toContain("not reachable")
   })
 
   test("registers nothing without a token or a loopback base", async () => {

@@ -2360,6 +2360,214 @@ export const flupcodeCompactionAnchors = async (input) => {
 }
 
 /** The engine plugins FlupCode owns. */
+/**
+ * tool-trim: the recoverable tool-output trim (AH-D02, audit §10.4 "avoid sending context"). A tool
+ * output past the harness's threshold is stored whole in the harness's evidence store and replaced
+ * with its head, its tail, a structure line and an `evidence:<ref>`; the `evidence_read` tool the
+ * plugin registers reads any range of it back, for the same session only.
+ *
+ * The harness is the only policy point: it decides whether to trim (off by default), renders the
+ * replacement and stores the bytes. The plugin fails open — an absent harness, a timeout, a non-200,
+ * a store that failed or an answer that does not look like ours leaves the output exactly as the
+ * tool produced it — and only replaces the output once the harness confirmed the write. Unlike the
+ * fire-and-forget plugins it awaits its call, since the replacement is the answer; the call is
+ * bounded, skipped for outputs the live policy could never trim, and silenced by a breaker.
+ */
+export const TOOL_TRIM_PLUGIN = {
+  file: "flupcode-tool-trim.js",
+  source: String.raw`// Installed by FlupCode. Replaces a large tool output with its head, tail and an evidence ref the
+// harness stored it under, and registers evidence_read to read it back. Any failure leaves the output
+// untouched. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with TOOL_TRIM_MIN_THRESHOLD_BYTES and TOOL_TRIM_MAX_STORED_BYTES in
+// packages/harness-server/src/adaptive/config.ts: below the floor or past the cap nothing is posted.
+const MIN_TRIM_BYTES = 4096
+const MAX_TRIM_BYTES = 8 * 1024 * 1024
+
+const EVIDENCE_READ_TOOL = "evidence_read"
+const REF = /^[0-9a-f]{16}$/
+
+// Storing a few megabytes on the loopback is quick; this is a defence against a hung harness.
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 2000
+})()
+
+// After this many consecutive failures the plugin stops asking for BREAKER_OPEN_MS, then lets one
+// call through: success closes the breaker, another failure reopens it.
+const BREAKER_THRESHOLD = 3
+const BREAKER_OPEN_MS = 60 * 1000
+const MAX_RETRY_AFTER_MS = 10 * 60 * 1000
+
+// The live policy the last answer carried, trusted this long, so outputs that could never be trimmed
+// (below the threshold, exempt) are not posted at all.
+const POLICY_TTL_MS = 30 * 1000
+
+let failures = 0
+let quietUntil = 0
+let probing = false
+let policy = undefined
+
+function admit(now) {
+  if (now < quietUntil) return false
+  if (failures < BREAKER_THRESHOLD) return true
+  if (probing) return false
+  probing = true
+  return true
+}
+
+function settle(data, now) {
+  probing = false
+  if (!data) {
+    failures++
+    if (failures >= BREAKER_THRESHOLD) quietUntil = now + BREAKER_OPEN_MS
+    return
+  }
+  failures = 0
+  const hint = data.retryAfterMs
+  if (typeof hint === "number" && Number.isFinite(hint) && hint > 0) quietUntil = now + Math.min(hint, MAX_RETRY_AFTER_MS)
+  const next = data.policy
+  if (next && typeof next.thresholdBytes === "number" && Array.isArray(next.exempt))
+    policy = {
+      thresholdBytes: next.thresholdBytes,
+      maxStoredBytes: typeof next.maxStoredBytes === "number" ? next.maxStoredBytes : MAX_TRIM_BYTES,
+      exempt: next.exempt.filter((tool) => typeof tool === "string"),
+      at: now,
+    }
+}
+
+// Whether an output is worth posting: the hard bounds always, the live policy while it is fresh.
+function candidate(tool, bytes, now) {
+  if (tool === EVIDENCE_READ_TOOL) return false
+  if (bytes <= MIN_TRIM_BYTES || bytes > MAX_TRIM_BYTES) return false
+  if (!policy || now - policy.at > POLICY_TTL_MS) return true
+  return bytes > policy.thresholdBytes && bytes <= policy.maxStoredBytes && !policy.exempt.includes(tool)
+}
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token and the output are only ever sent to the loopback harness.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  // The adaptive routes have their own secret (ADR-0022): the browser bearer must not open them.
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+async function call(base, token, route, payload) {
+  const response = await fetch(base + route, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  const body = await response.json().catch(() => undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  return { status: response.status, data: data && typeof data === "object" ? data : undefined }
+}
+
+// The last line of trust: a replacement is used only if it names the ref it came with and is shorter
+// than what it replaces, so a peer holding the loopback port cannot swap an output for something else.
+function replacementOf(data, original) {
+  if (!data || data.trimmed !== true) return undefined
+  if (typeof data.ref !== "string" || !REF.test(data.ref)) return undefined
+  const text = data.replacement
+  if (typeof text !== "string" || text.length >= original.length) return undefined
+  return text.includes("evidence:" + data.ref) ? { ref: data.ref, text: text } : undefined
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeToolTrim = async () => {
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+
+  return {
+    "tool.execute.after": async (hookInput, output) => {
+      try {
+        const tool = hookInput && hookInput.tool
+        const sessionID = hookInput && hookInput.sessionID
+        const original = output && output.output
+        // An MCP tool's output is a content list, not text; it is left alone.
+        if (typeof tool !== "string" || typeof sessionID !== "string" || !sessionID || typeof original !== "string") return
+        const now = Date.now()
+        if (!candidate(tool, Buffer.byteLength(original), now) || !admit(now)) return
+        const answer = await call(base, token, "/harness/adaptive/tool-trim", {
+          sessionID: sessionID,
+          tool: tool,
+          ...(typeof hookInput.callID === "string" ? { callID: hookInput.callID } : {}),
+          output: original,
+        }).catch(() => undefined)
+        settle(answer && answer.status === 200 ? answer.data : undefined, Date.now())
+        const replacement = replacementOf(answer && answer.status === 200 ? answer.data : undefined, original)
+        // Only a confirmed write replaces the output; anything else leaves it exactly as it was.
+        if (!replacement) return
+        output.output = replacement.text
+        output.metadata = { ...(output.metadata && typeof output.metadata === "object" ? output.metadata : {}), evidenceRef: replacement.ref }
+      } catch {
+        // Fail open: the output the tool produced reaches the model untouched.
+      }
+    },
+    tool: {
+      [EVIDENCE_READ_TOOL]: {
+        description:
+          "Read back a tool output that was trimmed to save context. A trimmed output says 'evidence:<ref>' and shows only its head and tail; call this with that ref and a range to see any other part of it. Only outputs trimmed in this session can be read.",
+        args: {
+          ref: { type: "string", description: "The ref from the trimmed output, e.g. 3f9a1c2b7d4e5f60 (an 'evidence:' prefix is accepted)." },
+          range: {
+            type: "string",
+            description:
+              "Which part to read: 'START-END' for 1-based line numbers, inclusive (e.g. '40-120'); 'N' or 'N-' to read from line N; 'bytes:START-END' for byte offsets; or 'all' to read from the start. Each call returns a bounded slice and names the range to read next.",
+          },
+        },
+        async execute(args, context) {
+          const ref = String((args && args.ref) || "").trim()
+          const range = String((args && args.range) || "")
+          const sessionID = context && context.sessionID
+          if (!sessionID) return "This call has no session, so no evidence can be read."
+          const answer = await call(base, token, "/harness/adaptive/evidence/read", {
+            sessionID: sessionID,
+            ref: ref,
+            range: range,
+          }).catch(() => undefined)
+          if (!answer) return "The evidence store is not reachable right now. Try again shortly, or re-run the original tool."
+          if (answer.status === 200 && answer.data && typeof answer.data.text === "string") return answer.data.text
+          if (answer.status === 404)
+            return ref + " is not available: it was evicted from the local evidence store or belongs to another session. Re-run the original tool if you need it."
+          if (answer.status === 400)
+            return "That is not a readable evidence ref or range. Use the 16-character ref from 'evidence:<ref>' and a range such as '40-120'."
+          return "The evidence store could not answer (HTTP " + answer.status + "). Re-run the original tool if you need the output."
+        },
+      },
+    },
+  }
+}
+`,
+}
+
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
   TOOL_USES_PLUGIN,
@@ -2373,6 +2581,7 @@ const PLUGINS = [
   GUARDRAILS_PLUGIN,
   SESSION_METRICS_PLUGIN,
   COMPACTION_ANCHORS_PLUGIN,
+  TOOL_TRIM_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

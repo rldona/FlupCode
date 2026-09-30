@@ -85,6 +85,8 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+  // The trim's plugin calls the loopback with the adaptive bearer, so without one it could never act.
+  { path: "toolTrim.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   // `jev.enabled` assigns Jev to every kind without a `models` entry; it may only be turned on once
   // Jev's own consent (`egress.providers.jev`) is on with a project and a kind.
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
@@ -145,6 +147,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const learning = usageOf(block.learning)
   const relevance = usageOf(block.relevance)
   const guardrails = usageOf(block.guardrails)
+  const toolTrim = usageOf(block.toolTrim)
   const jev = usageOf(block.jev)
   const retention = usageOf(block.retention)
   const egress = usageOf(block.egress)
@@ -161,6 +164,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     "learning.enabled": pick(false, typeof learning.enabled === "boolean"),
     "relevance.enabled": pick(false, typeof relevance.enabled === "boolean"),
     "guardrails.enabled": pick(false, typeof guardrails.enabled === "boolean"),
+    "toolTrim.enabled": pick(false, typeof toolTrim.enabled === "boolean"),
     "jev.enabled": pick(false, typeof jev.enabled === "boolean"),
     "retention.enabled": pick(false, typeof retention.enabled === "boolean"),
     ...providerSources(providers, jev, egress),
@@ -507,6 +511,11 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   if (setsTrue("guardrails.enabled") && !input.adaptiveTokenPresent)
     throw new AdaptiveConfigError("Enabling guardrails needs a resolved adaptive token", 422, "guard:no-adaptive-token", [
       "guardrails.enabled",
+    ])
+
+  if (setsTrue("toolTrim.enabled") && !input.adaptiveTokenPresent)
+    throw new AdaptiveConfigError("Enabling the tool-output trim needs a resolved adaptive token", 422, "guard:no-adaptive-token", [
+      "toolTrim.enabled",
     ])
 
   // The classification goes to the model assigned to `skillReflection`, so learning needs that

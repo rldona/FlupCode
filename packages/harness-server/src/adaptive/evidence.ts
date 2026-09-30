@@ -58,10 +58,13 @@ export function isEvidenceHash(value: string): boolean {
  * bytes, and marked truncated if it was cut or already said so. `bytes` is the real size so a reader
  * knows what was lost and the store's byte total stays honest with `EVIDENCE_TOTAL_LIMIT`.
  */
-export function sliceEvidence(input: EvidenceInput): { content: string; bytes?: number; truncated: boolean } {
-  const cut = input.content.length > EVIDENCE_SLICE_LIMIT
+export function sliceEvidence(
+  input: EvidenceInput,
+  limit = EVIDENCE_SLICE_LIMIT,
+): { content: string; bytes?: number; truncated: boolean } {
+  const cut = input.content.length > limit
   return {
-    content: cut ? input.content.slice(0, EVIDENCE_SLICE_LIMIT) : input.content,
+    content: cut ? input.content.slice(0, limit) : input.content,
     ...(cut ? { bytes: Buffer.byteLength(input.content, "utf8") } : {}),
     truncated: cut || input.truncated === true,
   }

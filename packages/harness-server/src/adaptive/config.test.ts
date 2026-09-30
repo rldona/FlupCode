@@ -7,6 +7,10 @@ import {
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
   DEFAULT_GUARDRAILS_CONFIG,
+  DEFAULT_TOOL_TRIM_CONFIG,
+  TOOL_TRIM_MAX_STORED_BYTES,
+  TOOL_TRIM_MIN_THRESHOLD_BYTES,
+  TOOL_TRIM_READ_BYTES_CEILING,
   DEFAULT_HOLDOUT_CONFIG,
   DEFAULT_LEARNING_CONFIG,
   DEFAULT_RELEVANCE_CONFIG,
@@ -73,6 +77,7 @@ describe("resolveAdaptiveConfig", () => {
       relevance: DEFAULT_RELEVANCE_CONFIG,
       retention: DEFAULT_RETENTION_CONFIG,
       guardrails: DEFAULT_GUARDRAILS_CONFIG,
+      toolTrim: DEFAULT_TOOL_TRIM_CONFIG,
       holdout: DEFAULT_HOLDOUT_CONFIG,
       voi: {
         ...DEFAULT_VOI_CONFIG,
@@ -327,6 +332,56 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(malformed.guardrails).toEqual(DEFAULT_GUARDRAILS_CONFIG)
+  })
+
+  test("the tool-trim slice is off by default and keeps its numbers inside the plugin's bounds", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} })
+    expect(defaults.toolTrim).toEqual(DEFAULT_TOOL_TRIM_CONFIG)
+    expect(defaults.toolTrim.enabled).toBe(false)
+
+    const config = resolveAdaptiveConfig({
+      block: {
+        toolTrim: {
+          enabled: true,
+          thresholdBytes: 16_384,
+          headBytes: 1_000,
+          tailBytes: 500,
+          maxStoredBytes: 1_000_000,
+          readBytes: 8_192,
+          exempt: ["bash"],
+        },
+      },
+      env: {},
+    })
+    expect(config.toolTrim).toEqual({
+      enabled: true,
+      thresholdBytes: 16_384,
+      headBytes: 1_000,
+      tailBytes: 500,
+      maxStoredBytes: 1_000_000,
+      readBytes: 8_192,
+      exempt: ["bash"],
+    })
+
+    // Out-of-bounds numbers are clamped to what the plugin and the engine can honour, and an empty
+    // exempt list is an explicit "exempt nothing", not a fallback to the default.
+    const clamped = resolveAdaptiveConfig({
+      block: {
+        toolTrim: { thresholdBytes: 10, headBytes: 1_000_000, maxStoredBytes: 1e12, readBytes: 1e9, exempt: [] },
+      },
+      env: {},
+    })
+    expect(clamped.toolTrim.thresholdBytes).toBe(TOOL_TRIM_MIN_THRESHOLD_BYTES)
+    expect(clamped.toolTrim.headBytes).toBe(TOOL_TRIM_MIN_THRESHOLD_BYTES / 4)
+    expect(clamped.toolTrim.maxStoredBytes).toBe(TOOL_TRIM_MAX_STORED_BYTES)
+    expect(clamped.toolTrim.readBytes).toBe(TOOL_TRIM_READ_BYTES_CEILING)
+    expect(clamped.toolTrim.exempt).toEqual([])
+
+    const malformed = resolveAdaptiveConfig({
+      block: { toolTrim: { enabled: "yes", thresholdBytes: -1, headBytes: 1.5, exempt: "read" } },
+      env: {},
+    })
+    expect(malformed.toolTrim).toEqual(DEFAULT_TOOL_TRIM_CONFIG)
   })
 
   test("composes the Phase 1 resolvers unchanged", () => {
