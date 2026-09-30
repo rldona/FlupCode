@@ -41,6 +41,8 @@ export type RemoteHostOptions = {
   engineCredentials?: string
   /** Harness server base URL, e.g. `http://127.0.0.1:4097`, so routine runs can be notified (H-23). */
   harness?: string
+  /** The harness's loopback bearer, which its event stream asks for when one is configured (AH-A05). */
+  harnessToken?: string
   defaultRelay: string
   /** Web app that opens pairing links, e.g. `https://app.flupcode.com/`. */
   appUrl: string
@@ -223,7 +225,12 @@ export function createRemoteHost(options: RemoteHostOptions) {
     // Routine runs go through the engine's legacy runtime, whose events never reach `/api/event`,
     // so the harness stream is the only place a routine finishing can be seen (H-23).
     if (options.harness) {
-      harnessWatcher = watchHarnessEvents({ harness: options.harness, fetch: options.fetch, onNotification: broadcast })
+      harnessWatcher = watchHarnessEvents({
+        harness: options.harness,
+        token: options.harnessToken,
+        fetch: options.fetch,
+        onNotification: broadcast,
+      })
     }
   }
 

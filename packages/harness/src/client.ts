@@ -1136,10 +1136,15 @@ export function resolveHarnessServerUrl() {
   return "http://localhost:4097"
 }
 
+/**
+ * One JSON call to the harness. It carries the loopback bearer the desktop handed the renderer,
+ * because with a token configured the server refuses every route but its health and a share link
+ * without it (AH-A05). Without a token — a plain browser tab — the request goes out as it always did.
+ */
 async function harnessRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
   const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
+    headers: harnessHeaders(init),
   })
   const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
   if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
@@ -1160,7 +1165,7 @@ async function harnessRequestEnvelope<T>(
 ): Promise<{ data: T; warnings: string[] }> {
   const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", ...init?.headers },
+    headers: harnessHeaders(init),
   })
   const body = (await response.json().catch(() => undefined)) as
     | { data?: T; error?: string; warnings?: unknown }
@@ -1172,23 +1177,14 @@ async function harnessRequestEnvelope<T>(
   return { data: body?.data as T, warnings }
 }
 
-/**
- * A call to the action surface (WA-7). Like the browser routes it is behind the desktop's loopback
- * bearer, but it belongs to the server rather than to a browser session of the user's.
- */
-async function actionRequest<T>(baseUrl: string, path: string, init?: RequestInit) {
+/** The JSON content type and, when the desktop handed one over, the loopback bearer. */
+function harnessHeaders(init?: RequestInit) {
   const token = harnessBrowserToken()
-  const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}${path}`, {
-    ...init,
-    headers: {
-      "content-type": "application/json",
-      ...(token ? { authorization: `Bearer ${token}` } : {}),
-      ...init?.headers,
-    },
-  })
-  const body = (await response.json().catch(() => undefined)) as { data?: T; error?: string } | undefined
-  if (!response.ok) throw new Error(body?.error ?? `Harness request failed (${response.status})`)
-  return body?.data as T
+  return {
+    "content-type": "application/json",
+    ...(token ? { authorization: `Bearer ${token}` } : {}),
+    ...init?.headers,
+  }
 }
 
 /**
@@ -1850,16 +1846,16 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
     actions: {
       /** No folder is the plugin's own catalogue: the global config alone (WA-2, WA-7). */
       list: (input: { directory?: string; project?: string } = {}) =>
-        actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+        harnessRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
       /** The same catalogue, named for the editor that shows the scope of each profile (WA-8). */
       profiles: (input: { directory?: string; project?: string } = {}) =>
-        actionRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
+        harnessRequest<ActionCatalog>(baseUrl, `/harness/actions${actionQuery(input)}`),
       /** Where each profile is written, for the editor's scope badges (WA-8). */
       files: (input: { directory?: string; project?: string } = {}) =>
-        actionRequest<ActionProfileFile[]>(baseUrl, `/harness/action-profiles${actionQuery(input)}`),
+        harnessRequest<ActionProfileFile[]>(baseUrl, `/harness/action-profiles${actionQuery(input)}`),
       /** The schema check behind the editor's inline error (WA-8). */
       validate: (input: { id: string; profile: unknown }) =>
-        actionRequest<{ ok: true }>(baseUrl, "/harness/actions/validate", {
+        harnessRequest<{ ok: true }>(baseUrl, "/harness/actions/validate", {
           method: "POST",
           body: JSON.stringify(input),
         }),
@@ -1870,7 +1866,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         directory?: string
         project?: string
       }) =>
-        actionRequest<{ path: string; scope: ActionProfileScope; id: string }>(
+        harnessRequest<{ path: string; scope: ActionProfileScope; id: string }>(
           baseUrl,
           `/harness/action-profiles/${encodeURIComponent(input.id)}`,
           {
@@ -1887,7 +1883,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         const search = new URLSearchParams({ scope: input.scope })
         if (input.directory) search.set("directory", input.directory)
         if (input.project) search.set("project", input.project)
-        return actionRequest<{ removed: boolean; path: string }>(
+        return harnessRequest<{ removed: boolean; path: string }>(
           baseUrl,
           `/harness/action-profiles/${encodeURIComponent(input.id)}?${search}`,
           { method: "DELETE" },
@@ -1895,7 +1891,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       },
       /** Plan a saved profile's steps without opening a browser (WA-8). */
       dryRun: (input: { action: string; inputs?: Record<string, unknown>; sessionID?: string; project?: string }) =>
-        actionRequest<unknown>(baseUrl, "/harness/actions/run", {
+        harnessRequest<unknown>(baseUrl, "/harness/actions/run", {
           method: "POST",
           body: JSON.stringify({
             action: input.action,
@@ -1914,7 +1910,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         sessionID: string
         headed?: boolean
       }) =>
-        actionRequest<ActionPreview>(baseUrl, "/harness/actions/run", {
+        harnessRequest<ActionPreview>(baseUrl, "/harness/actions/run", {
           method: "POST",
           body: JSON.stringify({
             ...(input.action ? { action: input.action } : {}),

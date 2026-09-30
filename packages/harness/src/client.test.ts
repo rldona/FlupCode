@@ -607,6 +607,39 @@ test("the runs routes carry the loopback bearer, and a plain tab sends none", as
   ])
 })
 
+// AH-A05: with a token configured the server refuses every route but its health and a share link.
+test("every route that starts or changes work carries the loopback bearer, and a plain tab sends none", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls)
+  const client = createHarnessClient("http://harness")
+
+  await withLoopbackToken(async () => {
+    await client.runs.bestOfN({ prompt: "go", models: ["a/b"] })
+    await client.runs.retry("task_1")
+    await client.workflows.run("ship", {})
+    await client.workflows.remove("ship")
+    await client.routines.list()
+    await client.routines.create({ name: "nightly", description: "", prompt: "", schedule: { type: "manual" } })
+    await client.routines.run("routine_1")
+    await client.routines.remove("routine_1")
+    await client.git.commit({ directory: "/repo", message: "m", paths: ["a"] })
+  })
+  await client.routines.run("routine_1")
+
+  expect(calls.map((call) => [call.method, call.path, call.auth])).toEqual([
+    ["POST", "/harness/best-of-n", "Bearer tok"],
+    ["POST", "/harness/tasks/task_1/retry", "Bearer tok"],
+    ["POST", "/harness/workflows/ship/runs", "Bearer tok"],
+    ["DELETE", "/harness/workflows/ship", "Bearer tok"],
+    ["GET", "/harness/routines", "Bearer tok"],
+    ["POST", "/harness/routines", "Bearer tok"],
+    ["POST", "/harness/routines/routine_1/runs", "Bearer tok"],
+    ["DELETE", "/harness/routines/routine_1", "Bearer tok"],
+    ["POST", "/harness/git/commit", "Bearer tok"],
+    ["POST", "/harness/routines/routine_1/runs", null],
+  ])
+})
+
 test("a config patch sends the patch and the confirmation, and keeps the warnings", async () => {
   const calls: AdaptiveCall[] = []
   recordingAdaptive(calls, { data: { effective: {} }, warnings: ["skills-still-load"] })
