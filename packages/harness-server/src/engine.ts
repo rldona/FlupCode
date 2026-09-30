@@ -60,6 +60,19 @@ export function engineAuthorization(env: NodeJS.ProcessEnv = process.env): strin
 /** How often a run with a declared ceiling is asked what it is doing. */
 const CHECK_EVERY_MS = 5_000
 
+/** One message of a legacy transcript, in the fields this server reads from it. */
+export type TranscriptMessage = {
+  info?: {
+    role?: string
+    agent?: string
+    model?: { providerID?: string; modelID?: string; variant?: string }
+    cost?: number
+    tokens?: { input?: number; output?: number; reasoning?: number; cache?: { read?: number; write?: number } }
+    error?: unknown
+  }
+  parts?: Array<{ type?: string; text?: string; synthetic?: boolean; ignored?: boolean }>
+}
+
 export type Activity = { tool: string; detail?: string; since?: number }
 
 /** A session-level permission rule, in the shape the legacy runtime reads them. */
@@ -258,6 +271,13 @@ export class Engine {
       ...(session.parentID ? { parentID: session.parentID } : {}),
       createdAt: session.time.created,
     }
+  }
+
+  /** A session's whole legacy transcript, oldest first: every message with its parts. */
+  async messages(sessionID: string, directory?: string) {
+    return (await unwrap(
+      this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
+    )) as TranscriptMessage[]
   }
 
   rename(sessionID: string, title: string) {

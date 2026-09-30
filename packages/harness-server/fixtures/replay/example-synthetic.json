@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "id": "example-synthetic",
+  "directory": "~/workspace/replay-example",
+  "agent": "build",
+  "model": { "providerID": "anthropic", "modelID": "claude-sonnet-4-5" },
+  "prompts": [
+    "Add a function `add(a: number, b: number)` to src/math.ts that returns the sum, and export it.",
+    "Now add a test for it in src/math.test.ts."
+  ],
+  "verify": "bun test"
+}

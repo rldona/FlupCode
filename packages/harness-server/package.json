@@ -9,6 +9,8 @@
     "dev": "bun src/index.ts",
     "build": "bun script/build.ts",
     "test": "bun test src",
+    "replay": "bun src/replay/cli.ts run",
+    "replay:export": "bun src/replay/cli.ts export",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {

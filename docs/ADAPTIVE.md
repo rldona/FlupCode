@@ -481,6 +481,27 @@ control arm instead of assumed (AH-B05, audit §14.2).
   `session_metrics.arms_json` stores the session's arms when a turn is first heard of, so costs can be
   split by arm.
 
+## Replay corpus and runner
+
+The offline half of the validation strategy (AH-B04): the same work, asked again, so a change is
+measured against numbers rather than impressions. `packages/harness-server/src/replay/`.
+
+- **Corpus.** `bun run replay:export -- --session <id>` writes one redacted fixture to
+  `packages/harness-server/fixtures/replay/`: the user's prompts in order, agent, model, project folder
+  (home written as `~`), git commit and an optional `--verify` command. No assistant or tool output is
+  kept. Prompts pass through the shared redaction plus a home-path sweep. The folder is git-ignored
+  apart from its README and one synthetic example; a fixture is committed only after review.
+- **Runner.** `bun run replay -- --variants <file> --repeat 3 --yes` replays each fixture × variant ×
+  repetition in a throwaway session inside a fresh engine worktree (`--in-place` opts out), then runs
+  the verify command there. A variant may override the model or agent, point at another engine, or
+  patch `flupcode.adaptive` through the settings surface (restored afterwards).
+- **Report.** `report.json` and `report.md`: uncached input, cached and output tokens, USD and wall
+  time per repetition (from `session_metrics`, else the engine's transcript), verification, and mean,
+  p50 and spread per fixture × variant. The engine takes no sampling seed, so the report records
+  `seed: null` and pins the model on every prompt; "reproducible" is every repetition within ±5% of
+  the mean in total tokens and USD.
+- **Cost.** Without `--yes` it only prints the plan; under `CI` it refuses. Tests use a stub engine.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting

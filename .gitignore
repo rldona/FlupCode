@@ -44,3 +44,8 @@ test-results
 
 # Trunk writes its caches, logs and downloaded tools here; nothing in it belongs to the repo.
 .trunk/
+# The replay corpus (AH-B04) is local and redacted; only the README and the synthetic example are
+# versioned. A reviewed fixture is added on purpose with `git add -f`.
+packages/harness-server/fixtures/replay/*
+!packages/harness-server/fixtures/replay/README.md
+!packages/harness-server/fixtures/replay/example-synthetic.json
