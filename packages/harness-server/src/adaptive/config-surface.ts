@@ -21,6 +21,7 @@ import { resolveAdaptiveConfig } from "./config"
 import type { AdaptiveConfig } from "./config"
 import { decisionKinds, isDecisionKind } from "./decision"
 import { budgetMonth } from "./providers/budget"
+import { learningModel } from "./learning/draft"
 import type { RuntimeCapabilities, RuntimeKind } from "./runtime"
 
 /** A rejected patch, or a write that could not be made, in the shape the HTTP contract reports. */
@@ -40,7 +41,12 @@ export class AdaptiveConfigError extends Error {
 export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number"
 export type AdaptiveConfirmation = "none" | "required" | "widening"
 export type AdaptiveGuard = "none" | "env-disabled" | "adaptive-token" | "egress-allowlist"
-export type AdaptiveWarning = "evaluation-gated" | "runtime-inert" | "no-model" | "skills-still-load"
+export type AdaptiveWarning =
+  | "evaluation-gated"
+  | "runtime-inert"
+  | "no-model"
+  | "skills-still-load"
+  | "learning-draft-egress"
 
 /** One switch the settings panel may render; the list is the whole allowlist. */
 export type WritableField = {
@@ -64,7 +70,15 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
   { path: "shadow", type: "boolean", confirmation: "none", guard: "none" },
   { path: "context.enabled", type: "boolean", confirmation: "none", guard: "none" },
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
-  { path: "learning.enabled", type: "boolean", confirmation: "none", guard: "egress-allowlist" },
+  // Learning drafts a skill by sending the redacted objective and evidence to the small model's
+  // provider through the engine, so turning it on is an egress decision and asks for confirmation.
+  {
+    path: "learning.enabled",
+    type: "boolean",
+    confirmation: "required",
+    guard: "egress-allowlist",
+    warning: "learning-draft-egress",
+  },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
@@ -164,6 +178,8 @@ export type AdaptiveConfigView = {
   writer: { path: string; exists: boolean }
   usage: AdaptiveUsageView
   writable: WritableField[]
+  /** The model a learning draft is sent to (`provider/model`), or null when none is resolved. */
+  learningDraft: { model: string | null }
 }
 
 /** Whether a document already declares `flupcode.adaptive`, read with the same JSONC rules as writing. */
@@ -200,11 +216,13 @@ export type AdaptiveConfigViewInput = {
   usage: AdaptiveUsageView
   canWrite: boolean
   writer: { path: string; exists: boolean }
+  smallModel?: () => string | undefined
 }
 
 /** The read model, assembled from the raw block, the resolver and the calls the server already holds. */
 export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConfigView {
   const env = input.env
+  const draftModel = learningModel(input.resolved.learning, input.smallModel)
   return {
     effective: input.resolved,
     source: adaptiveSource(input.block, env),
@@ -218,6 +236,7 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
     writer: input.writer,
     usage: input.usage,
     writable: [...WRITABLE_FIELDS],
+    learningDraft: { model: draftModel ? `${draftModel.providerID}/${draftModel.id}` : null },
   }
 }
 
@@ -393,6 +412,7 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
 
   const confirmFields: string[] = []
   if (setsTrue("retention.enabled")) confirmFields.push("retention.enabled")
+  if (setsTrue("learning.enabled")) confirmFields.push("learning.enabled")
   if (setsTrue("jev.enabled")) confirmFields.push("jev.enabled")
   if (widensProjects(effectiveBefore, effectiveAfter)) confirmFields.push("egress.projects")
   if (widensKinds(effectiveBefore, effectiveAfter)) confirmFields.push("egress.kinds")
@@ -402,6 +422,7 @@ export function planAdaptivePatch(input: PlanAdaptivePatchInput): AdaptivePatchP
   const warnings: string[] = []
   if (setsTrue("context.apply")) warnings.push("evaluation-gated")
   if (setsTrue("relevance.enabled") && input.runtimeKind !== "legacy") warnings.push("runtime-inert")
+  if (setsTrue("learning.enabled")) warnings.push("learning-draft-egress")
   if (setsTrue("learning.enabled") && !effectiveAfter.learning.model && !input.smallModel) warnings.push("no-model")
   if (setsTrue("enabled")) warnings.push("skills-still-load")
 
@@ -469,6 +490,7 @@ export function createAdaptiveConfigSurface(deps: AdaptiveConfigSurfaceDeps): Ad
       },
       canWrite: deps.canWrite,
       writer: writerTarget(),
+      ...(deps.smallModel ? { smallModel: deps.smallModel } : {}),
     })
   }
 

@@ -720,9 +720,66 @@ describe("a secret in the drafted name or description never reaches the row (FH-
 
     const proposal = repository.getProposal("proposal:episode:run:1")!
     expect(proposal.name ?? "").not.toContain(secret)
-    // The redacted name no longer matches the skill shape, so the proposal is refused and reviewable.
+    // The lint reads the draft before redaction, so the refusal names the secret, not the shape.
     expect(proposal.status).toBe("rejected")
-    expect(proposal.reason).toBe("invalid-name")
+    expect(proposal.reason).toBe("contains-secrets")
+  })
+})
+
+describe("a draft carrying a secret is refused, not stored redacted and installed (AH-A12)", () => {
+  test("a secret in the body fires contains-secrets; the row keeps only the redacted body", async () => {
+    const repository = repositoryFor()
+    const secret = `ghp_${"b".repeat(30)}`
+    const drafter: SkillDrafter = {
+      async draft() {
+        return validDraft({ body: `${validDraft().body}\nexport GITHUB_TOKEN=${secret}` })
+      },
+    }
+    const created = store()
+    const manager = managerFor({ repository, service: reflectionService({}), config: configFor(), drafter, curator: curator(created) })
+    manager.onEpisodeClosed(episode())
+    await settle()
+
+    const proposal = repository.getProposal("proposal:episode:run:1")!
+    expect(proposal).toMatchObject({ status: "rejected", reason: "contains-secrets" })
+    expect(proposal.body ?? "").not.toContain(secret)
+    expect(proposal.body).toContain("[REDACTED]")
+    expect(repository.getReflectionJob("episode:run:1")).toMatchObject({ status: "skipped", reason: "contains-secrets" })
+    expect(curator(created).roster(project).filter((entry) => entry.learned)).toEqual([])
+  })
+
+  test("a literal the egress guard knows (a vault value) is refused even when no pattern matches it", async () => {
+    const repository = repositoryFor()
+    const literal = "correct-horse-battery-staple"
+    const drafter: SkillDrafter = {
+      async draft() {
+        return validDraft({ body: `${validDraft().body}\nLog in with ${literal}.` })
+      },
+    }
+    const config = configFor()
+    const manager = createLearningManager({
+      repository,
+      service: reflectionService({}),
+      config: () => config,
+      egress: createAdaptiveEgressGuard({ config: () => config, secrets: () => [literal] }),
+      curator: curator(),
+      drafter,
+      now: () => NOW,
+    })
+    manager.onEpisodeClosed(episode())
+    await settle()
+
+    const proposal = repository.getProposal("proposal:episode:run:1")!
+    expect(proposal).toMatchObject({ status: "rejected", reason: "contains-secrets" })
+    expect(proposal.body ?? "").not.toContain(literal)
+  })
+
+  test("a clean draft is still promoted", async () => {
+    const repository = repositoryFor()
+    const manager = managerFor({ repository, service: reflectionService({}), config: configFor(), drafter: drafters().drafter })
+    manager.onEpisodeClosed(episode())
+    await settle()
+    expect(repository.getProposal("proposal:episode:run:1")).toMatchObject({ status: "promoted" })
   })
 })
 

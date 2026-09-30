@@ -117,7 +117,20 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     }
   }
   const startup = adaptive.current()
-  const egress = createAdaptiveEgressGuard({ config: () => adaptive.current() })
+  const hostname = options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1"
+  // The acting line's own secret (FH-04, ADR-0022). It is only resolved on a loopback host: off the
+  // loopback no token, no route and no capability are built, so the feature is inert rather than
+  // exposed. Without a token the route is an ordinary 404, never an open loopback.
+  const adaptiveToken = isLoopbackHostname(hostname)
+    ? options.adaptiveToken ?? readAdaptiveToken(options.adaptiveTokenFile ?? adaptiveTokenFile())
+    : undefined
+  // Every secret this process holds is deleted by value from whatever leaves or is persisted: the
+  // harness's own bearers and the vault's credentials, the latter decrypted on each call so a
+  // credential saved after startup is covered too.
+  const egress = createAdaptiveEgressGuard({
+    config: () => adaptive.current(),
+    secrets: () => [browserToken, adaptiveToken, ...(vault?.secrets() ?? [])].filter((secret) => secret !== undefined),
+  })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // The key comes from the environment, never from the config block (ADR-0017). The client is built
   // always; the service only reaches it when Jev is enabled, the project is allowlisted and the kind
@@ -267,13 +280,6 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     runtimeProbe,
     config: () => adaptive.current(),
   })
-  const hostname = options.hostname ?? process.env.FLUPCODE_HARNESS_HOST ?? "127.0.0.1"
-  // The acting line's own secret (FH-04, ADR-0022). It is only resolved on a loopback host: off the
-  // loopback no token, no route and no capability are built, so the feature is inert rather than
-  // exposed. Without a token the route is an ordinary 404, never an open loopback.
-  const adaptiveToken = isLoopbackHostname(hostname)
-    ? options.adaptiveToken ?? readAdaptiveToken(options.adaptiveTokenFile ?? adaptiveTokenFile())
-    : undefined
   // The settings surface (FH-070): reads the composed config and writes the switches back into the
   // global file. It reuses the config reader (raw + current + invalidate), the runtime probe and the
   // usage ledger; `canWrite` is the artifacts bearer, and enabling relevance also needs the acting
@@ -331,6 +337,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     ...(vault ? { vault } : {}),
     runtimeProbe,
     decisions,
+    egress,
     stop: async () => {
       clearInterval(sweep)
       clearInterval(probeInterval)

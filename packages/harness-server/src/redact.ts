@@ -50,10 +50,18 @@ const variantsOf = (secret: string): string[] => [
   ...encodedForms(secret),
 ]
 
-/** A value is replaced wherever it appears; the longest first, so one secret inside another still goes. */
-export function redactSecrets(text: string, secrets: string[]): string {
+/**
+ * Every shape the secrets could have been written back in, deduplicated, empties dropped and the
+ * longest first, so one secret inside another still goes. The adaptive redactor reuses it, so a
+ * literal secret is removed in the same shapes whichever path it leaves by.
+ */
+export function secretForms(secrets: readonly string[]): string[] {
   return [...new Set(secrets.flatMap(variantsOf))]
     .filter((secret) => secret !== "")
     .sort((left, right) => right.length - left.length)
-    .reduce((result, secret) => result.split(secret).join("[redacted]"), text)
+}
+
+/** A value is replaced wherever it appears, in every shape `secretForms` lists. */
+export function redactSecrets(text: string, secrets: string[]): string {
+  return secretForms(secrets).reduce((result, secret) => result.split(secret).join("[redacted]"), text)
 }
