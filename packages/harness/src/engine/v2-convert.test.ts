@@ -1,0 +1,137 @@
+import { expect, test } from "bun:test"
+import type { SessionInfo as V2Session, SessionMessageInfo as V2Message } from "@opencode/client"
+import { toMessages, toSession } from "./v2-convert"
+
+const session = {
+  id: "ses_1",
+  projectID: "prj_1",
+  cost: 0.25,
+  tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+  time: { created: 1, updated: 2 },
+  location: { directory: "/work/demo" },
+  permissions: [{ action: "shell", resource: "*", effect: "ask" }],
+} as unknown as V2Session
+
+test("a 2.x session keeps its fields and turns its permission rules into the app's shape", () => {
+  expect(toSession(session)).toEqual({
+    id: "ses_1",
+    projectID: "prj_1",
+    cost: 0.25,
+    tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 0, write: 0 } },
+    time: { created: 1, updated: 2 },
+    title: "",
+    location: { directory: "/work/demo" },
+    permission: [{ permission: "shell", pattern: "*", action: "ask" }],
+  })
+})
+
+test("a 2.x session with a title and a parent keeps both", () => {
+  const child = toSession({ ...session, title: "Child", parentID: "ses_0" } as V2Session)
+  expect(child.title).toBe("Child")
+  expect(child.parentID).toBe("ses_0")
+})
+
+const assistant = {
+  id: "msg_2",
+  type: "assistant",
+  time: { created: 3, completed: 4 },
+  agent: "build",
+  model: { id: "m", providerID: "p" },
+  content: [
+    { type: "text", text: "Hello" },
+    { type: "reasoning", text: "Thinking" },
+    { type: "tool", id: "call_1", name: "read", time: { created: 3 }, state: { status: "streaming", input: '{"pa' } },
+    {
+      type: "tool",
+      id: "call_2",
+      name: "read",
+      time: { created: 3, ran: 3, completed: 4 },
+      state: { status: "completed", input: { path: "a" }, content: [{ type: "text", text: "ok" }] },
+    },
+    {
+      type: "tool",
+      id: "call_3",
+      name: "shell",
+      time: { created: 3 },
+      state: { status: "error", input: {}, error: { type: "denied", message: "No" } },
+    },
+  ],
+  cost: 0.5,
+  error: { type: "aborted", message: "Interrupted" },
+} as unknown as V2Message
+
+test("an assistant's content gets stable ids, the app's tool states and an unknown-typed error", () => {
+  const [converted] = toMessages([assistant])
+  expect(converted).toMatchObject({
+    id: "msg_2",
+    type: "assistant",
+    cost: 0.5,
+    error: { type: "unknown", message: "Interrupted" },
+    content: [
+      { type: "text", id: "msg_2:0", text: "Hello" },
+      { type: "reasoning", id: "msg_2:1", text: "Thinking" },
+      { type: "tool", id: "call_1", state: { status: "pending", input: '{"pa' } },
+      {
+        type: "tool",
+        id: "call_2",
+        state: { status: "completed", content: [{ type: "text", text: "ok" }], structured: {} },
+      },
+      {
+        type: "tool",
+        id: "call_3",
+        state: { status: "error", content: [], error: { type: "unknown", message: "No" } },
+      },
+    ],
+  })
+})
+
+test("kinds the app has no view for are dropped, and a running compaction waits for its summary", () => {
+  const messages = [
+    { id: "m1", type: "user", time: { created: 1 }, text: "hi" },
+    { id: "m2", type: "idle", time: { created: 2 }, outcome: "succeeded" },
+    { id: "m3", type: "location-switched", time: { created: 3 } },
+    { id: "m4", type: "compaction", status: "running", time: { created: 4 }, reason: "manual" },
+    {
+      id: "m5",
+      type: "compaction",
+      status: "completed",
+      time: { created: 5 },
+      reason: "manual",
+      summary: "S",
+      recent: "R",
+    },
+    { id: "m6", type: "agent-switched", time: { created: 6 }, agent: "plan" },
+    {
+      id: "m7",
+      type: "shell",
+      time: { created: 7 },
+      shellID: "sh_1",
+      command: "ls",
+      status: "exited",
+      output: { output: "a\n", cursor: 0, size: 2, truncated: false },
+    },
+  ] as unknown as V2Message[]
+  expect(toMessages(messages).map((message) => message.type)).toEqual(["user", "compaction", "agent-switched", "shell"])
+  expect(toMessages(messages).at(-1)).toMatchObject({ callID: "sh_1", command: "ls", output: "a\n" })
+})
+
+test("a user's inline file becomes a data URL, a linked one keeps its URI", () => {
+  const [user] = toMessages([
+    {
+      id: "m1",
+      type: "user",
+      time: { created: 1 },
+      text: "look",
+      files: [
+        { data: "aGk=", mime: "text/plain", source: { type: "inline" }, name: "a.txt" },
+        { data: "", mime: "image/png", source: { type: "uri", uri: "file:///b.png" } },
+      ],
+    } as unknown as V2Message,
+  ])
+  expect(user).toMatchObject({
+    files: [
+      { uri: "data:text/plain;base64,aGk=", mime: "text/plain", name: "a.txt" },
+      { uri: "file:///b.png", mime: "image/png" },
+    ],
+  })
+})

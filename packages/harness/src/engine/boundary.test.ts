@@ -4,12 +4,14 @@ import { join, relative } from "node:path"
 
 /**
  * The engine boundary (V2-10): the generated 1.x SDK is imported by the 1.x adapter and by the type
- * facade, and nowhere else. The OpenCode 2 adapter replaces both without the rest of the app moving,
+ * facade, and OpenCode 2's client by the 2.x adapter (V2-20), and nowhere else. The OpenCode 2 adapter replaces both without the rest of the app moving,
  * which only holds while nothing else reaches past them.
  */
 const ALLOWED = new Set(["engine/v1.ts", "engine-types.ts"])
+/** OpenCode 2's generated client, likewise, belongs to the 2.x adapter alone. */
+const ALLOWED_V2 = new Set(["engine/v2.ts", "engine/v2-convert.ts"])
 
-test("only the engine adapter and the type facade import the SDK", () => {
+test("only the engine adapters and the type facade import an engine SDK", () => {
   const root = join(import.meta.dir, "..")
   const files = (function walk(dir: string): string[] {
     return readdirSync(dir).flatMap((name) => {
@@ -18,8 +20,11 @@ test("only the engine adapter and the type facade import the SDK", () => {
       return /\.tsx?$/.test(name) && !/\.test\.tsx?$/.test(name) ? [path] : []
     })
   })(root)
-  const importers = files
-    .filter((file) => /from "@opencode-ai\/sdk/.test(readFileSync(file, "utf8")))
-    .map((file) => relative(root, file))
-  expect(importers.sort()).toEqual([...ALLOWED].sort())
+  const importers = (pattern: RegExp) =>
+    files
+      .filter((file) => pattern.test(readFileSync(file, "utf8")))
+      .map((file) => relative(root, file))
+      .sort()
+  expect(importers(/from "@opencode-ai\/sdk/)).toEqual([...ALLOWED].sort())
+  expect(importers(/from "@opencode\/client/)).toEqual([...ALLOWED_V2].sort())
 })
