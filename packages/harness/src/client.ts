@@ -1329,7 +1329,7 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       })
     },
     runs: {
-      list: () => harnessRequest<Run[]>(baseUrl, "/harness/runs"),
+      list: () => harnessAuthorizedJson<Run[]>(baseUrl, "/harness/runs"),
       /**
        * The same task once per model (H-44), one run each, so the comparison reads runs as it always
        * has. Answers with them in the order they were asked for.
@@ -1344,18 +1344,18 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
       }) =>
         harnessRequest<Run[]>(baseUrl, "/harness/best-of-n", { method: "POST", body: JSON.stringify(input) }),
       /** A run with the tasks it is made of; the list leaves them out. */
-      get: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
+      get: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`),
       /** Pick up a run that ended with work still queued (HF-5). */
       resume: (id: string) =>
-        harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
-      tasks: (id: string) => harnessRequest<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
+        harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/resume`, { method: "POST" }),
+      tasks: (id: string) => harnessAuthorizedJson<Task[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tasks`),
       /** What its running tasks are doing right now. Polled while somebody watches, never stored. */
       activity: (id: string) =>
-        harnessRequest<TaskActivity[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/activity`),
+        harnessAuthorizedJson<TaskActivity[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/activity`),
       /** What each task changed on disk, from the checkpoints taken around it. */
-      files: (id: string) => harnessRequest<TouchedFiles[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/files`),
+      files: (id: string) => harnessAuthorizedJson<TouchedFiles[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/files`),
       /** What each task spent its time on, from the tool calls the engine plugin timed (H-16). */
-      tools: (id: string) => harnessRequest<TaskTools[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tools`),
+      tools: (id: string) => harnessAuthorizedJson<TaskTools[]>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/tools`),
       /** Do a task again as a new task of the same run, optionally on another model (H-12). */
       retry: (taskID: string, input: { model?: Task["model"] } = {}) =>
         harnessRequest<Task>(baseUrl, `/harness/tasks/${encodeURIComponent(taskID)}/retry`, {
@@ -1367,26 +1367,26 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
         harnessRequest<Task>(baseUrl, `/harness/tasks/${encodeURIComponent(taskID)}/cancel`, { method: "POST" }),
       /** Merge the worktrees this run's tasks wrote in, back into its folder (H-29). */
       mergeWorktrees: (id: string) =>
-        harnessRequest<{ merged: Array<{ taskID: string; branch: string; sha: string }> }>(
+        harnessAuthorizedJson<{ merged: Array<{ taskID: string; branch: string; sha: string }> }>(
           baseUrl,
           `/harness/runs/${encodeURIComponent(id)}/worktrees/merge`,
           { method: "POST" },
         ),
       /** Remove the worktrees this run's tasks wrote in (H-29). */
       cleanupWorktrees: (id: string) =>
-        harnessRequest<{ removed: string[] }>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/worktrees/cleanup`, {
+        harnessAuthorizedJson<{ removed: string[] }>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/worktrees/cleanup`, {
           method: "POST",
         }),
       /** Ask the server to interrupt what the run is doing; it finishes as stopped. */
-      stop: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
+      stop: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/stop`, { method: "POST" }),
       /** Let a run through the gate it stopped at. Refusing it is stopping it. */
-      approve: (id: string) => harnessRequest<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
+      approve: (id: string) => harnessAuthorizedJson<Run>(baseUrl, `/harness/runs/${encodeURIComponent(id)}/approve`, { method: "POST" }),
       /** Interrupt every run still going. */
-      stopAll: () => harnessRequest<{ stopped: number }>(baseUrl, "/harness/runs/stop", { method: "POST" }),
+      stopAll: () => harnessAuthorizedJson<{ stopped: number }>(baseUrl, "/harness/runs/stop", { method: "POST" }),
       /** Forget every run that has finished. Running ones stay. */
-      clear: () => harnessRequest<{ removed: number }>(baseUrl, "/harness/runs", { method: "DELETE" }),
+      clear: () => harnessAuthorizedJson<{ removed: number }>(baseUrl, "/harness/runs", { method: "DELETE" }),
       /** Forget a run and its tasks. The server refuses while it is still going. */
-      remove: (id: string) => harnessRequest<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
+      remove: (id: string) => harnessAuthorizedJson<boolean>(baseUrl, `/harness/runs/${encodeURIComponent(id)}`, { method: "DELETE" }),
     },
     artifacts: {
       list: (filter: { directory?: string; runID?: string; kind?: ArtifactKind; q?: string } = {}) => {

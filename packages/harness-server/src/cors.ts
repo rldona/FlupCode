@@ -7,6 +7,8 @@
  * `FLUPCODE_HARNESS_CORS`.
  */
 
+import { isIP } from "node:net"
+
 /** The loopback hosts whose port never matters, in the shape a browser puts in `Origin`. */
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"])
 
@@ -36,6 +38,39 @@ function isLoopbackOrigin(origin: string): boolean {
   const url = new URL(origin)
   if (url.protocol !== "http:" && url.protocol !== "https:") return false
   return LOOPBACK.has(url.hostname)
+}
+
+/** The extra `Host` names a caller allowed (a reverse proxy, a LAN name), comma-separated and exact. */
+export function harnessAllowedHosts(env: NodeJS.ProcessEnv = process.env): string[] {
+  return (env.FLUPCODE_HARNESS_ALLOWED_HOSTS ?? "")
+    .split(",")
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== "")
+}
+
+const WILDCARD = new Set(["0.0.0.0", "::", "[::]"])
+
+/**
+ * Whether a request's `Host` names this server (AH-A05). DNS rebinding points a name the attacker
+ * owns at `127.0.0.1`, so the page is same-origin with the harness but its `Host` is still that name:
+ * only the loopback names, the address the server listens on and what `FLUPCODE_HARNESS_ALLOWED_HOSTS`
+ * names pass. On a wildcard listener any IP literal also passes — reaching it by address is not a
+ * rebinding, which always needs a name. No `Host` at all is an in-process `Request`, not a socket.
+ */
+export function allowedHarnessHost(
+  host: string | undefined,
+  listening: string,
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (host === undefined) return true
+  if (!URL.canParse(`http://${host}`)) return false
+  const hostname = new URL(`http://${host}`).hostname
+  if (LOOPBACK.has(hostname) || hostname.endsWith(".localhost")) return true
+  const bound = listening.includes(":") && !listening.startsWith("[") ? `[${listening}]` : listening
+  if (URL.canParse(`http://${bound}`) && new URL(`http://${bound}`).hostname === hostname) return true
+  if (WILDCARD.has(listening) && isIP(hostname.replace(/^\[|\]$/g, "")) !== 0) return true
+  const allowed = harnessAllowedHosts(env)
+  return allowed.includes(hostname) || allowed.includes(host.toLowerCase())
 }
 
 /** Adds a `Vary` value without dropping the ones already there. */

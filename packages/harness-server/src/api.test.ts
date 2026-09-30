@@ -1,6 +1,6 @@
 import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test"
 import { MAX_RETRIES, createHarnessHandler } from "./api"
-import { allowedHarnessOrigin } from "./cors"
+import { allowedHarnessHost, allowedHarnessOrigin } from "./cors"
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -1298,6 +1298,137 @@ describe("the artifact surface's bearer (WA-9)", () => {
     )
     expect(allowed.status).toBe(200)
     await allowed.body?.cancel().catch(() => undefined)
+    repository.close()
+  })
+})
+
+describe("the runs surface's bearer and host (AH-A05)", () => {
+  const guarded = (options: { hostname?: string } = {}) => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
+    return { repository, handler: createHarnessHandler(repository, scheduler, { token: "secret-token", ...options }) }
+  }
+  const bearer = { authorization: "Bearer secret-token" }
+
+  test("refuses every runs route without the bearer, and starts nothing", async () => {
+    const { handler, repository } = guarded()
+    const run = repository.startRun({ type: "manual" }, Date.now())
+    repository.addTasks(run.id, [{ name: "one", prompt: "go" }])
+    repository.finishRun(run.id, "success")
+    const requests = [
+      ["GET", "/harness/runs"],
+      ["POST", "/harness/runs"],
+      ["DELETE", "/harness/runs"],
+      ["POST", "/harness/runs/stop"],
+      ["GET", `/harness/runs/${run.id}`],
+      ["GET", `/harness/runs/${run.id}/tasks`],
+      ["GET", `/harness/runs/${run.id}/activity`],
+      ["POST", `/harness/runs/${run.id}/stop`],
+      ["POST", `/harness/runs/${run.id}/resume`],
+      ["DELETE", `/harness/runs/${run.id}`],
+    ]
+    for (const [method, path] of requests) {
+      for (const headers of [new Headers(), new Headers({ authorization: "Bearer wrong" })]) {
+        const refused = await handler(
+          new Request(`http://127.0.0.1:4097${path}`, {
+            method,
+            headers,
+            ...(method === "POST" ? { body: JSON.stringify({ tasks: [{ name: "x", prompt: "y" }] }) } : {}),
+          }),
+        )
+        expect(refused.status).toBe(403)
+        expect((await refused.json()).code).toBe("invalid_token")
+      }
+    }
+    expect(repository.listRuns().map((entry) => entry.id)).toEqual([run.id])
+    repository.close()
+  })
+
+  test("answers the listing and starts a run with the bearer", async () => {
+    const { handler, repository } = guarded()
+    const listed = await handler(new Request("http://127.0.0.1:4097/harness/runs", { headers: bearer }))
+    expect(listed.status).toBe(200)
+    expect((await listed.json()).data).toEqual([])
+
+    const directory = mkdtempSync(join(tmpdir(), "flupcode-api-runs-auth-"))
+    made.push(directory)
+    const started = await handler(
+      new Request("http://127.0.0.1:4097/harness/runs", {
+        method: "POST",
+        headers: bearer,
+        body: JSON.stringify({ tasks: [{ name: "verify", kind: "verify" }], directory }),
+      }),
+    )
+    expect(started.status).toBe(202)
+    await settled(repository, (await started.json()).data.id)
+    repository.close()
+  })
+
+  test("a cross-origin mutation is refused even with the bearer", async () => {
+    const { handler, repository } = guarded()
+    const refused = await handler(
+      new Request("http://127.0.0.1:4097/harness/runs", {
+        method: "POST",
+        headers: { ...bearer, origin: "https://evil.example" },
+        body: JSON.stringify({ tasks: [{ name: "x", prompt: "y" }] }),
+      }),
+    )
+    expect(refused.status).toBe(403)
+    expect(repository.listRuns()).toEqual([])
+    repository.close()
+  })
+
+  // DNS rebinding: the attacker's name resolves to 127.0.0.1, so the page is same-origin with the
+  // harness and the browser sends that name as the Host. This goes through a real socket, so the
+  // Host is the one on the wire rather than a header a test made up in process.
+  test("a foreign Host is refused on a real socket, and the loopback names answer", async () => {
+    const { handler, repository } = guarded()
+    const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch: handler })
+    const read = (host: string, path = "/harness/runs") =>
+      fetch(`http://127.0.0.1:${server.port}${path}`, { headers: { ...bearer, host } })
+    try {
+      const rebound = await read(`attacker.example:${server.port}`)
+      expect(rebound.status).toBe(403)
+      expect((await rebound.json()).code).toBe("invalid_host")
+      for (const host of [`127.0.0.1:${server.port}`, `localhost:${server.port}`, `app.localhost:${server.port}`]) {
+        expect((await read(host)).status).toBe(200)
+      }
+      // Not only the runs: a rebinding page reads nothing at all.
+      expect((await read(`attacker.example:${server.port}`, "/harness/routines")).status).toBe(403)
+    } finally {
+      server.stop(true)
+      repository.close()
+    }
+  })
+
+  test("a Host is accepted when it is the listening address or named in the allowlist", () => {
+    expect(allowedHarnessHost(undefined, "127.0.0.1")).toBe(true)
+    expect(allowedHarnessHost("[::1]:4097", "127.0.0.1")).toBe(true)
+    expect(allowedHarnessHost("192.168.1.5:4097", "127.0.0.1")).toBe(false)
+    expect(allowedHarnessHost("192.168.1.5:4097", "192.168.1.5")).toBe(true)
+    expect(allowedHarnessHost("192.168.1.5:4097", "0.0.0.0")).toBe(true)
+    expect(allowedHarnessHost("[fe80::1]:4097", "::")).toBe(true)
+    expect(allowedHarnessHost("box.lan:4097", "0.0.0.0")).toBe(false)
+    expect(allowedHarnessHost("box.lan:4097", "box.lan")).toBe(true)
+    expect(allowedHarnessHost("localhost.attacker.example", "127.0.0.1")).toBe(false)
+    expect(allowedHarnessHost("not a host", "127.0.0.1")).toBe(false)
+    const env = { FLUPCODE_HARNESS_ALLOWED_HOSTS: "harness.example.com, other.example:8443" }
+    expect(allowedHarnessHost("harness.example.com", "127.0.0.1", env)).toBe(true)
+    expect(allowedHarnessHost("Harness.Example.com:443", "127.0.0.1", env)).toBe(true)
+    expect(allowedHarnessHost("other.example:8443", "127.0.0.1", env)).toBe(true)
+    expect(allowedHarnessHost("other.example:9000", "127.0.0.1", env)).toBe(false)
+  })
+
+  test("the handler honours the listening address it was given", async () => {
+    const { handler, repository } = guarded({ hostname: "0.0.0.0" })
+    const lan = await handler(
+      new Request("http://192.168.1.5:4097/harness/runs", { headers: { ...bearer, host: "192.168.1.5:4097" } }),
+    )
+    expect(lan.status).toBe(200)
+    const named = await handler(
+      new Request("http://box.lan:4097/harness/runs", { headers: { ...bearer, host: "box.lan:4097" } }),
+    )
+    expect(named.status).toBe(403)
     repository.close()
   })
 })

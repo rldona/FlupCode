@@ -584,6 +584,29 @@ test("the adaptive settings are read under /harness/adaptive/config with the loo
   ])
 })
 
+// AH-A05: the server refuses every /harness/runs* route without the loopback bearer.
+test("the runs routes carry the loopback bearer, and a plain tab sends none", async () => {
+  const calls: AdaptiveCall[] = []
+  recordingAdaptive(calls)
+  const client = createHarnessClient("http://harness")
+
+  await withLoopbackToken(async () => {
+    await client.runs.list()
+    await client.runs.get("run_1")
+    await client.runs.stop("run_1")
+    await client.runs.clear()
+  })
+  await client.runs.list()
+
+  expect(calls.map((call) => [call.method, call.path, call.auth])).toEqual([
+    ["GET", "/harness/runs", "Bearer tok"],
+    ["GET", "/harness/runs/run_1", "Bearer tok"],
+    ["POST", "/harness/runs/run_1/stop", "Bearer tok"],
+    ["DELETE", "/harness/runs", "Bearer tok"],
+    ["GET", "/harness/runs", null],
+  ])
+})
+
 test("a config patch sends the patch and the confirmation, and keeps the warnings", async () => {
   const calls: AdaptiveCall[] = []
   recordingAdaptive(calls, { data: { effective: {} }, warnings: ["skills-still-load"] })

@@ -91,6 +91,25 @@ FLUPCODE_ENGINE_URL=http://127.0.0.1:4096 bun run dev
 ```
 
 The server listens on `127.0.0.1:4097` by default (`FLUPCODE_HARNESS_PORT`, `FLUPCODE_HARNESS_HOST`).
+
+Access (WA-9, AH-A05):
+
+- **Bearer.** `/harness/browser/*`, `/harness/actions/*`, `/harness/credentials`,
+  `/harness/action-profiles`, `/harness/artifacts*`, `/harness/events` and every `/harness/runs*`
+  route answer **403** `invalid_token` without `Authorization: Bearer <token>`, where the token is
+  `<configDir>/browser-token` (or `FLUPCODE_BROWSER_TOKEN`). The desktop app hands it to the renderer;
+  a plain browser tab has none, so those surfaces are refused there. The artifacts, events and runs
+  only ask for it when a token exists, which the entrypoint always creates unless the write fails.
+  `vite` dev in `packages/harness` (never `build`/`preview`) serves the same token to a same-origin
+  loopback tab through `/@flupcode/dev-token.js`, so local development keeps working. A hosted or
+  built web tab without the desktop has no runs until a pairing flow exists.
+- **Host.** Every request whose `Host` is not a loopback name (`127.0.0.1`, `::1`, `localhost`,
+  `*.localhost`) or the address the server listens on answers **403** `invalid_host`, which stops a
+  DNS-rebinding page. On a wildcard listener (`0.0.0.0`, `::`) any IP literal is also accepted. A
+  reverse proxy or LAN name goes in `FLUPCODE_HARNESS_ALLOWED_HOSTS` (comma-separated, exact
+  hostnames or `host:port`).
+- **Origin.** A mutating request that sends an `Origin` must send `oc://renderer`, a loopback origin
+  on any port, or one named exactly in `FLUPCODE_HARNESS_CORS`.
 The database is stored at `~/.local/share/flupcode/harness.sqlite`; override it with
 `FLUPCODE_HARNESS_DB`. Columns added by later versions are migrated into an existing database on
 start, so a database written by an older server keeps working.
