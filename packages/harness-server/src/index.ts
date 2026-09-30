@@ -49,6 +49,7 @@ import { createSkillCurator } from "./adaptive/skills/curator"
 import { sessionSkills } from "./adaptive/skills/usage"
 import { createLearningDrafter } from "./adaptive/learning/draft"
 import { createLearningManager } from "./adaptive/learning/manager"
+import { episodeTrace } from "./adaptive/learning/heuristics"
 import type { LearningRunner } from "./adaptive/learning/manager"
 import { learningLimitStatus } from "./adaptive/learning/limits"
 import { createProposalReview } from "./adaptive/learning/review"
@@ -309,6 +310,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
     curator,
     drafter,
     smallModel: globalSmallModel,
+    // The heuristic fallback (AH-F01) reads the plugin's signal files for an episode's ordered trace.
+    trace: (episode) => episodeTrace(episode),
     onError: (cause) =>
       console.error(`Could not reflect on a session episode: ${cause instanceof Error ? cause.message : String(cause)}`),
   })

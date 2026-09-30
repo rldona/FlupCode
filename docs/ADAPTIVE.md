@@ -168,6 +168,32 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   positives**. Pipes into `python`/`node` only count when the interpreter reads its program from
   stdin, so `| python3 -m json.tool` passes; `sudo` is refused everywhere outside a negated warning,
   which may reject a legitimate system-setup skill.
+- **Heuristic reflection without a model (AH-F01).** When the model path cannot run — no
+  `skillReflection` classifier with consent (`egress-denied`), no drafting model (`no-model`) or a
+  failed draft (`draft-failed`) — the manager falls back to a deterministic, local classifier
+  (`learning/heuristics.ts`) instead of stopping. It recognises two patterns in a closed episode that
+  already cleared the gate: **fix-verify** (a verification command — test, build, lint, typecheck —
+  fails, the files involved are edited, and the *same* command then passes; a rerun with no edit, an
+  edit unrelated to the files the failure names, or a different command going green does not count)
+  and **repeated-command** (the same specific build/test invocation, or the same ordered recipe of
+  runner commands with a verification in it, in at least 3 distinct sessions of the project; bare
+  `bun test`/`pytest` and unsafe commands such as `sudo`, `curl`, pipes to a shell or `rm -rf` are
+  never a lesson). The ordered trace comes from the plugin's signal files, limited to the episode's
+  window; the history is the project's earlier closed episodes (at most 50). The candidate's text is a
+  template, and it goes through the **same** redaction, bounds, secret lint, curator check and
+  `proposed` staging as a drafted one, so it still needs a person's approval. Provenance is explicit:
+  `modelVersion` is `heuristic/fix-verify` or `heuristic/repeated-command` and `decisionID` is
+  `heuristic:<episodeID>`. One lesson is one proposal: a name already proposed in the project
+  (pending, promoted or rejected) is skipped as `heuristic-duplicate`, so a recurring pattern is staged
+  once and a rejection is not asked again. With no candidate the job keeps the model path's reason.
+  **Combination rule:** the model path wins when it can run; the heuristic is its fallback and never
+  overrides a classifier that answered `not-reusable`. It needs no egress consent because nothing
+  leaves the machine; `learning.enabled` remains the switch. The eval
+  (`heuristics-eval.test.ts`, corpus in `fixtures/heuristics/`) replays 26 labelled synthetic episodes
+  and asserts precision ≥ 0.6 (currently 0.89, recall 0.89). For the manual review on real data,
+  `bun run reflect:heuristics -- [--db <path>] [--limit 200] [--project <dir>] [--json]` in
+  `packages/harness-server` replays the closed episodes of a database opened **read-only** and prints
+  the redacted candidates without writing anything.
 - **Draft timeout.** The draft session waits up to `learning.draftTimeoutMs` (default 120 s, not the
   `skillReflection` decision deadline); past it, or on any failure, the session is interrupted and the
   job is `draft-failed`. The throwaway "Skill draft" session is deleted whatever the outcome.

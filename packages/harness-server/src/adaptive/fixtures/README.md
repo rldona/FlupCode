@@ -121,3 +121,13 @@ The labels are the point: `keep` means the scorer must keep it, `drop` means it 
 unlabelled item is free. `context-eval.test.ts` turns the fixtures into the four measurements —
 protected retention, token reduction, wrong rate and byte-identity — so enabling `apply` stays a
 metric-gated promotion rather than a guess.
+
+## Heuristic reflection corpus (`heuristics/`, AH-F01)
+
+`heuristics/reflection-corpus.json` holds synthetic, anonymised episodes for the heuristic reflection
+classifier, in chronological order. Each case has an `episode` (the stored fields), an optional
+ordered `trace` (the plugin signals: `bash` with `command`/`exit`, `edit` with `paths`), a `label`
+(`fix-verify`, `repeated-command` or `none` — what a reviewer would stage as a proposal) and a `note`.
+`heuristics-eval.test.ts` replays them like the manager (gate, earlier cases as history, one proposal
+per name) and asserts precision ≥ 0.6. Two cases are known misses of the heuristic on purpose
+(`api-fix-then-suite`, `py-skip-the-test`), so the numbers stay honest.

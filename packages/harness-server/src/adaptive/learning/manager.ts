@@ -14,22 +14,26 @@
  * `proposed` row. The draft is built from evidence that can carry untrusted tool output, so it only
  * reaches `skills/` when a person approves it through the review route, which asks the curator — the
  * single write path (ADR-0019 §2) — to install it (AH-A04). The classification and the draft are gated by the learning switch, the
- * egress allowlist and a resolved model, and every skip is a machine-readable reason on the job. A
- * kill switch stops the reflection and the curation; it never deletes a skill already written. The
- * freeze and the per-project caps (AH-F03, `./limits`) are gates too: `frozen` or `limit:<name>`.
+ * egress allowlist and a resolved model, and every skip is a machine-readable reason on the job. When
+ * the model path cannot run, the heuristic classifier (AH-F01, `heuristics.ts`) is the local fallback:
+ * its template proposal goes through the same redaction, lint and staging. A kill switch stops the
+ * reflection and the curation; it never deletes a skill already written. The freeze and the
+ * per-project caps (AH-F03, `./limits`) are gates too: `frozen` or `limit:<name>`.
  */
 
 import type { AdaptiveConfig } from "../config"
 import type { DecisionKind, DecisionRequest, DecisionResult } from "../decision"
 import type { EgressGuard, EgressSubject } from "../egress"
 import type { SkillCurator } from "../skills/curator"
-import type { SkillDrafter } from "./draft"
+import type { SkillDraft, SkillDrafter } from "./draft"
 import { DRAFT_LIMITS, learningModel } from "./draft"
 import type { SkillProposal } from "./proposal"
 import { proposalID } from "./proposal-record"
 import type { StoredSkillProposalInput } from "./proposal-record"
 import { contentHashOf } from "../skills/learned-store"
 import { LEARNING_FROZEN_REASON, blockingLimit, limitReason, reachedLimits } from "./limits"
+import { HEURISTIC_LIMITS, classifyEpisode, heuristicModelVersion } from "./heuristics"
+import type { TraceStep } from "./heuristics"
 import {
   DEFAULT_REFLECTION_SWEEP_LIMIT,
   REFLECTION_LEASE_MS,
@@ -64,6 +68,11 @@ export type LearningManagerDeps = {
   drafter: SkillDrafter
   /** The global `small_model`; absent leaves `adaptive.learning.model` as the only source. */
   smallModel?: () => string | undefined
+  /**
+   * The ordered tool trace of an episode, for the heuristic classifier (AH-F01). The server reads the
+   * plugin's signal files (`episodeTrace`); absent, the `fix-verify` pattern has nothing to read.
+   */
+  trace?: (episode: SessionEpisode) => readonly TraceStep[]
   onError?: (cause: unknown) => void
   now?: () => number
   sweepLimit?: number
@@ -85,6 +94,7 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
   const onError = deps.onError ?? (() => {})
   const now = deps.now ?? Date.now
   const sweepLimit = deps.sweepLimit ?? DEFAULT_REFLECTION_SWEEP_LIMIT
+  const trace = deps.trace ?? (() => [])
   // The durable claim covers other processes; this also keeps a pass of this process that outlives
   // its own lease from being taken over by this process's next sweep.
   const inFlight = new Set<string>()
@@ -170,7 +180,7 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
         ? undefined
         : (deps.models?.find((model) => model.id === assigned) ?? { id: assigned, locality: "remote" as const })
     if (!classifier || !deps.egress.allows(classifier, "skillReflection", episode.projectID)) {
-      jobFor(episode, "skipped", { reason: "egress-denied" })
+      heuristic(episode, config, { reason: "egress-denied" })
       return
     }
 
@@ -226,7 +236,7 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
 
     const model = learningModel(config.learning, deps.smallModel)
     if (!model) {
-      jobFor(episode, "skipped", { reason: "no-model", decisionID })
+      heuristic(episode, config, { reason: "no-model", decisionID }, roster)
       return
     }
 
@@ -253,7 +263,7 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
         : {}),
     })
     if (!draft) {
-      jobFor(episode, "skipped", { reason: "draft-failed", decisionID })
+      heuristic(episode, config, { reason: "draft-failed", decisionID }, roster)
       return
     }
     // Counted again after the last `await`: reflections that ran side by side cannot overshoot a cap
@@ -264,45 +274,130 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       return
     }
 
-    // Redact and bound every text the row stores: none may keep what egress would not let out.
-    const body = bound(redactedText(deps.egress, draft.body), config.learning.maxBodyChars)
-    const proposal: SkillProposal = {
-      projectID: episode.projectID,
-      episodeID: episode.id,
+    stage({
+      episode,
+      config,
+      roster,
+      draft,
       decisionID,
       intent: answer.intent,
       ...(answer.intent === "patch" && answer.target ? { targetSkill: answer.target } : {}),
-      name: bound(redactedText(deps.egress, draft.name), DRAFT_LIMITS.maxNameChars),
-      description: bound(redactedText(deps.egress, draft.description), DRAFT_LIMITS.maxDescriptionChars),
-      body,
-      evidenceRefs: episode.evidenceRefs.length > 0 ? episode.evidenceRefs : [episode.id],
+      evidenceRefs: episode.evidenceRefs,
       ...(result.confidence !== undefined ? { confidence: result.confidence } : {}),
       modelVersion: `${model.providerID}/${model.id}`,
-      // The URL filter (AH-F04) accepts only links the episode actually saw; never stored.
       evidence,
-    }
-    const input = proposalInput({
-      episode,
-      decisionID,
-      proposal,
-      modelVersion: `${model.providerID}/${model.id}`,
     })
+  }
+
+  /**
+   * The model-free path (AH-F01): the model path could not run — no classifier with consent, no
+   * drafting model, or a failed draft — so the heuristic classifier gets its turn. It runs locally
+   * with no egress, and its candidate is staged exactly like a draft: redacted, linted, `proposed`.
+   * No candidate keeps the model path's own skip reason, so a quiet episode reads as it did before.
+   * An explicit `not-reusable` answer never reaches here: a classifier that spoke is not overridden.
+   */
+  const heuristic = (
+    episode: SessionEpisode,
+    config: AdaptiveConfig,
+    skipped: { reason: string; decisionID?: string },
+    roster?: ReturnType<SkillCurator["roster"]>,
+  ): void => {
+    const candidate = classifyEpisode({
+      episode,
+      trace: trace(episode),
+      history: deps.repository.listEpisodes({ projectID: episode.projectID, limit: HEURISTIC_LIMITS.historyEpisodes }),
+    })
+    if (!candidate) {
+      jobFor(episode, "skipped", skipped)
+      return
+    }
+    // One lesson, one proposal: a pattern that recurs is not staged again while its first proposal
+    // waits, and a person who rejected it is not asked a second time.
+    const seen = deps.repository
+      .listProposals({ projectID: episode.projectID })
+      .some((proposal) => proposal.name === candidate.name || proposal.targetSkill === candidate.name)
+    if (seen) {
+      jobFor(episode, "skipped", { reason: "heuristic-duplicate" })
+      return
+    }
+    // The caps (AH-F03) hold for this path too: a heuristic proposal is always a new skill.
+    const skills = roster ?? deps.curator.roster(episode.projectID)
+    const capped = blockingLimit(
+      reachedLimits({
+        repository: deps.repository,
+        projectID: episode.projectID,
+        installedSkills: skills.filter((entry) => entry.learned).length,
+        limits: config.learning.limits,
+        now: now(),
+      }),
+      "add",
+    )
+    if (capped) {
+      jobFor(episode, "skipped", { reason: limitReason(capped) })
+      return
+    }
+    stage({
+      episode,
+      config,
+      roster: skills,
+      draft: candidate,
+      decisionID: `heuristic:${episode.id}`,
+      intent: "add",
+      evidenceRefs: [...episode.evidenceRefs, ...candidate.supportingEpisodes].slice(0, 20),
+      confidence: candidate.confidence,
+      modelVersion: heuristicModelVersion(candidate.pattern),
+      evidence: deps.repository.evidenceFor(episode).map((slice) => slice.content),
+    })
+  }
+
+  /** Redact, bound, lint and store one proposal, drafted or heuristic; nothing here installs it. */
+  const stage = (input: {
+    episode: SessionEpisode
+    config: AdaptiveConfig
+    roster: ReturnType<SkillCurator["roster"]>
+    draft: SkillDraft
+    decisionID: string
+    intent: SkillProposal["intent"]
+    targetSkill?: string
+    evidenceRefs: string[]
+    confidence?: number
+    modelVersion: string
+    /** The episode's evidence text, read only by the URL filter (AH-F04) and never stored. */
+    evidence: readonly string[]
+  }): void => {
+    // Redact and bound every text the row stores: none may keep what egress would not let out.
+    const body = bound(redactedText(deps.egress, input.draft.body), input.config.learning.maxBodyChars)
+    const proposal: SkillProposal = {
+      projectID: input.episode.projectID,
+      episodeID: input.episode.id,
+      decisionID: input.decisionID,
+      intent: input.intent,
+      ...(input.targetSkill ? { targetSkill: input.targetSkill } : {}),
+      name: bound(redactedText(deps.egress, input.draft.name), DRAFT_LIMITS.maxNameChars),
+      description: bound(redactedText(deps.egress, input.draft.description), DRAFT_LIMITS.maxDescriptionChars),
+      body,
+      evidenceRefs: input.evidenceRefs.length > 0 ? input.evidenceRefs : [input.episode.id],
+      ...(input.confidence !== undefined ? { confidence: input.confidence } : {}),
+      modelVersion: input.modelVersion,
+      evidence: input.evidence,
+    }
+    const stored = proposalInput({ episode: input.episode, decisionID: input.decisionID, proposal, modelVersion: input.modelVersion })
     // The secret lint reads the draft as the model wrote it: the proposal above is already redacted,
     // so linting it would never find the secret and would stage a quietly edited skill instead of
     // refusing it. The row still keeps only the redacted text.
-    const leaked = [draft.name, draft.description, draft.body].some((text) => redactedText(deps.egress, text) !== text)
+    const leaked = [input.draft.name, input.draft.description, input.draft.body].some((text) => redactedText(deps.egress, text) !== text)
     // Staged, never installed: a lint failure stays reviewable with its reason, and a clean draft waits
     // as `proposed` for a person. The approval re-runs the lint against the roster of that moment.
     const checked = leaked
       ? { ok: false as const, reason: "contains-secrets" as const }
-      : deps.curator.check(proposal, roster)
+      : deps.curator.check(proposal, input.roster)
     if (!checked.ok) {
-      deps.repository.createProposal({ ...input, status: "rejected", reason: checked.reason }, now())
-      jobFor(episode, "skipped", { reason: checked.reason, decisionID, proposalID: input.id })
+      deps.repository.createProposal({ ...stored, status: "rejected", reason: checked.reason }, now())
+      jobFor(input.episode, "skipped", { reason: checked.reason, decisionID: input.decisionID, proposalID: stored.id })
       return
     }
-    deps.repository.createProposal(input, now())
-    jobFor(episode, "done", { reason: "proposed", decisionID, proposalID: input.id })
+    deps.repository.createProposal(stored, now())
+    jobFor(input.episode, "done", { reason: "proposed", decisionID: input.decisionID, proposalID: stored.id })
   }
 
   /** The deferred pass: the gate, the idempotence and the failure record all live here. */
