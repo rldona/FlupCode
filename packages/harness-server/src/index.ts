@@ -34,6 +34,9 @@ import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
 import { createRetryingModel } from "./adaptive/providers/retry"
 import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
+import { createSmallLlmModel } from "./adaptive/providers/small-llm"
+import { Engine } from "./engine"
+import { parseModelKey } from "./policy"
 import { createDecisionService } from "./adaptive/decision-service"
 import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
@@ -155,7 +158,17 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   // AH-C01: the static predictive-model registry. `adaptive.models.<kind>` picks one of these ids per
   // kind; without a `models` block every kind asks Jev when it is enabled, as before the registry.
   // AH-C03: each remote model is asked only under its own `egress.providers.<id>` consent.
-  const models = [jev]
+  // AH-C04: `small-llm` is registered only when a `small_model` resolves at startup. It is never
+  // assigned by default and is not wrapped in retries: every attempt is a paid throwaway session.
+  // Its own engine client, since the scheduler's is built after the decision service needs the registry.
+  const smallLlm = parseModelKey(globalSmallModel())
+    ? createSmallLlmModel({
+        engine: new Engine(engineURL),
+        egress,
+        model: () => parseModelKey(globalSmallModel()),
+      })
+    : undefined
+  const models = [jev, ...(smallLlm ? [smallLlm] : [])]
   const decisions = createDecisionService({
     repository,
     config: () => adaptive.current(),
