@@ -5,6 +5,7 @@ import {
   DEFAULT_CONTEXT_CONFIG,
   DEFAULT_JEV_CONFIG,
   DEFAULT_GUARDRAILS_CONFIG,
+  DEFAULT_HOLDOUT_CONFIG,
   DEFAULT_LEARNING_CONFIG,
   DEFAULT_RELEVANCE_CONFIG,
   DEFAULT_RETENTION_CONFIG,
@@ -67,6 +68,7 @@ describe("resolveAdaptiveConfig", () => {
       relevance: DEFAULT_RELEVANCE_CONFIG,
       retention: DEFAULT_RETENTION_CONFIG,
       guardrails: DEFAULT_GUARDRAILS_CONFIG,
+      holdout: DEFAULT_HOLDOUT_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)

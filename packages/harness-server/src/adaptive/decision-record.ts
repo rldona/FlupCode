@@ -10,6 +10,7 @@
 import type { DecisionKind, DecisionPolicy, DecisionSource, DegradedReason } from "./decision"
 import { DEFAULT_DECISION_POLICY, isDecisionKind, isDecisionSource } from "./decision"
 import type { StoredDecision, StoredDecisionInput } from "../types"
+import { isArm } from "./holdout"
 
 /** Deterministic id: a re-capture converges on the same row (the mirror of `runEpisodeID`). */
 export const decisionID = (kind: DecisionKind, scopeID: string): string => `${kind}:${scopeID}`
@@ -43,6 +44,7 @@ export type DecisionRow = {
   latency_ms: number
   policy_json: string
   shadow: number
+  arm: string | null
   created_at: number
   updated_at: number
 }
@@ -142,6 +144,7 @@ export const decisionRowFrom = (input: StoredDecisionInput, now: number): Decisi
   latency_ms: input.latencyMs,
   policy_json: JSON.stringify(input.policy),
   shadow: input.shadow ? 1 : 0,
+  arm: input.arm ?? null,
   created_at: now,
   updated_at: now,
 })
@@ -173,6 +176,7 @@ export const decisionFromRow = (row: DecisionRow): StoredDecision | undefined =>
     latencyMs: row.latency_ms,
     policy: parsePolicy(row.policy_json),
     shadow: row.shadow !== 0,
+    ...(isArm(row.arm) ? { arm: row.arm } : {}),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }

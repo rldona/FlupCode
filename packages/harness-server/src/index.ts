@@ -320,6 +320,7 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       proposalReview: createProposalReview({ repository, curator }),
       adaptiveConfig,
       ...(adaptiveToken ? { adaptiveToken, relevance, guardrails } : {}),
+      holdoutFraction: () => adaptive.current().holdout.fraction,
     }),
   })
   // Background work starts only once the port is bound: a harness that fails to bind throws above

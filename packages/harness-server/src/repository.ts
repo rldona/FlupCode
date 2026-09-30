@@ -79,6 +79,7 @@ import type { RetentionCutoffs, RetentionPurge } from "./adaptive/retention"
 import type { DecisionKind } from "./adaptive/decision"
 import { applyObservation, emptyTurn } from "./adaptive/session-metrics"
 import type { MetricObservation, SessionMetricTurn } from "./adaptive/session-metrics"
+import type { Arm, HoldoutCapability } from "./adaptive/holdout"
 
 /** How much text an artifact keeps inline (§12.1). Anything past it is cut, and says it was. */
 export const ARTIFACT_LIMIT = 1_000_000
@@ -1068,6 +1069,8 @@ export class SqliteRoutineRepository implements RoutineRepository {
     this.addColumn("adaptive_decision", "attempted_provider", "TEXT")
     this.addColumn("adaptive_plan", "truncated", "INTEGER NOT NULL DEFAULT 0")
     this.addColumn("reflection_job", "claimed_at", "INTEGER")
+    this.addColumn("adaptive_decision", "arm", "TEXT")
+    this.addColumn("session_metrics", "arms_json", "TEXT")
     this.migrateDocumentPaths()
     this.migrateEvidenceSize()
   }
@@ -2348,8 +2351,10 @@ export class SqliteRoutineRepository implements RoutineRepository {
           `INSERT INTO adaptive_decision (
              id, session_id, episode_id, project_id, kind, inputs_hash, state_summary_json, answer_json,
              baseline_answer_json, baseline_rule, confidence, probabilities_json, provider, attempted_provider,
-             model_version, source, degraded, degraded_reason, latency_ms, policy_json, shadow, created_at, updated_at
-           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)
+             model_version, source, degraded, degraded_reason, latency_ms, policy_json, shadow, created_at, updated_at,
+             arm
+           ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23,
+             ?24)
            ON CONFLICT(id) DO UPDATE SET
              session_id = excluded.session_id,
              episode_id = excluded.episode_id,
@@ -2371,6 +2376,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
              latency_ms = excluded.latency_ms,
              policy_json = excluded.policy_json,
              shadow = excluded.shadow,
+             arm = excluded.arm,
              updated_at = excluded.updated_at`,
         )
         .run(
@@ -2397,6 +2403,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
           row.shadow,
           row.created_at,
           row.updated_at,
+          row.arm,
         )
     } catch {
       // An audit that cannot be written is dropped, never raised into the decision.
@@ -2870,7 +2877,12 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * before and nothing changed. A new turn takes the next ordinal of its session.
    */
   recordSessionMetric(
-    input: { sessionID: string; projectID?: string; observation: MetricObservation },
+    input: {
+      sessionID: string
+      projectID?: string
+      arms?: Record<HoldoutCapability, Arm>
+      observation: MetricObservation
+    },
     now = Date.now(),
   ): boolean {
     return this.db.transaction(() => {
@@ -2888,6 +2900,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
             turnID: input.observation.turnID,
             turn: this.nextSessionTurn(input.sessionID),
             ...(input.projectID ? { projectID: input.projectID } : {}),
+            ...(input.arms ? { arms: input.arms } : {}),
             now,
           })
       const next = applyObservation(turn, input.observation, now)
@@ -2897,9 +2910,9 @@ export class SqliteRoutineRepository implements RoutineRepository {
              session_id, turn_id, turn, project_id, provider_id, model_id, agent, requests,
              input_tokens, output_tokens, reasoning_tokens, cache_read_tokens, cache_write_tokens,
              cost, model_ms, first_token_ms, tool_calls, tool_errors, tool_output_bytes, tools_json,
-             compactions, skills_json, started_at, ended_at
+             compactions, skills_json, started_at, ended_at, arms_json
            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18,
-             ?19, ?20, ?21, ?22, ?23, ?24)`,
+             ?19, ?20, ?21, ?22, ?23, ?24, ?25)`,
         )
         .run(
           next.sessionID,
@@ -2926,6 +2939,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
           JSON.stringify(next.skills),
           next.startedAt,
           next.endedAt,
+          next.arms ? JSON.stringify(next.arms) : null,
         )
       return true
     })()
@@ -3096,6 +3110,7 @@ type SessionMetricRow = {
   skills_json: string
   started_at: number
   ended_at: number
+  arms_json: string | null
 }
 
 function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
@@ -3126,5 +3141,6 @@ function sessionMetricFromRow(row: SessionMetricRow): SessionMetricTurn {
     skills: JSON.parse(row.skills_json),
     startedAt: row.started_at,
     endedAt: row.ended_at,
+    ...(row.arms_json ? { arms: JSON.parse(row.arms_json) } : {}),
   }
 }

@@ -313,6 +313,7 @@ export function createDecisionService(deps: {
       latencyMs: improved.latencyMs,
       policy: request.policy,
       shadow,
+      ...(request.arm !== undefined ? { arm: request.arm } : {}),
     }
     deps.repository.createDecision(input, decidedAt)
 

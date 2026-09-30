@@ -42,6 +42,7 @@ import type { RelevanceService } from "./adaptive/relevance"
 import { handleGuardrailsRequest, handleGuardrailsStatusRequest } from "./adaptive/guardrails-routes"
 import type { GuardrailService } from "./adaptive/guardrails"
 import { handleSessionMetricsRead, handleSessionMetricsRequest } from "./adaptive/session-metrics"
+import { armsFor } from "./adaptive/holdout"
 import { handleAdaptiveConfigRequest } from "./adaptive/config-routes"
 import type { AdaptiveConfigSurface } from "./adaptive/config-surface"
 
@@ -410,6 +411,8 @@ export type HarnessHandlerOptions = {
   relevance?: RelevanceService
   /** The failure/loop guardrails (FH-060–063): an advisory loopback route fed by opaque digests. */
   guardrails?: GuardrailService
+  /** The live holdout share, so a metrics row records the session's arms (AH-B05). */
+  holdoutFraction?: () => number
   /** The dedicated loopback bearer of the acting line; the route is closed without it (ADR-0022). */
   adaptiveToken?: string
   /** The adaptive settings surface (FH-070): reads the settings and writes the switches. */
@@ -564,7 +567,12 @@ export const createHarnessHandler = (
     ) {
       if (!tokenMatches(options.adaptiveToken, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleSessionMetricsRequest(request, repository)
+      const fraction = options.holdoutFraction
+      return handleSessionMetricsRequest(
+        request,
+        repository,
+        fraction ? (sessionID) => armsFor(sessionID, fraction()) : undefined,
+      )
     }
     // Its read side takes the artifacts bearer, like the other adaptive audits a browser reads.
     if (path[1] === "adaptive" && path[2] === "metrics" && path.length === 3 && request.method === "GET") {

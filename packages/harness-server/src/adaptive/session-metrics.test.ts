@@ -10,6 +10,7 @@ import { createHarnessHandler } from "../api"
 import type { HarnessHandlerOptions } from "../api"
 import { SqliteRoutineRepository } from "../repository"
 import { RoutineScheduler } from "../scheduler"
+import { armsFor } from "./holdout"
 import { applyObservation, emptyTurn } from "./session-metrics"
 import type { MetricObservation } from "./session-metrics"
 
@@ -152,6 +153,16 @@ describe("the metrics routes", () => {
     const rows = ((await listed.json()) as { data: Array<{ turn: number; tokens: { input: number } }> }).data
     expect(rows).toHaveLength(1)
     expect(rows[0]).toMatchObject({ turn: 1, tokens: { input: 100 } })
+  })
+
+  test("a new turn records the session's holdout arms", async () => {
+    const { handler, repository } = open({ adaptiveToken: ADAPTIVE, token: BROWSER, holdoutFraction: () => 0.2 })
+    await handler(post(body))
+    expect(repository.listSessionMetrics("ses_1")[0]!.arms).toEqual(armsFor("ses_1", 0.2))
+    // Without a holdout reader the row carries no arms rather than a guess.
+    const bare = open()
+    await bare.handler(post(body))
+    expect(bare.repository.listSessionMetrics("ses_1")[0]!.arms).toBeUndefined()
   })
 
   test("the browser bearer cannot post and the acting bearer cannot read", async () => {

@@ -11,6 +11,7 @@
  * forgets both, which is the deliberate price of not storing per-observation state.
  */
 
+import { armFor } from "./holdout"
 import type { AdaptiveConfig } from "./config"
 import type { DecisionRequest, DecisionSource, FailureAnswer, ToolRisk } from "./decision"
 import type { DecisionService } from "./decision-service"
@@ -21,7 +22,7 @@ import { elevateRisk } from "./risk"
 import type { RiskLevel } from "./risk"
 import type { RuntimeCapabilities } from "./runtime"
 
-export type GuardrailReason = "disabled" | "runtime-not-legacy" | "below-threshold" | "loop" | "error"
+export type GuardrailReason = "disabled" | "runtime-not-legacy" | "below-threshold" | "loop" | "error" | "holdout"
 
 export type GuardrailResult = {
   verdict: FailureAnswer["verdict"]
@@ -128,7 +129,8 @@ export function createGuardrailService(deps: {
       return { ...cached.result, repeatedCalls, repeatedErrors, latencyMs: now() - startedAt }
     }
 
-    const reason: GuardrailReason = callsCrossed ? "loop" : "error"
+    const arm = armFor(input.sessionID, "guardrails", config.holdout.fraction)
+    const reason: GuardrailReason = arm === "control" ? "holdout" : callsCrossed ? "loop" : "error"
     const failureRequest: DecisionRequest<"failure"> = {
       kind: "failure",
       state: failureState(signal),
@@ -136,6 +138,7 @@ export function createGuardrailService(deps: {
       scopeID,
       sessionID: input.sessionID,
       projectID: input.projectID,
+      arm,
     }
     const failure = await deps.service.predict(failureRequest, "hot", false)
 
@@ -149,12 +152,14 @@ export function createGuardrailService(deps: {
       scopeID,
       sessionID: input.sessionID,
       projectID: input.projectID,
+      arm,
     }
     const toolRisk = await deps.service.predict(toolRiskRequest, "hot", false)
     const risk = elevateRisk(native, toolRisk.answer.risk)
 
     const result: GuardrailResult = {
-      verdict: failure.answer.verdict,
+      // A control session's loop is decided and audited but not raised (AH-B05).
+      verdict: arm === "control" ? "continue" : failure.answer.verdict,
       reason,
       repeatedCalls,
       repeatedErrors,
@@ -176,6 +181,8 @@ export function createGuardrailService(deps: {
     const config = deps.config()
     if (!config.enabled || !config.guardrails.enabled) return null
     if (!deps.runtimeProbe.capabilities().canObserveToolCalls) return null
+    // A control session is never shown the advisory: that is what the comparison holds out (AH-B05).
+    if (armFor(sessionID, "guardrails", config.holdout.fraction) === "control") return null
     const ring = rings.get(sessionID)
     if (ring === undefined) return null
     const current = now()

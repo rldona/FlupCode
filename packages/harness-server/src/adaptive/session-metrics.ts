@@ -11,6 +11,8 @@
  * database.
  */
 
+import type { Arm, HoldoutCapability } from "./holdout"
+
 export type MetricTokens = { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
 
 export type MetricObservation =
@@ -57,6 +59,8 @@ export type SessionMetricTurn = {
   skills: string[]
   startedAt: number
   endedAt: number
+  /** The session's holdout arms when the turn was first heard of (AH-B05). */
+  arms?: Record<HoldoutCapability, Arm>
 }
 
 /** A turn's tools and skills are capped: a runaway session cannot grow a row without bound. */
@@ -71,6 +75,7 @@ export function emptyTurn(input: {
   turnID: string
   turn: number
   projectID?: string
+  arms?: Record<HoldoutCapability, Arm>
   now: number
 }): SessionMetricTurn {
   return {
@@ -90,6 +95,7 @@ export function emptyTurn(input: {
     skills: [],
     startedAt: input.now,
     endedAt: input.now,
+    ...(input.arms ? { arms: input.arms } : {}),
   }
 }
 
@@ -153,6 +159,7 @@ export type SessionMetricsStore = {
   recordSessionMetric(input: {
     sessionID: string
     projectID?: string
+    arms?: Record<HoldoutCapability, Arm>
     observation: MetricObservation
   }): boolean
   listSessionMetrics(sessionID: string): SessionMetricTurn[]
@@ -167,7 +174,11 @@ const json = (value: unknown, status = 200) =>
 const error = (message: string, code: string, status: number) => json({ error: message, code }, status)
 
 /** The plugin's POST: validates the shape and records it. A duplicate is a 200 that records nothing. */
-export async function handleSessionMetricsRequest(request: Request, store: SessionMetricsStore): Promise<Response> {
+export async function handleSessionMetricsRequest(
+  request: Request,
+  store: SessionMetricsStore,
+  arms?: (sessionID: string) => Record<HoldoutCapability, Arm>,
+): Promise<Response> {
   const body: unknown = await request.json().catch(() => undefined)
   if (!isPlainObject(body)) return error("A metrics request needs a JSON body", "bad_request", 400)
   const sessionID = boundedString(body.sessionID, ID_LIMIT)
@@ -178,7 +189,12 @@ export async function handleSessionMetricsRequest(request: Request, store: Sessi
   const observation = observationFrom(body.observation)
   if (observation === undefined)
     return error("A metrics request needs a well-formed step, tool or compaction", "bad_request", 400)
-  const recorded = store.recordSessionMetric({ sessionID, ...(projectID ? { projectID } : {}), observation })
+  const recorded = store.recordSessionMetric({
+    sessionID,
+    ...(projectID ? { projectID } : {}),
+    ...(arms ? { arms: arms(sessionID) } : {}),
+    observation,
+  })
   return json({ data: { recorded } })
 }
 

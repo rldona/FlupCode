@@ -14,6 +14,7 @@ import { resolveAdaptiveConfig } from "./config"
 import { createAdaptiveEgressGuard } from "./egress"
 import { createDecisionService } from "./decision-service"
 import { createGuardrailService } from "./guardrails"
+import { armFor } from "./holdout"
 import type { LoopObservation } from "./guardrails-detector"
 import type { RuntimeCapabilities } from "./runtime"
 
@@ -134,6 +135,23 @@ describe("a detected loop", () => {
     const failure = rows.find((row) => row.kind === "failure")
     expect(failure).toMatchObject({ id: "failure:ses_1:bash:a", shadow: false, kind: "failure" })
     expect(failure?.policy.repeatedCalls).toBe(3)
+    expect(failure?.arm).toBe("treatment")
+    repository.close()
+  })
+
+  test("a control session is decided and audited but never raised or shown", async () => {
+    const session = Array.from({ length: 100 }, (_, index) => `ses_${index}`).find(
+      (id) => armFor(id, "guardrails", 0.2) === "control",
+    )!
+    const { repository, guardrails } = stack()
+    await observe(guardrails, call("bash", "a"), session)
+    await observe(guardrails, call("bash", "a"), session)
+    const result = await observe(guardrails, call("bash", "a"), session)
+
+    expect(result).toMatchObject({ verdict: "continue", reason: "holdout", repeatedCalls: 3 })
+    expect(guardrails.status(session)).toBeNull()
+    const failure = repository.listDecisions().find((row) => row.kind === "failure")
+    expect(failure).toMatchObject({ sessionID: session, shadow: false, arm: "control" })
     repository.close()
   })
 
