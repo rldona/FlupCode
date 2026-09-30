@@ -758,3 +758,28 @@ test("each adaptive surface is offered only for its own capability", () => {
     review: false,
   })
 })
+
+/** A harness that answers every request with this one body. */
+function answeringHarness(body: unknown) {
+  setEngineTransport({
+    fetch: async () => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }),
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+}
+
+test("health reads the server's bare answer, so its capabilities reach the cockpit", async () => {
+  answeringHarness({ healthy: true, capabilities: ["adaptive-config", "adaptive-guardrails"] })
+
+  const health = await createHarnessClient("http://harness").health()
+
+  expect(health).toEqual({ healthy: true, capabilities: ["adaptive-config", "adaptive-guardrails"] })
+  expect(adaptiveSurfaces(health.capabilities ?? []).config).toBe(true)
+})
+
+test("health still reads an answer wrapped in data", async () => {
+  answeringHarness({ data: { healthy: true, capabilities: ["memory"] } })
+
+  expect(await createHarnessClient("http://harness").health()).toEqual({ healthy: true, capabilities: ["memory"] })
+})

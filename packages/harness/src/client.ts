@@ -1315,7 +1315,19 @@ async function agentBrowserRequest<T>(baseUrl: string, sessionID: string, path: 
 
 export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
   return {
-    health: () => harnessRequest<{ healthy: boolean; capabilities?: string[] }>(baseUrl, "/harness/health"),
+    /**
+     * The one harness route answered bare, `{ healthy, capabilities }`, not inside `data`: the desktop
+     * main process reads it that way too. Reading only `data` left every capability unannounced.
+     */
+    health: async () => {
+      const response = await anonymousFetch(`${baseUrl.replace(/\/$/, "")}/harness/health`)
+      if (!response.ok) throw new Error(`Harness request failed (${response.status})`)
+      const body = (await response.json()) as
+        | { healthy?: boolean; capabilities?: string[]; data?: { healthy?: boolean; capabilities?: string[] } }
+        | undefined
+      const health = body?.data ?? body
+      return { healthy: health?.healthy ?? true, capabilities: health?.capabilities }
+    },
     /**
      * What the server changed, as it changes it. A different origin from the engine, so the
      * connection it holds does not come out of the handful the browser allows for talking to it.

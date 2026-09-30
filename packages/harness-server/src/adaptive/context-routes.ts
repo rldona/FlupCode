@@ -6,6 +6,7 @@
  * plans; a client only lists them and asks why one turned out the way it did.
  */
 
+import { decodedID } from "./route-id"
 import type { ContextManager } from "./context-manager"
 import { normalizeEpisodeLimit } from "./episode"
 
@@ -23,7 +24,7 @@ export async function handleContextPlanRequest(
   context: ContextManager,
 ): Promise<Response> {
   if (request.method !== "GET") return error("Not found", "not_found", 404)
-  const id = segments[1]
+  const id = decodedID(segments[1])
   if (segments[0] === "plans" && id === undefined) {
     const params = new URL(request.url).searchParams
     const rawLimit = params.get("limit")
