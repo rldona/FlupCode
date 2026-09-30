@@ -778,7 +778,8 @@ export type AdaptiveSettings = {
   models?: Record<string, string>
   /** Consent per remote provider (AH-C03), keyed by the predictive model id. */
   egress: { providers: Record<string, AdaptiveProviderConsent> }
-  retention: { enabled: boolean }
+  /** `decisionsDays` is the shadow decisions' window, which the server resolves even while off. */
+  retention: { enabled: boolean; decisionsDays?: number }
   budget: { monthlyTokens: number; hotReserveFraction: number }
 }
 

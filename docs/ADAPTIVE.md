@@ -863,6 +863,19 @@ always safe.
   sweeps regardless) keeps its own value but is marked "inactive: the master switch is off". The Jev row also
   says when `TYPESAFE_API_KEY` is missing, since decisions then fall back to the built-in rules. The
   same is true of a successful write to `enabled`: it travels the warning `skills-still-load`.
+- **Levels and capability cards (AH-E01).** The panel leads with a level — Off, Observe, Assist or
+  Custom — and four cards: Context (Off · Observing · Acting), Skill suggestion (`relevance`), Loop
+  warnings (`guardrails`) and Learning. Each level is **one nested PATCH** over the existing switches;
+  the server contract is unchanged. Off writes only `enabled: false` (the kill switch, every child
+  keeps its value). Observe writes `enabled`, `shadow` and `context.enabled` on, with `context.apply`,
+  `relevance.enabled` and `guardrails.enabled` off; Assist is Observe with relevance and guardrails on.
+  No level writes learning, the predictive model, retention or consent — they need a confirmation or
+  send data off the machine, so they stay separate opt-ins. Only leaves the server lists in
+  `writable` are written or compared, and the level is derived: Off while the master is off, a
+  preset when every listed leaf matches, Custom otherwise (choosing Custom from Off only turns the
+  master back on). Each card shows a derived state with its reason — the level, the environment, a
+  missing acting token, missing consent, a V2 runtime, a missing draft model — and the predictive
+  model, data and budget, and the provenance/config file live in collapsed sections below.
 - **Write contract.** `PATCH /harness/adaptive/config` with `{ "patch": { … }, "confirm": false }`.
   The patch is **nested**, mirroring `flupcode.adaptive`, and carries only allowlisted leaves; a key
   whose segment carries a dot is refused with `unsupported-field`, because it would be written as one

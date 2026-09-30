@@ -1395,23 +1395,9 @@ const ES: Record<string, string> = {
   Adaptive: "Adaptativo",
   "This server does not have the adaptive settings.": "Este servidor no tiene los ajustes adaptativos.",
   "The harness server did not answer.": "El servidor del harness no respondió.",
-  "Read-only: this server has no writer token.": "Solo lectura: este servidor no tiene token de escritura.",
-  "Adaptive decisions": "Decisiones adaptativas",
-  "Turning this off stops decisions, shadow and Jev. Learned skills still load from disk.":
-    "Apagarlo detiene las decisiones, el shadow y Jev. Las skills aprendidas siguen cargando desde el disco.",
-  "Disabled by FLUPCODE_ADAPTIVE_DISABLED=1": "Deshabilitado por FLUPCODE_ADAPTIVE_DISABLED=1",
   "Effective value": "Valor efectivo",
-  Shadow: "Shadow",
-  "Records decisions without acting on them.": "Registra decisiones sin actuar sobre ellas.",
-  "Context selection": "Selección de contexto",
-  "Apply the context plan": "Aplicar el plan de contexto",
-  "Promotion waits for the offline evaluation.": "La promoción espera a la evaluación offline.",
   Learning: "Aprendizaje",
-  Relevance: "Relevancia",
-  Jev: "Jev",
   "Needs confirmation.": "Requiere confirmación.",
-  Retention: "Retención",
-  "Egress consent: {provider}": "Consentimiento de egreso: {provider}",
   "Send data to {provider}": "Enviar datos a {provider}",
   "Needs confirmation. Covers {provider} only.": "Requiere confirmación. Cubre solo a {provider}.",
   "{kind} for {provider}": "{kind} para {provider}",
@@ -1420,7 +1406,6 @@ const ES: Record<string, string> = {
   "No projects allowed yet.": "Todavía no hay proyectos permitidos.",
   "Project path for {provider}": "Ruta del proyecto para {provider}",
   "Add project": "Añadir proyecto",
-  "Monthly token budget": "Presupuesto mensual de tokens",
   "Spent {spent} of {cap} this month.": "Gastados {spent} de {cap} este mes.",
   "Missing: {fields}": "Falta: {fields}",
   "Refused fields: {fields}": "Campos rechazados: {fields}",
@@ -1430,20 +1415,106 @@ const ES: Record<string, string> = {
   "Writing to {field} needs confirmation. The change is written to the config file.":
     "Escribir en {field} requiere confirmación. El cambio se escribe en el archivo de configuración.",
   "Write it": "Escribirlo",
-  "This switch needs the acting token, which this server does not have.":
-    "Este interruptor necesita el token actuante, que este servidor no tiene.",
   "Loop warnings": "Avisos de bucle",
-  "Warns when the agent repeats the same tool call; never pauses the turn.":
-    "Avisa cuando el agente repite la misma llamada a una herramienta; nunca pausa el turno.",
   "Inactive: the master switch is off.": "Inactivo: el interruptor principal está apagado.",
-  "Key missing: decisions fall back to built-in rules.":
-    "Falta la clave: las decisiones vuelven a las reglas integradas.",
-  "Enabling this needs the provider's egress consent, with a project and a kind, first.":
-    "Activar esto necesita antes el consentimiento de egreso del proveedor, con un proyecto y un kind.",
+  // Capability cards and levels (AH-E01)
+  Level: "Nivel",
+  Observe: "Observar",
+  Assist: "Asistir",
+  Custom: "Personalizado",
+  "Nothing runs. Your choices below are kept for when you turn it back on.":
+    "No se ejecuta nada. Tus elecciones de abajo se conservan para cuando lo vuelvas a activar.",
+  "Watches your sessions and notes what it would do, without changing anything.":
+    "Observa tus sesiones y anota lo que haría, sin cambiar nada.",
+  "Suggests skills and warns about loops while you work.": "Sugiere skills y avisa de bucles mientras trabajas.",
+  "Your own mix of the capabilities below.": "Tu propia combinación de las capacidades de abajo.",
+  "Off stops every capability at once. Nothing is deleted, and skills already learned still load.":
+    "Desactivado detiene todas las capacidades a la vez. No se borra nada, y las skills ya aprendidas siguen cargando.",
+  "Set by the environment: the level stays Off.": "Fijado por el entorno: el nivel sigue en Desactivado.",
+  "{choice} is not available: {reason}": "{choice} no está disponible: {reason}",
+  "Works out which earlier parts of the conversation the agent still needs.":
+    "Averigua qué partes anteriores de la conversación sigue necesitando el agente.",
+  "Skill suggestion": "Sugerencia de skills",
+  "Points the agent to the skills that fit the task.": "Indica al agente las skills que encajan con la tarea.",
+  "Warns you when the agent repeats the same step. It never pauses the turn.":
+    "Te avisa cuando el agente repite el mismo paso. Nunca pausa el turno.",
+  "Proposes new skills from finished sessions. Nothing is installed without your approval.":
+    "Propone skills nuevas a partir de sesiones terminadas. No se instala nada sin tu aprobación.",
+  Observing: "Observando",
+  "Acting*": "Actuando*",
+  Suggesting: "Sugiriendo",
+  Warning: "Avisando",
+  Proposing: "Proponiendo",
+  "Active · observing, nothing is changed": "Activo · observando, no se cambia nada",
+  "Active · trimming what the agent sees": "Activo · recortando lo que ve el agente",
+  "Active · suggesting skills": "Activo · sugiriendo skills",
+  "Active · watching for repeated steps": "Activo · vigilando pasos repetidos",
+  "Active · proposing skills for your approval": "Activo · proponiendo skills para tu aprobación",
+  "Active · in use": "Activo · en uso",
+  "Active · waiting for a model to draft skills with": "Activo · esperando un modelo con el que redactar skills",
+  "Active · waiting for the model key": "Activo · esperando la clave del modelo",
+  "Paused: it is not adding enough value": "En pausa: no aporta suficiente valor",
+  "Active · paused for {paused} of {total} decisions, for low value":
+    "Activo · en pausa en {paused} de {total} decisiones, por bajo valor",
+  "Inactive: this server was started without permission to act on sessions.":
+    "Inactivo: este servidor se inició sin permiso para actuar sobre las sesiones.",
+  "Inactive: it needs your permission to share data with the model provider.":
+    "Inactivo: necesita tu permiso para compartir datos con el proveedor del modelo.",
+  "Inactive: this engine's newer session runtime cannot run it yet.":
+    "Inactivo: el runtime de sesiones más reciente de este motor todavía no puede ejecutarlo.",
+  "Inactive: set to Off by the environment.": "Inactivo: el entorno lo fija en Desactivado.",
+  "Inactive: the level is Off.": "Inactivo: el nivel está en Desactivado.",
+  "Whether the task is finished": "Si la tarea está terminada",
+  "Which context to keep": "Qué contexto conservar",
+  "Whether a session is worth learning from": "Si merece la pena aprender de una sesión",
+  "Measuring its value": "Midiendo su valor",
+  Asked: "Se consulta",
+  "Asked now and then: its value does not cover its cost": "Se consulta de vez en cuando: su valor no cubre su coste",
+  "Paused: it does not help here": "En pausa: aquí no ayuda",
+  "Record decisions in the background": "Registrar decisiones en segundo plano",
+  "Shorten long tool outputs (recoverable)": "Acortar las salidas largas de herramientas (recuperables)",
+  "Keep session anchors when compacting": "Conservar los anclajes de la sesión al compactar",
+  "Turned off by the environment.": "Desactivado por el entorno.",
+  "This server was started without permission to act on sessions.":
+    "Este servidor se inició sin permiso para actuar sobre las sesiones.",
+  "First allow sharing data with the model provider, for a project and a decision.":
+    "Primero permite compartir datos con el proveedor del modelo, para un proyecto y una decisión.",
+  "Cleaning up removes adaptive history older than its retention window. Learned skills are never removed. The change is written to the config file.":
+    "La limpieza elimina el historial adaptativo más antiguo que su ventana de retención. Las skills aprendidas nunca se eliminan. El cambio se escribe en el archivo de configuración.",
+  "The predictive model receives redacted, size-limited decision inputs for the projects and decisions you allowed. The change is written to the config file.":
+    "El modelo predictivo recibe entradas de decisión redactadas y de tamaño limitado para los proyectos y decisiones que permitiste. El cambio se escribe en el archivo de configuración.",
+  "* Acting changes what the agent sees, and it has not passed the offline evaluation yet.":
+    "* Actuando cambia lo que ve el agente, y todavía no ha superado la evaluación offline.",
+  "Turning it on asks first: redacted session notes are sent to {model} to draft each skill.":
+    "Activarlo pide confirmación antes: se envían notas redactadas de la sesión a {model} para redactar cada skill.",
+  "Turning it on asks first: redacted session notes are sent to a model to draft each skill.":
+    "Activarlo pide confirmación antes: se envían notas redactadas de la sesión a un modelo para redactar cada skill.",
+  "Sharing with {provider}": "Compartir con {provider}",
+  "Read-only: this server cannot change these settings.": "Solo lectura: este servidor no puede cambiar estos ajustes.",
+  "This engine runs a newer session runtime: skill suggestions and loop warnings cannot act there yet.":
+    "Este motor ejecuta un runtime de sesiones más reciente: ahí la sugerencia de skills y los avisos de bucle todavía no pueden actuar.",
+  "The engine changed since you last looked.": "El motor ha cambiado desde la última vez que miraste.",
+  "Predictive model": "Modelo predictivo",
+  "A predictive model can double-check some of these decisions. It only receives redacted, size-limited inputs, only for the projects you allow, and only from the providers you allow below.":
+    "Un modelo predictivo puede revisar algunas de estas decisiones. Solo recibe entradas redactadas y de tamaño limitado, solo de los proyectos que permitas y solo para los proveedores que permitas abajo.",
+  "Use the predictive model": "Usar el modelo predictivo",
+  "The model key is missing, so built-in rules decide instead.":
+    "Falta la clave del modelo, así que deciden las reglas integradas.",
+  "Is it worth asking?": "¿Merece la pena consultarlo?",
+  "Data & budget": "Datos y presupuesto",
+  "Clean up old history": "Limpiar el historial antiguo",
+  "Removes decision history older than {days} days. Needs confirmation.":
+    "Elimina el historial de decisiones de más de {days} días. Requiere confirmación.",
+  "Monthly budget (tokens)": "Presupuesto mensual (tokens)",
+  "Predictive model cost over its recent decisions: ${usd} (USD).":
+    "Coste del modelo predictivo en sus decisiones recientes: ${usd} (USD).",
+  "Master switch": "Interruptor principal",
+  "Set by the environment (FLUPCODE_ADAPTIVE_DISABLED=1).": "Fijado por el entorno (FLUPCODE_ADAPTIVE_DISABLED=1).",
+  "Where each value comes from": "De dónde viene cada valor",
+  "Every setting is at its default.": "Todos los ajustes están en su valor por defecto.",
   "This settings surface does not write that field.": "Esta superficie de ajustes no escribe ese campo.",
   "That value is not valid for this setting.": "Ese valor no es válido para este ajuste.",
   "This change needs confirmation.": "Este cambio requiere confirmación.",
-  "An egress allowlist is required first.": "Primero hace falta una allowlist de egreso.",
   "The config file is not valid JSON, so it was left alone.":
     "El archivo de configuración no es JSON válido, así que se dejó intacto.",
   "The config file could not be read.": "No se pudo leer el archivo de configuración.",
@@ -1456,9 +1527,6 @@ const ES: Record<string, string> = {
   "Applying is configured, but promotion waits for the offline evaluation.":
     "Aplicar está configurado, pero la promoción espera a la evaluación offline.",
   "Configured, but inert on this runtime.": "Configurado, pero inerte en este runtime.",
-  "The engine runs V2 sessions: the adaptive hooks do not fire there, so relevance and guardrails stay inert.":
-    "El motor ejecuta sesiones V2: ahí no se disparan los hooks adaptativos, así que relevance y guardrails quedan inertes.",
-  "The engine runtime changed": "El runtime del motor ha cambiado",
   "The engine runtime changed from {from} to {to}. Relevance and guardrails rely on legacy hooks; check docs/V2-HOOKS.md.":
     "El runtime del motor pasó de {from} a {to}. Relevance y guardrails dependen de hooks legacy; revisa docs/V2-HOOKS.md.",
   "The engine changed from version {from} to {to}. Check that the adaptive hooks still fire (docs/V2-HOOKS.md).":
@@ -1474,7 +1542,6 @@ const ES: Record<string, string> = {
     "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor a {model} y su proveedor. El cambio se escribe en el archivo de configuración.",
   "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so nothing is sent until one is. The change is written to the config file.":
     "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor al proveedor del modelo pequeño configurado. Todavía no hay modelo configurado, así que no se envía nada hasta que lo haya. El cambio se escribe en el archivo de configuración.",
-  "Needs confirmation. Drafts are sent to {model}.": "Requiere confirmación. Los borradores se envían a {model}.",
   "from the environment": "del entorno",
   "from the config file": "del archivo de configuración",
   default: "por defecto",

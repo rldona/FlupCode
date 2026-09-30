@@ -251,14 +251,22 @@ const openSettings = async (page: Page, section: string) => {
   return dialog
 }
 
-// ── FH-074: the kill switch ────────────────────────────────────────────────────────────────────
+// ── FH-074 / AH-E01: the level is the kill switch ─────────────────────────────────────────────
 
-test("the kill switch turns the harness off and never promises to stop loading learned skills", async ({ page }) => {
+/** The acting capabilities: a server that resolved the adaptive token announces them. */
+const ACTING = ["adaptive-config", "adaptive-relevance", "adaptive-guardrails"]
+
+const levels = (dialog: ReturnType<Page["getByRole"]>) => dialog.getByRole("group", { name: "Level" })
+
+test("the level Off is the kill switch, and it never promises to stop loading learned skills", async ({ page }) => {
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
-    view: view({ source: { enabled: "block" } }),
+    view: view({ source: { enabled: "block" }, effective: { ...view().effective, shadow: true } }),
     patchResponse: () => {
-      const off = view({ effective: { ...view().effective, enabled: false } })
+      const off = view({
+        source: { enabled: "block" },
+        effective: { ...view().effective, shadow: true, enabled: false },
+      })
       return { json: { data: off, warnings: ["skills-still-load"] }, nextView: off }
     },
   })
@@ -266,118 +274,209 @@ test("the kill switch turns the harness off and never promises to stop loading l
   const dialog = await openSettings(page, "Adaptive")
 
   // The honest copy is there before anything is touched: learned skills keep loading.
-  await expect(dialog.getByText("Learned skills still load from disk.").first()).toBeVisible()
+  await expect(dialog.getByText(/skills already learned still load/)).toBeVisible()
+  await expect(levels(dialog).getByRole("button", { name: "Observe" })).toHaveAttribute("aria-pressed", "true")
+  await expect(dialog.getByText("Active · observing, nothing is changed")).toBeVisible()
 
-  const master = dialog.getByRole("switch", { name: "Adaptive decisions" })
-  await expect(master).toHaveAttribute("aria-checked", "true")
-  await expect(dialog.getByText(/Effective value:.*On/)).toBeVisible()
-
-  // Turning it off is the kill switch action, and it travels as a plain partial patch.
-  await master.click()
+  // Off writes only the master switch, as one plain patch: every child keeps its value.
+  await levels(dialog).getByRole("button", { name: "Off" }).click()
   await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { enabled: false }, confirm: false })
 
-  // What the server answers is what is shown, including the reminder about learned skills.
-  await expect(master).toHaveAttribute("aria-checked", "false")
-  await expect(dialog.getByText(/Effective value:.*Off/)).toBeVisible()
-  await expect(dialog.getByText("Learned skills still load from disk.").first()).toBeVisible()
+  // What the server answers is what is shown: the level, each card's reason, the learned skills note.
+  await expect(levels(dialog).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true")
+  await expect(dialog.getByText("Inactive: the level is Off.")).toBeVisible()
+  await expect(dialog.getByText("Learned skills still load from disk.")).toBeVisible()
+  await dialog.locator("summary").filter({ hasText: "Advanced" }).click()
+  await expect(dialog.getByRole("switch", { name: "Master switch" })).toHaveAttribute("aria-checked", "false")
+  await expect(dialog.getByText(/Effective value:.*Off.*from the config file/)).toBeVisible()
+  expect(calls.patches).toHaveLength(1)
 })
 
-// ── FH-070: settings, provenance and warnings ─────────────────────────────────────────────────
-
-test("the switches show the effective value and where it comes from, and a write travels as a patch", async ({
-  page,
-}) => {
+test("switches that match no preset read as Custom, and each level travels as one nested patch", async ({ page }) => {
+  const observe = view({ effective: { ...view().effective, shadow: true } })
   const calls = await openApp(page, {
-    capabilities: ["adaptive-config"],
-    view: view({ source: { enabled: "block", "context.enabled": "block", shadow: "default" } }),
-    patchResponse: () => ({
-      json: { data: view({ source: { enabled: "block" } }), warnings: ["evaluation-gated"] },
-    }),
+    capabilities: ACTING,
+    patchResponse: () => ({ json: { data: observe, warnings: [] }, nextView: observe }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  // Effective value and provenance, not the raw block.
-  await expect(dialog.getByText(/Effective value:.*On.*from the config file/)).toBeVisible()
-  await expect(dialog.getByRole("switch", { name: "Shadow" })).toHaveAttribute("aria-checked", "false")
-  await expect(dialog.getByRole("switch", { name: "Context selection" })).toHaveAttribute("aria-checked", "true")
+  // Shadow off with context on is no preset: the level is derived as Custom.
+  await expect(levels(dialog).getByRole("button", { name: "Custom" })).toHaveAttribute("aria-pressed", "true")
+  await expect(dialog.getByText("Your own mix of the capabilities below.")).toBeVisible()
 
-  // A switch without a guard or a confirmation writes the nested leaf it names.
-  await dialog.getByRole("switch", { name: "Apply the context plan" }).click()
-  await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { context: { apply: true } }, confirm: false })
+  await levels(dialog).getByRole("button", { name: "Observe" }).click()
+  await expect
+    .poll(() => calls.patches.at(0)?.body)
+    .toEqual({
+      patch: {
+        enabled: true,
+        shadow: true,
+        context: { enabled: true, apply: false },
+        relevance: { enabled: false },
+        guardrails: { enabled: false },
+      },
+      confirm: false,
+    })
+  await expect(levels(dialog).getByRole("button", { name: "Observe" })).toHaveAttribute("aria-pressed", "true")
 
-  // The warning the server travels beside the write is shown, not swallowed.
-  await expect(
-    dialog.getByText("Applying is configured, but promotion waits for the offline evaluation."),
-  ).toBeVisible()
+  await levels(dialog).getByRole("button", { name: "Assist" }).click()
+  await expect
+    .poll(() => calls.patches.at(1)?.body)
+    .toEqual({
+      patch: {
+        enabled: true,
+        shadow: true,
+        context: { enabled: true, apply: false },
+        relevance: { enabled: true },
+        guardrails: { enabled: true },
+      },
+      confirm: false,
+    })
+  // A level never touches learning, the predictive model or retention, so no dialog ever opens.
+  await expect(page.getByRole("dialog", { name: "Confirm change" })).toHaveCount(0)
 })
 
-// ── Guardas de egress, relevance y retención ──────────────────────────────────────────────────
-
-test("relevance is not offered without the acting token, and says why", async ({ page }) => {
+test("without the acting token Assist and the acting cards are not offered, and say why", async ({ page }) => {
   const calls = await openApp(page, { capabilities: ["adaptive-config"] })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  const relevance = dialog.getByRole("switch", { name: "Relevance", exact: true })
-  await expect(relevance).toBeDisabled()
-  // Relevance and loop warnings share the guard, so each row carries the same reason.
-  await expect(dialog.getByText("This switch needs the acting token, which this server does not have.")).toHaveCount(2)
-  await expect(dialog.getByRole("switch", { name: "Loop warnings" })).toBeDisabled()
+  await expect(levels(dialog).getByRole("button", { name: "Assist" })).toBeDisabled()
+  await expect(
+    dialog.getByText("Assist is not available: This server was started without permission to act on sessions."),
+  ).toBeVisible()
+  await expect(
+    dialog.getByRole("group", { name: "Skill suggestion" }).getByRole("button", { name: "Suggesting" }),
+  ).toBeDisabled()
+  await expect(
+    dialog.getByRole("group", { name: "Loop warnings" }).getByRole("button", { name: "Warning" }),
+  ).toBeDisabled()
   expect(calls.patches).toHaveLength(0)
 })
 
-test("loop warnings are drawn from the server's list and toggle through a patch", async ({ page }) => {
+// ── AH-E01: the cards are drawn from the server's list ────────────────────────────────────────
+
+test("loop warnings are a card from the server's list, and a choice travels as a patch", async ({ page }) => {
   const on = view({ effective: { ...view().effective, guardrails: { enabled: true } } })
   const calls = await openApp(page, {
-    capabilities: ["adaptive-config", "adaptive-guardrails"],
+    capabilities: ACTING,
     patchResponse: () => ({ json: { data: on, warnings: [] }, nextView: on }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
   await expect(
-    dialog.getByText("Warns when the agent repeats the same tool call; never pauses the turn."),
+    dialog.getByText("Warns you when the agent repeats the same step. It never pauses the turn."),
   ).toBeVisible()
-  const guardrails = dialog.getByRole("switch", { name: "Loop warnings" })
-  await expect(guardrails).toHaveAttribute("aria-checked", "false")
-  await guardrails.click()
+  const loops = dialog.getByRole("group", { name: "Loop warnings" })
+  await expect(loops.getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true")
+  await loops.getByRole("button", { name: "Warning" }).click()
   await expect
     .poll(() => calls.patches.at(0)?.body)
     .toEqual({ patch: { guardrails: { enabled: true } }, confirm: false })
-  await expect(guardrails).toHaveAttribute("aria-checked", "true")
+  await expect(loops.getByRole("button", { name: "Warning" })).toHaveAttribute("aria-pressed", "true")
+  await expect(dialog.getByText("Active · watching for repeated steps")).toBeVisible()
   expect(calls.patches).toHaveLength(1)
 })
 
-test("a leaf the server does not list is not drawn", async ({ page }) => {
+test("a leaf the server does not list is not drawn, and a newly listed switch reaches Advanced", async ({ page }) => {
   await openApp(page, {
-    capabilities: ["adaptive-config", "adaptive-guardrails"],
+    capabilities: ACTING,
     view: view({
-      writable: WRITABLE.filter((field) => field.path !== "guardrails.enabled" && field.path !== "retention.enabled"),
+      writable: [
+        ...WRITABLE.filter((field) => field.path !== "guardrails.enabled" && field.path !== "retention.enabled"),
+        { path: "toolTrim.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+      ],
     }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await expect(dialog.getByRole("switch", { name: "Shadow" })).toBeVisible()
-  await expect(dialog.getByRole("switch", { name: "Loop warnings" })).toHaveCount(0)
-  await expect(dialog.getByRole("switch", { name: "Retention" })).toHaveCount(0)
+  await expect(dialog.getByRole("group", { name: "Context" })).toBeVisible()
+  await expect(dialog.getByRole("group", { name: "Loop warnings" })).toHaveCount(0)
+  await dialog.locator("summary").filter({ hasText: "Data & budget" }).click()
+  await expect(dialog.getByRole("switch", { name: "Clean up old history" })).toHaveCount(0)
+  await dialog.locator("summary").filter({ hasText: "Advanced" }).click()
+  await expect(dialog.getByRole("switch", { name: "Record decisions in the background" })).toBeVisible()
+  await expect(dialog.getByRole("switch", { name: "Shorten long tool outputs (recoverable)" })).toBeVisible()
 })
 
-test("with the master off, its children say they are inactive, and Jev says the key is missing", async ({ page }) => {
+test("every inert card says why: the level, the runtime, missing permission, a missing key", async ({ page }) => {
+  const base = view().effective
   await openApp(page, {
-    capabilities: ["adaptive-config"],
-    view: view({ effective: { ...view().effective, enabled: false, shadow: true } }),
+    capabilities: ACTING,
+    view: view({
+      runtime: { runtime: "v2", degraded: false, checkedAt: now },
+      effective: {
+        ...base,
+        relevance: { enabled: true },
+        learning: { enabled: true, maxInputChars: 8000 },
+        jev: { enabled: true },
+      },
+    }),
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await expect(dialog.getByRole("switch", { name: "Shadow" })).toHaveAttribute("aria-checked", "true")
-  await expect(dialog.getByText("Inactive: the master switch is off.").first()).toBeVisible()
-  await expect(dialog.getByText("Key missing: decisions fall back to built-in rules.")).toBeVisible()
+  await expect(dialog.getByText("Inactive: this engine's newer session runtime cannot run it yet.")).toBeVisible()
+  await expect(
+    dialog.getByText("Inactive: it needs your permission to share data with the model provider."),
+  ).toBeVisible()
+  // The predictive model's state is on its collapsed summary, so it is read without opening it.
+  await expect(dialog.getByText("Active · waiting for the model key").first()).toBeVisible()
+  // No jargon at the first level: nothing the reader has to decode before opening a section.
+  const firstLevel = (
+    await dialog.locator(".fc-adaptive-level, .fc-adaptive-card, .fc-routines-notice").allInnerTexts()
+  ).join("\n")
+  expect(firstLevel).not.toMatch(/Jev|shadow|egress|token|FLUPCODE|[a-z]+\.[a-z]+\b/i)
 })
 
-test("retention and Jev ask for a confirmation before the write leaves", async ({ page }) => {
+test("the value gate's pause is shown as the predictive model's state", async ({ page }) => {
+  await openApp(page, {
+    capabilities: ["adaptive-config", "adaptive-voi"],
+    view: view({
+      env: { adaptiveDisabled: false, typesafeKeyPresent: true },
+      effective: { ...view().effective, jev: { enabled: true } },
+    }),
+  })
+  const gate = (kind: string) => ({
+    kind,
+    modelID: "jev",
+    state: "paused",
+    samples: 40,
+    disagreements: 1,
+    disagreementRate: 0.02,
+    uplift: 0,
+    valueUsd: 0,
+    costUsd: 0.0021,
+    latencySamples: 0,
+  })
+  await page.route("http://127.0.0.1:9097/harness/adaptive/voi", (route) =>
+    route.fulfill({
+      json: {
+        data: {
+          enabled: true,
+          window: 100,
+          minSamples: 20,
+          epsilon: 0.01,
+          explorationRate: 0.1,
+          kinds: [gate("completion")],
+        },
+      },
+    }),
+  )
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+
+  await expect(dialog.getByText("Paused: it is not adding enough value").first()).toBeVisible()
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+  await expect(dialog.getByText("Paused: it does not help here")).toBeVisible()
+  await dialog.locator("summary").filter({ hasText: "Data & budget" }).click()
+  await expect(dialog.getByText("Predictive model cost over its recent decisions: $0.0021 (USD).")).toBeVisible()
+})
+
+test("retention and the predictive model ask for a confirmation before the write leaves", async ({ page }) => {
   const calls = await openApp(page, {
     capabilities: ["adaptive-config"],
     view: view({
@@ -390,24 +489,43 @@ test("retention and Jev ask for a confirmation before the write leaves", async (
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await dialog.getByRole("switch", { name: "Retention" }).click()
+  await dialog.locator("summary").filter({ hasText: "Data & budget" }).click()
+  await dialog.getByRole("switch", { name: "Clean up old history" }).click()
   const confirm = page.getByRole("dialog", { name: "Confirm change" })
   await expect(confirm).toBeVisible()
+  await expect(confirm).toContainText("Learned skills are never removed.")
   // Nothing is written until the dialog is confirmed.
   expect(calls.patches).toHaveLength(0)
   await confirm.getByRole("button", { name: "Write it" }).click()
-  await expect
-    .poll(() => calls.patches.at(0)?.body)
-    .toEqual({
-      patch: { retention: { enabled: true } },
-      confirm: true,
-    })
+  await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { retention: { enabled: true } }, confirm: true })
 
-  // Jev carries the same confirmation, and its egress guard is met by Jev's consent already there.
-  await dialog.getByRole("switch", { name: "Jev", exact: true }).click()
+  // The predictive model carries the same confirmation, and its guard is met by the consent already there.
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
+  await dialog.getByRole("switch", { name: "Use the predictive model" }).click()
   await expect(page.getByRole("dialog", { name: "Confirm change" })).toBeVisible()
   await page.getByRole("dialog", { name: "Confirm change" }).getByRole("button", { name: "Write it" }).click()
   await expect.poll(() => calls.patches.at(1)?.body).toEqual({ patch: { jev: { enabled: true } }, confirm: true })
+})
+
+test("learning asks first, since its drafts leave the machine", async ({ page }) => {
+  const calls = await openApp(page, {
+    capabilities: ["adaptive-config"],
+    view: view({
+      effective: {
+        ...view().effective,
+        egress: { providers: { jev: { enabled: false, projects: ["/work/demo"], kinds: { skillReflection: true } } } },
+      },
+    }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+
+  await dialog.getByRole("group", { name: "Learning" }).getByRole("button", { name: "Proposing" }).click()
+  const confirm = page.getByRole("dialog", { name: "Confirm change" })
+  await expect(confirm).toContainText("objective and evidence")
+  expect(calls.patches).toHaveLength(0)
+  await confirm.getByRole("button", { name: "Write it" }).click()
+  await expect.poll(() => calls.patches.at(0)?.body).toEqual({ patch: { learning: { enabled: true } }, confirm: true })
 })
 
 // ── AH-C03: consent per provider ─────────────────────────────────────────────────────────────
@@ -430,12 +548,13 @@ test("each remote provider has its own consent row, and a write names only that 
   })
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
+  await dialog.locator("summary").filter({ hasText: "Predictive model" }).click()
 
-  await expect(dialog.getByText("Egress consent: jev")).toBeVisible()
-  await expect(dialog.getByText("Egress consent: small-llm")).toBeVisible()
-  // small-llm has no project and no kind yet, so its consent cannot be offered; Jev's can.
+  await expect(dialog.getByText("Sharing with jev")).toBeVisible()
+  await expect(dialog.getByText("Sharing with small-llm")).toBeVisible()
+  // small-llm has no project and no decision yet, so its consent cannot be offered; Jev's can.
   await expect(dialog.getByRole("switch", { name: "Send data to small-llm" })).toBeDisabled()
-  await expect(dialog.getByRole("switch", { name: "Jev", exact: true })).toBeDisabled()
+  await expect(dialog.getByRole("switch", { name: "Use the predictive model" })).toBeDisabled()
 
   // Consenting to Jev asks first, the dialog names Jev only, and the patch touches Jev only.
   await dialog.getByRole("switch", { name: "Send data to jev" }).click()
@@ -447,17 +566,19 @@ test("each remote provider has its own consent row, and a write names only that 
     .poll(() => calls.patches.at(0)?.body)
     .toEqual({ patch: { egress: { providers: { jev: { enabled: true } } } }, confirm: true })
 
-  // A kind for small-llm widens small-llm's consent alone.
-  await dialog.getByRole("switch", { name: "skillRelevance for small-llm" }).click()
+  // A decision for small-llm widens small-llm's consent alone.
+  await dialog.getByRole("switch", { name: "Which skills fit for small-llm" }).click()
   await page.getByRole("dialog", { name: "Confirm change" }).getByRole("button", { name: "Write it" }).click()
   await expect
     .poll(() => calls.patches.at(1)?.body)
     .toEqual({ patch: { egress: { providers: { "small-llm": { kinds: { skillRelevance: true } } } } }, confirm: true })
 })
 
-test("FLUPCODE_ADAPTIVE_DISABLED=1 disables the master switch and blocks the write", async ({ page }) => {
+test("FLUPCODE_ADAPTIVE_DISABLED=1 holds the level at Off and blocks every write that would turn it on", async ({
+  page,
+}) => {
   const calls = await openApp(page, {
-    capabilities: ["adaptive-config"],
+    capabilities: ACTING,
     view: view({
       source: { enabled: "env" },
       env: { adaptiveDisabled: true, typesafeKeyPresent: false },
@@ -467,8 +588,14 @@ test("FLUPCODE_ADAPTIVE_DISABLED=1 disables the master switch and blocks the wri
   await page.goto("/")
   const dialog = await openSettings(page, "Adaptive")
 
-  await expect(dialog.getByRole("switch", { name: "Adaptive decisions" })).toBeDisabled()
-  await expect(dialog.getByText("Disabled by FLUPCODE_ADAPTIVE_DISABLED=1")).toBeVisible()
+  await expect(levels(dialog).getByRole("button", { name: "Off" })).toHaveAttribute("aria-pressed", "true")
+  await expect(levels(dialog).getByRole("button", { name: "Observe" })).toBeDisabled()
+  await expect(levels(dialog).getByRole("button", { name: "Custom" })).toBeDisabled()
+  await expect(dialog.getByText("Set by the environment: the level stays Off.")).toBeVisible()
+  await expect(dialog.getByText("Inactive: set to Off by the environment.")).toBeVisible()
+  await dialog.locator("summary").filter({ hasText: "Advanced" }).click()
+  await expect(dialog.getByRole("switch", { name: "Master switch" })).toBeDisabled()
+  await expect(dialog.getByText("Set by the environment (FLUPCODE_ADAPTIVE_DISABLED=1).")).toBeVisible()
   expect(calls.patches).toHaveLength(0)
 })
 

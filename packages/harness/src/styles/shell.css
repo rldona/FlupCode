@@ -7863,6 +7863,134 @@ button.fc-status {
   box-shadow: 0 0 0 1px var(--fc-danger);
 }
 
+/* AH-E01: the adaptive level and its capability cards, each a titled block with a segmented choice. */
+.fc-adaptive-level,
+.fc-adaptive-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  margin-block-start: var(--fc-space-3);
+  padding: var(--fc-space-3) var(--fc-space-4);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  font-size: 13px;
+}
+
+.fc-adaptive-level {
+  background: color-mix(in srgb, var(--fc-accent) 8%, transparent);
+}
+
+.fc-adaptive-level p,
+.fc-adaptive-card p {
+  margin: 0;
+}
+
+.fc-adaptive-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--fc-space-3);
+}
+
+.fc-adaptive-card-title {
+  margin: 0;
+  font-size: var(--fc-text-md);
+  font-weight: 600;
+}
+
+.fc-adaptive-segments {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-sm);
+}
+
+.fc-adaptive-segment {
+  min-height: 32px;
+  padding: 0 var(--fc-space-3);
+  border: 0;
+  border-radius: calc(var(--fc-radius-sm) - 2px);
+  background: transparent;
+  color: var(--fc-text);
+  font: inherit;
+  cursor: pointer;
+  transition: background var(--fc-motion-fast);
+}
+
+.fc-adaptive-segment:hover:not(:disabled) {
+  background: var(--fc-bg-subtle);
+}
+
+.fc-adaptive-segment[aria-pressed="true"] {
+  background: var(--fc-accent);
+  color: var(--fc-on-accent);
+  font-weight: 500;
+}
+
+.fc-adaptive-segment:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.fc-adaptive-segment:focus-visible {
+  outline: 2px solid var(--fc-focus-border);
+  outline-offset: 2px;
+}
+
+/* The derived state: the words carry it; the colour only repeats them. */
+.fc-adaptive-status {
+  font-weight: 500;
+}
+
+.fc-adaptive-status[data-tone="active"] {
+  color: var(--fc-success);
+}
+
+.fc-adaptive-status[data-tone="waiting"],
+.fc-adaptive-status[data-tone="inactive"] {
+  color: var(--fc-warning);
+}
+
+.fc-adaptive-status[data-tone="off"] {
+  color: var(--fc-text-muted);
+}
+
+.fc-adaptive-details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-2);
+  margin-block-start: var(--fc-space-3);
+  padding: var(--fc-space-2) var(--fc-space-4);
+  border: 1px solid var(--fc-border);
+  border-radius: var(--fc-radius-md);
+  font-size: 13px;
+}
+
+.fc-adaptive-details > summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--fc-space-2);
+  min-height: 32px;
+  align-content: center;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fc-adaptive-details p,
+.fc-adaptive-more p {
+  margin: 0;
+}
+
+.fc-adaptive-more > summary {
+  cursor: pointer;
+  color: var(--fc-text-muted);
+  font-size: 12px;
+}
+
 /* Hooks the cockpit uses (and E2E selects on); they add no layout of their own. */
 .fc-context-plan,
 .fc-skill-learned {

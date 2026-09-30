@@ -1,6 +1,19 @@
 import { describe, expect, test } from "bun:test"
 import {
+  CAPABILITIES,
+  advancedFields,
+  capabilityChoice,
+  capabilityChoices,
+  capabilityStatus,
+  choiceProblem,
   confirmationMessage,
+  currentLevel,
+  leafOn,
+  levelLeaves,
+  levelProblem,
+  patchOf,
+  predictiveCost,
+  predictiveStatus,
   feedbackFor,
   fieldProblem,
   inactiveByMaster,
@@ -16,11 +29,12 @@ import {
 } from "./AdaptiveSettingsPanel"
 import { AdaptiveConfigError } from "../client"
 import { setLocale, t } from "../i18n"
-import type { AdaptiveConfigView, AdaptiveWritableField } from "../types"
+import type { AdaptiveConfigView, AdaptiveWritableField, ValueGateSnapshot, ValueGateStatus } from "../types"
 
 const WRITABLE: AdaptiveWritableField[] = [
   { path: "enabled", type: "boolean", confirmation: "none", guard: "env-disabled" },
   { path: "shadow", type: "boolean", confirmation: "none", guard: "none" },
+  { path: "context.enabled", type: "boolean", confirmation: "none", guard: "none" },
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
   {
     path: "learning.enabled",
@@ -103,7 +117,7 @@ describe("the patch a switch writes", () => {
 describe("which fields are offered", () => {
   test("the master switch is off and disabled when the environment forbids it", () => {
     expect(fieldProblem(writableField(view({}, true), "enabled")!, view({}, true), [])).toBe("env-disabled")
-    expect(problemKey("env-disabled")).toBe("Disabled by FLUPCODE_ADAPTIVE_DISABLED=1")
+    expect(problemKey("env-disabled")).toBe("Turned off by the environment.")
   })
 
   test("relevance is not offered without the acting token capability", () => {
@@ -146,7 +160,7 @@ describe("which fields are offered", () => {
     const ready = consenting({ "small-llm": { projects: ["/p"], kinds: { completion: true } } })
     expect(fieldProblem(field, ready, [], path)).toBeUndefined()
     expect(problemKey("egress-allowlist")).toBe(
-      "Enabling this needs the provider's egress consent, with a project and a kind, first.",
+      "First allow sharing data with the model provider, for a project and a decision.",
     )
   })
 
@@ -160,7 +174,7 @@ describe("which fields are offered", () => {
     expect(fieldProblem(field, view(), ["adaptive-config"])).toBe("no-adaptive-token")
     expect(fieldProblem(field, view(), ["adaptive-relevance"])).toBeUndefined()
     expect(fieldProblem(field, view(), ["adaptive-guardrails"])).toBeUndefined()
-    expect(problemKey("no-adaptive-token")).toBe("This switch needs the acting token, which this server does not have.")
+    expect(problemKey("no-adaptive-token")).toBe("This server was started without permission to act on sessions.")
   })
 
   test("a row is drawn only from the server's list, so an older server hides loop warnings", () => {
@@ -219,8 +233,11 @@ describe("which writes need confirming", () => {
     const withoutModel = confirmationMessage("learning.enabled", true, { ...view(), learningDraft: { model: null } })
     expect(withoutModel).toContain("small model's provider")
     expect(withoutModel).toContain("nothing is sent until one is")
-    expect(confirmationMessage("retention.enabled", true, view())).toBe(
-      "Writing to retention.enabled needs confirmation. The change is written to the config file.",
+    expect(confirmationMessage("retention.enabled", true, view())).toContain("Learned skills are never removed.")
+    expect(confirmationMessage("jev.enabled", true, view())).toContain("redacted, size-limited decision inputs")
+    // A field without its own words still says which one it is, never a blank dialog.
+    expect(confirmationMessage("something.else", true, view())).toBe(
+      "Writing to something.else needs confirmation. The change is written to the config file.",
     )
   })
 
@@ -239,7 +256,7 @@ describe("the server's answer said in the reader's words", () => {
   test("a known code becomes its message, with what is missing", () => {
     expect(feedbackFor("guard:egress-allowlist-required", ["egress.projects"]).missing).toEqual(["egress.projects"])
     expect(feedbackFor("guard:no-adaptive-token").message).toBe(
-      "This switch needs the acting token, which this server does not have.",
+      "This server was started without permission to act on sessions.",
     )
   })
 
@@ -364,5 +381,299 @@ describe("the runtime alert (AH-D05)", () => {
     } finally {
       setLocale("en")
     }
+  })
+})
+
+// ── AH-E01: levels, capability cards and their derived state ──────────────────────────────────
+
+const ACTING = ["adaptive-config", "adaptive-relevance", "adaptive-guardrails"]
+const card = (id: string) => CAPABILITIES.find((capability) => capability.id === id)!
+const observing = () => view({ shadow: true })
+const assisting = () => view({ shadow: true, relevance: { enabled: true }, guardrails: { enabled: true } })
+const gate = (kind: string, state: ValueGateStatus["state"], costUsd = 0): ValueGateStatus => ({
+  kind,
+  modelID: "jev",
+  state,
+  samples: 10,
+  disagreements: 1,
+  disagreementRate: 0.1,
+  uplift: 0,
+  valueUsd: 0,
+  costUsd,
+  latencySamples: 0,
+})
+const snapshot = (kinds: ValueGateStatus[]): ValueGateSnapshot => ({
+  enabled: true,
+  window: 100,
+  minSamples: 10,
+  epsilon: 0.01,
+  explorationRate: 0.1,
+  kinds,
+})
+
+describe("one nested patch for several leaves", () => {
+  test("siblings share their parent, and the order of leaves does not matter", () => {
+    expect(patchOf({ enabled: true, "context.enabled": true, "context.apply": false })).toEqual({
+      enabled: true,
+      context: { enabled: true, apply: false },
+    })
+    expect(patchOf({ "context.apply": false, enabled: true, "context.enabled": true })).toEqual(
+      patchOf({ enabled: true, "context.enabled": true, "context.apply": false }),
+    )
+  })
+})
+
+describe("the level the switches are at", () => {
+  test("the master off is always Off, whatever the children say", () => {
+    expect(currentLevel(view({ enabled: false, relevance: { enabled: true } }))).toBe("off")
+  })
+
+  test("a preset is read back when every listed leaf matches it", () => {
+    expect(currentLevel(observing())).toBe("observe")
+    expect(currentLevel(assisting())).toBe("assist")
+  })
+
+  test("anything else is Custom", () => {
+    expect(currentLevel(view({ shadow: true, relevance: { enabled: true } }))).toBe("custom")
+    expect(currentLevel(view({ shadow: true, context: { enabled: true, apply: true } }))).toBe("custom")
+  })
+
+  test("learning, the predictive model and retention are the reader's own opt-in, outside every level", () => {
+    expect(currentLevel(view({ shadow: true, learning: { enabled: true, maxInputChars: 1 } }))).toBe("observe")
+    for (const level of ["off", "observe", "assist", "custom"] as const) {
+      const leaves = Object.keys(levelLeaves(view(), level))
+      expect(leaves).not.toContain("learning.enabled")
+      expect(leaves).not.toContain("jev.enabled")
+      expect(leaves).not.toContain("retention.enabled")
+    }
+  })
+
+  test("each level writes exactly its mapping, as one patch that never needs a confirmation", () => {
+    expect(levelLeaves(view(), "off")).toEqual({ enabled: false })
+    expect(levelLeaves(view(), "custom")).toEqual({ enabled: true })
+    expect(levelLeaves(view(), "observe")).toEqual({
+      enabled: true,
+      shadow: true,
+      "context.enabled": true,
+      "context.apply": false,
+      "relevance.enabled": false,
+      "guardrails.enabled": false,
+    })
+    expect(levelLeaves(view(), "assist")).toEqual({
+      enabled: true,
+      shadow: true,
+      "context.enabled": true,
+      "context.apply": false,
+      "relevance.enabled": true,
+      "guardrails.enabled": true,
+    })
+    for (const level of ["off", "observe", "assist", "custom"] as const)
+      for (const [path, value] of Object.entries(levelLeaves(view(), level)))
+        expect(needsConfirmation(path, value, view())).toBe(false)
+  })
+
+  test("a leaf the server does not list is neither written nor compared", () => {
+    const older = {
+      ...view({ shadow: true }),
+      writable: WRITABLE.filter((field) => field.path !== "guardrails.enabled"),
+    }
+    expect(levelLeaves(older, "assist")).not.toHaveProperty("guardrails.enabled")
+    expect(currentLevel({ ...older, effective: { ...older.effective, relevance: { enabled: true } } })).toBe("assist")
+  })
+
+  test("Assist is not offered without the acting token; Off always is", () => {
+    expect(levelProblem(view(), ["adaptive-config"], "assist")).toBe("no-adaptive-token")
+    expect(levelProblem(view(), ACTING, "assist")).toBeUndefined()
+    expect(levelProblem(view(), ["adaptive-config"], "observe")).toBeUndefined()
+    expect(levelProblem(view(), ["adaptive-config"], "off")).toBeUndefined()
+  })
+
+  test("with the environment's kill switch only Off is offered", () => {
+    const forced = view({ enabled: false }, true)
+    expect(levelProblem(forced, ACTING, "observe")).toBe("env-disabled")
+    expect(levelProblem(forced, ACTING, "custom")).toBe("env-disabled")
+    expect(levelProblem(forced, ACTING, "off")).toBeUndefined()
+  })
+})
+
+describe("the capability cards", () => {
+  test("a card's choices come from the server's list", () => {
+    expect(capabilityChoices(view(), card("context")).map((choice) => choice.id)).toEqual([
+      "off",
+      "observing",
+      "acting",
+    ])
+    const noApply = { ...view(), writable: WRITABLE.filter((field) => field.path !== "context.apply") }
+    const choices = capabilityChoices(noApply, card("context"))
+    expect(choices.map((choice) => choice.id)).toEqual(["off", "observing"])
+    // A leaf the choice only turns off is left out of the patch instead of being refused.
+    expect(choices[0]!.leaves).toEqual({ "context.enabled": false })
+  })
+
+  test("the choice is read back from the switches", () => {
+    expect(capabilityChoice(view(), card("context"))).toBe("observing")
+    expect(capabilityChoice(view({ context: { enabled: true, apply: true } }), card("context"))).toBe("acting")
+    // A plan that would apply while planning is off is still off.
+    expect(capabilityChoice(view({ context: { enabled: false, apply: true } }), card("context"))).toBe("off")
+    expect(capabilityChoice(view({ guardrails: { enabled: true } }), card("loops"))).toBe("warning")
+    expect(capabilityChoice(view(), card("suggestions"))).toBe("off")
+  })
+
+  test("a choice whose guard fails says why", () => {
+    const suggesting = capabilityChoices(view(), card("suggestions"))[1]!
+    expect(choiceProblem(view(), ["adaptive-config"], suggesting)).toBe("no-adaptive-token")
+    expect(choiceProblem(view(), ACTING, suggesting)).toBeUndefined()
+    const proposing = capabilityChoices(view(), card("learning"))[1]!
+    expect(choiceProblem(view(), ACTING, proposing)).toBe("egress-allowlist")
+    // Turning something off is never guarded.
+    expect(choiceProblem(view(), [], capabilityChoices(view(), card("suggestions"))[0]!)).toBeUndefined()
+  })
+
+  test("Advanced draws every other listed switch, and never a replay-only one", () => {
+    const writable: AdaptiveWritableField[] = [
+      ...WRITABLE,
+      { path: "toolTrim.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+      { path: "compaction.anchors", type: "boolean", confirmation: "none", guard: "none" },
+      { path: "selection.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
+      { path: "selection.coldGapMs", type: "number", confirmation: "none", guard: "none" },
+    ]
+    expect(advancedFields({ ...view(), writable }).map((field) => field.path)).toEqual([
+      "shadow",
+      "toolTrim.enabled",
+      "compaction.anchors",
+    ])
+  })
+})
+
+describe("a card's effective state", () => {
+  const status = (current: AdaptiveConfigView, id: string, capabilities = ACTING) =>
+    capabilityStatus(current, capabilities, card(id))
+
+  test("off is off", () => {
+    expect(status(view(), "suggestions")).toEqual({ tone: "off", key: "Off" })
+  })
+
+  test("on but inert always says why", () => {
+    const on = view({ relevance: { enabled: true } })
+    expect(status({ ...on, effective: { ...on.effective, enabled: false } }, "suggestions").key).toBe(
+      "Inactive: the level is Off.",
+    )
+    expect(status(view({ relevance: { enabled: true }, enabled: false }, true), "suggestions").key).toBe(
+      "Inactive: set to Off by the environment.",
+    )
+    expect(status(on, "suggestions", ["adaptive-config"]).key).toBe(
+      "Inactive: this server was started without permission to act on sessions.",
+    )
+    expect(status({ ...on, runtime: { ...on.runtime, runtime: "v2" } }, "suggestions").key).toBe(
+      "Inactive: this engine's newer session runtime cannot run it yet.",
+    )
+    const learning = view({ learning: { enabled: true, maxInputChars: 1 } })
+    expect(status(learning, "learning")).toEqual({
+      tone: "inactive",
+      key: "Inactive: it needs your permission to share data with the model provider.",
+    })
+  })
+
+  test("the runtime only makes the hook-based capabilities inert", () => {
+    const v2 = view({ guardrails: { enabled: true } })
+    const onV2 = { ...v2, runtime: { ...v2.runtime, runtime: "v2" as const } }
+    expect(status(onV2, "loops").tone).toBe("inactive")
+    expect(status(onV2, "context").tone).toBe("active")
+  })
+
+  test("learning without a model is active but waiting", () => {
+    const ready = consenting({ jev: { projects: ["/p"], kinds: { skillReflection: true } } })
+    const learning = { ...ready, effective: { ...ready.effective, learning: { enabled: true, maxInputChars: 1 } } }
+    expect(status({ ...learning, learningDraft: { model: null } }, "learning")).toEqual({
+      tone: "waiting",
+      key: "Active · waiting for a model to draft skills with",
+    })
+    expect(status({ ...learning, learningDraft: { model: "openai/mini" } }, "learning").tone).toBe("active")
+  })
+
+  test("an acting card says what it does", () => {
+    expect(status(view(), "context").key).toBe("Active · observing, nothing is changed")
+    expect(status(view({ context: { enabled: true, apply: true } }), "context").key).toBe(
+      "Active · trimming what the agent sees",
+    )
+  })
+
+  test("no first-level wording carries jargon or a field path", () => {
+    setLocale("en")
+    const words = [
+      ...CAPABILITIES.flatMap((capability) => [
+        capability.title,
+        capability.description,
+        ...capability.choices.map((choice) => choice.label),
+      ]),
+      status(view({ relevance: { enabled: true } }), "suggestions", ["adaptive-config"]).key,
+      status(view({ learning: { enabled: true, maxInputChars: 1 } }), "learning").key,
+      problemKey("env-disabled"),
+      problemKey("no-adaptive-token"),
+      problemKey("egress-allowlist"),
+    ]
+    for (const word of words) expect(word).not.toMatch(/Jev|shadow|egress|token|FLUPCODE|\w+\.\w+/i)
+  })
+
+  test("every derived state is translated in Spanish", () => {
+    setLocale("es")
+    try {
+      const keys = [
+        status(view(), "context").key,
+        status(view({ relevance: { enabled: true }, enabled: false }), "suggestions").key,
+        status(view({ relevance: { enabled: true } }), "suggestions", ["adaptive-config"]).key,
+        ...CAPABILITIES.flatMap((capability) => [capability.title, capability.description]),
+      ]
+      for (const key of keys) expect(t(key)).not.toBe(key)
+    } finally {
+      setLocale("en")
+    }
+  })
+})
+
+describe("the predictive model's state", () => {
+  test("not configured until it or a provider's consent is on", () => {
+    expect(predictiveStatus(view()).key).toBe("Not configured")
+  })
+
+  test("on without its key is active but waiting", () => {
+    expect(predictiveStatus(view({ jev: { enabled: true } }))).toEqual({
+      tone: "waiting",
+      key: "Active · waiting for the model key",
+    })
+  })
+
+  test("paused for low value when the value gate pauses every decision it serves", () => {
+    const on = { ...view({ jev: { enabled: true } }), env: { adaptiveDisabled: false, typesafeKeyPresent: true } }
+    expect(predictiveStatus(on).key).toBe("Active · in use")
+    expect(predictiveStatus(on, snapshot([gate("completion", "paused"), gate("contextItem", "paused")])).key).toBe(
+      "Paused: it is not adding enough value",
+    )
+    const partly = predictiveStatus(on, snapshot([gate("completion", "paused"), gate("contextItem", "asking")]))
+    expect(t(partly.key, partly.params)).toBe("Active · paused for 1 of 2 decisions, for low value")
+    expect(predictiveStatus(on, { ...snapshot([gate("completion", "paused")]), enabled: false }).key).toBe(
+      "Active · in use",
+    )
+  })
+
+  test("the level off makes it inactive with that reason", () => {
+    expect(predictiveStatus(view({ jev: { enabled: true }, enabled: false })).key).toBe("Inactive: the level is Off.")
+  })
+
+  test("its cost is the value gate's, rounded for reading", () => {
+    expect(
+      predictiveCost(snapshot([gate("completion", "asking", 0.0012), gate("contextItem", "asking", 0.0009)])),
+    ).toBe("0.0021")
+    expect(predictiveCost(snapshot([gate("completion", "asking", 1.234)]))).toBe("1.23")
+    expect(predictiveCost(undefined)).toBe("0.0000")
+  })
+})
+
+describe("reading a leaf", () => {
+  test("a nested boolean, a consent and a missing leaf", () => {
+    expect(leafOn(view(), "context.enabled")).toBe(true)
+    expect(leafOn(view(), "context.apply")).toBe(false)
+    expect(leafOn(consenting({ jev: { enabled: true } }), "egress.providers.jev.enabled")).toBe(true)
+    expect(leafOn(view(), "toolTrim.enabled")).toBe(false)
   })
 })

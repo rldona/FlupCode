@@ -8,9 +8,14 @@ import type {
   AdaptiveProvenance,
   AdaptiveProviderConsent,
   AdaptiveWritableField,
+  ValueGateSnapshot,
+  ValueGateState,
 } from "../types"
 import { Toggle } from "./Toggle"
 import { ConfirmDialog } from "./ConfirmDialog"
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value)
 
 /** The decision kinds E8 shows when editing a provider's consent: the four the server ships. */
 export const ADAPTIVE_KINDS = ["completion", "skillRelevance", "contextItem", "skillReflection"] as const
@@ -93,9 +98,9 @@ export function fieldProblem(
 
 /** The reason a guard shows, as an i18n key; undefined when the guard is satisfied. */
 export function problemKey(problem: AdaptiveProblem): string {
-  if (problem === "env-disabled") return "Disabled by FLUPCODE_ADAPTIVE_DISABLED=1"
-  if (problem === "no-adaptive-token") return "This switch needs the acting token, which this server does not have."
-  return "Enabling this needs the provider's egress consent, with a project and a kind, first."
+  if (problem === "env-disabled") return "Turned off by the environment."
+  if (problem === "no-adaptive-token") return "This server was started without permission to act on sessions."
+  return "First allow sharing data with the model provider, for a project and a decision."
 }
 
 /** The switches the master `enabled` stops on the server; retention sweeps run regardless of it. */
@@ -115,6 +120,323 @@ const MASTER_GATED = new Set([
  */
 export function inactiveByMaster(view: AdaptiveConfigView, path: string): boolean {
   return !view.effective.enabled && MASTER_GATED.has(path)
+}
+
+/** Whether a boolean leaf is on in the effective config, read by its dotted path. */
+export function leafOn(view: AdaptiveConfigView, path: string): boolean {
+  const consent = consentPath(path)
+  if (consent) return consent.leaf === "enabled" && consentOf(view, consent.provider)?.enabled === true
+  const found = path
+    .split(".")
+    .reduce<unknown>(
+      (node, key) => (isRecord(node) && Object.hasOwn(node, key) ? node[key] : undefined),
+      view.effective,
+    )
+  return found === true
+}
+
+// ---- levels and capability cards (AH-E01) ------------------------------------------------------
+
+/** The top-level level: the kill switch, two presets, and whatever else the switches say. */
+export type AdaptiveLevel = "off" | "observe" | "assist" | "custom"
+
+export const ADAPTIVE_LEVELS: readonly AdaptiveLevel[] = ["off", "observe", "assist", "custom"]
+
+/**
+ * What each level writes, as the leaves of one nested patch; the server contract is unchanged.
+ *
+ * `off` writes only the master switch: it is the kill switch, so every child keeps its value and
+ * nothing is deleted (ADR-0022). The presets never write a switch that needs a confirmation or sends
+ * data off the machine — learning, the predictive model, retention, provider consent — so choosing a
+ * level never opens a dialog and those stay the reader's own opt-in. `context.apply` stays off in both:
+ * acting on the context waits for the offline evaluation. `custom` is derived, never a preset: from
+ * `off` it only turns the master back on, keeping whatever the switches were.
+ */
+export const LEVEL_PRESETS = {
+  off: { enabled: false },
+  observe: {
+    enabled: true,
+    shadow: true,
+    "context.enabled": true,
+    "context.apply": false,
+    "relevance.enabled": false,
+    "guardrails.enabled": false,
+  },
+  assist: {
+    enabled: true,
+    shadow: true,
+    "context.enabled": true,
+    "context.apply": false,
+    "relevance.enabled": true,
+    "guardrails.enabled": true,
+  },
+  custom: { enabled: true },
+} satisfies Record<AdaptiveLevel, Record<string, boolean>>
+
+/** The leaves a level writes, narrowed to the ones the server lists as writable. */
+export function levelLeaves(view: AdaptiveConfigView, level: AdaptiveLevel): Record<string, boolean> {
+  return Object.fromEntries(Object.entries(LEVEL_PRESETS[level]).filter(([path]) => writableField(view, path)))
+}
+
+/**
+ * The level the switches are at: `off` whenever the master is off, a preset when every writable leaf
+ * it names matches, and `custom` otherwise. Observe is checked first so a server that lists neither
+ * acting switch reads as the quieter level.
+ */
+export function currentLevel(view: AdaptiveConfigView): AdaptiveLevel {
+  if (!view.effective.enabled) return "off"
+  const matches = (level: AdaptiveLevel) =>
+    Object.entries(levelLeaves(view, level)).every(([path, on]) => leafOn(view, path) === on)
+  if (matches("observe")) return "observe"
+  if (matches("assist")) return "assist"
+  return "custom"
+}
+
+/** Why a level cannot be chosen right now: a leaf it turns on whose guard already fails. */
+export function levelProblem(
+  view: AdaptiveConfigView,
+  capabilities: readonly string[],
+  level: AdaptiveLevel,
+): AdaptiveProblem | undefined {
+  if (level === "off") return undefined
+  if (view.env.adaptiveDisabled) return "env-disabled"
+  return leavesProblem(view, capabilities, levelLeaves(view, level))
+}
+
+function leavesProblem(
+  view: AdaptiveConfigView,
+  capabilities: readonly string[],
+  leaves: Record<string, boolean>,
+): AdaptiveProblem | undefined {
+  return Object.entries(leaves).flatMap(([path, on]) => {
+    const field = writableField(view, path)
+    const problem = on && field ? fieldProblem(field, view, capabilities, path) : undefined
+    return problem ? [problem] : []
+  })[0]
+}
+
+export type CapabilityID = "context" | "suggestions" | "loops" | "learning"
+
+/** One state a capability card offers, and the leaves choosing it writes. The first is always off. */
+export type CapabilityChoice = { id: string; label: string; leaves: Record<string, boolean> }
+
+export type Capability = {
+  id: CapabilityID
+  title: string
+  description: string
+  /** The switch that says whether the capability is on at all; the card exists only when it is writable. */
+  leaf: string
+  choices: CapabilityChoice[]
+}
+
+/** The four capabilities of §7.4, each over the existing switches. */
+export const CAPABILITIES: readonly Capability[] = [
+  {
+    id: "context",
+    title: "Context",
+    description: "Works out which earlier parts of the conversation the agent still needs.",
+    leaf: "context.enabled",
+    choices: [
+      { id: "off", label: "Off", leaves: { "context.enabled": false, "context.apply": false } },
+      { id: "observing", label: "Observing", leaves: { "context.enabled": true, "context.apply": false } },
+      { id: "acting", label: "Acting*", leaves: { "context.enabled": true, "context.apply": true } },
+    ],
+  },
+  {
+    id: "suggestions",
+    title: "Skill suggestion",
+    description: "Points the agent to the skills that fit the task.",
+    leaf: "relevance.enabled",
+    choices: [
+      { id: "off", label: "Off", leaves: { "relevance.enabled": false } },
+      { id: "suggesting", label: "Suggesting", leaves: { "relevance.enabled": true } },
+    ],
+  },
+  {
+    id: "loops",
+    title: "Loop warnings",
+    description: "Warns you when the agent repeats the same step. It never pauses the turn.",
+    leaf: "guardrails.enabled",
+    choices: [
+      { id: "off", label: "Off", leaves: { "guardrails.enabled": false } },
+      { id: "warning", label: "Warning", leaves: { "guardrails.enabled": true } },
+    ],
+  },
+  {
+    id: "learning",
+    title: "Learning",
+    description: "Proposes new skills from finished sessions. Nothing is installed without your approval.",
+    leaf: "learning.enabled",
+    choices: [
+      { id: "off", label: "Off", leaves: { "learning.enabled": false } },
+      { id: "proposing", label: "Proposing", leaves: { "learning.enabled": true } },
+    ],
+  },
+]
+
+/**
+ * The choices a card draws, from the server's list: a choice that turns on a leaf the server does not
+ * list is dropped, and a leaf it only turns off is left out of the patch rather than refused.
+ */
+export function capabilityChoices(view: AdaptiveConfigView, capability: Capability): CapabilityChoice[] {
+  return capability.choices.flatMap((choice) => {
+    const entries = Object.entries(choice.leaves)
+    if (entries.some(([path, on]) => on && !writableField(view, path))) return []
+    return [{ ...choice, leaves: Object.fromEntries(entries.filter(([path]) => writableField(view, path))) }]
+  })
+}
+
+/** The choice the switches are at: off while the capability's own switch is off. */
+export function capabilityChoice(view: AdaptiveConfigView, capability: Capability): string {
+  const choices = capabilityChoices(view, capability)
+  if (!leafOn(view, capability.leaf)) return "off"
+  const on = choices.slice(1)
+  const matched = on.find((choice) =>
+    Object.entries(choice.leaves).every(([path, value]) => leafOn(view, path) === value),
+  )
+  return (matched ?? on[0])?.id ?? "off"
+}
+
+/** Why a card's choice cannot be picked right now, from the guards of the leaves it turns on. */
+export function choiceProblem(
+  view: AdaptiveConfigView,
+  capabilities: readonly string[],
+  choice: CapabilityChoice,
+): AdaptiveProblem | undefined {
+  return leavesProblem(view, capabilities, choice.leaves)
+}
+
+/** A card's effective state, with the reason whenever it is inert. `key` is a template for `t`. */
+export type CapabilityStatus = {
+  tone: "off" | "active" | "waiting" | "inactive"
+  key: string
+  params?: Record<string, string | number>
+}
+
+/** The capabilities that ride on the engine's legacy hooks, which a V2 session never calls. */
+const HOOKED = new Set<CapabilityID>(["suggestions", "loops"])
+
+const ACTIVE: Record<string, string> = {
+  observing: "Active · observing, nothing is changed",
+  acting: "Active · trimming what the agent sees",
+  suggesting: "Active · suggesting skills",
+  warning: "Active · watching for repeated steps",
+  proposing: "Active · proposing skills for your approval",
+}
+
+/**
+ * What a card is really doing, derived from the switches, the guards and the runtime: a switch that
+ * is on but cannot act says why, instead of letting a bare "on" suggest it acts.
+ */
+export function capabilityStatus(
+  view: AdaptiveConfigView,
+  capabilities: readonly string[],
+  capability: Capability,
+): CapabilityStatus {
+  const choice = capabilityChoice(view, capability)
+  if (choice === "off") return { tone: "off", key: "Off" }
+  const inert = inertStatus(view)
+  if (inert) return inert
+  const field = writableField(view, capability.leaf)
+  const problem = field ? fieldProblem(field, view, capabilities, capability.leaf) : undefined
+  if (problem === "no-adaptive-token")
+    return { tone: "inactive", key: "Inactive: this server was started without permission to act on sessions." }
+  if (problem)
+    return { tone: "inactive", key: "Inactive: it needs your permission to share data with the model provider." }
+  if (HOOKED.has(capability.id) && view.runtime.runtime === "v2")
+    return { tone: "inactive", key: "Inactive: this engine's newer session runtime cannot run it yet." }
+  if (capability.id === "learning" && view.learningDraft?.model === null)
+    return { tone: "waiting", key: "Active · waiting for a model to draft skills with" }
+  return { tone: "active", key: ACTIVE[choice] ?? "Active · in use" }
+}
+
+/** The reasons that make every capability inert at once: the environment, then the level. */
+function inertStatus(view: AdaptiveConfigView): CapabilityStatus | undefined {
+  if (view.env.adaptiveDisabled) return { tone: "inactive", key: "Inactive: set to Off by the environment." }
+  if (!view.effective.enabled) return { tone: "inactive", key: "Inactive: the level is Off." }
+  return undefined
+}
+
+/**
+ * The predictive model's state: not configured, waiting for its key, paused because the value gate
+ * (AH-C05) judged it does not pay for itself, or active.
+ */
+export function predictiveStatus(view: AdaptiveConfigView, voi?: ValueGateSnapshot): CapabilityStatus {
+  const consented = Object.values(view.effective.egress.providers).some((consent) => consent.enabled)
+  if (!view.effective.jev.enabled && !consented) return { tone: "off", key: "Not configured" }
+  const inert = inertStatus(view)
+  if (inert) return inert
+  if (view.effective.jev.enabled && !view.env.typesafeKeyPresent)
+    return { tone: "waiting", key: "Active · waiting for the model key" }
+  const gates = voi?.enabled ? voi.kinds : []
+  const paused = gates.filter((gate) => gate.state === "paused").length
+  if (gates.length > 0 && paused === gates.length)
+    return { tone: "inactive", key: "Paused: it is not adding enough value" }
+  if (paused > 0)
+    return {
+      tone: "active",
+      key: "Active · paused for {paused} of {total} decisions, for low value",
+      params: { paused, total: gates.length },
+    }
+  return { tone: "active", key: "Active · in use" }
+}
+
+/** What the predictive model cost over the value gate's window, in USD, rounded for reading. */
+export function predictiveCost(voi?: ValueGateSnapshot): string {
+  const usd = (voi?.kinds ?? []).reduce((sum, gate) => sum + gate.costUsd, 0)
+  return usd < 0.01 ? usd.toFixed(4) : usd.toFixed(2)
+}
+
+/** The decision kinds said in plain words, for the consent rows and the value gate. */
+export const KIND_LABELS: Record<string, string> = {
+  completion: "Whether the task is finished",
+  skillRelevance: "Which skills fit",
+  contextItem: "Which context to keep",
+  skillReflection: "Whether a session is worth learning from",
+}
+
+export const GATE_LABELS: Record<ValueGateState, string> = {
+  "warming-up": "Measuring its value",
+  asking: "Asked",
+  exploring: "Asked now and then: its value does not cover its cost",
+  paused: "Paused: it does not help here",
+}
+
+/** The leaves a section of its own draws, so Advanced does not draw them twice. */
+const CLAIMED = new Set([
+  "enabled",
+  "context.enabled",
+  "context.apply",
+  "relevance.enabled",
+  "guardrails.enabled",
+  "learning.enabled",
+  "jev.enabled",
+  "retention.enabled",
+  "budget.monthlyTokens",
+])
+
+/**
+ * Leaves the server lists only so a replay variant can switch them (AH-D03): its own descriptor says
+ * the settings panel draws no control for them until the replay promotes them.
+ */
+const REPLAY_ONLY = new Set(["selection.enabled", "selection.coldGapMs"])
+
+/** The plain names of the switches Advanced knows; any other listed switch shows its path. */
+export const ADVANCED_LABELS: Record<string, string> = {
+  shadow: "Record decisions in the background",
+  "toolTrim.enabled": "Shorten long tool outputs (recoverable)",
+  "compaction.anchors": "Keep session anchors when compacting",
+}
+
+/**
+ * Every other boolean switch the server lists, for Advanced: drawing from `writable` rather than a
+ * hardcoded list is what keeps a newly listed switch reachable (P-H8).
+ */
+export function advancedFields(view: AdaptiveConfigView): AdaptiveWritableField[] {
+  return view.writable.filter(
+    (field) =>
+      field.type === "boolean" && !field.path.includes("*") && !CLAIMED.has(field.path) && !REPLAY_ONLY.has(field.path),
+  )
 }
 
 /**
@@ -162,11 +484,27 @@ export function needsConfirmation(path: string, value: unknown, view: AdaptiveCo
 
 /** A nested patch object for one dotted leaf, the shape `PATCH /harness/adaptive/config` takes. */
 export function patchLeaf(path: string, value: unknown): Record<string, unknown> {
-  const segments = path.split(".")
-  const leaf = segments[segments.length - 1]!
-  return segments
-    .slice(0, -1)
-    .reduceRight<Record<string, unknown>>((inner, key) => ({ [key]: inner }), { [leaf]: value })
+  return patchOf({ [path]: value })
+}
+
+/**
+ * One nested patch for several dotted leaves, so a level or a card state travels as a single write.
+ * The server evaluates guards on the config after the whole patch, so the leaves' order never matters.
+ */
+export function patchOf(leaves: Record<string, unknown>): Record<string, unknown> {
+  const root: Record<string, unknown> = {}
+  for (const [path, value] of Object.entries(leaves)) {
+    const segments = path.split(".")
+    const parent = segments.slice(0, -1).reduce<Record<string, unknown>>((node, key) => {
+      const child = node[key]
+      if (isRecord(child)) return child
+      const created: Record<string, unknown> = {}
+      node[key] = created
+      return created
+    }, root)
+    parent[segments[segments.length - 1]!] = value
+  }
+  return root
 }
 
 /** One `422` code said in the reader's words, plus the leaves the server named as missing. */
@@ -176,9 +514,9 @@ const FEEDBACK: Record<string, string> = {
   "unsupported-field": "This settings surface does not write that field.",
   "invalid-value": "That value is not valid for this setting.",
   "confirmation-required": "This change needs confirmation.",
-  "env-disabled": "Disabled by FLUPCODE_ADAPTIVE_DISABLED=1",
-  "guard:no-adaptive-token": "This switch needs the acting token, which this server does not have.",
-  "guard:egress-allowlist-required": "An egress allowlist is required first.",
+  "env-disabled": "Turned off by the environment.",
+  "guard:no-adaptive-token": "This server was started without permission to act on sessions.",
+  "guard:egress-allowlist-required": "First allow sharing data with the model provider, for a project and a decision.",
   "invalid-config": "The config file is not valid JSON, so it was left alone.",
   "config-unreadable": "The config file could not be read.",
   bad_request: "The server did not understand that request.",
@@ -224,6 +562,14 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
       "Consenting to {provider}: redacted, bounded decision inputs for the listed projects and kinds are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.",
       { provider: consent.provider },
     )
+  if (path === "retention.enabled" && value === true)
+    return t(
+      "Cleaning up removes adaptive history older than its retention window. Learned skills are never removed. The change is written to the config file.",
+    )
+  if (path === "jev.enabled" && value === true)
+    return t(
+      "The predictive model receives redacted, size-limited decision inputs for the projects and decisions you allowed. The change is written to the config file.",
+    )
   if (path !== "learning.enabled" || value !== true)
     return t("Writing to {field} needs confirmation. The change is written to the config file.", { field: path })
   const chars = view.effective.learning.maxInputChars
@@ -267,7 +613,7 @@ export function sourceKey(provenance: AdaptiveProvenance): string {
   return "default"
 }
 
-type PendingConfirm = { path: string; value: unknown; patch: Record<string, unknown> }
+type PendingConfirm = { message: string; patch: Record<string, unknown> }
 
 /** Everything the panel needs from the cockpit: the view, what health announced, and the outcome. */
 export type AdaptiveSettingsState = {
@@ -279,6 +625,8 @@ export type AdaptiveSettingsState = {
   saving: boolean
   warnings: string[]
   error?: AdaptiveConfigError
+  /** The value gate per kind (AH-C05), read only when the server announced `adaptive-voi`. */
+  voi?: ValueGateSnapshot
 }
 
 type AdaptiveSettingsPanelProps = AdaptiveSettingsState & {
@@ -287,13 +635,28 @@ type AdaptiveSettingsPanelProps = AdaptiveSettingsState & {
   onAcknowledgeRuntime: () => void
 }
 
+const LEVEL_LABELS: Record<AdaptiveLevel, string> = {
+  off: "Off",
+  observe: "Observe",
+  assist: "Assist",
+  custom: "Custom",
+}
+
+const LEVEL_HINTS: Record<AdaptiveLevel, string> = {
+  off: "Nothing runs. Your choices below are kept for when you turn it back on.",
+  observe: "Watches your sessions and notes what it would do, without changing anything.",
+  assist: "Suggests skills and warns about loops while you work.",
+  custom: "Your own mix of the capabilities below.",
+}
+
 /**
- * The adaptive settings (FH-070/FH-074).
+ * The adaptive settings (FH-070/FH-074, AH-E01): four capabilities, each at a level.
  *
- * The kill switch is the master `enabled`: turning it off stops decisions, shadow and Jev, and the
- * panel says plainly that learned skills still load from disk — there is no seam to stop that, so
- * promising it would be a lie. Every control is drawn from the server's `writable` allowlist; a
- * guard that cannot be met disables the control with its reason instead of offering a `422`.
+ * The level selector is the kill switch: Off writes only the master `enabled`, which stops every
+ * capability and keeps each one's own value; the copy says plainly that learned skills still load,
+ * because there is no seam to stop that. Every card and row is drawn from the server's `writable`
+ * allowlist, each card says what it is really doing and why when it is inert, and a guard that cannot
+ * be met disables the choice with its reason instead of offering a `422`.
  */
 export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (props) => {
   const [pending, setPending] = createSignal<PendingConfirm>()
@@ -320,50 +683,34 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
     const entry = field(path)
     return view && entry ? fieldProblem(entry, view, props.capabilities, path) : undefined
   }
-  const value = (path: string) => {
-    const view = props.view
-    if (!view) return false
-    const effective = view.effective
-    switch (path) {
-      case "enabled":
-        return effective.enabled
-      case "shadow":
-        return effective.shadow
-      case "context.enabled":
-        return effective.context.enabled
-      case "context.apply":
-        return effective.context.apply
-      case "learning.enabled":
-        return effective.learning.enabled
-      case "relevance.enabled":
-        return effective.relevance.enabled
-      case "guardrails.enabled":
-        return effective.guardrails.enabled
-      case "jev.enabled":
-        return effective.jev.enabled
-      case "retention.enabled":
-        return effective.retention.enabled
-      default: {
-        const consent = consentPath(path)
-        return consent?.leaf === "enabled" ? consentOf(view, consent.provider)?.enabled === true : false
-      }
-    }
-  }
+  const value = (path: string) => (props.view ? leafOn(props.view, path) : false)
   const provenance = (path: string) => {
     const source = props.view?.source[path]
     return source ? t(sourceKey(source)) : ""
   }
-  /** Sends a write, opening the dialog first when the server's descriptor asks for a confirmation. */
-  const propose = (path: string, next: unknown) => {
+  const level = () => (props.view ? currentLevel(props.view) : "off")
+  /**
+   * Sends one nested patch, opening the dialog first when any leaf's descriptor asks for a
+   * confirmation; the dialog speaks for the first leaf that asked.
+   */
+  const proposeLeaves = (leaves: Record<string, unknown>) => {
     const view = props.view
     if (!view || locked()) return
-    const patch = patchLeaf(path, next)
-    if (needsConfirmation(path, next, view)) {
-      setPending({ path, value: next, patch })
+    const patch = patchOf(leaves)
+    const gated = Object.entries(leaves).find(([path, next]) => needsConfirmation(path, next, view))
+    if (gated) {
+      setPending({ message: confirmationMessage(gated[0], gated[1], view), patch })
       return
     }
     props.onPatch(patch, false)
   }
+  const propose = (path: string, next: unknown) => proposeLeaves({ [path]: next })
+  const chooseLevel = (next: AdaptiveLevel) => {
+    const view = props.view
+    if (!view || next === level()) return
+    proposeLeaves(levelLeaves(view, next))
+  }
+
   /** One boolean row, drawn only when the server lists its leaf as writable. */
   const Switch = (row: {
     path: string
@@ -393,9 +740,86 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
     </Show>
   )
 
+  /** A card's effective state, worded; the tone is also said by the words, never by colour alone. */
+  const Status = (row: { status: CapabilityStatus }) => (
+    <p class="fc-adaptive-status" data-tone={row.status.tone}>
+      {t(row.status.key, row.status.params)}
+    </p>
+  )
+
+  /** One capability at its level: the choices the server allows, the state it is really in, and why. */
+  const CapabilityCard = (card: { capability: Capability; view: AdaptiveConfigView }) => {
+    const choices = () => capabilityChoices(card.view, card.capability)
+    const selected = () => capabilityChoice(card.view, card.capability)
+    const titleID = `fc-adaptive-card-${card.capability.id}`
+    const blocked = () =>
+      choices().flatMap((choice) => {
+        const reason = choiceProblem(card.view, props.capabilities, choice)
+        return reason && choice.id !== selected() ? [{ choice, reason }] : []
+      })
+    return (
+      <section
+        class="fc-adaptive-card"
+        classList={{
+          "fc-settings-refused": choices().some((choice) => Object.keys(choice.leaves).some(refused)),
+        }}
+        aria-labelledby={titleID}
+      >
+        <div class="fc-adaptive-card-head">
+          <span class="fc-settings-usage">
+            <h4 id={titleID} class="fc-adaptive-card-title">
+              {t(card.capability.title)}
+            </h4>
+            <span class="fc-settings-hint">{t(card.capability.description)}</span>
+          </span>
+          <div class="fc-adaptive-segments" role="group" aria-labelledby={titleID}>
+            <For each={choices()}>
+              {(choice) => (
+                <button
+                  class="fc-adaptive-segment"
+                  type="button"
+                  aria-pressed={selected() === choice.id}
+                  disabled={locked() || !!choiceProblem(card.view, props.capabilities, choice)}
+                  onClick={() => selected() !== choice.id && proposeLeaves(choice.leaves)}
+                >
+                  {t(choice.label)}
+                </button>
+              )}
+            </For>
+          </div>
+        </div>
+        <Status status={capabilityStatus(card.view, props.capabilities, card.capability)} />
+        <For each={blocked()}>
+          {(entry) => (
+            <p class="fc-settings-hint">
+              {t("{choice} is not available: {reason}", {
+                choice: t(entry.choice.label),
+                reason: t(problemKey(entry.reason)),
+              })}
+            </p>
+          )}
+        </For>
+        <Show when={choices().some((choice) => choice.id === "acting")}>
+          <p class="fc-settings-hint">
+            {t("* Acting changes what the agent sees, and it has not passed the offline evaluation yet.")}
+          </p>
+        </Show>
+        <Show when={card.capability.id === "learning"}>
+          <p class="fc-settings-hint">
+            {card.view.learningDraft?.model
+              ? t("Turning it on asks first: redacted session notes are sent to {model} to draft each skill.", {
+                  model: card.view.learningDraft.model,
+                })
+              : t("Turning it on asks first: redacted session notes are sent to a model to draft each skill.")}
+          </p>
+        </Show>
+      </section>
+    )
+  }
+
   /**
-   * One remote provider's consent: its switch, the projects and the kinds it may receive. Each row
-   * names the provider, and consenting to one never covers another.
+   * One remote provider's consent: its switch, the projects and the decisions it may receive. Each
+   * row names the provider, and consenting to one never covers another.
    */
   const ProviderConsent = (row: { provider: string }) => {
     const [project, setProject] = createSignal("")
@@ -405,7 +829,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
     return (
       <>
         <Show when={field(path("enabled")) || field(path("projects")) || field(path("kinds"))}>
-          <div class="fc-settings-subtitle">{t("Egress consent: {provider}", { provider: row.provider })}</div>
+          <div class="fc-settings-subtitle">{t("Sharing with {provider}", { provider: row.provider })}</div>
         </Show>
         <Switch path={path("enabled")} label="Send data to {provider}" params={{ provider: row.provider }}>
           <span class="fc-settings-hint">
@@ -471,12 +895,10 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
           <For each={ADAPTIVE_KINDS}>
             {(kind) => (
               <div class="fc-settings-row" classList={{ "fc-settings-refused": refused(path("kinds")) }}>
-                <span class="fc-usage-key" dir="ltr">
-                  {kind}
-                </span>
+                <span>{t(KIND_LABELS[kind] ?? kind)}</span>
                 <Toggle
                   checked={kinds()[kind] === true}
-                  label={t("{kind} for {provider}", { kind, provider: row.provider })}
+                  label={t("{kind} for {provider}", { kind: t(KIND_LABELS[kind] ?? kind), provider: row.provider })}
                   disabled={locked()}
                   onToggle={() => propose(path("kinds"), { ...kinds(), [kind]: kinds()[kind] !== true })}
                 />
@@ -509,27 +931,30 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         {(view) => (
           <>
             <Show when={readOnly()}>
-              <div class="fc-routines-notice">{t("Read-only: this server has no writer token.")}</div>
+              <div class="fc-routines-notice">{t("Read-only: this server cannot change these settings.")}</div>
             </Show>
 
             {/* The runtime probe's warnings (AH-D05): a V2 engine, or a change since the last look. */}
             <Show when={view().runtime.runtime === "v2"}>
               <div class="fc-routines-notice" role="status">
                 {t(
-                  "The engine runs V2 sessions: the adaptive hooks do not fire there, so relevance and guardrails stay inert.",
+                  "This engine runs a newer session runtime: skill suggestions and loop warnings cannot act there yet.",
                 )}
               </div>
             </Show>
             <Show when={(view().runtime.alerts ?? []).length > 0}>
               <div class="fc-routines-notice" role="status">
                 <span class="fc-settings-usage">
-                  <span>{t("The engine runtime changed")}</span>
-                  <For each={view().runtime.alerts ?? []}>
-                    {(alert) => {
-                      const text = runtimeAlertText(alert)
-                      return <span class="fc-settings-hint">{t(text.key, text.params)}</span>
-                    }}
-                  </For>
+                  <span>{t("The engine changed since you last looked.")}</span>
+                  <details class="fc-adaptive-more">
+                    <summary>{t("Details")}</summary>
+                    <For each={view().runtime.alerts ?? []}>
+                      {(alert) => {
+                        const text = runtimeAlertText(alert)
+                        return <span class="fc-settings-hint">{t(text.key, text.params)}</span>
+                      }}
+                    </For>
+                  </details>
                 </span>
                 <Show when={adaptiveSurfaces(props.capabilities).runtimeAlerts}>
                   <button class="fc-button" type="button" disabled={props.saving} onClick={props.onAcknowledgeRuntime}>
@@ -539,98 +964,195 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               </div>
             </Show>
 
-            {/* The kill switch (FH-074). The copy never promises more than the engine can do. */}
+            {/* The level is the kill switch (FH-074): Off writes only the master and keeps every child. */}
             <Show when={field("enabled")}>
-              <div
-                class="fc-settings-row fc-settings-highlight"
-                classList={{ "fc-settings-refused": refused("enabled") }}
-              >
-                <span class="fc-settings-usage">
-                  <span>{t("Adaptive decisions")}</span>
-                  <span class="fc-settings-hint">
-                    {t("Turning this off stops decisions, shadow and Jev. Learned skills still load from disk.")}
+              <div class="fc-adaptive-level" classList={{ "fc-settings-refused": refused("enabled") }}>
+                <div class="fc-adaptive-card-head">
+                  <span class="fc-settings-usage">
+                    <h4 id="fc-adaptive-level" class="fc-adaptive-card-title">
+                      {t("Level")}
+                    </h4>
+                    <span class="fc-settings-hint">{t(LEVEL_HINTS[level()])}</span>
                   </span>
-                  <Show when={view().env.adaptiveDisabled}>
-                    <span class="fc-settings-hint">{t("Disabled by FLUPCODE_ADAPTIVE_DISABLED=1")}</span>
-                  </Show>
-                </span>
-                <Toggle
-                  checked={value("enabled")}
-                  label={t("Adaptive decisions")}
-                  disabled={locked() || view().env.adaptiveDisabled}
-                  onToggle={() => propose("enabled", !value("enabled"))}
-                />
-              </div>
-              <div class="fc-settings-hint">
-                {t("Effective value")}: {value("enabled") ? t("On") : t("Off")} · {provenance("enabled")}
+                  <div class="fc-adaptive-segments" role="group" aria-labelledby="fc-adaptive-level">
+                    <For each={ADAPTIVE_LEVELS}>
+                      {(option) => (
+                        <button
+                          class="fc-adaptive-segment"
+                          type="button"
+                          aria-pressed={level() === option}
+                          disabled={
+                            locked() ||
+                            !!levelProblem(view(), props.capabilities, option) ||
+                            (option === "custom" && (level() === "observe" || level() === "assist"))
+                          }
+                          onClick={() => chooseLevel(option)}
+                        >
+                          {t(LEVEL_LABELS[option])}
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </div>
+                <p class="fc-settings-hint">
+                  {t("Off stops every capability at once. Nothing is deleted, and skills already learned still load.")}
+                </p>
+                <Show when={view().env.adaptiveDisabled}>
+                  <p class="fc-adaptive-status" data-tone="inactive">
+                    {t("Set by the environment: the level stays Off.")}
+                  </p>
+                </Show>
+                <Show when={!view().env.adaptiveDisabled}>
+                  <For each={ADAPTIVE_LEVELS}>
+                    {(option) => (
+                      <Show when={levelProblem(view(), props.capabilities, option)}>
+                        {(reason) => (
+                          <p class="fc-settings-hint">
+                            {t("{choice} is not available: {reason}", {
+                              choice: t(LEVEL_LABELS[option]),
+                              reason: t(problemKey(reason())),
+                            })}
+                          </p>
+                        )}
+                      </Show>
+                    )}
+                  </For>
+                </Show>
               </div>
             </Show>
 
-            <Switch path="shadow" label="Shadow">
-              <span class="fc-settings-hint">{t("Records decisions without acting on them.")}</span>
-            </Switch>
-            <Switch path="context.enabled" label="Context selection">
-              <span class="fc-settings-hint">{provenance("context.enabled")}</span>
-            </Switch>
-            <Switch path="context.apply" label="Apply the context plan">
-              <span class="fc-settings-hint">{t("Promotion waits for the offline evaluation.")}</span>
-            </Switch>
-            <Switch path="learning.enabled" label="Learning">
-              <span class="fc-settings-hint">
-                {view().learningDraft?.model
-                  ? t("Needs confirmation. Drafts are sent to {model}.", { model: view().learningDraft!.model! })
-                  : t("Needs confirmation.")}
-              </span>
-            </Switch>
-            <Switch path="relevance.enabled" label="Relevance" />
-            <Switch path="guardrails.enabled" label="Loop warnings">
-              <span class="fc-settings-hint">
-                {t("Warns when the agent repeats the same tool call; never pauses the turn.")}
-              </span>
-            </Switch>
-            <Switch path="jev.enabled" label="Jev">
-              <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
-              <Show when={!view().env.typesafeKeyPresent}>
-                <span class="fc-settings-hint">{t("Key missing: decisions fall back to built-in rules.")}</span>
+            <For each={CAPABILITIES}>
+              {(capability) => (
+                <Show when={field(capability.leaf)}>
+                  <CapabilityCard capability={capability} view={view()} />
+                </Show>
+              )}
+            </For>
+
+            <details class="fc-adaptive-details">
+              <summary>
+                <span>{t("Predictive model")}</span>
+                <span class="fc-settings-hint">
+                  {t(predictiveStatus(view(), props.voi).key, predictiveStatus(view(), props.voi).params)}
+                </span>
+              </summary>
+              <p class="fc-settings-hint">
+                {t(
+                  "A predictive model can double-check some of these decisions. It only receives redacted, size-limited inputs, only for the projects you allow, and only from the providers you allow below.",
+                )}
+              </p>
+              <Switch path="jev.enabled" label="Use the predictive model">
+                <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
+                <Show when={!view().env.typesafeKeyPresent}>
+                  <span class="fc-settings-hint">
+                    {t("The model key is missing, so built-in rules decide instead.")}
+                  </span>
+                </Show>
+              </Switch>
+              <Show when={props.voi?.enabled && props.voi.kinds.length > 0}>
+                <div class="fc-settings-subtitle">{t("Is it worth asking?")}</div>
+                <For each={props.voi?.kinds ?? []}>
+                  {(gate) => (
+                    <div class="fc-usage-row">
+                      <span>{t(KIND_LABELS[gate.kind] ?? gate.kind)}</span>
+                      <span class="fc-settings-hint">{t(GATE_LABELS[gate.state])}</span>
+                    </div>
+                  )}
+                </For>
               </Show>
-            </Switch>
-            <Switch path="retention.enabled" label="Retention">
-              <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
-            </Switch>
+              {/* What may leave the machine, provider by provider (AH-C03). */}
+              <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
+            </details>
 
-            {/* Egress: what may leave the machine, provider by provider (AH-C03). */}
-            <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
-
-            <Show when={field("budget.monthlyTokens")}>
-              <div class="fc-settings-row" classList={{ "fc-settings-refused": refused("budget.monthlyTokens") }}>
-                <span class="fc-settings-usage">
-                  <span>{t("Monthly token budget")}</span>
-                  <span class="fc-settings-hint">
-                    {t("Spent {spent} of {cap} this month.", {
-                      spent: view().usage.tokensSpent,
-                      cap: view().usage.monthlyTokens,
-                    })}
+            <details class="fc-adaptive-details">
+              <summary>
+                <span>{t("Data & budget")}</span>
+              </summary>
+              <Switch path="retention.enabled" label="Clean up old history">
+                <span class="fc-settings-hint">
+                  {view().effective.retention.decisionsDays
+                    ? t("Removes decision history older than {days} days. Needs confirmation.", {
+                        days: view().effective.retention.decisionsDays!,
+                      })
+                    : t("Needs confirmation.")}
+                </span>
+              </Switch>
+              <Show when={field("budget.monthlyTokens")}>
+                <div class="fc-settings-row" classList={{ "fc-settings-refused": refused("budget.monthlyTokens") }}>
+                  <span class="fc-settings-usage">
+                    <label for="fc-adaptive-budget">{t("Monthly budget (tokens)")}</label>
+                    <span class="fc-settings-hint">
+                      {t("Spent {spent} of {cap} this month.", {
+                        spent: view().usage.tokensSpent,
+                        cap: view().usage.monthlyTokens,
+                      })}
+                    </span>
                   </span>
+                  <span class="fc-settings-actions">
+                    <input
+                      id="fc-adaptive-budget"
+                      class="fc-question-custom"
+                      dir="ltr"
+                      inputmode="numeric"
+                      value={budget()}
+                      onInput={(event) => setBudget(event.currentTarget.value)}
+                    />
+                    <button
+                      class="fc-button"
+                      type="button"
+                      disabled={locked() || !(Number(budget()) > 0)}
+                      onClick={() => propose("budget.monthlyTokens", Number(budget()))}
+                    >
+                      {t("Save")}
+                    </button>
+                  </span>
+                </div>
+              </Show>
+              <Show when={props.voi?.enabled && props.voi.kinds.length > 0}>
+                <p class="fc-settings-hint">
+                  {t("Predictive model cost over its recent decisions: ${usd} (USD).", {
+                    usd: predictiveCost(props.voi),
+                  })}
+                </p>
+              </Show>
+            </details>
+
+            <details class="fc-adaptive-details">
+              <summary>
+                <span>{t("Advanced")}</span>
+              </summary>
+              <Switch path="enabled" label="Master switch">
+                <span class="fc-settings-hint">
+                  {t("Effective value")}: {value("enabled") ? t("On") : t("Off")} · {provenance("enabled")}
                 </span>
-                <span class="fc-settings-actions">
-                  <input
-                    class="fc-question-custom"
-                    dir="ltr"
-                    inputmode="numeric"
-                    value={budget()}
-                    onInput={(event) => setBudget(event.currentTarget.value)}
-                  />
-                  <button
-                    class="fc-button"
-                    type="button"
-                    disabled={locked() || !(Number(budget()) > 0)}
-                    onClick={() => propose("budget.monthlyTokens", Number(budget()))}
-                  >
-                    {t("Save")}
-                  </button>
-                </span>
+                <Show when={view().env.adaptiveDisabled}>
+                  <span class="fc-settings-hint">{t("Set by the environment (FLUPCODE_ADAPTIVE_DISABLED=1).")}</span>
+                </Show>
+              </Switch>
+              <For each={advancedFields(view())}>
+                {(entry) => <Switch path={entry.path} label={ADVANCED_LABELS[entry.path] ?? entry.path} />}
+              </For>
+              <div class="fc-settings-subtitle">{t("Where each value comes from")}</div>
+              <Show
+                when={Object.entries(view().source).some(([, source]) => source !== "default")}
+                fallback={<p class="fc-settings-hint">{t("Every setting is at its default.")}</p>}
+              >
+                <For each={Object.entries(view().source).filter(([, source]) => source !== "default")}>
+                  {([path, source]) => (
+                    <div class="fc-usage-row">
+                      <bdi class="fc-usage-key" dir="ltr">
+                        {path}
+                      </bdi>
+                      <span class="fc-settings-hint">{t(sourceKey(source))}</span>
+                    </div>
+                  )}
+                </For>
+              </Show>
+              <div class="fc-settings-hint">
+                {t("Config file")}: <bdi dir="ltr">{view().writer.path}</bdi>{" "}
+                {view().writer.exists ? "" : t("(not created yet)")}
               </div>
-            </Show>
+            </details>
 
             <Show when={props.warnings.length > 0}>
               <For each={props.warnings}>
@@ -643,25 +1165,25 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                 return (
                   <>
                     <p class="fc-run-error">{t(feedback().message)}</p>
-                    <Show when={(failure().fields?.length ?? 0) > 0}>
-                      <p class="fc-settings-hint">
-                        {t("Refused fields: {fields}", { fields: (failure().fields ?? []).join(", ") })}
-                      </p>
-                    </Show>
-                    <Show when={feedback().missing.length > 0}>
-                      <p class="fc-settings-hint">
-                        {t("Missing: {fields}", { fields: feedback().missing.join(", ") })}
-                      </p>
+                    <Show when={(failure().fields?.length ?? 0) > 0 || feedback().missing.length > 0}>
+                      <details class="fc-adaptive-more">
+                        <summary>{t("Details")}</summary>
+                        <Show when={(failure().fields?.length ?? 0) > 0}>
+                          <p class="fc-settings-hint">
+                            {t("Refused fields: {fields}", { fields: (failure().fields ?? []).join(", ") })}
+                          </p>
+                        </Show>
+                        <Show when={feedback().missing.length > 0}>
+                          <p class="fc-settings-hint">
+                            {t("Missing: {fields}", { fields: feedback().missing.join(", ") })}
+                          </p>
+                        </Show>
+                      </details>
                     </Show>
                   </>
                 )
               }}
             </Show>
-
-            <div class="fc-settings-hint">
-              {t("Config file")}: <bdi dir="ltr">{view().writer.path}</bdi>{" "}
-              {view().writer.exists ? "" : t("(not created yet)")}
-            </div>
           </>
         )}
       </Show>
@@ -669,9 +1191,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
       <ConfirmDialog
         open={!!pending()}
         title={t("Confirm change")}
-        message={
-          pending() && props.view ? confirmationMessage(pending()!.path, pending()!.value, props.view) : ""
-        }
+        message={pending()?.message ?? ""}
         confirmLabel={t("Write it")}
         onConfirm={() => {
           const next = pending()
