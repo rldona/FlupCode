@@ -1,0 +1,4 @@
+[
+  { "name": "baseline", "adaptive": { "toolTrim": { "enabled": false } } },
+  { "name": "tool-trim", "adaptive": { "toolTrim": { "enabled": true } } }
+]

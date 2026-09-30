@@ -1,0 +1,4 @@
+[
+  { "name": "baseline", "adaptive": { "compaction": { "anchors": false } } },
+  { "name": "anchors", "adaptive": { "compaction": { "anchors": true } } }
+]

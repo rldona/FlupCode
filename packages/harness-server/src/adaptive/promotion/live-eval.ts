@@ -38,12 +38,13 @@ import type {
   MetricID,
   PromotionCapability,
 } from "./criteria"
-import { bootstrap, ratio } from "./stats"
+import type { ReplayEvidence } from "./replay-evidence"
+import { bootstrap, cuped, ratio } from "./stats"
 import type { Statistic } from "./stats"
 
 const DAY = 24 * 60 * 60 * 1000
-/** Learning's usage signal: an approved skill counts as used when 2+ sessions load it within this. */
-export const USAGE_WINDOW_MS = 30 * DAY
+/** Learning's usage signal: an approved skill counts as used when 2+ sessions load it within this (R17). */
+export const USAGE_WINDOW_MS = 14 * DAY
 /** A provider error whose message names a tool pair: what a broken selection would be rejected with. */
 const PAIRING_ERROR = /tool_use|tool_result|tool use|tool result|tool_call_id|tool call id/i
 
@@ -91,6 +92,8 @@ export function configSnapshot(config: AdaptiveConfig): ConfigSnapshot {
 
 export type SessionUnit = {
   sessionID: string
+  /** The project of the session's first turn: the CUPED stratum (R13). */
+  projectID?: string
   arms: Partial<Record<HoldoutCapability, Arm>>
   turns: number
   uncachedInput: number
@@ -138,9 +141,14 @@ export type ProposalUnit = {
   windowClosed: boolean
 }
 
+/** A session from the CUPED prior period, before `start`: only what the covariates read. */
+export type PriorSession = { projectID?: string; uncachedInput: number; usd: number; toolCalls: number }
+
 export type Dataset = {
   window: EvaluationWindow
   sessions: SessionUnit[]
+  /** Sessions whose first turn started in the `cupedPriorDays` before the window: the covariate. */
+  prior: PriorSession[]
   decisions: DecisionUnit[]
   proposals: ProposalUnit[]
   coverage: Array<{ kind: string; eligible: number; labeled: number; judged: number }>
@@ -189,6 +197,7 @@ export function loadDataset(db: Database, window: EvaluationWindow, eventsDir: s
   ).map(decisionUnit)
 
   const proposals = loadProposals(db, window)
+  const prior = loadPrior(db, window.since)
   const coverage = LABELED_KINDS.map((kind) => {
     const row = db
       .query(
@@ -204,12 +213,38 @@ export function loadDataset(db: Database, window: EvaluationWindow, eventsDir: s
     }
     return { kind, ...row }
   })
-  return { window, sessions, decisions, proposals, coverage }
+  return { window, sessions, prior, decisions, proposals, coverage }
+}
+
+/** The sessions of the prior period, summed per session; they only feed the CUPED covariate. */
+function loadPrior(db: Database, since: number): PriorSession[] {
+  const rows = db
+    .query(
+      `SELECT m.session_id, m.project_id, m.input_tokens, m.cost, m.tool_calls FROM session_metrics m
+       JOIN (SELECT session_id FROM session_metrics GROUP BY session_id
+             HAVING MIN(started_at) >= ?1 AND MIN(started_at) < ?2) s ON s.session_id = m.session_id
+       WHERE m.started_at < ?2
+       ORDER BY m.session_id, m.turn`,
+    )
+    .all(since - EVALUATION.cupedPriorDays * DAY, since) as Array<{
+    session_id: string
+    project_id: string | null
+    input_tokens: number
+    cost: number
+    tool_calls: number
+  }>
+  return [...Map.groupBy(rows, (row) => row.session_id).values()].map((turns) => ({
+    ...(turns[0]?.project_id ? { projectID: turns[0].project_id } : {}),
+    uncachedInput: sum(turns, (row) => row.input_tokens),
+    usd: sum(turns, (row) => row.cost),
+    toolCalls: sum(turns, (row) => row.tool_calls),
+  }))
 }
 
 type TurnRow = {
   session_id: string
   turn: number
+  project_id: string | null
   input_tokens: number
   cost: number
   tool_calls: number
@@ -251,6 +286,7 @@ function sessionUnit(
   const known = episodes.filter((episode) => episode.outcome !== "unknown")
   return {
     sessionID,
+    ...(rows[0]?.project_id ? { projectID: rows[0].project_id } : {}),
     // The arms recorded when the session's first turn was heard of; a capability missing from them
     // was not held out when that session started, so the session is left out of its comparison.
     arms: armsOf(rows[0]?.arms_json ?? null),
@@ -423,6 +459,11 @@ export type CheckResult = {
 export type CapabilityResult = {
   id: PromotionCapability
   title: string
+  instrument: CapabilityCriteria["instrument"]
+  /** For a replay-decided capability: the command that produces its primary evidence. */
+  replayCommand?: string
+  /** The replay report its paired checks were read from, when one was passed. */
+  replay?: Omit<ReplayEvidence, "estimates">
   /** For the predictive model: the kind, provider and version the result is about. */
   instance?: string
   enabled: boolean
@@ -439,7 +480,7 @@ export type CapabilityResult = {
 
 export type LiveReport = {
   generatedAt: number
-  window: EvaluationWindow & { days: number; complete: boolean }
+  window: EvaluationWindow & { days: number; complete: boolean; capped: boolean }
   holdoutFraction: number
   criteria: typeof EVALUATION
   coverage: Dataset["coverage"]
@@ -451,18 +492,25 @@ export function evaluate(input: {
   dataset: Dataset
   snapshot: ConfigSnapshot
   contentIncidents?: number
+  /** Replay reports read with `--replay`, per capability they measure (R15). */
+  replay?: Partial<Record<PromotionCapability, ReplayEvidence>>
   now?: number
 }): LiveReport {
   const window = input.dataset.window
-  const complete = window.until - window.since >= EVALUATION.windowDays * DAY
+  const closed: WindowState = {
+    complete: window.until - window.since >= EVALUATION.windowDays * DAY,
+    capped: window.until - window.since >= EVALUATION.maxWindowDays * DAY,
+  }
   const capabilities = CRITERIA.flatMap((criteria): CapabilityResult[] => {
-    if (criteria.id === "model") return modelResults(criteria, input.dataset, input.snapshot, complete)
-    if (criteria.id === "learning") return [learningResult(criteria, input.dataset, input.snapshot, complete, input.contentIncidents)]
-    return criteria.holdout ? [holdoutResult(criteria, criteria.holdout, input.dataset, input.snapshot, complete)] : []
+    if (criteria.id === "model") return modelResults(criteria, input.dataset, input.snapshot, closed)
+    if (criteria.id === "learning") return [learningResult(criteria, input.dataset, input.snapshot, closed, input.contentIncidents)]
+    return criteria.holdout
+      ? [holdoutResult(criteria, criteria.holdout, input.dataset, input.snapshot, closed, input.replay?.[criteria.id])]
+      : []
   })
   return {
     generatedAt: input.now ?? Date.now(),
-    window: { ...window, days: (window.until - window.since) / DAY, complete },
+    window: { ...window, days: (window.until - window.since) / DAY, ...closed },
     holdoutFraction: input.snapshot.holdoutFraction,
     criteria: EVALUATION,
     coverage: input.dataset.coverage,
@@ -471,12 +519,15 @@ export function evaluate(input: {
   }
 }
 
+type WindowState = { complete: boolean; capped: boolean }
+
 function holdoutResult(
   criteria: CapabilityCriteria,
   capability: HoldoutCapability,
   dataset: Dataset,
   snapshot: ConfigSnapshot,
-  complete: boolean,
+  closed: WindowState,
+  replay: ReplayEvidence | undefined,
 ): CapabilityResult {
   const inArm = (arm: Arm) => dataset.sessions.filter((unit) => unit.arms[capability] === arm)
   const control = inArm("control")
@@ -485,10 +536,13 @@ function holdoutResult(
     groupBySession(dataset.decisions.filter((decision) => decisionKindFor(criteria.id) === decision.kind && decision.arm === arm))
   const decisionArms = { control: groups("control"), treatment: groups("treatment") }
   const estimate = (check: Check): Estimate => {
+    // The replay's paired checks come from its report; without one they stay unknown (R15).
+    if (check.measure === "paired") return replay?.estimates[checkKey(check)] ?? {}
+    if (check.measure === "geometric") return geometric(check, control, treatment, dataset.prior)
+    // Every live session check is intention to treat over the whole arm, anchors included: their
+    // compacted-session comparison moved to the replay (R15).
     const sessionStatistic = SESSION_STATISTICS[check.metric]
-    // Anchors compare compacted sessions only: a session that never compacted has nothing to anchor.
-    const scope = (units: SessionUnit[]) => (criteria.id === "anchors" ? units.filter((unit) => unit.compactions > 0) : units)
-    if (sessionStatistic) return run(check, scope(control), scope(treatment), sessionStatistic)
+    if (sessionStatistic) return run(check, control, treatment, sessionStatistic)
     const decisionStatistic = DECISION_STATISTICS[check.metric]
     if (decisionStatistic) return run(check, decisionArms.control, decisionArms.treatment, decisionStatistic)
     return {}
@@ -496,32 +550,60 @@ function holdoutResult(
   const counted = (items: Group<DecisionUnit>[]) => sum(items, (group) => group.items.filter(judged).length)
   const samples: Evidence["samples"] = {
     sessions: { control: control.length, treatment: treatment.length },
-    sessionsWithCompaction: {
-      control: control.filter((unit) => unit.compactions > 0).length,
-      treatment: treatment.filter((unit) => unit.compactions > 0).length,
-    },
     judgedRelevance: { control: counted(decisionArms.control), treatment: counted(decisionArms.treatment) },
     judgedLoops: { control: counted(decisionArms.control), treatment: counted(decisionArms.treatment) },
+    replayFixtures: { overall: replay?.fixtures ?? 0 },
   }
   return {
-    ...resultOf(criteria, samples, complete, estimate, {}),
+    ...resultOf(criteria, samples, closed, estimate, {}),
+    ...(replay ? { replay: { file: replay.file, startedAt: replay.startedAt, baseline: replay.baseline, variant: replay.variant, fixtures: replay.fixtures } } : {}),
     enabled: snapshot.capabilities[criteria.id],
     arms: { control: control.length, treatment: treatment.length, excluded: dataset.sessions.length - control.length - treatment.length },
   }
+}
+
+/**
+ * A log-scale metric (R13): log(1 + value) per session, CUPED-adjusted by the mean of the same log
+ * value over the project's prior sessions, then exp(mean T − mean C) − 1 by bootstrap. A session whose
+ * project has fewer than `cupedMinPriorSessions` prior sessions keeps its unadjusted value.
+ */
+function geometric(check: Check, control: SessionUnit[], treatment: SessionUnit[], prior: PriorSession[]): Estimate {
+  const value = LOG_VALUES[check.metric]
+  if (!value) return {}
+  const byProject = Map.groupBy(prior, (session) => session.projectID ?? "")
+  const covariate = (unit: SessionUnit) => {
+    const sessions = unit.projectID ? byProject.get(unit.projectID) : undefined
+    if (!sessions || sessions.length < EVALUATION.cupedMinPriorSessions) return undefined
+    return sum(sessions, (session) => Math.log1p(value(session))) / sessions.length
+  }
+  const adjusted = cuped(
+    [...control, ...treatment].map((unit) => {
+      const x = covariate(unit)
+      return { y: Math.log1p(value(unit)), ...(x === undefined ? {} : { x }) }
+    }),
+  ).values
+  const mean = ratio<number>((unit) => unit, () => 1)
+  return run(check, adjusted.slice(0, control.length), adjusted.slice(control.length), mean)
+}
+
+const LOG_VALUES: Partial<Record<MetricID, (unit: PriorSession) => number>> = {
+  uncachedInputPerSession: (unit) => unit.uncachedInput,
+  usdPerSession: (unit) => unit.usd,
+  toolCallsPerSession: (unit) => unit.toolCalls,
 }
 
 function modelResults(
   criteria: CapabilityCriteria,
   dataset: Dataset,
   snapshot: ConfigSnapshot,
-  complete: boolean,
+  closed: WindowState,
 ): CapabilityResult[] {
   const answered = dataset.decisions.filter((decision) => decision.providerID && decision.source !== "baseline")
   const instances = Map.groupBy(answered, (decision) => `${decision.kind} · ${decision.providerID} · ${decision.providerVersion ?? "?"}`)
   if (instances.size === 0)
     return [
       {
-        ...resultOf(criteria, { judgedDisagreements: { overall: 0 } }, complete, () => ({}), {}),
+        ...resultOf(criteria, { judgedDisagreements: { overall: 0 } }, closed, () => ({}), {}),
         enabled: snapshot.capabilities.model,
       },
     ]
@@ -562,7 +644,7 @@ function modelResults(
     }
     const thresholds = { [checkKey({ metric: "costPerUsefulDecision", measure: "overall" })]: weights.valueOfCorrect }
     return {
-      ...resultOf(criteria, { judgedDisagreements: { overall: scored.filter(disagrees).length } }, complete, estimate, thresholds),
+      ...resultOf(criteria, { judgedDisagreements: { overall: scored.filter(disagrees).length } }, closed, estimate, thresholds),
       instance,
       enabled: snapshot.models[kind] === rows[0]!.providerID,
     }
@@ -573,11 +655,11 @@ function learningResult(
   criteria: CapabilityCriteria,
   dataset: Dataset,
   snapshot: ConfigSnapshot,
-  complete: boolean,
+  closed: WindowState,
   contentIncidents: number | undefined,
 ): CapabilityResult {
   const decided = dataset.proposals.filter((proposal) => proposal.status === "promoted" || proposal.status === "rejected")
-  const closed = dataset.proposals.filter((proposal) => proposal.windowClosed)
+  const windowClosed = dataset.proposals.filter((proposal) => proposal.windowClosed)
   const statistics: Partial<Record<MetricID, Statistic<ProposalUnit>>> = {
     approvalRate: ratio(
       (proposal) => (proposal.status === "promoted" ? 1 : 0),
@@ -593,13 +675,13 @@ function learningResult(
     if (check.metric === "contentIncidents") return contentIncidents === undefined ? {} : { estimate: contentIncidents }
     const statistic = statistics[check.metric]
     if (!statistic) return {}
-    return run(check, [], check.metric === "approvalRate" ? decided : closed, statistic)
+    return run(check, [], check.metric === "approvalRate" ? decided : windowClosed, statistic)
   }
   return {
     ...resultOf(
       criteria,
-      { decidedProposals: { overall: decided.length }, promotedWithClosedWindow: { overall: closed.length } },
-      complete,
+      { decidedProposals: { overall: decided.length }, promotedWithClosedWindow: { overall: windowClosed.length } },
+      closed,
       estimate,
       {},
     ),
@@ -610,7 +692,7 @@ function learningResult(
 function resultOf(
   criteria: CapabilityCriteria,
   samples: Evidence["samples"],
-  complete: boolean,
+  closed: WindowState,
   estimate: (check: Check) => Estimate,
   thresholds: Record<string, number>,
 ): Omit<CapabilityResult, "enabled"> {
@@ -620,7 +702,7 @@ function resultOf(
     ...criteria.safety.map((check) => ({ role: "safety" as const, check })),
   ]
   const estimates = Object.fromEntries(roles.map((entry) => [checkKey(entry.check), estimate(entry.check)]))
-  const evidence: Evidence = { estimates, samples, windowComplete: complete, thresholds }
+  const evidence: Evidence = { estimates, samples, windowComplete: closed.complete, windowCapped: closed.capped, thresholds }
   const outcome = decide(criteria, evidence)
   // No peeking (ADR-0025 §6): before the analysis may run, only the safety checks are shown.
   const withheld = outcome.decision === "insufficient data"
@@ -650,6 +732,8 @@ function resultOf(
   return {
     id: criteria.id,
     title: criteria.title,
+    instrument: criteria.instrument,
+    ...(criteria.replay ? { replayCommand: criteria.replay } : {}),
     holdout: criteria.holdout,
     samples,
     checks,
@@ -687,13 +771,32 @@ export type StatusRow = {
   title: string
   enabled: boolean
   holdout: HoldoutCapability | null
+  replayCommand?: string
   sessions?: { control: number; treatment: number }
   episodes?: { control: number; treatment: number }
-  progress: Array<{ label: string; have: number | { control: number; treatment: number }; need: number; perArm: boolean }>
+  progress: Array<{
+    label: string
+    have: number | { control: number; treatment: number }
+    need: number
+    perArm: boolean
+    /** Days until the minimum at the pace observed since `start`; undefined without a pace, or for a replay count. */
+    etaDays?: number
+    fromReplay: boolean
+  }>
   safety: string[]
 }
 
-/** What `status` prints: counts and progress only, never an effect estimate (ADR-0025 §6). */
+/**
+ * Days until `need` at the pace `have` took over `elapsedDays`: 0 once reached, undefined with nothing
+ * to extrapolate from yet. A per-arm counter passes its slower arm.
+ */
+export function etaDays(have: number, need: number, elapsedDays: number): number | undefined {
+  if (have >= need) return 0
+  if (have <= 0 || elapsedDays <= 0) return undefined
+  return Math.ceil((need - have) / (have / elapsedDays))
+}
+
+/** What `status` prints: counts, progress and the pace, never an effect estimate (ADR-0025 §6). */
 export function status(report: LiveReport, dataset: Dataset): StatusRow[] {
   return report.capabilities.map((result) => {
     const criteria = CRITERIA.find((entry) => entry.id === result.id)!
@@ -704,6 +807,7 @@ export function status(report: LiveReport, dataset: Dataset): StatusRow[] {
       title: result.instance ? `${result.title}: ${result.instance}` : result.title,
       enabled: result.enabled,
       holdout: capability,
+      ...(result.replayCommand ? { replayCommand: result.replayCommand } : {}),
       ...(capability
         ? {
             sessions: { control: inArm("control").length, treatment: inArm("treatment").length },
@@ -712,11 +816,16 @@ export function status(report: LiveReport, dataset: Dataset): StatusRow[] {
         : {}),
       progress: criteria.sample.map((requirement) => {
         const counts = result.samples[requirement.counter]
+        const fromReplay = requirement.counter === "replayFixtures"
+        const least = requirement.perArm ? Math.min(counts?.control ?? 0, counts?.treatment ?? 0) : (counts?.overall ?? 0)
+        const eta = fromReplay ? undefined : etaDays(least, requirement.min, report.window.days)
         return {
           label: SAMPLE_LABELS[requirement.counter],
           have: requirement.perArm ? { control: counts?.control ?? 0, treatment: counts?.treatment ?? 0 } : (counts?.overall ?? 0),
           need: requirement.min,
           perArm: requirement.perArm,
+          ...(eta === undefined ? {} : { etaDays: eta }),
+          fromReplay,
         }
       }),
       safety: result.checks.filter((check) => check.role === "safety" && check.verdict === "fail").map((check) => check.description),
@@ -733,9 +842,9 @@ export function renderReport(report: LiveReport): string {
     "",
     `> ${report.caveat}`,
     "",
-    `- Window: ${date(report.window.since)} → ${date(report.window.until)} (${report.window.days.toFixed(1)} days; ${report.window.complete ? "closed" : `open: the ${EVALUATION.windowDays}-day window has not elapsed`})`,
+    `- Window: ${date(report.window.since)} → ${date(report.window.until)} (${report.window.days.toFixed(1)} days; ${report.window.capped ? `capped at ${EVALUATION.maxWindowDays} days: final` : report.window.complete ? "closed" : `open: the ${EVALUATION.windowDays}-day window has not elapsed`})`,
     `- Holdout share at start: ${report.holdoutFraction}`,
-    `- CI: ${EVALUATION.confidence * 100}% percentile bootstrap by unit, ${EVALUATION.resamples} resamples, seed \`${EVALUATION.seed}\``,
+    `- CI: ${EVALUATION.confidence * 100}% percentile bootstrap by unit (one-sided α = ${((1 - EVALUATION.confidence) / 2).toFixed(2)}), ${EVALUATION.resamples} resamples, seed \`${EVALUATION.seed}\``,
     `- Generated: ${date(report.generatedAt)}`,
     "",
     "## Suggested decisions",
@@ -759,8 +868,16 @@ export function renderReport(report: LiveReport): string {
       ...(result.arms
         ? [`Sessions: control ${result.arms.control}, treatment ${result.arms.treatment}, without a recorded arm ${result.arms.excluded}.`, ""]
         : []),
+      ...(result.replayCommand
+        ? [
+            result.replay
+              ? `Primary decided by replay: \`${result.replay.file}\` (${result.replay.variant} against ${result.replay.baseline}, ${result.replay.fixtures} paired fixtures, run ${date(result.replay.startedAt)}). The live arm reads the guardrails and the safety stops.`
+              : `Primary decided by replay, and no replay report was passed: run \`${result.replayCommand}\`, then \`report --replay <report.json>\`.`,
+            "",
+          ]
+        : []),
       ...(result.withheld ? ["Primary and guardrail metrics are withheld until the window closes and the minimum sample is reached (no peeking).", ""] : []),
-      "| Role | Check | Estimate | 95% CI | Verdict |",
+      `| Role | Check | Estimate | ${EVALUATION.confidence * 100}% CI | Verdict |`,
       "| --- | --- | --- | --- | --- |",
       ...result.checks.map(
         (check) =>
@@ -778,8 +895,9 @@ function formatValue(key: string, value: number | undefined): string {
   if (!Number.isFinite(value)) return "∞"
   const [metric, measure] = key.split(":") as [MetricID, string]
   const unit = METRICS[metric].unit
-  if (measure === "relative") return `${(value * 100).toFixed(1)}%`
-  if (unit === "share" || unit === "ratio") return measure === "difference" ? `${(value * 100).toFixed(1)} pp` : `${(value * 100).toFixed(1)}%`
+  if (unit === "share" && (measure === "difference" || measure === "paired")) return `${(value * 100).toFixed(1)} pp`
+  if (measure === "relative" || measure === "geometric" || measure === "paired" || unit === "share" || unit === "ratio")
+    return `${(value * 100).toFixed(1)}%`
   if (unit === "usd") return `${value.toFixed(4)} USD`
   if (unit === "ms") return `${Math.round(value)} ms`
   return value.toFixed(1)

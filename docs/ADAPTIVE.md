@@ -761,19 +761,36 @@ decision is a person's (AH-G03).
 
 - **The criteria.** `src/adaptive/promotion/criteria.ts` holds every number: per capability the
   primary metric and its threshold, the guardrails (completion Δ ≥ −1 pp, error rate Δ ≤ +1 pp, p95
-  turn duration Δ ≤ +10%, plus the capability's own), the safety stops, the minimum sample per arm and
-  the 14-day window. The ADR embeds the table the module generates (`bun run eval:live -- table`), and
-  a test fails if they differ.
+  turn duration Δ ≤ +10%, plus the capability's own), the safety stops, the minimum sample per arm,
+  the 14-day window and the 42-day cap. The ADR embeds the table the module generates
+  (`bun run eval:live -- table`), and a test fails if they differ.
+- **Reachable for one user (revision R12–R17).** Every live minimum fits ~100 real sessions a week at
+  `holdout.fraction` 0.5 for about four weeks: **at most 150 sessions per arm**. Tests are one-sided
+  (α = 0.05, 90% CI); heavy-tailed sums (tokens, USD, tool calls) are compared as a ratio of
+  geometric means with a CUPED adjustment by project (the project's sessions in the 28 days before
+  `start`); skill suggestion, loop warnings and the predictive model are powered for larger effects
+  (313 judged relevance decisions, 16 judged loop detections per arm, 97 judged disagreements); and
+  `criteria.test.ts` checks each minimum against its stated assumption and budget.
+- **Replay-decided capabilities.** Tool-output trim, per-step selection and compaction anchors take
+  their primary from a paired replay (22, 22 and 19 fixtures × 3 repetitions): run
+  `bun run replay -- --variants fixtures/replay/variants/{tool-trim,selection,anchors}.json --repeat 3 --yes`
+  **after** `start` and pass each `report.json` with `--replay`. Their live arm (150 sessions per arm)
+  reads the guardrails and safety stops. A report from before `start`, or two for one capability, is
+  refused.
 - **The analysis.** Sessions are the unit (the arm is per session, from `session_metrics.arms_json`),
-  intention to treat. Each metric is compared between arms with a 95% percentile bootstrap by session
-  (2,000 resamples, fixed seed). One analysis when the window closes: 14 days after `start` or the
-  minimum sample, whichever is later. A primary passes with its point estimate past the threshold
-  and its CI clear of zero. The suggested decision follows the ADR's table: a safety stop or a failed
-  guardrail retires, a short sample or open window is **insufficient data**, then **promote**,
-  **retire** (the CI cannot reach the threshold) or **keep observing**.
-- **No peeking.** `status` shows counts and progress only. `report` withholds a capability's primary
-  and guardrail estimates until its window closes and its sample is reached; only the safety checks
-  show before that. `start` will not move an existing start without `--force`.
+  intention to treat. Each metric is compared between arms with a 90% percentile bootstrap by session
+  (2,000 resamples, fixed seed); a replay resamples fixture pairs. One analysis when the window
+  closes: 14 days after `start` or the minimum sample, whichever is later, and never past 42 days: a
+  sample still short then is a final **insufficient data** and later sessions are not read. A primary
+  passes with its point estimate past the threshold and its 90% CI clear of zero. The suggested
+  decision follows the ADR's table: a safety stop or a failed guardrail retires, a short sample or
+  open window is **insufficient data**, then **promote**, **retire** (the CI cannot reach the
+  threshold) or **keep observing**.
+- **No peeking.** `status` shows counts, progress and an ETA per counter ("at the current pace the
+  minimum is reached in ~N days", flagged when that is past the cap), never an estimate. `report`
+  withholds a capability's primary and guardrail estimates until its window closes and its sample is
+  reached; only the safety checks show before that. `start` will not move an existing start without
+  `--force`.
 - **Read-only.** Every command opens the harness database read-only (never migrated or written),
   reads the episode events files without writing them, asks no model and changes no setting.
 
@@ -795,23 +812,33 @@ Steps, from `packages/harness-server`, once ADR-0025 is **Accepted**:
    bun run eval:live -- start
    ```
 
-3. Watch progress without seeing any effect:
+3. Run the replays for the replay-decided capabilities (they spend model money; each prints its plan
+   without `--yes`):
 
    ```sh
-   bun run eval:live -- status            # counts per arm, label coverage, % of the minimum sample
+   bun run replay -- --variants fixtures/replay/variants/tool-trim.json --repeat 3 --yes
+   bun run replay -- --variants fixtures/replay/variants/selection.json --repeat 3 --yes
+   bun run replay -- --variants fixtures/replay/variants/anchors.json --repeat 3 --yes
    ```
 
-4. When `status` shows every capability you care about past its minimum sample and 14 days have
-   passed, run the one analysis:
+4. Watch progress without seeing any effect:
 
    ```sh
-   bun run eval:live -- report [--since <date>] [--until <date>] [--content-incidents 0]
+   bun run eval:live -- status            # counts per arm, label coverage, % of the minimum, ETA
+   ```
+
+5. When `status` shows every capability you care about past its minimum sample and 14 days have
+   passed (or at day 42 at the latest), run the one analysis:
+
+   ```sh
+   bun run eval:live -- report [--since <date>] [--until <date>] [--content-incidents 0] \
+     --replay fixtures/replay/reports/<trim>/report.json --replay …
    ```
 
    It writes `report.md` and `report.json` to the git-ignored `fixtures/live-eval/` (`--out` to
    change it) with a suggested decision per capability. `--content-incidents` is the owner's
    attestation for learning; without it learning cannot be promoted.
-5. Take the decision in AH-G03's ADR. The report never changes a default.
+6. Take the decision in AH-G03's ADR. The report never changes a default.
 
 Options: `--db <path>` (default `FLUPCODE_HARNESS_DB`, else `~/.local/share/flupcode/harness.sqlite`),
 `--events <dir>` (default `FLUPCODE_EPISODE_EVENTS_DIR`, else `events/` next to the database) and
