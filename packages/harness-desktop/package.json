@@ -16,6 +16,7 @@
     "dev": "bash scripts/build-speech.sh && electron-vite dev",
     "build": "bun --cwd ../harness-server build && bash scripts/build-speech.sh && electron-vite build",
     "typecheck": "tsgo --noEmit",
+    "test": "bun test src",
     "renderer": "bun scripts/renderer.mjs",
     "fetch-browser": "node scripts/fetch-browser.mjs",
     "dist": "bun --cwd ../harness-server build && node scripts/check-harness-server.mjs && node scripts/check-browser.mjs && bun run renderer && bash scripts/build-speech.sh && electron-vite build && electron-builder --publish never"
