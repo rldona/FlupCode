@@ -1,6 +1,11 @@
 # ADR-0021: Skill relevance injection
 
-- **Status:** Accepted
+- **Status:** Accepted. Amended 2026-09-30 by ADR-0024 §7: the line is no longer pushed in
+  `system.transform`. The plugin asks once per user turn in `messages.transform`, pins the outcome
+  (no line included) for every step of that turn, and appends the line as a synthetic text part of
+  that turn's user message, where it stays. A line in `system` sat before the cached conversation, so
+  every change rewrote it at the cache-write price. The inertness guarantee below now reads "nothing is
+  added to the turn", and the system prompt is byte-identical in every case.
 - **Date:** 2026-09-29
 - **Related:** ADR-0016 (harness boundary), ADR-0017 (Jev egress and governance), ADR-0018 (context selection seam), ADR-0019 (learned skill lifecycle), ADR-0020 (learning persistence, cadence and egress), `flupcode-adaptive-harness-plan.md` §6 / §9 / §11 / §13 / §15 / §19, `fh-phase4-design.md`, `poc-1b-runtime-hooks.md`
 

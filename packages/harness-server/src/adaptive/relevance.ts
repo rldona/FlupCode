@@ -8,8 +8,9 @@
  *
  * It is inert — a null line — whenever the feature is off, the master kill switch is on, the runtime
  * is not legacy, the session's override paused it (AH-E02), there is no objective or roster, nothing
- * was selected, or anything throws. In all of
- * those cases `system` is left byte-identical; that is the guarantee ADR-0021 §3 fixes.
+ * was selected, or anything throws. In all of those cases nothing is added to the turn; that is the
+ * guarantee ADR-0021 §3 fixes. The line now rides on the turn's user message rather than the system
+ * prompt, so it never rewrites the prompt cache (ADR-0024, "Relevance line").
  */
 
 import { armFor } from "./holdout"
@@ -63,10 +64,10 @@ export const MAX_ROSTER_CACHE = 500
 export const MAX_DECISION_CACHE = 500
 
 /**
- * A decision lives for the whole turn, not just `rosterTtlMs`: the hook fires per step of the loop,
- * and a turn with slow steps can outlive the roster TTL. Reusing the row for the same
- * `sessionID:messageID` is what stops the second step from spending Jev again and rewriting the
- * audit row. The cap, not the clock, is what bounds an engine that never restarts.
+ * A decision lives for the whole turn, not just `rosterTtlMs`. The current plugin asks once per user
+ * turn and pins the answer itself (ADR-0024, "Relevance line"), but an older plugin asked on every
+ * step, and a repeated `sessionID:messageID` must still not spend Jev again or rewrite the audit row.
+ * The cap, not the clock, is what bounds an engine that never restarts.
  */
 export const DECISION_TTL_MS = 10 * 60 * 1000
 
@@ -133,8 +134,9 @@ export function createRelevanceService(deps: {
       if (!canInject(deps.runtimeProbe.capabilities())) return inert(id, "runtime-not-legacy", startedAt)
       // An empty objective would only spend on Jev to select nothing; it is the same as no match.
       if (!input.objective.trim()) return inert(id, "no-match", startedAt)
-      // The override is read on every step, before the cache, so a pause or an exclusion lands on the
-      // very next provider request rather than after the turn's cached decision expires.
+      // The override is read on every call, before the cache. The plugin calls once per user turn and
+      // pins that answer for the turn's steps, so a pause or an exclusion lands on the next user turn
+      // (ADR-0024, "Relevance line"): dropping a line mid-turn would rewrite the prompt cache.
       const override = deps.overrides?.get(input.sessionID) ?? { paused: false, excludedSkills: [] }
       const excluded = [...override.excludedSkills].sort().join("\n")
 

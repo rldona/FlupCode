@@ -1462,27 +1462,32 @@ export const flupcodeEpisodeEvents = async () => ({
 }
 
 /**
- * relevance: injects the harness's acting relevance line into a turn's system prompt (FH-04,
- * ADR-0021). It is a thin proxy: it captures the turn's objective and its ids in
- * `experimental.chat.messages.transform`, asks the loopback harness for the line in
- * `experimental.chat.system.transform`, and pushes it only when the answer carries one. It decides
- * nothing, holds no product state and never throws: any failure — an absent server, a timeout, a
- * non-200, malformed JSON — leaves `system` byte-identical, which is the inertness ADR-0021 §3 fixes.
+ * relevance: adds the harness's acting relevance line to a turn (FH-04, ADR-0021). It is a thin proxy:
+ * in `experimental.chat.messages.transform` it asks the loopback harness for the line once per user
+ * turn, pins the answer to that turn's user message and renders it as a synthetic text part at the
+ * end of that message on every request. It decides nothing, holds no product state and never throws:
+ * any failure — an absent server, a timeout, a non-200, malformed JSON — adds nothing.
+ *
+ * Where and when the line goes is fixed by the prompt cache (ADR-0024, "Relevance line"). A byte that
+ * changes before the conversation's cache breakpoint makes the provider write the whole conversation
+ * again, so the plugin never touches the system prompt and never changes a byte it already sent:
+ * - the decision, "no line" included, is taken once, at the first step of a user turn, and every
+ *   later step of that turn renders the same bytes;
+ * - each earlier turn keeps its own line on its own message, so a new turn only appends;
+ * - a timeout, an open breaker or a retry hint only means the new turn carries no line; it never
+ *   removes a line already sent.
  *
  * The server is the only policy point, so the plugin registers whenever base and token resolve, even
- * with the feature off. The engine awaits the hook on every provider request, so the plugin keeps
- * that cheap: an inert answer carrying `retryAfterMs` (feature off, runtime not legacy) silences it
- * until the hint expires, and three consecutive failures open a breaker for a minute, after which a
- * single request decides whether it closes. Neither holds product state: the server still decides.
- * The capture is not consumed when read: a title runs on another fiber and its `system.transform` may
- * interleave before the turn, so reading has to leave the objective in place for the real turn.
+ * with the feature off. An inert answer carrying `retryAfterMs` (feature off, runtime not legacy)
+ * silences it until the hint expires, and three consecutive failures open a breaker for a minute,
+ * after which a single request decides whether it closes.
  */
 export const RELEVANCE_PLUGIN = {
   file: "flupcode-relevance.js",
-  source: String.raw`// Installed by FlupCode. Injects the harness's acting relevance line into a turn's system prompt.
-// It captures the turn's objective and its ids, asks the loopback harness for the line, and pushes
-// it only when the answer carries one. It decides nothing and holds no product state. Regenerated
-// when FlupCode starts the engine; edits here are overwritten.
+  source: String.raw`// Installed by FlupCode. Adds the harness's acting relevance line to a user turn. It asks the loopback
+// harness once per turn, pins the answer to that turn's user message and renders the same bytes on
+// every request, so the prompt cache is never rewritten by it. It decides nothing and holds no product
+// state. Regenerated when FlupCode starts the engine; edits here are overwritten.
 import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -1491,12 +1496,18 @@ import path from "node:path"
 // bounded so a huge turn cannot travel on the hot path.
 const OBJECTIVE_LIMIT = 500
 
-// A capture outlives its turn only to survive the title fiber racing the turn fiber; after this it is
-// stale and the injection is inert. The next user turn overwrites it.
-const CAPTURE_TTL_MS = 5 * 60 * 1000
+// A turn is decided only while its user message is the newest message and was written this recently.
+// This keeps a compaction's copy of an old head, or a session first seen after a restart, from
+// deciding (and pinning) a line for a message the provider already cached without one.
+const DECIDE_WINDOW_MS = 5 * 60 * 1000
 
-// The capture map is bounded so a long-lived engine cannot grow it without bound.
+// Pinned lines are bounded so a long-lived engine cannot grow them without bound. A session idle past
+// the longest prompt-cache TTL (Anthropic's hour) is forgotten for free: its next request is a cache
+// write anyway. Any other eviction costs that session at most one rewrite.
+const IDLE_MS = 65 * 60 * 1000
 const MAX_SESSIONS = 500
+const MAX_LINES_PER_SESSION = 200
+const MAX_PINNED_LINES = 5000
 
 // The server's own hot deadline is capped below this one (see RELEVANCE_TIMEOUT_MS_CEILING in
 // packages/harness-server/src/adaptive/config.ts), so the server always answers first. It is a
@@ -1506,9 +1517,10 @@ const FETCH_TIMEOUT_MS = (() => {
   return Number.isFinite(raw) && raw > 0 ? raw : 500
 })()
 
-// The engine awaits this hook on every provider request, so a wedged harness would cost every step
-// the full deadline. After this many consecutive failures the plugin stops asking for BREAKER_OPEN_MS,
-// then lets one request through: success closes the breaker, another failure reopens it.
+// The engine awaits the hook on the first step of every turn, so a wedged harness would cost every
+// turn the full deadline. After this many consecutive failures the plugin stops asking for
+// BREAKER_OPEN_MS, then lets one request through: success closes the breaker, another failure
+// reopens it.
 const BREAKER_THRESHOLD = 3
 const BREAKER_OPEN_MS = 60 * 1000
 
@@ -1575,57 +1587,74 @@ async function readToken() {
 }
 
 // The last user message of the request, with only its non-synthetic text: a synthetic part is the
-// engine's own scaffolding, not what the user asked.
-function lastUserObjective(messages) {
+// engine's own scaffolding (or this plugin's line), not what the user asked.
+function latestUser(messages) {
   if (!Array.isArray(messages)) return undefined
   for (let index = messages.length - 1; index >= 0; index--) {
     const message = messages[index]
     const info = message && message.info
     if (!info || info.role !== "user") continue
+    if (typeof info.sessionID !== "string" || !info.sessionID) return undefined
+    if (typeof info.id !== "string" || !info.id) return undefined
     const parts = Array.isArray(message.parts) ? message.parts : []
     const text = parts
       .filter((part) => part && part.type === "text" && typeof part.text === "string" && !part.synthetic)
       .map((part) => part.text)
       .join("\n")
     return {
-      sessionID: typeof info.sessionID === "string" ? info.sessionID : undefined,
-      messageID: typeof info.id === "string" ? info.id : undefined,
+      sessionID: info.sessionID,
+      messageID: info.id,
       objective: text.slice(0, OBJECTIVE_LIMIT),
+      created: info.time && info.time.created,
+      newest: index === messages.length - 1,
     }
   }
   return undefined
 }
 
-// The captures live in the module, keyed by session, so a title's system.transform cannot consume the
-// turn's objective before the turn reads it.
-const captures = new Map()
+// Per session, in order of last activity: the user message whose turn was last decided (so its later
+// steps never ask again, whatever the answer was) and the line pinned to each message that got one.
+const sessions = new Map()
 
-function pruneCaptures(now) {
-  for (const [sessionID, entry] of captures) {
-    if (now - entry.at > CAPTURE_TTL_MS) captures.delete(sessionID)
+function touch(sessionID, now) {
+  const entry = sessions.get(sessionID) || { decided: undefined, lines: new Map(), at: now }
+  entry.at = now
+  // Re-insert so the active session is the newest entry and the last one the bounds evict.
+  sessions.delete(sessionID)
+  sessions.set(sessionID, entry)
+  const live = [...sessions].filter(([id, other]) => {
+    if (now - other.at <= IDLE_MS) return true
+    sessions.delete(id)
+    return false
+  })
+  let total = live.reduce((sum, [, other]) => sum + other.lines.size, 0)
+  for (const [id, other] of live) {
+    if (sessions.size <= 1 || (sessions.size <= MAX_SESSIONS && total <= MAX_PINNED_LINES)) break
+    sessions.delete(id)
+    total -= other.lines.size
   }
-  while (captures.size > MAX_SESSIONS) {
-    const oldest = captures.keys().next().value
-    if (oldest === undefined) break
-    captures.delete(oldest)
-  }
+  return entry
 }
 
-function capture(sessionID, messageID, objective) {
-  if (typeof sessionID !== "string" || !sessionID) return
-  if (typeof messageID !== "string" || !messageID) return
-  const now = Date.now()
-  pruneCaptures(now)
-  // Re-insert so the newest turn is the newest entry for the size bound.
-  captures.delete(sessionID)
-  captures.set(sessionID, { messageID: messageID, objective: objective, at: now })
+function pin(entry, messageID, line) {
+  entry.lines.set(messageID, line)
+  // Past the cap the oldest line goes: by then its turn is usually compacted away, and otherwise it
+  // costs one rewrite from that message on.
+  if (entry.lines.size > MAX_LINES_PER_SESSION) entry.lines.delete(entry.lines.keys().next().value)
 }
 
-function freshCapture(sessionID) {
-  if (typeof sessionID !== "string" || !sessionID) return undefined
-  const entry = captures.get(sessionID)
-  if (!entry) return undefined
-  return Date.now() - entry.at > CAPTURE_TTL_MS ? undefined : entry
+// Renders every pinned line on its own user message, after the parts the engine put there. The part
+// is built only from the message's ids and the pinned string, so each request renders the same bytes.
+function render(messages, sessionID, lines) {
+  for (const message of messages) {
+    const info = message && message.info
+    if (!info || info.role !== "user" || info.sessionID !== sessionID) continue
+    const line = lines.get(info.id)
+    if (line === undefined || !Array.isArray(message.parts)) continue
+    const id = "prt_flupcode_relevance_" + info.id
+    if (message.parts.some((part) => part && part.id === id)) continue
+    message.parts.push({ id: id, messageID: info.id, sessionID: sessionID, type: "text", text: line, synthetic: true })
+  }
 }
 
 // The server renders one fixed, names-only box and the plugin is the last line of trust: it must not
@@ -1633,15 +1662,15 @@ function freshCapture(sessionID) {
 // skill-line.ts (packages/harness-server/src/adaptive/skill-line.ts): the same prefix and suffix, the
 // same NAME as skills.ts, and the same top-3 the default relevance config allows. Anything that is
 // not exactly that box — extra text, a nested tag, an unknown token — is refused, so a hostile or
-// tampered answer leaves the system prompt byte-identical.
+// tampered answer adds nothing.
 const SKILL_LINE_PREFIX = "<skill_relevance>Possibly relevant skills: "
 const SKILL_LINE_SUFFIX = ". Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>"
 const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/i
 const MAX_LINE_SKILLS = 3
 
 // Shape is not enough: a hostile peer that holds the loopback port could answer with a shape-valid
-// token of kilobytes (system-prompt bloat) or hyphenated tokens that read as instructions. A
-// legitimate name is a short folder name, so both caps are refused outright when exceeded.
+// token of kilobytes (prompt bloat) or hyphenated tokens that read as instructions. A legitimate name
+// is a short folder name, so both caps are refused outright when exceeded.
 const MAX_SKILL_NAME_LENGTH = 64
 const MAX_LINE_LENGTH = 300
 
@@ -1658,11 +1687,16 @@ function namesOnlyLine(value) {
 
 // A non-200 or a body without a data object is a failure (undefined); the fetch is bounded with a
 // timeout and a network error or timeout rejects. Any answer is inert unless its line is the fixed box.
-async function requestAnswer(base, token, projectID, sessionID, messageID, objective) {
+async function requestAnswer(base, token, projectID, turn) {
   const response = await fetch(base + "/harness/adaptive/relevance", {
     method: "POST",
     headers: { "content-type": "application/json", authorization: "Bearer " + token },
-    body: JSON.stringify({ projectID: projectID, sessionID: sessionID, messageID: messageID, objective: objective }),
+    body: JSON.stringify({
+      projectID: projectID,
+      sessionID: turn.sessionID,
+      messageID: turn.messageID,
+      objective: turn.objective,
+    }),
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   })
   if (!response.ok) return undefined
@@ -1685,30 +1719,25 @@ export const flupcodeRelevance = async (input) => {
   return {
     "experimental.chat.messages.transform": async (_input, output) => {
       try {
-        const objective = lastUserObjective(output && output.messages)
-        if (objective) capture(objective.sessionID, objective.messageID, objective.objective)
+        const messages = output && output.messages
+        const turn = latestUser(messages)
+        if (!turn) return
+        const now = Date.now()
+        const entry = touch(turn.sessionID, now)
+        const fresh = typeof turn.created !== "number" || now - turn.created <= DECIDE_WINDOW_MS
+        if (turn.newest && fresh && entry.decided !== turn.messageID && !entry.lines.has(turn.messageID)) {
+          // Marked before the request: whatever it answers, fails or times out is this turn's pin.
+          entry.decided = turn.messageID
+          if (admit(now)) {
+            const answer = await requestAnswer(base, token, projectID, turn).catch(() => undefined)
+            settle(answer, Date.now())
+            if (answer && answer.line) pin(entry, turn.messageID, answer.line)
+          }
+        }
+        render(messages, turn.sessionID, entry.lines)
       } catch {
-        // A capture that cannot be read must never fail the turn; there is simply no objective.
-      }
-    },
-    "experimental.chat.system.transform": async (hookInput, output) => {
-      try {
-        const pending = freshCapture(hookInput && hookInput.sessionID)
-        if (!pending || !Array.isArray(output && output.system)) return
-        if (!admit(Date.now())) return
-        const answer = await requestAnswer(
-          base,
-          token,
-          projectID,
-          hookInput.sessionID,
-          pending.messageID,
-          pending.objective,
-        ).catch(() => undefined)
-        settle(answer, Date.now())
-        if (answer && answer.line) output.system.push(answer.line)
-      } catch {
-        // Any failure - an absent server, a timeout, a non-200, bad JSON - is inert: the system
-        // prompt is left exactly as it arrived and the turn is unaffected.
+        // Any failure - an absent server, a timeout, a non-200, bad JSON, a malformed list - adds
+        // nothing, and the turn is unaffected.
       }
     },
   }

@@ -1,6 +1,7 @@
 # ADR-0024: Per-step selection only where the prompt cache is already cold
 
-- **Status:** Accepted (PoC, off by default)
+- **Status:** Accepted (PoC, off by default). Amended 2026-09-30: §7 resolves the A11 follow-up
+  (the relevance line is pinned per user turn and rides on the turn's user message).
 - **Date:** 2026-09-30
 - **Related:** ADR-0016 (harness boundary), ADR-0018 (context selection over summarization),
   ADR-0021 (skill relevance acting), ADR-0022 (loopback auth), `docs/V2-HOOKS.md` (AH-D05),
@@ -198,22 +199,146 @@ Pair breakage is impossible by construction, and exhaustive property tests asser
 
 ### 6. Composition with the other `messages.transform` plugins
 
-- **Readers.** A11 (`RELEVANCE_PLUGIN`) and D04 (`COMPACTION_ANCHORS_PLUGIN`) read only user text
-  parts in this hook. Selection writes only completed tool outputs in assistant messages and returns
-  every user message as the same object.
+- **Readers.** D04 (`COMPACTION_ANCHORS_PLUGIN`) reads only user text parts in this hook. A11
+  (`RELEVANCE_PLUGIN`) reads the non-synthetic user text and, since §7, appends one synthetic text part
+  to the user messages whose turn got a line. Selection writes only completed tool outputs in assistant
+  messages and returns every user message as the same object, so neither write touches the other.
 - **Order.** The engine loads plugin files in glob order, so `flupcode-cache-selection.js` runs first.
   The result does not depend on the order: the readers see identical input either way.
-- **The relevance line.** It does interact with the cache, but through `system.transform`, not
-  through this hook.
-  - It is pushed into the second system message. That message carries a breakpoint and sits before
-    the conversation.
-  - Whenever the line differs from the previous request's, the conversation after the first system
-    message is written again. This happens with a new objective, a timeout or an open breaker that
-    drops the line, or a retry hint that silences it.
-  - Selection never changes bytes at a warm step, so with both on, the cache is busted no more often
-    than with relevance alone.
-  - Making the line cache-stable is a follow-up for A11: latch it per user turn, or move it after the
-    cached prefix. It is not part of this ticket.
+- **The relevance line.** Until §7 it went through `system.transform` and could bust the cache at
+  any step; §7 moves it into this hook, after every other writer, and makes it byte-stable. Selection
+  never changes bytes at a warm step, so with both on the cache is busted no more often than with
+  either alone.
+
+### 7. The relevance line is pinned per user turn and rides on that turn's user message
+
+This resolves the A11 follow-up left open here.
+
+#### What changed the injected text before
+
+The line was pushed into `system` by `experimental.chat.system.transform`. The system array holds
+one string, so the push made the line a **second system message**. `applyCaching` marks that message
+too, and it sits before the whole conversation. Any request whose line differed from the previous
+request's — present, absent or different — made the provider write every conversation token again.
+
+The plugin asked the harness on **every provider request** (every step, plus the title and compaction
+requests of the same session). Between two consecutive steps of one turn, the text could differ when:
+
+1. **The fetch failed on one step and not the other.** A timeout (500 ms plugin deadline), a refused
+   connection, a non-200 or malformed JSON drops the line on that step only. A slow harness event
+   loop is enough: the server's hot deadline is under the plugin's, but its answer can still land late.
+2. **The breaker opened.** Three consecutive failures, from **any** session (the breaker is
+   module-wide), silence every session for 60 s. The half-open probe admits one request, so a
+   concurrent step of another session gets no line.
+3. **A retry hint was set.** An inert answer carrying `retryAfterMs` (feature off, master switch,
+   runtime not `legacy`) silences every session for up to 10 min. The line then comes back mid-turn
+   when the hint expires and the feature is on.
+4. **The plugin's capture expired or was evicted.** The capture lives 5 min from the last
+   `messages.transform`, so a step after a long tool run (or a title/compaction request after a gap)
+   saw no objective. Past 500 sessions the oldest capture is evicted.
+5. **The harness decision cache missed.** Its TTL is 10 min (`DECISION_TTL_MS`) and it holds 500
+   entries across all sessions. A long turn, or a busy engine, decided again; a new decision can rank
+   differently (Jev answer, degraded fallback, a roster changed by an installed or retired skill).
+6. **An error was not cached.** A throw in `suggest` returns `reason: "error"` without caching it, so
+   the next step decided again and could return a line.
+7. **The session override changed (AH-E02).** A pause returned no line from the very next step and a
+   resume decided afresh; a changed exclusion list decided again.
+8. **The config or the probe changed.** Relevance or the master switch toggled, `maxSkills` or
+   `holdout.fraction` changed (the arm moves between control and treatment), or the runtime probe
+   moved between `unknown` and `legacy`.
+9. **A process restarted.** A harness restart dropped every cached decision; an engine restart dropped
+   the plugin's captures and breaker.
+
+Between two turns, the text differs whenever the new objective ranks differently, which is the
+normal case, plus all of the above. The title and compaction requests fetched too, but their prefixes
+differ from the turn's anyway (their own agent prompt), so they only cost a harness call each.
+
+#### Options and their cost
+
+Let *C* be the conversation already cached at a turn boundary (everything after the system prompt),
+*t* the tokens a turn adds (its user message, outputs and tool results), and *w* and *r* the write and
+read prices above.
+
+| Option | Within a turn | At a new turn |
+| --- | --- | --- |
+| **A.** Keep the line in `system`, pinned per turn | 0 | (*w − r*)·*C* whenever the line differs from the previous turn's, on→off and off→on included |
+| **B1.** Append it to the latest user message only | 0 | (*w − r*)·*t*<sub>prev</sub> whenever the previous turn had a line: the line leaves that message |
+| **B2.** Append each turn's line to its own user message, and keep it there | 0 | 0 |
+
+- **A grows with the session.** A different ranking per turn is the normal case, so *f*, the share of
+  turns whose line changes, is high. Turn *k* then costs about *f*(*w − r*)·*k*·*t*, which is quadratic
+  over the session.
+- **Worked example.** A 60k-token conversation with 8k-token turns (5-minute cache):
+  - A costs about 1.15 × 60k ≈ 69k input-token equivalents at every turn whose line changes;
+  - B1 costs about 1.15 × 8k ≈ 9k at every turn after one with a line;
+  - B2 costs nothing beyond writing the ~50-token line once, as part of the new message.
+- **Minimising changes in A would defeat the feature.** A line that does not follow the objective is
+  the wrong hint, so A cannot avoid the change cost without dropping the feature.
+- **B1 is the engine's own pattern.** The plan-mode reminder (`session/reminders.ts`) is pushed on the
+  latest user message only, and it pays exactly that cost.
+
+#### Decision
+
+B2, with the decision pinned per turn:
+
+- **One decision per turn.** The plugin asks the harness once, at the first step of a user turn: the
+  step whose request ends with that user message. It records the turn as decided **before** it asks,
+  so the outcome is pinned whatever it is: a line, or no line on a timeout, an open breaker, a retry
+  hint, a holdout control arm, a paused session or no match. No later step of the turn asks again.
+- **Byte-identical rendering.** On every request the plugin appends, to each user message with a
+  pinned line, one synthetic text part built only from the message's ids and the pinned string. It
+  goes after the parts the engine put there, and `messages.transform` mutations are not persisted, so
+  every step renders the same bytes and an earlier turn's line never moves.
+- **A failure never removes a line.** A timeout or an open breaker at the start of a turn only means
+  that turn carries no line. The previous turns keep theirs, so the model still has the last valid
+  hint in context, and nothing already cached is rewritten.
+- **No system prompt.** The plugin no longer registers `system.transform`. The system prompt is
+  byte-identical in every case, and title and compaction requests no longer call the harness.
+- **Only a turn it saw start.** A turn is decided only while its user message is the newest message of
+  the request and was created less than 5 min ago. A session first seen mid-turn (after an engine
+  restart) or a compaction's copy of an old head therefore never pins a line onto a message the
+  provider already cached without one.
+
+#### Bounded state
+
+- Per session: the id of the last decided user message and the lines pinned to message ids.
+- A session idle for 65 min is forgotten. That is past the longest prompt-cache TTL, so its next
+  request is a cache write anyway, and dropping its lines costs nothing.
+- **At most 500 sessions, 200 lines per session and 5,000 lines overall** (1.5 MB at the 300-character
+  line cap).
+  - Past a bound, the least recently active session goes, or a session's oldest line.
+  - That costs the session at most one rewrite from that message on, and usually none: by then the old
+    turns have been compacted away.
+- An engine restart forgets every pin. It costs a still-warm session one rewrite from its first line,
+  the same bound §4 accepts for the selection latch.
+
+#### Behaviour changes
+
+- **The line is user-channel text.** It is a synthetic part of the turn's user message, not a system
+  message. The engine's own reminders use the same channel, and the box stays names-only and
+  non-coercive.
+- **Earlier lines stay in the history.** The model sees each earlier turn's hint where it was given.
+  That is at most about 50 tokens per turn, and it is what the model was actually told.
+- **A pause or an exclusion (AH-E02) now lands on the next user turn, not the next step.**
+  - The model has already read the current turn's line at its first step, so dropping it later would
+    not un-suggest anything.
+  - Dropping it would still be a deliberate cache write of the turn so far.
+  - Lines of earlier turns are history and stay.
+  - The harness still reads the override on every call, and a paused turn is still recorded as
+    `session-paused`.
+- **The Context screen no longer shows the line in the system prompt.** It never was part of the
+  prompt the engine assembles.
+- **A compaction's summary input may include pinned lines.** The copy of the head it serialises can
+  carry them. They are part of what the model was told, and the summary replaces them.
+
+Tests (`packages/remote/src/engine-plugins.test.ts`, `RELEVANCE_PLUGIN`) cover these cases:
+
+- every step of a turn renders the same bytes across failure, breaker, holdout, pause, a changed
+  answer and a clock past the decision TTL, with no second request;
+- a "no line" pin holds when the harness recovers mid-turn;
+- a new turn can change the line while every earlier request is a byte prefix of the next;
+- a turn the plugin did not see start is never decided;
+- the three bounds hold.
 
 ## Consequences
 
@@ -252,13 +377,12 @@ Negative / accepted costs:
 | Set `state.time.compacted` and let the engine clear the output | It is pair-safe, but the fixed engine text drops D02's `evidence_read` pointer. It also reads like the engine's own prune, which makes the two harder to tell apart in the replay. |
 | Decide from `Date.now()` in the hook | The next step could not reproduce the decision. A borderline gap would flip the trimmed set between steps and rewrite the cache each time. |
 | Put the trim decision in the harness per request | That is a network call in the hook, which the ticket rules out, and it adds latency to every step. |
-| Change the relevance line in this ticket | It is a separate behaviour with its own tests and acceptance. It is recorded above as a follow-up. |
+| Change the relevance line in the selection ticket | It was a separate behaviour with its own tests; it was resolved as §7 (the A11 follow-up). |
 
 ## Out of scope
 
 - A V2 seam. There is none (`docs/V2-HOOKS.md`).
 - Cold starts inside a turn, and cold starts caused by a model switch or a compaction.
-- Making the A11 relevance line cache-stable.
 - A per-session holdout arm, and a recall-miss metric for placeholders that are later re-fetched.
 
 ## Implementation plan

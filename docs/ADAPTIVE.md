@@ -60,7 +60,7 @@ This inherits the precedence **permissions > instructions > skills > memory** fr
 | `LearningManager` / `ReflectionEngine` | Episode → reflection → proposal, promotion, read routes | Phase 3b (done) | [ADR-0020](adr/0020-learning-persistence-and-egress.md) |
 | `SkillCurator` / `SkillStore` | Sole writer of learned skills; lifecycle and usage | Phase 3b (done) | [ADR-0019](adr/0019-learned-skill-lifecycle.md) |
 | `RelevanceService` / `rankSkills` / `renderSkillLine` | Suggest skills for a turn; pure rank and names-only line | Phase 4 (in progress) | [ADR-0021](adr/0021-skill-relevance-acting.md) |
-| `RELEVANCE_PLUGIN` | Capture the objective and inject the line over the loopback endpoint | Phase 4 (in progress) | [ADR-0021](adr/0021-skill-relevance-acting.md) |
+| `RELEVANCE_PLUGIN` | Ask the loopback endpoint once per user turn and add the pinned line to that turn's user message | Phase 4 (in progress) | [ADR-0021](adr/0021-skill-relevance-acting.md) |
 
 The boundary — what lives in `harness-server`, what attaches through the engine plugin, and when a
 contained core extension is allowed — is fixed by
@@ -511,10 +511,11 @@ might be relevant and an engine plugin injects a single non-coercive line. The d
   underlying selection is unchanged. No descriptions, permissions or instructions travel in the line,
   so a false positive cannot displace a correct choice or widen a permission.
 - **Where.** The acting seam is a thin-proxy engine plugin (`RELEVANCE_PLUGIN`,
-  `packages/remote/src/engine-plugins.ts`): it captures the turn's objective in
-  `experimental.chat.messages.transform`, posts it to the loopback endpoint
-  `POST /harness/adaptive/relevance`, and pushes the line in `experimental.chat.system.transform`.
-  **The server is the only policy**; the plugin decides nothing and never throws. It is registered
+  `packages/remote/src/engine-plugins.ts`) on `experimental.chat.messages.transform` alone. At the
+  first step of a user turn it posts the turn's objective to the loopback endpoint
+  `POST /harness/adaptive/relevance`. If the answer carries a line, the plugin appends it as a
+  synthetic text part at the end of that turn's user message. **The server is the only policy**; the
+  plugin decides nothing and never throws. It is registered
   whenever base+token resolve, so the kill switch is instantaneous. Phase 4 guarded the endpoint with
   the same bearer as `/harness/browser/*` and `/harness/actions/*`; the acting promotion replaces it
   with a dedicated `adaptive-token` (see [Acting promotion](#acting-promotion-in-progress)) so a
@@ -525,17 +526,37 @@ might be relevant and an engine plugin injects a single non-coercive line. The d
   **deterministic lexical line is still injected** — the lexical path is the fallback, and turning
   relevance off (not Jev) restores the previous behaviour. Enabling it is gated on the offline
   evaluation, not a configuration change alone.
-- **Inertness.** `system` is **byte-identical** whenever the feature is off, the master kill switch
-  (`adaptive.enabled=false` / `FLUPCODE_ADAPTIVE_DISABLED=1`) is on, the runtime is not `legacy`, there
-  is no fresh objective, or there is no roster, no candidate, an absent server, a timeout, a non-200,
-  invalid JSON or an exception. Two accepted limits come from the hook surface:
-  `system.transform` fires on **every** request and cannot discriminate its type, and the hook
-  **blocks the turn**, bounded only by the timeout. Both are kept cheap: an answer inert because the
-  feature or master switch is off or the runtime is not `legacy` carries `retryAfterMs` (60 s, the
-  probe's cadence), and the plugin skips the call until it expires (capped at 10 min), so turning
-  relevance back on reaches turns within about a minute. Three consecutive failures (timeout,
-  network, non-200, invalid JSON) open a plugin-side breaker for 60 s; then one half-open request
-  closes it on success or reopens it on failure.
+- **Cache-stable: one decision per turn, never rewritten.** A byte that changes before the
+  conversation's cache breakpoint makes the provider write the whole conversation again (1.25× input
+  for Anthropic's 5-minute cache) instead of reading it (0.1×). The line used to sit in a second
+  system message, before the conversation, so every change busted the cache. The rules, from
+  [ADR-0024 §7](adr/0024-cache-aware-selection.md), are:
+  - **Pinned per turn.** The plugin asks once, at the step whose request ends with the new user
+    message, and pins the outcome before it asks. The outcome is either the line or **no line**: a
+    timeout, an open breaker, a retry hint, the holdout control arm, a paused session or no match.
+    Every later step of the turn renders the same bytes and asks nothing.
+  - **Earlier turns keep their line.** Each line stays on its own user message, so a new turn only
+    appends and never rewrites the cached prefix.
+  - **A failure never removes a line.** A timeout at the start of a turn means that turn carries none.
+    The last valid hint is still in the history.
+  - **Only a turn it saw start.** A user message that is not the newest of the request, or is older
+    than 5 min, is never decided. This covers a session first seen after an engine restart and a
+    compaction's copy of an old head.
+  - **Bounded.** Pins are dropped after 65 min idle, which is past every prompt-cache TTL, so dropping
+    them is free. They are capped at 500 sessions, 200 lines per session and 5,000 lines overall. An
+    eviction or an engine restart costs a still-warm session at most one rewrite.
+- **Inertness.** Nothing is added to the turn, and the system prompt is never touched, whenever:
+  - the feature is off, the master kill switch (`adaptive.enabled=false` /
+    `FLUPCODE_ADAPTIVE_DISABLED=1`) is on, or the runtime is not `legacy`;
+  - there is no objective, no roster or no candidate;
+  - the server is absent, times out, answers a non-200 or invalid JSON, or throws.
+
+  The hook **blocks the first step of a turn**, bounded only by the timeout, and later steps never
+  call. An answer that is inert because the feature or master switch is off, or because the runtime is
+  not `legacy`, carries `retryAfterMs` (60 s, the probe's cadence). The plugin skips the call until it
+  expires (capped at 10 min), so turning relevance back on reaches new turns within about a minute.
+  Three consecutive failures (timeout, network, non-200, invalid JSON) open a plugin-side breaker for
+  60 s; then one half-open request closes it on success or reopens it on failure.
 - **Relationship to ADR-0016/0017.** The seam stays inside the
   [ADR-0016](adr/0016-adaptive-harness-boundary.md) boundary: only `packages/harness-server` and
   `packages/remote` change, the plugin observes and injects over the legacy hook surface, the runtime
@@ -1101,12 +1122,12 @@ Cache-aware selection of old tool outputs (AH-D03, audit §10.4 "reduce real con
   `selection.enabled` (adaptive-token guard, warning `evaluation-gated`) and `selection.coldGapMs`
   are writable through the settings surface so a replay variant can set them. The settings panel has
   no control for either.
-- **Composition.** A11 relevance and D04 anchors only read user text in the same hook, and selection
-  returns every user message as the same object, so their order does not matter.
-  - A11's line lives in the second system message. When it changes between requests, it rewrites
-    the conversation cache on its own.
+- **Composition.** D04 anchors only reads user text in the same hook. A11 relevance reads user text
+  and appends its pinned synthetic part to user messages. Selection writes only assistant tool
+  outputs and returns every user message as the same object, so their order does not matter.
+  - A11's line is pinned per user turn and stays on its own user message, so it never rewrites the
+    cached conversation ([Skill relevance](#skill-relevance), ADR-0024 §7).
   - Selection never adds a change at a warm step.
-  - Making the line cache-stable is an A11 follow-up.
 - **Replay (the acceptance).** From `packages/harness-server`, with the plugin installed (FlupCode
   restarted on this build) and the adaptive token present:
 
@@ -1154,13 +1175,13 @@ only and writes nothing to disk.
 - **State.** An in-memory map per `sessionID` on the harness server, bounded at 1,000 sessions (oldest
   write evicted). An override back at its defaults is dropped. A harness restart forgets every
   override.
-- **What a pause does.** Each capability reads the override on its own next request, so a pause lands
-  on the next provider step:
+- **What a pause does.** Each capability reads the override on its own next request. So a pause lands
+  on the next provider step, except for the relevance line, which lands on the next user turn:
 
   | Capability | Paused session |
   | --- | --- |
   | Decision service | asks no model; records the deterministic baseline with `degradedReason: "session-paused"` and `shadow: true` |
-  | Skill relevance | no line (`reason: "session-paused"`, no `retryAfterMs`); the decision is still recorded as paused and the turn's cached line is dropped, so a resume decides afresh |
+  | Skill relevance | from the **next user turn**: no line (`reason: "session-paused"`, no `retryAfterMs`), and the decision is still recorded as paused. The plugin asks once per turn and pins that answer, so the current turn keeps the line the model already read at its first step, and earlier turns keep theirs as history. Dropping it mid-turn would only rewrite the prompt cache (ADR-0024 §7). A resume decides afresh at the next turn |
   | Loop warnings | the ring keeps accumulating; a crossed threshold records the `failure`/`toolRisk` rows as paused and answers `continue` with `reason: "session-paused"`; `status` is `null` |
   | Context plan | `plan` and `planEpisode` return nothing, so nothing is filtered or stored |
   | Compaction anchors | no block |
@@ -1169,8 +1190,8 @@ only and writes nothing to disk.
 
   The Decisions screen therefore shows the pause as the reason nothing acted.
 - **Don't suggest.** The relevance line removes the excluded names from the roster before it decides,
-  for that session only. A changed exclusion list invalidates the turn's cached decision, so it
-  applies from the next step as well.
+  for that session only. It applies from the **next user turn**, for the same reason as a pause. Lines
+  already given in earlier turns stay in the history.
 
 ## The cockpit (E8)
 
