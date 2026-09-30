@@ -34,8 +34,10 @@ textarea {
 }
 
 :root {
-  /* One focus look everywhere: the dock's grey border, never the accent blue. */
-  --fc-focus-border: color-mix(in srgb, var(--fc-text-muted) 60%, var(--fc-border));
+  /* One focus look everywhere: a grey, never the accent blue. It is the secondary text colour, which
+     every palette keeps at 4.5:1 on its canvas, so the ring clears the 3:1 WCAG asks of a focus
+     indicator (the old mix with the hairline fell to 1.9:1 in Sublime dark). */
+  --fc-focus-border: var(--fc-text-muted);
 }
 
 :focus-visible {
@@ -344,6 +346,15 @@ select:focus-visible,
 
 .fc-icon-button:hover {
   background: color-mix(in srgb, var(--fc-border) 50%, transparent);
+}
+
+/* A dialog's close × meets the 32px hit target (DESIGN §5) even though the glyph is small. */
+.fc-modal-header .fc-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 32px;
+  min-height: 32px;
 }
 
 .fc-scroll {
@@ -3607,6 +3618,12 @@ button.fc-status {
 
 .fc-switch[aria-checked="true"] {
   background: var(--fc-accent);
+}
+
+/* The pale "off" track alone is 1.5:1 on a light canvas; its edge in the secondary text colour keeps
+   the control's outline at the 3:1 WCAG asks of a component (AH-E06). */
+.fc-switch[aria-checked="false"] {
+  box-shadow: inset 0 0 0 1px var(--fc-text-muted);
 }
 
 .fc-switch:focus-visible {
@@ -7989,17 +8006,21 @@ button.fc-status {
   transition: background var(--fc-motion-fast);
 }
 
-.fc-adaptive-segment:hover:not(:disabled) {
+.fc-adaptive-segment:hover:not([aria-disabled="true"]) {
   background: var(--fc-bg-subtle);
 }
 
-.fc-adaptive-segment[aria-pressed="true"] {
-  background: var(--fc-accent);
-  color: var(--fc-on-accent);
-  font-weight: 500;
+/* AH-E06: the picked option is the soft accent with the text colour and an accent edge, not white on
+   the accent — that pair falls to 2.7–3.2:1 in four dark palettes. The edge carries the state at 3:1. */
+.fc-adaptive-segment[aria-checked="true"] {
+  background: var(--fc-accent-soft);
+  color: var(--fc-text);
+  box-shadow: inset 0 0 0 1px var(--fc-accent);
+  font-weight: 600;
 }
 
-.fc-adaptive-segment:disabled {
+/* `aria-disabled`, not `disabled`: an option that cannot be picked is still read out and focusable. */
+.fc-adaptive-segment[aria-disabled="true"] {
   cursor: not-allowed;
   opacity: 0.55;
 }

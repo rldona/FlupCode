@@ -1,5 +1,7 @@
-import { For, Show, createEffect, createMemo, createSignal, on, type Component } from "solid-js"
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, type Component } from "solid-js"
 import { t } from "../i18n"
+import { degradedText } from "../adaptive-copy"
+import { holdModalFocus } from "../modal-focus"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient, type DecisionPageFilter } from "../client"
@@ -99,8 +101,8 @@ export const kindTitle = (decision: Pick<StoredDecision, "kind" | "raw">) => {
 }
 
 /**
- * Whether the harness acted on the answer (AH-E05). A shadow row was only recorded, and so was a row
- * in the holdout control arm: it was decided and audited, but deliberately not applied.
+ * Whether the harness acted on the answer (AH-E05). An observe-only (`shadow`) row was only recorded,
+ * and so was a row in the holdout control arm: it was decided and audited, but deliberately not applied.
  */
 export const decisionActed = (decision: Pick<StoredDecision, "shadow" | "arm">) =>
   !decision.shadow && decision.arm !== "control"
@@ -175,7 +177,7 @@ export function explanationFor(entry: { id: string; detail: DecisionExplanation 
 /**
  * The decision audit (FH-071).
  *
- * The shadow makes decisions and this shows them: what was asked, what came back, what the baseline
+ * The adaptive layer makes decisions and this shows them: what was asked, what came back, what the baseline
  * would have said and how long the provider took. It is reading only — there is no route that makes
  * a decision — and it asks for nothing when the server did not announce the surface.
  */
@@ -246,17 +248,21 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
       if (index >= shown()) setShown(Math.ceil((index + 1) / DECISION_PAGE_SIZE) * DECISION_PAGE_SIZE)
     }),
   )
+  const [opened, setOpened] = createSignal<StoredDecision>()
+  const openID = () => opened()?.id
   let list: HTMLDivElement | undefined
+  const rowOf = (id: string) => list?.querySelector<HTMLElement>(`[data-decision-id="${CSS.escape(id)}"]`)
   const [scrolledTo, setScrolledTo] = createSignal<string>()
   createEffect(() => {
     const id = props.focusDecisionID
     if (!id || scrolledTo() === id) return
     if (!visible().some((decision) => decision.id === id) && pinned() === undefined) return
     requestAnimationFrame(() => {
-      const row = list?.querySelector<HTMLElement>(`[data-decision-id="${CSS.escape(id)}"]`)
+      const row = rowOf(id)
       if (!row) return
       row.scrollIntoView({ block: "center" })
-      row.focus({ preventScroll: true })
+      // While the linked decision's dialog is open it keeps the focus; the row gets it back on close.
+      if (!opened()) row.focus({ preventScroll: true })
       setScrolledTo(id)
     })
   })
@@ -266,8 +272,6 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
     () => (props.open && adaptiveSurfaces(props.capabilities).voi ? props.serverUrl : undefined),
     (serverUrl) => createHarnessClient(serverUrl).adaptive.voi.get(),
   )
-  const [opened, setOpened] = createSignal<StoredDecision>()
-  const openID = () => opened()?.id
   // A deep link (the banner's "View decision", AH-E03) also opens that decision's explanation, once
   // per link, whether or not the loaded page has it.
   const [autoOpened, setAutoOpened] = createSignal<string>()
@@ -325,8 +329,8 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
                 <For each={gates()!.kinds}>
                   {(gate) => (
                     <div class="fc-usage-row fc-context-row">
-                      <span class="fc-diff-status" dir="ltr">
-                        {gate.kind}
+                      <span class="fc-usage-key fc-context-strong" dir="auto">
+                        {t(DECISION_KIND_TITLES[gate.kind] ?? gate.kind)}
                       </span>
                       <span class="fc-usage-key" dir="auto">
                         {gate.modelID}
@@ -434,10 +438,15 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
           {(decision) => (
             <div class="fc-modal-backdrop" onClick={() => setOpened(undefined)}>
               <div
+                ref={(node) => {
+                  const id = decision().id
+                  onCleanup(holdModalFocus(node, () => rowOf(id)))
+                }}
                 class="fc-modal fc-form-modal"
                 role="dialog"
                 aria-modal="true"
                 aria-label={t("Decision")}
+                tabIndex={-1}
                 onClick={(event) => event.stopPropagation()}
               >
                 <div class="fc-modal-header">
@@ -519,7 +528,7 @@ const DecisionRow: Component<{ decision: StoredDecision; focused: boolean; onExp
       {formatDateTime(props.decision.createdAt)} · {latencyText(props.decision.latencyMs)} ·{" "}
       {sourceText(props.decision)} · {props.decision.provider}
       {props.decision.modelVersion ? ` · ${props.decision.modelVersion}` : ""}
-      {props.decision.degraded ? ` · ${t("Degraded")}` : ""}
+      {props.decision.degraded ? ` · ${degradedText(props.decision.degradedReason)}` : ""}
       {props.decision.arm === "control" ? ` · ${t("Held out")}` : ""}
       {labelMark(props.decision.label) ? ` · ${labelMark(props.decision.label)}` : ""}
     </span>
@@ -601,9 +610,9 @@ const Explanation: Component<{ detail: DecisionExplanation }> = (props) => (
     </Show>
     <Show when={props.detail.degraded}>
       <div class="fc-usage-row">
-        <span class="fc-usage-key">{t("Degraded")}</span>
+        <span class="fc-usage-key">{t("Fallback")}</span>
         <span class="fc-context-excerpt" dir="auto">
-          {props.detail.degradedReason ?? t("Yes")}
+          {degradedText(props.detail.degradedReason)}
         </span>
       </div>
     </Show>

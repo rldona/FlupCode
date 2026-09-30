@@ -144,6 +144,8 @@ test("the chip shows the turn's suggested skills, the applied plan and the model
   await expect(popover).toContainText("parser")
   await expect(popover).toContainText(`Context plan applied: −${(1200).toLocaleString("en-US")} tokens`)
   await expect(popover).toContainText("Consulted jev (180 ms)")
+  // The popover takes the focus as it opens, so a keyboard reader lands in it (AH-E06).
+  await expect(popover).toBeFocused()
 
   // Escape closes it and hands the focus back to the chip.
   await page.keyboard.press("Escape")

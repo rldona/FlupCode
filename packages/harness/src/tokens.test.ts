@@ -128,3 +128,94 @@ describe("what the design system says about shape", () => {
     expect(offenders).toEqual([])
   })
 })
+
+describe("contrast, in every palette and mode (WCAG AA, AH-E06)", () => {
+  /** Every palette as the browser resolves it: the root, then `.fc-dark`, then the palette's own blocks. */
+  function resolved() {
+    const text = readFileSync(join(STYLES, "tokens.css"), "utf8")
+    const blocks = new Map<string, Record<string, string>>()
+    for (const [, head, body] of text.matchAll(/^([^\s/@][^{]*)\{([^}]*)\}/gm)) {
+      const values = Object.fromEntries(
+        [...body!.matchAll(/(--fc-[\w-]+)\s*:\s*([^;]+);/g)].map((match) => [match[1]!, match[2]!.trim()]),
+      )
+      blocks.set(head!.trim(), { ...blocks.get(head!.trim()), ...values })
+    }
+    const root = blocks.get(":root")!
+    const dark = { ...root, ...blocks.get(".fc-dark") }
+    const themes: Record<string, Record<string, string>> = { "flupcode light": root, "flupcode dark": dark }
+    for (const [head, values] of blocks) {
+      const match = /^\[data-fc-theme="([\w-]+)"\](\.fc-dark)?$/.exec(head)
+      if (!match) continue
+      const light = blocks.get(`[data-fc-theme="${match[1]}"]`)
+      if (match[2]) themes[`${match[1]} dark`] = { ...dark, ...light, ...values }
+      else themes[`${match[1]} light`] = { ...root, ...values }
+    }
+    return themes
+  }
+
+  /** A colour as sRGB channels, laid over `under` when it is translucent. */
+  function rgb(value: string, under: number[] = [255, 255, 255]): number[] {
+    if (value.startsWith("#")) return [1, 3, 5].map((start) => parseInt(value.slice(start, start + 2), 16))
+    const parts = /rgba?\(([^)]+)\)/.exec(value)![1]!.split(",").map(Number)
+    const alpha = parts[3] ?? 1
+    return [0, 1, 2].map((index) => parts[index]! * alpha + under[index]! * (1 - alpha))
+  }
+
+  function ratio(a: number[], b: number[]) {
+    const luminance = (color: number[]) => {
+      const [r, g, b] = color.map((channel) => {
+        const s = channel / 255
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4
+      })
+      return 0.2126 * r! + 0.7152 * g! + 0.0722 * b!
+    }
+    const [light, dark] = [luminance(a), luminance(b)].sort((x, y) => y - x)
+    return (light! + 0.05) / (dark! + 0.05)
+  }
+
+  /** Every pair below `minimum`, as "palette: fg on bg = ratio", so a failure names what to fix. */
+  function failures(pairs: Array<[string, string]>, minimum: number) {
+    return Object.entries(resolved()).flatMap(([name, values]) =>
+      pairs.flatMap(([fg, bg]) => {
+        const canvas = rgb(values["--fc-bg"]!)
+        const background = rgb(values[bg]!, canvas)
+        const value = ratio(rgb(values[fg]!, background), background)
+        return value < minimum ? [`${name}: ${fg} on ${bg} = ${value.toFixed(2)}`] : []
+      }),
+    )
+  }
+
+  test("is reading every palette, light and dark", () => {
+    expect(Object.keys(resolved()).length).toBeGreaterThanOrEqual(14)
+  })
+
+  test("body text, secondary text and the status colours read at 4.5:1 on both canvases", () => {
+    // The adaptive cards say their state in --fc-success / --fc-warning, and every hint is muted.
+    const colours = ["--fc-text", "--fc-text-muted", "--fc-success", "--fc-warning", "--fc-danger"]
+    const pairs = colours.flatMap(
+      (fg): Array<[string, string]> => [
+        [fg, "--fc-bg"],
+        [fg, "--fc-bg-elevated"],
+      ],
+    )
+    expect(failures(pairs, 4.5)).toEqual([])
+  })
+
+  test("a picked option reads at 4.5:1 and its accent edge at 3:1", () => {
+    expect(failures([["--fc-text", "--fc-accent-soft"]], 4.5)).toEqual([])
+    expect(
+      failures(
+        [
+          ["--fc-accent", "--fc-bg"],
+          ["--fc-accent", "--fc-bg-elevated"],
+        ],
+        3,
+      ),
+    ).toEqual([])
+  })
+
+  test("the focus ring is the secondary text colour, so it clears 3:1 wherever that clears 4.5:1", () => {
+    const shell = readFileSync(join(STYLES, "shell.css"), "utf8")
+    expect(shell).toContain("--fc-focus-border: var(--fc-text-muted);")
+  })
+})

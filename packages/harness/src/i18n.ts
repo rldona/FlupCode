@@ -1424,8 +1424,8 @@ const ES: Record<string, string> = {
   "Send data to {provider}": "Enviar datos a {provider}",
   "Needs confirmation. Covers {provider} only.": "Requiere confirmación. Cubre solo a {provider}.",
   "{kind} for {provider}": "{kind} para {provider}",
-  "Consenting to {provider}: redacted, bounded decision inputs for the listed projects and kinds are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.":
-    "Consentir a {provider}: las entradas de decisión, redactadas y acotadas, de los proyectos y kinds listados se envían a {provider}. Cubre solo a {provider}, a ningún otro proveedor. El cambio se escribe en el archivo de configuración.",
+  "Consenting to {provider}: redacted, size-limited decision inputs for the listed projects and decisions are sent to {provider}. It covers {provider} only, no other provider. The change is written to the config file.":
+    "Consentir a {provider}: las entradas de decisión, censuradas y de tamaño limitado, de los proyectos y decisiones listados se envían a {provider}. Cubre solo a {provider}, a ningún otro proveedor. El cambio se escribe en el archivo de configuración.",
   "No projects allowed yet.": "Todavía no hay proyectos permitidos.",
   "Project path for {provider}": "Ruta del proyecto para {provider}",
   "Add project": "Añadir proyecto",
@@ -1435,8 +1435,12 @@ const ES: Record<string, string> = {
   "Config file": "Archivo de configuración",
   "(not created yet)": "(todavía no creado)",
   "Confirm change": "Confirmar el cambio",
-  "Writing to {field} needs confirmation. The change is written to the config file.":
-    "Escribir en {field} requiere confirmación. El cambio se escribe en el archivo de configuración.",
+  "{provider} may then receive redacted, size-limited decision inputs from {projects}. The change is written to the config file.":
+    "{provider} podrá recibir entradas de decisión censuradas y de tamaño limitado de {projects}. El cambio se escribe en el archivo de configuración.",
+  "{provider} may then receive redacted, size-limited inputs to decide: {kinds}. The change is written to the config file.":
+    "{provider} podrá recibir entradas censuradas y de tamaño limitado para decidir: {kinds}. El cambio se escribe en el archivo de configuración.",
+  "This changes what the adaptive harness may do or send. The change is written to the config file.":
+    "Esto cambia lo que el harness adaptativo puede hacer o enviar. El cambio se escribe en el archivo de configuración.",
   "Write it": "Escribirlo",
   "Loop warnings": "Avisos de bucle",
   "Inactive: the master switch is off.": "Inactivo: el interruptor principal está apagado.",
@@ -1505,13 +1509,13 @@ const ES: Record<string, string> = {
   "Cleaning up removes adaptive history older than its retention window. Learned skills are never removed. The change is written to the config file.":
     "La limpieza elimina el historial adaptativo más antiguo que su ventana de retención. Las skills aprendidas nunca se eliminan. El cambio se escribe en el archivo de configuración.",
   "The predictive model receives redacted, size-limited decision inputs for the projects and decisions you allowed. The change is written to the config file.":
-    "El modelo predictivo recibe entradas de decisión redactadas y de tamaño limitado para los proyectos y decisiones que permitiste. El cambio se escribe en el archivo de configuración.",
+    "El modelo predictivo recibe entradas de decisión censuradas y de tamaño limitado para los proyectos y decisiones que permitiste. El cambio se escribe en el archivo de configuración.",
   "* Acting changes what the agent sees, and it has not passed the offline evaluation yet.":
     "* Actuando cambia lo que ve el agente, y todavía no ha superado la evaluación offline.",
   "Turning it on asks first: redacted session notes are sent to {model} to draft each skill.":
-    "Activarlo pide confirmación antes: se envían notas redactadas de la sesión a {model} para redactar cada skill.",
+    "Activarlo pide confirmación antes: se envían notas censuradas de la sesión a {model} para redactar cada skill.",
   "Turning it on asks first: redacted session notes are sent to a model to draft each skill.":
-    "Activarlo pide confirmación antes: se envían notas redactadas de la sesión a un modelo para redactar cada skill.",
+    "Activarlo pide confirmación antes: se envían notas censuradas de la sesión a un modelo para redactar cada skill.",
   "Sharing with {provider}": "Compartir con {provider}",
   "Read-only: this server cannot change these settings.": "Solo lectura: este servidor no puede cambiar estos ajustes.",
   "This engine runs a newer session runtime: skill suggestions and loop warnings cannot act there yet.":
@@ -1519,7 +1523,7 @@ const ES: Record<string, string> = {
   "The engine changed since you last looked.": "El motor ha cambiado desde la última vez que miraste.",
   "Predictive model": "Modelo predictivo",
   "A predictive model can double-check some of these decisions. It only receives redacted, size-limited inputs, only for the projects you allow, and only from the providers you allow below.":
-    "Un modelo predictivo puede revisar algunas de estas decisiones. Solo recibe entradas redactadas y de tamaño limitado, solo de los proyectos que permitas y solo para los proveedores que permitas abajo.",
+    "Un modelo predictivo puede revisar algunas de estas decisiones. Solo recibe entradas censuradas y de tamaño limitado, solo de los proyectos que permitas y solo para los proveedores que permitas abajo.",
   "Use the predictive model": "Usar el modelo predictivo",
   "The model key is missing, so built-in rules decide instead.":
     "Falta la clave del modelo, así que deciden las reglas integradas.",
@@ -1602,7 +1606,22 @@ const ES: Record<string, string> = {
   Baseline: "Línea base",
   Provider: "Proveedor",
   Latency: "Latencia",
-  Degraded: "Degradado",
+  Fallback: "Respaldo",
+  "Data shared with the predictive model": "Datos compartidos con el modelo predictivo",
+  "Agents that load it: {agents}": "Agentes que la cargan: {agents}",
+  "Built-in rules were used": "Se usaron reglas integradas",
+  "Built-in rules were used ({reason})": "Se usaron reglas integradas ({reason})",
+  "the model took too long": "el modelo tardó demasiado",
+  "the model could not be reached": "no se pudo contactar con el modelo",
+  "the provider limited the requests": "el proveedor limitó las peticiones",
+  "the provider refused the key": "el proveedor rechazó la clave",
+  "the model's answer could not be read": "no se pudo leer la respuesta del modelo",
+  "the model was not confident enough": "el modelo no tenía suficiente confianza",
+  "the monthly budget is spent": "el presupuesto mensual está agotado",
+  "the model failed too often recently": "el modelo ha fallado demasiadas veces últimamente",
+  "sharing this data with the model is not allowed": "no está permitido compartir estos datos con el modelo",
+  "the predictive model is turned off": "el modelo predictivo está apagado",
+  "the model does not add enough value here": "el modelo no aporta suficiente valor aquí",
   "Held out": "En control",
   "Real outcome": "Resultado real",
   Correct: "Correcta",
@@ -1620,7 +1639,7 @@ const ES: Record<string, string> = {
   "Context plan": "Plan de contexto",
   "No plan recorded for this session.": "No hay plan registrado para esta sesión.",
   "Applied: this plan filtered the prompt.": "Aplicado: este plan filtró el prompt.",
-  "Shadow only: nothing was filtered.": "Solo shadow: no se filtró nada.",
+  "Observe only: nothing was filtered.": "Solo observar: no se filtró nada.",
   "Refined by {name}": "Refinado por {name}",
   "a model": "un modelo",
   "Model cost": "Coste del modelo",

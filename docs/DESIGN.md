@@ -128,9 +128,34 @@ Built on `@opencode-ai/ui` primitives where possible.
 ## 5. Accessibility
 
 - Minimum contrast 4.5:1 for body text, 3:1 for large text and UI borders.
-- Full keyboard operability; visible focus rings using `--fc-accent`.
+- Full keyboard operability; visible focus rings using `--fc-focus-border` (the secondary text grey,
+  which every palette keeps at 4.5:1 on its canvas, so the ring clears 3:1).
 - Hit targets ≥ `32px`.
 - Heatmap and status conveyed by shape/label, not colour alone.
+
+`src/tokens.test.ts` checks the colour half in every palette, light and dark: `--fc-text`,
+`--fc-text-muted`, `--fc-success`, `--fc-warning` and `--fc-danger` at 4.5:1 on `--fc-bg` and
+`--fc-bg-elevated`, text at 4.5:1 on `--fc-accent-soft`, and the accent at 3:1. A palette that fails
+is fixed at the token, not worked around in one component.
+
+### Patterns
+
+- **A single choice among a few** (a level, a capability's state) is `Segmented`: a `radiogroup`
+  with one Tab stop, arrows and Home/End over the options that can be picked, and Space/Enter to
+  pick. Focus alone never picks, because a pick writes config. An option that cannot be picked is
+  `aria-disabled`, still read out and focusable. The picked one is text on `--fc-accent-soft` with an
+  accent edge, never white on the accent (2.7–3.2:1 in four dark palettes).
+- **A dialog** takes the focus on open (`holdModalFocus`, the dialog itself with `tabIndex={-1}`),
+  hands it back to its opener (or the row it is about) on close, and is described by its message.
+  Escape and the Tab loop are the app's, for every dialog. Enter confirms only on the dialog itself;
+  on a button it presses that button.
+- **An answer that arrives later** (a save, a pause, a loop warning) is announced by a live region
+  that is always mounted and only changes its text.
+- **Copy** says the consequence in the reader's words. The adaptive surfaces never show the internal
+  names from the audit's table (§7.4): "Predictive model", not Jev; "Observe only", not shadow;
+  "Data shared with the predictive model", not egress; "Which skills fit", not `skillRelevance`;
+  "Built-in rules were used (reason)", not degraded. `src/i18n.test.ts` fails on them, and on a string
+  of those screens with no Spanish translation.
 
 ## 6. Theming
 

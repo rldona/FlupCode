@@ -1,5 +1,6 @@
 import { For, Show, createMemo, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { degradedText } from "../adaptive-copy"
 import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { formatTokens } from "../metrics"
@@ -122,7 +123,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
   const mcpUses = createMemo(() => mcpToolUses(props.mcp, props.toolUses ?? {}))
   const mcpTimes = createMemo(() => mcpLatency(props.mcp, props.toolCalls ?? []))
 
-  // The context plan the shadow decided for this session, or for the project when no session is
+  // The context plan the adaptive layer decided for this session, or for the project when no session is
   // picked (FH-072). Asked for only when the server announced the plan audit; an older one is not
   // poked at, so there is no 404 in the console.
   const planAvailable = () => adaptiveSurfaces(props.capabilities).plans
@@ -328,7 +329,7 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
             </Show>
           </section>
 
-          {/* What the shadow planned for this session's context (FH-072): the dispositions it chose,
+          {/* What the adaptive layer planned for this session's context (FH-072): the dispositions it chose,
               the reason each carries, and whether it actually filtered anything. */}
           <Show when={planAvailable()}>
             <section class="fc-usage-block fc-context-plan">
@@ -363,10 +364,10 @@ export const ContextPanel: Component<ContextPanelProps> = (props) => {
                 {(entry) => (
                   <>
                     <p class="fc-usage-note">
-                      {entry().applied ? t("Applied: this plan filtered the prompt.") : t("Shadow only: nothing was filtered.")}
+                      {entry().applied ? t("Applied: this plan filtered the prompt.") : t("Observe only: nothing was filtered.")}
                       {" · "}
                       {scoreSourceText(entry())}
-                      {entry().degraded ? ` · ${t("Degraded")}` : ""}
+                      {entry().degraded ? ` · ${degradedText(entry().degradedReason)}` : ""}
                       {" · "}
                       {formatDateTime(entry().createdAt)}
                     </p>

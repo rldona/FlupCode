@@ -3,6 +3,7 @@ import { t } from "../i18n"
 import { createResource } from "../resource"
 import { createHarnessClient } from "../client"
 import { toast } from "../toast"
+import { holdModalFocus } from "../modal-focus"
 import type { SessionAdaptiveOverride, SessionTurnSummary } from "../types"
 
 type AdaptiveChipProps = {
@@ -118,15 +119,24 @@ export const AdaptiveChip: Component<AdaptiveChipProps> = (props) => {
         <span class="fc-mode-caret">▾</span>
       </button>
       <Show when={open()}>
-        <div class="fc-mode-popover fc-adaptive-popover" role="dialog" aria-label={t("Adaptive on this turn")}>
+        <div
+          ref={(node) => onCleanup(holdModalFocus(node))}
+          class="fc-mode-popover fc-adaptive-popover"
+          role="dialog"
+          aria-label={t("Adaptive on this turn")}
+          tabIndex={-1}
+        >
           <div class="fc-mode-title">{t("This turn")}</div>
-          <Show when={override().paused}>
-            <p class="fc-adaptive-note" role="status">
-              {t(
-                "Paused in this session: from the next step nothing adaptive acts, and each decision is recorded as paused.",
-              )}
-            </p>
-          </Show>
+          {/* Always mounted, so pausing or resuming (an answer that arrives later) is read out. */}
+          <div role="status">
+            <Show when={override().paused}>
+              <p class="fc-adaptive-note">
+                {t(
+                  "Paused in this session: from the next step nothing adaptive acts, and each decision is recorded as paused.",
+                )}
+              </p>
+            </Show>
+          </div>
           <Show when={summary.failure() && !current()}>
             <p class="fc-adaptive-note">{t("The adaptive summary is not available right now.")}</p>
           </Show>
@@ -204,7 +214,6 @@ export const AdaptiveChip: Component<AdaptiveChipProps> = (props) => {
             <button
               class="fc-button"
               type="button"
-              aria-pressed={override().paused}
               disabled={saving() || !current()}
               onClick={() => write({ paused: !override().paused })}
             >
