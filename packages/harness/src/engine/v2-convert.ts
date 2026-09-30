@@ -1,10 +1,12 @@
 import type {
+  FormInfo as V2Form,
+  PermissionRequest as V2Permission,
   SessionInfo as V2Session,
   SessionMessageAssistant as V2Assistant,
   SessionMessageInfo as V2Message,
   ToolContent as V2ToolContent,
 } from "@opencode/client"
-import type { SessionInfo, SessionMessageInfo } from "../engine-types"
+import type { PermissionV2Request, QuestionV2Request, SessionInfo, SessionMessageInfo } from "../engine-types"
 
 /**
  * OpenCode 2's session and message shapes, turned into the ones the app renders today (V2-20).
@@ -152,4 +154,76 @@ function toolContent(items: readonly V2ToolContent[]) {
 
 function metadataOf(message: V2Message) {
   return message.metadata ? { metadata: message.metadata } : {}
+}
+
+/** A 2.x permission request is the app's own shape but for its tool call, which 2.x names `id`. */
+export function toPermission(request: V2Permission): PermissionV2Request {
+  return {
+    id: request.id,
+    sessionID: request.sessionID,
+    action: request.action,
+    resources: request.resources,
+    ...(request.save ? { save: request.save } : {}),
+    ...(request.metadata ? { metadata: request.metadata } : {}),
+    ...(request.source
+      ? { source: { type: "tool" as const, messageID: request.source.messageID, callID: request.source.id } }
+      : {}),
+  }
+}
+
+/**
+ * 2.x asks every question as a form (V2-22). The `question` tool turns each question into one field,
+ * `q0`, `q1`…: its header as the title, the question as the description, `multiselect` when several
+ * answers may be picked, every option's value being its label, and a custom answer always allowed.
+ * That is exactly the app's question, so its dock answers a form unchanged. A form from anything else
+ * reads the same way, field by field: a yes/no field as two options, a number as a typed answer.
+ */
+export function toQuestion(form: V2Form): QuestionV2Request {
+  const tool = (form.metadata as { tool?: { messageID?: string; id?: string } } | undefined)?.tool
+  return {
+    id: form.id,
+    sessionID: form.sessionID,
+    questions: form.fields.flatMap((field) => {
+      if (field.type === "external" || ("hidden" in field && field.hidden)) return []
+      const title = field.title ?? field.key
+      const options =
+        field.type === "boolean"
+          ? [
+              { label: "Yes", description: "" },
+              { label: "No", description: "" },
+            ]
+          : "options" in field && field.options
+            ? field.options.map((option) => ({ label: option.label, description: option.description ?? "" }))
+            : []
+      return [
+        {
+          question: field.description ?? title,
+          header: title,
+          options,
+          ...(field.type === "multiselect" ? { multiple: true } : {}),
+          // Nothing to pick from means the answer is typed.
+          custom: options.length === 0 || ("custom" in field && field.custom === true),
+        },
+      ]
+    }),
+    ...(tool?.messageID && tool.id ? { tool: { messageID: tool.messageID, callID: tool.id } } : {}),
+  }
+}
+
+/** The dock's answers, one list of picked labels per question, as the form's answer by field key. */
+export function toFormAnswer(form: V2Form, answers: string[][]) {
+  const fields = form.fields.filter((field) => field.type !== "external" && !("hidden" in field && field.hidden))
+  return Object.fromEntries(
+    fields.flatMap((field, index): Array<[string, string | number | boolean | string[]]> => {
+      const picked = answers[index] ?? []
+      if (picked.length === 0) return []
+      // A picked option answers with its value; anything else was typed.
+      const value = (label: string) =>
+        ("options" in field ? field.options?.find((option) => option.label === label)?.value : undefined) ?? label
+      if (field.type === "multiselect") return [[field.key, picked.map(value)]]
+      if (field.type === "boolean") return [[field.key, picked[0] === "Yes"]]
+      if (field.type === "number" || field.type === "integer") return [[field.key, Number(picked[0])]]
+      return [[field.key, value(picked[0]!)]]
+    }),
+  )
 }

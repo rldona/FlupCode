@@ -2,15 +2,15 @@ import { OpenCode } from "@opencode/client"
 import type { EngineClient } from "../client"
 import { engineFetch } from "../transport"
 import { EngineError, unsupported } from "./error"
-import { toMessages, toSession } from "./v2-convert"
+import { toFormAnswer, toMessages, toPermission, toQuestion, toSession } from "./v2-convert"
 
 /**
  * The client for an OpenCode 2 engine, through its generated `@opencode/client` (pinned to the same
  * version as the sandbox engine, see packages/engine-contract/src/opencode-v2.ts).
  *
  * It is being built domain by domain against `EngineClient`, the 1.x adapter's type, so the app keeps
- * one contract: sessions and messages here (V2-20), then events (V2-21), permissions and forms
- * (V2-22), MCP (V2-23), config (V2-24) and providers (V2-25). `createClient` picks it once every
+ * one contract: sessions and messages (V2-20), events (V2-21) and permissions and forms (V2-22)
+ * here, then MCP (V2-23), config (V2-24) and providers (V2-25). `createClient` picks it once every
  * domain exists. What 2.x removed (sharing, todos, deleting a message, the 1.x replay history) fails
  * with an `UnsupportedByEngine` EngineError, or reads as empty where the app has an empty state.
  */
@@ -128,15 +128,43 @@ export function createV2Domains(baseUrl: string) {
         return nothing()
       },
     },
-    // Permissions and forms arrive with V2-22; until then 2.x's pending requests read as none.
     permission: {
-      list: async () => ({ data: [] }),
-      reply: async () => unsupported("answering a permission yet"),
+      list: async (input) => ({
+        data: (await call(client.permission.list({ sessionID: input.sessionID }))).map(toPermission),
+      }),
+      reply: async (input) => {
+        await call(
+          client.permission.reply({
+            sessionID: input.sessionID,
+            requestID: input.requestID,
+            decision: input.reply,
+            ...(input.message ? { message: input.message } : {}),
+          }),
+        )
+        return nothing()
+      },
     },
+    // 2.x asks questions as forms; see `toQuestion`.
     question: {
-      list: async () => ({ data: [] }),
-      reply: async () => unsupported("answering a question yet"),
-      reject: async () => unsupported("rejecting a question yet"),
+      list: async (input) => ({
+        data: (await call(client.session.form.list({ sessionID: input.sessionID }))).map(toQuestion),
+      }),
+      reply: async (input) => {
+        // The answer is keyed by field and typed by it, so the form is read first.
+        const form = await call(client.session.form.get({ sessionID: input.sessionID, formID: input.requestID }))
+        await call(
+          client.session.form.reply({
+            sessionID: input.sessionID,
+            formID: input.requestID,
+            answer: toFormAnswer(form, input.answers),
+          }),
+        )
+        return nothing()
+      },
+      reject: async (input) => {
+        await call(client.session.form.cancel({ sessionID: input.sessionID, formID: input.requestID }))
+        return nothing()
+      },
     },
     rename: async (input) => {
       await call(client.session.update({ sessionID: input.sessionID, title: input.title }))
@@ -197,7 +225,35 @@ export function createV2Domains(baseUrl: string) {
     },
   }
 
-  return { session, message }
+  /**
+   * The 1.x legacy runner's own registry. 2.x has one runtime, so there is nothing here: the lists
+   * read empty and answering one fails, which is what sends the app to `session.permission` and
+   * `session.question`, where every 2.x request lives.
+   */
+  const blocked: EngineClient["blocked"] = {
+    questions: async () => [],
+    permissions: async () => [],
+    answerQuestion: async () => unsupported("the legacy question registry"),
+    rejectQuestion: async () => unsupported("the legacy question registry"),
+    answerPermission: async () => unsupported("the legacy permission registry"),
+  }
+
+  const permission: EngineClient["permission"] = {
+    pending: async (input) => {
+      const directory = input?.location?.directory
+      const pending = await call(client.permission.request.list(directory ? { location: { directory } } : undefined))
+      return { data: pending.data.map(toPermission) }
+    },
+    saved: {
+      list: async (input) => ({ data: await call(client.permission.saved.list(input)) }),
+      remove: async (input) => {
+        await call(client.permission.saved.remove({ id: input.id }))
+        return nothing()
+      },
+    },
+  }
+
+  return { session, message, blocked, permission }
 }
 
 /**

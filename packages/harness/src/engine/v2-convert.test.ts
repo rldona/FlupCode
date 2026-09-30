@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
-import type { SessionInfo as V2Session, SessionMessageInfo as V2Message } from "@opencode/client"
-import { toMessages, toSession } from "./v2-convert"
+import type { FormInfo as V2Form, SessionInfo as V2Session, SessionMessageInfo as V2Message } from "@opencode/client"
+import { toFormAnswer, toMessages, toQuestion, toSession } from "./v2-convert"
 
 const session = {
   id: "ses_1",
@@ -134,4 +134,43 @@ test("a user's inline file becomes a data URL, a linked one keeps its URI", () =
       { uri: "file:///b.png", mime: "image/png" },
     ],
   })
+})
+
+const form = {
+  id: "frm_1",
+  sessionID: "ses_1",
+  title: "Setup",
+  fields: [
+    { key: "confirm", type: "boolean", title: "Continue?" },
+    { key: "count", type: "integer", title: "How many", description: "Workers to start" },
+    { key: "secret", type: "string", hidden: true },
+    { key: "docs", type: "external", url: "https://example.com" },
+    { key: "mode", type: "string", title: "Mode", options: [{ value: "fast", label: "Fast" }] },
+  ],
+} as unknown as V2Form
+
+test("a form from anything but the question tool reads field by field, hidden and external ones left out", () => {
+  expect(toQuestion(form)).toEqual({
+    id: "frm_1",
+    sessionID: "ses_1",
+    questions: [
+      {
+        question: "Continue?",
+        header: "Continue?",
+        options: [
+          { label: "Yes", description: "" },
+          { label: "No", description: "" },
+        ],
+        custom: false,
+      },
+      { question: "Workers to start", header: "How many", options: [], custom: true },
+      { question: "Mode", header: "Mode", options: [{ label: "Fast", description: "" }], custom: false },
+    ],
+  })
+})
+
+test("the dock's answers go back typed by field, a picked option as its value", () => {
+  expect(toFormAnswer(form, [["Yes"], ["3"], ["Fast"]])).toEqual({ confirm: true, count: 3, mode: "fast" })
+  // A question left unanswered is left out of the answer.
+  expect(toFormAnswer(form, [[], ["3"]])).toEqual({ count: 3 })
 })
