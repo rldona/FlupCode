@@ -24,6 +24,7 @@ import {
   checkKey,
   decide,
   describeCheck,
+  guardrailVerdict,
   safetyTriggered,
   thresholdOf,
   verdictOf,
@@ -637,9 +638,10 @@ function modelResults(
     const estimate = (check: Check): Estimate => {
       const statistic = statistics[check.metric]
       if (!statistic) return {}
-      // An infinite cost has no interval; the point estimate is still what the guardrail reads.
+      // No useful decision at all is not noise: the cost is infinite whatever the resample, so the
+      // interval is the point and the guardrail can fail on it (R18).
       const whole = statistic(units)
-      if (whole === Number.POSITIVE_INFINITY) return { estimate: whole }
+      if (whole === Number.POSITIVE_INFINITY) return { estimate: whole, low: whole, high: whole }
       return run(check, [], units, statistic)
     }
     const thresholds = { [checkKey({ metric: "costPerUsefulDecision", measure: "overall" })]: weights.valueOfCorrect }
@@ -718,13 +720,11 @@ function resultOf(
         threshold,
         // A safety check "fails" when its stop condition fired.
         verdict:
-          entry.role !== "safety"
+          entry.role === "primary"
             ? verdictOf(entry.check, value, threshold)
-            : value.estimate === undefined
-              ? "unknown"
-              : safetyTriggered(entry.check, evidence)
-                ? "fail"
-                : "pass",
+            : entry.role === "guardrail"
+              ? guardrailVerdict(entry.check, value, threshold)
+              : safetyVerdict(entry.check, value, evidence),
         ...value,
       },
     ]
@@ -742,6 +742,13 @@ function resultOf(
     reasons: outcome.reasons,
     manual: criteria.manual,
   }
+}
+
+/** A stop that fired is `fail`; past its line without evidence of harm (or 30 sessions per arm), `inconclusive`. */
+function safetyVerdict(check: Check, value: Estimate, evidence: Evidence): CheckVerdict {
+  if (value.estimate === undefined) return "unknown"
+  if (safetyTriggered(check, evidence)) return "fail"
+  return safetyTriggered({ ...check, absolute: true }, evidence) ? "inconclusive" : "pass"
 }
 
 function run<T>(check: Check, control: readonly T[], treatment: readonly T[], statistic: Statistic<T>): Estimate {
@@ -881,13 +888,24 @@ export function renderReport(report: LiveReport): string {
       "| --- | --- | --- | --- | --- |",
       ...result.checks.map(
         (check) =>
-          `| ${check.role} | ${check.description} | ${formatValue(check.key, check.estimate)} | ${check.low === undefined || check.high === undefined ? "—" : `${formatValue(check.key, check.low)} … ${formatValue(check.key, check.high)}`} | ${check.role === "safety" ? { pass: "ok", fail: "STOP", unknown: "no data" }[check.verdict] : check.verdict} |`,
+          `| ${check.role} | ${check.description} | ${formatValue(check.key, check.estimate)} | ${check.low === undefined || check.high === undefined ? "—" : `${formatValue(check.key, check.low)} … ${formatValue(check.key, check.high)}`} | ${VERDICT_LABELS[check.role][check.verdict]} |`,
       ),
       "",
       ...(result.manual.length > 0 ? ["Checked by hand at G03:", ...result.manual.map((item) => `- ${item}`), ""] : []),
     ]),
   ]
   return lines.join("\n")
+}
+
+const VERDICT_LABELS: Record<CheckResult["role"], Record<CheckVerdict, string>> = {
+  primary: { pass: "pass", fail: "fail", inconclusive: "inconclusive", unknown: "unknown" },
+  guardrail: {
+    pass: "pass",
+    fail: "fail (evidence of harm)",
+    inconclusive: "inconclusive (margin crossed, no evidence of harm)",
+    unknown: "unknown",
+  },
+  safety: { pass: "ok", fail: "STOP", inconclusive: "watch (line crossed, no evidence of harm)", unknown: "no data" },
 }
 
 function formatValue(key: string, value: number | undefined): string {

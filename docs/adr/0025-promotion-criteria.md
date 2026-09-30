@@ -111,7 +111,10 @@ Per session `s` in arm `a` (sums over the session's turns in the window):
 - **Replay-decided capabilities** (tool-output trim, per-step selection, compaction anchors; R15): the
   primary check reads a paired replay report passed with `report --replay <report.json>`; the live
   holdout still runs and supplies their guardrails and safety stops.
-- **Guardrails** are read on the point estimate (see refinement R3).
+- **Guardrails** pass on the point estimate, and fail only with **evidence of harm**: the point
+  estimate past the margin **and** the 90% CI wholly on the harmful side of zero (R18, superseding
+  R3's reading). Past the margin without that evidence a guardrail is *inconclusive*: it blocks
+  promotion but never retires.
 - A capability that is off in the config during the window is still analysed (its treatment arm is
   then the control), and the report says it was off; the owner should read that as "not evaluated".
 
@@ -169,8 +172,8 @@ cannot (R14), instead of waiting a quarter for one analysis.
   closed or whose sample is short, and suggests **insufficient data**. Only the safety checks are
   shown before that.
 - **No early stopping except a safety stop.** A safety stop retires the capability at once:
-  - completion Δ < −5 pp, or error-rate Δ > +5 pp, once each arm has 30 sessions (so one bad session
-    cannot stop it);
+  - completion Δ < −5 pp, or error-rate Δ > +5 pp, with the 90% CI wholly on the harmful side of
+    zero (R18), once each arm has 30 sessions (so neither one bad session nor noise can stop it);
   - per-step selection: any request rejected for a broken tool pair in the treatment arm;
   - learning: any attested content incident.
 - `start` refuses to move an existing start (it needs `--force`), because moving the window after a
@@ -185,10 +188,10 @@ Applied in this order by `decide()`:
 | --- | --- | --- |
 | 1 | A safety stop fired | **retire** |
 | 2 | Window not closed, or a minimum sample not reached (final once the 42-day cap passed) | **insufficient data** |
-| 3 | A guardrail fails on its point estimate | **retire** (§14.2: a gain that worsens a guardrail is a regression) |
-| 4 | Every primary check passes (skill suggestion: any), and no required guardrail is unmeasurable | **promote** |
+| 3 | A guardrail fails **with evidence of harm** (R18; the rejected-tool-pair and content-incident guardrails fail on their value) | **retire** (§14.2: a gain that worsens a guardrail is a regression) |
+| 4 | Every primary check passes (skill suggestion: any), every guardrail passes, and none is unmeasurable or inconclusive | **promote** |
 | 5 | A primary check's 90% CI lies wholly on the wrong side of its threshold (skill suggestion: all of them) | **retire** |
-| 6 | Otherwise | **keep observing** (the capability stays at its current, opt-in level) |
+| 6 | Otherwise, including an inconclusive guardrail | **keep observing** (the capability stays at its current, opt-in level) |
 
 The suggestion is not the decision: AH-G03 records the owner's decision in its own ADR, and the
 "checked by hand" items of each capability are part of that review.
@@ -226,7 +229,8 @@ Every place this ADR departs from, or makes precise, the audit's §14.3 line:
   by R12: a 90% CI, one-sided α = 0.05. The "point and CI" rule stays.)*
 - **R3 (all guardrails).** "Completion ≥ −1 pp" is read on the **point estimate**. A non-inferiority
   test with a 1 pp margin would need tens of thousands of sessions; the −5 pp safety stop and the
-  guardrail retire rule bound the risk instead.
+  guardrail retire rule bound the risk instead. *(The retire reading is superseded by R18: the point
+  estimate still decides "pass", but "fail" needs evidence of harm.)*
 - **R4 (session capabilities).** §14.2's guardrails without a number get one: error rate Δ ≤ +1 pp
   (turns with a tool error or a provider error) and p95 turn duration Δ ≤ +10%. §14.3's
   "added p95 latency < 20 ms / < 50 ms / < 300 ms" is kept where a stored field measures it (relevance
@@ -326,6 +330,51 @@ Added by the revision of 2026-09-30 (see "Revision" below); each states its trad
   within 14 days of approval (was 30), and the minimum is 2 approved skills with a closed window (was
   3). With a 42-day cap, a 30-day window would only count approvals from the first 12 days.
   *Trade-off:* a skill that is useful but rare (monthly) reads as unused.
+- **R18 (all guardrails and safety stops). Retire only on evidence of harm.** Approved by the owner
+  after the first draft of this revision. A guardrail **passes** on its point estimate, as before.
+  Past its margin it **fails** only when the 90% CI also lies wholly on the harmful side (one-sided
+  α = 0.05, as R12). For a comparison between arms or replay variants the reference is zero, i.e. no
+  effect. For a level read on one arm (recall miss < 5%, relevance latency, the control arm's loop
+  stop rate, USD per useful decision) the reference is the margin itself. Without that evidence the
+  guardrail is **inconclusive**. It blocks promotion (decision row 4 → keep observing), never retires,
+  and does not shield a futile primary from row 5. The completion and error-rate **safety stops**
+  need the same evidence, plus 30 sessions per arm, before they fire. Two checks stay **absolute**
+  because they are deterministic defects, not noisy estimates: any request rejected for a broken tool
+  pair (per-step selection) and any attested content incident (learning). A predictive model with no
+  useful decision at all has an infinite cost per useful decision in every resample, so that
+  guardrail can fail on it. The report says "guardrail failed with evidence of harm" or "guardrail
+  inconclusive (margin crossed without evidence of harm)".
+
+  *Error rates at 150 sessions per arm.* Assumptions: 60% of sessions have a known outcome (so ~90
+  per arm), a 70% completion rate, ~8 turns per session with a per-session error propensity between
+  0 and 20%, and log-normal turn durations. The numbers come from the same bootstrap as the report
+  (2,000 resamples), over 1,000 seeded harmless evaluations, with a Monte Carlo SE ≈ 0.7 pp:
+
+  | Quantity | Nominal | Simulated |
+  | --- | --- | --- |
+  | Harmless capability retired by noise: completion guardrail | ≤ 5% | 6.8% |
+  | Same: error-rate guardrail | ≤ 5% | 5.9% |
+  | Same: p95 turn-duration guardrail | ≤ 5% | 6.0% |
+  | Same: any of the three common guardrails (family-wise) | ≤ 14.3% (1 − 0.95³) | 17.5% |
+  | Completion safety stop firing on noise, per look, at 30 per arm | ≤ 5% | 6.3% (300 runs) |
+  | Harmless and effective capability promoted (every other check passes) | — | ~33% (50% inconclusive, 17.5% retired) |
+  | Real −5 pp completion drop caught (guardrail fails, and the stop fires) | 18% (SE of Δ ≈ 7 pp) | 16% (300 runs) |
+  | Real −15 pp drop caught | 69% | 67% (300 runs) |
+  | Real −20 pp drop caught | 90% | 88% (50 runs) |
+  | −5 pp capability promoted anyway (its primary passing) | — | ~17% (300 runs) |
+
+  The percentile bootstrap undercovers slightly at ~90 known outcomes per arm. So each guardrail's
+  real false-retire rate is about 6–7% rather than the nominal 5%, and the family-wise rate about 17%
+  rather than 14%. Reading the harm bound from a 95% interval (one-sided 2.5%) would bring both under
+  the nominal targets, at the cost of even less power against real harm. That is kept as an option,
+  not taken, to stay consistent with R12. The old point-estimate reading retired a harmless
+  capability about two times in three.
+
+  *Trade-off:* at one user's volume a genuine −5 pp completion loss is caught only about one time in
+  six, and about one −5 pp capability in six whose primary passes would still be suggested for
+  promotion. A drop has to be around −15 to −20 pp to be caught reliably. The protection against
+  small harms is therefore the **inconclusive** rule, which keeps them from promoting half the time,
+  plus the owner's review at AH-G03. The live statistics cannot provide it.
 
 ### 10. Holdout coverage
 
@@ -369,12 +418,16 @@ detections and compactions). What changed, each lever named:
 - **Window (R16):** the later of 14 days and the minimum sample, capped at 6 weeks, then "insufficient
   data". `status` prints an ETA per counter from the pace since `start`.
 - **Learning (R17):** 14-day usage window, 2 approved skills.
+- **Retire only on evidence of harm (R18, approved by the owner after the first draft of this
+  revision):** a guardrail fails, and a noisy safety stop fires, only when the point estimate crosses
+  its line **and** the 90% CI lies wholly on the harmful side; the rejected-tool-pair and
+  content-incident stops stay absolute. The error rates it yields are in R18.
 
 Kept unchanged: the unit (session), intention to treat, the guardrails and their margins, the safety
-stops, the decision order, the single analysis and no peeking, the criteria frozen at `start`.
-Superseded, and marked so in §9: R2's 95% CI (by R12), R6's USD primary source and R10's instrument
-(by R15), R7's tool-call threshold (by R13/R14), R11's 30-day window and 3 skills (by R17). The old
-§5 table is kept under the new one.
+stop lines, the decision order, the single analysis and no peeking, the criteria frozen at `start`.
+Superseded, and marked so in §9: R2's 95% CI (by R12), R3's retire reading (by R18), R6's USD primary
+source and R10's instrument (by R15), R7's tool-call threshold (by R13/R14), R11's 30-day window and 3
+skills (by R17). The old §5 table is kept under the new one.
 
 **What may still not be reachable.** The budgets are assumptions, and `status`'s ETA is how the owner
 checks them:
@@ -391,18 +444,11 @@ checks them:
 - **Replay corpus:** 22 fixtures with large tool outputs, and 19 that compact, have to exist; the
   README aims for 30 fixtures but does not guarantee these kinds.
 
-**Open question for the owner (not changed here).** The guardrails (R3) and safety stops are read on
-the point estimate, which the brief says to keep. At 150 sessions per arm that reading is noisy:
-assuming ~60% of sessions have a known outcome and a 70% completion rate, the SE of the completion
-difference is about 7 pp, so a capability with **no** effect breaches "completion Δ ≥ −1 pp" about
-44% of the time and would be retired; the −5 pp safety stop at 30 sessions per arm fires on noise
-about 37% of the time per look (about 23% at 150). Together with the error-rate and p95 guardrails, a
-harmless capability passes all live guardrails only about a third of the time. The same problem
-existed at 698 per arm (about 37% for completion alone). A reading that keeps the guardrails but
-retires only on evidence of harm — "retire when the point estimate breaches the margin **and** the 90%
-CI excludes zero on the harmful side" — would bring the false-retire rate to at most 5% per guardrail,
-at the price of letting a small real harm (below about 17 pp of completion) through, bounded by the
-safety stops. That is a policy choice for the owner before `start`.
+**Guardrail reading (decided, R18).** The first draft of this revision kept R3's point-estimate
+reading and flagged it: at 150 sessions per arm a capability with no effect breached "completion
+Δ ≥ −1 pp" about 44% of the time, the −5 pp safety stop fired on noise about 37% of the time per look
+at 30 sessions per arm, and a harmless capability passed all three live guardrails only about a third
+of the time. The owner chose to retire only on evidence of harm; R18 states the resulting rates.
 
 ## Consequences
 

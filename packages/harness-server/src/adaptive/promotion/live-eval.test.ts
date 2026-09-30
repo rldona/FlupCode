@@ -330,7 +330,7 @@ describe("the criteria applied to a synthetic evaluation", () => {
   test("a completion drop past the guardrail retires; past the safety stop it retires as a stop", () => {
     const guardrail = evaluate({ dataset: dataset({ sessions: arms((index) => ({ completion: index >= 4 })) }), snapshot, replay: trimReplay(0.7), now: T0 })
     expect(decisionOf(guardrail, "toolTrim").decision).toBe("retire")
-    expect(decisionOf(guardrail, "toolTrim").reasons[0]).toStartWith("guardrail failed: Task completion, Δ")
+    expect(decisionOf(guardrail, "toolTrim").reasons[0]).toStartWith("guardrail failed with evidence of harm: Task completion, Δ")
 
     const stop = evaluate({ dataset: dataset({ days: 3, sessions: arms((index) => ({ completion: index >= 16 })) }), snapshot, now: T0 })
     expect(decisionOf(stop, "toolTrim").decision).toBe("retire")

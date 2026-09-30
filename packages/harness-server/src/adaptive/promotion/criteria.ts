@@ -127,6 +127,11 @@ export type Check = {
   optional?: boolean
   /** The threshold is read from the config snapshot at `start` (the VOI gate's own value). */
   thresholdFrom?: "voi.valueOfCorrect"
+  /**
+   * A deterministic defect rather than a noisy estimate (a rejected tool pair, an attested content
+   * incident): it fails or stops on its value alone, without the evidence-of-harm bound (R18).
+   */
+  absolute?: true
 }
 
 /** A sample the decision needs before it may be read; `perArm` counts each arm separately. */
@@ -224,9 +229,9 @@ export const CRITERIA: readonly CapabilityCriteria[] = [
     guardrails: [
       REPLAY_COMPLETION,
       ...SESSION_GUARDRAILS,
-      { metric: "pairingErrors", measure: "treatment", op: "<=", threshold: 0 },
+      { metric: "pairingErrors", measure: "treatment", op: "<=", threshold: 0, absolute: true },
     ],
-    safety: [...SESSION_SAFETY, { metric: "pairingErrors", measure: "treatment", op: ">", threshold: 0 }],
+    safety: [...SESSION_SAFETY, { metric: "pairingErrors", measure: "treatment", op: ">", threshold: 0, absolute: true }],
     sample: [{ counter: "replayFixtures", min: 22, perArm: false }, LIVE_SESSIONS],
     manual: [],
   },
@@ -310,8 +315,8 @@ export const CRITERIA: readonly CapabilityCriteria[] = [
       { metric: "approvalRate", measure: "overall", op: ">=", threshold: 0.1 },
       { metric: "approvedSkillsUsed", measure: "overall", op: ">=", threshold: 0.5 },
     ],
-    guardrails: [{ metric: "contentIncidents", measure: "overall", op: "<=", threshold: 0 }],
-    safety: [{ metric: "contentIncidents", measure: "overall", op: ">", threshold: 0 }],
+    guardrails: [{ metric: "contentIncidents", measure: "overall", op: "<=", threshold: 0, absolute: true }],
+    safety: [{ metric: "contentIncidents", measure: "overall", op: ">", threshold: 0, absolute: true }],
     sample: [
       { counter: "decidedProposals", min: 10, perArm: false },
       { counter: "promotedWithClosedWindow", min: 2, perArm: false },
@@ -460,7 +465,8 @@ export type Evidence = {
   thresholds?: Partial<Record<string, number>>
 }
 
-export type CheckVerdict = "pass" | "fail" | "unknown"
+/** `inconclusive`: a guardrail whose point estimate crossed its margin without evidence of harm (R18). */
+export type CheckVerdict = "pass" | "fail" | "inconclusive" | "unknown"
 
 export const checkKey = (check: Pick<Check, "metric" | "measure">) => `${check.metric}:${check.measure}`
 
@@ -491,11 +497,43 @@ export function sampleMet(requirement: SampleRequirement, evidence: Evidence): b
   return (counts?.control ?? 0) >= requirement.min && (counts?.treatment ?? 0) >= requirement.min
 }
 
-/** A safety check fires when its stop condition holds on the point estimate. */
+/**
+ * A guardrail (R18): it passes on its point estimate; past its margin it fails only with evidence of
+ * harm, and is otherwise inconclusive, which blocks promotion but never retires. An `absolute` check
+ * (a deterministic defect) fails on its value alone.
+ */
+export function guardrailVerdict(check: Check, estimate: Estimate | undefined, threshold = check.threshold): CheckVerdict {
+  if (estimate?.estimate === undefined) return "unknown"
+  if (compare(estimate.estimate, check.op, threshold)) return "pass"
+  if (check.absolute) return "fail"
+  // A guardrail's op says what passes, so a floor (≥) is harmed by low values.
+  return harmEvident(check, estimate, threshold, check.op === ">" || check.op === ">=") ? "fail" : "inconclusive"
+}
+
+/**
+ * The 90% CI lies wholly on the harmful side (one-sided α = 0.05, R12/R18). The reference is zero for
+ * a comparison between arms or variants, where zero is "no effect", and the threshold itself for a
+ * level read on one arm (e.g. recall miss < 5%), where no zero exists to compare with.
+ */
+export function harmEvident(check: Check, estimate: Estimate | undefined, threshold: number, harmIsLow: boolean): boolean {
+  if (estimate?.low === undefined || estimate.high === undefined) return false
+  const comparison = check.measure === "relative" || check.measure === "difference" || check.measure === "geometric" || check.measure === "paired"
+  const reference = comparison ? 0 : threshold
+  return harmIsLow ? estimate.high < reference : estimate.low > reference
+}
+
+/**
+ * A safety check fires when its stop condition holds on the point estimate and, for a noisy estimate,
+ * its 90% CI shows the harm (R18), once each arm has 30 sessions. An `absolute` check (a rejected tool
+ * pair, a content incident) fires on its value alone.
+ */
 export function safetyTriggered(check: Check, evidence: Evidence): boolean {
-  const estimate = evidence.estimates[checkKey(check)]?.estimate
-  if (estimate === undefined) return false
-  if (!compare(estimate, check.op, check.threshold)) return false
+  const estimate = evidence.estimates[checkKey(check)]
+  if (estimate?.estimate === undefined) return false
+  if (!compare(estimate.estimate, check.op, check.threshold)) return false
+  if (check.absolute) return true
+  // A stop's op says what stops, so a stop below a line (<) is harmed by low values.
+  if (!harmEvident(check, estimate, check.threshold, check.op === "<" || check.op === "<=")) return false
   // A session metric needs a few sessions in each arm, or a single bad session would stop it.
   if (check.measure !== "difference" && check.measure !== "relative") return true
   const sessions = evidence.samples.sessions
@@ -507,8 +545,9 @@ export function safetyTriggered(check: Check, evidence: Evidence): boolean {
 
 /**
  * The preregistered decision table, in order: a safety stop retires; before the window closes or the
- * minimum sample is reached nothing is read; a guardrail that fails retires; the primary checks then
- * promote, retire when their CI cannot reach the threshold, or leave the capability where it is.
+ * minimum sample is reached nothing is read; a guardrail that fails with evidence of harm retires; the
+ * primary checks then promote (only with every required guardrail passing), retire when their CI
+ * cannot reach the threshold, or leave the capability where it is.
  */
 export function decide(criteria: CapabilityCriteria, evidence: Evidence): { decision: Decision; reasons: string[] } {
   const stops = criteria.safety.filter((check) => safetyTriggered(check, evidence))
@@ -526,15 +565,23 @@ export function decide(criteria: CapabilityCriteria, evidence: Evidence): { deci
       ],
     }
   const verdict = (check: Check) => verdictOf(check, evidence.estimates[checkKey(check)], thresholdOf(check, evidence))
-  const failed = criteria.guardrails.filter((check) => verdict(check) === "fail")
-  if (failed.length > 0) return { decision: "retire", reasons: failed.map((check) => `guardrail failed: ${describeCheck(check)}`) }
-  const unknown = criteria.guardrails.filter((check) => !check.optional && verdict(check) === "unknown")
+  const guardrail = (check: Check) => guardrailVerdict(check, evidence.estimates[checkKey(check)], thresholdOf(check, evidence))
+  const failed = criteria.guardrails.filter((check) => guardrail(check) === "fail")
+  if (failed.length > 0)
+    return {
+      decision: "retire",
+      reasons: failed.map((check) =>
+        check.absolute ? `guardrail failed: ${describeCheck(check)}` : `guardrail failed with evidence of harm: ${describeCheck(check)}`,
+      ),
+    }
+  const unknown = criteria.guardrails.filter((check) => !check.optional && guardrail(check) === "unknown")
+  const inconclusive = criteria.guardrails.filter((check) => guardrail(check) === "inconclusive")
   const passed = criteria.primary.filter((check) => verdict(check) === "pass")
   const hopeless = criteria.primary.filter((check) =>
     futile(check, evidence.estimates[checkKey(check)], thresholdOf(check, evidence)),
   )
   const promote = criteria.primaryMode === "all" ? passed.length === criteria.primary.length : passed.length > 0
-  if (promote && unknown.length === 0)
+  if (promote && unknown.length === 0 && inconclusive.length === 0)
     return { decision: "promote", reasons: passed.map((check) => `met: ${describeCheck(check)}`) }
   const retire = criteria.primaryMode === "all" ? hopeless.length > 0 : hopeless.length === criteria.primary.length
   if (retire)
@@ -542,6 +589,7 @@ export function decide(criteria: CapabilityCriteria, evidence: Evidence): { deci
   return {
     decision: "keep observing",
     reasons: [
+      ...inconclusive.map((check) => `guardrail inconclusive (margin crossed without evidence of harm): ${describeCheck(check)}`),
       ...unknown.map((check) => `guardrail not measurable: ${describeCheck(check)}`),
       ...(promote ? [] : [`the primary metric did not reach its threshold with a ${EVALUATION.confidence * 100}% CI clear of zero`]),
     ],
