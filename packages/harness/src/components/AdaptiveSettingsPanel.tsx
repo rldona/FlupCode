@@ -164,10 +164,32 @@ const WARNINGS: Record<string, string> = {
   "runtime-inert": "Configured, but inert on this runtime.",
   "no-model": "There is no model for a draft, so nothing will be written.",
   "skills-still-load": "Learned skills still load from disk.",
+  "learning-draft-egress": "Learning drafts are sent, redacted, to the configured small model's provider.",
 }
 
 export function warningKey(warning: string): string {
   return WARNINGS[warning] ?? warning
+}
+
+/**
+ * What the confirmation dialog says before a write. Turning learning on is an egress decision of its
+ * own — the draft goes to the small model's provider, not to Jev — so the dialog says what is sent
+ * and to whom instead of the generic line.
+ */
+export function confirmationMessage(path: string, value: unknown, view: AdaptiveConfigView): string {
+  if (path !== "learning.enabled" || value !== true)
+    return t("Writing to {field} needs confirmation. The change is written to the config file.", { field: path })
+  const chars = view.effective.learning.maxInputChars
+  const model = view.learningDraft?.model
+  if (model)
+    return t(
+      "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to {model} and its provider. The change is written to the config file.",
+      { chars, model },
+    )
+  return t(
+    "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so nothing is sent until one is. The change is written to the config file.",
+    { chars },
+  )
 }
 
 /** Where a leaf's value comes from, as a key for `t`. */
@@ -355,7 +377,13 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
             <Switch path="context.apply" label="Apply the context plan">
               <span class="fc-settings-hint">{t("Promotion waits for the offline evaluation.")}</span>
             </Switch>
-            <Switch path="learning.enabled" label="Learning" />
+            <Switch path="learning.enabled" label="Learning">
+              <span class="fc-settings-hint">
+                {view().learningDraft?.model
+                  ? t("Needs confirmation. Drafts are sent to {model}.", { model: view().learningDraft!.model! })
+                  : t("Needs confirmation.")}
+              </span>
+            </Switch>
             <Switch path="relevance.enabled" label="Relevance" />
             <Switch path="guardrails.enabled" label="Loop warnings">
               <span class="fc-settings-hint">
@@ -524,11 +552,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         open={!!pending()}
         title={t("Confirm change")}
         message={
-          pending()
-            ? t("Writing to {field} needs confirmation. The change is written to the config file.", {
-                field: pending()!.path,
-              })
-            : ""
+          pending() && props.view ? confirmationMessage(pending()!.path, pending()!.value, props.view) : ""
         }
         confirmLabel={t("Write it")}
         onConfirm={() => {

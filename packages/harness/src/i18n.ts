@@ -1439,6 +1439,13 @@ const ES: Record<string, string> = {
   "There is no model for a draft, so nothing will be written.":
     "No hay modelo para un borrador, así que no se escribirá nada.",
   "Learned skills still load from disk.": "Las skills aprendidas siguen cargando desde el disco.",
+  "Learning drafts are sent, redacted, to the configured small model's provider.":
+    "Los borradores del aprendizaje se envían, sin secretos, al proveedor del modelo pequeño configurado.",
+  "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to {model} and its provider. The change is written to the config file.":
+    "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor a {model} y su proveedor. El cambio se escribe en el archivo de configuración.",
+  "Learning drafts a skill from each qualifying session: up to {chars} characters of its objective and evidence, with secrets redacted, are sent through the engine to the configured small model's provider. No model is configured yet, so nothing is sent until one is. The change is written to the config file.":
+    "El aprendizaje genera un borrador de skill a partir de cada sesión que cumple los requisitos: hasta {chars} caracteres de su objetivo y su evidencia, con los secretos eliminados, se envían a través del motor al proveedor del modelo pequeño configurado. Todavía no hay modelo configurado, así que no se envía nada hasta que lo haya. El cambio se escribe en el archivo de configuración.",
+  "Needs confirmation. Drafts are sent to {model}.": "Requiere confirmación. Los borradores se envían a {model}.",
   "from the environment": "del entorno",
   "from the config file": "del archivo de configuración",
   default: "por defecto",

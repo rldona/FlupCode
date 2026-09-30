@@ -676,7 +676,12 @@ export type AdaptiveConfirmation = "none" | "required" | "widening"
 export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number"
 
 /** A note the server travels beside a successful write. */
-export type AdaptiveWarning = "evaluation-gated" | "runtime-inert" | "no-model" | "skills-still-load"
+export type AdaptiveWarning =
+  | "evaluation-gated"
+  | "runtime-inert"
+  | "no-model"
+  | "skills-still-load"
+  | "learning-draft-egress"
 
 /** One switch the settings panel may render; the server's list is the whole allowlist. */
 export type AdaptiveWritableField = {
@@ -692,7 +697,7 @@ export type AdaptiveSettings = {
   enabled: boolean
   shadow: boolean
   context: { enabled: boolean; apply: boolean }
-  learning: { enabled: boolean }
+  learning: { enabled: boolean; maxInputChars: number }
   relevance: { enabled: boolean }
   guardrails: { enabled: boolean }
   jev: { enabled: boolean }
@@ -733,6 +738,8 @@ export type AdaptiveConfigView = {
   writer: { path: string; exists: boolean }
   usage: AdaptiveUsage
   writable: AdaptiveWritableField[]
+  /** The model a learning draft is sent to (`provider/model`); absent from an older server. */
+  learningDraft?: { model: string | null }
 }
 
 /** One audited decision (FH-015). Mirrors `harness-server`'s own type. */

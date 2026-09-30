@@ -18,7 +18,13 @@ const WRITABLE = [
   { path: "shadow", type: "boolean", confirmation: "none", guard: "none" },
   { path: "context.enabled", type: "boolean", confirmation: "none", guard: "none" },
   { path: "context.apply", type: "boolean", confirmation: "none", guard: "none", warning: "evaluation-gated" },
-  { path: "learning.enabled", type: "boolean", confirmation: "none", guard: "egress-allowlist" },
+  {
+    path: "learning.enabled",
+    type: "boolean",
+    confirmation: "required",
+    guard: "egress-allowlist",
+    warning: "learning-draft-egress",
+  },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "jev.enabled", type: "boolean", confirmation: "required", guard: "egress-allowlist" },
@@ -33,7 +39,7 @@ type View = {
     enabled: boolean
     shadow: boolean
     context: { enabled: boolean; apply: boolean }
-    learning: { enabled: boolean }
+    learning: { enabled: boolean; maxInputChars: number }
     relevance: { enabled: boolean }
     guardrails: { enabled: boolean }
     jev: { enabled: boolean }
@@ -56,7 +62,7 @@ const view = (over: Partial<View> = {}): View => ({
     enabled: true,
     shadow: false,
     context: { enabled: true, apply: false },
-    learning: { enabled: false },
+    learning: { enabled: false, maxInputChars: 8000 },
     relevance: { enabled: false },
     guardrails: { enabled: false },
     jev: { enabled: false },
