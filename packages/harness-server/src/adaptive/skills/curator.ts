@@ -141,7 +141,9 @@ export function createSkillCurator(deps: {
    *
    * It is **not** gated by the learning switch: a reverse collision is a security repair (the human
    * must win on disk), not a learning write (ADR-0022 §4). A move that fails is logged with its
-   * reason and never retried in a loop; the read-time exclusion already protects every surface.
+   * reason and never retried in a loop; the read-time exclusion already protects every surface. A
+   * learned-looking skill whose provenance does not verify (a repository committed it) is one of
+   * those: the store refuses it `unverified` or `unsafe-entry`, and it stays where it is.
    */
   const reconcile = (projectID: string, at?: number): Array<{ name: string; reason: "human-name-collision" }> => {
     const report = skillReport(projectID, projectID)

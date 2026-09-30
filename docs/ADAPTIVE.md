@@ -178,8 +178,18 @@ provenance-carrying files the engine loads like any other. The design is fixed b
   guard, must carry the `self-authored: true` marker, and is rejected if any skill **outside** the
   learned root already uses the name — the only real defence against the engine's order-fragile
   "last wins". A human skill is never modified, moved or deleted.
+- **Containment covers every file, and provenance is the harness's.** A repository can commit a
+  learned-looking folder, so nothing inside it is trusted. A skill folder (or its `.versions/`) that
+  holds a symlink, a special file or a hard-linked file is refused whole (`unsafe-entry`); temps get a
+  random name created exclusively, and the ledger is opened with `O_NOFOLLOW`, so no write ever goes
+  through a planted link. The `self-authored` marker only says "learned": the sidecar's `provenance`
+  (an HMAC over the folder name and `contentHash` under the per-installation key) proves the harness
+  wrote it. Patch, sidecar updates, archive and the reverse-collision `reconcile` act only on a skill
+  whose provenance verifies; anything else is read-only (`unverified`), carries no state in the
+  roster and is logged when `reconcile` skips it. Skills written before provenance existed, or whose
+  sidecar is lost or lags the body after a crash, are read-only too, not rebuilt.
 - **Provenance and rollback on disk.** Each skill carries `.sidecar.json` (state, version,
-  `contentHash`, source, evidence refs, usage) and an append-only `.ledger.jsonl`; patches snapshot
+  `contentHash`, `provenance`, source, evidence refs, usage) and an append-only `.ledger.jsonl`; patches snapshot
   the previous body to `.versions/<hash>.txt`, keeping the last `SNAPSHOT_KEEP = 5`. Install is
   atomic (temp + rename), so an interruption leaves either a complete skill or nothing visible, and
   archive is a **move**, never a delete.

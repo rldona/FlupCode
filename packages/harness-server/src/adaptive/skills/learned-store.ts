@@ -13,16 +13,24 @@
  * with no `SKILL.md` — invisible to both scanners — and a non-`.md` temp file, never a truncated
  * skill. The `.ledger.jsonl` is append-only and the `.versions/*.txt` snapshots are bounded by
  * `SNAPSHOT_KEEP`.
+ *
+ * A repository can commit a learned-looking folder, so neither its files nor its marker are trusted.
+ * No file is ever written through: temps get a fresh exclusive name, the ledger is opened without
+ * following links, and a folder holding a symlink or a special file is refused whole. The marker only
+ * says "learned"; that the harness wrote it is proved by the sidecar's `provenance`, an HMAC under the
+ * install's key that a repository cannot forge, and only a verified skill is ever changed or moved.
  */
 
-import { createHash } from "node:crypto"
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto"
 import {
   accessSync,
-  appendFileSync,
+  closeSync,
   constants,
   existsSync,
+  fstatSync,
   lstatSync,
   mkdirSync,
+  openSync,
   readFileSync,
   readdirSync,
   realpathSync,
@@ -30,8 +38,9 @@ import {
   rmSync,
   statSync,
   writeFileSync,
+  writeSync,
 } from "node:fs"
-import { dirname, isAbsolute, join, relative, sep } from "node:path"
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path"
 import { NAME, skillReport } from "../../skills"
 import { parseFrontmatter, serialiseFrontmatter } from "../../frontmatter"
 
@@ -82,6 +91,11 @@ export type SkillSidecar = {
    * sweep racing the close, a second process) is then counted once. Absent reads as none counted.
    */
   countedEpisodes?: string[]
+  /**
+   * HMAC over the folder name and `contentHash` under the install's key: what makes this skill the
+   * harness's own. A sidecar without a valid one is never trusted, so the skill is read-only.
+   */
+  provenance?: string
 }
 
 /** How many counted episodes a sidecar remembers; duplicates arrive close together, not days apart. */
@@ -118,6 +132,10 @@ export type LearnedWriteRejection =
   | "path-escape"
   | "not-a-directory"
   | "not-self-authored"
+  /** A learned-looking skill whose provenance does not verify: the harness did not write it. */
+  | "unverified"
+  /** The skill folder holds a symlink, a special file or a hard link; nothing in it is touched. */
+  | "unsafe-entry"
   | "name-collision"
   | "not-found"
   | "archive-exists"
@@ -174,7 +192,7 @@ export type LearnedStore = {
   /** Changes the sidecar (lifecycle state, usage counters) without touching the skill body. */
   updateSidecar(input: LearnedSidecarUpdate): LearnedSidecarResult
   readSidecar(projectID: string, name: string): SkillSidecar | undefined
-  /** The body and description of a learned skill, or `undefined` when absent or not self-authored. */
+  /** The body and description of a learned skill, or `undefined` when absent or not verified. */
   read(projectID: string, name: string): { name: string; description: string; body: string } | undefined
 }
 
@@ -249,6 +267,41 @@ function rootRejection(projectID: string, root: string): LearnedWriteRejection |
   return resolvesInside(root, projectID) ? undefined : "path-escape"
 }
 
+/**
+ * Why the files inside a skill folder may not be touched, or `undefined` when they may.
+ *
+ * The root checks stop at the folder, but a committed folder can hold links of its own: a
+ * `.ledger.jsonl` or `.versions/<hash>.txt` pointing at a file outside the project would be appended
+ * to or replaced. So every entry of the folder and of `.versions` must be a regular file with one link
+ * (or a real directory); anything else refuses the whole folder rather than skipping one file.
+ */
+function folderRejection(skillDir: string): LearnedWriteRejection | undefined {
+  const stats = lstatOrUndefined(skillDir)
+  if (!stats) return undefined
+  if (stats.isSymbolicLink()) return "unsafe-entry"
+  if (!stats.isDirectory()) return "not-a-directory"
+  const unsafe = (dir: string): boolean => {
+    try {
+      return readdirSync(dir).some((entry) => {
+        const entryStats = lstatSync(join(dir, entry))
+        if (entryStats.isFile()) return entryStats.nlink > 1
+        if (!entryStats.isDirectory()) return true
+        return dir === skillDir && entry === VERSIONS_DIR && unsafe(join(dir, entry))
+      })
+    } catch {
+      return true
+    }
+  }
+  return unsafe(skillDir) ? "unsafe-entry" : undefined
+}
+
+/** A store built without the install's key signs with this one, so its skills verify only in-process. */
+const EPHEMERAL_KEY = randomBytes(32)
+
+/** The domain tag keeps a provenance HMAC distinct from every other use of the install's key. */
+const provenanceOf = (key: Buffer, name: string, contentHash: string): Buffer =>
+  createHmac("sha256", key).update(`flupcode-learned-skill\0${name}\0${contentHash}`).digest()
+
 /** The marker is read from the frontmatter, not the path, so it survives a move. */
 const isSelfAuthored = (text: string): boolean => parseFrontmatter(text).fields[SELF_AUTHORED_FIELD] === true
 
@@ -266,10 +319,21 @@ export function serialiseLearnedSkill(input: { name: string; description: string
 
 export const contentHashOf = (text: string): string => createHash("sha256").update(text).digest("hex")
 
-/** Write through a temp file and rename: the rename is what makes the file visible. */
+/**
+ * Write through a temp file and rename: the rename is what makes the file visible.
+ *
+ * The temp name is random and created exclusively (`wx`), so a planted `<file>.tmp` link is never
+ * written through, and the rename replaces the directory entry rather than following it.
+ */
 function atomicWrite(path: string, text: string): void {
-  writeFileSync(`${path}.tmp`, text)
-  renameSync(`${path}.tmp`, path)
+  const temp = join(dirname(path), `.${basename(path)}.${randomBytes(8).toString("hex")}.tmp`)
+  writeFileSync(temp, text, { flag: "wx" })
+  try {
+    renameSync(temp, path)
+  } catch (cause) {
+    rmSync(temp, { force: true })
+    throw cause
+  }
 }
 
 /**
@@ -281,7 +345,21 @@ function atomicWrite(path: string, text: string): void {
  * it, which is the accepted cost of not rewriting every prior line on each append.
  */
 function appendLedger(path: string, event: LedgerEvent): void {
-  appendFileSync(path, `${JSON.stringify(event)}\n`)
+  // `O_NOFOLLOW` refuses a symlinked ledger and `O_NONBLOCK` keeps a planted FIFO from hanging the
+  // open; the `fstat` then refuses anything but a regular file with one link (a hard link would append
+  // to its twin outside the folder).
+  const fd = openSync(
+    path,
+    constants.O_WRONLY | constants.O_APPEND | constants.O_CREAT | constants.O_NOFOLLOW | constants.O_NONBLOCK,
+    0o644,
+  )
+  try {
+    const stats = fstatSync(fd)
+    if (!stats.isFile() || stats.nlink > 1) throw new Error(`refusing to append to ${path}`)
+    writeSync(fd, `${JSON.stringify(event)}\n`)
+  } finally {
+    closeSync(fd)
+  }
 }
 
 function readJson(path: string): unknown {
@@ -345,6 +423,7 @@ function parseSidecar(value: unknown): SkillSidecar | undefined {
             .slice(-COUNTED_EPISODES_KEEP),
         }
       : {}),
+    ...(typeof value.provenance === "string" ? { provenance: value.provenance } : {}),
   }
 }
 
@@ -355,6 +434,11 @@ export function createLearnedStore(
     now?: () => number
     /** The learning switch as a rule in the writer; absent means the store is not gated here. */
     enabled?: () => boolean
+    /**
+     * The install's key the provenance HMAC is taken under. It must be stable across restarts, or
+     * every learned skill becomes read-only; absent, a process-local key is used (tests, tools).
+     */
+    key?: () => Buffer
   } = {},
 ): LearnedStore {
   const env = deps.env ?? process.env
@@ -362,6 +446,10 @@ export function createLearnedStore(
   const now = deps.now ?? Date.now
 
   const rootsFor = (projectID: string) => learnedRoots(projectID, env)
+
+  // Resolved once: the key does not change within a process, and a read runs for every roster entry.
+  let resolvedKey: Buffer | undefined
+  const signingKey = () => (resolvedKey ??= deps.key?.() ?? EPHEMERAL_KEY)
 
   /**
    * The kill switch, fail-closed at the writer: with learning off the store refuses on its own rather
@@ -397,6 +485,8 @@ export function createLearnedStore(
       }
     }
     if (!resolvesInside(skillDir, roots.learned)) return { ok: false, reason: "path-escape" }
+    const rejectedFolder = folderRejection(skillDir)
+    if (rejectedFolder) return { ok: false, reason: rejectedFolder }
     return { ok: true, roots, skillDir, skillPath: join(skillDir, SKILL_FILE) }
   }
 
@@ -411,6 +501,7 @@ export function createLearnedStore(
     if (rootRejection(projectID, learned)) return undefined
     const skillDir = join(learned, name)
     if (!resolvesInside(skillDir, learned)) return undefined
+    if (folderRejection(skillDir)) return undefined
     return skillDir
   }
 
@@ -466,7 +557,9 @@ export function createLearnedStore(
     if (existing !== undefined && !isSelfAuthored(existing)) return { ok: false, reason: "not-self-authored" }
     if (collides(input.projectID, input.name, roots.learned)) return { ok: false, reason: "name-collision" }
 
-    const previous = existing === undefined ? undefined : parseSidecar(readJson(join(skillDir, SIDECAR_FILE)))
+    const previous = existing === undefined ? undefined : readSidecarAt(skillDir, input.name)
+    // A committed file can carry the marker; only a verified sidecar says the harness wrote it.
+    if (existing !== undefined && !previous) return { ok: false, reason: "unverified" }
     const version = existing === undefined ? 1 : (previous?.version ?? 1) + 1
     const content = serialiseLearnedSkill({ name: input.name, description: input.description, body: input.body })
     const contentHash = contentHashOf(content)
@@ -487,6 +580,7 @@ export function createLearnedStore(
       since: usage,
       // A patch keeps the counters, so it keeps the memory of which episodes they already include.
       ...(previous?.countedEpisodes ? { countedEpisodes: previous.countedEpisodes } : {}),
+      provenance: provenanceOf(signingKey(), input.name, contentHash).toString("hex"),
     }
     const event: LedgerEvent =
       existing === undefined
@@ -552,6 +646,8 @@ export function createLearnedStore(
       return { ok: false, reason: "not-found" }
     }
     if (!isSelfAuthored(text)) return { ok: false, reason: "not-self-authored" }
+    const sidecar = readSidecarAt(source, input.name)
+    if (!sidecar) return { ok: false, reason: "unverified" }
     const at = input.at ?? now()
     const target = join(roots.archive, input.name)
     const rejectedArchive = rootRejection(input.projectID, roots.archive)
@@ -566,13 +662,10 @@ export function createLearnedStore(
     try {
       // A move on the same filesystem: `archive-not-delete`, and reviving is moving it back.
       renameSync(source, target)
-      const sidecar = parseSidecar(readJson(join(target, SIDECAR_FILE)))
-      if (sidecar) {
-        atomicWrite(
-          join(target, SIDECAR_FILE),
-          `${JSON.stringify({ ...sidecar, state: "archived" as const, updatedAt: at }, null, 2)}\n`,
-        )
-      }
+      atomicWrite(
+        join(target, SIDECAR_FILE),
+        `${JSON.stringify({ ...sidecar, state: "archived" as const, updatedAt: at }, null, 2)}\n`,
+      )
       appendLedger(join(target, LEDGER_FILE), { at, event: "archived", reason: input.reason })
     } catch {
       return { ok: false, reason: "write-failed" }
@@ -586,27 +679,14 @@ export function createLearnedStore(
     if (!prepared.ok) return prepared
     const { skillDir, skillPath } = prepared
     if (!existsSync(skillPath)) return { ok: false, reason: "not-found" }
-    const text = readFileSync(skillPath, "utf8")
-    if (!isSelfAuthored(text)) return { ok: false, reason: "not-self-authored" }
+    if (!isSelfAuthored(readFileSync(skillPath, "utf8"))) return { ok: false, reason: "not-self-authored" }
     const at = input.at ?? now()
-    const current = readSidecarAt(skillDir)
-    // A learned skill without a readable sidecar is reconstructed as PROBATION v1, not failed. A
-    // sidecar whose hash no longer matches the body reads the same way, so the write repairs it.
-    const base: SkillSidecar = current ?? {
-      name: input.name,
-      version: 1,
-      contentHash: contentHashOf(text),
-      state: "probation",
-      createdBy: "skillReflection",
-      createdAt: at,
-      updatedAt: at,
-      source: { projectID: input.projectID },
-      evidenceRefs: [],
-      usage: ZERO_USAGE,
-      since: ZERO_USAGE,
-    }
+    // A missing, corrupt or lagging sidecar is not rebuilt: signing the body on disk would adopt
+    // whatever a repository committed there, so an unverified skill stays read-only.
+    const current = readSidecarAt(skillDir, input.name)
+    if (!current) return { ok: false, reason: "unverified" }
     const next: SkillSidecar = {
-      ...base,
+      ...current,
       ...(input.state !== undefined ? { state: input.state } : {}),
       ...(input.usage !== undefined ? { usage: input.usage } : {}),
       ...(input.since !== undefined ? { since: input.since } : {}),
@@ -625,22 +705,27 @@ export function createLearnedStore(
   }
 
   /**
-   * The sidecar beside a skill, trusted only when it still describes the body on disk.
+   * The sidecar beside a skill, trusted only when it still describes the body on disk and its
+   * provenance verifies for this folder's name under the install's key.
    *
    * A crash between the body and the sidecar (or between the sidecar and the body) can leave a
    * `contentHash` for a version that is no longer there. A read must not report that provenance, so a
-   * sidecar whose hash does not match the body reads as missing — the same as a corrupt one.
+   * sidecar whose hash does not match the body reads as missing — the same as a corrupt or unsigned
+   * one, which is what a repository-committed skill is.
    */
-  const readSidecarAt = (skillDir: string): SkillSidecar | undefined => {
+  const readSidecarAt = (skillDir: string, name: string): SkillSidecar | undefined => {
     const sidecar = parseSidecar(readJson(join(skillDir, SIDECAR_FILE)))
-    if (!sidecar) return undefined
+    if (!sidecar?.provenance) return undefined
     let text: string
     try {
       text = readFileSync(join(skillDir, SKILL_FILE), "utf8")
     } catch {
       return undefined
     }
-    return contentHashOf(text) === sidecar.contentHash ? sidecar : undefined
+    if (contentHashOf(text) !== sidecar.contentHash) return undefined
+    const expected = provenanceOf(signingKey(), name, sidecar.contentHash)
+    const given = Buffer.from(sidecar.provenance, "hex")
+    return given.length === expected.length && timingSafeEqual(given, expected) ? sidecar : undefined
   }
 
   const read = (projectID: string, name: string): { name: string; description: string; body: string } | undefined => {
@@ -652,7 +737,7 @@ export function createLearnedStore(
     } catch {
       return undefined
     }
-    if (!isSelfAuthored(text)) return undefined
+    if (!isSelfAuthored(text) || !readSidecarAt(skillDir, name)) return undefined
     const { fields, prompt } = parseFrontmatter(text)
     return {
       name,
@@ -668,7 +753,7 @@ export function createLearnedStore(
     updateSidecar,
     readSidecar: (projectID, name) => {
       const skillDir = resolveRead(projectID, name)
-      return skillDir ? readSidecarAt(skillDir) : undefined
+      return skillDir ? readSidecarAt(skillDir, name) : undefined
     },
     read,
   }
