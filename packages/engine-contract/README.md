@@ -43,3 +43,16 @@ bun run --cwd packages/engine-contract opencode-v2 serve     # http://127.0.0.1:
 unpacks it to `~/.cache/flupcode/engines/opencode-<version>/`. `serve` runs it with a home under
 `~/.cache/flupcode/engines/sandbox-<version>/` and prints a fresh password; delete that folder to
 start over.
+
+## Running the flows on OpenCode 2
+
+Ticket V2-06. `test/contract-v2.test.ts` drives the same flows through OpenCode 2's API and records
+`fixtures/v2/`. It also pins down what FlupCode meets there today: its 1.x routes answer the web UI's
+HTML, and its 1.x plugins are all refused. Each suite runs only on its own line:
+
+```bash
+bun run --cwd packages/engine-contract test      # 1.x flows (default line, runs in CI)
+bun run --cwd packages/engine-contract test:v2   # 2.x flows against the pinned sandbox binary
+```
+
+The findings are in [docs/V2-CONTRACT-REPORT.md](../../docs/V2-CONTRACT-REPORT.md).

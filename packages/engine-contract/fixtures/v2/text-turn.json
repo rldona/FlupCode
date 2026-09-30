@@ -1,0 +1,53 @@
+{
+  "events": [
+    "session.created",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.inbox.delivered",
+    "session.inbox.enqueued",
+    "session.instructions.updated",
+    "session.renamed",
+    "session.step.ended",
+    "session.step.started",
+    "session.step.streamed",
+    "session.text.delta",
+    "session.text.ended",
+    "session.text.started",
+    "session.usage.updated"
+  ],
+  "transcript": [
+    {
+      "type": "user"
+    },
+    {
+      "type": "assistant",
+      "content": [
+        "text"
+      ]
+    },
+    {
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ],
+  "admitted": [
+    "delivery",
+    "id",
+    "payload",
+    "sessionID",
+    "time",
+    "type"
+  ],
+  "assistant": [
+    "agent",
+    "content",
+    "cost",
+    "finish",
+    "id",
+    "model",
+    "rawFinish",
+    "time",
+    "tokens",
+    "type"
+  ]
+}

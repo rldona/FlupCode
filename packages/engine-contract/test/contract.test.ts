@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { startEngine, STUB_MODEL, type Engine } from "../src/engine"
+import { CONTRACT_LINE, startEngine, STUB_MODEL, type Engine } from "../src/engine"
 import { recordEvents, type EngineEvent } from "../src/events"
 import { keys, matchFixture } from "../src/fixture"
 import { startModel } from "../src/model"
@@ -19,6 +19,8 @@ let engine: Engine
 let stream: ReturnType<typeof recordEvents>
 
 beforeAll(async () => {
+  // The 1.x flows; `contract-v2.test.ts` drives the same ones through OpenCode 2.
+  if (CONTRACT_LINE !== "v1") return
   // Shell commands ask first, so the permission flow has something to answer; everything else runs.
   engine = await startEngine({ modelUrl: model.url, config: { permission: { bash: "ask" } } })
   stream = recordEvents(`${engine.url}/event${query()}`, engine.authorization)
@@ -33,7 +35,7 @@ afterAll(async () => {
   model.stop()
 })
 
-describe("engine contract", () => {
+describe.skipIf(CONTRACT_LINE !== "v1")("engine contract", () => {
   test("identifies its line and version", () => {
     expect(["v1", "v2"]).toContain(engine.detected.kind)
   })

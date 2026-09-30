@@ -1,0 +1,11 @@
+{
+  "GET /global/health": "200 text/html",
+  "GET /event": "200 text/html",
+  "GET /session/status": "200 text/html",
+  "GET /mcp": "200 text/html",
+  "GET /config": "200 text/html",
+  "GET /permission": "200 text/html",
+  "POST /session": "405",
+  "POST /session/ses_contract/prompt_async": "405",
+  "POST /config/reload": "405"
+}

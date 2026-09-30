@@ -1,0 +1,38 @@
+{
+  "events": [
+    "session.created",
+    "session.execution.interrupted",
+    "session.execution.started",
+    "session.inbox.delivered",
+    "session.inbox.enqueued",
+    "session.instructions.updated",
+    "session.renamed",
+    "session.step.failed",
+    "session.step.started",
+    "session.step.streamed",
+    "session.text.delta",
+    "session.text.ended",
+    "session.text.started",
+    "session.usage.updated"
+  ],
+  "transcript": [
+    {
+      "type": "user"
+    },
+    {
+      "type": "assistant",
+      "error": true,
+      "content": [
+        "text"
+      ]
+    },
+    {
+      "type": "idle",
+      "outcome": "interrupted"
+    }
+  ],
+  "error": [
+    "message",
+    "type"
+  ]
+}

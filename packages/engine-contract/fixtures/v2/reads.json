@@ -1,0 +1,26 @@
+{
+  "mcp": [
+    "data",
+    "location"
+  ],
+  "configEntryTypes": [
+    "directory",
+    "document"
+  ],
+  "sessionList": [
+    "cursor",
+    "data"
+  ],
+  "sessionListItem": [
+    "cost",
+    "id",
+    "location",
+    "projectID",
+    "time",
+    "tokens"
+  ],
+  "agents": [
+    "data",
+    "location"
+  ]
+}

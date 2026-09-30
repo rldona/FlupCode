@@ -18,7 +18,11 @@ export function recordEvents(url: string, authorization: string) {
       headers: { authorization, accept: "text/event-stream" },
       signal: controller.signal,
     }).catch(() => undefined)
-    if (!response?.ok || !response.body) return opened.reject(new Error(`Could not open ${url} (${response?.status})`))
+    // An engine that does not know the route can still answer 200 with its web UI's HTML (OpenCode 2
+    // does for `/event`), so only an event stream counts as opened.
+    const type = response?.headers.get("content-type") ?? ""
+    if (!response?.ok || !response.body || !type.includes("text/event-stream"))
+      return opened.reject(new Error(`${url} is not an event stream (${response?.status} ${type})`))
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ""

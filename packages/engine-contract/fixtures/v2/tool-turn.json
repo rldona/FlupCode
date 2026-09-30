@@ -1,0 +1,57 @@
+{
+  "events": [
+    "session.created",
+    "session.execution.started",
+    "session.execution.succeeded",
+    "session.inbox.delivered",
+    "session.inbox.enqueued",
+    "session.instructions.updated",
+    "session.renamed",
+    "session.step.ended",
+    "session.step.started",
+    "session.step.streamed",
+    "session.text.delta",
+    "session.text.ended",
+    "session.text.started",
+    "session.tool.called",
+    "session.tool.input.ended",
+    "session.tool.input.started",
+    "session.tool.success",
+    "session.usage.updated"
+  ],
+  "transcript": [
+    {
+      "type": "user"
+    },
+    {
+      "type": "assistant",
+      "content": [
+        "tool:completed"
+      ]
+    },
+    {
+      "type": "assistant",
+      "content": [
+        "text"
+      ]
+    },
+    {
+      "type": "idle",
+      "outcome": "succeeded"
+    }
+  ],
+  "tool": [
+    "executed",
+    "id",
+    "name",
+    "state",
+    "time",
+    "type"
+  ],
+  "toolState": [
+    "content",
+    "input",
+    "metadata",
+    "status"
+  ]
+}

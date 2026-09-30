@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs"
 import { basename, join } from "node:path"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
-import { startEngine, STUB_MODEL, type Engine } from "../src/engine"
+import { CONTRACT_LINE, startEngine, STUB_MODEL, type Engine } from "../src/engine"
 import { recordEvents } from "../src/events"
 import { startModel } from "../src/model"
 
@@ -25,6 +25,8 @@ const sessions = { text: "", read: "", failed: "", compacted: "" }
 let announced: string[] = []
 
 beforeAll(async () => {
+  // The 1.x flows; `contract-v2.test.ts` drives the same ones through OpenCode 2.
+  if (CONTRACT_LINE !== "v1") return
   engine = await startEngine({
     modelUrl: model.url,
     env: {
@@ -134,7 +136,7 @@ const evidence: Record<string, () => Promise<void> | void> = {
   },
 }
 
-describe("FlupCode engine plugins", () => {
+describe.skipIf(CONTRACT_LINE !== "v1")("FlupCode engine plugins", () => {
   test("every installed plugin has evidence to check", () => {
     expect(installed.sort()).toEqual(Object.keys(evidence).sort())
   })
