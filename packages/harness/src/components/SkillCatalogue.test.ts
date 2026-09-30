@@ -1,5 +1,16 @@
 import { describe, expect, test } from "bun:test"
-import { ignored, learnedStateLabel, notPickedUp, proposalStatusLabel, reviewable, withoutFiles } from "./SkillCatalogue"
+import {
+  ignored,
+  learnedActionCopy,
+  learnedSkillActions,
+  learnedSkillLabel,
+  learnedStateLabel,
+  notPickedUp,
+  proposalStatusLabel,
+  reviewable,
+  withoutFiles,
+} from "./SkillCatalogue"
+import { setLocale, t } from "../i18n"
 import type { SkillFile, SkillProposal } from "../types"
 
 const file = (over: Partial<SkillFile>): SkillFile => ({
@@ -83,5 +94,44 @@ describe("the human review of a proposal (AH-A04)", () => {
     expect(reviewable(proposal("proposed"), { review: false })).toBe(false)
     expect(reviewable(proposal("promoted"), { review: true })).toBe(false)
     expect(reviewable(proposal("rejected"), { review: true })).toBe(false)
+  })
+})
+
+describe("the actions on a learned skill (AH-E04)", () => {
+  test("an enabled skill can be disabled or archived, a disabled one enabled or archived", () => {
+    expect(learnedSkillActions({ disabled: false }, { manageSkills: true })).toEqual(["disable", "archive"])
+    expect(learnedSkillActions({}, { manageSkills: true })).toEqual(["disable", "archive"])
+    expect(learnedSkillActions({ disabled: true }, { manageSkills: true })).toEqual(["enable", "archive"])
+  })
+
+  test("nothing is offered when the server did not announce the actions", () => {
+    expect(learnedSkillActions({ disabled: false }, { manageSkills: false })).toEqual([])
+    expect(learnedSkillActions({ disabled: true }, { manageSkills: false })).toEqual([])
+  })
+
+  test("a disabled skill says so instead of its lifecycle state", () => {
+    expect(learnedSkillLabel({ state: "mature", disabled: true })).toBe("Disabled")
+    expect(learnedSkillLabel({ state: "mature", disabled: false })).toBe("Mature")
+  })
+
+  test("each confirmation says what changes for new sessions, never a field or a route", () => {
+    for (const action of ["disable", "enable", "archive", "reject"] as const) {
+      const copy = learnedActionCopy(action)
+      expect(copy.message).not.toMatch(/adaptive\.|\/harness|enabled|learning\./)
+    }
+    expect(learnedActionCopy("disable").message).toContain("no longer be offered in new sessions")
+    expect(learnedActionCopy("archive").message).toContain("nothing is deleted")
+    expect(learnedActionCopy("enable").message).toContain("offered again in new sessions")
+    expect(learnedActionCopy("reject").message).toContain("will not be installed")
+  })
+
+  test("every string of the actions has a Spanish translation", () => {
+    setLocale("es")
+    const strings = (["disable", "enable", "archive", "reject"] as const).flatMap((action) =>
+      Object.values(learnedActionCopy(action)),
+    )
+    expect(strings.filter((text) => t(text) === text)).toEqual([])
+    expect(t("Open file")).toBe("Abrir fichero")
+    setLocale("en")
   })
 })

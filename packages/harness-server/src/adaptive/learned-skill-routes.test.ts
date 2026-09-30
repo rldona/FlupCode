@@ -32,6 +32,14 @@ const roster = (): SkillRosterEntry[] => [
   learnedEntry(),
 ]
 
+/** A reader over a fixed roster: nothing disabled, and a file path under the project. */
+const reader = (): LearnedSkillReader => ({
+  roster,
+  disabledRoster: () => [],
+  skillPath: (projectID, name) => join(projectID, name, "SKILL.md"),
+  show: () => undefined,
+})
+
 const open = (options: { token?: string; learnedSkills?: LearnedSkillReader } = {}) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const scheduler = new RoutineScheduler({ repository, engineURL: "http://127.0.0.1:1" })
@@ -40,7 +48,7 @@ const open = (options: { token?: string; learnedSkills?: LearnedSkillReader } = 
 
 describe("the learned-skill audit routes (FH-034)", () => {
   test("lists and reads learned skills under the bearer, and refuses without it", async () => {
-    const { repository, handler } = open({ token: "secret", learnedSkills: { roster } })
+    const { repository, handler } = open({ token: "secret", learnedSkills: reader() })
     const query = `projectID=${encodeURIComponent(project)}`
 
     const forbidden = await handler(new Request(`http://x/harness/adaptive/learned-skills?${query}`))
@@ -55,7 +63,13 @@ describe("the learned-skill audit routes (FH-034)", () => {
     expect(list.status).toBe(200)
     const body = await list.json()
     expect(body.data).toHaveLength(1)
-    expect(body.data[0]).toMatchObject({ name: "fix-failing-test", learned: true, state: "probation" })
+    expect(body.data[0]).toMatchObject({
+      name: "fix-failing-test",
+      learned: true,
+      state: "probation",
+      disabled: false,
+      path: join(project, "fix-failing-test", "SKILL.md"),
+    })
 
     const detail = await handler(
       new Request(`http://x/harness/adaptive/learned-skills/fix-failing-test?${query}`, {
@@ -68,7 +82,7 @@ describe("the learned-skill audit routes (FH-034)", () => {
   })
 
   test("an arbitrary projectID does not enumerate the learned roster", async () => {
-    const { repository, handler } = open({ learnedSkills: { roster } })
+    const { repository, handler } = open({ learnedSkills: reader() })
     for (const bad of ["relative/path", "/does/not/exist/anywhere", ""]) {
       const response = await handler(
         new Request(`http://x/harness/adaptive/learned-skills?projectID=${encodeURIComponent(bad)}`),
@@ -83,7 +97,7 @@ describe("the learned-skill audit routes (FH-034)", () => {
   })
 
   test("without a project the list is empty, and an unknown name is a 404", async () => {
-    const { repository, handler } = open({ learnedSkills: { roster } })
+    const { repository, handler } = open({ learnedSkills: reader() })
 
     expect((await (await handler(new Request("http://x/harness/adaptive/learned-skills"))).json()).data).toEqual([])
 
@@ -108,7 +122,7 @@ describe("the learned-skill audit routes (FH-034)", () => {
     )
     without.repository.close()
 
-    const withReader = open({ learnedSkills: { roster } })
+    const withReader = open({ learnedSkills: reader() })
     expect((await (await withReader.handler(new Request("http://x/harness/health"))).json()).capabilities).toContain(
       "adaptive-skills",
     )

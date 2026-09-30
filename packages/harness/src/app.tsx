@@ -5760,6 +5760,8 @@ export const App: Component = () => {
                 serverUrl={harnessServerUrl()}
                 projectID={vcsDirectory()}
                 capabilities={harnessCapabilities()}
+                canOpenFiles={canOpenLocalFiles()}
+                onOpenInEditor={(path) => void openInEditor(path)}
                 sources={skillSources()}
                 agents={agentFiles() ?? []}
                 onAddSource={addSkillSource}

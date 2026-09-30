@@ -1270,6 +1270,8 @@ export type AdaptiveSurfaces = {
   guardrails: boolean
   /** Approving and rejecting staged proposals (AH-A04); announced only when the writer's bearer exists. */
   review: boolean
+  /** Disabling, enabling and archiving installed learned skills (AH-E04); the same bearer rule. */
+  manageSkills: boolean
   /** The per-turn cost baseline (AH-B01) and its per-session summary (AH-B02). */
   metrics: boolean
   /** The value-of-information gate's status per kind (AH-C05). */
@@ -1287,6 +1289,7 @@ export function adaptiveSurfaces(capabilities: readonly string[]): AdaptiveSurfa
     learnedSkills: capabilities.includes("adaptive-skills"),
     guardrails: capabilities.includes("adaptive-guardrails"),
     review: capabilities.includes("adaptive-proposals-review"),
+    manageSkills: capabilities.includes("adaptive-skills-manage"),
     metrics: capabilities.includes("adaptive-metrics"),
     voi: capabilities.includes("adaptive-voi"),
     runtimeAlerts: capabilities.includes("adaptive-runtime-alerts"),
@@ -1995,6 +1998,16 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           harnessAuthorizedJson<LearnedSkill>(
             baseUrl,
             `/harness/adaptive/learned-skills/${encodeURIComponent(name)}${adaptiveQuery(filter)}`,
+          ),
+        /**
+         * Disables, enables or archives an installed learned skill (AH-E04); called only after a person
+         * confirmed the consequence, so `confirm` is sent.
+         */
+        act: (name: string, action: "disable" | "enable" | "archive", projectID: string) =>
+          harnessAuthorizedJson<{ name: string; status: "learned" | "disabled" | "archived" }>(
+            baseUrl,
+            `/harness/adaptive/learned-skills/${encodeURIComponent(name)}/${action}`,
+            { method: "POST", body: JSON.stringify({ projectID, confirm: true }) },
           ),
       },
       /** The cost baseline (AH-B01/B02): one session's turns, or every session summed in one read. */

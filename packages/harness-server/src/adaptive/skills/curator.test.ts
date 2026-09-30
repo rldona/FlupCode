@@ -283,6 +283,7 @@ describe("human skills are never touched", () => {
     expect(learnedRoots(project, {})).toEqual({
       learned: join(project, ".opencode", "skills", "flupcode-learned"),
       archive: join(project, ".opencode", "flupcode-learned-archive"),
+      disabled: join(project, ".opencode", "flupcode-learned-disabled"),
     })
   })
 })

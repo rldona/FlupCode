@@ -37,9 +37,14 @@ import { handleValueGateRead } from "./adaptive/value-gate"
 import type { ValueGate } from "./adaptive/value-gate"
 import { handleContextPlanRequest } from "./adaptive/context-routes"
 import type { ContextManager } from "./adaptive/context-manager"
-import { handleLearnedSkillRequest, handleProposalRequest, handleProposalReviewRequest } from "./adaptive/learning-routes"
+import {
+  handleLearnedSkillAction,
+  handleLearnedSkillRequest,
+  handleProposalRequest,
+  handleProposalReviewRequest,
+} from "./adaptive/learning-routes"
 import type { ProposalReview } from "./adaptive/learning/review"
-import type { LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
+import type { LearnedSkillActions, LearnedSkillReader, ProposalReader } from "./adaptive/learning-routes"
 import { handleRelevanceRequest } from "./adaptive/relevance-routes"
 import type { RelevanceService } from "./adaptive/relevance"
 import { handleGuardrailsRequest, handleGuardrailsStatusRequest } from "./adaptive/guardrails-routes"
@@ -416,6 +421,8 @@ export type HarnessHandlerOptions = {
   learnedSkills?: LearnedSkillReader
   /** The human review of a staged proposal (AH-A04): the only route that installs a learned skill. */
   proposalReview?: ProposalReview
+  /** Disabling, enabling and archiving an installed learned skill (AH-E04); needs the artifacts bearer. */
+  learnedSkillActions?: LearnedSkillActions
   /** The acting relevance line (FH-04): the only adaptive route a live turn calls. */
   relevance?: RelevanceService
   /** The failure/loop guardrails (FH-060–063): an advisory loopback route fed by opaque digests. */
@@ -558,6 +565,20 @@ export const createHarnessHandler = (
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleProposalRequest(request, path.slice(2), options.proposals)
+    }
+    // A person's actions on an installed learned skill (AH-E04) change what every later session loads,
+    // so like the review they require the artifacts bearer and are an ordinary 404 without one.
+    if (
+      path[1] === "adaptive" &&
+      path[2] === "learned-skills" &&
+      request.method === "POST" &&
+      options.learnedSkills &&
+      options.learnedSkillActions
+    ) {
+      if (!options.token) return json({ error: "Not found", code: "not_found" }, 404)
+      if (!tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleLearnedSkillAction(request, path.slice(2), options.learnedSkills, options.learnedSkillActions)
     }
     if (path[1] === "adaptive" && path[2] === "learned-skills" && options.learnedSkills) {
       if (options.token && !tokenMatches(options.token, bearerFrom(request)))
@@ -751,6 +772,10 @@ export const createHarnessHandler = (
           ...(options.learnedSkills ? (["adaptive-skills"] as const) : []),
           // The review writes, so it is announced only when its bearer exists (AH-A04).
           ...(options.proposalReview && options.token ? (["adaptive-proposals-review"] as const) : []),
+          // So are the actions on an installed learned skill (AH-E04).
+          ...(options.learnedSkills && options.learnedSkillActions && options.token
+            ? (["adaptive-skills-manage"] as const)
+            : []),
           // The acting relevance line (FH-04): announced only when the service was built and its
           // dedicated bearer was resolved, so an unauthenticated route is never advertised.
           ...(options.relevance && options.adaptiveToken ? (["adaptive-relevance"] as const) : []),

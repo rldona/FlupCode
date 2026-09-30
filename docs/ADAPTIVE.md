@@ -172,7 +172,21 @@ to `skills/` is a person (AH-A04).
   `no-project` and `write-failed` leave it `proposed` to try again later.
 - **In the app.** The Skills screen's **Learned** section shows **Approve** / **Reject** on each
   `proposed` row when the capability is announced; Approve opens a confirmation with the skill's
-  name, description and full body.
+  name, description and full body, and Reject asks before closing the proposal.
+- **Acting on an installed skill (AH-E04).** `POST /harness/adaptive/learned-skills/:name/disable`,
+  `/enable` and `/archive` with `{ "projectID": "<abs path>", "confirm": true }` go through the
+  curator → store. **Disable** moves the skill folder to
+  `<project>/.opencode/flupcode-learned-disabled/` (outside `skills/`, so no new session loads it, and
+  kept out of git like the learned root); **Enable** moves it back and refuses `name-collision` if a
+  human skill took the name meanwhile; **Archive** moves it to the archive from either place. Same
+  bearer rule as the review (404 without a token, 403 with a wrong one, capability
+  `adaptive-skills-manage`); without `confirm: true` it is a `422 confirmation-required`; disabling a
+  disabled skill or enabling an enabled one is a `200` no-op; a store refusal is a `409` with its
+  reason. These moves are a person's, not the loop's, so they are **not** gated by
+  `adaptive.learning.enabled`: turning learning off never takes away the way to unload a skill. The
+  learned-skills list now carries each skill's `path` and `disabled`, and the detail its `body`, so
+  **Open file** opens `SKILL.md` in the editor on the desktop and shows the text in place in a
+  browser.
 - **Egress is opt-in and off by default.** The `skillReflection` classification is only asked when
   the model assigned to `skillReflection` (Jev under `adaptive.jev.enabled`) is let out by the egress
   guard: for a remote model, **its own provider's** consent (`egress.providers.<id>.enabled`, the
@@ -221,8 +235,10 @@ provenance-carrying files the engine loads like any other. The design is fixed b
   `<project>/.opencode/skills/flupcode-learned/<name>/SKILL.md`, a non-hidden directory inside the
   tree the engine scans with `{skill,skills}/**/SKILL.md` and `dot: false`. The archive and the
   auxiliary roots live **outside `skills/`** (`<project>/.opencode/flupcode-learned-archive/`) so
-  they are never re-loaded. The learned root can be overridden in tests with
-  `FLUPCODE_ADAPTIVE_LEARNED_ROOT` (and the archive with `FLUPCODE_ADAPTIVE_LEARNED_ARCHIVE`).
+  they are never re-loaded; so does the root of the skills a person disabled
+  (`<project>/.opencode/flupcode-learned-disabled/`). The learned root can be overridden in tests with
+  `FLUPCODE_ADAPTIVE_LEARNED_ROOT` (the archive with `FLUPCODE_ADAPTIVE_LEARNED_ARCHIVE`, the disabled
+  root with `FLUPCODE_ADAPTIVE_LEARNED_DISABLED`).
 - **Kept out of git.** Before an install makes a skill visible, the store appends
   `/.opencode/skills/flupcode-learned/` to `<project>/.git/info/exclude` if it is not there already, so
   `git add .` does not commit and share what this machine learned. The user's `.gitignore` is never

@@ -9201,6 +9201,17 @@ button.fc-status {
   max-height: 40vh;
 }
 
+/* Open file / Disable / Archive on a learned skill (AH-E04): the text read in place gets its own line. */
+.fc-skill-learned .fc-skill-row {
+  flex-wrap: wrap;
+}
+
+.fc-skill-learned-body {
+  flex-basis: 100%;
+  max-height: 40vh;
+  margin: 0;
+}
+
 /* Agents you can edit (H-13) */
 .fc-agent-file {
   display: flex;

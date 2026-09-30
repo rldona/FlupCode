@@ -107,22 +107,24 @@ export type LedgerEvent =
   | { at: number; event: "usage"; kind: "load" | "view" | "patch"; total: number }
   | { at: number; event: "state"; from: SkillState; to: SkillState; reason: string }
   | { at: number; event: "archived"; reason: string }
+  | { at: number; event: "disabled" | "enabled"; reason: string }
 
-export type LearnedRoots = { learned: string; archive: string }
+export type LearnedRoots = { learned: string; archive: string; disabled: string }
 
 /**
- * Where a project's learned skills and their archive live.
+ * Where a project's learned skills, their archive and the ones a person disabled live.
  *
- * The learned root is a non-hidden subdirectory inside the folder the engine scans; the archive is a
- * sibling of that folder, outside `skills/`, so it is never re-loaded. Both are overridable for
- * tests through the environment, which is the only way a test can keep its projects out of the real
- * home.
+ * The learned root is a non-hidden subdirectory inside the folder the engine scans; the archive and
+ * the disabled root are siblings of that folder, outside `skills/`, so they are never loaded. All are
+ * overridable for tests through the environment, which is the only way a test can keep its projects
+ * out of the real home.
  */
 export function learnedRoots(projectID: string, env: NodeJS.ProcessEnv = process.env): LearnedRoots {
   const base = join(projectID, ".opencode")
   return {
     learned: env.FLUPCODE_ADAPTIVE_LEARNED_ROOT?.trim() || join(base, "skills", "flupcode-learned"),
     archive: env.FLUPCODE_ADAPTIVE_LEARNED_ARCHIVE?.trim() || join(base, "flupcode-learned-archive"),
+    disabled: env.FLUPCODE_ADAPTIVE_LEARNED_DISABLED?.trim() || join(base, "flupcode-learned-disabled"),
   }
 }
 
@@ -139,6 +141,8 @@ export type LearnedWriteRejection =
   | "name-collision"
   | "not-found"
   | "archive-exists"
+  /** Moving the skill back would land on a learned skill that already uses its name. */
+  | "exists"
   | "disabled"
   | "write-failed"
 
@@ -189,11 +193,30 @@ export type LearnedStore = {
    * write (ADR-0022 §4). Every other archive stays fail-closed behind the switch.
    */
   archive(input: { projectID: string; name: string; reason: string; at?: number; security?: boolean }): LearnedArchiveResult
+  /**
+   * A person's moves (AH-E04), taken from the Skills screen behind the artifacts bearer. `disable`
+   * moves a learned skill out of `skills/` into the disabled root, so no new session loads it;
+   * `enable` moves it back; `retire` archives it from either place. They are not gated by the
+   * learning switch: the switch stops the loop's writes, and these are a person deciding about a
+   * skill they already approved — turning learning off must never take away the way to unload one.
+   */
+  disable(input: { projectID: string; name: string; at?: number }): LearnedArchiveResult
+  enable(input: { projectID: string; name: string; at?: number }): LearnedArchiveResult
+  retire(input: { projectID: string; name: string; at?: number }): LearnedArchiveResult
+  /** The verified skills in the disabled root, with their sidecars. */
+  listDisabled(projectID: string): Array<{ name: string; description: string; sidecar: SkillSidecar }>
   /** Changes the sidecar (lifecycle state, usage counters) without touching the skill body. */
   updateSidecar(input: LearnedSidecarUpdate): LearnedSidecarResult
   readSidecar(projectID: string, name: string): SkillSidecar | undefined
-  /** The body and description of a learned skill, or `undefined` when absent or not verified. */
-  read(projectID: string, name: string): { name: string; description: string; body: string } | undefined
+  /**
+   * The body and description of a learned skill, or `undefined` when absent or not verified. It reads
+   * the learned root unless `where` names the disabled one.
+   */
+  read(
+    projectID: string,
+    name: string,
+    where?: "learned" | "disabled",
+  ): { name: string; description: string; body: string } | undefined
 }
 
 const inside = (path: string, root: string) => path === root || path.startsWith(root + sep)
@@ -294,6 +317,9 @@ function folderRejection(skillDir: string): LearnedWriteRejection | undefined {
   }
   return unsafe(skillDir) ? "unsafe-entry" : undefined
 }
+
+/** The ledger reason of a move a person asked for from the Skills screen (AH-E04). */
+export const HUMAN_REASON = "human"
 
 /** A store built without the install's key signs with this one, so its skills verify only in-process. */
 const EPHEMERAL_KEY = randomBytes(32)
@@ -535,12 +561,12 @@ export function createLearnedStore(
    * creating anything. The same NAME and realpath containment guard a reader against `../` and
    * symlinks, so `readSidecar`/`read` can never be pointed at a human skill's tree.
    */
-  const resolveRead = (projectID: string, name: string): string | undefined => {
+  const resolveRead = (projectID: string, name: string, where: "learned" | "disabled" = "learned"): string | undefined => {
     if (!NAME.test(name)) return undefined
-    const { learned } = rootsFor(projectID)
-    if (rootRejection(projectID, learned)) return undefined
-    const skillDir = join(learned, name)
-    if (!resolvesInside(skillDir, learned)) return undefined
+    const root = rootsFor(projectID)[where]
+    if (rootRejection(projectID, root)) return undefined
+    const skillDir = join(root, name)
+    if (!resolvesInside(skillDir, root)) return undefined
     if (folderRejection(skillDir)) return undefined
     return skillDir
   }
@@ -666,20 +692,33 @@ export function createLearnedStore(
     return { ok: true, path: skillPath, version, contentHash, state: "probation" }
   }
 
-  const archive = (input: {
+  /**
+   * Moves a verified learned skill folder from one root to another: a rename, never a copy and a
+   * delete. The same guards as a write apply to both ends (a real directory inside the project, no
+   * planted link in the folder, the marker and a sidecar whose provenance verifies), so a skill a
+   * repository committed is never moved, and the target is never overwritten.
+   */
+  const move = (input: {
     projectID: string
     name: string
-    reason: string
-    at?: number
-    security?: boolean
+    from: keyof LearnedRoots
+    to: keyof LearnedRoots
+    event: LedgerEvent
+    /** The sidecar state written after the move; absent keeps the lifecycle state it had. */
+    state?: SkillState
+    /** The reason a target that already exists is refused with. */
+    conflict: LearnedWriteRejection
   }): LearnedArchiveResult => {
-    // A reverse-collision repair is a security move, not a learning write: it runs even with learning
-    // off, so the human wins on disk too (ADR-0022 §4). Every other archive stays fail-closed.
-    if (disabled() && input.security !== true) return { ok: false, reason: "disabled" }
-    const prepared = prepare(input.projectID, input.name)
-    if (!prepared.ok) return prepared
-    const { roots, skillDir: source } = prepared
+    if (!NAME.test(input.name)) return { ok: false, reason: "invalid-name" }
+    if (!usableProject(input.projectID)) return { ok: false, reason: "no-project" }
+    const roots = rootsFor(input.projectID)
+    const rejectedSource = rootRejection(input.projectID, roots[input.from])
+    if (rejectedSource) return { ok: false, reason: rejectedSource }
+    const source = join(roots[input.from], input.name)
     if (!existsSync(source)) return { ok: false, reason: "not-found" }
+    if (!resolvesInside(source, roots[input.from])) return { ok: false, reason: "path-escape" }
+    const rejectedFolder = folderRejection(source)
+    if (rejectedFolder) return { ok: false, reason: rejectedFolder }
     let text: string
     try {
       text = readFileSync(join(source, SKILL_FILE), "utf8")
@@ -690,29 +729,102 @@ export function createLearnedStore(
     if (!isSelfAuthored(text)) return { ok: false, reason: "not-self-authored" }
     const sidecar = readSidecarAt(source, input.name)
     if (!sidecar) return { ok: false, reason: "unverified" }
-    const at = input.at ?? now()
-    const target = join(roots.archive, input.name)
-    const rejectedArchive = rootRejection(input.projectID, roots.archive)
-    if (rejectedArchive) return { ok: false, reason: rejectedArchive }
+    const rejectedTarget = rootRejection(input.projectID, roots[input.to])
+    if (rejectedTarget) return { ok: false, reason: rejectedTarget }
     try {
-      mkdirSync(roots.archive, { recursive: true })
+      mkdirSync(roots[input.to], { recursive: true })
     } catch {
       return { ok: false, reason: "write-failed" }
     }
-    if (!resolvesInside(target, roots.archive)) return { ok: false, reason: "path-escape" }
-    if (existsSync(target)) return { ok: false, reason: "archive-exists" }
+    const target = join(roots[input.to], input.name)
+    if (!resolvesInside(target, roots[input.to])) return { ok: false, reason: "path-escape" }
+    if (existsSync(target)) return { ok: false, reason: input.conflict }
+    // What the harness learned stays off git wherever it sits, like the learned root (AH-A04).
+    if (input.to === "disabled") excludeFromGit(input.projectID, roots.disabled)
     try {
       // A move on the same filesystem: `archive-not-delete`, and reviving is moving it back.
       renameSync(source, target)
-      atomicWrite(
-        join(target, SIDECAR_FILE),
-        `${JSON.stringify({ ...sidecar, state: "archived" as const, updatedAt: at }, null, 2)}\n`,
-      )
-      appendLedger(join(target, LEDGER_FILE), { at, event: "archived", reason: input.reason })
+      if (input.state)
+        atomicWrite(
+          join(target, SIDECAR_FILE),
+          `${JSON.stringify({ ...sidecar, state: input.state, updatedAt: input.event.at }, null, 2)}\n`,
+        )
+      appendLedger(join(target, LEDGER_FILE), input.event)
     } catch {
       return { ok: false, reason: "write-failed" }
     }
     return { ok: true, path: target }
+  }
+
+  const archive = (input: {
+    projectID: string
+    name: string
+    reason: string
+    at?: number
+    security?: boolean
+  }): LearnedArchiveResult => {
+    // A reverse-collision repair is a security move, not a learning write: it runs even with learning
+    // off, so the human wins on disk too (ADR-0022 §4). Every other archive stays fail-closed.
+    if (disabled() && input.security !== true) return { ok: false, reason: "disabled" }
+    return move({
+      projectID: input.projectID,
+      name: input.name,
+      from: "learned",
+      to: "archive",
+      event: { at: input.at ?? now(), event: "archived", reason: input.reason },
+      state: "archived",
+      conflict: "archive-exists",
+    })
+  }
+
+  const disable = (input: { projectID: string; name: string; at?: number }): LearnedArchiveResult =>
+    move({
+      ...input,
+      from: "learned",
+      to: "disabled",
+      event: { at: input.at ?? now(), event: "disabled", reason: HUMAN_REASON },
+      conflict: "exists",
+    })
+
+  const enable = (input: { projectID: string; name: string; at?: number }): LearnedArchiveResult => {
+    // Back under `skills/`, a name a human skill took in the meantime would be the "last wins" hazard.
+    if (usableProject(input.projectID) && collides(input.projectID, input.name, rootsFor(input.projectID).learned))
+      return { ok: false, reason: "name-collision" }
+    return move({
+      ...input,
+      from: "disabled",
+      to: "learned",
+      event: { at: input.at ?? now(), event: "enabled", reason: HUMAN_REASON },
+      conflict: "exists",
+    })
+  }
+
+  const retire = (input: { projectID: string; name: string; at?: number }): LearnedArchiveResult =>
+    move({
+      ...input,
+      from: existsSync(join(rootsFor(input.projectID).learned, input.name)) ? "learned" : "disabled",
+      to: "archive",
+      event: { at: input.at ?? now(), event: "archived", reason: HUMAN_REASON },
+      state: "archived",
+      conflict: "archive-exists",
+    })
+
+  const listDisabled = (projectID: string): Array<{ name: string; description: string; sidecar: SkillSidecar }> => {
+    if (!usableProject(projectID)) return []
+    const root = rootsFor(projectID).disabled
+    if (rootRejection(projectID, root) || !existsSync(root)) return []
+    const names = (() => {
+      try {
+        return readdirSync(root).filter((entry) => NAME.test(entry)).sort()
+      } catch {
+        return []
+      }
+    })()
+    return names.flatMap((name) => {
+      const skill = read(projectID, name, "disabled")
+      const sidecar = skill ? readSidecarAt(join(root, name), name) : undefined
+      return skill && sidecar ? [{ name, description: skill.description, sidecar }] : []
+    })
   }
 
   const updateSidecar = (input: LearnedSidecarUpdate): LearnedSidecarResult => {
@@ -770,8 +882,12 @@ export function createLearnedStore(
     return given.length === expected.length && timingSafeEqual(given, expected) ? sidecar : undefined
   }
 
-  const read = (projectID: string, name: string): { name: string; description: string; body: string } | undefined => {
-    const skillDir = resolveRead(projectID, name)
+  const read = (
+    projectID: string,
+    name: string,
+    where: "learned" | "disabled" = "learned",
+  ): { name: string; description: string; body: string } | undefined => {
+    const skillDir = resolveRead(projectID, name, where)
     if (!skillDir) return undefined
     let text: string
     try {
@@ -792,6 +908,10 @@ export function createLearnedStore(
     roots: rootsFor,
     write,
     archive,
+    disable,
+    enable,
+    retire,
+    listDisabled,
     updateSidecar,
     readSidecar: (projectID, name) => {
       const skillDir = resolveRead(projectID, name)

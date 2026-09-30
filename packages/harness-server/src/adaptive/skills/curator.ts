@@ -15,12 +15,20 @@
  * learned skill in the roster that was offered.
  */
 
-import { basename } from "node:path"
+import { basename, join } from "node:path"
 import { skillReport } from "../../skills"
 import type { DraftLimits } from "../learning/draft"
 import type { ProposalRejection, ProposalValidation, SkillProposal } from "../learning/proposal"
 import { validateProposal } from "../learning/proposal"
-import type { LearnedStore, LearnedWriteRejection, LedgerEvent, SkillState, SkillUsage } from "./learned-store"
+import type {
+  LearnedArchiveResult,
+  LearnedStore,
+  LearnedWriteRejection,
+  LedgerEvent,
+  SkillState,
+  SkillUsage,
+} from "./learned-store"
+import { SKILL_FILE } from "./learned-store"
 import type { LifecycleConfig, LifecycleReason } from "./lifecycle"
 import { DEFAULT_LIFECYCLE_CONFIG, nextSkillState } from "./lifecycle"
 import { bumpUsage, recallRate as rateOf, sameUsage } from "./usage"
@@ -81,6 +89,23 @@ export type SkillCurator = {
   archive(projectID: string, name: string, reason: string): boolean
   /** `load / opportunities` from creation, or 0 when the skill has no sidecar yet. */
   recallRate(projectID: string, name: string): number
+  /** The learned skills a person disabled (AH-E04): off `skills/`, so no session loads them. */
+  disabledRoster(projectID: string): SkillRosterEntry[]
+  /** Where a learned or disabled skill's `SKILL.md` is, for "Open file". */
+  skillPath(projectID: string, name: string, where: "learned" | "disabled"): string
+  /** A learned or disabled skill's text for a person to read; unlike `readExisting` it is not a `view`. */
+  show(
+    projectID: string,
+    name: string,
+    where: "learned" | "disabled",
+  ): { name: string; description: string; body: string } | undefined
+  /**
+   * A person's moves from the Skills screen (AH-E04), through the store's single writer. They are not
+   * gated by the learning switch: unloading a skill must stay possible with learning off.
+   */
+  disable(projectID: string, name: string, at?: number): LearnedArchiveResult
+  enable(projectID: string, name: string, at?: number): LearnedArchiveResult
+  retire(projectID: string, name: string, at?: number): LearnedArchiveResult
 }
 
 export function createSkillCurator(deps: {
@@ -337,5 +362,18 @@ export function createSkillCurator(deps: {
       const sidecar = deps.store.readSidecar(projectID, name)
       return sidecar ? rateOf(sidecar.usage) : 0
     },
+    disabledRoster: (projectID) =>
+      deps.store.listDisabled(projectID).map((entry) => ({
+        name: entry.name,
+        description: entry.description,
+        learned: true,
+        state: entry.sidecar.state,
+        usage: entry.sidecar.usage,
+      })),
+    skillPath: (projectID, name, where) => join(deps.store.roots(projectID)[where], name, SKILL_FILE),
+    show: (projectID, name, where) => deps.store.read(projectID, name, where),
+    disable: (projectID, name, at) => deps.store.disable({ projectID, name, ...(at !== undefined ? { at } : {}) }),
+    enable: (projectID, name, at) => deps.store.enable({ projectID, name, ...(at !== undefined ? { at } : {}) }),
+    retire: (projectID, name, at) => deps.store.retire({ projectID, name, ...(at !== undefined ? { at } : {}) }),
   }
 }
