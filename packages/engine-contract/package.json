@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/package.json",
+  "name": "@flupcode/engine-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "description": "Contract tests that drive a real OpenCode engine the way FlupCode does, against a stub model.",
+  "scripts": {
+    "test": "bun test --timeout 120000",
+    "typecheck": "tsgo --noEmit"
+  },
+  "dependencies": {
+    "@flupcode/remote": "workspace:*"
+  },
+  "devDependencies": {
+    "@tsconfig/bun": "catalog:",
+    "@types/bun": "catalog:",
+    "@typescript/native-preview": "catalog:",
+    "typescript": "catalog:"
+  }
+}

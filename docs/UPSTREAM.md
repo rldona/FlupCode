@@ -119,9 +119,9 @@ git diff --name-status origin/dev origin/power -- packages \
 
 ### Whole packages that are ours
 
-`packages/flupcode-cli`, `packages/harness`, `packages/harness-desktop`, `packages/harness-server`,
-`packages/landing`, `packages/relay`, `packages/remote`. They do not exist upstream, so they never
-conflict. **Keep ours.**
+`packages/engine-contract`, `packages/flupcode-cli`, `packages/harness`, `packages/harness-desktop`,
+`packages/harness-server`, `packages/landing`, `packages/relay`, `packages/remote`. They do not exist
+upstream, so they never conflict. **Keep ours.**
 
 ### Files we added inside upstream packages
 
