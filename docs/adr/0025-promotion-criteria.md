@@ -1,8 +1,8 @@
 # ADR-0025: Preregistered promotion criteria for the adaptive capabilities
 
-- **Status:** Proposed — **needs the owner's approval before any live data is looked at.** Until this
-  ADR is marked Accepted, `bun run eval:live -- report` must not be run against the real database, and
-  no threshold below may be read as agreed.
+- **Status:** Accepted by the owner on 2026-09-30, before any live data was looked at. The criteria
+  below (including the 2026-09-30 revision and R18) are now fixed for the first evaluation window; a
+  change after `eval:live -- start` needs a new dated revision and restarts the window.
 - **Date:** 2026-09-30 (revised the same day: "Revision (2026-09-30): reachable within one user's usage")
 - **Related:** ADR-0017 (egress and governance), ADR-0021 (skill relevance acting), ADR-0022 (loopback
   auth, retention and rollback), ADR-0023 (failure/loop guardrails), ADR-0024 (cache-aware selection),
