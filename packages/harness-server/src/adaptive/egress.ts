@@ -1,32 +1,44 @@
 /**
- * The one place state is serialized outward (FH-014).
+ * The one place state is serialized outward (FH-014, AH-C01).
  *
- * No other code path builds a body for Jev: `prepare` redacts, bounds and summarizes, and `allows`
- * decides whether anything may leave at all. The posture is opt-in three times over — the global Jev
- * switch, the project list, and the per-kind allowlist — so with Jev off, nothing leaves whatever
- * else is configured. This is the trust invariant as a rule at the writer, not as a separate service.
+ * No model is handed anything the guard did not write: `prepare` redacts, bounds and summarizes a
+ * request into the neutral input every predictive model receives, and `allows` decides whether a
+ * remote model may be asked at all. The posture is opt-in three times over — the global switch, the
+ * project list, and the per-kind allowlist — so with the switch off, nothing leaves whatever else is
+ * configured. This is the trust invariant as a rule at the writer, not as a separate service.
+ *
+ * The guard writes a neutral input, not a wire body: each remote model serializes its own envelope
+ * from it (Jev's lives in `providers/jev.ts`), so the guard stays the same whichever model is asked.
  */
 
 import type { AnyDecisionRequest, DecisionKind } from "./decision"
 import { decisionInputsHash } from "./decision"
 import type { AdaptiveConfig } from "./config"
 import { redactText } from "./redaction"
-import { questionsFor, wireQuestions } from "./questions"
-import type { Question, WireQuestion } from "./questions"
+import { questionID, questionsFor } from "./questions"
+import type { PredictionState, Question } from "./predictive/model"
+
+/** What `prepare` hands the service: the model's input, its serialization, hash and audit summary. */
+export type PreparedInput = {
+  state: PredictionState
+  /** The planned questions, redacted, bounded and renamed to their positional ids (`questionID`). */
+  questions: Question[]
+  /** The whole input as one string: what the hash covers and what the budget estimate is taken from. */
+  serialized: string
+  hash: string
+  summary: Record<string, unknown>
+}
 
 export type EgressGuard = {
   allows(kind: DecisionKind, projectID: string | undefined): boolean
   /**
-   * Builds the whole outbound body, redacting and bounding it; it never returns the raw state.
+   * Builds the whole model input, redacting and bounding it; it never returns the raw state.
    *
-   * The state *and* the questions are written here, so no other path can serialize a prompt built
+   * The state *and* the questions are written here, so no other path can hand a model a prompt built
    * from raw state. When no questions are given the shared planner derives them from the request, so
-   * the body is complete whichever caller asks and the hash always covers what is really sent.
+   * the input is complete whichever caller asks and the hash always covers what a model receives.
    */
-  prepare(
-    request: AnyDecisionRequest,
-    questions?: readonly Question[],
-  ): { body: string; hash: string; summary: Record<string, unknown> }
+  prepare(request: AnyDecisionRequest, questions?: readonly Question[]): PreparedInput
   /**
    * The same redaction `prepare` applies, over any value, for a writer that persists a decision.
    *
@@ -67,20 +79,20 @@ const summarize = (state: unknown): Record<string, unknown> => {
 }
 
 /**
- * Bounds the whole serialized body — state, model and questions, not only the state — to the budget.
+ * Bounds the whole serialized input — state and questions, not only the state — to the budget.
  *
  * The variable text, the state string and every question prompt, is trimmed to the longest prefix
  * whose *serialized* form fits; a binary search is used because escaping quotes and backslashes makes
  * the message longer than the text it carries. The state is trimmed first (it is the largest part),
- * then each prompt in order if the questions alone still exceed the budget. The empty envelope
- * (model plus question shells) is the floor: dropping a question would ask a different question.
+ * then each prompt in order if the questions alone still exceed the budget. The empty envelope (the
+ * question shells) is the floor: dropping a question would ask a different question.
  */
-const boundBody = (state: string, questions: WireQuestion[], model: string, budget: number): string => {
-  const serialize = (stateText: string, asked: readonly WireQuestion[]) =>
-    JSON.stringify({ state: stateText, model, questions: asked })
-  if (serialize(state, questions).length <= budget) return serialize(state, questions)
-  const shell = (asked: readonly WireQuestion[]) => asked.map((question) => ({ ...question, prompt: "" }))
-  if (serialize("", shell(questions)).length >= budget) return serialize("", shell(questions))
+const boundInput = (state: string, questions: Question[], budget: number): { state: string; questions: Question[] } => {
+  const serialize = (stateText: string, asked: readonly Question[]) =>
+    JSON.stringify({ state: stateText, questions: asked })
+  if (serialize(state, questions).length <= budget) return { state, questions }
+  const shell = questions.map((question) => ({ ...question, prompt: "" }))
+  if (serialize("", shell).length >= budget) return { state: "", questions: shell }
 
   // The longest prefix of `text` whose serialization, with the rest as it stands, stays under budget.
   const trimToFit = (text: string, apply: (candidate: string) => string): string => {
@@ -94,18 +106,17 @@ const boundBody = (state: string, questions: WireQuestion[], model: string, budg
     return text.slice(0, low)
   }
 
-  let stateText = trimToFit(state, (candidate) => serialize(candidate, questions))
-  let asked = questions.map((question) => ({ ...question }))
-  asked.forEach((question, index) => {
+  const stateText = trimToFit(state, (candidate) => serialize(candidate, questions))
+  const asked = questions.reduce<Question[]>((current, question, index) => {
     const trimmed = trimToFit(question.prompt, (candidate) =>
       serialize(
         stateText,
-        asked.map((entry, position) => (position === index ? { ...entry, prompt: candidate } : entry)),
+        current.map((entry, position) => (position === index ? { ...entry, prompt: candidate } : entry)),
       ),
     )
-    asked = asked.map((entry, position) => (position === index ? { ...entry, prompt: trimmed } : entry))
-  })
-  return serialize(stateText, asked)
+    return current.map((entry, position) => (position === index ? { ...entry, prompt: trimmed } : entry))
+  }, questions)
+  return { state: stateText, questions: asked }
 }
 
 export function createAdaptiveEgressGuard(deps: {
@@ -123,25 +134,44 @@ export function createAdaptiveEgressGuard(deps: {
     )
   }
 
-  const prepare = (request: AnyDecisionRequest, questions: readonly Question[] = questionsFor(request)) => {
+  const prepare = (
+    request: AnyDecisionRequest,
+    questions: readonly Question[] = questionsFor(request),
+  ): PreparedInput => {
     const config = deps.config()
     const secrets = deps.secrets?.() ?? []
     // Every string of a question is swept, prompts first: a prompt is built from state and is the
-    // path the leak took. Choices are enums, but they travel too and get the same pass.
-    const asked = wireQuestions(
-      questions.map((question) => ({
-        ...question,
-        prompt: redactText(question.prompt, secrets),
-        ...(question.choices ? { choices: question.choices.map((choice) => redactText(choice, secrets)) } : {}),
-      })),
+    // path the leak took. Options are enums or roster names, but they travel too and get the same
+    // pass. The caller's id never travels: the question is renamed to its position.
+    const asked = questions.map((question, index): Question => {
+      const prompt = redactText(question.prompt, secrets)
+      if (question.type === "binary") return { id: questionID(index), type: question.type, prompt }
+      return {
+        id: questionID(index),
+        type: question.type,
+        prompt,
+        options: question.options.map((option) => redactText(option, secrets)),
+      }
+    })
+    // The bound is still read from the Jev slot of the config, the only remote budget there is today;
+    // a per-provider budget arrives with per-provider egress (AH-C03).
+    const bounded = boundInput(
+      redactText(JSON.stringify(request.state), secrets),
+      asked,
+      Math.max(0, config.jev.maxInputTokens),
     )
-    const state = redactText(JSON.stringify(request.state), secrets)
-    const body = boundBody(state, asked, config.jev.model, Math.max(0, config.jev.maxInputTokens))
-    const hash = decisionInputsHash(request.kind, body)
+    const serialized = JSON.stringify({ state: bounded.state, questions: bounded.questions })
+    const hash = decisionInputsHash(request.kind, serialized)
     return {
-      body,
+      state: {
+        kind: request.kind,
+        ...(request.projectID !== undefined ? { projectID: request.projectID } : {}),
+        text: bounded.state,
+      },
+      questions: bounded.questions,
+      serialized,
       hash,
-      summary: { kind: request.kind, digest: hash, bytes: body.length, fields: summarize(request.state) },
+      summary: { kind: request.kind, digest: hash, bytes: serialized.length, fields: summarize(request.state) },
     }
   }
 

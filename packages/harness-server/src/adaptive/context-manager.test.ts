@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { resolveAdaptiveConfig } from "./config"
-import type { ContextItemState, DecisionKind, DecisionRequest, DecisionSpec, ItemDisposition } from "./decision"
+import type { DecisionKind, DecisionRequest, ItemDisposition } from "./decision"
 import type { ContextPart } from "./context"
 import { classifyRunPrompt } from "./context"
 import { createContextManager } from "./context-manager"
@@ -14,7 +14,7 @@ import type { DecisionService } from "./decision-service"
 import { createAdaptiveEgressGuard } from "./egress"
 import { createGovernor } from "./providers/governor"
 import { DecisionUnavailable } from "./providers/provider"
-import type { DecisionProvider, ProviderAnswer } from "./providers/provider"
+import type { Prediction, PredictiveModel } from "./predictive/model"
 import { deterministicContextItem } from "./scoring"
 import { SqliteRoutineRepository } from "../repository"
 import type { SessionEpisode } from "../types"
@@ -39,7 +39,7 @@ const JEV_BLOCK = {
   egress: { projects: ["/work/project"], kinds: { contextItem: true } },
 }
 
-const setup = (block: unknown = {}, external?: DecisionProvider) => {
+const setup = (block: unknown = {}, external?: PredictiveModel) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const config = configFor(block)
   const egress = createAdaptiveEgressGuard({ config: () => config })
@@ -48,7 +48,7 @@ const setup = (block: unknown = {}, external?: DecisionProvider) => {
     repository,
     config: () => config,
     egress,
-    ...(external ? { external, governor } : {}),
+    ...(external ? { models: [external], governor } : {}),
     now: () => NOW,
   })
   return { repository, config, egress, service, governor }
@@ -90,19 +90,30 @@ const counting = (service: DecisionService) => {
   return { service: wrapped, calls: () => calls }
 }
 
-/** A fake Jev that answers only what it is asked and records the item ids of each request. */
+/**
+ * A fake Jev that answers only what it is asked and records the item ids of each request, read from
+ * the serialized state it is handed (it never sees the typed request).
+ */
 const jevProvider = (disposition: ItemDisposition = "keep", confidence = 0.9) => {
   const seen: string[][] = []
-  const provider: DecisionProvider & { seen: string[][] } = {
-    id: "fake-jev",
+  const provider: PredictiveModel & { seen: string[][] } = {
+    id: "jev",
+    locality: "remote",
+    supports: ["contextItem"],
     seen,
-    async answer<Q extends DecisionKind>(request: DecisionRequest<Q>): Promise<ProviderAnswer<Q>> {
-      const items = (request.state as ContextItemState).items ?? []
-      seen.push(items.map((item) => item.id))
+    async predict(state, questions): Promise<Prediction> {
+      const parsed: { items?: Array<{ id: string }> } = JSON.parse(state.text)
+      seen.push((parsed.items ?? []).map((item) => item.id))
       return {
-        answer: { decisions: items.map((item) => ({ id: item.id, disposition })) } as unknown as DecisionSpec[Q]["answer"],
-        confidence,
+        answers: Object.fromEntries(
+          questions.map((question) => [
+            question.id,
+            { probabilities: { [disposition]: confidence }, choice: disposition, confidence },
+          ]),
+        ),
         latencyMs: 0,
+        usage: { inputTokens: 0, costUsd: 0 },
+        model: { id: "jev" },
       }
     },
   }
@@ -326,14 +337,13 @@ describe("ContextManager.plan (FH-022/023)", () => {
   })
 
   test("a Jev that hangs past the timeout degrades to the deterministic baseline", async () => {
-    const hanging: DecisionProvider = {
-      id: "hanging",
-      answer: <Q extends DecisionKind>(
-        _request: DecisionRequest<Q>,
-        signal: AbortSignal,
-      ): Promise<ProviderAnswer<Q>> =>
-        new Promise<ProviderAnswer<Q>>((_resolve, reject) => {
-          signal.addEventListener("abort", () => reject(new DecisionUnavailable("timeout")))
+    const hanging: PredictiveModel = {
+      id: "jev",
+      locality: "remote",
+      supports: ["contextItem"],
+      predict: (_state, _questions, options) =>
+        new Promise<Prediction>((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(new DecisionUnavailable("timeout")))
         }),
     }
     const { repository, ...rest } = setup({ ...JEV_BLOCK, decisions: { contextItem: { timeoutMs: 5 } } }, hanging)

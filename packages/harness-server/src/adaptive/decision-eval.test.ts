@@ -14,11 +14,11 @@ import { DEFAULT_JEV_CONFIG, resolveAdaptiveConfig } from "./config"
 import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "./decision"
 import { deterministicBaseline } from "./providers/deterministic"
-import { createFallbackProvider } from "./providers/fallback"
 import { createGovernor, DEFAULT_GOVERNOR_CONFIG } from "./providers/governor"
+import { createRetryingModel } from "./providers/retry"
 import { DecisionUnavailable } from "./providers/provider"
 import { wireQuestions } from "./providers/jev-parse"
-import type { JevQuestion } from "./providers/jev-parse"
+import type { Question } from "./predictive/model"
 import { createJevClient } from "./providers/jev"
 import type { JevFetch, JevFetchResponse } from "./providers/jev"
 import type { GovernorStore } from "./providers/governor"
@@ -31,7 +31,6 @@ import { SqliteRoutineRepository } from "../repository"
 import type { SessionEpisode } from "../types"
 
 const NOW = 1_700_000_000_000
-const signal = new AbortController().signal
 
 const request = <Q extends DecisionKind>(kind: Q, state: DecisionSpec[Q]["state"]): DecisionRequest<Q> => ({
   kind,
@@ -87,10 +86,10 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
     const payload: unknown = JSON.parse(
       readFileSync(join(import.meta.dir, "fixtures", "decisions", "systemone-mixed.json"), "utf8"),
     )
-    const questions: JevQuestion[] = [
-      { id: "gate", type: "noul", prompt: "gate?" },
-      { id: "route", type: "choice", prompt: "route?", choices: ["CHEAP", "BALANCED", "HIGH", "MAX"] },
-      { id: "risk", type: "score", prompt: "risk?", choices: ["low", "mid", "high"] },
+    const questions: Question[] = [
+      { id: "gate", type: "binary", prompt: "gate?" },
+      { id: "route", type: "choice", prompt: "route?", options: ["CHEAP", "BALANCED", "HIGH", "MAX"] },
+      { id: "risk", type: "score", prompt: "risk?", options: ["low", "mid", "high"] },
     ]
     // The recorded fetch replays the fixture and nothing else touches the network.
     const canned: JevFetchResponse = {
@@ -105,7 +104,10 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
         resolveAdaptiveConfig({ block: { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { completion: true } } }, env: {} }),
     })
     const client = createJevClient({ fetch, egress, config: () => ({ ...DEFAULT_JEV_CONFIG, enabled: true }) })
-    const prediction = await client.predictOne({ ...SAMPLES.completion, projectID: "/work/project" }, questions)
+    const prediction = await client.predictOne(
+      { kind: "completion", projectID: "/work/project", text: JSON.stringify(SAMPLES.completion.state) },
+      questions,
+    )
 
     // The fixture shuffled w2 first: assembly is by id, not by arrival order.
     expect(prediction.modelVersion).toBe("jev-1.13.0")
@@ -118,17 +120,42 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
   })
 
   test("fallback equality: 8/8 answers equal the deterministic baseline byte for byte", async () => {
+    // A model that is down, asked for every kind through the registry: the service degrades each
+    // decision to its baseline, whatever the kind.
+    const down = createRetryingModel({
+      model: {
+        id: "down",
+        locality: "local",
+        supports: decisionKinds(),
+        predict: async () => Promise.reject(new DecisionUnavailable("network")),
+      },
+      maxAttempts: 1,
+    })
+    const repository = new SqliteRoutineRepository(":memory:")
+    const config = resolveAdaptiveConfig({
+      // A breaker high enough that every kind reaches the model rather than the open breaker.
+      block: {
+        models: Object.fromEntries(decisionKinds().map((kind) => [kind, "down"])),
+        governor: { breakerFailures: 100 },
+      },
+      env: {},
+    })
+    const service = createDecisionService({
+      repository,
+      config: () => config,
+      egress: createAdaptiveEgressGuard({ config: () => config }),
+      models: [down],
+      governor: createGovernor({ config: () => config.governor, store, now: () => NOW }),
+      now: () => NOW,
+    })
     let equal = 0
     for (const kind of decisionKinds()) {
-      const fallback = createFallbackProvider({
-        external: { id: "down", answer: async () => Promise.reject(new DecisionUnavailable("network")) },
-        maxAttempts: 1,
-        now: () => NOW,
-      })
-      const answer = await fallback.answer(SAMPLES[kind], signal)
-      if (JSON.stringify(answer.answer) === JSON.stringify(deterministicBaseline(SAMPLES[kind]).answer)) equal += 1
+      const result = await service.predict(SAMPLES[kind])
+      expect(result).toMatchObject({ degraded: true, degradedReason: "network" })
+      if (JSON.stringify(result.answer) === JSON.stringify(deterministicBaseline(SAMPLES[kind]).answer)) equal += 1
     }
     expect(equal).toBe(8)
+    repository.close()
   })
 
   test("dedupe: two identical concurrent states collapse into one call", async () => {
@@ -197,7 +224,7 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
     repository.close()
   })
 
-  test("egress: zero canaries reach the outbound body", () => {
+  test("egress: zero canaries reach the model input", () => {
     const known = "canary-value-that-is-long"
     const patterned = "sk-abcdefghijklmnopqrstuvwx"
     const egress = createAdaptiveEgressGuard({
@@ -219,8 +246,8 @@ describe("Phase 2 evaluation (offline, recorded)", () => {
       },
     }
     const prepared = egress.prepare(secretRequest)
-    expect(prepared.body).not.toContain(known)
-    expect(prepared.body).not.toContain(patterned)
-    expect(prepared.body).toContain("[REDACTED]")
+    expect(prepared.serialized).not.toContain(known)
+    expect(prepared.serialized).not.toContain(patterned)
+    expect(prepared.serialized).toContain("[REDACTED]")
   })
 })

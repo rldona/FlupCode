@@ -1,15 +1,15 @@
 import { describe, expect, test } from "bun:test"
 import { resolveAdaptiveConfig } from "../config"
 import { DECISION_KINDS, DEFAULT_DECISION_POLICY, E2_KINDS, decisionKinds, isE2Kind } from "../decision"
-import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
+import type { DecisionRequest } from "../decision"
 import { createDecisionService } from "../decision-service"
 import { createAdaptiveEgressGuard } from "../egress"
 import { deterministicBaseline } from "../providers/deterministic"
 import { createGovernor } from "../providers/governor"
-import { createJevProvider } from "../providers/jev"
-import type { JevPrediction } from "../providers/jev-parse"
-import type { DecisionProvider, ProviderAnswer } from "../providers/provider"
-import { questionsFor } from "../questions"
+import { createJevModel } from "../providers/jev"
+import type { JevAnswer } from "../providers/jev-parse"
+import type { Answer, PredictiveModel } from "../predictive/model"
+import { questionID, questionsFor, readAnswers } from "../questions"
 import { SqliteRoutineRepository } from "../../repository"
 
 const NOW = 1_700_000_000_000
@@ -30,14 +30,20 @@ const reflection = (): DecisionRequest<"skillReflection"> => ({
   },
 })
 
-const providerFor = (answer: DecisionSpec["skillReflection"]["answer"], confidence: number): DecisionProvider => ({
-  id: "fake-jev",
-  async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-    return { answer: answer as DecisionSpec[Q]["answer"], confidence, probabilities: { reusable: confidence }, latencyMs: 0 }
-  },
+/** A model that answers the reflection's questions in order: reusable, intent, target. */
+const modelAnswering = (answers: Answer[]): PredictiveModel => ({
+  id: "jev",
+  locality: "remote",
+  supports: ["skillReflection"],
+  predict: async (_state, questions) => ({
+    answers: Object.fromEntries(questions.flatMap((question, index) => (answers[index] ? [[question.id, answers[index]]] : []))),
+    latencyMs: 0,
+    usage: { inputTokens: 0, costUsd: 0 },
+    model: { id: "jev" },
+  }),
 })
 
-const serviceFor = (block: Record<string, unknown>, external?: DecisionProvider) => {
+const serviceFor = (block: Record<string, unknown>, external?: PredictiveModel) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const config = resolveAdaptiveConfig({ block, env: {} })
   const egress = createAdaptiveEgressGuard({ config: () => config })
@@ -46,7 +52,7 @@ const serviceFor = (block: Record<string, unknown>, external?: DecisionProvider)
     repository,
     config: () => config,
     egress,
-    ...(external ? { external } : {}),
+    ...(external ? { models: [external] } : {}),
     governor,
     now: () => NOW,
   })
@@ -71,7 +77,7 @@ describe("the skillReflection kind (FH-031)", () => {
   test("asks reusable and intent, and target only when there is a roster", () => {
     const planned = questionsFor(reflection())
     expect(planned.map((question) => question.id)).toEqual(["reusable", "intent", "target"])
-    expect(planned[1]?.choices).toEqual(["add", "patch", "merge", "drop"])
+    expect(planned[1]).toMatchObject({ type: "choice", options: ["add", "patch", "merge", "drop"] })
 
     const noRoster = questionsFor({ ...reflection(), state: { ...reflection().state, skills: [] } })
     expect(noRoster.map((question) => question.id)).toEqual(["reusable", "intent"])
@@ -90,7 +96,8 @@ describe("the skillReflection kind (FH-031)", () => {
   test("low confidence degrades to the inert baseline, so nothing is proposed", async () => {
     const { repository, service } = serviceFor(
       { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { skillReflection: true } } },
-      providerFor({ reusable: true, intent: "add" }, 0.2),
+      // A likely-reusable gate with an intent the model is unsure of: the weakest axis is 0.2.
+      modelAnswering([{ probabilities: { yes: 0.8, no: 0.2 } }, { probabilities: {}, choice: "add", confidence: 0.2 }]),
     )
 
     const result = await service.predict(reflection())
@@ -103,7 +110,11 @@ describe("the skillReflection kind (FH-031)", () => {
   test("a confident classification wins and carries the intent", async () => {
     const { repository, service } = serviceFor(
       { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { skillReflection: true } } },
-      providerFor({ reusable: true, intent: "patch", target: "testing" }, 0.9),
+      modelAnswering([
+        { probabilities: { yes: 0.9, no: 0.1 } },
+        { probabilities: {}, choice: "patch", confidence: 0.9 },
+        { probabilities: {}, choice: "testing" },
+      ]),
     )
 
     const result = await service.predict(reflection())
@@ -112,24 +123,31 @@ describe("the skillReflection kind (FH-031)", () => {
     repository.close()
   })
 
-  test("the Jev interpretation reads the gate, the intent and the target", async () => {
-    const prediction: JevPrediction = {
-      modelVersion: "jev-1.13.0",
-      answers: {
-        reusable: { type: "noul", probability: 0.8 },
-        intent: { type: "choice", choice: "patch", probabilities: {}, confidence: 0.7 },
-        target: { type: "choice", choice: "testing", probabilities: {}, confidence: 0.9 },
+  test("the Jev round trip reads the gate, the intent and the target", async () => {
+    const wire: JevAnswer[] = [
+      { type: "noul", probability: 0.8 },
+      { type: "choice", choice: "patch", probabilities: {}, confidence: 0.7 },
+      { type: "choice", choice: "testing", probabilities: {}, confidence: 0.9 },
+    ]
+    const answers = Object.fromEntries(wire.map((answer, index) => [questionID(index), answer]))
+    const model = createJevModel({
+      client: {
+        predictOne: async () => ({ modelVersion: "jev-1.13.0", answers, inputTokens: 1 }),
+        predictMany: async () => [{ modelVersion: "jev-1.13.0", answers, inputTokens: 1 }],
       },
-    }
-    const provider = createJevProvider({
-      client: { predictOne: async () => prediction, predictMany: async () => [prediction] },
     })
+    const planned = questionsFor(reflection())
+    const prediction = await model.predict(
+      { kind: "skillReflection", text: "{}" },
+      planned.map((question, index) => ({ ...question, id: questionID(index) })),
+      { deadlineMs: 400, signal: new AbortController().signal, mode: "batch" },
+    )
 
-    const answer = await provider.answer(reflection(), new AbortController().signal)
-    expect(answer.answer).toEqual({ reusable: true, intent: "patch", target: "testing" })
+    const reading = readAnswers("skillReflection", planned, prediction.answers)
+    expect(reading?.answer).toEqual({ reusable: true, intent: "patch", target: "testing" })
     // The adapter reports the intent's confidence and the gate's p(yes); the service keeps the weakest
     // of the intent and the gate's certainty (here 0.7) as the confidence it gates on.
-    expect(answer.confidence).toBe(0.7)
-    expect(answer.probabilities).toEqual({ reusable: 0.8 })
+    expect(reading?.confidence).toBe(0.7)
+    expect(reading?.probabilities).toEqual({ reusable: 0.8 })
   })
 })

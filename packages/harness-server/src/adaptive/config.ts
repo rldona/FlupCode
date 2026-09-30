@@ -13,7 +13,7 @@
  */
 
 import { globalAdaptiveBlock } from "../config-files"
-import { DEFAULT_DECISION_POLICY } from "./decision"
+import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
 import type { ContextItemKind, DecisionKind, DecisionPolicy } from "./decision"
 import { resolveEpisodeBoundaryConfig } from "./episode"
 import type { EpisodeBoundaryConfig } from "./episode"
@@ -31,6 +31,15 @@ export type JevConfig = {
   timeoutMs: number
   maxInputTokens: number
 }
+
+/**
+ * Which registered predictive model each kind asks (AH-C01), by model id. A kind that is absent asks
+ * no model and keeps the deterministic baseline.
+ */
+export type ModelAssignments = Partial<Record<DecisionKind, string>>
+
+/** The id that pins a kind to the deterministic baseline, overriding the legacy Jev assignment. */
+export const BASELINE_MODEL = "baseline"
 
 export type BudgetConfig = { monthlyTokens: number; hotReserveFraction: number }
 
@@ -140,6 +149,8 @@ export type AdaptiveConfig = {
   runtime: RuntimeProbeConfig
   episode: EpisodeBoundaryConfig
   decisions: Record<DecisionKind, DecisionPolicy>
+  /** The predictive model per kind; see `resolveModelAssignments` for the legacy fallback. */
+  models: ModelAssignments
   jev: JevConfig
   budget: BudgetConfig
   egress: EgressConfig
@@ -342,6 +353,26 @@ function resolveJevConfig(block: Record<string, unknown>): JevConfig {
     timeoutMs: positiveNumberFrom(jev.timeoutMs) ?? DEFAULT_JEV_CONFIG.timeoutMs,
     maxInputTokens: positiveNumberFrom(jev.maxInputTokens) ?? DEFAULT_JEV_CONFIG.maxInputTokens,
   }
+}
+
+/**
+ * The model per kind: `adaptive.models.<kind> = "<model id>"`.
+ *
+ * A kind the block does not name falls back to the behaviour before the registry existed: Jev when
+ * `jev.enabled`, else no model. That fallback is per kind, so a config without a `models` block reads
+ * exactly as it always did, and one that names a single kind leaves the others where they were.
+ * `"baseline"` pins a kind to the deterministic answer even with Jev on. An id no model is registered
+ * under also keeps the baseline: the service only asks a registered model that supports the kind.
+ */
+function resolveModelAssignments(block: Record<string, unknown>): ModelAssignments {
+  const models = isPlainObject(block.models) ? block.models : {}
+  const legacy = isPlainObject(block.jev) && block.jev.enabled === true ? "jev" : undefined
+  return Object.fromEntries(
+    decisionKinds().flatMap((kind) => {
+      const id = stringFrom(models[kind]) ?? legacy
+      return id === undefined || id === BASELINE_MODEL ? [] : [[kind, id] as const]
+    }),
+  )
 }
 
 function resolveBudgetConfig(block: Record<string, unknown>): BudgetConfig {
@@ -552,6 +583,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     runtime: resolveRuntimeConfig({ block, env }),
     episode: resolveEpisodeBoundaryConfig({ block, env }),
     decisions: resolveDecisionPolicies(block, context, guardrails),
+    models: resolveModelAssignments(block),
     jev: resolveJevConfig(block),
     budget: resolveBudgetConfig(block),
     egress: resolveEgressConfig(block),

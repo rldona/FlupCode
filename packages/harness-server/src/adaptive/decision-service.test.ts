@@ -1,16 +1,16 @@
 import { describe, expect, test } from "bun:test"
 import { resolveAdaptiveConfig } from "./config"
-import { DEFAULT_DECISION_POLICY } from "./decision"
+import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
 import type { DecisionKind, DecisionRequest } from "./decision"
 import { decisionID } from "./decision-record"
 import { createDecisionService } from "./decision-service"
 import { createAdaptiveEgressGuard } from "./egress"
-import { createFallbackProvider } from "./providers/fallback"
+import type { Answer, PredictOptions, Prediction, PredictiveModel, Question } from "./predictive/model"
+import { createRetryingModel } from "./providers/retry"
 import { createGovernor } from "./providers/governor"
-import { createJevProvider } from "./providers/jev"
-import type { JevPrediction } from "./providers/jev-parse"
+import { createJevModel } from "./providers/jev"
+import type { JevAnswer } from "./providers/jev-parse"
 import { DecisionUnavailable } from "./providers/provider"
-import type { DecisionProvider, ProviderAnswer } from "./providers/provider"
 import { SqliteRoutineRepository } from "../repository"
 
 const NOW = 1_700_000_000_000
@@ -32,25 +32,45 @@ const completion = (objective = "fix the failing test"): DecisionRequest<"comple
   },
 })
 
-/** An external provider that answers once and counts how many times it was asked. */
-const spyProvider = (answer: ProviderAnswer<"completion">): DecisionProvider & { calls: number } => {
-  const provider = {
-    id: "fake-jev",
+/** A neutral prediction that gives every question asked the same answer. */
+const predictionFor = (questions: readonly Question[], answer: Answer, version?: string): Prediction => ({
+  answers: Object.fromEntries(questions.map((question) => [question.id, answer])),
+  latencyMs: 0,
+  usage: { inputTokens: 0, costUsd: 0 },
+  model: { id: "jev", ...(version !== undefined ? { version } : {}) },
+})
+
+/** A predictive model whose every call runs `predict`, registered under the legacy `jev` id. */
+const fakeModel = (
+  predict: (questions: readonly Question[], options: PredictOptions) => Promise<Prediction>,
+): PredictiveModel => ({
+  id: "jev",
+  locality: "remote",
+  supports: decisionKinds(),
+  predict: (_state, questions, options) => predict(questions, options),
+})
+
+/** A model that answers every question the same way and counts how many times it was asked. */
+const spyModel = (answer: Answer, version?: string): PredictiveModel & { calls: number } => {
+  const model = {
+    ...fakeModel(async (questions) => {
+      model.calls += 1
+      return predictionFor(questions, answer, version)
+    }),
     calls: 0,
-    async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-      provider.calls += 1
-      return answer as ProviderAnswer<Q>
-    },
   }
-  return provider
+  return model
 }
+
+/** A model that always fails with `error`. */
+const failingModel = (error: unknown): PredictiveModel => fakeModel(async () => Promise.reject(error))
 
 const jevOn = {
   jev: { enabled: true },
   egress: { projects: ["/work/project"], kinds: { completion: true } },
 }
 
-const serviceFor = (block: unknown, external?: DecisionProvider) => {
+const serviceFor = (block: unknown, model?: PredictiveModel) => {
   const repository = new SqliteRoutineRepository(":memory:")
   const config = resolveAdaptiveConfig({ block, env: {} })
   const egress = createAdaptiveEgressGuard({ config: () => config })
@@ -59,7 +79,7 @@ const serviceFor = (block: unknown, external?: DecisionProvider) => {
     repository,
     config: () => config,
     egress,
-    ...(external ? { external } : {}),
+    ...(model ? { models: [model] } : {}),
     governor,
     now: () => NOW,
   })
@@ -68,13 +88,7 @@ const serviceFor = (block: unknown, external?: DecisionProvider) => {
 
 describe("the decision service (FH-015)", () => {
   test("records inputs hash, answer, confidence, provider, version, latency, degraded and fallback rule", async () => {
-    const external = spyProvider({
-      answer: { verdict: "complete" },
-      confidence: 0.9,
-      probabilities: { complete: 0.9, not_complete: 0.1 },
-      modelVersion: "jev-1.13.0",
-      latencyMs: 0,
-    })
+    const external = spyModel({ probabilities: { yes: 0.9, no: 0.1 }, confidence: 0.9 }, "jev-1.13.0")
     const { repository, service } = serviceFor(jevOn, external)
     const request = completion()
     const result = await service.predict(request)
@@ -95,8 +109,8 @@ describe("the decision service (FH-015)", () => {
       baselineAnswer: { verdict: "complete" },
       answer: { verdict: "complete" },
       confidence: 0.9,
-      probabilities: { complete: 0.9, not_complete: 0.1 },
-      provider: "fake-jev",
+      probabilities: { complete: 0.9, not_complete: 1 - 0.9 },
+      provider: "jev",
       modelVersion: "jev-1.13.0",
       source: "jev",
       degraded: false,
@@ -123,12 +137,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("explain is built from the stored row and matches it, without re-running", async () => {
-    const external = spyProvider({
-      answer: { verdict: "complete" },
-      confidence: 0.9,
-      modelVersion: "jev-1.13.0",
-      latencyMs: 0,
-    })
+    const external = spyModel({ probabilities: { yes: 0.9, no: 0.1 } }, "jev-1.13.0")
     const { repository, service } = serviceFor(jevOn, external)
     await service.predict(completion())
     const explanation = service.explain("completion:episode:run:1")
@@ -137,7 +146,7 @@ describe("the decision service (FH-015)", () => {
     expect(explanation).toMatchObject({
       id: "completion:episode:run:1",
       source: "jev",
-      provider: "fake-jev",
+      provider: "jev",
       modelVersion: "jev-1.13.0",
       confidence: 0.9,
       degraded: false,
@@ -145,7 +154,7 @@ describe("the decision service (FH-015)", () => {
       answer: { verdict: "complete" },
       baseline: { answer: { verdict: "complete" }, rule: "episode-outcome" },
     })
-    expect(explanation!.why).toContain("fake-jev")
+    expect(explanation!.why).toContain("jev jev-1.13.0 answered")
     expect(explanation!.why).toContain("minConfidence")
     expect(explanation!.evidenceRefs).toEqual([])
     // Reading it again does not ask the provider a second time.
@@ -156,12 +165,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("the DecisionPolicy thresholds gate a confident-looking answer", async () => {
-    const external = spyProvider({
-      answer: { verdict: "complete" },
-      confidence: 0.6,
-      probabilities: { complete: 0.6, not_complete: 0.4 },
-      latencyMs: 0,
-    })
+    const external = spyModel({ probabilities: { yes: 0.6, no: 0.4 }, confidence: 0.6 })
     const { repository, service } = serviceFor(jevOn, external)
     // The thresholds live in the request's policy, which is what the caller (the shadow) sets from
     // the config; the service applies them to whatever the provider returned.
@@ -180,12 +184,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("a provider failure degrades to the deterministic answer and records the reason", async () => {
-    const external: DecisionProvider = {
-      id: "fake-jev",
-      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-        throw new DecisionUnavailable("network")
-      },
-    }
+    const external = failingModel(new DecisionUnavailable("network"))
     const { repository, service } = serviceFor(jevOn, external)
     const result = await service.predict(completion())
 
@@ -205,14 +204,9 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("the probability axis of the policy gates an otherwise confident answer", async () => {
-    const external = spyProvider({
-      answer: { verdict: "complete" },
-      confidence: 1,
-      // The best probability is 0.6, below the 0.9 the policy demands: the confidence alone is not
-      // enough, which is what keeps the thresholds in the service rather than in the adapter.
-      probabilities: { complete: 0.6, not_complete: 0.4 },
-      latencyMs: 0,
-    })
+    // The best probability is 0.6, below the 0.9 the policy demands: the confidence alone is not
+    // enough, which is what keeps the thresholds in the service rather than in the adapter.
+    const external = spyModel({ probabilities: { yes: 0.6, no: 0.4 }, confidence: 1 })
     const { repository, service } = serviceFor(jevOn, external)
     const result = await service.predict({
       ...completion(),
@@ -241,7 +235,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("with Jev off it is deterministic and nothing is asked of the provider or the egress", async () => {
-    const external = spyProvider({ answer: { verdict: "complete" }, confidence: 1, latencyMs: 0 })
+    const external = spyModel({ probabilities: { yes: 1, no: 0 } })
     const { repository, service } = serviceFor({}, external)
     const result = await service.predict(completion())
 
@@ -255,7 +249,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("the kill switch answers deterministically and writes nothing", async () => {
-    const external = spyProvider({ answer: { verdict: "complete" }, confidence: 1, latencyMs: 0 })
+    const external = spyModel({ probabilities: { yes: 1, no: 0 } })
     const { repository, service } = serviceFor({ enabled: false, ...jevOn }, external)
     const result = await service.predict(completion())
 
@@ -276,13 +270,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("a wired fallback is honored: a down Jev is recorded degraded with its attempted provider", async () => {
-    const down: DecisionProvider = {
-      id: "jev",
-      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-        throw new DecisionUnavailable("network")
-      },
-    }
-    const external = createFallbackProvider({ external: down, maxAttempts: 1, now: () => NOW })
+    const external = createRetryingModel({ model: failingModel(new DecisionUnavailable("network")), maxAttempts: 1 })
     const { repository, service } = serviceFor(jevOn, external)
     const result = await service.predict(completion())
 
@@ -305,12 +293,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("a 429 without Retry-After still reduces the limiter concurrency", async () => {
-    const external: DecisionProvider = {
-      id: "jev",
-      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-        throw new DecisionUnavailable("rate-limited")
-      },
-    }
+    const external = failingModel(new DecisionUnavailable("rate-limited"))
     const { repository, service, governor } = serviceFor(jevOn, external)
     const before = governor.state().concurrency
     await service.predict(completion())
@@ -320,18 +303,26 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("an empty probability map and absent axes are not gates", async () => {
-    const emptyMap = spyProvider({ answer: { verdict: "complete" }, confidence: 1, probabilities: {}, latencyMs: 0 })
-    const empty = serviceFor(jevOn, emptyMap)
-    const passed = await empty.service.predict(completion())
-    expect(passed.source).toBe("jev")
-    expect(passed.degraded).toBe(false)
+    // A binary answer is its distribution, so the empty map is a choice the model named outright.
+    const route: DecisionRequest<"modelRoute"> = {
+      kind: "modelRoute",
+      sessionID: "ses_1",
+      projectID: "/work/project",
+      policy: DEFAULT_DECISION_POLICY,
+      state: { role: "build", taskName: "task-1" },
+    }
+    const routeOn = { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { modelRoute: true } } }
+    const emptyMap = spyModel({ probabilities: {}, choice: "HIGH", confidence: 1 })
+    const empty = serviceFor(routeOn, emptyMap)
+    const passed = await empty.service.predict(route)
+    expect(passed).toMatchObject({ source: "jev", degraded: false, answer: { tier: "HIGH" } })
     empty.repository.close()
 
-    const bare = spyProvider({ answer: { verdict: "complete" }, latencyMs: 0 })
-    const none = serviceFor(jevOn, bare)
-    const alsoPassed = await none.service.predict(completion())
-    expect(alsoPassed.source).toBe("jev")
-    expect(alsoPassed.degraded).toBe(false)
+    const bare = spyModel({ probabilities: {}, choice: "HIGH" })
+    const none = serviceFor(routeOn, bare)
+    const alsoPassed = await none.service.predict(route)
+    expect(alsoPassed).toMatchObject({ source: "jev", degraded: false, answer: { tier: "HIGH" } })
+    expect(alsoPassed.confidence).toBeUndefined()
     none.repository.close()
   })
 
@@ -360,7 +351,7 @@ describe("the decision service (FH-015)", () => {
   })
 
   test("a hot prediction is not queued behind a saturated batch limiter", async () => {
-    const external = spyProvider({ answer: { verdict: "complete" }, confidence: 1, latencyMs: 0 })
+    const external = spyModel({ probabilities: { yes: 1, no: 0 } })
     const { repository, service, governor } = serviceFor(
       { ...jevOn, governor: { limiter: { initial: 1, max: 1, min: 1, restoreEvery: 8 } } },
       external,
@@ -385,17 +376,16 @@ describe("the decision service (FH-015)", () => {
   test("the hot path's own deadline aborts a hung provider; a batch call is not bounded by it", async () => {
     // A provider that only settles when the signal aborts: this is the hang the hot deadline exists
     // to cut, and it makes the `timeout` reason observable instead of a `network` one.
-    const hung: DecisionProvider = {
-      id: "jev",
-      answer: <Q extends DecisionKind>(_request: DecisionRequest<Q>, signal: AbortSignal) =>
-        new Promise<ProviderAnswer<Q>>((_resolve, reject) => {
-          signal.addEventListener("abort", () => {
+    const hung = fakeModel(
+      (_questions, options) =>
+        new Promise<Prediction>((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => {
             const error = new Error("deadline")
             error.name = "AbortError"
             reject(error)
           })
         }),
-    }
+    )
     const policy = { ...DEFAULT_DECISION_POLICY, timeoutMs: 10 }
     const hot = serviceFor(jevOn, hung)
     const timedOut = await hot.service.predict({ ...completion(), policy }, "hot")
@@ -406,17 +396,11 @@ describe("the decision service (FH-015)", () => {
     // The deadline belongs to the hot path alone: the same short `timeoutMs` does not bound a batch
     // call, so the slow provider finishes un-aborted even past the deadline (ADR-0017 §4).
     const bounded = { aborted: true }
-    const slow: DecisionProvider = {
-      id: "jev",
-      answer: async <Q extends DecisionKind>(
-        _request: DecisionRequest<Q>,
-        signal: AbortSignal,
-      ): Promise<ProviderAnswer<Q>> => {
-        await Bun.sleep(30)
-        bounded.aborted = signal.aborted
-        return { answer: { verdict: "complete" }, confidence: 1, latencyMs: 0 } as ProviderAnswer<Q>
-      },
-    }
+    const slow = fakeModel(async (questions, options) => {
+      await Bun.sleep(30)
+      bounded.aborted = options.signal.aborted
+      return predictionFor(questions, { probabilities: { yes: 1, no: 0 } })
+    })
     const batch = serviceFor(jevOn, slow)
     const answered = await batch.service.predict({ ...completion(), policy })
     expect(answered.source).toBe("jev")
@@ -426,15 +410,12 @@ describe("the decision service (FH-015)", () => {
 
   test("a hot 429 with Retry-After: 30 returns the baseline within the hot timeout (AH-A06)", async () => {
     let calls = 0
-    const limited: DecisionProvider = {
-      id: "jev",
-      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-        calls += 1
-        throw new DecisionUnavailable("rate-limited", { retryAfterMs: 30_000 })
-      },
-    }
+    const limited = fakeModel(async () => {
+      calls += 1
+      throw new DecisionUnavailable("rate-limited", { retryAfterMs: 30_000 })
+    })
     // The production wiring: real sleep, default attempts and delays.
-    const external = createFallbackProvider({ external: limited })
+    const external = createRetryingModel({ model: limited })
     const { repository, service } = serviceFor(jevOn, external)
     const startedAt = Date.now()
     const result = await service.predict(completion(), "hot")
@@ -447,15 +428,12 @@ describe("the decision service (FH-015)", () => {
 
   test("five concurrent identical predictions that fail share one breaker failure (AH-A06)", async () => {
     let calls = 0
-    const down: DecisionProvider = {
-      id: "jev",
-      async answer<Q extends DecisionKind>(): Promise<ProviderAnswer<Q>> {
-        calls += 1
-        await Promise.resolve()
-        throw new DecisionUnavailable("timeout")
-      },
-    }
-    const external = createFallbackProvider({ external: down, maxAttempts: 1, now: () => NOW })
+    const down = fakeModel(async () => {
+      calls += 1
+      await Promise.resolve()
+      throw new DecisionUnavailable("timeout")
+    })
+    const external = createRetryingModel({ model: down, maxAttempts: 1 })
     const { repository, service, governor } = serviceFor({ ...jevOn, governor: { breakerFailures: 2 } }, external)
     const results = await Promise.all([1, 2, 3, 4, 5].map(() => service.predict(completion(), "hot")))
 
@@ -484,14 +462,26 @@ describe("the decision service (FH-015)", () => {
   })
 })
 
-/** The real Jev adapter over a canned prediction: only the network boundary is faked. */
-const jevAnswering = (answers: JevPrediction["answers"]) =>
-  createJevProvider({
+/**
+ * The real Jev adapter over canned wire answers, one per question in the order they are asked: only
+ * the network boundary is faked.
+ */
+const jevAnswering = (answers: JevAnswer[]) => {
+  const keyed = (questions: readonly Question[]) =>
+    Object.fromEntries(questions.flatMap((question, index) => (answers[index] ? [[question.id, answers[index]]] : [])))
+  return createJevModel({
     client: {
-      predictOne: async () => ({ modelVersion: "jev-1.13.0", answers }),
-      predictMany: async () => [{ modelVersion: "jev-1.13.0", answers }],
+      predictOne: async (_state, questions) => ({
+        modelVersion: "jev-1.13.0",
+        answers: keyed(questions),
+        inputTokens: 1,
+      }),
+      predictMany: async (_states, questions) => [
+        { modelVersion: "jev-1.13.0", answers: keyed(questions), inputTokens: 1 },
+      ],
     },
   })
+}
 
 const jevOnFor = (kind: DecisionKind) => ({
   jev: { enabled: true },
@@ -527,7 +517,7 @@ const relevance = (): DecisionRequest<"skillRelevance"> => ({
 describe("calibrated confidence: the probability of the answer actually chosen (AH-A01)", () => {
   test("completion: a confident no wins, a confident yes wins, a coin flip degrades", async () => {
     const decide = async (probability: number) => {
-      const { repository, service } = serviceFor(jevOn, jevAnswering({ verdict: { type: "noul", probability } }))
+      const { repository, service } = serviceFor(jevOn, jevAnswering([{ type: "noul", probability }]))
       const result = await service.predict(completion())
       repository.close()
       return result
@@ -547,7 +537,7 @@ describe("calibrated confidence: the probability of the answer actually chosen (
 
   test("failure: a confident p(intervene) = 0.05 is a `continue`, not a discarded answer", async () => {
     const decide = async (probability: number) => {
-      const { repository, service } = serviceFor(jevOnFor("failure"), jevAnswering({ verdict: { type: "noul", probability } }))
+      const { repository, service } = serviceFor(jevOnFor("failure"), jevAnswering([{ type: "noul", probability }]))
       const result = await service.predict(failure())
       repository.close()
       return result
@@ -568,10 +558,10 @@ describe("calibrated confidence: the probability of the answer actually chosen (
     const decide = async (testing: number, testData: number) => {
       const { repository, service } = serviceFor(
         jevOnFor("skillRelevance"),
-        jevAnswering({
-          testing: { type: "noul", probability: testing },
-          "test-data": { type: "noul", probability: testData },
-        }),
+        jevAnswering([
+          { type: "noul", probability: testing },
+          { type: "noul", probability: testData },
+        ]),
       )
       const result = await service.predict(relevance())
       repository.close()
@@ -593,17 +583,228 @@ describe("calibrated confidence: the probability of the answer actually chosen (
   })
 
   test("a provider's own confidence still gates: the recorded confidence is the weakest axis", async () => {
-    const external = spyProvider({
-      answer: { verdict: "not_complete" },
-      confidence: 0.55,
-      probabilities: { complete: 0.05, not_complete: 0.95 },
-      latencyMs: 0,
-    })
+    const external = spyModel({ probabilities: { yes: 0.05, no: 0.95 }, confidence: 0.55 })
     const { repository, service } = serviceFor(jevOn, external)
     const result = await service.predict(completion())
 
     expect(result).toMatchObject({ source: "fallback", degraded: true, degradedReason: "low-confidence", confidence: 0.55 })
     expect(repository.getDecision("completion:episode:run:1")?.confidence).toBe(0.55)
+    repository.close()
+  })
+})
+
+describe("the predictive model registry (AH-C01)", () => {
+  /** A model under its own id that records what it was handed and answers with `answer`. */
+  const registered = (
+    id: string,
+    locality: "local" | "remote",
+    answer: (questions: readonly Question[], options: PredictOptions) => Promise<Prediction>,
+    supports: readonly DecisionKind[] = decisionKinds(),
+  ) => {
+    const seen: Array<{ text: string; questions: readonly Question[] }> = []
+    const model: PredictiveModel & { seen: typeof seen } = {
+      id,
+      locality,
+      supports,
+      seen,
+      predict: (state, questions, options) => {
+        seen.push({ text: state.text, questions })
+        return answer(questions, options)
+      },
+    }
+    return model
+  }
+  const answering =
+    (answers: Record<string, Answer>, id = "fake-local") =>
+    async (): Promise<Prediction> => ({
+      answers,
+      latencyMs: 3,
+      usage: { inputTokens: 10, costUsd: 0.001 },
+      model: { id, version: "v1" },
+    })
+
+  const agentRoute = (): DecisionRequest<"agentRoute"> => ({
+    kind: "agentRoute",
+    sessionID: "ses_1",
+    projectID: "/work/project",
+    policy: DEFAULT_DECISION_POLICY,
+    state: { objective: "fix the failing test", signals: ["red-check"] },
+  })
+
+  test("a binary answer: the chosen answer's probability is the confidence, and the model is audited", async () => {
+    const model = registered("fake-local", "local", answering({ q0: { probabilities: { yes: 0.05, no: 0.95 } } }))
+    const { repository, service } = serviceFor({ models: { completion: "fake-local" } }, model)
+    const result = await service.predict(completion("finish canary-secret-value-1234567890"))
+
+    expect(result).toMatchObject({
+      source: "jev",
+      provider: "fake-local",
+      modelVersion: "v1",
+      degraded: false,
+      answer: { verdict: "not_complete" },
+      confidence: 0.95,
+      probabilities: { complete: 0.05, not_complete: 0.95 },
+      baseline: { verdict: "complete" },
+    })
+    // The model only ever sees neutral, positional questions and the serialized state.
+    expect(model.seen[0]!.questions).toEqual([
+      {
+        id: "q0",
+        type: "binary",
+        prompt: "Is this episode complete? Objective: finish canary-secret-value-1234567890",
+      },
+    ])
+    expect(repository.getDecision("completion:episode:run:1")).toMatchObject({
+      provider: "fake-local",
+      attemptedProvider: "fake-local",
+      source: "jev",
+    })
+    repository.close()
+  })
+
+  test("a choice answer: the most probable option wins when the model names none", async () => {
+    const model = registered(
+      "fake-local",
+      "local",
+      answering({ q0: { probabilities: { CONTINUE: 0.1, DEBUG: 0.8, REVIEW: 0.1 } } }),
+    )
+    const { repository, service } = serviceFor({ models: { agentRoute: "fake-local" } }, model)
+    const result = await service.predict(agentRoute())
+
+    expect(model.seen[0]!.questions[0]).toMatchObject({
+      id: "q0",
+      type: "choice",
+      options: ["CONTINUE", "REVIEW", "DEBUG", "ARCHITECT", "ASK_USER"],
+    })
+    expect(result).toMatchObject({ source: "jev", degraded: false, answer: { agent: "DEBUG" }, confidence: 0.8 })
+    repository.close()
+  })
+
+  test("confidence is the weakest of the model's own claim and the chosen probability, and it gates", async () => {
+    const claim = (confidence: number) =>
+      registered("fake-local", "local", answering({ q0: { probabilities: { DEBUG: 0.8, CONTINUE: 0.2 }, confidence } }))
+
+    const modest = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.7))
+    expect(await modest.service.predict(agentRoute())).toMatchObject({ source: "jev", confidence: 0.7 })
+    modest.repository.close()
+
+    // A model cannot talk its way past the chosen probability either: 0.99 claimed, 0.8 recorded.
+    const boastful = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.99))
+    expect(await boastful.service.predict(agentRoute())).toMatchObject({ confidence: 0.8 })
+    boastful.repository.close()
+
+    const unsure = serviceFor({ models: { agentRoute: "fake-local" } }, claim(0.4))
+    const gated = await unsure.service.predict(agentRoute())
+    expect(gated).toMatchObject({
+      source: "fallback",
+      degraded: true,
+      degradedReason: "low-confidence",
+      confidence: 0.4,
+    })
+    expect(gated.answer).toEqual(gated.baseline)
+    unsure.repository.close()
+  })
+
+  test("a hot call past its deadline degrades to the baseline with the timeout reason", async () => {
+    const hanging = registered(
+      "fake-local",
+      "local",
+      (_questions, options) =>
+        new Promise<Prediction>((_resolve, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason))
+        }),
+    )
+    const { repository, service } = serviceFor({ models: { completion: "fake-local" } }, hanging)
+    const startedAt = Date.now()
+    const result = await service.predict(
+      { ...completion(), policy: { ...DEFAULT_DECISION_POLICY, timeoutMs: 10 } },
+      "hot",
+    )
+
+    expect(Date.now() - startedAt).toBeLessThan(1_000)
+    expect(result).toMatchObject({
+      source: "fallback",
+      provider: "deterministic",
+      degraded: true,
+      degradedReason: "timeout",
+    })
+    expect(result.answer).toEqual(result.baseline)
+    expect(repository.getDecision("completion:episode:run:1")?.attemptedProvider).toBe("fake-local")
+    repository.close()
+  })
+
+  test("a model assigned to a kind it does not support is never asked: the baseline answers", async () => {
+    const model = registered("fake-local", "local", answering({}), ["completion"])
+    const { repository, service } = serviceFor({ models: { agentRoute: "fake-local" } }, model)
+    const result = await service.predict(agentRoute())
+
+    expect(model.seen).toHaveLength(0)
+    expect(result).toMatchObject({
+      source: "deterministic",
+      provider: "deterministic",
+      degraded: false,
+      answer: { agent: "CONTINUE" },
+    })
+    repository.close()
+  })
+
+  test("an unregistered id, `baseline`, or a policy that forbids models keeps the baseline", async () => {
+    const model = registered("fake-local", "local", answering({ q0: { probabilities: { yes: 0.9, no: 0.1 } } }))
+    for (const block of [{ models: { completion: "nobody" } }, { models: { completion: "baseline" } }, {}]) {
+      const { repository, service } = serviceFor(block, model)
+      expect((await service.predict(completion())).source).toBe("deterministic")
+      repository.close()
+    }
+    const forbidden = serviceFor({ models: { completion: "fake-local" } }, model)
+    const result = await forbidden.service.predict({
+      ...completion(),
+      policy: { ...DEFAULT_DECISION_POLICY, allowJev: false },
+    })
+    expect(result.source).toBe("deterministic")
+    forbidden.repository.close()
+    expect(model.seen).toHaveLength(0)
+  })
+
+  test("a remote model is only asked for a project and kind the egress guard lets out", async () => {
+    const model = registered(
+      "fake-remote",
+      "remote",
+      answering({ q0: { probabilities: { yes: 0.9, no: 0.1 } } }, "fake-remote"),
+    )
+    const denied = serviceFor({ models: { completion: "fake-remote" } }, model)
+    expect((await denied.service.predict(completion())).source).toBe("deterministic")
+    denied.repository.close()
+    expect(model.seen).toHaveLength(0)
+
+    const allowed = serviceFor({ ...jevOn, models: { completion: "fake-remote" } }, model)
+    expect(await allowed.service.predict(completion())).toMatchObject({ source: "jev", provider: "fake-remote" })
+    allowed.repository.close()
+    expect(model.seen).toHaveLength(1)
+  })
+
+  test("answers that do not read as the kind's answer degrade as malformed", async () => {
+    const model = registered("fake-local", "local", answering({ q0: { probabilities: { maybe: 1 } } }))
+    const { repository, service } = serviceFor({ models: { completion: "fake-local" } }, model)
+    expect(await service.predict(completion())).toMatchObject({
+      source: "fallback",
+      degraded: true,
+      degradedReason: "malformed",
+    })
+    repository.close()
+  })
+
+  test("model ids are unique in the registry", () => {
+    const repository = new SqliteRoutineRepository(":memory:")
+    const config = resolveAdaptiveConfig({ block: {}, env: {} })
+    const model = registered("twin", "local", answering({}))
+    expect(() =>
+      createDecisionService({
+        repository,
+        config: () => config,
+        egress: createAdaptiveEgressGuard({ config: () => config }),
+        models: [model, model],
+      }),
+    ).toThrow("unique")
     repository.close()
   })
 })

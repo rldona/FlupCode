@@ -32,9 +32,9 @@ import { createDecisionService } from "./decision-service"
 import { createRelevanceService } from "./relevance"
 import { createGovernor } from "./providers/governor"
 import type { GovernorStore } from "./providers/governor"
-import { createJevClient, createJevProvider } from "./providers/jev"
+import { createJevClient, createJevModel } from "./providers/jev"
 import type { JevFetch, JevFetchResponse } from "./providers/jev"
-import { createFallbackProvider } from "./providers/fallback"
+import { createRetryingModel } from "./providers/retry"
 import type { RuntimeCapabilities } from "./runtime"
 import type { SkillRosterEntry } from "./skills/curator"
 import { rankSkills, renderSkillLine, SKILL_LINE_TEMPLATE } from "./skill-line"
@@ -167,8 +167,15 @@ const stack = (
     return recorded(fixture)
   }
   const client = createJevClient({ fetch, egress, config: () => config.jev, now: () => NOW })
-  const external = createFallbackProvider({ external: createJevProvider({ client }), maxAttempts: 1, now: () => NOW })
-  const service = createDecisionService({ repository, config: () => config, egress, external, governor, now: () => NOW })
+  const jev = createRetryingModel({ model: createJevModel({ client, now: () => NOW }), maxAttempts: 1 })
+  const service = createDecisionService({
+    repository,
+    config: () => config,
+    egress,
+    models: [jev],
+    governor,
+    now: () => NOW,
+  })
   const relevance = createRelevanceService({
     service,
     curator: { roster: () => options.roster ?? fixture.roster },

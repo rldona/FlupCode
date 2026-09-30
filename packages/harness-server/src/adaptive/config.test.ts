@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  BASELINE_MODEL,
   DEFAULT_ADAPTIVE_TTL_MS,
   DEFAULT_BUDGET_CONFIG,
   DEFAULT_CONTEXT_CONFIG,
@@ -14,7 +15,7 @@ import {
   createAdaptiveConfig,
   resolveAdaptiveConfig,
 } from "./config"
-import { DEFAULT_DECISION_POLICY } from "./decision"
+import { DEFAULT_DECISION_POLICY, decisionKinds } from "./decision"
 import type { DecisionKind, DecisionPolicy } from "./decision"
 import { DEFAULT_EPISODE_BOUNDARY_CONFIG, resolveEpisodeBoundaryConfig } from "./episode"
 import { DEFAULT_GOVERNOR_CONFIG } from "./providers/governor"
@@ -59,6 +60,7 @@ describe("resolveAdaptiveConfig", () => {
       runtime: DEFAULT_RUNTIME_PROBE_CONFIG,
       episode: DEFAULT_EPISODE_BOUNDARY_CONFIG,
       decisions: allPolicies(),
+      models: {},
       jev: DEFAULT_JEV_CONFIG,
       budget: DEFAULT_BUDGET_CONFIG,
       egress: { enabled: false, projects: [], kinds: allKindsOff() },
@@ -322,6 +324,45 @@ describe("resolveAdaptiveConfig", () => {
     const config = resolveAdaptiveConfig({ block, env })
     expect(config.runtime).toEqual(resolveRuntimeConfig({ block, env }))
     expect(config.episode).toEqual(resolveEpisodeBoundaryConfig({ block, env }))
+  })
+})
+
+describe("the model per kind (AH-C01)", () => {
+  const everyKind = (id: string) => Object.fromEntries(decisionKinds().map((kind) => [kind, id]))
+
+  test("without a models block, every kind asks Jev only when Jev is enabled", () => {
+    expect(resolveAdaptiveConfig({ block: {}, env: {} }).models).toEqual({})
+    expect(resolveAdaptiveConfig({ block: { jev: { enabled: false } }, env: {} }).models).toEqual({})
+    expect(resolveAdaptiveConfig({ block: { jev: { enabled: true } }, env: {} }).models).toEqual(everyKind("jev"))
+  })
+
+  test("a named kind takes its model; the kinds it does not name keep the legacy assignment", () => {
+    const withJev = resolveAdaptiveConfig({
+      block: { jev: { enabled: true }, models: { skillRelevance: "small-llm" } },
+      env: {},
+    })
+    expect(withJev.models).toEqual({ ...everyKind("jev"), skillRelevance: "small-llm" })
+
+    const withoutJev = resolveAdaptiveConfig({ block: { models: { skillRelevance: "small-llm" } }, env: {} })
+    expect(withoutJev.models).toEqual({ skillRelevance: "small-llm" })
+  })
+
+  test("`baseline` pins a kind to the deterministic answer even with Jev on", () => {
+    const config = resolveAdaptiveConfig({
+      block: { jev: { enabled: true }, models: { completion: BASELINE_MODEL } },
+      env: {},
+    })
+    expect(config.models.completion).toBeUndefined()
+    expect(config.models.failure).toBe("jev")
+  })
+
+  test("a malformed block or entry is ignored rather than guessed", () => {
+    expect(resolveAdaptiveConfig({ block: { models: "jev" }, env: {} }).models).toEqual({})
+    const config = resolveAdaptiveConfig({
+      block: { jev: { enabled: true }, models: { completion: 42, failure: "  ", unknownKind: "x" } },
+      env: {},
+    })
+    expect(config.models).toEqual(everyKind("jev"))
   })
 })
 

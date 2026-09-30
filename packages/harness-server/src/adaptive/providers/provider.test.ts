@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test"
 import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
 import { DEFAULT_DECISION_POLICY, decisionKinds } from "../decision"
-import { createDeterministicProvider, deterministicBaseline } from "./deterministic"
-import { DecisionUnavailable, nullProvider } from "./provider"
+import { deterministicBaseline } from "./deterministic"
+import { DecisionUnavailable, degradedReasonOf } from "./provider"
 
 const request = <Q extends DecisionKind>(kind: Q, state: DecisionSpec[Q]["state"]): DecisionRequest<Q> => ({
   kind,
@@ -43,62 +43,40 @@ const sampleRequests: { [Q in DecisionKind]: DecisionRequest<Q> } = {
   }),
 }
 
-const signal = new AbortController().signal
-
-describe("the deterministic provider", () => {
-  test("answers every kind with Jev off", async () => {
-    const provider = createDeterministicProvider(() => 1_000)
-    const answers = await Promise.all(decisionKinds().map((kind) => provider.answer(sampleRequests[kind], signal)))
-    for (const answer of answers) {
-      expect(answer.answer).toBeDefined()
-      expect(answer.latencyMs).toBe(0)
-    }
-    expect(provider.id).toBe("deterministic")
-  })
-
-  test("matches the pure baseline for every kind", async () => {
-    const provider = createDeterministicProvider()
+describe("the deterministic baseline", () => {
+  test("answers every kind with no model, each with the rule that produced it", () => {
     for (const kind of decisionKinds()) {
       const baseline = deterministicBaseline(sampleRequests[kind])
-      const answer = await provider.answer(sampleRequests[kind], signal)
-      expect(answer.answer).toEqual(baseline.answer)
+      expect(baseline.answer).toBeDefined()
       expect(baseline.rule.length).toBeGreaterThan(0)
     }
   })
 
-  test("is deterministic: the same request answers the same twice, for every kind", async () => {
-    const provider = createDeterministicProvider(() => 1_000)
+  test("is deterministic: the same request answers the same twice, for every kind", () => {
     for (const kind of decisionKinds()) {
-      const first = await provider.answer(sampleRequests[kind], signal)
-      const second = await provider.answer(sampleRequests[kind], signal)
-      expect(second.answer).toEqual(first.answer)
-      expect(first.latencyMs).toBe(0)
+      expect(deterministicBaseline(sampleRequests[kind])).toEqual(deterministicBaseline(sampleRequests[kind]))
     }
   })
 
-  test("does not apply the request thresholds", async () => {
-    const provider = createDeterministicProvider()
-    const request = sampleRequests.completion
+  test("does not apply the request thresholds", () => {
     const strict: DecisionRequest<"completion"> = {
-      ...request,
+      ...sampleRequests.completion,
       policy: { allowJev: false, minConfidence: 1, minProbability: 1, timeoutMs: 1 },
     }
-    const answer = await provider.answer(strict, signal)
-    // A provider that applied thresholds would withhold an answer or mark it degraded; this seam
-    // returns the raw answer and nothing else.
-    expect(answer.answer).toEqual({ verdict: "complete" })
-    expect(Object.keys(answer).sort()).toEqual(["answer", "latencyMs"])
+    // A baseline that applied thresholds would withhold an answer or mark it degraded; it returns the
+    // answer and its rule, nothing else.
+    const baseline = deterministicBaseline(strict)
+    expect(baseline.answer).toEqual({ verdict: "complete" })
+    expect(Object.keys(baseline).sort()).toEqual(["answer", "rule"])
   })
 })
 
-describe("the null provider", () => {
-  test("occupies the external slot with a stable id", () => {
-    expect(nullProvider.id).toBe("null")
-  })
-
-  test("rejects with the typed provider-disabled reason", async () => {
-    const failure = await nullProvider.answer(sampleRequests.completion, signal).catch((cause: unknown) => cause)
-    expect(failure).toBeInstanceOf(DecisionUnavailable)
-    expect(failure).toMatchObject({ reason: "provider-disabled" })
+describe("the reason a failure degrades with", () => {
+  test("a typed failure keeps its reason; an aborted deadline is a timeout; anything else is network", () => {
+    expect(degradedReasonOf(new DecisionUnavailable("provider-disabled"))).toBe("provider-disabled")
+    const aborted = new Error("deadline")
+    aborted.name = "AbortError"
+    expect(degradedReasonOf(aborted)).toBe("timeout")
+    expect(degradedReasonOf(new Error("down"))).toBe("network")
   })
 })

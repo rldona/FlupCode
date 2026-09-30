@@ -24,10 +24,10 @@ import type { GuardrailReason, GuardrailResult } from "./guardrails"
 import type { LoopObservation } from "./guardrails-detector"
 import { createGovernor } from "./providers/governor"
 import type { GovernorStore } from "./providers/governor"
-import { createJevClient, createJevProvider } from "./providers/jev"
+import { createJevClient, createJevModel } from "./providers/jev"
 import type { JevFetch, JevFetchResponse } from "./providers/jev"
 import type { JevAnswer } from "./providers/jev-parse"
-import { createFallbackProvider } from "./providers/fallback"
+import { createRetryingModel } from "./providers/retry"
 import type { RuntimeCapabilities } from "./runtime"
 
 const NOW = 1_700_000_000_000
@@ -132,8 +132,15 @@ const stack = (fixture: Fixture, options: { degraded?: boolean } = {}) => {
     return recordedFetch(fixture)(input)
   }
   const client = createJevClient({ fetch, egress, config: () => config.jev, now: () => NOW })
-  const external = createFallbackProvider({ external: createJevProvider({ client }), maxAttempts: 1, now: () => NOW })
-  const service = createDecisionService({ repository, config: () => config, egress, external, governor, now: () => NOW })
+  const jev = createRetryingModel({ model: createJevModel({ client, now: () => NOW }), maxAttempts: 1 })
+  const service = createDecisionService({
+    repository,
+    config: () => config,
+    egress,
+    models: [jev],
+    governor,
+    now: () => NOW,
+  })
   const guardrails = createGuardrailService({
     service,
     runtimeProbe: { capabilities: () => capabilities(fixture) },

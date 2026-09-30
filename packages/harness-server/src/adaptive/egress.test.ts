@@ -64,34 +64,39 @@ describe("EgressGuard.allows", () => {
 })
 
 describe("EgressGuard.prepare", () => {
-  test("a canary never appears in the body or the summary", () => {
+  test("a canary never appears in the model input or the summary", () => {
     const guard = createEgressGuard({ config: () => configFor({}), secrets: () => [CANARY] })
     const prepared = guard.prepare(completionRequest)
-    expect(prepared.body).not.toContain(CANARY)
-    expect(prepared.body).toContain("[REDACTED]")
+    expect(prepared.serialized).not.toContain(CANARY)
+    expect(prepared.serialized).toContain("[REDACTED]")
+    expect(prepared.state.text).not.toContain(CANARY)
     expect(JSON.stringify(prepared.summary)).not.toContain(CANARY)
   })
 
-  test("bounds the whole body, questions included, to the configured budget", () => {
+  test("bounds the whole input, questions included, to the configured budget", () => {
     const guard = createEgressGuard({
       config: () => configFor({ jev: { enabled: true, maxInputTokens: 200 } }),
     })
     const long = { ...completionRequest, state: { ...completionRequest.state, objective: "x".repeat(2_000) } }
     const prepared = guard.prepare(long)
-    expect(prepared.body.length).toBeLessThanOrEqual(200)
-    expect(prepared.body.length).toBeLessThan(JSON.stringify(long.state).length)
-    // The body stays the full, valid envelope: state plus the question that carries its own prompt.
-    expect(prepared.body).toContain('"questions":[{"id":"w0","type":"noul","prompt":"Is this episode complete?')
+    expect(prepared.serialized.length).toBeLessThanOrEqual(200)
+    expect(prepared.serialized.length).toBeLessThan(JSON.stringify(long.state).length)
+    // The input stays complete: state plus the question that carries its own prompt.
+    expect(prepared.serialized).toContain('"questions":[{"id":"q0","type":"binary","prompt":"Is this episode complete?')
+    expect(prepared.serialized).toBe(JSON.stringify({ state: prepared.state.text, questions: prepared.questions }))
   })
 
-  test("the questions are part of the body and their prompts are redacted", () => {
+  test("the questions are part of the input and their prompts are redacted", () => {
     const guard = createEgressGuard({ config: () => configFor({}), secrets: () => [CANARY] })
-    const questions = [{ id: `skill-${CANARY}`, type: "noul" as const, prompt: `Load the skill for ${CANARY}` }]
+    const questions = [{ id: `skill-${CANARY}`, type: "binary" as const, prompt: `Load the skill for ${CANARY}` }]
     const prepared = guard.prepare(completionRequest, questions)
-    expect(prepared.body).not.toContain(CANARY)
-    expect(prepared.body).toContain("[REDACTED]")
-    // The wire id is positional, so a canary in the caller's id never reaches the body either.
-    expect(prepared.body).toContain('"questions":[{"id":"w0","type":"noul","prompt":"Load the skill for [REDACTED]"}]')
+    expect(prepared.serialized).not.toContain(CANARY)
+    expect(prepared.serialized).toContain("[REDACTED]")
+    // The id a model sees is positional, so a canary in the caller's id never reaches any model.
+    expect(prepared.questions).toEqual([{ id: "q0", type: "binary", prompt: "Load the skill for [REDACTED]" }])
+    expect(prepared.serialized).toContain(
+      '"questions":[{"id":"q0","type":"binary","prompt":"Load the skill for [REDACTED]"}]',
+    )
   })
 
   test("produces a stable hash for a stable question", () => {
