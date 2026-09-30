@@ -9,7 +9,10 @@
  *
  * Approval re-validates at approval time rather than trusting the lint of the draft: the roster may
  * have changed since (a human skill with the same name, another approval), and the row may have been
- * edited (`bodyHash`). Everything is synchronous from the read to the write, so two approvals of one
+ * edited (`bodyHash`). The content filter (AH-F04) runs again too, with the episode's evidence read
+ * live, so a link is checked against what the session saw rather than trusted from staging; evidence
+ * evicted since then fails closed, and a proposal carrying a link is refused `unverified-url`.
+ * Everything is synchronous from the read to the write, so two approvals of one
  * proposal in this process cannot interleave; the second sees `promoted` and is a no-op.
  */
 
@@ -39,7 +42,7 @@ export const HUMAN_REJECTED = "human-rejected"
 const TRANSIENT: ReadonlySet<PromoteRejection> = new Set<PromoteRejection>(["disabled", "no-project", "write-failed"])
 
 export function createProposalReview(deps: {
-  repository: Pick<LearningRepository, "getProposal" | "createProposal">
+  repository: Pick<LearningRepository, "getProposal" | "createProposal" | "evidenceFor">
   curator: Pick<SkillCurator, "promote">
   now?: () => number
 }): ProposalReview {
@@ -73,6 +76,7 @@ export function createProposalReview(deps: {
         evidenceRefs: proposal.evidenceRefs,
         ...(proposal.confidence !== undefined ? { confidence: proposal.confidence } : {}),
         ...(proposal.modelVersion ? { modelVersion: proposal.modelVersion } : {}),
+        evidence: deps.repository.evidenceFor({ id: proposal.episodeID }).map((slice) => slice.content),
       },
       now(),
     )

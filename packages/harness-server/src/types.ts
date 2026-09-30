@@ -844,7 +844,7 @@ export type LearningRepository = {
   getProposal(id: string): StoredSkillProposal | undefined
   listProposals(filter?: SkillProposalFilter): StoredSkillProposal[]
   /** The slices an episode kept, in capture order (FH-006); empty when none were stored. */
-  evidenceFor(episode: SessionEpisode, now?: number): EvidenceSlice[]
+  evidenceFor(episode: Pick<SessionEpisode, "id">, now?: number): EvidenceSlice[]
 }
 
 /** Routines, and the lock that keeps one from running twice at once. */

@@ -18,6 +18,7 @@ import { NAME } from "../../skills"
 import { redactText } from "../redaction"
 import { DRAFT_LIMITS } from "./draft"
 import type { DraftLimits } from "./draft"
+import { CONTENT_RULES, filterSkillContent } from "./content-filter"
 
 export type SkillProposal = {
   projectID: string
@@ -32,6 +33,11 @@ export type SkillProposal = {
   evidenceRefs: string[]
   confidence?: number
   modelVersion?: string
+  /**
+   * The episode's evidence text, read only by the URL filter (AH-F04) and never stored. Absent means
+   * there is nothing to check a link against, and the URL rule is skipped.
+   */
+  evidence?: readonly string[]
 }
 
 export type ProposalContext = {
@@ -58,7 +64,7 @@ export const PROPOSAL_REJECTIONS = [
   "invalid-body",
   "transcript-shaped",
   "contains-secrets",
-  "contains-instructions",
+  ...CONTENT_RULES,
 ] as const
 export type ProposalRejection = (typeof PROPOSAL_REJECTIONS)[number]
 
@@ -72,17 +78,6 @@ export type ProposalValidation =
  */
 const TRIGGER_PATTERN = /^(?:use|when|before|after|for)\b/i
 const TRIGGER_WINDOW = 48
-
-/** Shapes that change harness behaviour rather than describe a task: never a learned skill. */
-const INSTRUCTION_PATTERNS: ReadonlyArray<RegExp> = [
-  /\bignore (?:all )?(?:previous|prior|above)\b/i,
-  /\bdisregard (?:all )?(?:previous|prior|above|the system)\b/i,
-  /\bsystem prompt\b/i,
-  /(?:^|\n)\s*permissions?\s*:/i,
-  /\b(?:allow|deny)\s+(?:all\s+)?tools?\b/i,
-  /--dangerously-skip-permissions/i,
-  /\bsudo\b/i,
-]
 
 /**
  * Validates one drafted proposal, returning the cleaned proposal or the first reason it fails.
@@ -139,9 +134,12 @@ export function validateProposal(proposal: SkillProposal, context: ProposalConte
   }
 
   if ([name, description, body].some((text) => redactText(text) !== text)) return reject("contains-secrets")
-  if ([description, body].some((text) => INSTRUCTION_PATTERNS.some((pattern) => pattern.test(text)))) {
-    return reject("contains-instructions")
-  }
+  // Shapes that change harness behaviour rather than describe a task (AH-F04): never a learned skill.
+  const content = filterSkillContent({
+    texts: [description, body],
+    ...(proposal.evidence ? { evidence: proposal.evidence } : {}),
+  })
+  if (content) return reject(content.rule)
 
   return { ok: true, proposal: { ...proposal, name, description, body } }
 }

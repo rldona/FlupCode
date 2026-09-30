@@ -278,6 +278,8 @@ export function createLearningManager(deps: LearningManagerDeps): LearningRunner
       evidenceRefs: episode.evidenceRefs.length > 0 ? episode.evidenceRefs : [episode.id],
       ...(result.confidence !== undefined ? { confidence: result.confidence } : {}),
       modelVersion: `${model.providerID}/${model.id}`,
+      // The URL filter (AH-F04) accepts only links the episode actually saw; never stored.
+      evidence,
     }
     const input = proposalInput({
       episode,

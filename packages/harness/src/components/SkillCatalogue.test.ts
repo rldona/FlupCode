@@ -6,6 +6,7 @@ import {
   learnedSkillLabel,
   learnedStateLabel,
   notPickedUp,
+  automaticRejection,
   proposalStatusLabel,
   reviewable,
   withoutFiles,
@@ -73,6 +74,19 @@ describe("the read-only learning labels (FH-073)", () => {
     expect(proposalStatusLabel("proposed")).toBe("Proposed")
     expect(proposalStatusLabel("promoted")).toBe("Promoted")
     expect(proposalStatusLabel("rejected")).toBe("Rejected")
+  })
+
+  test("a proposal the content filter refused says why in plain words, in both languages (AH-F04)", () => {
+    const refused = { status: "rejected" as const, reason: "unsafe-shell-pipe" }
+    expect(automaticRejection(refused)).toBe("it runs code downloaded from the internet")
+    expect(automaticRejection({ status: "rejected", reason: "human-rejected" })).toBeUndefined()
+    expect(automaticRejection({ status: "proposed", reason: "unsafe-shell-pipe" })).toBeUndefined()
+    for (const reason of ["unsafe-shell-pipe", "unverified-url", "overrides-judgement", "permission-change"]) {
+      const why = automaticRejection({ status: "rejected", reason })!
+      setLocale("es")
+      expect(t("Rejected automatically: {reason}", { reason: t(why) })).not.toContain(why)
+      setLocale("en")
+    }
   })
 })
 

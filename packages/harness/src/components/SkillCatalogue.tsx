@@ -79,6 +79,21 @@ export const learnedStateLabel = (state: LearnedSkillState | undefined): string 
 export const proposalStatusLabel = (status: SkillProposal["status"]): string =>
   status.charAt(0).toUpperCase() + status.slice(1)
 
+/**
+ * Why the harness refused a proposal on its own (AH-F04), in plain words; `undefined` for any other
+ * reason, which the catalogue shows as it is. The keys are the content-filter rule ids the server
+ * records on the proposal.
+ */
+const AUTOMATIC_REJECTIONS: Record<string, string> = {
+  "unsafe-shell-pipe": "it runs code downloaded from the internet",
+  "unverified-url": "it links to a page the session never visited",
+  "overrides-judgement": "it tells the assistant to act without asking",
+  "permission-change": "it tries to give the assistant more permissions",
+}
+
+export const automaticRejection = (proposal: Pick<SkillProposal, "status" | "reason">): string | undefined =>
+  proposal.status === "rejected" && proposal.reason ? AUTOMATIC_REJECTIONS[proposal.reason] : undefined
+
 /** A learned skill's badge: "Disabled" when a person turned it off, otherwise its lifecycle state. */
 export const learnedSkillLabel = (skill: Pick<LearnedSkill, "state" | "disabled">): string =>
   skill.disabled ? "Disabled" : learnedStateLabel(skill.state)
@@ -801,7 +816,13 @@ export const SkillCatalogue: Component<SkillCatalogueProps> = (props) => {
                               {proposal.intent} · {formatDateTime(proposal.updatedAt)}
                             </small>
                             <Show when={proposal.reason}>
-                              {(reason) => <small dir="auto">{reason()}</small>}
+                              {(reason) => (
+                                <small dir="auto">
+                                  <Show when={automaticRejection(proposal)} fallback={reason()}>
+                                    {(why) => t("Rejected automatically: {reason}", { reason: t(why()) })}
+                                  </Show>
+                                </small>
+                              )}
                             </Show>
                           </span>
                           <span class="fc-artifact-kind" dir="ltr">
