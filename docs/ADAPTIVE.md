@@ -54,7 +54,7 @@ This inherits the precedence **permissions > instructions > skills > memory** fr
 | Component | Responsibility | Home | Decision record |
 | --- | --- | --- | --- |
 | `SessionObserver` | Normalize session signals into episodes; detect boundaries | `packages/harness-server/src/adaptive/` | Phase 1; [ADR-0016](adr/0016-adaptive-harness-boundary.md) |
-| `PredictiveModel` registry | Answer neutral binary/choice/score questions with distributions; Jev today, one model per kind via `adaptive.models.<kind>` | `packages/harness-server/src/adaptive/predictive/`, `providers/` | [ADR-0017](adr/0017-jev-egress-and-governance.md); AH-C01 |
+| `PredictiveModel` registry | Answer neutral binary/choice/score questions with distributions; Jev and `small-llm` (AH-C04), one model per kind via `adaptive.models.<kind>` | `packages/harness-server/src/adaptive/predictive/`, `providers/` | [ADR-0017](adr/0017-jev-egress-and-governance.md); AH-C01 |
 | `DecisionService` | Deterministic baseline, ask the assigned model, calibrate confidence, apply thresholds, audit, explain | `packages/harness-server/src/adaptive/` | [ADR-0017](adr/0017-jev-egress-and-governance.md) |
 | `ContextManager` | Model context items, score and plan | Phase 3a (done) | [ADR-0018](adr/0018-context-selection-seam.md) |
 | `LearningManager` / `ReflectionEngine` | Episode → reflection → proposal, promotion, read routes | Phase 3b (done) | [ADR-0020](adr/0020-learning-persistence-and-egress.md) |
@@ -536,6 +536,31 @@ _AH-C03._ Consent is given **per remote provider**, never as a generic "egress" 
   `egress.projects` / `egress.kinds` are no longer writable through the surface.
 - **Budget.** The input bound is still `jev.maxInputTokens`: the neutral input is prepared before a
   model is chosen, so it is the same whichever provider is asked.
+
+## The `small-llm` model
+
+_AH-C04._ The global `small_model`, asked through the engine, as a second `PredictiveModel`
+(`providers/small-llm.ts`), so the live evaluation pipeline runs without `TYPESAFE_API_KEY`.
+
+- **Registration.** It is registered only when `small_model` resolves (`provider/model`) at startup,
+  and the key is read again on every call. No kind is assigned to it by default: it answers only
+  where `adaptive.models.<kind> = "small-llm"` and `egress.providers["small-llm"]` consents. It
+  supports `skillRelevance`, `completion` and `failure`.
+- **Always remote.** Even a local-looking provider (ollama) may point at another host through the
+  engine's provider config, which the harness does not read, so the model always needs its consent.
+- **One throwaway session per call**, created under `NO_TOOLS` in the project, prompted once with a
+  strict instruction, the guard's redacted state and the questions, then deleted whatever the
+  outcome; a timeout or abort interrupts the turn first. No retries: every attempt is paid.
+- **Restricted JSON.** The answer is one object mapping each question id to a distribution over its
+  options (`yes`/`no` for a binary). The first JSON object in the text is read (prose and fences are
+  ignored), unnormalised distributions are normalised, and a missing id, an unknown option or a value
+  outside [0, 1] is `malformed`.
+- **Measured usage.** `inputTokens` (uncached input plus cache reads and writes) and `costUsd` are
+  the engine's own numbers for the session's assistant messages; `latencyMs` is wall clock and
+  `model.version` is the `provider/model` key, all recorded in the decision audit.
+- **Batch first.** A session round trip takes seconds, so with the default `decisions.<kind>.timeoutMs`
+  (400 ms) a call almost always times out and degrades to the baseline. Use it in the shadow and in
+  replay with that kind's `timeoutMs` raised (for example 60000).
 
 ## The cockpit (E8)
 
