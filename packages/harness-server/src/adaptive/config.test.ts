@@ -8,6 +8,9 @@ import {
   DEFAULT_JEV_CONFIG,
   DEFAULT_GUARDRAILS_CONFIG,
   DEFAULT_TOOL_TRIM_CONFIG,
+  DEFAULT_SELECTION_CONFIG,
+  SELECTION_MAX_COLD_GAP_MS,
+  SELECTION_MAX_KEEP_RECENT_TURNS,
   TOOL_TRIM_MAX_STORED_BYTES,
   TOOL_TRIM_MIN_THRESHOLD_BYTES,
   TOOL_TRIM_READ_BYTES_CEILING,
@@ -87,6 +90,7 @@ describe("resolveAdaptiveConfig", () => {
         >,
       },
       compaction: DEFAULT_COMPACTION_CONFIG,
+      selection: DEFAULT_SELECTION_CONFIG,
     })
     expect(config.jev.enabled).toBe(false)
     expect(config.learning.enabled).toBe(false)
@@ -332,6 +336,30 @@ describe("resolveAdaptiveConfig", () => {
       env: {},
     })
     expect(malformed.guardrails).toEqual(DEFAULT_GUARDRAILS_CONFIG)
+  })
+
+  test("the selection slice is off by default, with a gap past every cache TTL, inside the plugin's bounds", () => {
+    const defaults = resolveAdaptiveConfig({ env: {} })
+    expect(defaults.selection).toEqual({ enabled: false, keepRecentTurns: 2, minSavingsTokens: 4_096, coldGapMs: 3_900_000 })
+
+    const config = resolveAdaptiveConfig({
+      block: { selection: { enabled: true, keepRecentTurns: 0, minSavingsTokens: 0, coldGapMs: 360_000 } },
+      env: {},
+    })
+    expect(config.selection).toEqual({ enabled: true, keepRecentTurns: 0, minSavingsTokens: 0, coldGapMs: 360_000 })
+
+    const clamped = resolveAdaptiveConfig({
+      block: { selection: { keepRecentTurns: 1_000, coldGapMs: 1e12 } },
+      env: {},
+    })
+    expect(clamped.selection.keepRecentTurns).toBe(SELECTION_MAX_KEEP_RECENT_TURNS)
+    expect(clamped.selection.coldGapMs).toBe(SELECTION_MAX_COLD_GAP_MS)
+
+    const malformed = resolveAdaptiveConfig({
+      block: { selection: { enabled: "yes", keepRecentTurns: -1, minSavingsTokens: 1.5, coldGapMs: 0 } },
+      env: {},
+    })
+    expect(malformed.selection).toEqual(DEFAULT_SELECTION_CONFIG)
   })
 
   test("the tool-trim slice is off by default and keeps its numbers inside the plugin's bounds", () => {

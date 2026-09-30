@@ -207,6 +207,21 @@ export type ToolTrimConfig = {
   exempt: string[]
 }
 
+/**
+ * Per-step, cache-aware selection (AH-D03, ADR-0024): old, large tool outputs are replaced with a
+ * placeholder only at a **cold boundary**, a user message sent more than `coldGapMs` after the previous
+ * assistant message completed, when the provider's prompt cache has expired and the whole conversation
+ * is written again anyway. The `keepRecentTurns` turns before a boundary stay whole, and a boundary that
+ * would save fewer than `minSavingsTokens` trims nothing. **Off by default**, and not a UI switch: it is
+ * writable only so a replay variant can measure it (ADR-0024 §5).
+ */
+export type SelectionConfig = {
+  enabled: boolean
+  keepRecentTurns: number
+  minSavingsTokens: number
+  coldGapMs: number
+}
+
 export type AdaptiveConfig = {
   /** Kill switch: stops decisions, shadow and Jev. It does not touch episodes or the base harness. */
   enabled: boolean
@@ -229,6 +244,7 @@ export type AdaptiveConfig = {
   voi: VoiConfig
   compaction: CompactionConfig
   toolTrim: ToolTrimConfig
+  selection: SelectionConfig
 }
 
 export const DEFAULT_JEV_CONFIG: JevConfig = {
@@ -378,6 +394,27 @@ export const DEFAULT_TOOL_TRIM_CONFIG: ToolTrimConfig = {
   maxStoredBytes: 4 * 1024 * 1024,
   readBytes: 16_384,
   exempt: ["read", "skill", "task", "todowrite", "todoread"],
+}
+
+/**
+ * The selection's bounds, kept in step with CACHE_SELECTION_PLUGIN (`packages/remote/src/engine-plugins.ts`),
+ * which refuses a policy outside them. A gap below the provider's cache TTL trims while the cache is
+ * warm, which is what the replay's falsification arm measures, never a production setting.
+ */
+export const SELECTION_MAX_KEEP_RECENT_TURNS = 50
+export const SELECTION_MAX_COLD_GAP_MS = 24 * 60 * 60 * 1000
+
+/**
+ * The selection defaults: off, the last two turns kept, at least 4,096 tokens saved per boundary, and a
+ * 65-minute gap: past Anthropic's one-hour cache TTL and OpenAI's longest in-memory retention, so a
+ * boundary is cold whatever TTL the engine asked for. With the engine's default 5-minute Anthropic
+ * breakpoints, six minutes is enough (ADR-0024 §3).
+ */
+export const DEFAULT_SELECTION_CONFIG: SelectionConfig = {
+  enabled: false,
+  keepRecentTurns: 2,
+  minSavingsTokens: 4_096,
+  coldGapMs: 65 * 60 * 1000,
 }
 
 /**
@@ -659,6 +696,28 @@ function resolveToolTrimConfig(block: Record<string, unknown>): ToolTrimConfig {
   }
 }
 
+/** The selection slice: off unless the block says `true`; each number held to the plugin's bounds. */
+function resolveSelectionConfig(block: Record<string, unknown>): SelectionConfig {
+  const selection = isPlainObject(block.selection) ? block.selection : {}
+  const keep = selection.keepRecentTurns
+  const minSavings = selection.minSavingsTokens
+  return {
+    enabled: selection.enabled === true,
+    keepRecentTurns:
+      typeof keep === "number" && Number.isInteger(keep) && keep >= 0
+        ? Math.min(keep, SELECTION_MAX_KEEP_RECENT_TURNS)
+        : DEFAULT_SELECTION_CONFIG.keepRecentTurns,
+    minSavingsTokens:
+      typeof minSavings === "number" && Number.isInteger(minSavings) && minSavings >= 0
+        ? minSavings
+        : DEFAULT_SELECTION_CONFIG.minSavingsTokens,
+    coldGapMs: Math.min(
+      SELECTION_MAX_COLD_GAP_MS,
+      positiveIntegerFrom(selection.coldGapMs) ?? DEFAULT_SELECTION_CONFIG.coldGapMs,
+    ),
+  }
+}
+
 /** The holdout share: a number in [0, 0.5], else the default. `0` is an explicit off. */
 function resolveHoldoutConfig(block: Record<string, unknown>): HoldoutConfig {
   const holdout = isPlainObject(block.holdout) ? block.holdout : {}
@@ -816,6 +875,7 @@ export function resolveAdaptiveConfig(input: { block?: unknown; env?: NodeJS.Pro
     voi: resolveVoiConfig(block),
     compaction: resolveCompactionConfig(block),
     toolTrim: resolveToolTrimConfig(block),
+    selection: resolveSelectionConfig(block),
   }
 }
 

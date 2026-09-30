@@ -301,6 +301,34 @@ describe("replay runner", () => {
     expect(result[1]!.completionPp).toBeCloseTo(-5)
   })
 
+  test("a variant's idleMs waits between prompts, outside the wall time, and a bad one is refused", async () => {
+    running = fakeEngine()
+    const fake = running
+    const fixture = {
+      version: 1 as const,
+      id: "synthetic",
+      directory: tmpdir(),
+      prompts: ["first", "second", "third"],
+    }
+    const started = Date.now()
+    const report = await runReplay({
+      fixtures: [fixture],
+      variants: [{ name: "baseline", idleMs: 60 }],
+      engine: fake.url,
+      repeat: 1,
+      pollMs: 1,
+      settleMs: 0,
+      metricsDelayMs: 0,
+    })
+    const elapsed = Date.now() - started
+    expect(elapsed).toBeGreaterThanOrEqual(120)
+    expect(fake.seen.prompts.map((prompt) => prompt.text)).toEqual(["first", "second", "third"])
+    expect(report.runs[0]!.wallMs).toBeLessThanOrEqual(elapsed - 120)
+    await expect(
+      runReplay({ fixtures: [fixture], variants: [{ name: "baseline", idleMs: -1 }], engine: fake.url }),
+    ).rejects.toThrow("idleMs")
+  })
+
   test("the spread is the largest relative distance from the mean", () => {
     expect(stat([100, 104, 96])).toEqual({ mean: 100, p50: 100, min: 96, max: 104, spread: 0.04 })
     expect(stat([1, 2, 3, 4]).p50).toBe(2.5)

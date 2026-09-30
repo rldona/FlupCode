@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { parse } from "jsonc-parser"
-import { createAdaptiveConfig, resolveAdaptiveConfig } from "./config"
+import { createAdaptiveConfig, DEFAULT_SELECTION_CONFIG, resolveAdaptiveConfig } from "./config"
 import {
   AdaptiveConfigError,
   WRITABLE_FIELDS,
@@ -72,6 +72,8 @@ describe("the writable allowlist", () => {
       "retention.enabled",
       "budget.monthlyTokens",
       "compaction.anchors",
+      "selection.enabled",
+      "selection.coldGapMs",
     ])
   })
 
@@ -170,6 +172,18 @@ describe("guards", () => {
     const error = rejection({ patch: { toolTrim: { enabled: true } }, adaptiveTokenPresent: false })
     expect(error).toMatchObject({ code: "guard:no-adaptive-token", fields: ["toolTrim.enabled"] })
     expect(plan({ patch: { toolTrim: { enabled: true } } }).leaves).toHaveLength(1)
+  })
+
+  test("enabling per-step selection needs a resolved adaptive token and warns it is evaluation-gated", () => {
+    const error = rejection({ patch: { selection: { enabled: true } }, adaptiveTokenPresent: false })
+    expect(error).toMatchObject({ code: "guard:no-adaptive-token", fields: ["selection.enabled"] })
+    const planned = plan({ patch: { selection: { enabled: true, coldGapMs: 360_000 } }, runtimeKind: "legacy" })
+    expect(planned.leaves).toHaveLength(2)
+    expect(planned.warnings).toEqual(["evaluation-gated"])
+    expect(plan({ patch: { selection: { enabled: true } }, runtimeKind: "v2" }).warnings).toEqual([
+      "evaluation-gated",
+      "runtime-inert",
+    ])
   })
 
   test("enabling guardrails needs a resolved adaptive token", () => {
@@ -477,6 +491,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       egress: { projects: [], kinds: {} },
       budget: { monthlyTokens: 10 },
       compaction: { anchors: false },
+      selection: { enabled: false, coldGapMs: 360_000 },
     }
     const source = adaptiveSource(block, {})
     for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("block")
@@ -496,6 +511,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
       egress: { projects: "nope", kinds: [] },
       budget: { monthlyTokens: -5 },
       compaction: { anchors: "off" },
+      selection: { enabled: "true", coldGapMs: 1.5 },
     }
     const source = adaptiveSource(block, {})
     for (const field of WRITABLE_FIELDS) expect(source[field.path.replace("*", "jev")]).toBe("default")
@@ -507,6 +523,7 @@ describe("source mirrors the resolver on partial and malformed blocks", () => {
     expect(effective.relevance.enabled).toBe(false)
     expect(effective.guardrails.enabled).toBe(false)
     expect(effective.toolTrim.enabled).toBe(false)
+    expect(effective.selection).toEqual(DEFAULT_SELECTION_CONFIG)
     expect(effective.jev.enabled).toBe(false)
     expect(effective.retention.enabled).toBe(false)
     expect(effective.egress.providers.jev?.projects).toEqual([])

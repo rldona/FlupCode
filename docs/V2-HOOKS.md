@@ -3,8 +3,8 @@
 - **Ticket:** AH-D05 (Phase D, "Session weight"), from the 2026-09-30 engineering audit, §2.5.
 - **Status:** reviewed mapping, at commit `370412ba0f` (`power`).
 - **Scope:** the engine plugins that act or measure for AutoHarness: A11 (`RELEVANCE_PLUGIN`),
-  B01 (`SESSION_METRICS_PLUGIN`), D02 (`TOOL_TRIM_PLUGIN` plus the `evidence_read` tool, not merged
-  yet) and D03 (per-step selection in `experimental.chat.messages.transform`, not built yet). The
+  B01 (`SESSION_METRICS_PLUGIN`), D02 (`TOOL_TRIM_PLUGIN` plus the `evidence_read` tool) and D03
+  (`CACHE_SELECTION_PLUGIN` in `experimental.chat.messages.transform`, a PoC off by default). The
   runtime probe and the guardrails plugin are listed too, because the alert depends on the first
   and the second shares A11's exposure.
 
@@ -20,7 +20,7 @@ publishes `session.next.*` events to. V2 also has **no way for a plugin to regis
 | A11 relevance | `messages.transform`, `system.transform` | **Missing.** Stays inert, fails safe. |
 | B01 session metrics | `event` (`message.*` and `session.next.*`) | **Works, probably.** Not confirmed at runtime. |
 | D02 tool trim + `evidence_read` | `tool.execute.after`, plugin `tool` | **Missing.** Tool output enters history untrimmed. |
-| D03 per-step selection | `messages.transform` | **Missing.** There is no V2 seam. |
+| D03 cache-aware selection | `messages.transform` | **Missing.** There is no V2 seam; the policy gate stays closed. |
 
 So everything that *acts* depends on V1. Measurement survives. The mitigation is the probe
 alert described at the end: the harness notices when the engine moves and says so in the UI. It
@@ -72,7 +72,7 @@ does not try to act on V2.
 | B01 `SESSION_METRICS_PLUGIN` | `event`: `message.updated` and `message.part.updated` (plugin `:1957-2046`). Published by V1 only, at `packages/opencode/src/session/session.ts:631` and `:637`. | `event`: `session.next.prompted`, `step.started`, `step.ended` (carries `tokens` and `cost`), `tool.called`, `tool.success` (carries `content`), `tool.failed` and `compaction.ended`. Defined at `packages/schema/src/session-event.ts:88`, `:150`, `:163`, `:313`, `:343`, `:360` and `:421`. The plugin already reads them (`:2049-2105`). | degraded (likely works) | Each observation is independent and fire-and-forget. A missing event leaves a gap in the baseline, not a failure. See the delivery caveat below. |
 | D02 `TOOL_TRIM_PLUGIN` (planned) | `tool.execute.after` with a mutable output `{ title, output, metadata }` that is persisted. Fired by `session/tools.ts:121` (registry tools), `:208`, `:291`, `:373` and `:420` (MCP), `session/prompt.ts:389` (subtask) and `tool/code-mode.ts:180`. | None. V2 settles tools through its own registry: `toolMaterialization.settle` (`llm.ts:283`) → `core/src/tool/registry.ts:50-82`. This never passes through `Plugin.trigger`. | missing | Output enters history untrimmed. The engine's own `tool_output.max_lines` / `max_bytes` limits (config, D01) are the only bound. Observing `session.next.tool.success` can measure size but cannot mutate it. |
 | D02 `evidence_read` tool (planned) | Plugin `tool` field. V1 registers it at `packages/opencode/src/tool/registry.ts:200-204` via `fromPlugin` (`:126-160`). | None for V1-style plugins. V2 tools register through `Tools.Service.register` (built-ins, e.g. `core/src/tool/read.ts:39`) or `ApplicationTools`, which only `sdk-next` exposes (`packages/sdk-next/src/opencode.ts:18`). | missing | No tool. Any `evidence:<ref>` stub V1 left in history cannot be dereferenced on V2. D02 must therefore never trim on a turn it cannot also serve, which the probe gate gives it. |
-| D03 per-step selection (planned) | `experimental.chat.messages.transform`. Its mutable output is what goes to the model, and it is reloaded from the database every step (§2.5). | None. See the A11 row. V2 compaction is `SessionCompaction.make` (`llm.ts:115`), with `compactIfNeeded` at `:246` and overflow recovery at `:317`. It has no plugin seam either. | missing | No selection: V2's own compaction governs. Because D03 is deterministic and non-destructive, not running leaves the full history. Only savings are lost. |
+| D03 `CACHE_SELECTION_PLUGIN` (PoC, off by default, [ADR-0024](adr/0024-cache-aware-selection.md)) | `experimental.chat.messages.transform`. Its mutable output is what goes to the model, and it is reloaded from the database every step (§2.5). The plugin trims only at cold boundaries and reads its policy from `GET /harness/adaptive/selection`, which folds in `canTransformMessages`. | None. See the A11 row. V2 compaction is `SessionCompaction.make` (`llm.ts:115`), with `compactIfNeeded` at `:246` and overflow recovery at `:317`. It has no plugin seam either. | missing | No selection: V2's own compaction governs. Because D03 is deterministic and non-destructive, not running leaves the full history. Only savings are lost. |
 | Probe `RUNTIME_PROBE_PLUGIN` | `experimental.chat.system.transform` (plugin `:393`) stamps `hookAt`. | `event`: `session.next.prompted`, `step.started` and `text.started` (plugin `:372`, `:396`) stamp `v2At`. | works by design | With neither mark, the classification is `unknown` (never `legacy`) and every gate stays closed. |
 | Guardrails `GUARDRAILS_PLUGIN` (related) | `tool.execute.before` (plugin `:1837`), fired by `session/tools.ts:106`. `event: message.part.updated` (plugin `:1848`). | `event: session.next.tool.called` carries `input`, so args can be digested. `session.next.tool.failed` carries `error` (`session-event.ts:313`, `:360`). The plugin does not read them yet. | missing (portable) | Server-side it is already inert: `guardrails.ts:101` checks `canObserveToolCalls`. It could be ported to the V2 events without new engine support. |
 

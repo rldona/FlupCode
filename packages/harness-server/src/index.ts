@@ -363,7 +363,24 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       learnedSkills: curator,
       proposalReview: createProposalReview({ repository, curator }),
       adaptiveConfig,
-      ...(adaptiveToken ? { adaptiveToken, relevance, guardrails, toolTrimConfig: () => adaptive.current() } : {}),
+      ...(adaptiveToken
+        ? {
+            adaptiveToken,
+            relevance,
+            guardrails,
+            toolTrimConfig: () => adaptive.current(),
+            // Selection acts only through the legacy `messages.transform` hook, so the probe gates it
+            // like relevance (docs/V2-HOOKS.md).
+            selectionPolicy: () => {
+              const config = adaptive.current()
+              return {
+                ...config.selection,
+                enabled:
+                  config.enabled && config.selection.enabled && runtimeProbe.capabilities().canTransformMessages,
+              }
+            },
+          }
+        : {}),
       holdoutFraction: () => adaptive.current().holdout.fraction,
       compactionAnchors: () => {
         const config = adaptive.current()

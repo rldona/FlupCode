@@ -6,6 +6,7 @@ import path from "node:path"
 import { pathToFileURL } from "node:url"
 import {
   ARTIFACT_WRITE_PLUGIN,
+  CACHE_SELECTION_PLUGIN,
   COMPACTION_ANCHORS_PLUGIN,
   DELIVERY_PLUGIN,
   EPISODE_EVENTS_PLUGIN,
@@ -78,7 +79,7 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(13)
+    expect(first.paths).toHaveLength(14)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
@@ -93,6 +94,7 @@ describe("installEnginePlugins", () => {
       SESSION_METRICS_PLUGIN,
       COMPACTION_ANCHORS_PLUGIN,
       TOOL_TRIM_PLUGIN,
+      CACHE_SELECTION_PLUGIN,
     ]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }

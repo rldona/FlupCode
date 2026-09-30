@@ -1,0 +1,4 @@
+[
+  { "name": "baseline", "idleMs": 390000, "adaptive": { "selection": { "enabled": false } } },
+  { "name": "selection-cold", "idleMs": 390000, "adaptive": { "selection": { "enabled": true, "coldGapMs": 360000 } } }
+]
