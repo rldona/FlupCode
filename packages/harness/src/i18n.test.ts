@@ -59,6 +59,22 @@ describe("t", () => {
   })
 })
 
+describe("the Cost screen's subtitle", () => {
+  const subtitle = "What your work cost: the runs the harness started, and below, every session, chats included."
+
+  test("is the one the screen shows, and it names both the runs and every session", () => {
+    // It once said chat turns were never counted, which stopped being true when Sessions arrived.
+    expect(readFileSync(join(import.meta.dir, "components/UsagePanel.tsx"), "utf8")).toContain(`t("${subtitle}")`)
+    setLocale("en")
+    expect(t(subtitle)).toBe(subtitle)
+    setLocale("es")
+    expect(t(subtitle)).toBe(
+      "Lo que ha costado tu trabajo: las ejecuciones que lanzó el harness y, debajo, cada sesión, chats incluidos.",
+    )
+    setLocale("en")
+  })
+})
+
 /**
  * The adaptive surfaces (AH-E06): Settings → Adaptive, the composer chip, the Decisions screen, the
  * guardrail banner, the Skills screen's Learned section, and the Context and cost screens, which also

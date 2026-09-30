@@ -87,8 +87,10 @@ const Rows: Component<{ title: string; rows: Array<Spend & { key: string }>; tot
  * splits out the one number that was impossible to see: what was spent doing something a second
  * time. A bounded retry is a new task by design, so work attempted twice is billed twice.
  *
- * Runs only, and it says so on screen. The harness does not see an ordinary chat turn, and adding
- * the engine's session totals on top would count every run task twice — a task *is* a session.
+ * The tiles and breakdowns are runs only: the harness does not see an ordinary chat turn, and adding
+ * the engine's session totals into them would count every run task twice — a task *is* a session.
+ * Every session, chats included, is the separate Sessions section below (AH-B02), and the subtitle
+ * says which part is which.
  */
 export const UsagePanel: Component<UsagePanelProps> = (props) => {
   const totals = () => props.report?.totals
@@ -102,7 +104,7 @@ export const UsagePanel: Component<UsagePanelProps> = (props) => {
           <div>
             <div class="fc-routines-kicker">{t("Automation")}</div>
             <h1>{t("Cost")}</h1>
-            <p>{t("Every run the harness has recorded — not ordinary chat turns, which it never sees.")}</p>
+            <p>{t("What your work cost: the runs the harness started, and below, every session, chats included.")}</p>
           </div>
         </div>
 
