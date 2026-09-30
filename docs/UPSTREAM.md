@@ -97,7 +97,9 @@ every following sync then re-proposes changes already applied.
 
 Every file under `packages/` that differs from the mirror is listed in
 [`docs/upstream-inventory.txt`](./upstream-inventory.txt), and CI fails a pull request that changes
-an upstream package without declaring it there (`.github/workflows/upstream-inventory.yml`).
+an upstream package without declaring it there (the `inventory` job of `.github/workflows/harness.yml`).
+The check judges a pull request only on the files it touches: undeclared files that differ from the
+mirror because upstream moved ahead of the last sync are reported as a notice, not a failure.
 Refresh it with:
 
 ```bash
