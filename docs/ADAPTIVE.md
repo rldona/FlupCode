@@ -136,6 +136,38 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   `contains-secrets` lint reads the draft **before** redaction: a draft carrying a secret (a pattern
   or a known literal) is stored redacted with status `rejected`/`contains-secrets` and is never
   installed.
+- **Content filter (AH-F04).** Before a draft is staged, `learning/content-filter.ts` reads its
+  description and body for four things an injected skill would want, each a rule id recorded as the
+  proposal's `reason` (status `rejected`, job `skipped`), so the draft never reaches the review queue:
+  - `unsafe-shell-pipe` — code fetched or decoded on the spot: `curl … | sh`, `wget -O- | bash`,
+    `| sudo`, `bash <(curl …)`, `eval "$(curl …)"`, `base64 -d | bash`, `iex (iwr …)`,
+    `curl -o x && bash x`.
+  - `unverified-url` — a link that is not in the episode's evidence (compared without scheme,
+    `www.` or trailing slash, on host boundaries). Loopback hosts (`localhost`, `127.0.0.1`,
+    `[::1]`, `*.localhost`) are allowed.
+  - `overrides-judgement` — an imperative that removes a check: "ignore previous instructions",
+    "system prompt", "without asking/confirmation/approval", "never ask for confirmation", "you must
+    always/never", "regardless of the user", "do not tell the user", "always approve".
+  - `permission-change` — `--dangerously-*`, disabling the sandbox or approvals, granting permissions,
+    editing the permission config or `approval_policy`, auto-approve/yolo modes, `sudo`/`su -`/sudoers,
+    `chmod 777`/`a+rwx`.
+
+  Text is NFKC-normalised, zero-width and bidi controls are removed and backslash continuations are
+  joined before matching, so a full-width `｜ sh`, a `curl` split by a zero-width space or a command split over two lines are still caught.
+  **False positives, the trade-off.** The filter is strict on purpose — a good draft refused costs a
+  skill someone can write by hand; a bad one accepted persists into every session. Two shapes keep
+  legitimate skills out of its way: a plain "always"/"never" ("Always run the tests") is not refused,
+  only imperatives that remove a check; and a *warning in prose* for the shell-pipe and permission
+  rules ("Never run `curl … | sh`", "Do not use sudo", "instead of chmod 777") passes when a direct
+  negation governs the match in the same clause. The exemption never applies inside a fenced code
+  block (a command there is something the agent may copy), "Never forget to run …" is not a
+  negation, and a warning that carries an unseen URL is still refused by `unverified-url`. Measured
+  on the corpus in `adaptive/fixtures/learning/content-corpus.json`: 20 adversarial drafts → **0
+  accepted**; 24 realistic benign skills (several condensed from `.opencode/skills` and test
+  fixtures, including warnings, `localhost` links, `| jq`, `chmod +x`, EACCES advice) → **0 false
+  positives**. Pipes into `python`/`node` only count when the interpreter reads its program from
+  stdin, so `| python3 -m json.tool` passes; `sudo` is refused everywhere outside a negated warning,
+  which may reject a legitimate system-setup skill.
 - **Draft timeout.** The draft session waits up to `learning.draftTimeoutMs` (default 120 s, not the
   `skillReflection` decision deadline); past it, or on any failure, the session is interrupted and the
   job is `draft-failed`. The throwaway "Skill draft" session is deleted whatever the outcome.
@@ -223,6 +255,11 @@ to `skills/` is a person (AH-A04).
   the stored body must still match its `body_hash`. A failure is a `409` with the reason as `code`,
   and the proposal is closed as `rejected` with that reason. Only `disabled` (learning off),
   `no-project` and `write-failed` leave it `proposed` to try again later.
+- **The content filter runs again (AH-F04).** Approval re-runs the [content filter](#learning) with
+  the episode's evidence **read at that moment**, so a row staged by an older build or edited together
+  with its hash is refused with the rule id. If the evidence has since been evicted, a proposal that
+  carries a link fails closed (`unverified-url`) rather than trusting the check made at staging.
+  The app shows such a refusal as "Rejected automatically: <reason>" in plain words (EN/ES).
 - **In the app.** The Skills screen's **Learned** section shows **Approve** / **Reject** on each
   `proposed` row when the capability is announced; Approve opens a confirmation with the skill's
   name, description and full body, and Reject asks before closing the proposal.

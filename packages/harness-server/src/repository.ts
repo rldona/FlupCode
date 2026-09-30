@@ -2457,7 +2457,7 @@ export class SqliteRoutineRepository implements RoutineRepository {
    * Read through `getEvidence`, so a slice that was evicted or edited is skipped rather than
    * returned as something it is not.
    */
-  evidenceFor(episode: SessionEpisode, now = Date.now()): EvidenceSlice[] {
+  evidenceFor(episode: Pick<SessionEpisode, "id">, now = Date.now()): EvidenceSlice[] {
     try {
       const links = this.db
         .query(
