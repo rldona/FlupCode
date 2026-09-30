@@ -26,6 +26,8 @@ export type {
   ProviderAuthMethod,
 } from "@opencode-ai/sdk/v2/client"
 
+export type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+
 export type {
   IntegrationAttempt,
   IntegrationAttemptStatus,

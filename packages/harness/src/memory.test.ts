@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+import type { MemoryInfo } from "./engine-types"
 import { filterMemories, formatMemoryTime, memoryConfidenceLabel, memoryScopeLabel, pendingCandidates } from "./memory"
 
 const memory = (overrides: Partial<MemoryInfo>): MemoryInfo => ({

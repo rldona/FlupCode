@@ -1,6 +1,7 @@
 import { rename } from "node:fs/promises"
 import { homedir } from "node:os"
 import { join } from "node:path"
+import { detectEngine } from "@flupcode/remote/engine-kind"
 import { engineAuthorization } from "../engine"
 import { DEFAULT_RUNTIME_PROBE_CONFIG } from "./runtime-config"
 import type { RuntimeProbeConfig } from "./runtime-config"
@@ -253,22 +254,16 @@ const initialUnknown = (url: string): RuntimeState => ({
   checkedAt: 0,
 })
 
+// Through the shared detection rather than `/global/health` alone: OpenCode 2 has no such route and
+// answers it with its web UI, so a 2.x engine would read as unreachable instead of by its version.
 const defaultEngineHealth = async (url: string): Promise<EngineHealth> => {
-  try {
-    const authorization = engineAuthorization()
-    const response = await fetch(`${url.replace(/\/+$/, "")}/global/health`, {
-      signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
-      ...(authorization ? { headers: { authorization } } : {}),
-    })
-    if (!response.ok) return { reachable: false }
-    const body: unknown = await response.json()
-    return {
-      reachable: true,
-      ...(isPlainObject(body) && typeof body.version === "string" ? { version: body.version } : {}),
-    }
-  } catch {
-    return { reachable: false }
-  }
+  const authorization = engineAuthorization()
+  const detected = await detectEngine(url, fetch, {
+    signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    ...(authorization ? { headers: { authorization } } : {}),
+  })
+  if (detected.kind === "none") return { reachable: false }
+  return { reachable: true, ...(detected.version ? { version: detected.version } : {}) }
 }
 
 const defaultReadFile = async (path: string): Promise<string | undefined> => {

@@ -17,6 +17,7 @@
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {
+    "@flupcode/remote": "workspace:*",
     "@opencode-ai/sdk": "workspace:*",
     "jsonc-parser": "3.3.1",
     "playwright-core": "catalog:"
