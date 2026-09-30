@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
+import { afterEach, beforeEach, describe, expect, setSystemTime, test } from "bun:test"
 import { statSync } from "node:fs"
 import { mkdtemp, readdir, readFile, rm, writeFile, mkdir, symlink } from "node:fs/promises"
 import os from "node:os"
@@ -41,8 +41,18 @@ const installed = async (config: string, file: string, exported: string) => {
   return (await import(pathToFileURL(target!).href))[exported]
 }
 
+// Every plugin falls back to `$XDG_DATA_HOME/flupcode/…` for the folders a test does not point
+// elsewhere, so without this a test that isolates one folder (say the signals) writes the others
+// (tool uses, events, prompts) into the real user's data folder.
+const realDataHome = process.env.XDG_DATA_HOME
+beforeEach(async () => {
+  process.env.XDG_DATA_HOME = await temp()
+})
+
 afterEach(async () => {
   setSystemTime()
+  if (realDataHome === undefined) delete process.env.XDG_DATA_HOME
+  else process.env.XDG_DATA_HOME = realDataHome
   await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
   delete process.env.OPENCODE_MODELS_PATH
   delete process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
