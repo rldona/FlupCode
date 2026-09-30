@@ -228,6 +228,14 @@ export type DecisionPolicy = {
   repeatedErrors?: number
 }
 
+/**
+ * Whether the policy lets a predictive model improve the decision, whichever model is assigned.
+ *
+ * The field keeps its historical name `allowJev` because it is persisted verbatim (the audit's
+ * `policy_json`, the `decisions.<kind>` config block); renaming it is a migration, not a refactor.
+ */
+export const allowsModel = (policy: DecisionPolicy): boolean => policy.allowJev
+
 export const DEFAULT_DECISION_POLICY: DecisionPolicy = {
   allowJev: true,
   minConfidence: 0.6,
@@ -265,6 +273,15 @@ export type DecisionRequest<Q extends DecisionKind = DecisionKind> = {
 export type AnyDecisionRequest = { [Q in DecisionKind]: DecisionRequest<Q> }[DecisionKind]
 
 export type DecisionSource = "deterministic" | "jev" | "fallback"
+
+/**
+ * The `source` a decision records when a predictive model answered, whichever model it was.
+ *
+ * The persisted value is still the historical `"jev"`: the audit keeps it byte for byte until the v2
+ * schema migrates it to a neutral source plus a provider column (AH-C02). The model that answered is
+ * already in `provider`.
+ */
+export const MODEL_SOURCE: DecisionSource = "jev"
 
 export type DegradedReason =
   | "timeout"

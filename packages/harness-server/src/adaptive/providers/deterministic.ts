@@ -1,5 +1,5 @@
 /**
- * The provider that always answers (FH-011).
+ * The deterministic baseline: the answer that is always there (FH-011).
  *
  * Deterministic first is the rule of the whole phase: every kind has a safe, reproducible answer
  * that never calls a model, so with Jev off the harness behaves exactly as it did before Jev existed.
@@ -19,7 +19,6 @@ import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
 import type { CompletionAnswer, CompletionState, SkillRelevanceAnswer, SkillRelevanceState } from "../decision"
 import { words } from "../context"
 import { deterministicContextItem } from "../scoring"
-import type { DecisionProvider, ProviderAnswer } from "./provider"
 
 /** One handler per kind; the mapped type obliges every kind to be implemented. */
 export type DeterministicHandler = {
@@ -104,16 +103,4 @@ export const DETERMINISTIC_HANDLERS: DeterministicHandler = {
 export function deterministicBaseline<Q extends DecisionKind>(request: DecisionRequest<Q>): DeterministicBaseline<Q> {
   const handler: DeterministicHandler[Q] = DETERMINISTIC_HANDLERS[request.kind]
   return handler(request)
-}
-
-/** The provider the service always has, whatever the external slot holds. */
-export function createDeterministicProvider(now: () => number = Date.now): DecisionProvider {
-  return {
-    id: "deterministic",
-    async answer<Q extends DecisionKind>(request: DecisionRequest<Q>): Promise<ProviderAnswer<Q>> {
-      const startedAt = now()
-      const { answer } = deterministicBaseline(request)
-      return { answer, latencyMs: now() - startedAt }
-    },
-  }
 }

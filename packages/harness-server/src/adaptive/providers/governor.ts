@@ -12,8 +12,8 @@
  * breaker or limiter feedback. The budget is charged per attempt (the first before the call, each
  * retry through the gate handed to `work`) and its limits are read from the live config.
  *
- * The transport lives in `jev.ts` and the fallback in `fallback.ts`; this module knows about work,
- * not about HTTP.
+ * The transport lives in each model (Jev's in `jev.ts`) and the retries in `retry.ts`; this module
+ * knows about work, not about HTTP.
  */
 
 import type { DecisionKind, DegradedReason } from "../decision"
@@ -76,9 +76,9 @@ export type Governor = {
   state(): GovernorState
 }
 
-/** The key single-flight and logging agree on: kind, redacted inputs and pinned model. */
-export const governorKey = (kind: DecisionKind, inputsHash: string, modelVersion?: string): string =>
-  `${kind}\u0000${inputsHash}\u0000${modelVersion ?? ""}`
+/** The key single-flight and logging agree on: kind, redacted inputs and the model asked. */
+export const governorKey = (kind: DecisionKind, inputsHash: string, modelID?: string): string =>
+  `${kind}\u0000${inputsHash}\u0000${modelID ?? ""}`
 
 /** Reasons that are the provider's fault; governance rejections never count toward the breaker. */
 const BREAKER_REASONS: ReadonlySet<DegradedReason> = new Set([

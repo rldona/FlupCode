@@ -1,24 +1,24 @@
 /**
- * The Jev wire format, parsed into plain TypeScript (FH-012).
+ * The Jev wire format: encoding neutral questions and parsing the answers (FH-012, AH-C01).
  *
  * Jev answers three kinds of question — `noul` (a single 0..1 probability), `choice` (one option
  * with its distribution and a confidence) and `score` (a score with its legend and a confidence) —
  * and returns them keyed by question id, never in the order they were sent. This module owns the
- * shape of that exchange and the defensive reading of it; no other module parses a Jev body.
+ * shape of that exchange and the defensive reading of it; no other module encodes or parses a Jev
+ * body, and the decision service never sees this format.
  *
- * The wire id is `w{index}` and the caller's id is `question.id`; `parseJevResponse` maps the
+ * The wire id is `w{index}` and the neutral id is `question.id`; `parseJevResponse` maps the
  * former back to the latter, which is what lets answers arrive shuffled and still land correctly.
  */
 
 import { assembleById } from "./assembly"
-import { QUESTION_TYPES, wireID, wireQuestions } from "../questions"
-import type { Question, QuestionType } from "../questions"
+import type { Question, QuestionType } from "../predictive/model"
 
-export const JEV_QUESTION_TYPES = QUESTION_TYPES
-export type JevQuestionType = QuestionType
+export const JEV_QUESTION_TYPES = ["noul", "choice", "score"] as const
+export type JevQuestionType = (typeof JEV_QUESTION_TYPES)[number]
 
-/** The caller's question shape; the plan that builds it lives in `../questions`. */
-export type JevQuestion = Question
+/** How each neutral question type is asked on the wire: a binary question is Jev's `noul`. */
+const JEV_TYPE: Record<QuestionType, JevQuestionType> = { binary: "noul", choice: "choice", score: "score" }
 
 export type JevNoulAnswer = { type: "noul"; probability: number }
 export type JevChoiceAnswer = {
@@ -38,10 +38,11 @@ export type JevAnswer = JevNoulAnswer | JevChoiceAnswer | JevScoreAnswer
 
 export type JevPrediction = {
   modelVersion?: string
-  /** Keyed by the caller's question id; an answer Jev did not send is absent, not guessed. */
+  /** Keyed by the neutral question id; an answer Jev did not send is absent, not guessed. */
   answers: Record<string, JevAnswer>
 }
 
+/** A question as it travels: the neutral id is replaced by its position (`w{index}`). */
 export type JevWireQuestion = {
   id: string
   type: JevQuestionType
@@ -99,8 +100,18 @@ const PARSERS: Record<JevQuestionType, (value: unknown) => JevAnswer | undefined
   score: parseScore,
 }
 
-/** Re-exported so callers keep importing the wire format from this module's contract. */
-export { wireID, wireQuestions } from "../questions"
+/** The `w{index}` wire id of each question, in the order they are sent. */
+export const wireID = (index: number): string => `w${index}`
+
+/** The neutral questions in Jev's encoding: positional ids, `noul` for binary, options as `choices`. */
+export function wireQuestions(questions: readonly Question[]): JevWireQuestion[] {
+  return questions.map((question, index) => ({
+    id: wireID(index),
+    type: JEV_TYPE[question.type],
+    prompt: question.prompt,
+    ...(question.type === "binary" ? {} : { choices: question.options }),
+  }))
+}
 
 /**
  * Reads an answer body by question id.
@@ -109,14 +120,14 @@ export { wireID, wireQuestions } from "../questions"
  * answer cannot turn a `noul` into a `choice`. A question whose answer is missing or malformed is
  * simply absent from the result, so the caller can tell "not sent" from "sent as a default".
  */
-export function parseJevResponse(payload: unknown, questions: readonly JevQuestion[]): JevPrediction {
+export function parseJevResponse(payload: unknown, questions: readonly Question[]): JevPrediction {
   const envelope = isPlainObject(payload) ? payload : {}
   const modelVersion = typeof envelope.model === "string" ? envelope.model : undefined
   const source = isPlainObject(envelope.answers) ? envelope.answers : isPlainObject(envelope.results) ? envelope.results : {}
 
   const parsed = new Map<string, JevAnswer>()
   questions.forEach((question, index) => {
-    const answer = PARSERS[question.type](source[wireID(index)])
+    const answer = PARSERS[JEV_TYPE[question.type]](source[wireID(index)])
     if (answer) parsed.set(question.id, answer)
   })
   // Assembly by id: the answer that came back under `w{index}` is placed on its question, in order.

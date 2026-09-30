@@ -1,11 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { DEFAULT_JEV_CONFIG, resolveAdaptiveConfig } from "../config"
 import { DEFAULT_DECISION_POLICY } from "../decision"
-import type { DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
+import type { AnyDecisionRequest, DecisionKind, DecisionRequest, DecisionSpec } from "../decision"
 import { createEgressGuard } from "../egress"
-import { createJevClient, createJevProvider } from "./jev"
+import type { PredictionState, Question } from "../predictive/model"
+import { questionID, questionsFor, readAnswers } from "../questions"
+import { createJevClient, createJevModel, JEV_USD_PER_INPUT_TOKEN } from "./jev"
 import type { JevClient, JevFetch, JevFetchResponse } from "./jev"
-import type { JevPrediction, JevQuestion } from "./jev-parse"
+import type { JevAnswer } from "./jev-parse"
 import { DecisionUnavailable } from "./provider"
 
 const CANARY = "canary-secret-value-1234567890"
@@ -34,12 +36,19 @@ const completion = (objective = "finish the task"): DecisionRequest<"completion"
   },
 })
 
-const questions: JevQuestion[] = [
-  { id: "done", type: "noul", prompt: "is the episode complete?" },
-  { id: "route", type: "choice", prompt: "which tier?", choices: ["CHEAP", "BALANCED", "HIGH", "MAX"] },
-  { id: "risk", type: "score", prompt: "how risky?", choices: ["low", "mid", "high"] },
+const questions: Question[] = [
+  { id: "done", type: "binary", prompt: "is the episode complete?" },
+  { id: "route", type: "choice", prompt: "which tier?", options: ["CHEAP", "BALANCED", "HIGH", "MAX"] },
+  { id: "risk", type: "score", prompt: "how risky?", options: ["low", "mid", "high"] },
 ]
-const completionComplete: JevQuestion = { id: "done", type: "noul", prompt: "is the episode complete?" }
+const completionComplete: Question = { id: "done", type: "binary", prompt: "is the episode complete?" }
+
+/** A request's state as the client receives it: already serialized, never the raw object. */
+const stateOf = (request: AnyDecisionRequest): PredictionState => ({
+  kind: request.kind,
+  ...(request.projectID !== undefined ? { projectID: request.projectID } : {}),
+  text: JSON.stringify(request.state),
+})
 
 type JevInput = Parameters<JevFetch>[0]
 
@@ -87,7 +96,7 @@ describe("JevClient parsing", () => {
       }),
     )
     const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-    const prediction = await client.predictOne(completion(), questions)
+    const prediction = await client.predictOne(stateOf(completion()), questions)
 
     expect(calls).toHaveLength(1)
     expect(prediction.modelVersion).toBe("jev-1.13.0")
@@ -110,7 +119,7 @@ describe("JevClient parsing", () => {
   test("an answer Jev did not send is absent, not defaulted", async () => {
     const { fetch } = recorder(() => json({ model: "jev-1.13.0", answers: { w0: { type: "noul", probability: 0.3 } } }))
     const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-    const prediction = await client.predictOne(completion(), questions)
+    const prediction = await client.predictOne(stateOf(completion()), questions)
     expect(prediction.answers.done).toEqual({ type: "noul", probability: 0.3 })
     expect(prediction.answers.route).toBeUndefined()
   })
@@ -122,7 +131,7 @@ describe("JevClient batching", () => {
       return json({ model: "jev-1.13.0", answers: answersFor(wireQuestions(body).length) })
     })
     const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-    const predictions = await client.predictMany([completion("one"), completion("two")], questions)
+    const predictions = await client.predictMany([stateOf(completion("one")), stateOf(completion("two"))], questions)
 
     expect(predictions).toHaveLength(2)
     expect(calls).toHaveLength(2)
@@ -143,8 +152,8 @@ describe("JevClient batching", () => {
       return json({ model: "jev-1.13.0", answers: answersFor(bodyQuestions.length) })
     })
     const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-    const batch = client.predictMany([completion("one"), completion("two")], questions)
-    const single = await client.predictOne(completion("three"), [completionComplete])
+    const batch = client.predictMany([stateOf(completion("one")), stateOf(completion("two"))], questions)
+    const single = await client.predictOne(stateOf(completion("three")), [completionComplete])
 
     expect(single.answers.done).toEqual({ type: "noul", probability: 0.5 })
     release?.()
@@ -157,8 +166,10 @@ describe("JevClient egress", () => {
     const { fetch, calls } = recorder(({ body }) => {
       return json({ model: "jev-1.13.0", answers: answersFor(wireQuestions(body).length) })
     })
-    const client = createJevClient({ fetch, egress: allowed(() => [CANARY]), config: jevConfig })
-    await client.predictOne(completion(`finish ${CANARY}`), [completionComplete])
+    const egress = allowed(() => [CANARY])
+    const client = createJevClient({ fetch, egress, config: jevConfig })
+    const prepared = egress.prepare(completion(`finish ${CANARY}`), [completionComplete])
+    await client.predictOne(prepared.state, prepared.questions)
 
     expect(calls).toHaveLength(1)
     expect(calls[0]?.body).not.toContain(CANARY)
@@ -173,7 +184,7 @@ describe("JevClient egress", () => {
       { jev: { enabled: true }, egress: { projects: ["/work/project"], kinds: { skillRelevance: true } } },
       () => [CANARY],
     )
-    const provider = createJevProvider({ client: createJevClient({ fetch, egress, config: jevConfig }) })
+    const model = createJevModel({ client: createJevClient({ fetch, egress, config: jevConfig }) })
     const request: DecisionRequest<"skillRelevance"> = {
       kind: "skillRelevance",
       projectID: "/work/project",
@@ -184,7 +195,13 @@ describe("JevClient egress", () => {
         skills: [{ name: `skill-${CANARY}`, description: `desc ${CANARY}`, learned: false }],
       },
     }
-    await provider.answer(request, new AbortController().signal)
+    // The model is handed only what the guard wrote, as the service does.
+    const prepared = egress.prepare(request)
+    await model.predict(prepared.state, prepared.questions, {
+      deadlineMs: 400,
+      signal: new AbortController().signal,
+      mode: "hot",
+    })
 
     expect(calls).toHaveLength(1)
     const body = calls[0]!.body
@@ -198,7 +215,7 @@ describe("JevClient egress", () => {
   test("a kind that is not allowlisted never issues a request", async () => {
     const { fetch, calls } = recorder(() => json({}))
     const client = createJevClient({ fetch, egress: guard({ jev: { enabled: true } }), config: jevConfig })
-    const failure = await client.predictOne(completion(), questions).catch((error: unknown) => error)
+    const failure = await client.predictOne(stateOf(completion()), questions).catch((error: unknown) => error)
 
     expect(failure).toBeInstanceOf(DecisionUnavailable)
     expect(failure).toMatchObject({ reason: "egress-denied" })
@@ -207,11 +224,12 @@ describe("JevClient egress", () => {
 })
 
 const signal = new AbortController().signal
+const options = { deadlineMs: 400, signal, mode: "hot" as const }
 
-/** A client that answers with a canned prediction; the network boundary is faked, nothing else. */
-const clientWith = (prediction: JevPrediction): JevClient => ({
-  predictOne: async () => prediction,
-  predictMany: async () => [prediction],
+/** A client that answers with canned answers per neutral id; the network boundary is faked, nothing else. */
+const clientWith = (answers: Record<string, JevAnswer>, modelVersion?: string): JevClient => ({
+  predictOne: async () => ({ ...(modelVersion ? { modelVersion } : {}), answers, inputTokens: 250 }),
+  predictMany: async () => [{ ...(modelVersion ? { modelVersion } : {}), answers, inputTokens: 250 }],
 })
 
 const sampleRequest = <Q extends DecisionKind>(kind: Q, state: DecisionSpec[Q]["state"]): DecisionRequest<Q> => ({
@@ -220,42 +238,132 @@ const sampleRequest = <Q extends DecisionKind>(kind: Q, state: DecisionSpec[Q]["
   policy: DEFAULT_DECISION_POLICY,
 })
 
-describe("JevProvider interpretation", () => {
-  test("a noul answer becomes the typed verdict with its model version and probabilities", async () => {
-    const provider = createJevProvider({
-      client: clientWith({ modelVersion: "jev-1.13.0", answers: { verdict: { type: "noul", probability: 0.75 } } }),
-    })
-    const answer = await provider.answer(completion(), signal)
+/**
+ * The whole round trip for one request: plan its questions, give them the guard's positional ids,
+ * let the Jev model decode a canned wire answer (keyed here by the caller's id for readability), and
+ * read the typed answer back. This is exactly the path the service takes, minus the network.
+ */
+const roundTrip = async <Q extends DecisionKind>(
+  request: DecisionRequest<Q>,
+  byCaller: Record<string, JevAnswer>,
+  modelVersion?: string,
+) => {
+  const planned = questionsFor(request)
+  const asked = planned.map((question, index) => ({ ...question, id: questionID(index) }))
+  const wire = Object.fromEntries(
+    planned.flatMap((question, index) => {
+      const answer = byCaller[question.id]
+      return answer ? [[questionID(index), answer] as const] : []
+    }),
+  )
+  const prediction = await createJevModel({ client: clientWith(wire, modelVersion) }).predict(
+    { kind: request.kind, text: "{}" },
+    asked,
+    options,
+  )
+  return { prediction, reading: readAnswers(request.kind, planned, prediction.answers) }
+}
 
-    expect(answer.modelVersion).toBe("jev-1.13.0")
-    expect(answer.answer).toEqual({ verdict: "complete" })
+describe("Jev model encoding", () => {
+  test("a neutral question travels as Jev's wire question: positional id, noul for binary, choices", async () => {
+    const { fetch, calls } = recorder(({ body }) =>
+      json({ model: "jev-1.13.0", answers: answersFor(wireQuestions(body).length) }),
+    )
+    const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
+    await client.predictOne({ kind: "completion", projectID: "/work/project", text: "the state" }, questions)
+
+    expect(JSON.parse(calls[0]!.body)).toEqual({
+      state: "the state",
+      model: "jev-1.13.0",
+      questions: [
+        { id: "w0", type: "noul", prompt: "is the episode complete?" },
+        { id: "w1", type: "choice", prompt: "which tier?", choices: ["CHEAP", "BALANCED", "HIGH", "MAX"] },
+        { id: "w2", type: "score", prompt: "how risky?", choices: ["low", "mid", "high"] },
+      ],
+    })
+  })
+
+  test("the answers decode to neutral distributions keyed by the neutral id", async () => {
+    const model = createJevModel({
+      client: clientWith(
+        {
+          done: { type: "noul", probability: 0.8 },
+          route: { type: "choice", choice: "HIGH", probabilities: { CHEAP: 0.1, HIGH: 0.9 }, confidence: 0.9 },
+          risk: {
+            type: "score",
+            score: 1.6,
+            legend: ["low", "mid", "high"],
+            probabilities: { high: 0.7 },
+            confidence: 0.7,
+          },
+        },
+        "jev-1.13.0",
+      ),
+      now: () => 0,
+    })
+    const prediction = await model.predict({ kind: "completion", text: "{}" }, questions, options)
+
+    expect(prediction).toEqual({
+      answers: {
+        // `p(yes)` is a distribution, never a confidence.
+        done: { probabilities: { yes: 0.8, no: 1 - 0.8 } },
+        route: { probabilities: { CHEAP: 0.1, HIGH: 0.9 }, choice: "HIGH", confidence: 0.9 },
+        // A score is an index into the question's ordered options, rounded.
+        risk: { probabilities: { high: 0.7 }, choice: "high", confidence: 0.7 },
+      },
+      latencyMs: 0,
+      usage: { inputTokens: 250, costUsd: 250 * JEV_USD_PER_INPUT_TOKEN },
+      model: { id: "jev", version: "jev-1.13.0" },
+    })
+    expect(model).toMatchObject({ id: "jev", locality: "remote" })
+    expect(model.supports).toHaveLength(8)
+  })
+
+  test("a score outside the legend is clamped onto it", async () => {
+    const score = async (value: number) =>
+      (
+        await createJevModel({
+          client: clientWith({ risk: { type: "score", score: value, legend: [], probabilities: {} } }),
+        }).predict({ kind: "toolRisk", text: "{}" }, [questions[2]!], options)
+      ).answers.risk?.choice
+    expect(await score(-3)).toBe("low")
+    expect(await score(9)).toBe("high")
+  })
+})
+
+describe("Jev round trip: wire answer to typed answer", () => {
+  test("a noul answer becomes the typed verdict with its model version and probabilities", async () => {
+    const { prediction, reading } = await roundTrip(
+      completion(),
+      { verdict: { type: "noul", probability: 0.75 } },
+      "jev-1.13.0",
+    )
+
+    expect(prediction.model.version).toBe("jev-1.13.0")
+    expect(reading?.answer).toEqual({ verdict: "complete" })
     // `p(yes)` is not a confidence: the adapter reports the distribution and the service calibrates.
-    expect(answer.confidence).toBeUndefined()
-    expect(answer.probabilities).toEqual({ complete: 0.75, not_complete: 0.25 })
+    expect(reading?.confidence).toBeUndefined()
+    expect(reading?.probabilities).toEqual({ complete: 0.75, not_complete: 0.25 })
   })
 
   test("a confident no is a verdict, not a missing confidence", async () => {
-    const verdict = (probability: number) =>
-      createJevProvider({ client: clientWith({ answers: { verdict: { type: "noul", probability } } }) })
-    const notComplete = await verdict(0.05).answer(completion(), signal)
-    expect(notComplete.answer).toEqual({ verdict: "not_complete" })
-    expect(notComplete.probabilities).toEqual({ complete: 0.05, not_complete: 0.95 })
-    expect(notComplete.confidence).toBeUndefined()
+    const notComplete = (await roundTrip(completion(), { verdict: { type: "noul", probability: 0.05 } })).reading
+    expect(notComplete?.answer).toEqual({ verdict: "not_complete" })
+    expect(notComplete?.probabilities).toEqual({ complete: 0.05, not_complete: 0.95 })
+    expect(notComplete?.confidence).toBeUndefined()
 
-    const failure = await verdict(0.05).answer(
-      sampleRequest("failure", { repeatedCalls: 5, repeatedErrors: 0, stepsUsed: 5 }),
-      signal,
-    )
-    expect(failure.answer).toEqual({ verdict: "continue" })
-    expect(failure.probabilities).toEqual({ continue: 0.95, intervene: 0.05 })
-    expect(failure.confidence).toBeUndefined()
+    const failure = (
+      await roundTrip(sampleRequest("failure", { repeatedCalls: 5, repeatedErrors: 0, stepsUsed: 5 }), {
+        verdict: { type: "noul", probability: 0.05 },
+      })
+    ).reading
+    expect(failure?.answer).toEqual({ verdict: "continue" })
+    expect(failure?.probabilities).toEqual({ continue: 0.95, intervene: 0.05 })
+    expect(failure?.confidence).toBeUndefined()
   })
 
   test("skill gates carry every p(yes), including the confident noes", async () => {
-    const provider = createJevProvider({
-      client: clientWith({ answers: { a: { type: "noul", probability: 0.9 }, b: { type: "noul", probability: 0.02 } } }),
-    })
-    const answer = await provider.answer(
+    const { reading } = await roundTrip(
       sampleRequest("skillRelevance", {
         sessionID: "s",
         objective: "o",
@@ -264,24 +372,15 @@ describe("JevProvider interpretation", () => {
           { name: "b", description: "b", learned: false },
         ],
       }),
-      signal,
+      { a: { type: "noul", probability: 0.9 }, b: { type: "noul", probability: 0.02 } },
     )
-    expect(answer.answer).toEqual({ load: ["a"] })
-    expect(answer.probabilities).toEqual({ a: 0.9, b: 0.02 })
-    expect(answer.confidence).toBeUndefined()
+    expect(reading?.answer).toEqual({ load: ["a"] })
+    expect(reading?.probabilities).toEqual({ a: 0.9, b: 0.02 })
+    expect(reading?.confidence).toBeUndefined()
   })
 
-  test("choice answers become a disposition per item, keyed by id", async () => {
-    const provider = createJevProvider({
-      client: clientWith({
-        modelVersion: "jev-1.13.0",
-        answers: {
-          a: { type: "choice", choice: "drop", probabilities: { drop: 0.9 }, confidence: 0.9 },
-          b: { type: "choice", choice: "keep", probabilities: { keep: 0.7 }, confidence: 0.7 },
-        },
-      }),
-    })
-    const answer = await provider.answer(
+  test("choice answers become a disposition per item, keyed by the caller's id", async () => {
+    const { reading } = await roundTrip(
       sampleRequest("contextItem", {
         objective: "tidy",
         items: [
@@ -289,49 +388,54 @@ describe("JevProvider interpretation", () => {
           { id: "b", kind: "file", tokens: 1, referenced: false, anchors: 0, archived: false },
         ],
       }),
-      signal,
+      {
+        a: { type: "choice", choice: "drop", probabilities: { drop: 0.9 }, confidence: 0.9 },
+        b: { type: "choice", choice: "keep", probabilities: { keep: 0.7 }, confidence: 0.7 },
+      },
+      "jev-1.13.0",
     )
 
-    expect(answer.answer).toEqual({ decisions: [{ id: "a", disposition: "drop" }, { id: "b", disposition: "keep" }] })
+    expect(reading?.answer).toEqual({
+      decisions: [
+        { id: "a", disposition: "drop" },
+        { id: "b", disposition: "keep" },
+      ],
+    })
     // The weakest item sets the confidence the service then gates on.
-    expect(answer.confidence).toBe(0.7)
+    expect(reading?.confidence).toBe(0.7)
   })
 
   test("a score answer is capped at the learned ceiling, raise-only", async () => {
-    const score = (value: number) =>
-      createJevProvider({
-        client: clientWith({
-          modelVersion: "jev-1.13.0",
-          answers: {
-            risk: { type: "score", score: value, legend: ["ALLOW", "CONFIRM", "REVIEW", "DENY"], probabilities: { DENY: 0.8 }, confidence: 0.8 },
+    const score = async (value: number) =>
+      (
+        await roundTrip(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), {
+          risk: {
+            type: "score",
+            score: value,
+            legend: ["ALLOW", "CONFIRM", "REVIEW", "DENY"],
+            probabilities: { DENY: 0.8 },
+            confidence: 0.8,
           },
-        }),
-      })
-    const answer = await score(3).answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)
+        })
+      ).reading
 
     // DENY and REVIEW are capped to CONFIRM: a learned policy can never exceed the ceiling (FH-063).
-    expect(answer.answer).toEqual({ risk: "CONFIRM" })
-    expect(answer.confidence).toBe(0.8)
-    expect((await score(2).answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)).answer).toEqual({
-      risk: "CONFIRM",
-    })
+    expect((await score(3))?.answer).toEqual({ risk: "CONFIRM" })
+    expect((await score(3))?.confidence).toBe(0.8)
+    expect((await score(2))?.answer).toEqual({ risk: "CONFIRM" })
     // A low score is not lifted by the cap.
-    expect((await score(0).answer(sampleRequest("toolRisk", { tool: "bash", argsDigest: "d" }), signal)).answer).toEqual({
-      risk: "ALLOW",
-    })
+    expect((await score(0))?.answer).toEqual({ risk: "ALLOW" })
   })
 
-  test("an answer of the wrong type, or no question to ask, is malformed", async () => {
-    const wrongType = createJevProvider({
-      client: clientWith({ answers: { verdict: { type: "choice", choice: "HIGH", probabilities: {}, confidence: 0.9 } } }),
+  test("an answer of the wrong type reads as nothing, and no question to ask is malformed", async () => {
+    const mismatched = await roundTrip(completion(), {
+      verdict: { type: "choice", choice: "HIGH", probabilities: {}, confidence: 0.9 },
     })
-    const mismatched = await wrongType.answer(completion(), signal).catch((cause: unknown) => cause)
-    expect(mismatched).toBeInstanceOf(DecisionUnavailable)
-    expect(mismatched).toMatchObject({ reason: "malformed" })
+    // The service degrades an unreadable prediction as `malformed`.
+    expect(mismatched.reading).toBeUndefined()
 
-    const noCandidates = createJevProvider({ client: clientWith({ answers: {} }) })
-    const empty = await noCandidates
-      .answer(sampleRequest("skillRelevance", { sessionID: "s", objective: "o", skills: [] }), signal)
+    const empty = await createJevModel({ client: clientWith({}) })
+      .predict({ kind: "skillRelevance", text: "{}" }, [], options)
       .catch((cause: unknown) => cause)
     expect(empty).toBeInstanceOf(DecisionUnavailable)
     expect(empty).toMatchObject({ reason: "malformed" })
@@ -347,7 +451,9 @@ describe("JevClient malformed responses", () => {
     for (const respond of cases) {
       const { fetch } = recorder(respond)
       const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-      const failure = await client.predictOne(completion(), [completionComplete]).catch((error: unknown) => error)
+      const failure = await client
+        .predictOne(stateOf(completion()), [completionComplete])
+        .catch((error: unknown) => error)
 
       expect(failure).toBeInstanceOf(DecisionUnavailable)
       expect(failure).toMatchObject({ reason: "malformed" })
@@ -364,7 +470,9 @@ describe("JevClient malformed responses", () => {
       },
     }))
     const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-    const failure = await client.predictOne(completion(), [completionComplete]).catch((error: unknown) => error)
+    const failure = await client
+      .predictOne(stateOf(completion()), [completionComplete])
+      .catch((error: unknown) => error)
 
     expect(failure).toBeInstanceOf(DecisionUnavailable)
     expect(failure).toMatchObject({ reason: "malformed" })
@@ -381,7 +489,9 @@ describe("JevClient failures", () => {
     for (const [status, reason] of cases) {
       const { fetch } = recorder(() => json({}, status, { "retry-after": "2" }))
       const client = createJevClient({ fetch, egress: allowed(), config: jevConfig })
-      const failure = await client.predictOne(completion(), [completionComplete]).catch((error: unknown) => error)
+      const failure = await client
+        .predictOne(stateOf(completion()), [completionComplete])
+        .catch((error: unknown) => error)
 
       expect(failure).toBeInstanceOf(DecisionUnavailable)
       expect(failure).toMatchObject({ reason })
@@ -399,7 +509,9 @@ describe("JevClient failures", () => {
       egress: allowed(),
       config: () => ({ ...DEFAULT_JEV_CONFIG, timeoutMs: 5 }),
     })
-    const failure = await client.predictOne(completion(), [completionComplete]).catch((error: unknown) => error)
+    const failure = await client
+      .predictOne(stateOf(completion()), [completionComplete])
+      .catch((error: unknown) => error)
     expect(failure).toMatchObject({ reason: "timeout" })
   })
 })

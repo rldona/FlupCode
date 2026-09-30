@@ -32,8 +32,8 @@ import { createGuardrailService } from "./adaptive/guardrails"
 import { createAdaptiveConfigSurface } from "./adaptive/config-surface"
 import { createEpisodeCoordinator } from "./adaptive/coordinator"
 import { createGovernor } from "./adaptive/providers/governor"
-import { createFallbackProvider } from "./adaptive/providers/fallback"
-import { createJevClient, createJevProvider, defaultJevFetch } from "./adaptive/providers/jev"
+import { createRetryingModel } from "./adaptive/providers/retry"
+import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
 import { createDecisionService } from "./adaptive/decision-service"
 import { createContextManager } from "./adaptive/context-manager"
 import { createShadowRunner } from "./adaptive/shadow"
@@ -134,29 +134,29 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   })
   const governor = createGovernor({ config: () => adaptive.current().governor, store: repository })
   // The key comes from the environment, never from the config block (ADR-0017). The client is built
-  // always; the service only reaches it when Jev is enabled, the project is allowlisted and the kind
-  // is allowlisted, so an off install makes no call.
+  // always; the service only reaches it when a kind is assigned to Jev (by default: `jev.enabled`),
+  // the project is allowlisted and the kind is allowlisted, so an off install makes no call.
   const apiKey = process.env.TYPESAFE_API_KEY
-  const jev = createJevProvider({
-    client: createJevClient({
-      fetch: defaultJevFetch,
-      egress,
-      config: () => adaptive.current().jev,
-      ...(apiKey ? { apiKey } : {}),
+  // FH-013: the model is wrapped with the strict per-attempt timeout, bounded retries and
+  // `Retry-After`, so they are on the live path and not only in tests; a failure that survives them
+  // is recorded degraded with its reason.
+  const jev = createRetryingModel({
+    model: createJevModel({
+      client: createJevClient({
+        fetch: defaultJevFetch,
+        egress,
+        config: () => adaptive.current().jev,
+        ...(apiKey ? { apiKey } : {}),
+      }),
     }),
   })
-  // FH-013: the external slot is the fallback provider, so the strict per-kind timeout, bounded
-  // retries and `Retry-After` are on the live path and not only in tests. The service honors the
-  // fallback's `degraded`/`source`, so a degraded attempt stays degraded in the audit.
-  const external = createFallbackProvider({
-    external: jev,
-    timeoutMsFor: (request) => request.policy.timeoutMs,
-  })
+  // AH-C01: the static predictive-model registry. `adaptive.models.<kind>` picks one of these ids per
+  // kind; without a `models` block every kind asks Jev when it is enabled, as before the registry.
   const decisions = createDecisionService({
     repository,
     config: () => adaptive.current(),
     egress,
-    external,
+    models: [jev],
     governor,
   })
   // Context selection (FH-022/023 and the FH-024 seam): the manager owns `contextItem` — the scorer

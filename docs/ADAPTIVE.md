@@ -54,8 +54,8 @@ This inherits the precedence **permissions > instructions > skills > memory** fr
 | Component | Responsibility | Home | Decision record |
 | --- | --- | --- | --- |
 | `SessionObserver` | Normalize session signals into episodes; detect boundaries | `packages/harness-server/src/adaptive/` | Phase 1; [ADR-0016](adr/0016-adaptive-harness-boundary.md) |
-| `DecisionProvider` | Answer typed decisions; deterministic, Jev, fallback | `packages/harness-server/src/adaptive/providers/` | [ADR-0017](adr/0017-jev-egress-and-governance.md) |
-| `DecisionService` | Predict, apply thresholds, audit, explain | `packages/harness-server/src/adaptive/` | [ADR-0017](adr/0017-jev-egress-and-governance.md) |
+| `PredictiveModel` registry | Answer neutral binary/choice/score questions with distributions; Jev today, one model per kind via `adaptive.models.<kind>` | `packages/harness-server/src/adaptive/predictive/`, `providers/` | [ADR-0017](adr/0017-jev-egress-and-governance.md); AH-C01 |
+| `DecisionService` | Deterministic baseline, ask the assigned model, calibrate confidence, apply thresholds, audit, explain | `packages/harness-server/src/adaptive/` | [ADR-0017](adr/0017-jev-egress-and-governance.md) |
 | `ContextManager` | Model context items, score and plan | Phase 3a (done) | [ADR-0018](adr/0018-context-selection-seam.md) |
 | `LearningManager` / `ReflectionEngine` | Episode → reflection → proposal, promotion, read routes | Phase 3b (done) | [ADR-0020](adr/0020-learning-persistence-and-egress.md) |
 | `SkillCurator` / `SkillStore` | Sole writer of learned skills; lifecycle and usage | Phase 3b (done) | [ADR-0019](adr/0019-learned-skill-lifecycle.md) |
