@@ -128,6 +128,18 @@ describe("the decision audit routes (FH-015)", () => {
     repository.close()
   })
 
+  test("explains an id the client encoded, as the cockpit sends it", async () => {
+    const { repository, service, handler } = seeded()
+    await service.predict(completion())
+
+    const explain = await handler(
+      new Request(`http://x/harness/adaptive/decisions/${encodeURIComponent("completion:episode:run:1")}`),
+    )
+    expect(explain.status).toBe(200)
+    expect((await explain.json()).data.id).toBe("completion:episode:run:1")
+    repository.close()
+  })
+
   test("answers without a token, and an unknown id is a 404", async () => {
     const { repository, service, handler } = seeded()
     await service.predict(completion())

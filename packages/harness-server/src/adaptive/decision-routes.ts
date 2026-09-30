@@ -6,6 +6,7 @@
  * and a client only lists them and asks why.
  */
 
+import { decodedID } from "./route-id"
 import { isDecisionKind } from "./decision"
 import type { DecisionService } from "./decision-service"
 import { normalizeEpisodeLimit } from "./episode"
@@ -24,7 +25,7 @@ export async function handleDecisionRequest(
   service: DecisionService,
 ): Promise<Response> {
   if (request.method !== "GET") return error("Not found", "not_found", 404)
-  const id = segments[1]
+  const id = decodedID(segments[1])
   if (segments[0] === "decisions" && id === undefined) {
     const params = new URL(request.url).searchParams
     const kind = params.get("kind")

@@ -82,6 +82,18 @@ describe("the context plan routes (FH-022)", () => {
     repository.close()
   })
 
+  test("explains an id the client encoded, as the cockpit sends it", async () => {
+    const { repository, context, handler } = seeded()
+    await planOne(context)
+
+    const explain = await handler(
+      new Request(`http://x/harness/adaptive/plans/${encodeURIComponent(planID("run-1:task-1"))}`),
+    )
+    expect(explain.status).toBe(200)
+    expect((await explain.json()).data.id).toBe(planID("run-1:task-1"))
+    repository.close()
+  })
+
   test("answers without a token, and an unknown id is a 404", async () => {
     const { repository, context, handler } = seeded()
     await planOne(context)

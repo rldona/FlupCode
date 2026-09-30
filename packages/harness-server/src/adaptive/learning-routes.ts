@@ -8,6 +8,7 @@
  * for both, and approval also requires `confirm: true` in the body.
  */
 
+import { decodedID } from "./route-id"
 import type { LearningRepository } from "../types"
 import { statSync } from "node:fs"
 import { isAbsolute, resolve } from "node:path"
@@ -38,19 +39,6 @@ function usableProject(projectID: string | null): string | undefined {
   const path = resolve(projectID)
   try {
     return statSync(path).isDirectory() ? path : undefined
-  } catch {
-    return undefined
-  }
-}
-
-/**
- * A proposal id from the path. The ids carry `:` (`proposal:<episodeID>`) and the client encodes them,
- * so the segment is decoded; a malformed escape is no id at all rather than a thrown request.
- */
-function decodedID(segment: string | undefined): string | undefined {
-  if (segment === undefined) return undefined
-  try {
-    return decodeURIComponent(segment)
   } catch {
     return undefined
   }

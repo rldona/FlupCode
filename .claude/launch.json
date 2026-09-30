@@ -9,6 +9,27 @@
         "dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "engine",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": [
+        "-c",
+        "env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve --port 4096"
+      ],
+      "port": 4096
+    },
+    {
+      "name": "harness-server",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "packages/harness-server", "dev"],
+      "port": 4097
+    },
+    {
+      "name": "harness",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "--cwd", "packages/harness", "dev"],
+      "port": 4444
     }
   ]
 }
