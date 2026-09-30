@@ -12,18 +12,30 @@ export const PanelBoundary: Component<{ name: string; children: JSX.Element }> =
     fallback={(error, reset) => {
       console.error(`${props.name} panel failed`, error)
       return (
-        <div class="fc-panel-error" role="alert">
-          <span class="fc-panel-error-title">{t("{name} could not be shown", { name: props.name })}</span>
-          <span class="fc-panel-error-detail">
-            {errorDetail(error instanceof Error ? error.message : String(error))}
-          </span>
-          <button class="fc-button" type="button" onClick={reset}>
-            {t("Try again")}
-          </button>
-        </div>
+        <PanelFailure
+          title={t("{name} could not be shown", { name: props.name })}
+          error={error instanceof Error ? error : new Error(String(error))}
+          onRetry={reset}
+        />
       )
     }}
   >
     {props.children}
   </ErrorBoundary>
+)
+
+/**
+ * A failure said where the answer would have been, with a way to ask again. Used for a read that
+ * failed as well as for a region that could not render, so both look and recover the same way.
+ */
+export const PanelFailure: Component<{ title: string; error: Error; onRetry: () => void; inline?: boolean }> = (
+  props,
+) => (
+  <div class="fc-panel-error" classList={{ "fc-panel-error-inline": props.inline }} role="alert">
+    <span class="fc-panel-error-title">{props.title}</span>
+    <span class="fc-panel-error-detail">{errorDetail(props.error.message)}</span>
+    <button class="fc-button" type="button" onClick={props.onRetry}>
+      {t("Try again")}
+    </button>
+  </div>
 )

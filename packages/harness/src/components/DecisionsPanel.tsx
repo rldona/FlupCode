@@ -1,8 +1,10 @@
-import { For, Show, createResource, createSignal, type Component } from "solid-js"
+import { For, Show, createSignal, type Component } from "solid-js"
 import { t } from "../i18n"
+import { createResource } from "../resource"
 import { formatDateTime } from "../dates"
 import { adaptiveSurfaces, createHarnessClient } from "../client"
 import type { DecisionExplanation, StoredDecision } from "../types"
+import { PanelFailure } from "./PanelBoundary"
 
 type DecisionsPanelProps = {
   open: boolean
@@ -34,6 +36,14 @@ export function latencyText(latencyMs: number): string {
 }
 
 /**
+ * The explanation for the decision that is open. A resource keeps its last value while the next one
+ * loads, so without the id check the previous decision's answer sat under the new decision's id.
+ */
+export function explanationFor(entry: { id: string; detail: DecisionExplanation } | undefined, id: string | undefined) {
+  return entry && entry.id === id ? entry.detail : undefined
+}
+
+/**
  * The decision audit (FH-071).
  *
  * The shadow makes decisions and this shows them: what was asked, what came back, what the baseline
@@ -50,10 +60,10 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
       ),
   )
   const [openID, setOpenID] = createSignal<string>()
-  const [explanation] = createResource(
-    () => (openID() ? openID() : undefined),
-    (id) => createHarnessClient(props.serverUrl).adaptive.decisions.explain(id),
-  )
+  const [explanation, explanationActions] = createResource(openID, async (id) => ({
+    id,
+    detail: await createHarnessClient(props.serverUrl).adaptive.decisions.explain(id),
+  }))
 
   return (
     <Show when={props.open}>
@@ -76,12 +86,24 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
             when={available()}
             fallback={<div class="fc-routines-notice">{t("This server does not have the decision audit.")}</div>}
           >
+            <Show when={!decisions.loading && decisions.failure()}>
+              {(error) => (
+                <PanelFailure
+                  inline
+                  title={t("{name} could not be read", { name: t("The decision audit") })}
+                  error={error()}
+                  onRetry={() => void actions.refetch()}
+                />
+              )}
+            </Show>
             <Show
               when={(decisions()?.length ?? 0) > 0}
               fallback={
-                <p class="fc-usage-note">
-                  {decisions.loading ? t("Reading…") : t("No decisions recorded yet.")}
-                </p>
+                <Show when={!decisions.failure() || decisions.loading}>
+                  <p class="fc-usage-note">
+                    {decisions.loading ? t("Reading…") : t("No decisions recorded yet.")}
+                  </p>
+                </Show>
               }
             >
               <section class="fc-usage-block">
@@ -115,7 +137,24 @@ export const DecisionsPanel: Component<DecisionsPanelProps> = (props) => {
                 </button>
               </div>
               <div class="fc-modal-body">
-                <Show when={explanation()} fallback={<p class="fc-usage-note">{t("Reading…")}</p>}>
+                <Show
+                  when={explanationFor(explanation(), openID())}
+                  fallback={
+                    <Show
+                      when={!explanation.loading && explanation.failure()}
+                      fallback={<p class="fc-usage-note">{t("Reading…")}</p>}
+                    >
+                      {(error) => (
+                        <PanelFailure
+                          inline
+                          title={t("{name} could not be read", { name: t("This decision") })}
+                          error={error()}
+                          onRetry={() => void explanationActions.refetch()}
+                        />
+                      )}
+                    </Show>
+                  }
+                >
                   {(detail) => <Explanation detail={detail()} />}
                 </Show>
               </div>

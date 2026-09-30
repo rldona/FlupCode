@@ -8443,6 +8443,12 @@ button.fc-status {
   padding: 16px;
 }
 
+/* A read that failed inside a screen: it sits in the list's place, not over the whole region. */
+.fc-panel-error-inline {
+  flex: none;
+  padding: 8px 0;
+}
+
 .fc-panel-error-title {
   font-size: var(--fc-text-sm);
   font-weight: 600;
