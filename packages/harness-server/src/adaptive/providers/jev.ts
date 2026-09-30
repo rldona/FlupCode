@@ -158,7 +158,11 @@ export function createJevClient(input: {
 
 // ---- the provider that translates a prediction back to a typed answer (FH-012) ----------------
 
-/** What one prediction means for one kind: the typed answer and the raw confidence behind it. */
+/**
+ * What one prediction means for one kind: the typed answer, the probabilities behind it and, only
+ * when Jev reported one, its confidence in the chosen label. A `noul` probability is `p(yes)`, not a
+ * confidence, so it travels in `probabilities` and the service calibrates it (`chosenProbability`).
+ */
 type Interpretation<Q extends DecisionKind> = {
   answer: DecisionSpec[Q]["answer"]
   confidence?: number
@@ -187,7 +191,6 @@ const interpretations: Interpreter = {
     if (answer?.type !== "noul") return undefined
     return {
       answer: { verdict: answer.probability >= 0.5 ? "complete" : "not_complete" },
-      confidence: answer.probability,
       probabilities: { complete: answer.probability, not_complete: 1 - answer.probability },
     }
   },
@@ -195,10 +198,8 @@ const interpretations: Interpreter = {
     const gates = Object.entries(prediction.answers).flatMap(([name, answer]) =>
       answer.type === "noul" ? [[name, answer.probability] as const] : [],
     )
-    const load = gates.filter(([, probability]) => probability >= 0.5).map(([name]) => name)
     return {
-      answer: { load },
-      confidence: gates.length > 0 ? Math.max(...gates.map(([, probability]) => probability)) : undefined,
+      answer: { load: gates.filter(([, probability]) => probability >= 0.5).map(([name]) => name) },
       probabilities: Object.fromEntries(gates),
     }
   },
@@ -238,13 +239,13 @@ const interpretations: Interpreter = {
     if (answer?.type !== "noul") return undefined
     return {
       answer: { verdict: answer.probability >= 0.5 ? "intervene" : "continue" },
-      confidence: answer.probability,
       probabilities: { continue: 1 - answer.probability, intervene: answer.probability },
     }
   },
   // The `noul` gate decides reusable; a missing or unrecognised intent falls to the safe `add`, and
-  // the target is only carried when Jev named one. Confidence is the weakest axis it reported, so a
-  // noisy intent can pull a confident gate below the policy and the service degrades to inert.
+  // the target is only carried when Jev named one. Confidence is the intent's, when reported; the
+  // service folds in the gate's certainty and keeps the weakest, so a noisy intent can pull a
+  // confident gate below the policy and the service degrades to inert.
   skillReflection: (prediction) => {
     const reusable = prediction.answers.reusable
     if (reusable?.type !== "noul") return undefined
@@ -252,10 +253,9 @@ const interpretations: Interpreter = {
     const chosen =
       intent?.type === "choice" && isReflectionIntent(intent.choice) ? intent.choice : "add"
     const target = prediction.answers.target?.type === "choice" ? prediction.answers.target.choice : undefined
-    const axes = [reusable.probability, ...(intent?.type === "choice" && intent.confidence !== undefined ? [intent.confidence] : [])]
     return {
       answer: { reusable: reusable.probability >= 0.5, intent: chosen, ...(target ? { target } : {}) },
-      confidence: Math.min(...axes),
+      ...(intent?.type === "choice" && intent.confidence !== undefined ? { confidence: intent.confidence } : {}),
       probabilities: { reusable: reusable.probability },
     }
   },

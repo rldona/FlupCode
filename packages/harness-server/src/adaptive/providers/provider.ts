@@ -14,7 +14,13 @@ import type { DecisionKind, DecisionRequest, DecisionSpec, DegradedReason } from
 
 export type ProviderAnswer<Q extends DecisionKind> = {
   answer: DecisionSpec[Q]["answer"]
+  /**
+   * The provider's own confidence in the answer it chose, when it reports one. Never a positive-class
+   * probability: a binary `p(yes)` goes in `probabilities`, and the service derives the chosen
+   * answer's probability from there (`chosenProbability` in `decision-service.ts`).
+   */
   confidence?: number
+  /** A distribution over the answer's labels, or one `p(yes)` per gate for gate kinds. */
   probabilities?: Record<string, number>
   modelVersion?: string
   latencyMs: number
