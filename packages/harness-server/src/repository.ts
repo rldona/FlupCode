@@ -738,7 +738,7 @@ const decodeMemory = (row: ProjectMemoryRow): ProjectMemory => ({
   createdAt: row.created_at,
 })
 
-type EpisodeRow = {
+export type EpisodeRow = {
   id: string
   session_id: string
   project_id: string
@@ -764,7 +764,7 @@ type EpisodeRow = {
  * back with the wrong type, so a hand-edited row or one written by a different build must degrade
  * to `[]`/`unknown`/its default rather than take a read down (FH-001).
  */
-const decodeEpisode = (row: EpisodeRow): SessionEpisode => {
+export const decodeEpisode = (row: EpisodeRow): SessionEpisode => {
   const endedAt = readOptionalNumber(row.ended_at)
   return {
     id: readString(row.id),

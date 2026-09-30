@@ -1,0 +1,968 @@
+{
+  "name": "reflection-heuristics",
+  "description": "Synthetic, anonymised episodes for the heuristic reflection classifier (AH-F01). Cases are in chronological order; each label is what a reviewer would stage as a proposal for that episode.",
+  "cases": [
+    {
+      "id": "api-fix-parser",
+      "label": "fix-verify",
+      "note": "red parser test, edit of its source, same test green",
+      "episode": {
+        "sessionID": "ses_api_fix_parser",
+        "projectID": "/work/api",
+        "objective": "Fix the failing parser test",
+        "toolCalls": 12,
+        "files": [
+          "src/parser.ts",
+          "src/parser.test.ts"
+        ],
+        "commands": [
+          "bun test src/parser.test.ts"
+        ],
+        "failures": [
+          {
+            "summary": "expect(received).toBe(expected): expected 3, received 4",
+            "file": "src/parser.test.ts",
+            "line": 12
+          }
+        ],
+        "startedAt": 1699998200000,
+        "endedAt": 1700000000000
+      },
+      "trace": [
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/api/src/parser.test.ts"
+          ],
+          "start": 1699998300000
+        },
+        {
+          "tool": "bash",
+          "command": "bun test src/parser.test.ts",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1699998360000
+        },
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/api/src/parser.ts"
+          ],
+          "start": 1699998420000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/api/src/parser.ts"
+          ],
+          "start": 1699998480000
+        },
+        {
+          "tool": "bash",
+          "command": "bun test src/parser.test.ts 2>&1 | tail -n 20",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1699998540000
+        }
+      ]
+    },
+    {
+      "id": "api-recipe-1",
+      "label": "none",
+      "note": "typecheck then tests in packages/api, only 1 session(s) so far",
+      "episode": {
+        "sessionID": "ses_api_recipe_1",
+        "projectID": "/work/api",
+        "objective": "Add pagination to the users route",
+        "toolCalls": 12,
+        "files": [
+          "packages/api/src/routes/users.ts"
+        ],
+        "commands": [
+          "cd packages/api && bun run typecheck",
+          "cd packages/api && bun test --timeout 20000",
+          "git status"
+        ],
+        "failures": [],
+        "startedAt": 1700001800000,
+        "endedAt": 1700003600000
+      }
+    },
+    {
+      "id": "api-recipe-2",
+      "label": "none",
+      "note": "typecheck then tests in packages/api, only 2 session(s) so far",
+      "episode": {
+        "sessionID": "ses_api_recipe_2",
+        "projectID": "/work/api",
+        "objective": "Add pagination to the users route",
+        "toolCalls": 12,
+        "files": [
+          "packages/api/src/routes/users.ts"
+        ],
+        "commands": [
+          "cd packages/api && bun run typecheck",
+          "cd packages/api && bun test --timeout 20000",
+          "git status"
+        ],
+        "failures": [],
+        "startedAt": 1700005400000,
+        "endedAt": 1700007200000
+      }
+    },
+    {
+      "id": "api-recipe-3",
+      "label": "repeated-command",
+      "note": "third session running the same typecheck + test recipe",
+      "episode": {
+        "sessionID": "ses_api_recipe_3",
+        "projectID": "/work/api",
+        "objective": "Validate the orders endpoint",
+        "toolCalls": 12,
+        "files": [
+          "packages/api/src/routes/orders.ts"
+        ],
+        "commands": [
+          "git diff",
+          "cd packages/api && bun run typecheck",
+          "cd packages/api && bun test --timeout 20000"
+        ],
+        "failures": [],
+        "startedAt": 1700009000000,
+        "endedAt": 1700010800000
+      }
+    },
+    {
+      "id": "api-recipe-4",
+      "label": "none",
+      "note": "fourth run of the recipe: already proposed, so no new proposal",
+      "episode": {
+        "sessionID": "ses_api_recipe_4",
+        "projectID": "/work/api",
+        "objective": "Rename a field in the orders payload",
+        "toolCalls": 12,
+        "files": [
+          "packages/api/src/routes/orders.ts"
+        ],
+        "commands": [
+          "cd packages/api && bun run typecheck",
+          "cd packages/api && bun test --timeout 20000"
+        ],
+        "failures": [],
+        "startedAt": 1700012600000,
+        "endedAt": 1700014400000
+      }
+    },
+    {
+      "id": "api-flaky-rerun",
+      "label": "none",
+      "note": "red test that turns green on a plain rerun: a flake, not a fix",
+      "episode": {
+        "sessionID": "ses_api_flaky_rerun",
+        "projectID": "/work/api",
+        "objective": "Investigate the network test",
+        "toolCalls": 12,
+        "files": [
+          "src/net.test.ts"
+        ],
+        "commands": [
+          "bun test src/net.test.ts"
+        ],
+        "failures": [
+          {
+            "summary": "timeout after 5000ms",
+            "file": "src/net.test.ts",
+            "line": 40
+          }
+        ],
+        "startedAt": 1700016200000,
+        "endedAt": 1700018000000
+      },
+      "trace": [
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/api/src/net.test.ts"
+          ],
+          "start": 1700016300000
+        },
+        {
+          "tool": "bash",
+          "command": "bun test src/net.test.ts",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700016360000
+        },
+        {
+          "tool": "bash",
+          "command": "bun test src/net.test.ts",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700016420000
+        }
+      ]
+    },
+    {
+      "id": "api-read-only",
+      "label": "none",
+      "note": "exploration only: reads and git/grep commands",
+      "episode": {
+        "sessionID": "ses_api_read_only",
+        "projectID": "/work/api",
+        "objective": "Explain how the auth middleware works",
+        "toolCalls": 12,
+        "files": [
+          "src/middleware/auth.ts",
+          "package.json"
+        ],
+        "commands": [
+          "git status",
+          "ls src",
+          "rg -n authorize src",
+          "cat package.json"
+        ],
+        "failures": [],
+        "startedAt": 1700019800000,
+        "endedAt": 1700021600000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "git status",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700019900000
+        },
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/api/src/middleware/auth.ts"
+          ],
+          "start": 1700019960000
+        },
+        {
+          "tool": "bash",
+          "command": "rg -n authorize src",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700020020000
+        }
+      ]
+    },
+    {
+      "id": "api-lint-fix",
+      "label": "fix-verify",
+      "note": "lint fails on a file, that file is edited, lint passes",
+      "episode": {
+        "sessionID": "ses_api_lint_fix",
+        "projectID": "/work/api",
+        "objective": "Clean up lint errors in the users route",
+        "toolCalls": 12,
+        "files": [
+          "src/routes/users.ts"
+        ],
+        "commands": [
+          "bun run lint"
+        ],
+        "failures": [
+          {
+            "summary": "'user' is assigned a value but never used",
+            "file": "src/routes/users.ts",
+            "line": 41
+          }
+        ],
+        "startedAt": 1700023400000,
+        "endedAt": 1700025200000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "bun run lint",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700023500000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/api/src/routes/users.ts"
+          ],
+          "start": 1700023560000
+        },
+        {
+          "tool": "bash",
+          "command": "bun run lint",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700023620000
+        }
+      ]
+    },
+    {
+      "id": "api-unrelated-edit",
+      "label": "none",
+      "note": "red auth test, only the README is edited, then green: not a fix of the failure",
+      "episode": {
+        "sessionID": "ses_api_unrelated_edit",
+        "projectID": "/work/api",
+        "objective": "Update docs for auth",
+        "toolCalls": 12,
+        "files": [
+          "docs/README.md"
+        ],
+        "commands": [
+          "bun test src/auth.test.ts"
+        ],
+        "failures": [
+          {
+            "summary": "expected 401, received 500",
+            "file": "src/auth.test.ts",
+            "line": 22
+          }
+        ],
+        "startedAt": 1700027000000,
+        "endedAt": 1700028800000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "bun test src/auth.test.ts",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700027100000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/api/docs/README.md"
+          ],
+          "start": 1700027160000
+        },
+        {
+          "tool": "bash",
+          "command": "bun test src/auth.test.ts",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700027220000
+        }
+      ]
+    },
+    {
+      "id": "api-fix-then-suite",
+      "label": "fix-verify",
+      "note": "real fix, but verified with the full suite instead of the same command (a known miss)",
+      "episode": {
+        "sessionID": "ses_api_fix_then_suite",
+        "projectID": "/work/api",
+        "objective": "Fix the date formatting bug",
+        "toolCalls": 12,
+        "files": [
+          "src/date.ts"
+        ],
+        "commands": [
+          "bun test src/date.test.ts",
+          "bun test"
+        ],
+        "failures": [
+          {
+            "summary": "expected '2024-01-02', received '2024-1-2'",
+            "file": "src/date.test.ts",
+            "line": 8
+          }
+        ],
+        "startedAt": 1700030600000,
+        "endedAt": 1700032400000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "bun test src/date.test.ts",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700030700000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/api/src/date.ts"
+          ],
+          "start": 1700030760000
+        },
+        {
+          "tool": "bash",
+          "command": "bun test",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700030820000
+        }
+      ]
+    },
+    {
+      "id": "web-build-fix",
+      "label": "fix-verify",
+      "note": "tsc error in App.tsx, App.tsx edited, same build green",
+      "episode": {
+        "sessionID": "ses_web_build_fix",
+        "projectID": "/work/web",
+        "objective": "Fix the web build",
+        "toolCalls": 12,
+        "files": [
+          "src/App.tsx"
+        ],
+        "commands": [
+          "pnpm --filter web build"
+        ],
+        "failures": [
+          {
+            "summary": "TS2322: Type 'string' is not assignable to type 'number'.",
+            "file": "src/App.tsx",
+            "line": 10
+          }
+        ],
+        "startedAt": 1700034200000,
+        "endedAt": 1700036000000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "pnpm --filter web build",
+          "exit": 2,
+          "ok": true,
+          "paths": [],
+          "start": 1700034300000
+        },
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/web/src/App.tsx"
+          ],
+          "start": 1700034360000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/web/src/App.tsx"
+          ],
+          "start": 1700034420000
+        },
+        {
+          "tool": "bash",
+          "command": "pnpm --filter web build",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700034480000
+        }
+      ]
+    },
+    {
+      "id": "web-dev-server",
+      "label": "none",
+      "note": "starts the dev server and installs, no verification",
+      "episode": {
+        "sessionID": "ses_web_dev_server",
+        "projectID": "/work/web",
+        "objective": "Run the app locally",
+        "toolCalls": 12,
+        "files": [
+          "src/App.tsx"
+        ],
+        "commands": [
+          "pnpm install",
+          "pnpm dev"
+        ],
+        "failures": [],
+        "startedAt": 1700037800000,
+        "endedAt": 1700039600000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "pnpm install",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700037900000
+        },
+        {
+          "tool": "bash",
+          "command": "pnpm dev",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700037960000
+        },
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/web/src/App.tsx"
+          ],
+          "start": 1700038020000
+        }
+      ]
+    },
+    {
+      "id": "web-e2e-1",
+      "label": "none",
+      "note": "install + e2e recipe, only 1 session(s) so far",
+      "episode": {
+        "sessionID": "ses_web_e2e_1",
+        "projectID": "/work/web",
+        "objective": "Check the checkout flow",
+        "toolCalls": 12,
+        "files": [
+          "e2e/checkout.spec.ts"
+        ],
+        "commands": [
+          "pnpm install --frozen-lockfile",
+          "pnpm test:e2e --project chromium"
+        ],
+        "failures": [],
+        "startedAt": 1700041400000,
+        "endedAt": 1700043200000
+      }
+    },
+    {
+      "id": "web-e2e-2",
+      "label": "none",
+      "note": "install + e2e recipe, only 2 session(s) so far",
+      "episode": {
+        "sessionID": "ses_web_e2e_2",
+        "projectID": "/work/web",
+        "objective": "Check the checkout flow",
+        "toolCalls": 12,
+        "files": [
+          "e2e/checkout.spec.ts"
+        ],
+        "commands": [
+          "pnpm install --frozen-lockfile",
+          "pnpm test:e2e --project chromium"
+        ],
+        "failures": [],
+        "startedAt": 1700045000000,
+        "endedAt": 1700046800000
+      }
+    },
+    {
+      "id": "web-e2e-3",
+      "label": "repeated-command",
+      "note": "third session running the same install + e2e recipe",
+      "episode": {
+        "sessionID": "ses_web_e2e_3",
+        "projectID": "/work/web",
+        "objective": "Verify the login page",
+        "toolCalls": 12,
+        "files": [
+          "e2e/login.spec.ts"
+        ],
+        "commands": [
+          "pnpm install --frozen-lockfile",
+          "pnpm test:e2e --project chromium"
+        ],
+        "failures": [],
+        "startedAt": 1700048600000,
+        "endedAt": 1700050400000
+      }
+    },
+    {
+      "id": "web-still-red",
+      "label": "none",
+      "note": "tests fail, edits made, tests still fail at the end",
+      "episode": {
+        "sessionID": "ses_web_still_red",
+        "projectID": "/work/web",
+        "objective": "Fix the cart total",
+        "toolCalls": 12,
+        "files": [
+          "src/cart.ts"
+        ],
+        "commands": [
+          "pnpm vitest run src/cart.test.ts"
+        ],
+        "failures": [
+          {
+            "summary": "expected 30 to be 25",
+            "file": "src/cart.test.ts",
+            "line": 17
+          }
+        ],
+        "startedAt": 1700052200000,
+        "endedAt": 1700054000000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "pnpm vitest run src/cart.test.ts",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700052300000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/web/src/cart.ts"
+          ],
+          "start": 1700052360000
+        },
+        {
+          "tool": "bash",
+          "command": "pnpm vitest run src/cart.test.ts",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700052420000
+        }
+      ]
+    },
+    {
+      "id": "cli-clippy-fix",
+      "label": "fix-verify",
+      "note": "clippy denies a warning, main.rs edited, clippy clean",
+      "episode": {
+        "sessionID": "ses_cli_clippy_fix",
+        "projectID": "/work/cli",
+        "objective": "Make clippy happy",
+        "toolCalls": 12,
+        "files": [
+          "src/main.rs"
+        ],
+        "commands": [
+          "cargo clippy --all-targets -- -D warnings"
+        ],
+        "failures": [],
+        "startedAt": 1700055800000,
+        "endedAt": 1700057600000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "cargo clippy --all-targets -- -D warnings",
+          "exit": 101,
+          "ok": true,
+          "paths": [],
+          "start": 1700055900000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/cli/src/main.rs"
+          ],
+          "start": 1700055960000
+        },
+        {
+          "tool": "bash",
+          "command": "cargo clippy --all-targets -- -D warnings",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700056020000
+        }
+      ]
+    },
+    {
+      "id": "cli-workspace-tests-1",
+      "label": "none",
+      "note": "workspace tests, only 1 session(s) so far",
+      "episode": {
+        "sessionID": "ses_cli_workspace_tests_1",
+        "projectID": "/work/cli",
+        "objective": "Add a flag to the CLI",
+        "toolCalls": 12,
+        "files": [
+          "src/args.rs"
+        ],
+        "commands": [
+          "cargo test --workspace"
+        ],
+        "failures": [],
+        "startedAt": 1700059400000,
+        "endedAt": 1700061200000
+      }
+    },
+    {
+      "id": "cli-workspace-tests-2",
+      "label": "none",
+      "note": "workspace tests, only 2 session(s) so far",
+      "episode": {
+        "sessionID": "ses_cli_workspace_tests_2",
+        "projectID": "/work/cli",
+        "objective": "Add a flag to the CLI",
+        "toolCalls": 12,
+        "files": [
+          "src/args.rs"
+        ],
+        "commands": [
+          "cargo test --workspace"
+        ],
+        "failures": [],
+        "startedAt": 1700063000000,
+        "endedAt": 1700064800000
+      }
+    },
+    {
+      "id": "cli-workspace-tests-3",
+      "label": "repeated-command",
+      "note": "third session running cargo test --workspace",
+      "episode": {
+        "sessionID": "ses_cli_workspace_tests_3",
+        "projectID": "/work/cli",
+        "objective": "Add the --json output flag",
+        "toolCalls": 12,
+        "files": [
+          "src/output.rs"
+        ],
+        "commands": [
+          "cargo test --workspace"
+        ],
+        "failures": [],
+        "startedAt": 1700066600000,
+        "endedAt": 1700068400000
+      }
+    },
+    {
+      "id": "py-bare-pytest-1",
+      "label": "none",
+      "note": "bare `pytest` in every session: generic, not a project lesson",
+      "episode": {
+        "sessionID": "ses_py_bare_pytest_1",
+        "projectID": "/work/py",
+        "objective": "Tweak the loader",
+        "toolCalls": 12,
+        "files": [
+          "src/pkg/loader.py"
+        ],
+        "commands": [
+          "pytest"
+        ],
+        "failures": [],
+        "startedAt": 1700070200000,
+        "endedAt": 1700072000000
+      }
+    },
+    {
+      "id": "py-bare-pytest-2",
+      "label": "none",
+      "note": "bare `pytest` in every session: generic, not a project lesson",
+      "episode": {
+        "sessionID": "ses_py_bare_pytest_2",
+        "projectID": "/work/py",
+        "objective": "Tweak the loader",
+        "toolCalls": 12,
+        "files": [
+          "src/pkg/loader.py"
+        ],
+        "commands": [
+          "pytest"
+        ],
+        "failures": [],
+        "startedAt": 1700073800000,
+        "endedAt": 1700075600000
+      }
+    },
+    {
+      "id": "py-bare-pytest-3",
+      "label": "none",
+      "note": "bare `pytest` in every session: generic, not a project lesson",
+      "episode": {
+        "sessionID": "ses_py_bare_pytest_3",
+        "projectID": "/work/py",
+        "objective": "Tweak the loader",
+        "toolCalls": 12,
+        "files": [
+          "src/pkg/loader.py"
+        ],
+        "commands": [
+          "pytest"
+        ],
+        "failures": [],
+        "startedAt": 1700077400000,
+        "endedAt": 1700079200000
+      }
+    },
+    {
+      "id": "py-fix-io",
+      "label": "fix-verify",
+      "note": "red test_io, its source io.py edited, same pytest green",
+      "episode": {
+        "sessionID": "ses_py_fix_io",
+        "projectID": "/work/py",
+        "objective": "Fix reading empty files",
+        "toolCalls": 12,
+        "files": [
+          "src/pkg/io.py"
+        ],
+        "commands": [
+          "python -m pytest tests/test_io.py -x"
+        ],
+        "failures": [
+          {
+            "summary": "AssertionError: assert b'' == None",
+            "file": "tests/test_io.py",
+            "line": 30
+          }
+        ],
+        "startedAt": 1700081000000,
+        "endedAt": 1700082800000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "python -m pytest tests/test_io.py -x",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700081100000
+        },
+        {
+          "tool": "read",
+          "ok": true,
+          "paths": [
+            "/work/py/src/pkg/io.py"
+          ],
+          "start": 1700081160000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/py/src/pkg/io.py"
+          ],
+          "start": 1700081220000
+        },
+        {
+          "tool": "bash",
+          "command": "python -m pytest tests/test_io.py -x",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700081280000
+        }
+      ]
+    },
+    {
+      "id": "py-skip-the-test",
+      "label": "none",
+      "note": "red test 'fixed' by editing conftest.py to skip it; a reviewer would reject it (a known false positive)",
+      "episode": {
+        "sessionID": "ses_py_skip_the_test",
+        "projectID": "/work/py",
+        "objective": "Get CI green",
+        "toolCalls": 12,
+        "files": [
+          "tests/conftest.py"
+        ],
+        "commands": [
+          "python -m pytest tests/test_cache.py"
+        ],
+        "failures": [],
+        "startedAt": 1700084600000,
+        "endedAt": 1700086400000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "python -m pytest tests/test_cache.py",
+          "exit": 1,
+          "ok": true,
+          "paths": [],
+          "start": 1700084700000
+        },
+        {
+          "tool": "edit",
+          "ok": true,
+          "paths": [
+            "/work/py/tests/conftest.py"
+          ],
+          "start": 1700084760000
+        },
+        {
+          "tool": "bash",
+          "command": "python -m pytest tests/test_cache.py",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700084820000
+        }
+      ]
+    },
+    {
+      "id": "py-unsafe-install",
+      "label": "none",
+      "note": "a red build fixed by piping an installer to the shell: never a lesson",
+      "episode": {
+        "sessionID": "ses_py_unsafe_install",
+        "projectID": "/work/py",
+        "objective": "Install the toolchain",
+        "toolCalls": 12,
+        "files": [
+          "Makefile"
+        ],
+        "commands": [
+          "curl -fsSL https://example.invalid/install.sh | sh",
+          "make build"
+        ],
+        "failures": [
+          {
+            "summary": "toolchain not found",
+            "file": "Makefile",
+            "line": 3
+          }
+        ],
+        "startedAt": 1700088200000,
+        "endedAt": 1700090000000
+      },
+      "trace": [
+        {
+          "tool": "bash",
+          "command": "make build",
+          "exit": 2,
+          "ok": true,
+          "paths": [],
+          "start": 1700088300000
+        },
+        {
+          "tool": "bash",
+          "command": "curl -fsSL https://example.invalid/install.sh | sh",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700088360000
+        },
+        {
+          "tool": "bash",
+          "command": "make build",
+          "exit": 0,
+          "ok": true,
+          "paths": [],
+          "start": 1700088420000
+        }
+      ]
+    }
+  ]
+}
