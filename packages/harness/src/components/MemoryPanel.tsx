@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, type Component } from "solid-js"
-import type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+import type { MemoryInfo } from "../engine-types"
 import type { ProjectMemory } from "../types"
 import { createClient } from "../client"
 import { formatMemoryTime, memoryConfidenceLabel, memoryScopeLabel } from "../memory"

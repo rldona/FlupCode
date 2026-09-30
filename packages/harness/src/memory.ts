@@ -1,4 +1,4 @@
-import type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+import type { MemoryInfo } from "./engine-types"
 import { formatDateTime } from "./dates"
 
 /** User-facing scope name: global memory belongs to the user, not a project. */

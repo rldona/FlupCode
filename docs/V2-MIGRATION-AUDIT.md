@@ -794,6 +794,20 @@ cut over later.**
 Tickets use the prefix `V2-`. P0 means it blocks the phase, P1 is needed, and P2 is nice to have.
 Every ticket is its own PR against `power`.
 
+### Progress
+
+| Ticket | Status |
+|---|---|
+| V2-00 | Done: rldona/FlupCode#434 |
+| V2-01 | Done: rldona/FlupCode#435 |
+| V2-02 | Done: rldona/FlupCode#437 |
+| V2-03 | Done: rldona/FlupCode#438 |
+| V2-04 | Done: rldona/FlupCode#436 |
+| V2-05, V2-06 | Done: rldona/FlupCode#439. Findings in [V2-CONTRACT-REPORT.md](V2-CONTRACT-REPORT.md) |
+| V2-07 | Open. The report only has start-to-healthy times, and they are not comparable |
+| V2-10, V2-12 | Done in the engine adapter PR |
+| V2-11 | Detection is covered by V2-00 (`detectEngine`, the banner, onboarding, desktop and CLI). Choosing an adapter by line lands with V2-20, since no 2.x adapter exists before it |
+
 ### Phase 0: Baseline
 
 **V2-00 · Guard against an unexpected V2 engine (P0, risk that exists today)**
