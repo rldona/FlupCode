@@ -1,0 +1,22 @@
+{
+  "status": "object",
+  "mcp": "object",
+  "config": [
+    "model",
+    "provider"
+  ],
+  "sessionList": [
+    "cursor",
+    "data"
+  ],
+  "sessionListItem": [
+    "cost",
+    "id",
+    "location",
+    "projectID",
+    "subpath",
+    "time",
+    "title",
+    "tokens"
+  ]
+}

@@ -1,0 +1,50 @@
+{
+  "events": [
+    "message.part.delta",
+    "message.part.updated",
+    "message.updated",
+    "question.asked",
+    "question.replied",
+    "session.created",
+    "session.diff",
+    "session.idle",
+    "session.status",
+    "session.updated"
+  ],
+  "transcript": [
+    {
+      "role": "user",
+      "parts": [
+        "text"
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        "step-start",
+        "tool:question:completed",
+        "step-finish"
+      ]
+    },
+    {
+      "role": "assistant",
+      "parts": [
+        "step-start",
+        "text",
+        "step-finish"
+      ]
+    }
+  ],
+  "askedEvent": [
+    "id",
+    "questions",
+    "sessionID",
+    "tool"
+  ],
+  "request": [
+    "id",
+    "questions",
+    "sessionID",
+    "tool"
+  ]
+}

@@ -1,0 +1,33 @@
+{
+  "events": [
+    "message.part.delta",
+    "message.part.updated",
+    "message.updated",
+    "session.created",
+    "session.diff",
+    "session.error",
+    "session.idle",
+    "session.status",
+    "session.updated"
+  ],
+  "transcript": [
+    {
+      "role": "user",
+      "parts": [
+        "text"
+      ]
+    },
+    {
+      "role": "assistant",
+      "error": "MessageAbortedError",
+      "parts": [
+        "step-start",
+        "text"
+      ]
+    }
+  ],
+  "error": [
+    "data",
+    "name"
+  ]
+}

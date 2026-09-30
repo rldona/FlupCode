@@ -461,6 +461,19 @@
         "@typescript/native-preview": "catalog:",
       },
     },
+    "packages/engine-contract": {
+      "name": "@flupcode/engine-contract",
+      "version": "0.0.0",
+      "dependencies": {
+        "@flupcode/remote": "workspace:*",
+      },
+      "devDependencies": {
+        "@tsconfig/bun": "catalog:",
+        "@types/bun": "catalog:",
+        "@typescript/native-preview": "catalog:",
+        "typescript": "catalog:",
+      },
+    },
     "packages/enterprise": {
       "name": "@opencode-ai/enterprise",
       "version": "1.18.32",
@@ -1756,6 +1769,8 @@
     "@flupcode/cli": ["@flupcode/cli@workspace:packages/flupcode-cli"],
 
     "@flupcode/desktop": ["@flupcode/desktop@workspace:packages/harness-desktop"],
+
+    "@flupcode/engine-contract": ["@flupcode/engine-contract@workspace:packages/engine-contract"],
 
     "@flupcode/harness": ["@flupcode/harness@workspace:packages/harness"],
 
