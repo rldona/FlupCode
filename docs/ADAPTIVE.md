@@ -494,14 +494,40 @@ measured against numbers rather than impressions. `packages/harness-server/src/r
   apart from its README and one synthetic example; a fixture is committed only after review.
 - **Runner.** `bun run replay -- --variants <file> --repeat 3 --yes` replays each fixture × variant ×
   repetition in a throwaway session inside a fresh engine worktree (`--in-place` opts out), then runs
-  the verify command there. A variant may override the model or agent, point at another engine, or
-  patch `flupcode.adaptive` through the settings surface (restored afterwards).
+  the verify command there. A variant may override the model or agent, point at another engine,
+  patch `flupcode.adaptive` through the settings surface (restored afterwards), or set
+  `engineConfig`: opencode config for a throwaway engine started for that variant alone.
+- **Throwaway engines.** `engineConfig` (e.g. `{ "compaction": { "prune": true } }`) starts this
+  checkout's engine, as `.claude/launch.json` does (`--engine-command` overrides it), on a free port
+  with the config layered last through `OPENCODE_CONFIG_CONTENT`. The runner waits for
+  `/global/health`, refuses the variant if `/config` does not carry every key it set (an unknown key
+  would otherwise measure nothing), and stops the engine after the variant whatever happened. The
+  user's engine on :4096 and the global opencode config are never touched. An engine that does not
+  start fails its variant's runs only, so the report of the variants before it is kept.
 - **Report.** `report.json` and `report.md`: uncached input, cached and output tokens, USD and wall
   time per repetition (from `session_metrics`, else the engine's transcript), verification, and mean,
   p50 and spread per fixture × variant. The engine takes no sampling seed, so the report records
   `seed: null` and pins the model on every prompt; "reproducible" is every repetition within ±5% of
-  the mean in total tokens and USD.
+  the mean in total tokens and USD. Every variant is also compared with the baseline (the variant
+  named `baseline`, else the first): Δ uncached input tokens, Δ completion (pp), Δ wall time and Δ
+  USD, summed over per-fixture means for the fixtures both ran, plus a recommendation by the
+  preregistered rule: a lever is recommended when Δ uncached ≤ 0 and Δ completion ≥ −1 pp.
 - **Cost.** Without `--yes` it only prints the plan; under `CI` it refuses. Tests use a stub engine.
+- **Native levers (AH-D01).** `fixtures/replay/variants/native-levers.json` holds the experiment:
+  `baseline` (an empty `engineConfig`, so every arm runs on an identical fresh engine), `prune`
+  (`compaction.prune`), `max-bytes-16k` / `max-bytes-32k` (`tool_output.max_bytes`, default 51200),
+  `tail-turns-2` (`compaction.tail_turns`) and `preserve-recent-8k`
+  (`compaction.preserve_recent_tokens`, default 25% of the usable window clamped to 2k–15k).
+  From `packages/harness-server`:
+
+  ```sh
+  bun run replay -- --variants fixtures/replay/variants/native-levers.json --repeat 3 --yes
+  ```
+
+  The tail and preserve-recent levers only act when a session compacts, so the corpus needs long
+  sessions for them to show. The report that fixes the defaults, and the D02/D03 thresholds after
+  it, must come from real fixtures: 30 or more exported sessions, not the synthetic example (the
+  report marks anything under 30 fixtures as provisional).
 
 ## Egress consent per provider
 

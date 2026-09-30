@@ -1,0 +1,8 @@
+[
+  { "name": "baseline", "engineConfig": {} },
+  { "name": "prune", "engineConfig": { "compaction": { "prune": true } } },
+  { "name": "max-bytes-16k", "engineConfig": { "tool_output": { "max_bytes": 16384 } } },
+  { "name": "max-bytes-32k", "engineConfig": { "tool_output": { "max_bytes": 32768 } } },
+  { "name": "tail-turns-2", "engineConfig": { "compaction": { "tail_turns": 2 } } },
+  { "name": "preserve-recent-8k", "engineConfig": { "compaction": { "preserve_recent_tokens": 8000 } } }
+]

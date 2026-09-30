@@ -2,13 +2,15 @@ import { afterEach, describe, expect, test } from "bun:test"
 import { mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { renderMarkdown, runReplay, stat } from "./runner"
+import { compare, renderMarkdown, runReplay, stat } from "./runner"
+import type { ReplayAggregate } from "./runner"
 
 /** A stub engine and harness on one port: the routes the runner calls, and a log of what it did. */
 function fakeEngine() {
   const seen = {
     sessions: 0,
     prompts: [] as Array<{
+      via?: string
       sessionID: string
       text: string
       model?: unknown
@@ -37,6 +39,7 @@ function fakeEngine() {
       if (prompt) {
         const body = (await request.json()) as { parts: Array<{ text: string }>; model?: unknown; agent?: string }
         seen.prompts.push({
+          via: request.headers.get("x-via") ?? undefined,
           sessionID: prompt[1]!,
           text: body.parts[0]!.text,
           model: body.model,
@@ -185,9 +188,129 @@ describe("replay runner", () => {
     expect(down.aggregates[0]!.reproducible).toBe(false)
   })
 
+  test("a variant with engineConfig runs on its own engine, which carries the config and is stopped", async () => {
+    running = fakeEngine()
+    const fake = running
+    const lines: string[] = []
+    const report = await runReplay({
+      fixtures: [{ version: 1, id: "synthetic", directory: tmpdir(), prompts: ["go"] }],
+      variants: [{ name: "baseline" }, { name: "prune", engineConfig: { compaction: { prune: true } } }],
+      repeat: 2,
+      engine: fake.url,
+      isolation: "in-place",
+      spawn: { command: ["bun", "-e", proxyEngine], env: { REPLAY_TARGET: fake.url }, pollMs: 20 },
+      pollMs: 1,
+      settleMs: 0,
+      log: (line) => lines.push(line),
+    })
+
+    // The baseline talks to the given engine; the variant to its own one, and only to it.
+    expect(fake.seen.prompts.map((prompt) => prompt.via)).toEqual([undefined, undefined, "proxy", "proxy"])
+    expect(report.runs.every((run) => run.status === "ok")).toBe(true)
+    expect(report.variants[1]!.engineConfig).toEqual({ compaction: { prune: true } })
+    // The throwaway engine is gone once the variant is done.
+    const pid = Number(lines.find((line) => line.startsWith("prune: engine"))?.match(/pid (\d+)/)?.[1])
+    expect(pid).toBeGreaterThan(0)
+    expect(() => process.kill(pid, 0)).toThrow()
+    expect(report.baseline).toBe("baseline")
+    expect(report.comparisons).toMatchObject([{ variant: "prune", fixtures: 1, completionPp: 0, recommended: true }])
+    expect(renderMarkdown(report)).toContain("## Recommendation")
+  })
+
+  test("an engine that does not start fails its variant only, and bad variants are refused up front", async () => {
+    running = fakeEngine()
+    const fixture = { version: 1 as const, id: "synthetic", directory: tmpdir(), prompts: ["go"] }
+    const report = await runReplay({
+      fixtures: [fixture],
+      variants: [{ name: "baseline" }, { name: "broken", engineConfig: { compaction: { prune: true } } }],
+      repeat: 2,
+      engine: running.url,
+      isolation: "in-place",
+      spawn: { command: ["sh", "-c", "exit 7"], pollMs: 20 },
+      pollMs: 1,
+      settleMs: 0,
+    })
+    expect(report.runs.filter((run) => run.variant === "baseline").every((run) => run.status === "ok")).toBe(true)
+    expect(report.runs.filter((run) => run.variant === "broken")).toHaveLength(2)
+    expect(report.runs.find((run) => run.variant === "broken")!.error).toContain("exited (7)")
+
+    const refused = (variants: Parameters<typeof runReplay>[0]["variants"], spawn?: { command: string[] }) =>
+      runReplay({ fixtures: [fixture], variants, engine: running!.url, ...(spawn ? { spawn } : {}) })
+    await expect(refused([{ name: "levers", engineConfig: {} }])).rejects.toThrow("needs a spawn command")
+    await expect(
+      refused([{ name: "levers", engineConfig: {}, engine: "http://127.0.0.1:1" }], { command: ["true"] }),
+    ).rejects.toThrow("cannot set engine")
+  })
+
+  test("comparisons sum per-fixture means against the baseline and apply the preregistered rule", () => {
+    const row = (fixture: string, variant: string, uncached: number, completionRate: number, usd = 1, wallMs = 1000) =>
+      ({
+        fixture,
+        variant,
+        runs: 3,
+        ok: 3,
+        completionRate,
+        uncachedInput: stat([uncached]),
+        cached: stat([0]),
+        output: stat([0]),
+        usd: stat([usd]),
+        wallMs: stat([wallMs]),
+        reproducible: true,
+      }) satisfies ReplayAggregate
+    const rows = [
+      row("a", "baseline", 1000, 1),
+      row("b", "baseline", 3000, 1),
+      row("a", "smaller", 800, 1, 0.8, 900),
+      row("b", "smaller", 2200, 1, 0.8, 900),
+      row("a", "lossy", 500, 0.9),
+      row("b", "lossy", 1500, 1),
+      row("a", "bigger", 1200, 1),
+      row("b", "bigger", 3000, 1),
+      row("c", "orphan", 1, 1),
+    ]
+    const result = compare(rows, "baseline")
+    expect(result.map((entry) => [entry.variant, entry.recommended])).toEqual([
+      ["smaller", true],
+      // −5 pp of completion is a regression whatever it saves.
+      ["lossy", false],
+      ["bigger", false],
+    ])
+    expect(result[0]).toMatchObject({
+      fixtures: 2,
+      uncachedInput: { baseline: 4000, variant: 3000, delta: -1000, relative: -0.25 },
+      completionPp: 0,
+    })
+    expect(result[0]!.usd.delta).toBeCloseTo(-0.4)
+    expect(result[0]!.wallMs.relative).toBeCloseTo(-0.1)
+    expect(result[1]!.completionPp).toBeCloseTo(-5)
+  })
+
   test("the spread is the largest relative distance from the mean", () => {
     expect(stat([100, 104, 96])).toEqual({ mean: 100, p50: 100, min: 96, max: 104, spread: 0.04 })
     expect(stat([1, 2, 3, 4]).p50).toBe(2.5)
     expect(stat([])).toEqual({ mean: 0, p50: 0, min: 0, max: 0, spread: 0 })
   })
 })
+
+/**
+ * A throwaway "engine" for the spawn tests: answers health and its config from
+ * `OPENCODE_CONFIG_CONTENT`, and forwards everything else to the stub engine, marked as proxied.
+ */
+const proxyEngine = `
+Bun.serve({
+  port: {port},
+  hostname: "127.0.0.1",
+  fetch: async (request) => {
+    const url = new URL(request.url)
+    if (url.pathname === "/global/health") return Response.json({ healthy: true })
+    if (url.pathname === "/config") return Response.json(JSON.parse(process.env.OPENCODE_CONFIG_CONTENT))
+    const headers = new Headers(request.headers)
+    headers.set("x-via", "proxy")
+    return fetch(process.env.REPLAY_TARGET + url.pathname + url.search, {
+      method: request.method,
+      headers,
+      body: request.method === "GET" || request.method === "HEAD" ? undefined : await request.arrayBuffer(),
+    })
+  },
+})
+`

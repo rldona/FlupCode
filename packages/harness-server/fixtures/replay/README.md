@@ -15,8 +15,9 @@ and runner") has the design; this file is the privacy stance and the commands.
   redaction (`src/adaptive/redaction.ts`: known env secrets plus credential shapes), and absolute
   home paths (`/Users/<name>`, `/home/<name>`, `C:\Users\<name>`) become `~`. The redaction is
   conservative, not a guarantee: read a fixture before you share it.
-- **Local.** This folder is git-ignored apart from this README and `example-synthetic.json`. A
-  fixture is only committed after somebody reviews it and adds it on purpose (`git add -f`).
+- **Local.** This folder is git-ignored apart from this README, `example-synthetic.json` and
+  `variants/` (config only, no session data). A fixture is only committed after somebody reviews it
+  and adds it on purpose (`git add -f`).
 - **A fixture is code.** Its `verify` command runs in a shell on replay. Only replay fixtures you
   exported or reviewed.
 
@@ -46,12 +47,36 @@ A variants file is a JSON array:
 ```
 
 `adaptive` is patched through the harness settings surface before the variant and restored after it
-(only the fields that surface allows). `engine` points a variant at another engine, for settings the
-engine only reads at startup. `--model provider/model` is a one-variant shortcut.
+(only the fields that surface allows). `engine` points a variant at another, already running engine.
+`engineConfig` starts a throwaway engine for the variant instead: this checkout's opencode on a free
+port (`--engine-command "… --port {port}"` overrides it), with the object layered over your config
+through `OPENCODE_CONFIG_CONTENT`, checked against the engine's `/config`, and stopped after the
+variant. Your engine on :4096 and your global config are never touched. `--model provider/model` is a
+one-variant shortcut.
+
+## Native levers experiment (AH-D01)
+
+`variants/native-levers.json` compares the engine's own levers against a baseline, each on a fresh
+engine: `compaction.prune`, `tool_output.max_bytes` at 16k and 32k, `compaction.tail_turns` and
+`compaction.preserve_recent_tokens`.
+
+```sh
+# The plan: fixtures × 6 variants × 3 repetitions, and the config each engine gets.
+bun run replay -- --variants fixtures/replay/variants/native-levers.json --repeat 3
+
+# The paid run.
+bun run replay -- --variants fixtures/replay/variants/native-levers.json --repeat 3 --yes
+```
+
+`report.md` then adds, per variant against `baseline`, Δ uncached input tokens, Δ completion (pp), Δ
+wall time and Δ USD, and a recommendation by the preregistered rule (Δ uncached ≤ 0 and Δ completion ≥
+−1 pp). Produce the report that sets defaults from real fixtures (30 or more exported sessions, with
+some long enough to compact): the D02/D03 thresholds are fixed from it, not from the synthetic
+example.
 
 Reports land in `reports/<timestamp>/report.json` and `report.md`: tokens (uncached input, cached,
-output), USD and wall time per repetition, the verify result, and mean, p50 and spread per fixture ×
-variant. The engine exposes no sampling seed, so the report says `seed: null` and pins the model on
+output), USD and wall time per repetition, the verify result, mean, p50 and spread per fixture ×
+variant, and each variant's deltas against the baseline. The engine exposes no sampling seed, so the report says `seed: null` and pins the model on
 every prompt; "reproducible" means every repetition is within ±5% of the mean in total tokens and USD.
 
 The runner refuses to run under `CI`: it always calls a real model.
