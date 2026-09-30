@@ -486,6 +486,76 @@ export type UsageReport = {
   slowest: Array<{ taskID: string; runID: string; name: string; ms: number }>
 }
 
+/** Latency percentiles over a set of turns (AH-B02); absent when no turn measured it. */
+export type Percentiles = { p50?: number; p95?: number }
+
+export type MetricTokens = { input: number; output: number; reasoning: number; cacheRead: number; cacheWrite: number }
+
+export type ToolTotal = { tool: string; calls: number; errors: number; bytes: number }
+
+/** One session's cost, added up from its per-turn metrics (AH-B02). */
+export type SessionCost = {
+  sessionID: string
+  projectID?: string
+  providerID?: string
+  modelID?: string
+  agent?: string
+  turns: number
+  requests: number
+  tokens: MetricTokens & { total: number }
+  cost: number
+  /** cacheRead / (input + cacheRead + cacheWrite), as a fraction. */
+  cached: number
+  turnMs: Percentiles
+  firstTokenMs: Percentiles
+  toolCalls: number
+  toolErrors: number
+  toolOutputBytes: number
+  topTools: ToolTotal[]
+  compactions: number
+  startedAt: number
+  endedAt: number
+}
+
+/** Every session's cost in a window, answered in one read (AH-B02). */
+export type SessionCostReport = {
+  totals: {
+    sessions: number
+    turns: number
+    tokens: MetricTokens & { total: number }
+    cost: number
+    cached: number
+    turnMs: Percentiles
+    firstTokenMs: Percentiles
+  }
+  sessions: SessionCost[]
+  topTools: ToolTotal[]
+}
+
+/** One turn of one session, as the harness recorded it (AH-B01). */
+export type SessionMetricTurn = {
+  sessionID: string
+  turnID: string
+  turn: number
+  projectID?: string
+  providerID?: string
+  modelID?: string
+  agent?: string
+  requests: number
+  tokens: MetricTokens
+  cost: number
+  modelMs: number
+  firstTokenMs?: number
+  toolCalls: number
+  toolErrors: number
+  toolOutputBytes: number
+  tools: Record<string, { calls: number; errors: number; bytes: number }>
+  compactions: number
+  skills: string[]
+  startedAt: number
+  endedAt: number
+}
+
 /** What a running task is doing right now (H-12), and for how long. */
 export type TaskActivity = { taskID: string; tool?: string; detail?: string; waitingMs: number }
 

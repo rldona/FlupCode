@@ -661,6 +661,9 @@ test("the audits are asked for under their own paths, with the filter and the be
     await client.adaptive.proposals.list({ projectID: "/work/demo" })
     await client.adaptive.learnedSkills.list({ projectID: "/work/demo" })
     await client.adaptive.guardrails.status("ses_1")
+    await client.adaptive.metrics.session("ses_1")
+    await client.adaptive.metrics.sessions({ since: 1000, directory: "/work/demo", limit: 20 })
+    await client.adaptive.metrics.sessions()
   })
 
   expect(calls.map((call) => `${call.method} ${call.path}${call.search}`)).toEqual([
@@ -671,6 +674,9 @@ test("the audits are asked for under their own paths, with the filter and the be
     "GET /harness/adaptive/proposals?projectID=%2Fwork%2Fdemo",
     "GET /harness/adaptive/learned-skills?projectID=%2Fwork%2Fdemo",
     "GET /harness/adaptive/guardrails/status?sessionID=ses_1",
+    "GET /harness/adaptive/metrics?sessionID=ses_1",
+    "GET /harness/adaptive/metrics/sessions?since=1000&directory=%2Fwork%2Fdemo&limit=20",
+    "GET /harness/adaptive/metrics/sessions",
   ])
   expect(calls.every((call) => call.auth === "Bearer tok")).toBe(true)
 })
@@ -706,6 +712,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     learnedSkills: false,
     guardrails: false,
     review: false,
+    metrics: false,
   })
   expect(
     adaptiveSurfaces([
@@ -716,6 +723,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
       "adaptive-skills",
       "adaptive-guardrails",
       "adaptive-proposals-review",
+      "adaptive-metrics",
     ]),
   ).toEqual({
     config: true,
@@ -725,6 +733,7 @@ test("an adaptive surface the server did not announce is not asked for", () => {
     learnedSkills: true,
     guardrails: true,
     review: true,
+    metrics: true,
   })
 })
 
@@ -737,6 +746,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     learnedSkills: false,
     guardrails: false,
     review: false,
+    metrics: false,
   })
   expect(adaptiveSurfaces(["adaptive-decisions"]).decisions).toBe(true)
   expect(adaptiveSurfaces(["adaptive-decisions"]).config).toBe(false)
@@ -748,6 +758,8 @@ test("each adaptive surface is offered only for its own capability", () => {
   expect(adaptiveSurfaces(["adaptive-skills"]).learnedSkills).toBe(true)
   expect(adaptiveSurfaces(["adaptive-guardrails"]).guardrails).toBe(true)
   expect(adaptiveSurfaces(["adaptive-guardrails"]).decisions).toBe(false)
+  expect(adaptiveSurfaces(["adaptive-metrics"]).metrics).toBe(true)
+  expect(adaptiveSurfaces(["adaptive-metrics"]).guardrails).toBe(false)
   expect(adaptiveSurfaces(["something-else"])).toEqual({
     config: false,
     decisions: false,
@@ -756,6 +768,7 @@ test("each adaptive surface is offered only for its own capability", () => {
     learnedSkills: false,
     guardrails: false,
     review: false,
+    metrics: false,
   })
 })
 

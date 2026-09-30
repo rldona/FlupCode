@@ -10852,7 +10852,8 @@ button.fc-status {
 
 /* ── What it cost (H-16) ──────────────────────────────────────────────────── */
 
-.fc-usage {
+.fc-usage,
+.fc-usage-sessions {
   display: flex;
   flex-direction: column;
   gap: var(--fc-space-5);
@@ -10994,6 +10995,86 @@ button.fc-status {
   color: var(--fc-text-muted);
   font-size: var(--fc-text-xs);
   cursor: pointer;
+}
+
+/* ── What each session cost (AH-B02) ──────────────────────────────────────── */
+
+.fc-session-costs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--fc-space-3);
+}
+
+.fc-session-cost-table {
+  overflow-x: auto;
+}
+
+.fc-session-cost-row {
+  display: grid;
+  grid-template-columns: minmax(180px, 2.4fr) 56px 76px 72px minmax(120px, 1.2fr) minmax(120px, 1.2fr) 84px;
+  gap: var(--fc-space-3);
+  align-items: center;
+  min-width: 760px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--fc-border);
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.fc-session-cost-row > span:not(:first-child) {
+  text-align: right;
+}
+
+/* Two latencies in one tile: kept on one line, a size down from a single figure. */
+.fc-session-cost-pair {
+  font-size: var(--fc-text-lg);
+  white-space: nowrap;
+}
+
+.fc-session-cost-head {
+  font-size: var(--fc-text-xs);
+  font-weight: 600;
+}
+
+.fc-session-cost-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fc-session-cost-open {
+  overflow: hidden;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fc-text);
+  font: inherit;
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.fc-session-cost-open:hover {
+  text-decoration: underline;
+}
+
+.fc-session-cost-meta {
+  overflow: hidden;
+  font-size: var(--fc-text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-session-cost-money {
+  color: var(--fc-text);
+}
+
+.fc-session-cost-tools h2 {
+  margin: 0 0 var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+  font-weight: 600;
 }
 
 /* ── What a task is doing, and what it changed (H-12) ─────────────────────── */
