@@ -18,6 +18,9 @@ import {
   fieldProblem,
   inactiveByMaster,
   learningLimitLines,
+  missingFor,
+  missingText,
+  modelKeyState,
   needsConfirmation,
   nextBudgetDraft,
   patchLeaf,
@@ -296,6 +299,9 @@ describe("the server's answer said in the reader's words", () => {
       "not_found",
       "invalid_token",
       "internal_error",
+      "invalid-key",
+      "vault-unavailable",
+      "invalid-endpoint",
     ]
     for (const code of codes) expect(feedbackFor(code).message).not.toBe("The change could not be saved.")
   })
@@ -781,5 +787,110 @@ describe("reading a leaf", () => {
     expect(leafOn(view(), "context.apply")).toBe(false)
     expect(leafOn(consenting({ jev: { enabled: true } }), "egress.providers.jev.enabled")).toBe(true)
     expect(leafOn(view(), "toolTrim.enabled")).toBe(false)
+  })
+})
+
+describe("what a blocked switch says is missing", () => {
+  const keyed = (base: AdaptiveConfigView): AdaptiveConfigView => ({
+    ...base,
+    env: { adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" },
+  })
+  const said = (base: AdaptiveConfigView, path: string) => {
+    const items = missingFor(base, path)
+    return items.length > 0 ? missingText(items) : undefined
+  }
+
+  test("the predictive model names every missing step, in the order the section draws them", () => {
+    const cases: Array<[Partial<{ enabled: boolean; projects: string[]; kinds: Record<string, boolean> }>, string | undefined]> = [
+      [{}, "Missing: a project, a decision, and sending data to jev turned on"],
+      [{ projects: ["/p"] }, "Missing: a decision and sending data to jev turned on"],
+      [{ kinds: { completion: true } }, "Missing: a project and sending data to jev turned on"],
+      [{ projects: ["/p"], kinds: { completion: true } }, "Missing: sending data to jev turned on"],
+      [{ enabled: true }, "Missing: a project and a decision"],
+      [{ enabled: true, projects: ["/p"] }, "Missing: a decision"],
+      [{ enabled: true, kinds: { completion: true } }, "Missing: a project"],
+      [{ enabled: true, projects: ["/p"], kinds: { completion: true } }, undefined],
+      // A decision turned off is no decision.
+      [{ enabled: true, projects: ["/p"], kinds: { completion: false } }, "Missing: a decision"],
+    ]
+    for (const [consent, text] of cases) expect(said(keyed(consenting({ jev: consent })), "jev.enabled")).toBe(text)
+  })
+
+  test("without a key the predictive model says so last, and with everything else it is the only thing", () => {
+    expect(said(consenting({}), "jev.enabled")).toBe(
+      "Missing: a project, a decision, sending data to jev turned on, and the model key",
+    )
+    expect(
+      said(consenting({ jev: { enabled: true, projects: ["/p"], kinds: { completion: true } } }), "jev.enabled"),
+    ).toBe("Missing: the model key")
+  })
+
+  test("sending data to a provider needs a project and a decision of that provider's own", () => {
+    const base = consenting({ jev: { projects: ["/p"], kinds: { completion: true } }, "small-llm": {} })
+    expect(said(base, "egress.providers.small-llm.enabled")).toBe("Missing: a project and a decision")
+    expect(said(base, "egress.providers.jev.enabled")).toBeUndefined()
+    expect(said(consenting({ "small-llm": { projects: ["/p"] } }), "egress.providers.small-llm.enabled")).toBe(
+      "Missing: a decision",
+    )
+    expect(said(consenting({ "small-llm": { kinds: { completion: true } } }), "egress.providers.small-llm.enabled")).toBe(
+      "Missing: a project",
+    )
+    // Sending data is not itself a step it waits for, and its key is the predictive model's concern.
+    expect(said(base, "egress.providers.jev.enabled")).toBeUndefined()
+  })
+
+  test("any other switch has nothing of this kind missing", () => {
+    expect(missingFor(consenting({}), "retention.enabled")).toEqual([])
+    expect(missingFor(consenting({}), "egress.providers.jev.projects")).toEqual([])
+  })
+
+  test("the sentence is joined the Spanish way in Spanish, with the provider's name kept as data", () => {
+    setLocale("es")
+    expect(said(consenting({}), "jev.enabled")).toBe(
+      "Falta: un proyecto, una decisión, el envío de datos a jev activado y la clave del modelo",
+    )
+    setLocale("en")
+  })
+})
+
+describe("where the predictive model's key stands", () => {
+  const withKey = (env: AdaptiveConfigView["env"], storable?: boolean): AdaptiveConfigView => ({
+    ...view(),
+    env,
+    ...(storable === undefined ? {} : { modelKeyStorable: storable }),
+  })
+
+  test("set by the environment, saved, missing, or missing where it cannot be saved", () => {
+    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "env" }, true))).toBe(
+      "env",
+    )
+    expect(
+      modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: true, typesafeKeySource: "stored" }, true)),
+    ).toBe("stored")
+    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" }, true))).toBe(
+      "none",
+    )
+    expect(
+      modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: false, typesafeKeySource: "none" }, false)),
+    ).toBe("unavailable")
+  })
+
+  test("an older server that only says whether a key exists is read as the environment's, or as unsavable", () => {
+    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: true }))).toBe("env")
+    expect(modelKeyState(withKey({ adaptiveDisabled: false, typesafeKeyPresent: false }))).toBe("unavailable")
+  })
+
+  test("every key message is translated", () => {
+    setLocale("es")
+    for (const key of [
+      "Key set by the environment.",
+      "Key saved",
+      "Save key",
+      "Model key",
+      "Predictive model key",
+      "The key is stored encrypted on this machine and used only for calls to the predictive model's provider. It is never shown again.",
+    ])
+      expect(t(key)).not.toBe(key)
+    setLocale("en")
   })
 })

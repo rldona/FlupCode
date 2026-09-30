@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createSignal, type Component, type JSX } from "solid-js"
-import { t } from "../i18n"
+import { getLocale, t } from "../i18n"
 import { adaptiveSurfaces } from "../client"
 import type { AdaptiveConfigError } from "../client"
 import type {
@@ -103,6 +103,49 @@ export function problemKey(problem: AdaptiveProblem): string {
   if (problem === "env-disabled") return "Turned off by the environment."
   if (problem === "no-adaptive-token") return "This server was started without permission to act on sessions."
   return "First allow sharing data with the model provider, for a project and a decision."
+}
+
+/** One thing a switch still needs, as a template for `t` and its holes. */
+export type MissingItem = { key: string; params?: Record<string, string> }
+
+/**
+ * Exactly what the predictive model's switch, or a provider's "Send data" switch, still needs, in the
+ * order the section draws it: a project, a decision, sending data turned on, then the key. Empty when
+ * nothing is missing, or for any other switch. The key is not a server guard — without it built-in
+ * rules decide — but a switch that could only wait for it is not offered until it is set.
+ */
+export function missingFor(view: AdaptiveConfigView, path: string): MissingItem[] {
+  const consent = consentPath(path)
+  const provider = path === "jev.enabled" ? "jev" : consent?.leaf === "enabled" ? consent.provider : undefined
+  if (provider === undefined) return []
+  const current = consentOf(view, provider)
+  return [
+    ...((current?.projects.length ?? 0) === 0 ? [{ key: "a project" }] : []),
+    ...(Object.values(current?.kinds ?? {}).some(Boolean) ? [] : [{ key: "a decision" }]),
+    ...(path === "jev.enabled" && current?.enabled !== true
+      ? [{ key: "sending data to {provider} turned on", params: { provider } }]
+      : []),
+    ...(path === "jev.enabled" && !view.env.typesafeKeyPresent ? [{ key: "the model key" }] : []),
+  ]
+}
+
+/** The missing items said as one sentence, joined the way the reader's language joins a list. */
+export function missingText(items: readonly MissingItem[]): string {
+  const list = new Intl.ListFormat(getLocale(), { type: "conjunction" })
+  return t("Missing: {fields}", { fields: list.format(items.map((item) => t(item.key, item.params))) })
+}
+
+/**
+ * Where the predictive model's key stands: set by the environment (read-only here), saved in the
+ * encrypted vault, missing, or missing on a machine that cannot store one. An older server that does
+ * not say the source is read from the presence flag alone.
+ */
+export type ModelKeyState = "env" | "stored" | "none" | "unavailable"
+
+export function modelKeyState(view: AdaptiveConfigView): ModelKeyState {
+  const source = view.env.typesafeKeySource ?? (view.env.typesafeKeyPresent ? "env" : "none")
+  if (source !== "none") return source
+  return view.modelKeyStorable === true ? "none" : "unavailable"
 }
 
 /** The switches the master `enabled` stops on the server; retention sweeps run regardless of it. */
@@ -553,6 +596,9 @@ const FEEDBACK: Record<string, string> = {
   not_found: "This server does not have that route.",
   invalid_token: "The server refused the request: it needs the loopback token.",
   internal_error: "The server failed while writing the config.",
+  "invalid-key": "The key cannot be empty.",
+  "vault-unavailable": "This machine cannot store the key: its encrypted store is not available.",
+  "invalid-endpoint": "The predictive model's address is not valid, so the key was not saved.",
 }
 
 export function feedbackFor(code: string, missing?: string[]): AdaptiveFeedback {
@@ -675,8 +721,13 @@ export type AdaptiveSettingsState = {
   voi?: ValueGateSnapshot
 }
 
+/** A change to the predictive model's key, sent only after the reader confirmed it. */
+export type ModelKeyChange = { key: string } | { remove: true }
+
 type AdaptiveSettingsPanelProps = AdaptiveSettingsState & {
   onPatch: (patch: Record<string, unknown>, confirm: boolean) => void
+  /** Saves or removes the predictive model's key; offered only when the server announced the route. */
+  onModelKey?: (change: ModelKeyChange) => void
   /** Dismisses the runtime alerts (AH-D05); offered only when the server announced the route. */
   onAcknowledgeRuntime: () => void
 }
@@ -707,6 +758,12 @@ const LEVEL_HINTS: Record<AdaptiveLevel, string> = {
 export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (props) => {
   const [pending, setPending] = createSignal<PendingConfirm>()
   const [budget, setBudget] = createSignal("")
+  // The key itself lives only in the password field until the confirmed save reads and clears it: no
+  // signal ever holds it, only whether the field has something in it.
+  const [keyPending, setKeyPending] = createSignal<"save" | "remove">()
+  const [keyDraft, setKeyDraft] = createSignal(false)
+  const [keyEditing, setKeyEditing] = createSignal(false)
+  let keyInput: HTMLInputElement | undefined
 
   // The server's budget as last seen, so a write to another switch does not wipe an unsaved draft.
   let serverBudget: string | undefined
@@ -728,6 +785,14 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
     const view = props.view
     const entry = field(path)
     return view && entry ? fieldProblem(entry, view, props.capabilities, path) : undefined
+  }
+  /** Why a switch cannot be turned on right now, in the reader's words: what is missing, else the guard. */
+  const blocked = (path: string) => {
+    const view = props.view
+    const missing = view ? missingFor(view, path) : []
+    if (missing.length > 0) return missingText(missing)
+    const reason = problem(path)
+    return reason ? t(problemKey(reason)) : undefined
   }
   const value = (path: string) => (props.view ? leafOn(props.view, path) : false)
   const provenance = (path: string) => {
@@ -769,9 +834,7 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         <span class="fc-settings-usage">
           <span>{t(row.label, row.params)}</span>
           {row.children}
-          <Show when={problem(row.path)}>
-            {(reason) => <span class="fc-settings-hint">{t(problemKey(reason()))}</span>}
-          </Show>
+          <Show when={blocked(row.path)}>{(reason) => <span class="fc-settings-hint">{reason()}</span>}</Show>
           <Show when={props.view && inactiveByMaster(props.view, row.path)}>
             <span class="fc-settings-hint">{t("Inactive: the master switch is off.")}</span>
           </Show>
@@ -779,7 +842,8 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         <Toggle
           checked={value(row.path)}
           label={t(row.label, row.params)}
-          disabled={locked() || !!problem(row.path)}
+          // A blocked switch that is already on can still be turned off: only turning on needs the guard.
+          disabled={locked() || (!!blocked(row.path) && !value(row.path))}
           onToggle={() => propose(row.path, !value(row.path))}
         />
       </div>
@@ -888,11 +952,6 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
         <Show when={field(path("enabled")) || field(path("projects")) || field(path("kinds"))}>
           <div class="fc-settings-subtitle">{t("Sharing with {provider}", { provider: row.provider })}</div>
         </Show>
-        <Switch path={path("enabled")} label="Send data to {provider}" params={{ provider: row.provider }}>
-          <span class="fc-settings-hint">
-            {t("Needs confirmation. Covers {provider} only.", { provider: row.provider })}
-          </span>
-        </Switch>
         <Show when={field(path("projects"))}>
           <Show
             when={projects().length > 0}
@@ -962,6 +1021,97 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
               </div>
             )}
           </For>
+        </Show>
+        <Switch path={path("enabled")} label="Send data to {provider}" params={{ provider: row.provider }}>
+          <span class="fc-settings-hint">
+            {t("Needs confirmation. Covers {provider} only.", { provider: row.provider })}
+          </span>
+        </Switch>
+      </>
+    )
+  }
+
+  /**
+   * The predictive model's key, write-only: the environment's is only reported, a saved one offers
+   * Change and Remove, and a new one goes through a password field and a confirmation. The value is
+   * never shown back, and the field is cleared the moment the confirmed save reads it.
+   */
+  const ModelKeyRow = (row: { view: AdaptiveConfigView }) => {
+    const state = () => modelKeyState(row.view)
+    const writable = () => adaptiveSurfaces(props.capabilities).modelKey && !!props.onModelKey && !readOnly()
+    const editing = () => writable() && (state() === "none" || (state() === "stored" && keyEditing()))
+    return (
+      <>
+        <div class="fc-settings-subtitle">{t("Model key")}</div>
+        <Show when={state() === "env"}>
+          <p class="fc-adaptive-status" data-tone="active">
+            {t("Key set by the environment.")}
+          </p>
+          <p class="fc-settings-hint">{t("It can only be changed where FlupCode is started (TYPESAFE_API_KEY).")}</p>
+        </Show>
+        <Show when={state() === "stored" && !editing()}>
+          <div class="fc-settings-row">
+            <p class="fc-adaptive-status" data-tone="active">
+              {t("Key saved")}
+            </p>
+            <Show when={writable()}>
+              <span class="fc-settings-actions">
+                <button class="fc-button" type="button" disabled={locked()} onClick={() => setKeyEditing(true)}>
+                  {t("Change")}
+                </button>
+                <button class="fc-button" type="button" disabled={locked()} onClick={() => setKeyPending("remove")}>
+                  {t("Remove")}
+                </button>
+              </span>
+            </Show>
+          </div>
+        </Show>
+        <Show when={state() === "unavailable"}>
+          <p class="fc-settings-hint">
+            {t(
+              "This machine cannot store the key: its encrypted store is not available. Set TYPESAFE_API_KEY where FlupCode is started instead.",
+            )}
+          </p>
+        </Show>
+        <Show when={state() === "none" && !writable()}>
+          <p class="fc-settings-hint">{t("The model key is missing, so built-in rules decide instead.")}</p>
+        </Show>
+        <Show when={editing()}>
+          <div class="fc-field-row">
+            <label class="fc-field">
+              <span>{t("Predictive model key")}</span>
+              <input
+                ref={keyInput}
+                class="fc-question-custom"
+                type="password"
+                dir="ltr"
+                autocomplete="off"
+                spellcheck={false}
+                onInput={(event) => setKeyDraft(event.currentTarget.value.trim() !== "")}
+              />
+            </label>
+            <button
+              class="fc-button"
+              type="button"
+              disabled={locked() || !keyDraft()}
+              onClick={() => setKeyPending("save")}
+            >
+              {t("Save key")}
+            </button>
+            <Show when={state() === "stored"}>
+              <button
+                class="fc-button"
+                type="button"
+                onClick={() => {
+                  setKeyEditing(false)
+                  setKeyDraft(false)
+                }}
+              >
+                {t("Cancel")}
+              </button>
+            </Show>
+          </div>
+          <p class="fc-settings-hint">{t("Stored encrypted on this machine. It is never shown again.")}</p>
         </Show>
       </>
     )
@@ -1095,13 +1245,15 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                   "A predictive model can double-check some of these decisions. It only receives redacted, size-limited inputs, only for the projects you allow, and only from the providers you allow below.",
                 )}
               </p>
+              {/* In the order the reader has to do it (§7.4): what may leave the machine, provider by
+                  provider (AH-C03), then the key, then the switch that uses both. */}
+              <Show when={consentProviders(view()).length > 0}>
+                <h4 class="fc-settings-subtitle">{t("Data shared with the predictive model")}</h4>
+              </Show>
+              <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
+              <ModelKeyRow view={view()} />
               <Switch path="jev.enabled" label="Use the predictive model">
                 <span class="fc-settings-hint">{t("Needs confirmation.")}</span>
-                <Show when={!view().env.typesafeKeyPresent}>
-                  <span class="fc-settings-hint">
-                    {t("The model key is missing, so built-in rules decide instead.")}
-                  </span>
-                </Show>
               </Switch>
               <Show when={props.voi?.enabled && props.voi.kinds.length > 0}>
                 <div class="fc-settings-subtitle">{t("Is it worth asking?")}</div>
@@ -1114,11 +1266,6 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                   )}
                 </For>
               </Show>
-              {/* What may leave the machine, provider by provider (AH-C03). */}
-              <Show when={consentProviders(view()).length > 0}>
-                <h4 class="fc-settings-subtitle">{t("Data shared with the predictive model")}</h4>
-              </Show>
-              <For each={consentProviders(view())}>{(provider) => <ProviderConsent provider={provider} />}</For>
             </details>
 
             <details class="fc-adaptive-details">
@@ -1263,6 +1410,31 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
           if (next) props.onPatch(next.patch, true)
         }}
         onClose={() => setPending(undefined)}
+      />
+      <ConfirmDialog
+        open={!!keyPending()}
+        title={keyPending() === "remove" ? t("Remove the key?") : t("Save the key?")}
+        message={
+          keyPending() === "remove"
+            ? t(
+                "The saved key is deleted from this machine. Until another key is set, built-in rules decide instead of the predictive model.",
+              )
+            : t(
+                "The key is stored encrypted on this machine and used only for calls to the predictive model's provider. It is never shown again.",
+              )
+        }
+        confirmLabel={keyPending() === "remove" ? t("Remove") : t("Save key")}
+        onConfirm={() => {
+          const action = keyPending()
+          setKeyPending(undefined)
+          if (action === "remove") return props.onModelKey?.({ remove: true })
+          const key = keyInput?.value.trim() ?? ""
+          if (keyInput) keyInput.value = ""
+          setKeyDraft(false)
+          setKeyEditing(false)
+          if (key) props.onModelKey?.({ key })
+        }}
+        onClose={() => setKeyPending(undefined)}
       />
     </section>
   )

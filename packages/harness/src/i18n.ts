@@ -1536,6 +1536,33 @@ const ES: Record<string, string> = {
   "A predictive model can double-check some of these decisions. It only receives redacted, size-limited inputs, only for the projects you allow, and only from the providers you allow below.":
     "Un modelo predictivo puede revisar algunas de estas decisiones. Solo recibe entradas censuradas y de tamaño limitado, solo de los proyectos que permitas y solo para los proveedores que permitas abajo.",
   "Use the predictive model": "Usar el modelo predictivo",
+  Change: "Cambiar",
+  "a project": "un proyecto",
+  "a decision": "una decisión",
+  "sending data to {provider} turned on": "el envío de datos a {provider} activado",
+  "the model key": "la clave del modelo",
+  "Model key": "Clave del modelo",
+  "Predictive model key": "Clave del modelo predictivo",
+  "Key set by the environment.": "Clave definida por el entorno.",
+  "It can only be changed where FlupCode is started (TYPESAFE_API_KEY).":
+    "Solo se puede cambiar donde se inicia FlupCode (TYPESAFE_API_KEY).",
+  "Key saved": "Clave guardada",
+  "This machine cannot store the key: its encrypted store is not available. Set TYPESAFE_API_KEY where FlupCode is started instead.":
+    "Este equipo no puede guardar la clave: su almacén cifrado no está disponible. Define TYPESAFE_API_KEY donde se inicia FlupCode.",
+  "Save key": "Guardar clave",
+  "Stored encrypted on this machine. It is never shown again.":
+    "Se guarda cifrada en este equipo. No se vuelve a mostrar.",
+  "Remove the key?": "¿Quitar la clave?",
+  "Save the key?": "¿Guardar la clave?",
+  "The saved key is deleted from this machine. Until another key is set, built-in rules decide instead of the predictive model.":
+    "La clave guardada se borra de este equipo. Hasta que se defina otra, deciden las reglas integradas en lugar del modelo predictivo.",
+  "The key is stored encrypted on this machine and used only for calls to the predictive model's provider. It is never shown again.":
+    "La clave se guarda cifrada en este equipo y solo se usa en las llamadas al proveedor del modelo predictivo. No se vuelve a mostrar.",
+  "The key cannot be empty.": "La clave no puede estar vacía.",
+  "This machine cannot store the key: its encrypted store is not available.":
+    "Este equipo no puede guardar la clave: su almacén cifrado no está disponible.",
+  "The predictive model's address is not valid, so the key was not saved.":
+    "La dirección del modelo predictivo no es válida, así que la clave no se guardó.",
   "The model key is missing, so built-in rules decide instead.":
     "Falta la clave del modelo, así que deciden las reglas integradas.",
   "Is it worth asking?": "¿Merece la pena consultarlo?",

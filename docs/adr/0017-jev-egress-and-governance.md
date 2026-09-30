@@ -33,7 +33,8 @@ Three independent conditions must all be true before any state can leave the pro
 - the `projectID` is listed in `adaptive.egress.projects` — **opt-in per project**;
 - `adaptive.egress.kinds[kind]` is true — an allowlist per decision kind, **all false by default**.
 
-`TYPESAFE_API_KEY` comes from the environment, never from the config block. The project list lives in
+`TYPESAFE_API_KEY` comes from the environment, never from the config block (amended 2026-09-30: the
+key may also come from the encrypted vault, see the Amendment below). The project list lives in
 the global config; reading a project-local `.opencode` override is out of scope for Phase 2.
 
 ### 2. Redaction and the egress guard are a rule at the writer
@@ -120,6 +121,25 @@ Negative / accepted costs:
   model version changes.
 - The audit store deliberately keeps only a redacted summary, so some explanation context lives in the
   episode and is reached indirectly.
+
+## Amendment (2026-09-30): the key may also come from the encrypted vault
+
+The settings panel could only report whether `TYPESAFE_API_KEY` was set, so a reader who wanted the
+predictive model had nowhere to put its key. The key may now also come from the harness's encrypted
+credential vault (`vault.ts`, AES-256-GCM under the vault key):
+
+- It is stored as the credential `typesafe-api-key`, bound to the **origin of `jev.endpoint`**, so a
+  key saved for one host is never sent to another after the endpoint changes.
+- The **environment keeps precedence**: when `TYPESAFE_API_KEY` is set it is the key, and the panel
+  only reports it. It is **never** read from the config block.
+- The Jev client asks for the key **on every request** (environment first, then the vault), so a key
+  saved or removed takes effect without a restart.
+- `PUT`/`DELETE /harness/adaptive/model-key` write it behind the settings writer's bearer and
+  require `confirm: true`; `GET` answers `{ source: "env" | "stored" | "none", storable }`. No answer
+  ever carries the key, and the capability `adaptive-model-key` is announced only with that bearer.
+- A stored key is among the egress redaction secrets (every vault value is, decrypted on each call),
+  as is the environment's key.
+- Without a vault key nothing can be stored; the panel says so and points to the environment variable.
 
 ## Alternatives considered
 

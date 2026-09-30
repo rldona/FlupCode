@@ -172,6 +172,34 @@ describe("createHarnessServer runtime probe wiring", () => {
     expect(redacted).toContain("[REDACTED]")
   })
 
+  test("a model key saved through its route is redacted at once and reported as stored, never echoed", async () => {
+    // A test value only, never a real key.
+    const secret = "model-key-test-literal-0003"
+    const app = createHarnessServer({
+      port: 0,
+      databasePath: ":memory:",
+      intervalMs: 3_600_000,
+      browserToken: "t",
+      vaultKey: "cd".repeat(32),
+      runtimeProbe: probe(async () => unknownState()),
+    })
+    running = app
+    const headers = { authorization: "Bearer t", "content-type": "application/json" }
+    const saved = await fetch(new URL("/harness/adaptive/model-key", app.server.url), {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ key: secret, confirm: true }),
+    })
+    expect(await saved.text()).not.toContain(secret)
+    expect(await app.modelKey.resolve()).toBe(secret)
+    expect(JSON.stringify(app.egress.redact({ note: `k=${secret}` }))).not.toContain(secret)
+    const view = await fetch(new URL("/harness/adaptive/config", app.server.url), { headers })
+    const text = await view.text()
+    expect(text).not.toContain(secret)
+    expect(JSON.parse(text).data.env).toMatchObject({ typesafeKeyPresent: true, typesafeKeySource: "stored" })
+    expect(JSON.parse(text).data.modelKeyStorable).toBe(true)
+  })
+
   test("stop clears the probe interval so it stops refreshing", async () => {
     process.env.FLUPCODE_ADAPTIVE_PROBE_TTL_MS = "5"
     const seen = { calls: 0 }

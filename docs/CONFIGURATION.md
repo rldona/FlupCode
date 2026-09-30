@@ -159,8 +159,9 @@ From the app's **Adaptive** settings section you may move the **switches** only:
 `enabled`, `shadow`, `context.enabled`, `context.apply`, `learning.enabled`, `relevance.enabled`,
 `jev.enabled`, `egress.projects`, `egress.kinds`, `retention.enabled` and `budget.monthlyTokens`.
 Everything else above is read-only there — the thresholds, timeouts, models and retention windows are
-edited in the file, not from the panel. `TYPESAFE_API_KEY` is **environment-only**; the panel reports
-whether it is set and never writes it.
+edited in the file, not from the panel. The predictive model's key is never read from
+the config block: `TYPESAFE_API_KEY` in the environment wins, and otherwise the panel can save one,
+write-only, in the encrypted vault (ADR-0017, amended 2026-09-30).
 
 The switches keep their guards, so the panel cannot promise more than the engine does:
 
