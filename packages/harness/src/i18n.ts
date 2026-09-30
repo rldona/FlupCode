@@ -1479,6 +1479,17 @@ const ES: Record<string, string> = {
   "Active · proposing skills for your approval": "Activo · proponiendo skills para tu aprobación",
   "Active · in use": "Activo · en uso",
   "Active · waiting for a model to draft skills with": "Activo · esperando un modelo con el que redactar skills",
+  "Frozen · no new proposals. Pending ones can still be reviewed, and learned skills stay in use.":
+    "Congelado · sin propuestas nuevas. Las pendientes se pueden seguir revisando y las skills aprendidas siguen en uso.",
+  "Paused in {project}: {used} proposals in the last 24 hours, the daily limit.":
+    "En pausa en {project}: {used} propuestas en las últimas 24 horas, el límite diario.",
+  "No new skills in {project}: {used} learned skills, the limit. Improving the existing ones continues.":
+    "Sin skills nuevas en {project}: {used} skills aprendidas, el límite. Se siguen mejorando las existentes.",
+  "No more skill improvements in {project}: {used} in the last 7 days, the weekly limit.":
+    "Sin más mejoras de skills en {project}: {used} en los últimos 7 días, el límite semanal.",
+  "Freeze learning": "Congelar el aprendizaje",
+  "Stops new proposals without turning learning off: you can still review pending ones, and learned skills stay in use.":
+    "Detiene las propuestas nuevas sin desactivar el aprendizaje: puedes seguir revisando las pendientes y las skills aprendidas siguen en uso.",
   "Active · waiting for the model key": "Activo · esperando la clave del modelo",
   "Paused: it is not adding enough value": "En pausa: no aporta suficiente valor",
   "Active · paused for {paused} of {total} decisions, for low value":

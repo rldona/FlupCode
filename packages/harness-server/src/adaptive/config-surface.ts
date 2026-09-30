@@ -24,6 +24,7 @@ import { decisionKinds, isDecisionKind } from "./decision"
 import { budgetMonth } from "./providers/budget"
 import { learningModel } from "./learning/draft"
 import type { RuntimeAlert, RuntimeCapabilities, RuntimeKind } from "./runtime"
+import type { ProjectLimitHit } from "./learning/limits"
 
 /** A rejected patch, or a write that could not be made, in the shape the HTTP contract reports. */
 export class AdaptiveConfigError extends Error {
@@ -39,7 +40,7 @@ export class AdaptiveConfigError extends Error {
   }
 }
 
-export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number"
+export type AdaptiveFieldType = "boolean" | "string-list" | "kinds" | "number" | "count"
 export type AdaptiveConfirmation = "none" | "required" | "widening"
 export type AdaptiveGuard = "none" | "env-disabled" | "adaptive-token" | "egress-allowlist"
 export type AdaptiveWarning =
@@ -83,6 +84,13 @@ export const WRITABLE_FIELDS: readonly WritableField[] = [
     guard: "egress-allowlist",
     warning: "learning-draft-egress",
   },
+  // The freeze and the caps (AH-F03) only ever narrow what learning already consented to: freezing
+  // stops new jobs, and a cap is clamped to its ceiling by the resolver, so neither sends anything new
+  // off the machine and none asks for confirmation. A cap must be a positive count; `frozen` stops.
+  { path: "learning.frozen", type: "boolean", confirmation: "none", guard: "none" },
+  { path: "learning.limits.proposalsPerDay", type: "count", confirmation: "none", guard: "none" },
+  { path: "learning.limits.maxLearnedSkills", type: "count", confirmation: "none", guard: "none" },
+  { path: "learning.limits.patchesPerWeek", type: "count", confirmation: "none", guard: "none" },
   { path: "relevance.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   { path: "guardrails.enabled", type: "boolean", confirmation: "none", guard: "adaptive-token" },
   // The trim's plugin calls the loopback with the adaptive bearer, so without one it could never act.
@@ -150,6 +158,7 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
   const episode = usageOf(block.episode)
   const context = usageOf(block.context)
   const learning = usageOf(block.learning)
+  const limits = usageOf(learning.limits)
   const relevance = usageOf(block.relevance)
   const guardrails = usageOf(block.guardrails)
   const toolTrim = usageOf(block.toolTrim)
@@ -168,6 +177,11 @@ export function adaptiveSource(block: Record<string, unknown>, env: NodeJS.Proce
     "context.enabled": pick(false, typeof context.enabled === "boolean"),
     "context.apply": pick(false, typeof context.apply === "boolean"),
     "learning.enabled": pick(false, typeof learning.enabled === "boolean"),
+    "learning.frozen": pick(false, typeof learning.frozen === "boolean"),
+    // A cap below 1 falls back to its default in the resolver, so only a count of at least 1 is `block`.
+    "learning.limits.proposalsPerDay": pick(false, (positiveNumberFrom(limits.proposalsPerDay) ?? 0) >= 1),
+    "learning.limits.maxLearnedSkills": pick(false, (positiveNumberFrom(limits.maxLearnedSkills) ?? 0) >= 1),
+    "learning.limits.patchesPerWeek": pick(false, (positiveNumberFrom(limits.patchesPerWeek) ?? 0) >= 1),
     "relevance.enabled": pick(false, typeof relevance.enabled === "boolean"),
     "guardrails.enabled": pick(false, typeof guardrails.enabled === "boolean"),
     "toolTrim.enabled": pick(false, typeof toolTrim.enabled === "boolean"),
@@ -257,6 +271,8 @@ export type AdaptiveConfigView = {
   writable: WritableField[]
   /** The model a learning draft is sent to (`provider/model`), or null when none is resolved. */
   learningDraft: { model: string | null }
+  /** The learning caps reached right now by the projects learning worked on lately (AH-F03). */
+  learningLimits: { reached: ProjectLimitHit[] }
   /**
    * The providers a consent row is shown for: every registered remote model, then any other provider
    * the config already names. A local model needs no consent and is not listed.
@@ -301,6 +317,7 @@ export type AdaptiveConfigViewInput = {
   writer: { path: string; exists: boolean }
   smallModel?: () => string | undefined
   models?: readonly EgressSubject[]
+  learningLimits?: ProjectLimitHit[]
 }
 
 /** The read model, assembled from the raw block, the resolver and the calls the server already holds. */
@@ -326,6 +343,7 @@ export function adaptiveConfigView(input: AdaptiveConfigViewInput): AdaptiveConf
     usage: input.usage,
     writable: [...WRITABLE_FIELDS],
     learningDraft: { model: draftModel ? `${draftModel.providerID}/${draftModel.id}` : null },
+    learningLimits: { reached: input.learningLimits ?? [] },
     egressProviders: [
       ...new Set([
         ...(input.models ?? []).filter((model) => model.locality === "remote").map((model) => model.id),
@@ -398,6 +416,8 @@ function validLeaf(field: WritableField, value: unknown): boolean {
       return isPlainObject(value) && Object.entries(value).every(([kind, on]) => isDecisionKind(kind) && typeof on === "boolean")
     case "number":
       return positiveNumberFrom(value) !== undefined
+    case "count":
+      return Number.isInteger(value) && positiveNumberFrom(value) !== undefined
     default:
       return false
   }
@@ -637,6 +657,8 @@ export type AdaptiveConfigSurfaceDeps = {
   smallModel?: () => string | undefined
   /** The registered predictive models: the view lists the remote ones for consent. */
   models?: readonly EgressSubject[]
+  /** The learning caps reached right now (AH-F03); none when the learning loop is not wired. */
+  learningLimits?: () => ProjectLimitHit[]
   now?: () => number
 }
 
@@ -673,6 +695,7 @@ export function createAdaptiveConfigSurface(deps: AdaptiveConfigSurfaceDeps): Ad
       writer: writerTarget(),
       ...(deps.smallModel ? { smallModel: deps.smallModel } : {}),
       ...(deps.models ? { models: deps.models } : {}),
+      ...(deps.learningLimits ? { learningLimits: deps.learningLimits() } : {}),
     })
   }
 

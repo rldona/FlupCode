@@ -148,6 +148,59 @@ fails a run**. The design is fixed by [ADR-0020](adr/0020-learning-persistence-a
   the lint reason, and nothing is written under `skills/` either way — `patch` proposals included.
   See [Human approval](#human-approval).
 
+### Limits and freeze
+
+The loop is bounded per project (AH-F03), because each job can cost a classification and a draft,
+and each proposal costs a person's review. The caps live under `adaptive.learning.limits`; the
+freeze is `adaptive.learning.frozen`. All four are writable through the settings surface with no
+confirmation and no egress guard, since they only narrow what `learning.enabled` already consented to.
+
+| Key | Default | Ceiling | What it counts, per project |
+| --- | --- | --- | --- |
+| `learning.limits.proposalsPerDay` | 5 | 50 | proposals created in the last 24 hours, whatever became of them (proposed, promoted or rejected) |
+| `learning.limits.maxLearnedSkills` | 20 | 200 | learned skills installed (loaded from `skills/`) **plus** `add` proposals waiting for review |
+| `learning.limits.patchesPerWeek` | 5 | 50 | `patch` proposals (an update to an existing learned skill: `intent: "patch"` with a `targetSkill`) created in the last 7 days |
+| `learning.frozen` | `false` | — | — |
+
+- **Resolution.** `config.ts` takes a whole count between 1 and the ceiling; a larger value is
+  clamped rather than lifted, and zero, a fraction below one, a negative or a non-number fall back to
+  the default. The surface refuses anything but a positive whole number with `invalid-value`. A cap
+  cannot be 0: stopping the loop is the freeze's job.
+- **Windows.** Both windows are rolling and end now, so the count never depends on the time zone. A
+  proposal counts while `createdAt > now − window`: one created exactly 24 hours (or 7 days) ago no
+  longer counts.
+- **Where a cap is checked.** After the deterministic gate (a quiet episode is still
+  `below-threshold`) and the egress check, before the `skillReflection` classification: the daily cap,
+  or the skill total and the weekly patches together, stop the job with **no model call**. Once the
+  intent is known, that intent's own cap is checked before the draft (`add` → skill total, `patch` →
+  weekly patches): a project full of skills can still improve them. The count runs once more right
+  before the proposal is written, after the last `await`, so reflections running side by side cannot
+  overshoot a cap together (the draft of the late one is discarded).
+- **The reason is recorded.** A capped job is `reflection_job.status = skipped` with reason
+  `limit:proposals-per-day`, `limit:learned-skills` or `limit:patches-per-week` (with the
+  `decisionID` when the classification already ran), exactly where every other gate skip is. That job
+  is terminal: the episode is not reflected later when the window reopens.
+- **A cap never blocks a person.** Approving, rejecting, disabling, enabling and archiving are not
+  limited; approving past the skill total is the reader's call.
+- **Freeze is not off.** The difference, precisely:
+
+  | | `learning.frozen = true` (learning on) | `learning.enabled = false` |
+  | --- | --- | --- |
+  | new reflection jobs, classification, draft | stopped: a qualifying episode is `skipped` with reason `frozen` | stopped: no job row is written at all |
+  | staged proposals | reviewable **and approvable** | listed, but approval is refused `disabled` (they stay `proposed`) |
+  | installed learned skills | keep loading; usage keeps being recorded | keep loading; usage is not recorded |
+  | lifecycle (graduate, stale, archive) | keeps running on each sweep | stopped; only the human-collision repair runs |
+  | egress | none (nothing new is classified or drafted) | none |
+
+  An episode closed while frozen is recorded `frozen` and never reflected afterwards, so unfreezing
+  does not release a backlog at once.
+- **In the app.** The Learning card (Settings → Adaptive) has a **Freeze learning** switch; while it
+  is on the card reads "Frozen · no new proposals. Pending ones can still be reviewed, and learned
+  skills stay in use." Each cap a project has reached is one line under the card, naming the
+  project's folder — e.g. "Paused in app: 5 proposals in the last 24 hours, the daily limit." The
+  config view carries them as `learningLimits.reached` (`{ projectID, limit, used, max }`), counted
+  live for the projects of the 50 most recent reflection jobs, and empty while learning is off.
+
 ### Human approval
 
 The draft is built from an episode's objective and evidence, and evidence can carry untrusted tool
@@ -215,6 +268,8 @@ to `skills/` is a person (AH-A04).
 | Control | What it stops | What it does not touch |
 | --- | --- | --- |
 | `adaptive.learning.enabled = false` (default) | reflection jobs, `skillReflection` classification, the draft and the curator's writes | already-written learned skills, and the `completion`/`skillRelevance` shadow |
+| `adaptive.learning.frozen = true` | new reflection jobs (reason `frozen`), classification and draft | staged proposals (still approvable), learned skills, the lifecycle |
+| a per-project cap reached (`adaptive.learning.limits.*`) | new jobs for that project (reason `limit:<name>`) | other projects, staged proposals, learned skills |
 | `adaptive.enabled = false` / `FLUPCODE_ADAPTIVE_DISABLED=1` | additionally, every decision and the shadow | episodes, evidence, base harness, learned skills |
 | `adaptive.jev.enabled = false` (default) and no `models.skillReflection` | no model is assigned ⇒ job `egress-denied`, no proposal | learned skills keep loading |
 | the classifier's provider consent is off, lacks the project, or lacks `kinds.skillReflection` | no egress ⇒ no classification and no draft | learned skills keep loading |
@@ -877,6 +932,8 @@ always safe.
   | `context.enabled` | boolean | — | — |
   | `context.apply` | boolean | warning `evaluation-gated` ([ADR-0018](adr/0018-context-selection-seam.md)) | — |
   | `learning.enabled` | boolean | the classifier's provider consent: a project **and** `kinds.skillReflection` (none for a local classifier) ([ADR-0020](adr/0020-learning-persistence-and-egress.md)); warning `learning-draft-egress` | **yes**: the draft goes to the small model's provider |
+  | `learning.frozen` | boolean | — ; drawn as **Freeze learning** in the Learning card ([Limits and freeze](#limits-and-freeze)) | — |
+  | `learning.limits.{proposalsPerDay,maxLearnedSkills,patchesPerWeek}` | whole number ≥ 1 (clamped to its ceiling) | — ; no control in the panel | — |
   | `relevance.enabled` | boolean | a resolved `adaptive-token` ([ADR-0021](adr/0021-skill-relevance-acting.md)) | — |
   | `guardrails.enabled` | boolean | a resolved `adaptive-token` ([ADR-0023](adr/0023-failure-loop-guardrails.md)); shown as "Loop warnings" | — |
   | `jev.enabled` | boolean | Jev's consent: `egress.providers.jev.enabled`, a project and a kind | **yes** |

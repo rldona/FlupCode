@@ -17,6 +17,7 @@ import {
   feedbackFor,
   fieldProblem,
   inactiveByMaster,
+  learningLimitLines,
   needsConfirmation,
   nextBudgetDraft,
   patchLeaf,
@@ -640,6 +641,95 @@ describe("a card's effective state", () => {
         status(view({ relevance: { enabled: true } }), "suggestions", ["adaptive-config"]).key,
         ...CAPABILITIES.flatMap((capability) => [capability.title, capability.description]),
       ]
+      for (const key of keys) expect(t(key)).not.toBe(key)
+    } finally {
+      setLocale("en")
+    }
+  })
+})
+
+describe("the Learning card's freeze and limits (AH-F03)", () => {
+  const FROZEN: AdaptiveWritableField = { path: "learning.frozen", type: "boolean", confirmation: "none", guard: "none" }
+  const learning = (over: Partial<AdaptiveConfigView["effective"]["learning"]> = {}, extra: Partial<AdaptiveConfigView> = {}) => {
+    const ready = consenting({ jev: { projects: ["/p"], kinds: { skillReflection: true } } })
+    return {
+      ...ready,
+      writable: [...WRITABLE, FROZEN],
+      learningDraft: { model: "openai/mini" },
+      effective: { ...ready.effective, learning: { enabled: true, maxInputChars: 1, ...over } },
+      ...extra,
+    }
+  }
+  const reached = {
+    learningLimits: {
+      reached: [
+        { projectID: "/work/app", limit: "proposals-per-day" as const, used: 5, max: 5 },
+        { projectID: "C:\\work\\api", limit: "learned-skills" as const, used: 20, max: 20 },
+        { projectID: "/work/app", limit: "patches-per-week" as const, used: 5, max: 5 },
+      ],
+    },
+  }
+
+  test("a frozen card says it is frozen, and that pending proposals and learned skills are untouched", () => {
+    expect(capabilityStatus(learning({ frozen: true }), ACTING, card("learning"))).toEqual({
+      tone: "waiting",
+      key: "Frozen · no new proposals. Pending ones can still be reviewed, and learned skills stay in use.",
+    })
+    // Frozen is not off: the card's own choice stays on Proposing.
+    expect(capabilityChoice(learning({ frozen: true }), card("learning"))).toBe("proposing")
+    expect(capabilityStatus(learning({ frozen: false }), ACTING, card("learning")).key).toBe(
+      "Active · proposing skills for your approval",
+    )
+  })
+
+  test("the freeze is the card's own switch: not in Advanced, and it asks nothing", () => {
+    const current = learning()
+    expect(advancedFields(current).map((field) => field.path)).not.toContain("learning.frozen")
+    expect(needsConfirmation("learning.frozen", true, current)).toBe(false)
+    expect(patchLeaf("learning.frozen", true)).toEqual({ learning: { frozen: true } })
+    expect(leafOn(learning({ frozen: true }), "learning.frozen")).toBe(true)
+  })
+
+  test("each limit reached is one line naming the project folder and the count", () => {
+    expect(learningLimitLines(learning({}, reached))).toEqual([
+      {
+        key: "Paused in {project}: {used} proposals in the last 24 hours, the daily limit.",
+        params: { project: "app", used: 5 },
+        path: "/work/app",
+      },
+      {
+        key: "No new skills in {project}: {used} learned skills, the limit. Improving the existing ones continues.",
+        params: { project: "api", used: 20 },
+        path: "C:\\work\\api",
+      },
+      {
+        key: "No more skill improvements in {project}: {used} in the last 7 days, the weekly limit.",
+        params: { project: "app", used: 5 },
+        path: "/work/app",
+      },
+    ])
+    setLocale("en")
+    expect(t(learningLimitLines(learning({}, reached))[0]!.key, learningLimitLines(learning({}, reached))[0]!.params)).toBe(
+      "Paused in app: 5 proposals in the last 24 hours, the daily limit.",
+    )
+  })
+
+  test("no limit line while learning is off or frozen, or from an older server", () => {
+    expect(learningLimitLines(learning({ enabled: false }, reached))).toEqual([])
+    expect(learningLimitLines(learning({ frozen: true }, reached))).toEqual([])
+    expect(learningLimitLines(learning())).toEqual([])
+  })
+
+  test("the freeze and limit copy is plain and translated", () => {
+    const keys = [
+      capabilityStatus(learning({ frozen: true }), ACTING, card("learning")).key,
+      ...learningLimitLines(learning({}, reached)).map((line) => line.key),
+      "Freeze learning",
+      "Stops new proposals without turning learning off: you can still review pending ones, and learned skills stay in use.",
+    ]
+    for (const key of keys) expect(key).not.toMatch(/Jev|shadow|egress|token|FLUPCODE|\w+\.\w+/i)
+    setLocale("es")
+    try {
       for (const key of keys) expect(t(key)).not.toBe(key)
     } finally {
       setLocale("en")

@@ -4,6 +4,7 @@ import { adaptiveSurfaces } from "../client"
 import type { AdaptiveConfigError } from "../client"
 import type {
   AdaptiveConfigView,
+  AdaptiveLearningLimitHit,
   AdaptiveRuntimeAlert,
   AdaptiveProvenance,
   AdaptiveProviderConsent,
@@ -346,9 +347,36 @@ export function capabilityStatus(
     return { tone: "inactive", key: "Inactive: it needs your permission to share data with the model provider." }
   if (HOOKED.has(capability.id) && view.runtime.runtime === "v2")
     return { tone: "inactive", key: "Inactive: this engine's newer session runtime cannot run it yet." }
+  if (capability.id === "learning" && view.effective.learning.frozen === true)
+    return {
+      tone: "waiting",
+      key: "Frozen · no new proposals. Pending ones can still be reviewed, and learned skills stay in use.",
+    }
   if (capability.id === "learning" && view.learningDraft?.model === null)
     return { tone: "waiting", key: "Active · waiting for a model to draft skills with" }
   return { tone: "active", key: ACTIVE[choice] ?? "Active · in use" }
+}
+
+const LIMIT_TEXT: Record<AdaptiveLearningLimitHit["limit"], string> = {
+  "proposals-per-day": "Paused in {project}: {used} proposals in the last 24 hours, the daily limit.",
+  "learned-skills":
+    "No new skills in {project}: {used} learned skills, the limit. Improving the existing ones continues.",
+  "patches-per-week": "No more skill improvements in {project}: {used} in the last 7 days, the weekly limit.",
+}
+
+/**
+ * What each learning limit a project has reached says (AH-F03), as templates for `t`. The project is
+ * named by its folder, and the whole path travels as the `title` for the reader who needs it.
+ */
+export function learningLimitLines(
+  view: AdaptiveConfigView,
+): Array<{ key: string; params: Record<string, string | number>; path: string }> {
+  if (!view.effective.learning.enabled || view.effective.learning.frozen === true) return []
+  return (view.learningLimits?.reached ?? []).map((hit) => ({
+    key: LIMIT_TEXT[hit.limit],
+    params: { project: hit.projectID.split(/[\\/]/).filter(Boolean).pop() ?? hit.projectID, used: hit.used },
+    path: hit.projectID,
+  }))
 }
 
 /** The reasons that make every capability inert at once: the environment, then the level. */
@@ -411,6 +439,7 @@ const CLAIMED = new Set([
   "relevance.enabled",
   "guardrails.enabled",
   "learning.enabled",
+  "learning.frozen",
   "jev.enabled",
   "retention.enabled",
   "budget.monthlyTokens",
@@ -828,6 +857,18 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                 })
               : t("Turning it on asks first: redacted session notes are sent to a model to draft each skill.")}
           </p>
+          <For each={learningLimitLines(card.view)}>
+            {(line) => (
+              <p class="fc-adaptive-status" data-tone="waiting" title={line.path}>
+                {t(line.key, line.params)}
+              </p>
+            )}
+          </For>
+          <Switch path="learning.frozen" label="Freeze learning">
+            <span class="fc-settings-hint">
+              {t("Stops new proposals without turning learning off: you can still review pending ones, and learned skills stay in use.")}
+            </span>
+          </Switch>
         </Show>
       </section>
     )
