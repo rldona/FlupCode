@@ -432,6 +432,27 @@ decisions or dismiss the banner.
 | a non-legacy runtime | the ring and the decisions (returns `runtime-not-legacy`) | the turn, the tool path | ADR-0023 |
 | the advisory banner (`warn`) | nothing — it warns and is dismissible, it never stops the turn | the turn, the tool path, `doom_loop` | ADR-0023 |
 
+## Session metrics
+
+The cost baseline every later phase is measured against (AH-B01). Nothing measured what an ordinary
+chat turn spent: the usage screen only knows runs, and the engine only keeps session totals.
+
+- **Capture.** `SESSION_METRICS_PLUGIN` (`flupcode-session-metrics.js`) reads the engine's own events —
+  each provider step's usage and cost (`step-finish` on the legacy runtime, `session.next.step.ended`
+  on V2), each finished tool, each compaction and each `skill` load — and `POST`s them fire-and-forget
+  to `/harness/adaptive/metrics`. Only counts, ids, timings and model/tool/skill names travel: no
+  prompt, argument or output. A slow or absent harness never delays a turn; a lost observation is a
+  gap in the baseline.
+- **Storage.** `session_metrics` keeps one row per turn — the user message that opened it — with the
+  provider requests, uncached input, output, reasoning, cache read/write tokens, USD, time in model
+  steps, time to first output, tool calls, errors and output bytes (overall and per tool), compactions
+  and the skills loaded. Every session is covered, interactive or run, because the engine emits the
+  same events for both. `session_metric_seen` makes each observation count once and is pruned after
+  two days.
+- **Access.** The `POST` takes the dedicated `adaptive-token`; without one it is a 404 and the
+  `adaptive-metrics` capability is absent. `GET /harness/adaptive/metrics?sessionID=` returns one
+  session's turns to the browser under the artifacts bearer.
+
 ## The cockpit (E8)
 
 E8 makes the opt-ins visible and movable from the app, and nothing more. It does not add acting

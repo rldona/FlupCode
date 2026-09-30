@@ -1862,6 +1862,278 @@ export const flupcodeGuardrails = async (input) => {
 `,
 }
 
+/**
+ * session-metrics: the cost baseline (AH-B01). Nothing measured what an ordinary chat turn spent: the
+ * usage screen only knows runs, and the engine's session list only knows totals. The plugin reads the
+ * engine's own events — a step's provider usage, a tool's output size, a compaction, a skill load —
+ * and posts each as numbers to the loopback harness, which folds them into one row per turn.
+ *
+ * Only counts, ids, model/tool/skill names and timings travel: no prompt, argument or output. It is
+ * fire-and-forget like the guardrails plugin, so a slow or absent harness never delays a turn; a lost
+ * observation is a gap in the baseline, not a failure of the work. Both runtimes are read: the legacy
+ * `message.*` events and the V2 `session.next.*` ones.
+ */
+export const SESSION_METRICS_PLUGIN = {
+  file: "flupcode-session-metrics.js",
+  source: String.raw`// Installed by FlupCode. Posts each model step's token usage, cost and latency, each finished tool's
+// output size, compactions and skill loads to the loopback harness, as numbers only. It sends no
+// prompt, argument or output, decides nothing and never blocks a turn. Regenerated when FlupCode
+// starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_METRICS_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 2000
+})()
+
+// Every map is bounded so a long-lived engine cannot grow it without bound; the oldest entry goes.
+const MAX_TRACKED = 2000
+
+// Same shape the harness uses (packages/harness-server/src/browser-token.ts), read here without
+// importing it: the plugin has no package imports.
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL ||
+    "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  // The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  // The adaptive routes have their own secret (ADR-0022): the browser bearer must not open them.
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+function remember(map, key, value) {
+  map.delete(key)
+  map.set(key, value)
+  if (map.size > MAX_TRACKED) map.delete(map.keys().next().value)
+}
+
+function count(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0
+}
+
+function text(value) {
+  return typeof value === "string" && value ? value : undefined
+}
+
+function tokensOf(tokens) {
+  const cache = tokens && tokens.cache
+  return {
+    input: count(tokens && tokens.input),
+    output: count(tokens && tokens.output),
+    reasoning: count(tokens && tokens.reasoning),
+    cacheRead: count(cache && cache.read),
+    cacheWrite: count(cache && cache.write),
+  }
+}
+
+function contentBytes(content) {
+  if (!Array.isArray(content)) return 0
+  return content.reduce((total, item) => total + (item && typeof item.text === "string" ? Buffer.byteLength(item.text) : 0), 0)
+}
+
+function skillOf(tool, input) {
+  return tool === "skill" && input ? text(input.name) : undefined
+}
+
+// A step: the assistant message the engine opens for each provider request, keyed by its id.
+// Legacy runtime: its parent is the user message, which names the turn. V2: the latest prompt.
+const steps = new Map()
+const tools = new Map()
+const prompts = new Map()
+// Observations already sent: the engine re-emits a part on every update.
+const sent = new Map()
+
+function once(key) {
+  if (sent.has(key)) return false
+  remember(sent, key, true)
+  return true
+}
+
+function firstOutput(stepID) {
+  const step = steps.get(stepID)
+  if (step && step.firstAt === undefined) step.firstAt = Date.now()
+}
+
+function stepObservation(id, step, tokens, cost) {
+  const now = Date.now()
+  return {
+    kind: "step",
+    id: id,
+    turnID: step.turnID,
+    ...(step.providerID ? { providerID: step.providerID } : {}),
+    ...(step.modelID ? { modelID: step.modelID } : {}),
+    ...(step.agent ? { agent: step.agent } : {}),
+    tokens: tokensOf(tokens),
+    cost: count(cost),
+    ms: Math.max(0, now - step.startedAt),
+    ...(step.firstAt !== undefined ? { firstTokenMs: Math.max(0, step.firstAt - step.startedAt) } : {}),
+  }
+}
+
+// What one event says, as { sessionID, observation }, or nothing.
+function observe(event) {
+  const type = event && event.type
+  const properties = (event && event.properties) || {}
+  const sessionID = text(properties.sessionID)
+
+  if (type === "message.updated") {
+    const info = properties.info
+    if (!info || info.role !== "assistant" || !text(info.id) || !text(info.parentID)) return
+    const known = steps.get(info.id)
+    remember(steps, info.id, {
+      turnID: info.parentID,
+      providerID: text(info.providerID),
+      modelID: text(info.modelID),
+      agent: text(info.agent) || text(info.mode),
+      startedAt: (info.time && count(info.time.created)) || Date.now(),
+      firstAt: known ? known.firstAt : undefined,
+    })
+    return
+  }
+
+  if (type === "message.part.updated") {
+    const part = properties.part
+    if (!part || !text(part.id)) return
+    const partSession = sessionID || text(part.sessionID)
+    if (part.type === "text" || part.type === "reasoning" || part.type === "tool") firstOutput(part.messageID)
+    if (part.type === "step-finish") {
+      const step = steps.get(part.messageID)
+      if (!step || !once("step:" + part.id)) return
+      return { sessionID: partSession, observation: stepObservation(part.id, step, part.tokens, part.cost) }
+    }
+    if (part.type === "tool") {
+      const state = part.state
+      if (!state || (state.status !== "completed" && state.status !== "error")) return
+      const step = steps.get(part.messageID)
+      if (!step || !text(part.tool) || !once("tool:" + part.id)) return
+      const skill = skillOf(part.tool, state.input)
+      return {
+        sessionID: partSession,
+        observation: {
+          kind: "tool",
+          id: part.id,
+          turnID: step.turnID,
+          tool: part.tool,
+          error: state.status === "error",
+          bytes: typeof state.output === "string" ? Buffer.byteLength(state.output) : 0,
+          ...(skill ? { skill: skill } : {}),
+        },
+      }
+    }
+    if (part.type === "compaction") {
+      if (!text(part.messageID) || !once("compaction:" + part.id)) return
+      return { sessionID: partSession, observation: { kind: "compaction", id: part.id, turnID: part.messageID } }
+    }
+    return
+  }
+
+  if (!sessionID) return
+  if (type === "session.next.prompted") {
+    if (text(properties.messageID)) remember(prompts, sessionID, properties.messageID)
+    return
+  }
+  const stepID = text(properties.assistantMessageID)
+  if (type === "session.next.step.started") {
+    if (!stepID) return
+    const model = properties.model || {}
+    remember(steps, stepID, {
+      turnID: prompts.get(sessionID) || stepID,
+      providerID: text(model.providerID),
+      modelID: text(model.id),
+      agent: text(properties.agent),
+      startedAt: Date.now(),
+      firstAt: undefined,
+    })
+    return
+  }
+  if (type === "session.next.text.started" || type === "session.next.reasoning.started") {
+    firstOutput(stepID)
+    return
+  }
+  if (type === "session.next.tool.called") {
+    firstOutput(stepID)
+    if (text(properties.callID) && text(properties.tool))
+      remember(tools, properties.callID, { tool: properties.tool, skill: skillOf(properties.tool, properties.input) })
+    return
+  }
+  if (type === "session.next.step.ended") {
+    const step = steps.get(stepID)
+    if (!step || !once("step:" + stepID)) return
+    return { sessionID: sessionID, observation: stepObservation(stepID, step, properties.tokens, properties.cost) }
+  }
+  if (type === "session.next.tool.success" || type === "session.next.tool.failed") {
+    const callID = text(properties.callID)
+    const tool = callID ? tools.get(callID) : undefined
+    if (!tool || !once("tool:" + callID)) return
+    const step = steps.get(stepID)
+    return {
+      sessionID: sessionID,
+      observation: {
+        kind: "tool",
+        id: callID,
+        turnID: (step && step.turnID) || prompts.get(sessionID) || stepID,
+        tool: tool.tool,
+        error: type === "session.next.tool.failed",
+        bytes: contentBytes(properties.content),
+        ...(tool.skill ? { skill: tool.skill } : {}),
+      },
+    }
+  }
+  if (type === "session.next.compaction.ended") {
+    const messageID = text(properties.messageID)
+    if (!messageID || !once("compaction:" + messageID)) return
+    return { sessionID: sessionID, observation: { kind: "compaction", id: messageID, turnID: messageID } }
+  }
+}
+
+// Only this is exported: the engine treats every exported function as a plugin of its own.
+export const flupcodeSessionMetrics = async (input) => {
+  const base = harnessBaseURL()
+  // A base that is not loopback is refused before the token is read: no token leaves the machine.
+  if (base === undefined) return {}
+  const token = await readToken()
+  if (token === undefined) return {}
+  const projectID = input && typeof input.directory === "string" ? input.directory : undefined
+
+  return {
+    event: async ({ event }) => {
+      const selected = observe(event)
+      if (!selected || !selected.sessionID || !selected.observation.turnID) return
+      // Fire-and-forget: the turn never waits and any failure is swallowed.
+      void fetch(base + "/harness/adaptive/metrics", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify({
+          ...(projectID ? { projectID: projectID } : {}),
+          sessionID: selected.sessionID,
+          observation: selected.observation,
+        }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      }).catch(() => {})
+    },
+  }
+}
+`,
+}
+
 /** The engine plugins FlupCode owns. */
 const PLUGINS = [
   REASONING_VARIANTS_PLUGIN,
@@ -1874,6 +2146,7 @@ const PLUGINS = [
   EPISODE_EVENTS_PLUGIN,
   RELEVANCE_PLUGIN,
   GUARDRAILS_PLUGIN,
+  SESSION_METRICS_PLUGIN,
 ]
 
 /** OpenCode's global config folder: OPENCODE_CONFIG_DIR, else `$XDG_CONFIG_HOME/opencode` or `~/.config/opencode`. */

@@ -321,6 +321,8 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
   const sweep = setInterval(() => {
     repository.removeExpiredArtifacts()
     purge()
+    // The metrics dedupe ledger only has to outlive a redelivery (AH-B01).
+    repository.pruneSessionMetricSeen(Date.now() - 2 * 24 * 60 * 60 * 1000)
   }, 60 * 60 * 1000)
   scheduler.start()
   // After the scheduler started, so a run it recovered as failed is swept and backfilled.

@@ -12,6 +12,7 @@ import {
   REASONING_VARIANTS_PLUGIN,
   RELEVANCE_PLUGIN,
   RUNTIME_PROBE_PLUGIN,
+  SESSION_METRICS_PLUGIN,
   SYSTEM_PROMPT_PLUGIN,
   TOOL_USES_PLUGIN,
   WEB_ACTIONS_PLUGIN,
@@ -73,7 +74,7 @@ describe("installEnginePlugins", () => {
 
     const first = await installEnginePlugins(config)
     expect(first.changed).toBe(true)
-    expect(first.paths).toHaveLength(10)
+    expect(first.paths).toHaveLength(11)
     for (const plugin of [
       REASONING_VARIANTS_PLUGIN,
       SYSTEM_PROMPT_PLUGIN,
@@ -85,6 +86,7 @@ describe("installEnginePlugins", () => {
       EPISODE_EVENTS_PLUGIN,
       RELEVANCE_PLUGIN,
       GUARDRAILS_PLUGIN,
+      SESSION_METRICS_PLUGIN,
     ]) {
       expect(await readFile(path.join(config, "plugins", plugin.file), "utf8")).toBe(plugin.source)
     }
@@ -2385,6 +2387,205 @@ describe("GUARDRAILS_PLUGIN", () => {
     await hooks.event({})
     await hooks.event({ event: { type: "message.part.updated", properties: {} } })
     await Bun.sleep(20)
+    expect(fixture.requests).toHaveLength(0)
+  })
+})
+
+describe("SESSION_METRICS_PLUGIN", () => {
+  const servers: Array<() => void> = []
+  afterEach(() => {
+    for (const stop of servers.splice(0)) stop()
+  })
+
+  const startFixture = () => {
+    const requests: Array<{ path: string; auth: string | null; body: Record<string, unknown> }> = []
+    const server = Bun.serve({
+      port: 0,
+      fetch: async (request) => {
+        const parsed: unknown = await request.json().catch(() => ({}))
+        requests.push({
+          path: new URL(request.url).pathname,
+          auth: request.headers.get("authorization"),
+          body: parsed && typeof parsed === "object" && !Array.isArray(parsed) ? { ...parsed } : {},
+        })
+        return Response.json({ data: { recorded: true } })
+      },
+    })
+    servers.push(() => void server.stop(true))
+    return { url: server.url.origin, requests }
+  }
+
+  const open = async (options: { fixture?: { url: string } | string; token?: string | false } = {}) => {
+    const config = await temp()
+    const tokenDir = await temp()
+    if (options.token !== false) await writeFile(path.join(tokenDir, "adaptive-token"), options.token ?? "token-abc")
+    process.env.OPENCODE_CONFIG_DIR = config
+    process.env.FLUPCODE_CONFIG_DIR = tokenDir
+    if (options.fixture)
+      process.env.FLUPCODE_HARNESS_SERVER_URL = typeof options.fixture === "string" ? options.fixture : options.fixture.url
+    const plugin = await installed(config, SESSION_METRICS_PLUGIN.file, "flupcodeSessionMetrics")
+    return plugin({ directory: "/work/project" })
+  }
+
+  const settle = async (fixture: { requests: unknown[] }, count: number) => {
+    for (let attempt = 0; attempt < 100 && fixture.requests.length < count; attempt++) await Bun.sleep(5)
+    await Bun.sleep(20)
+    expect(fixture.requests.length).toBe(count)
+  }
+
+  const assistant = (id: string, parentID: string, created: number) => ({
+    event: {
+      type: "message.updated",
+      properties: {
+        sessionID: "ses_1",
+        info: { id, parentID, role: "assistant", providerID: "anthropic", modelID: "sonnet", agent: "build", time: { created } },
+      },
+    },
+  })
+  const part = (value: Record<string, unknown>) => ({
+    event: { type: "message.part.updated", properties: { sessionID: "ses_1", part: { sessionID: "ses_1", ...value } } },
+  })
+  const stepFinish = (id: string, messageID: string, input: number) =>
+    part({
+      id,
+      messageID,
+      type: "step-finish",
+      tokens: { input, output: 20, reasoning: 5, cache: { read: 300, write: 7 } },
+      cost: 0.01,
+    })
+
+  test("posts one step per provider request with the provider's usage, and numbers only", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    expect(Object.keys(hooks)).toEqual(["event"])
+
+    await hooks.event(assistant("msg_a1", "msg_u1", Date.now() - 50))
+    await hooks.event(part({ id: "prt_t1", messageID: "msg_a1", type: "text", text: "secret answer" }))
+    await hooks.event(stepFinish("prt_s1", "msg_a1", 100))
+    // The engine re-emits a part on every update: a second copy is not a second request.
+    await hooks.event(stepFinish("prt_s1", "msg_a1", 100))
+    await settle(fixture, 1)
+
+    const request = fixture.requests[0]!
+    expect(request.path).toBe("/harness/adaptive/metrics")
+    expect(request.auth).toBe("Bearer token-abc")
+    expect(request.body).toMatchObject({
+      projectID: "/work/project",
+      sessionID: "ses_1",
+      observation: {
+        kind: "step",
+        id: "prt_s1",
+        turnID: "msg_u1",
+        providerID: "anthropic",
+        modelID: "sonnet",
+        agent: "build",
+        tokens: { input: 100, output: 20, reasoning: 5, cacheRead: 300, cacheWrite: 7 },
+        cost: 0.01,
+      },
+    })
+    const observation = request.body.observation as { ms: number; firstTokenMs: number }
+    expect(observation.ms).toBeGreaterThanOrEqual(50)
+    expect(observation.firstTokenMs).toBeLessThanOrEqual(observation.ms)
+    expect(JSON.stringify(request.body)).not.toContain("secret answer")
+  })
+
+  test("a finished tool travels as its name, outcome and output size; a skill load names the skill", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    await hooks.event(assistant("msg_a1", "msg_u1", Date.now()))
+    const tool = (id: string, name: string, state: Record<string, unknown>) =>
+      part({ id, messageID: "msg_a1", type: "tool", tool: name, callID: id, state })
+
+    // Pending and running are not a finished call.
+    await hooks.event(tool("prt_1", "read", { status: "pending", input: { filePath: "/w/a.ts" } }))
+    await hooks.event(tool("prt_1", "read", { status: "running", input: { filePath: "/w/a.ts" } }))
+    await hooks.event(tool("prt_1", "read", { status: "completed", input: { filePath: "/w/a.ts" }, output: "héllo" }))
+    await hooks.event(tool("prt_2", "bash", { status: "error", input: { command: "ls" }, error: "boom" }))
+    await hooks.event(tool("prt_3", "skill", { status: "completed", input: { name: "testing" }, output: "body" }))
+    await settle(fixture, 3)
+
+    // Each post is its own fire-and-forget request, so arrival order is not send order.
+    const observations = fixture.requests
+      .map((request) => request.body.observation as Record<string, unknown> & { id: string })
+      .sort((a, b) => a.id.localeCompare(b.id))
+    expect(observations).toEqual([
+      { kind: "tool", id: "prt_1", turnID: "msg_u1", tool: "read", error: false, bytes: 6 },
+      { kind: "tool", id: "prt_2", turnID: "msg_u1", tool: "bash", error: true, bytes: 0 },
+      { kind: "tool", id: "prt_3", turnID: "msg_u1", tool: "skill", error: false, bytes: 4, skill: "testing" },
+    ])
+    expect(JSON.stringify(fixture.requests)).not.toContain("/w/a.ts")
+  })
+
+  test("a compaction is its own turn", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    await hooks.event(part({ id: "prt_c", messageID: "msg_u9", type: "compaction", auto: true }))
+    await settle(fixture, 1)
+    expect(fixture.requests[0]!.body.observation).toEqual({ kind: "compaction", id: "prt_c", turnID: "msg_u9" })
+  })
+
+  test("reads the V2 runtime's step and tool events", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    const v2 = (type: string, properties: Record<string, unknown>) => ({
+      event: { type, properties: { sessionID: "ses_1", ...properties } },
+    })
+    await hooks.event(v2("session.next.prompted", { messageID: "msg_u1" }))
+    await hooks.event(
+      v2("session.next.step.started", { assistantMessageID: "msg_a1", agent: "build", model: { id: "gpt", providerID: "openai" } }),
+    )
+    await hooks.event(v2("session.next.tool.called", { assistantMessageID: "msg_a1", callID: "call_1", tool: "skill", input: { name: "docs" } }))
+    await hooks.event(
+      v2("session.next.tool.success", { assistantMessageID: "msg_a1", callID: "call_1", content: [{ type: "text", text: "abc" }] }),
+    )
+    await hooks.event(
+      v2("session.next.step.ended", {
+        assistantMessageID: "msg_a1",
+        finish: "stop",
+        cost: 0.5,
+        tokens: { input: 10, output: 2, reasoning: 0, cache: { read: 1, write: 0 } },
+      }),
+    )
+    await settle(fixture, 2)
+    const [tool, step] = [...fixture.requests]
+      .map((request) => request.body.observation as Record<string, unknown> & { kind: string })
+      .sort((a, b) => b.kind.localeCompare(a.kind))
+    expect(tool).toEqual({
+      kind: "tool",
+      id: "call_1",
+      turnID: "msg_u1",
+      tool: "skill",
+      error: false,
+      bytes: 3,
+      skill: "docs",
+    })
+    expect(step).toMatchObject({
+      kind: "step",
+      id: "msg_a1",
+      turnID: "msg_u1",
+      providerID: "openai",
+      modelID: "gpt",
+      tokens: { input: 10, output: 2, reasoning: 0, cacheRead: 1, cacheWrite: 0 },
+      cost: 0.5,
+    })
+  })
+
+  test("a step or tool of an unknown message and a malformed event send nothing", async () => {
+    const fixture = startFixture()
+    const hooks = await open({ fixture })
+    await hooks.event(stepFinish("prt_s1", "msg_unknown", 100))
+    await hooks.event({})
+    await hooks.event({ event: { type: "message.part.updated", properties: {} } })
+    await hooks.event({ event: { type: "message.updated", properties: { info: { role: "assistant" } } } })
+    await Bun.sleep(30)
+    expect(fixture.requests).toHaveLength(0)
+  })
+
+  test("registers nothing without a token or a loopback base", async () => {
+    const fixture = startFixture()
+    expect(await open({ fixture, token: false })).toEqual({})
+    process.env.FLUPCODE_HARNESS_SERVER_URL = "https://evil.example"
+    expect(await open({})).toEqual({})
     expect(fixture.requests).toHaveLength(0)
   })
 })
