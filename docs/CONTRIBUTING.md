@@ -140,12 +140,17 @@ Merges happen on GitHub, never from Vercel, and one PR at a time:
 ### Deploys
 
 - **Web:** Vercel deploys production from `power` only; other branches get no preview deployments.
-  Each Vercel project skips its build when a push did not touch it: `packages/landing` for the
-  landing, and `packages/harness` or the packages it builds from for the app (`ignoreCommand` in each
-  `vercel.json`). It compares against the project's last deployed commit, and builds when Vercel's
-  shallow clone no longer holds that commit.
-- **Checking the web deploy:** `app.flupcode.com` updates a few minutes after a merge. Confirm it by
-  fetching the served bundle and looking for something the change added, such as a new class name.
+  - **The app** (`app.flupcode.com`) builds only for a release: its `ignoreCommand` skips every push
+    whose commit does not change the `version` in `packages/harness/package.json`, which only the
+    release bump PR does. It ships with the desktop app and the CLI, not on every merge: on a busy
+    day, building each merge meant some forty production builds.
+  - **The landing** builds when a push touches `packages/landing`, compared against its last
+    deployed commit (and it builds when Vercel's shallow clone no longer holds that commit).
+  - A skipped build shows as "Canceled" in Vercel. That is the ignore step, not a failure.
+- **Checking the web deploy:** `app.flupcode.com` updates a few minutes after a release bump is
+  merged. Confirm it by fetching the served bundle and looking for something the release added, such
+  as a new class name. To ship a web fix sooner, cut a patch release, or redeploy from the Vercel
+  dashboard.
 - **Desktop:** the desktop app only updates with a release; see [docs/RELEASE.md](RELEASE.md).
 
 ## Reporting issues
