@@ -171,14 +171,14 @@ jobs:
 
       # The same flows and FlupCode's OpenCode 2 adapter against a real 2.x engine: the pinned sandbox
       # binary, fetched from the npm registry and checked against its integrity (V2-05, V2-06, V2-20
-      # to V2-22).
+      # to V2-23).
       - name: OpenCode 2 contract and adapter
         env:
           CI: "1"
           FLUPCODE_CONTRACT_LINE: v2
         run: |
           bun run --cwd packages/engine-contract test:v2
-          (cd packages/harness && bun test src/engine/v2.engine.test.ts src/engine/v2-events.engine.test.ts src/engine/v2-requests.engine.test.ts --timeout 60000)
+          (cd packages/harness && bun test src/engine --timeout 60000)
 
   inventory:
     needs: changes

@@ -2767,6 +2767,13 @@ export const App: Component = () => {
               // The engine rebuilds its catalog from models.dev on its own schedule (and when an
               // integration connects). The list it serves moves with it, so the picker must not keep
               // offering the snapshot taken when the page loaded.
+              // An MCP server's status, tools or resources moved: 2.x says so for each (V2-23), 1.x only
+              // for tools.
+              if (type.startsWith("mcp.")) {
+                void refetchMcp()
+                if (type === "mcp.resources.changed") void refetchMcpResources()
+                continue
+              }
               // 2.x splits the same news across models, providers and its models.dev refresh.
               if (
                 type === "catalog.updated" ||
