@@ -6,7 +6,8 @@ libraries without modifying upstream packages.
 ## Stack
 
 - SolidJS + Vite + Tailwind v4 (same stack as upstream `packages/app`).
-- `@opencode-ai/ui`, `@opencode-ai/session-ui` for shared UI and rendering.
+- Its own transcript markdown renderer in `src/markdown` (derived from OpenCode, MIT): Shiki in a
+  Web Worker, incremental streaming, morphdom patching, KaTeX.
 - `@opencode-ai/client` (vendored, zero-Effect) for the HTTP + SSE API.
 
 ## Scripts

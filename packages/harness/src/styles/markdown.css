@@ -1,10 +1,12 @@
 /*
- * The transcript renders its markdown with `@opencode-ai/session-ui`, which parses and highlights
- * off the main thread. Its stylesheet is written against upstream's design tokens, and FlupCode has
- * its own, so this maps one onto the other: the renderer is upstream's, the look stays FlupCode's.
+ * The transcript's markdown renderer (src/markdown) parses and highlights off the main thread. Its
+ * stylesheet came from OpenCode and is written against upstream's design tokens, so this maps them
+ * onto FlupCode's own. It stays in the `components` layer so shell.css's `.fc-markdown` rules win.
  */
 
-@import "@opencode-ai/session-ui/styles";
+@layer theme, base, components, utilities;
+
+@import "../markdown/markdown.css" layer(components);
 
 [data-component="markdown"] {
   --v2-text-text-base: var(--fc-text);
@@ -31,6 +33,14 @@
   --font-size-base: var(--fc-text-md);
   --font-weight-medium: 500;
   --line-height-large: 1.6;
+}
+
+/* The copy button over a code block: FlupCode's message action, on a chip so it reads over code. */
+[data-component="markdown"] [data-slot="markdown-copy-button"] .fc-message-action {
+  padding: 4px;
+  border-radius: 4px;
+  background: var(--fc-bg-elevated);
+  cursor: pointer;
 }
 
 /*
