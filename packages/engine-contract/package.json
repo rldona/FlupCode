@@ -9,7 +9,8 @@
   "exports": {
     "./engine": "./src/engine.ts",
     "./events": "./src/events.ts",
-    "./model": "./src/model.ts"
+    "./model": "./src/model.ts",
+    "./mcp": "./src/mcp.ts"
   },
   "scripts": {
     "test": "bun test --timeout 120000",

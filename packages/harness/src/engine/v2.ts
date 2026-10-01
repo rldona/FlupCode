@@ -1,5 +1,6 @@
 import { OpenCode } from "@opencode/client"
 import type { EngineClient } from "../client"
+import { openExternalUrl } from "../external-links"
 import { engineFetch } from "../transport"
 import { EngineError, unsupported } from "./error"
 import { toFormAnswer, toMessages, toPermission, toQuestion, toSession } from "./v2-convert"
@@ -9,12 +10,17 @@ import { toFormAnswer, toMessages, toPermission, toQuestion, toSession } from ".
  * version as the sandbox engine, see packages/engine-contract/src/opencode-v2.ts).
  *
  * It is being built domain by domain against `EngineClient`, the 1.x adapter's type, so the app keeps
- * one contract: sessions and messages (V2-20), events (V2-21) and permissions and forms (V2-22)
- * here, then MCP (V2-23), config (V2-24) and providers (V2-25). `createClient` picks it once every
+ * one contract: sessions and messages (V2-20), events (V2-21), permissions and forms (V2-22) and
+ * MCP (V2-23) here, then config (V2-24) and providers (V2-25). `createClient` picks it once every
  * domain exists. What 2.x removed (sharing, todos, deleting a message, the 1.x replay history) fails
  * with an `UnsupportedByEngine` EngineError, or reads as empty where the app has an empty state.
  */
-export function createV2Domains(baseUrl: string) {
+export function createV2Domains(
+  baseUrl: string,
+  /** Where a sign-in URL is opened: the reader's browser, or a test that follows it itself. */
+  options: { openUrl?: (url: string) => void } = {},
+) {
+  const openUrl = options.openUrl ?? openExternalUrl
   const client = OpenCode.make({ baseUrl, fetch: ((input, init) => engineFetch(input, init)) as typeof fetch })
 
   const session: EngineClient["session"] = {
@@ -253,8 +259,108 @@ export function createV2Domains(baseUrl: string) {
     },
   }
 
-  return { session, message, blocked, permission }
+  // The OAuth attempt each server's sign-in is waiting on, from `authStart` to `authenticate`.
+  const attempts = new Map<string, { integrationID: string; attemptID: string; url: string }>()
+  const where = (directory?: string) => (directory ? { location: { directory } } : {})
+  /** A server's sign-in is an integration in 2.x, with an OAuth method when it can sign in. */
+  const integrationOf = async (server: string, directory?: string) => {
+    const servers = await call(client.mcp.list(where(directory)))
+    const integrationID = servers.data.find((item) => item.name === server)?.integrationID
+    if (!integrationID) throw new EngineError(`MCP server "${server}" has no sign-in`, "McpServerNotFoundError")
+    return (await call(client.integration.get({ integrationID, ...where(directory) }))).data
+  }
+
+  /**
+   * MCP servers (V2-23). 2.x reads the location from `location[directory]`, not `?directory=`. Its
+   * `mcp.add` and `mcp.remove` only change the running engine, and keeping a server means writing
+   * the config file, which on 2.x goes through harness-server with V2-24: until then adding and
+   * removing say so instead of adding a server that is gone after a restart, and the configured
+   * servers read as none, which the form treats as a new server.
+   */
+  const mcp: EngineClient["mcp"] = {
+    list: async (input) => ({ data: (await call(client.mcp.list(where(input?.directory)))).data }),
+    config: async () => ({ data: {} }),
+    add: async () => unsupported("saving an MCP server before V2-24"),
+    remove: async () => unsupported("removing a saved MCP server before V2-24"),
+    connect: async (input) => {
+      await call(client.mcp.connect({ server: input.server, ...where(input.directory) }))
+      return nothing()
+    },
+    disconnect: async (input) => {
+      await call(client.mcp.disconnect({ server: input.server, ...where(input.directory) }))
+      return nothing()
+    },
+    /**
+     * 2.x signs a server in through its integration's OAuth method: it hands back the URL and an
+     * attempt to wait on, where 1.x opened the browser itself.
+     */
+    authStart: async (input) => {
+      const integration = await integrationOf(input.server, input.directory)
+      const method = integration.methods.find((item) => item.type === "oauth")
+      if (!method) throw new EngineError(`MCP server "${input.server}" does not sign in with OAuth`)
+      const attempt = (
+        await call(
+          client.integration.oauth.connect({
+            integrationID: integration.id,
+            methodID: method.id,
+            ...where(input.directory),
+          }),
+        )
+      ).data
+      if (attempt.mode === "code") {
+        await client.integration.oauth.cancel({ integrationID: integration.id, attemptID: attempt.attemptID })
+        return unsupported("an MCP sign-in that needs a pasted code")
+      }
+      attempts.set(input.server, { integrationID: integration.id, attemptID: attempt.attemptID, url: attempt.url })
+      // 1.x's state names the flow; in 2.x the attempt does.
+      return { authorizationUrl: attempt.url, oauthState: attempt.attemptID }
+    },
+    /** Opens the sign-in in the reader's browser, as 1.x did, and waits for the engine's callback. */
+    authenticate: async (input) => {
+      const attempt = attempts.get(input.server)
+      if (!attempt) throw new EngineError(`No sign-in was started for MCP server "${input.server}"`)
+      attempts.delete(input.server)
+      openUrl(attempt.url)
+      for (;;) {
+        const status = (
+          await call(
+            client.integration.oauth.status({
+              integrationID: attempt.integrationID,
+              attemptID: attempt.attemptID,
+              ...where(input.directory),
+            }),
+          )
+        ).data
+        if (status.status === "complete") return nothing()
+        if (status.status === "failed") throw new EngineError(status.message)
+        if (status.status === "expired") throw new EngineError("The sign-in expired")
+        await Bun.sleep(OAUTH_POLL)
+      }
+    },
+    authRemove: async (input) => {
+      const integration = await integrationOf(input.server, input.directory)
+      await Promise.all(
+        integration.connections
+          .filter((connection) => connection.type === "credential")
+          .map((connection) => call(client.credential.remove({ credentialID: connection.id }))),
+      )
+      return nothing()
+    },
+    resources: async (input) =>
+      (await call(client.mcp.resource.catalog(where(input?.directory)))).data.resources.map((resource) => ({
+        name: resource.name,
+        uri: resource.uri,
+        ...(resource.description ? { description: resource.description } : {}),
+        ...(resource.mimeType ? { mimeType: resource.mimeType } : {}),
+        client: resource.server,
+      })),
+  }
+
+  return { session, message, blocked, permission, mcp }
 }
+
+/** How often a sign-in in progress is asked about. */
+const OAUTH_POLL = 500
 
 /**
  * What an action returns on 1.x is a legacy record the app never reads (every caller only awaits it),
