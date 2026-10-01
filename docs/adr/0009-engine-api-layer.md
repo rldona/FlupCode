@@ -1,6 +1,8 @@
 # ADR-0009: Engine API layer uses the SDK v2 client
 
-- **Status:** Accepted
+- **Status:** Accepted; amended by [ADR-0027](0027-official-opencode-binary.md). The layer is now the
+  OpenCode 2 adapter (`packages/harness/src/engine/v2.ts`) over `@opencode/client`; the 1.x SDK
+  client it describes was removed with V2-71.
 - **Date:** 2026-09-12
 
 ## Context

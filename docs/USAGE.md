@@ -77,11 +77,9 @@ The engine the app starts is password-protected and listens on a private port
 window and for FlupCode's web app, so the web app and the source checkout work while the desktop is
 open.
 
-If FlupCode opens but the local project sessions are missing, the harness may
-be connected to an engine using a different channel database. See
-[Recovering Local FlupCode Sessions](FLUPCODE-SESSION-RECOVERY.md) to compare
-the databases and restart the engine on port `4096` with
-`~/.local/share/opencode/opencode.db`.
+If FlupCode opens but your sessions are missing, the OpenCode 2 engine is on FlupCode's own database
+and your 1.x history has not been imported yet; see
+[Recovering Local FlupCode Sessions](FLUPCODE-SESSION-RECOVERY.md).
 
 ### Installing a release
 
@@ -613,25 +611,13 @@ servers.
 
 ## See your existing OpenCode (TUI) sessions
 
-FlupCode is a client: it shows the sessions of the server it connects to. The TUI and FlupCode
-share sessions when they use the same server **and** the same database.
+FlupCode is a client: it shows the sessions of the engine it connects to. The OpenCode 2 engine
+FlupCode starts keeps its own database (`~/.local/share/flupcode/opencode-v2/opencode.db`), so your
+OpenCode 1.x history appears once you import it (File → _Import OpenCode 1.x History…_, or
+`flupcode engine import-v1`; see [OPENCODE-2.md](OPENCODE-2.md)).
 
-OpenCode picks its database by installation channel:
-
-- The installed `opencode` (release) uses `~/.local/share/opencode/opencode.db`.
-- A local development server uses `~/.local/share/opencode/opencode-local.db`.
-
-So a dev server started with the plain command will **not** show your TUI sessions. To make FlupCode
-read the same database as your installed OpenCode, start the engine with the channel DB disabled
-(or point `OPENCODE_DB` at the file):
-
-```bash
-OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve --port 4096
-```
-
-Then reload FlupCode: the sidebar will list every project and session.
-
-Alternatively, keep FlupCode's server and attach the TUI to it, so both share that server:
+To work on the same sessions from OpenCode's terminal UI, attach it to FlupCode's engine. The engine
+proxy signs local processes in, so no password is needed:
 
 ```bash
 opencode attach http://localhost:4096
@@ -735,15 +721,8 @@ so a phone must load the app over HTTPS.
 
 ### Local network without a relay
 
-Serve the engine on your LAN and open the harness from a phone:
-
-```bash
-OPENCODE_SERVER_PASSWORD=secret bun run --cwd packages/opencode src/index.ts serve \
-  --hostname 0.0.0.0 --port 4096
-```
-
-Point a harness instance at `http://<your-computer>:4096`. Always set a password when exposing the
-server.
+Not supported: OpenCode 2 always runs behind a password, and FlupCode's engine proxy only answers on
+loopback. Use remote control through the relay instead; it works on a local network too.
 
 ## Troubleshooting
 

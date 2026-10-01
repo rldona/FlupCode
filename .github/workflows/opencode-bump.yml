@@ -29,7 +29,7 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       # A pull request opened with the default GITHUB_TOKEN starts no workflows, so its checks would
-      # never run. The sync token is the PAT the fork sync already uses.
+      # never run. UPSTREAM_SYNC_TOKEN is the PAT (repo + workflow scopes) the old fork sync used.
       - name: Require token
         env:
           UPSTREAM_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}

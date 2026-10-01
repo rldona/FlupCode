@@ -44,7 +44,7 @@ export const About: Component<AboutProps> = (props) => {
           <p class="fc-modal-line">{t("Version {version}", { version: pkg.version })}</p>
           <p class="fc-modal-note">
             {t(
-              "FlupCode is an independent fork of OpenCode. It is not affiliated with or endorsed by Anomaly (OpenCode) or Anthropic (Claude Code).",
+              "FlupCode is an independent project built on OpenCode. It is not affiliated with or endorsed by Anomaly (OpenCode) or Anthropic (Claude Code).",
             )}
           </p>
           <div class="fc-modal-links">

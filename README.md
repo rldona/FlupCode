@@ -19,7 +19,7 @@
   <a href="https://github.com/rldona/FlupCode/stargazers"><img alt="stars" src="https://img.shields.io/github/stars/rldona/FlupCode" /></a>
   <a href="https://github.com/rldona/FlupCode/issues"><img alt="issues" src="https://img.shields.io/github/issues/rldona/FlupCode" /></a>
   <img alt="PRs welcome" src="https://img.shields.io/badge/PRs-welcome-brightgreen" />
-  <img alt="fork of OpenCode" src="https://img.shields.io/badge/fork%20of-OpenCode-blueviolet" />
+  <img alt="built on OpenCode 2" src="https://img.shields.io/badge/built%20on-OpenCode%202-blueviolet" />
 </p>
 
 <p align="center">
@@ -30,7 +30,7 @@
 
 ### Contents
 
-- [Why a fork](#why-a-fork)
+- [How it relates to OpenCode](#how-it-relates-to-opencode)
 - [Highlights](#highlights)
 - [Status](#status)
 - [Repository layout](#repository-layout)
@@ -42,7 +42,7 @@
 
 🌐 **Website:** [flupcode.com](https://flupcode.com) · 🖥️ **Web app:** [app.flupcode.com](https://app.flupcode.com) · 💻 **Source:** [rldona/FlupCode](https://github.com/rldona/FlupCode) · ⬇️ **[Download](https://github.com/rldona/FlupCode/releases/latest)**
 
-FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode) that takes its
+FlupCode is built on [OpenCode](https://github.com/anomalyco/opencode): it takes its
 terminal-grade feature set and packages it into a first-class **web and desktop experience**:
 a harness layout with a project sidebar, usage dashboard, runs, workflows, artifacts, routines and a
 polished composer — modelled on the Anthropic Claude Code desktop app.
@@ -52,25 +52,25 @@ polished composer — modelled on the Anthropic Claude Code desktop app.
 > The web app connects to one of them: the desktop app while it is open, or `flupcode serve`. See
 > [docs/OPENCODE-2.md](docs/OPENCODE-2.md).
 
-> **Not affiliated with OpenCode or Anthropic.** FlupCode is an independent fork. "OpenCode"
-> is the upstream project by [Anomaly](https://anoma.ly), and "Claude Code" is a product of
-> Anthropic. This fork is not built by, endorsed by, or affiliated with either of them.
+> **Not affiliated with OpenCode or Anthropic.** FlupCode is an independent project. "OpenCode"
+> is the project by [Anomaly](https://anoma.ly), and "Claude Code" is a product of Anthropic.
+> FlupCode is not built by, endorsed by, or affiliated with either of them.
 
-## Why a fork
+## How it relates to OpenCode
 
 OpenCode is already a client/server system: `opencode serve` exposes an HTTP + SSE API and every
-front-end (terminal TUI, web app, desktop app, IDE plugins) is just a client. FlupCode reuses
-that engine untouched and focuses entirely on the **experience layer** — the shell, the design
-system and the harness features that OpenCode's default UI does not emphasise.
+front-end (terminal TUI, web app, desktop app, IDE plugins) is just a client. FlupCode runs the
+official OpenCode 2 engine as it ships, and focuses entirely on the **experience layer** — the
+shell, the design system and the harness features that OpenCode's default UI does not emphasise.
+This repository started as a fork of OpenCode and no longer carries its source (ADR-0027).
 
 ## Highlights
 
 - **The official engine.** FlupCode runs the official OpenCode 2 binary at a pinned version and
   extends it through plugins, never through patches
   ([ADR-0027](docs/adr/0027-official-opencode-binary.md)).
-- **Isolated product code.** Everything we build lives in `packages/harness` (web) and
-  `packages/harness-desktop` (desktop), reusing `@opencode-ai/ui`, `@opencode-ai/session-ui`
-  and the generated client/SDK.
+- **Only FlupCode's code.** The repository holds the web app, the desktop app, the harness server,
+  the CLI and the relay; the engine is reached through the generated `@opencode/client`.
 - **Upstream by version.** A weekly pull request moves the pin to the newest OpenCode 2 release
   once it is three days old, and the engine suite and the live e2e judge it. See
   [docs/UPSTREAM.md](docs/UPSTREAM.md).
@@ -96,7 +96,7 @@ released, along with the harness server that owns runs: tasks, routines with his
 with evidence, workflows with human gates, and artifacts — now including the **documents the agent
 generates** (kept in `.flupcode/artifacts` with the `artifact_write` tool, listed under Artifacts and
 read by type: markdown, HTML, image, PDF). Editors for routines, agents and skills open in dialogs,
-and Compare runs inside the chat layout. The upstream sync and release pipelines are in place.
+and Compare runs inside the chat layout. The release pipeline and the weekly engine bump are in place.
 Desktop builds are not yet signed by Apple or Microsoft (see [Install](#install)). See
 [docs/ROADMAP.md](docs/ROADMAP.md) for the live status.
 
@@ -108,13 +108,10 @@ packages/harness-desktop      # Electron desktop app (also hosts remote control)
 packages/remote               # remote control protocol and host (shared by desktop, CLI, web)
 packages/relay                # remote control relay server (Bun, deployed on Fly.io)
 packages/flupcode-cli         # the `flupcode` command (`remote`, `serve`, `engine`)
+packages/harness-server       # loopback server: runs, routines, artifacts, the adaptive layer
+packages/engine-contract      # tests against the pinned OpenCode 2 binary
 packages/landing              # flupcode.com static site
-packages/app                  # upstream OpenCode web app (pristine, reused for parts)
-packages/tui                  # upstream terminal UI (pristine)
-packages/ui                   # upstream shared UI primitives (reused)
-packages/session-ui           # upstream session/message rendering (reused)
-packages/core | server | sdk  # upstream engine (pristine)
-docs/                         # project documentation (this fork)
+docs/                         # project documentation
 ```
 
 ## Install
@@ -141,9 +138,8 @@ Requirements: [Bun](https://bun.sh) 1.3+.
 
 ```bash
 bun install
-bun run dev:harness      # start the FlupCode web app
-bun run dev:web          # start the upstream web app (reference)
-bun run dev:desktop      # start the upstream desktop app (reference)
+bun run dev:harness          # the web app at http://localhost:4444
+bun run dev:harness-desktop  # the desktop app
 ```
 
 > **Corporate registry note.** If your global `~/.npmrc` points at a private registry, force the
@@ -183,7 +179,7 @@ OpenCode 1.x is no longer supported. Your 1.x history can be imported; see
 | [docs/OPENCODE-2.md](docs/OPENCODE-2.md) | FlupCode on OpenCode 2: what changed, importing 1.x history, staying on 1.x for now |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the monorepo fits together and where FlupCode lives |
 | [docs/USAGE.md](docs/USAGE.md) | Install, run, keyboard shortcuts and troubleshooting |
-| [docs/UPSTREAM.md](docs/UPSTREAM.md) | Following OpenCode: the pin and the old fork sync |
+| [docs/UPSTREAM.md](docs/UPSTREAM.md) | Following OpenCode: the pinned engine version |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system and the Claude Code–style harness direction |
 | [docs/PARITY.md](docs/PARITY.md) | TUI ↔ Web feature parity matrix |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritised, ticket-based roadmap |

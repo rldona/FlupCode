@@ -1,15 +1,14 @@
 # Contributing
 
-Thanks for helping build FlupCode. This project is a fork of OpenCode; read
-[docs/UPSTREAM.md](UPSTREAM.md) first, because the upstream boundary shapes how we work.
+Thanks for helping build FlupCode. It runs on the official OpenCode 2 engine at a pinned version;
+[docs/UPSTREAM.md](UPSTREAM.md) explains how that pin moves and why the engine is never patched here.
 
 ## Getting started
 
 ```bash
-# clone your fork, then:
+# clone the repository, then:
 nvm use            # reads .nvmrc
 bun install
-git remote add upstream https://github.com/anomalyco/opencode.git
 bun run dev:harness
 ```
 
@@ -41,13 +40,14 @@ npm_config_registry="https://registry.npmjs.org/" bun install --frozen-lockfile
 - comments and doc comments
 - commit messages, branch names, PR titles and issue text
 
-User-facing text is **not hardcoded**. Put it through i18n (`@solid-primitives/i18n`, same as
-upstream), defaulting to English. See ADR-0008.
+User-facing text is **not hardcoded**. Put it through the app's i18n (`packages/harness/src/i18n.ts`),
+defaulting to English. See ADR-0008.
 
 ### Commits and PR titles
 
 Conventional commits: `type(scope): summary`. Valid types: `feat`, `fix`, `docs`, `chore`,
-`refactor`, `test`. Scope examples: `harness`, `desktop`, `docs`, `upstream`.
+`refactor`, `test`. Scope examples: `harness`, `desktop`, `server`, `cli`, `docs`, `opencode` (a pin
+bump).
 
 Examples:
 
@@ -64,28 +64,27 @@ Short, at most three words, hyphen-separated, no type prefixes:
 ```
 harness-shell
 sidebar-pinning
-upstream-sync-action
+engine-proxy
 ```
 
 ### Style
 
-Follow the upstream style guide in `AGENTS.md`. In short:
+Follow the style guide in `AGENTS.md`. In short:
 
 - Prefer `const`; avoid `let` reassignment and `else` branches.
 - Functional array methods over loops; type guards on `filter`.
 - No `any`; no import aliases; no star imports.
 - Don't extract single-use helpers preemptively.
 - No comments for obvious code; comment non-obvious constraints.
-- Drizzle columns in `snake_case`.
 
-## Upstream boundary (important)
+## The engine boundary (important)
 
-- **Do not edit upstream packages** (`packages/opencode`, `server`, `core`, `protocol`, `schema`,
-  `client`, `sdk`, `sdk-next`, `tui`, `app`, `desktop`, `ui`, `session-ui`). Wrap or extend from
-  `packages/harness`.
-- Keep changes to shared root files (`package.json`, `bun.lock`, `bunfig.toml`, `.github/**`) as
-  small and additive as possible.
-- When an upstream merge conflicts, upstream wins for `packages/**`; we win for our files.
+- The engine is the pinned OpenCode 2 binary. Reach it only through the adapters
+  (`packages/harness/src/engine/`, `packages/harness-server/src/engine-v2.ts`) and extend it with a
+  plugin (`packages/remote/src/engine-plugins-v2.ts`). An engine bug goes upstream as an issue or a
+  pull request.
+- Move the pin with `bun script/opencode-pin.ts bump` (or let the weekly `opencode-bump` PR do it);
+  never edit one pin alone.
 
 ## Testing
 
@@ -104,7 +103,6 @@ build passes.
 1. Branch off `power`, keep it focused.
 2. Reference the ticket ID (e.g. `F2-4`) in the PR description.
 3. Ensure CI passes (`typecheck`, harness build, tests).
-4. Follow the conflict policy in [docs/UPSTREAM.md](UPSTREAM.md).
 
 ### Pushing
 
@@ -120,13 +118,12 @@ Merges happen on GitHub, never from Vercel, and one PR at a time:
    `--force-with-lease`.
 2. **Wait for CI** on that exact commit: `gate` (the last job of the `harness` workflow) is the
    required check on `power` and must finish green. It runs on every PR and only passes when the
-   build and the upstream inventory passed, or were skipped because the PR does not touch their
-   paths. Never merge on red or while it is still running.
-3. **Merge with squash** (rebase-merge is disabled; an upstream sync uses a merge commit, see
-   [UPSTREAM.md](./UPSTREAM.md#merge-methods)):
+   build and the engine suite passed, or were skipped because the PR does not touch their paths.
+   Never merge on red or while it is still running.
+3. **Merge with rebase**, so each conventional commit lands on `power` as written:
 
    ```bash
-   gh pr merge <number> --squash --repo rldona/FlupCode
+   gh pr merge <number> --rebase --repo rldona/FlupCode
    ```
 
 4. **Several PRs:** merge them in order, infrastructure and CI changes first. After each merge,

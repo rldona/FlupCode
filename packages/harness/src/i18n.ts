@@ -597,8 +597,8 @@ const ES: Record<string, string> = {
 
   // About
   "Version {version}": "Versión {version}",
-  "FlupCode is an independent fork of OpenCode. It is not affiliated with or endorsed by Anomaly (OpenCode) or Anthropic (Claude Code).":
-    "FlupCode es un fork independiente de OpenCode. No está afiliado ni respaldado por Anomaly (OpenCode) ni por Anthropic (Claude Code).",
+  "FlupCode is an independent project built on OpenCode. It is not affiliated with or endorsed by Anomaly (OpenCode) or Anthropic (Claude Code).":
+    "FlupCode es un proyecto independiente construido sobre OpenCode. No está afiliado ni respaldado por Anomaly (OpenCode) ni por Anthropic (Claude Code).",
   Repository: "Repositorio",
   "Upstream OpenCode": "Upstream OpenCode",
   "MIT license. OpenCode copyright preserved.": "Licencia MIT. Copyright de OpenCode preservado.",

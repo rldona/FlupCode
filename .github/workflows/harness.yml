@@ -26,7 +26,6 @@ jobs:
     outputs:
       harness: ${{ steps.filter.outputs.harness }}
       engine: ${{ steps.filter.outputs.engine }}
-      inventory: ${{ steps.filter.outputs.inventory }}
     steps:
       # Fails closed: whenever the changed files cannot be listed completely, everything runs.
       - name: Detect changed paths
@@ -43,7 +42,6 @@ jobs:
           all() {
             echo "harness=true" >> "$GITHUB_OUTPUT"
             echo "engine=true" >> "$GITHUB_OUTPUT"
-            echo "inventory=$([ "$EVENT" = pull_request ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
             echo "Running everything: $1"
             exit 0
           }
@@ -61,11 +59,8 @@ jobs:
             *) all "event $EVENT" ;;
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
-          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|engine-contract|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
-          echo "engine=$(matches '^(packages/(core|opencode|llm|server|protocol|schema|client|plugin|sdk|session-ui|engine-contract|remote)/|packages/harness/src/engine/|docs/upstream-inventory\.txt$|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
-          inventory=false
-          [ "$EVENT" = pull_request ] && inventory=$(matches '^(packages/|docs/upstream-inventory\.txt$|script/upstream-inventory\.ts$|\.github/workflows/harness\.yml$)')
-          echo "inventory=$inventory" >> "$GITHUB_OUTPUT"
+          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|engine-contract)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "engine=$(matches '^(packages/(engine-contract|remote|harness-server)/|packages/harness/src/engine/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
   build:
@@ -137,11 +132,8 @@ jobs:
           path: packages/harness/dist
           retention-days: 14
 
-  # Our own tests inside the upstream packages (memory, plan_exit, message compat, the permission
-  # floor, config reload...). Upstream's workflow for them is gated to anomalyco/opencode, so without
-  # this job they never ran here. The list is the upstream inventory, which CI already keeps
-  # complete: every test file of ours in an upstream package is declared there. Upstream's own
-  # suites are not run: several need recordings or a machine setup this runner does not have.
+  # FlupCode against the real engine: the engine-contract suite and the adapters' live tests, on the
+  # pinned OpenCode 2 binary (ADR-0027). A pin bump runs this.
   engine:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
@@ -159,18 +151,6 @@ jobs:
       - name: Install
         run: bun install --frozen-lockfile
 
-      - name: Test our engine changes
-        run: |
-          set -euo pipefail
-          tests=$(grep -E '^packages/[^/]+/.+\.test\.tsx?$' docs/upstream-inventory.txt)
-          [ -n "$tests" ] || { echo "no engine tests declared in docs/upstream-inventory.txt"; exit 1; }
-          for package in $(printf '%s\n' "$tests" | cut -d/ -f2 | sort -u); do
-            files=$(printf '%s\n' "$tests" | grep "^packages/$package/" | sed "s#^packages/$package/##")
-            echo "::group::packages/$package"
-            (cd "packages/$package" && bun test --timeout 30000 $files)
-            echo "::endgroup::"
-          done
-
       # The engine as FlupCode drives it, and FlupCode's OpenCode 2 adapter, against a real engine: the
       # pinned binary, fetched from the npm registry and checked against its integrity, isolated, with
       # a stub model and FlupCode's plugins installed (V2-05, V2-06, V2-20 to V2-26).
@@ -184,36 +164,10 @@ jobs:
           (cd packages/harness && bun test src/engine --timeout 60000)
           (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts --timeout 120000)
 
-  inventory:
-    needs: changes
-    if: needs.changes.outputs.inventory == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v5
-        with:
-          fetch-depth: 0
-
-      - name: Fetch upstream mirror
-        # The inventory is defined against the mirror, which a PR checkout does not bring.
-        run: git fetch origin dev:refs/remotes/origin/dev
-
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-
-      # No install: the script only shells out to git.
-      - name: Check inventory
-        env:
-          INVENTORY_SINCE: ${{ github.event.pull_request.base.sha }}
-        run: bun script/upstream-inventory.ts
-
   # The one required check on `power`. A job skipped because its paths did not change is a pass; a
   # failed or cancelled one, or a `changes` job that could not decide, is not.
   gate:
-    needs: [changes, build, engine, inventory]
+    needs: [changes, build, engine]
     if: always()
     runs-on: ubuntu-24.04
     timeout-minutes: 2
@@ -223,10 +177,9 @@ jobs:
           CHANGES: ${{ needs.changes.result }}
           BUILD: ${{ needs.build.result }}
           ENGINE: ${{ needs.engine.result }}
-          INVENTORY: ${{ needs.inventory.result }}
         run: |
-          echo "changes=$CHANGES build=$BUILD engine=$ENGINE inventory=$INVENTORY"
+          echo "changes=$CHANGES build=$BUILD engine=$ENGINE"
           [ "$CHANGES" = success ] || exit 1
-          for result in "$BUILD" "$ENGINE" "$INVENTORY"; do
+          for result in "$BUILD" "$ENGINE"; do
             case "$result" in success|skipped) ;; *) exit 1 ;; esac
           done
