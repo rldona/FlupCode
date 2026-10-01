@@ -389,6 +389,7 @@ import { AgentError, deleteAgentFile, listAgentFiles, writeAgentFile } from "./a
 import { SkillError, deleteSkill, readSkill, skillReport, writeSkill } from "./skills"
 import { CommandError, deleteCommandFile, listCommandFiles, writeCommandFile } from "./commands"
 import { ConfigFileError, exportConfigFiles, listConfigFiles, readConfigFile } from "./config-files"
+import { handleEngineConfigRequest } from "./engine-config-routes"
 import { FileError, readProjectFile } from "./files"
 import {
   GitError,
@@ -507,6 +508,15 @@ export const createHarnessHandler = (
       if (!tokenMatches(options.token ?? "", bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleActionProfileRequest(request, path.slice(2))
+    }
+    // The engine's own config files (V2-24): OpenCode 2 no longer writes its config, so FlupCode does,
+    // in the 1.x shape both lines load. Reading takes the bearer when one is configured; writing edits
+    // the user's own file, so it requires that bearer, and without one the route is an ordinary 404.
+    if (path[1] === "engine-config" && path.length === 2) {
+      if (request.method === "PATCH" && !options.token) return json({ error: "Not found", code: "not_found" }, 404)
+      if (options.token && !tokenMatches(options.token, bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      return handleEngineConfigRequest(request)
     }
     // Which runtime the engine is on, so a gate never assumes the legacy hooks (FH-000). Only a
     // route when a probe was built; without one it falls through to the ordinary 404. The probe
@@ -801,6 +811,8 @@ export const createHarnessHandler = (
           ...(options.credentials ? (["credentials"] as const) : []),
           // The writer shares the browser's bearer, so it is only announced when that secret exists.
           ...(options.token ? (["action-profiles"] as const) : []),
+          // So does the engine config writer (V2-24).
+          ...(options.token ? (["engine-config"] as const) : []),
           // The probe is built with the server, so it is announced whenever the route is (FH-000).
           ...(options.runtimeProbe ? (["adaptive"] as const) : []),
           // Dismissing its alerts writes, so it is announced only when the writer bearer exists (AH-D05).

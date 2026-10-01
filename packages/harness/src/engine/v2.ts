@@ -17,10 +17,15 @@ import { toFormAnswer, toMessages, toPermission, toQuestion, toSession } from ".
  */
 export function createV2Domains(
   baseUrl: string,
-  /** Where a sign-in URL is opened: the reader's browser, or a test that follows it itself. */
-  options: { openUrl?: (url: string) => void } = {},
+  options: {
+    /** Where a sign-in URL is opened: the reader's browser, or a test that follows it itself. */
+    openUrl?: (url: string) => void
+    /** The engine's config files, which 2.x no longer writes itself: the harness server's (V2-24). */
+    configStore?: EngineConfigStore
+  } = {},
 ) {
   const openUrl = options.openUrl ?? openExternalUrl
+  const store = options.configStore
   const client = OpenCode.make({ baseUrl, fetch: ((input, init) => engineFetch(input, init)) as typeof fetch })
 
   const session: EngineClient["session"] = {
@@ -259,6 +264,38 @@ export function createV2Domains(
     },
   }
 
+  /**
+   * Configuration (V2-24). 2.x serves its config migrated to its own shape and without the keys it
+   * does not know, `flupcode` among them, and writes none of it but its shell. Both lines still load
+   * an `opencode.json` in 1.x shape, so the config is read from and written to those files through
+   * the harness server, in that shape, and the engine is asked to reload. A folder's settings go to
+   * the engine's own folder, as 1.x's `PATCH /config` did. Without a store the config reads as empty
+   * and saving says why.
+   */
+  const configFile = async (scope: "global" | "project", directory?: string) => {
+    if (!store) return {}
+    const folder = scope === "project" ? (directory ?? (await call(client.location.get())).directory) : undefined
+    return (await store.read(scope, folder)).config
+  }
+  const merged = async (directory?: string) =>
+    deepMerge(await configFile("global"), await configFile("project", directory))
+  const save = async (scope: "global" | "project", patch: Record<string, unknown>, directory?: string) => {
+    if (!store) return unsupported("saving the engine config without the harness server")
+    const folder = scope === "project" ? (directory ?? (await call(client.location.get())).directory) : undefined
+    await store.patch(scope, patch, folder)
+    await call(client.location.reload(at(folder)))
+  }
+  const config: Pick<EngineClient, "config" | "globalConfig" | "updateConfig" | "updateGlobalConfig" | "reloadConfig"> =
+    {
+      config: async () => (await merged()) as Awaited<ReturnType<EngineClient["config"]>>,
+      globalConfig: async () => (await configFile("global")) as Awaited<ReturnType<EngineClient["globalConfig"]>>,
+      updateConfig: (patch) => save("project", patch),
+      updateGlobalConfig: (patch) => save("global", patch),
+      reloadConfig: async (input) => {
+        await call(client.location.reload(at(input?.directory)))
+      },
+    }
+
   // The OAuth attempt each server's sign-in is waiting on, from `authStart` to `authenticate`.
   const attempts = new Map<string, { integrationID: string; attemptID: string; url: string }>()
   const where = (directory?: string) => (directory ? { location: { directory } } : {})
@@ -272,16 +309,20 @@ export function createV2Domains(
 
   /**
    * MCP servers (V2-23). 2.x reads the location from `location[directory]`, not `?directory=`. Its
-   * `mcp.add` and `mcp.remove` only change the running engine, and keeping a server means writing
-   * the config file, which on 2.x goes through harness-server with V2-24: until then adding and
-   * removing say so instead of adding a server that is gone after a restart, and the configured
-   * servers read as none, which the form treats as a new server.
+   * `mcp.add` and `mcp.remove` only change the running engine, so a server is kept by writing it
+   * into the config files (V2-24), then reloading the location, which connects or drops it.
    */
   const mcp: EngineClient["mcp"] = {
     list: async (input) => ({ data: (await call(client.mcp.list(where(input?.directory)))).data }),
-    config: async () => ({ data: {} }),
-    add: async () => unsupported("saving an MCP server before V2-24"),
-    remove: async () => unsupported("removing a saved MCP server before V2-24"),
+    config: async (input) => ({
+      data: ((await merged(input?.directory)).mcp ?? {}) as Awaited<ReturnType<EngineClient["mcp"]["config"]>>["data"],
+    }),
+    add: async (input) => save(input.scope ?? "global", { mcp: { [input.server]: input.config } }, input.directory),
+    // A server's scope is not readable from the list, so removal clears it from both files, as on 1.x.
+    remove: async (input) => {
+      await save("project", { mcp: { [input.server]: null } }, input.directory)
+      await save("global", { mcp: { [input.server]: null } })
+    },
     connect: async (input) => {
       await call(client.mcp.connect({ server: input.server, ...where(input.directory) }))
       return nothing()
@@ -356,7 +397,34 @@ export function createV2Domains(
       })),
   }
 
-  return { session, message, blocked, permission, mcp }
+  return { session, message, blocked, permission, mcp, ...config }
+}
+
+/** Reads and patches one scope of the engine's config files, in the 1.x shape (V2-24). */
+export type EngineConfigStore = {
+  read: (scope: "global" | "project", directory?: string) => Promise<{ path: string; config: Record<string, unknown> }>
+  /** Merges `patch` in: objects deeply, `null` removing a key, each `provider` entry whole. */
+  patch: (
+    scope: "global" | "project",
+    patch: Record<string, unknown>,
+    directory?: string,
+  ) => Promise<{ path: string; changed: boolean }>
+}
+
+/** A folder's settings over the global ones, objects merged key by key, as the engine layers them. */
+function deepMerge(base: Record<string, unknown>, over: Record<string, unknown>): Record<string, unknown> {
+  return Object.entries(over).reduce(
+    (result, [key, value]) => {
+      const current = result[key]
+      const both = isRecord(current) && isRecord(value)
+      return { ...result, [key]: both ? deepMerge(current, value) : value }
+    },
+    { ...base },
+  )
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
 }
 
 /** How often a sign-in in progress is asked about. */

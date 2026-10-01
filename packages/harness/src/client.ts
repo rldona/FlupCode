@@ -765,6 +765,25 @@ export function createHarnessClient(baseUrl = resolveHarnessServerUrl()) {
           body: JSON.stringify(input),
         }),
     },
+    /**
+     * The engine's own config files, in the 1.x shape both engine lines load (V2-24). OpenCode 2 does
+     * not write its config, so its adapter reads and patches it here (`EngineConfigStore`).
+     */
+    engineConfig: {
+      read: (scope: "global" | "project", directory?: string) => {
+        const search = new URLSearchParams({ scope })
+        if (directory) search.set("directory", directory)
+        return harnessRequest<{ path: string; config: Record<string, unknown> }>(
+          baseUrl,
+          `/harness/engine-config?${search}`,
+        )
+      },
+      patch: (scope: "global" | "project", patch: Record<string, unknown>, directory?: string) =>
+        harnessRequest<{ path: string; changed: boolean }>(baseUrl, "/harness/engine-config", {
+          method: "PATCH",
+          body: JSON.stringify({ scope, patch, ...(directory ? { directory } : {}) }),
+        }),
+    },
     /** Findings (H-32): a review's points, anchored to a file and a line. */
     findings: {
       list: (input: { directory?: string; runID?: string; open?: boolean }) => {
