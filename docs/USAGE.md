@@ -29,37 +29,21 @@ npm_config_registry="https://registry.npmjs.org/" bun install --frozen-lockfile
 ### Web
 
 ```bash
-# terminal 1 — engine
-bun run --cwd packages/opencode src/index.ts serve --port 4096
-
-# terminal 2 — harness
-bun run dev:harness
+bun run dev:harness                            # the web app at http://localhost:4444
+bun packages/flupcode-cli/src/index.ts serve   # its engine, unless the desktop app is open
 ```
 
-Open http://localhost:4444. The server URL defaults to `http://localhost:4096`; change it in
-**Settings → Server**, or set `VITE_OPENCODE_SERVER_URL`.
-
-Do not start the engine with `OPENCODE_SERVER_PASSWORD` set. A browser page has no credentials to
-send and the engine refuses every call, which FlupCode reports as **Authentication required**. Only
-the desktop app hands the page a password. To clear one inherited from the shell, start it as
-`env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096`.
+The server URL defaults to `http://localhost:4096`; change it in **Settings → Server**, or set
+`VITE_OPENCODE_SERVER_URL`. OpenCode 2 always asks for a password and a browser page cannot send one,
+so the page reaches it through FlupCode's engine proxy. Both the desktop app and `flupcode serve` run
+that proxy at 4096, and it signs in only for FlupCode's pages (`FLUPCODE_WEB_ORIGINS` adds others).
 
 ### Hosted web app
 
-There is a deployed UI at https://app.flupcode.com that talks to an engine on your machine. Install
-the OpenCode CLI first (instructions per platform at https://opencode.ai/docs/), then start it with
-CORS enabled for the hosted origin:
-
-```bash
-env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
-```
-
-The `--cors` origin is required because the page and the engine are different origins. `env -u
-OPENCODE_SERVER_PASSWORD` keeps that variable out of the engine's environment for this one command:
-the hosted page is a browser page, so it cannot send credentials, and a password-protected engine
-reads as **Authentication required** instead of connecting. Use the desktop app when you want the
-engine password-protected. The app connects to `http://localhost:4096` by default (change it in
-**Settings → Server**).
+There is a deployed UI at https://app.flupcode.com that talks to an engine on your machine: the
+desktop app while it is open, or `flupcode serve`. `flupcode serve --install` keeps the engine
+running at every login (a launchd agent on macOS, a systemd user unit on Linux), so the page connects
+with nothing to start. `flupcode serve --uninstall` removes it.
 
 **The first connection asks for local network access.** Chrome 141 and later treat a public page
 reaching a service on your machine as a *local network request*, gated behind a permission the user
@@ -76,15 +60,6 @@ and each Vercel project skips its build when the push did not touch it: `package
 landing, and `packages/harness` or the packages it builds from for the app (`ignoreCommand` in each
 `vercel.json`).
 
-> **Engine patches.** The published OpenCode CLI tracks upstream and does not include FlupCode's
-> core patches (GitHub Copilot OAuth in the v2 catalog, session permission modes). For those, run
-> the engine from this fork's source instead:
->
-> ```bash
-> env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
->   --port 4096 --cors https://app.flupcode.com
-> ```
-
 ### Desktop
 
 ```bash
@@ -92,16 +67,16 @@ bun run dev:harness          # renderer
 bun run dev:harness-desktop  # Electron window
 ```
 
-The desktop main process starts a local OpenCode server automatically if none is reachable. It
-looks for `FLUPCODE_OPENCODE`, then the engine from this checkout, then `opencode` on the `PATH`;
-when none is found it shows an install prompt. Set `FLUPCODE_NO_SERVER=1` to disable the automatic
+The desktop main process starts OpenCode 2 automatically if no engine is reachable: the pinned
+binary, fetched once, or `FLUPCODE_OPENCODE`. `FLUPCODE_ENGINE=v1` makes it look for the engine from
+this checkout, then `opencode` on the `PATH`, as before (1.x is deprecated). Set `FLUPCODE_NO_SERVER=1` to disable the automatic
 start, `FLUPCODE_SERVER_URL` to point at an engine already running elsewhere (default
 `http://127.0.0.1:4096`), or `FLUPCODE_DEV_URL` to point at another renderer.
 
-The engine the app starts is password-protected, and the app hands that password to its own window.
-A browser page cannot receive it, so pointing the web app or the source checkout at that engine
-reports **Authentication required**; use a separate engine started without `OPENCODE_SERVER_PASSWORD`
-for browser clients.
+The engine the app starts is password-protected and listens on a private port
+(`FLUPCODE_ENGINE_PORT`, 4098). The engine proxy at `FLUPCODE_SERVER_URL` signs in for the app's own
+window and for FlupCode's web app, so the web app and the source checkout work while the desktop is
+open.
 
 If FlupCode opens but the local project sessions are missing, the harness may
 be connected to an engine using a different channel database. See
