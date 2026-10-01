@@ -23,6 +23,7 @@ import { handleBrowserRequest } from "./browser-routes"
 import type { BrowserRuntime } from "./browser"
 import { bearerFrom, tokenMatches } from "./browser-token"
 import { allowedHarnessHost, allowedHarnessOrigin, applyHarnessCors, preflightResponse } from "./cors"
+import type { ActionApprover } from "./action-approval"
 import { handleActionRequest } from "./action-routes"
 import type { ActionRunner } from "./action-runner"
 import { handleActionProfileRequest } from "./action-profile-routes"
@@ -424,6 +425,8 @@ export type HarnessHandlerOptions = {
   browser?: BrowserRuntime
   token?: string
   actions?: ActionRunner
+  /** A web action's approval asked in the session, for the OpenCode 2 actions plugin (V2-31). */
+  actionApprover?: ActionApprover
   credentials?: CredentialVault
   runtimeProbe?: RuntimeProbe
   decisions?: DecisionService
@@ -492,7 +495,7 @@ export const createHarnessHandler = (
     if (path[1] === "actions" && options.actions) {
       if (!tokenMatches(options.token ?? "", bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
-      return handleActionRequest(request, path.slice(2), options.actions)
+      return handleActionRequest(request, path.slice(2), options.actions, options.actionApprover)
     }
     // What a web action signs in with (WA-5). Stored secrets are the most sensitive thing here, so
     // the vault is behind the same bearer rather than the loopback address alone, and it is only a

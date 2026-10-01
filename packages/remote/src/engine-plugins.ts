@@ -2823,24 +2823,14 @@ export function engineConfigDir(env: NodeJS.ProcessEnv = process.env, home = os.
  * menu is only empty and the Context screen only says nothing was captured.
  *
  * Both lines read the same folder and each refuses the other's shape, so one line's set replaces the
- * other's: the files share names, and a 1.x plugin with no OpenCode 2 version yet is removed for 2.x
- * rather than left to fail at every start (V2-30).
+ * other's: every plugin has a version for each line under the same file name (V2-30).
  */
 export async function installEnginePlugins(configDir = engineConfigDir(), line: "v1" | "v2" = "v1") {
   const dir = path.join(configDir, "plugins")
   const paths: string[] = []
   let changed = false
   let error: string | undefined
-  const plugins = line === "v2" ? PLUGINS_V2 : PLUGINS
-  const unported =
-    line === "v2" ? PLUGINS.filter((plugin) => !PLUGINS_V2.some((ours) => ours.file === plugin.file)) : []
-  for (const plugin of unported) {
-    const target = path.join(dir, plugin.file)
-    if (!(await readFile(target, "utf8").catch(() => undefined))) continue
-    await rm(target, { force: true }).catch(() => {})
-    changed = true
-  }
-  for (const plugin of plugins) {
+  for (const plugin of line === "v2" ? PLUGINS_V2 : PLUGINS) {
     const target = path.join(dir, plugin.file)
     try {
       const current = await readFile(target, "utf8").catch(() => undefined)

@@ -1512,6 +1512,448 @@ export default {
 `,
 }
 
+/**
+ * Reading the reader's OpenCode config from a plugin (comments and trailing commas allowed, the files
+ * merged in the engine's order), and keeping the newest image a composing tool produced in each
+ * session. 2.x hands a plugin's tool no conversation, so the image a web action or a delivery needs is
+ * taken from the composing tool's own result as it ends (`execute.after`). Inlined into both plugins.
+ */
+const CONFIG_HELPERS = String.raw`// The plugin sits in <configDir>/plugins, so its parent is the config directory.
+const CONFIG_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"]
+const IMAGE_FILE_LIMIT = 10 * 1024 * 1024
+
+function stripJsonc(text) {
+  let out = ""
+  let inString = false
+  let escape = false
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (escape) escape = false
+      else if (ch === "\\") escape = true
+      else if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      i += 2
+      while (i < text.length && text[i] !== "\n") i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      i += 2
+      while (i + 1 < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1
+      i += 2
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out.replace(/,(?=\s*[}\]])/g, "")
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function mergeConfig(target, source) {
+  if (!isPlainObject(target) || !isPlainObject(source)) return source
+  const merged = { ...target }
+  for (const key of Object.keys(source))
+    merged[key] = isPlainObject(target[key]) && isPlainObject(source[key]) ? mergeConfig(target[key], source[key]) : source[key]
+  return merged
+}
+
+async function readJsonc(file) {
+  const text = await readFile(file, "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(stripJsonc(text))
+  } catch {
+    return undefined
+  }
+}
+
+async function loadConfig() {
+  let merged = {}
+  for (const name of CONFIG_FILES) {
+    const parsed = await readJsonc(path.join(CONFIG_DIR, name))
+    if (isPlainObject(parsed)) merged = mergeConfig(merged, parsed)
+  }
+  return merged
+}
+
+// The newest composed image per session, as the composing tool returned it.
+const images = new Map()
+
+function rememberImage(after, composeTools) {
+  if (after.status !== "completed" || !after.result || !Array.isArray(after.result.content)) return
+  const wanted = Array.isArray(composeTools) && composeTools.length ? composeTools : undefined
+  if (wanted && !wanted.includes(after.tool)) return
+  const image = [...after.result.content]
+    .reverse()
+    .find((part) => part && part.type === "file" && typeof part.mime === "string" && part.mime.startsWith("image/"))
+  if (!image || typeof image.uri !== "string") return
+  images.delete(after.sessionID)
+  images.set(after.sessionID, { uri: image.uri, mime: image.mime })
+  if (images.size > 500) images.delete(images.keys().next().value)
+}
+
+// The image as a data URL, the shape the runner and the attachment take; a file is read once, bounded.
+async function imageDataUrl(sessionID) {
+  const image = images.get(sessionID)
+  if (!image) return undefined
+  if (image.uri.startsWith("data:")) return image.uri
+  if (!image.uri.startsWith("file:")) return undefined
+  const bytes = await readFile(fileURLToPath(image.uri)).catch(() => undefined)
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > IMAGE_FILE_LIMIT) return undefined
+  return "data:" + image.mime + ";base64," + Buffer.from(bytes).toString("base64")
+}
+
+function imagePart(dataUrl) {
+  const match = /^data:([^;,]+);base64,/.exec(dataUrl)
+  return match && match[1].startsWith("image/") ? { type: "file", uri: dataUrl, mime: match[1] } : undefined
+}`
+
+/**
+ * web-actions: one browser-action tool per profile the harness accepts (V2-31). As on 1.x the plugin
+ * is a thin proxy that holds no browser state, selectors or credentials. What changes is the approval:
+ * 2.x gives a plugin's tool no permission prompt, so before every run it asks harness-server
+ * (`/harness/actions/approve`), which decides from its own copy of the profile what to ask and asks the
+ * reader in the session; nothing runs without a yes.
+ */
+export const WEB_ACTIONS_PLUGIN_V2 = {
+  file: "flupcode-actions.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Registers one browser-action tool per profile under
+// "flupcode.actions", asks the harness for the reader's approval before each run and forwards the
+// recipe to its runner. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const PROFILE_TIMEOUT_MS = 1200
+const PROFILE_ATTEMPTS = 3
+const PROFILE_DELAY_MS = 400
+// The approval waits for the reader; the harness gives up first, after ten minutes.
+const APPROVAL_TIMEOUT_MS = 11 * 60 * 1000
+const RUN_TIMEOUT_MS = 600000
+const ARTIFACT_TIMEOUT_MS = 15000
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const ATTACHMENT_MIMES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"])
+const EVIDENCE_SCAN = 5
+const PROFILE_ID = /^[A-Za-z0-9_-]{1,64}$/
+const UPLOAD_FROM = /^\{\{\s*([A-Za-z0-9_-]+)\s*\}\}$/
+
+${CONFIG_HELPERS}
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+// The browser bearer: the desktop hands it to the engine, and the harness keeps it in a file.
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+function requiredImageNames(steps, imageInputs) {
+  const referenced = new Set()
+  for (const step of steps) {
+    if (!isPlainObject(step) || !isPlainObject(step.upload)) continue
+    const match = typeof step.upload.from === "string" ? UPLOAD_FROM.exec(step.upload.from) : undefined
+    if (match) referenced.add(match[1])
+  }
+  return imageInputs.filter((name) => referenced.has(name))
+}
+
+async function loadProfiles(base, token) {
+  for (let attempt = 0; attempt < PROFILE_ATTEMPTS; attempt++) {
+    const response = await fetch(base + "/harness/actions", {
+      headers: { authorization: "Bearer " + token },
+      signal: AbortSignal.timeout(PROFILE_TIMEOUT_MS),
+    }).catch(() => undefined)
+    if (!response) {
+      if (attempt + 1 < PROFILE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, PROFILE_DELAY_MS))
+      continue
+    }
+    if (response.status !== 200) return undefined
+    const body = await response.json().catch(() => undefined)
+    const profiles = body && body.data && body.data.profiles
+    return Array.isArray(profiles) ? profiles : undefined
+  }
+  return undefined
+}
+
+function oneLine(value) {
+  return String(value).replace(/\s*[\r\n  ]+\s*/g, " ")
+}
+
+// What the page said is untrusted, and is marked as such for the model.
+function summarise(profile, data) {
+  const result = isPlainObject(data) ? data : {}
+  const lines = ['Acción "' + (result.action || profile.id) + '" completada.', "Origen: " + (result.origin || profile.origin)]
+  const page = []
+  if (typeof result.url === "string" && result.url) page.push("URL: " + oneLine(result.url))
+  if (typeof result.title === "string" && result.title) page.push("Título: " + oneLine(result.title))
+  if (isPlainObject(result.extract))
+    for (const field of Object.keys(result.extract)) page.push("Extraído " + field + ": " + oneLine(result.extract[field]))
+  if (page.length > 0) lines.push("Datos no confiables (tomados de la página):", ...page)
+  const steps = Array.isArray(result.steps) ? result.steps.filter(isPlainObject) : []
+  if (steps.length > 0) lines.push("Pasos:", ...steps.map((step) => "- #" + step.index + " " + step.kind + ": " + step.status))
+  const evidence = Array.isArray(result.evidence) ? result.evidence : []
+  if (evidence.length > 0) lines.push("Evidencia: " + evidence.join(", "))
+  return lines.join("\n")
+}
+
+function failureText(profile, body) {
+  const error = isPlainObject(body) ? body : {}
+  const code = typeof error.code === "string" ? error.code : ""
+  if (code === "guard_denied") return "La acción fue denegada por un guard (" + (error.guardCode || "sin código") + ")."
+  if (code === "credential_unavailable")
+    return "Falta la credencial nombrada «" + (typeof error.field === "string" && error.field ? error.field : profile.credential || "credential") + "»."
+  if (code === "origin_mismatch" || code === "navigation_blocked") return "La navegación salió del origen permitido."
+  if (code === "step_failed") return "Falló el paso " + (error.step || "?") + " (#" + (error.index !== undefined ? error.index : "?") + ")."
+  if (code === "missing_input" || code === "unknown_input" || code === "invalid_input")
+    return "Falta o no es válido el input " + (error.field || "?") + "."
+  if (code === "extract_failed") return "No se pudo leer " + (error.field || "?") + "."
+  if (code === "unknown_action" || code === "not_found")
+    return "No se encontró la acción; puede que ya no exista. Reinicia el motor y vuelve a intentarlo."
+  if (code === "internal_error")
+    return "La acción no se pudo completar por un fallo del servidor del navegador. Vuelve a intentarlo; si persiste, reinicia el motor."
+  return typeof error.error === "string" && error.error ? error.error : "La acción no se pudo completar."
+}
+
+// The newest evidence screenshot, as a file part the transcript shows.
+async function evidenceImage(base, token, value) {
+  const evidence = isPlainObject(value) && Array.isArray(value.evidence) ? value.evidence : []
+  for (let i = evidence.length - 1; i >= Math.max(0, evidence.length - EVIDENCE_SCAN); i--) {
+    const id = evidence[i]
+    if (typeof id !== "string" || !id) continue
+    const response = await fetch(base + "/harness/artifacts/" + encodeURIComponent(id) + "/raw", {
+      headers: { authorization: "Bearer " + token },
+      signal: AbortSignal.timeout(ARTIFACT_TIMEOUT_MS),
+    }).catch(() => undefined)
+    if (!response || !response.ok) continue
+    const mime = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase()
+    if (!ATTACHMENT_MIMES.has(mime)) continue
+    const bytes = await response.arrayBuffer().catch(() => undefined)
+    if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_ATTACHMENT_BYTES) continue
+    return { type: "file", uri: "data:" + mime + ";base64," + Buffer.from(bytes).toString("base64"), mime }
+  }
+  return undefined
+}
+
+function answer(text, image) {
+  return { content: image ? [{ type: "text", text }, image] : text }
+}
+
+function definition(profile, base, token, project) {
+  const properties = {}
+  for (const name of Object.keys(profile.inputs))
+    if (profile.inputs[name] === "string") properties[name] = { type: "string", description: 'Value for the "' + name + '" input.' }
+  return {
+    name: profile.tool,
+    description: profile.description,
+    input: { type: "object", properties, required: Object.keys(properties) },
+    options: { codemode: false },
+    execute: async (args, context) => {
+      if (!project) return answer("Esta sesión no tiene una carpeta de proyecto donde ejecutar la acción.")
+      const imageInputs = Object.keys(profile.inputs).filter((name) => profile.inputs[name] === "image")
+      const dataUrl = imageInputs.length > 0 ? await imageDataUrl(context.sessionID) : undefined
+      if (requiredImageNames(profile.steps, imageInputs).length > 0 && !dataUrl)
+        return answer("No encuentro la imagen compuesta en esta conversación. Compónla primero y vuelve a intentarlo.")
+      const inputs = {}
+      for (const name of Object.keys(profile.inputs)) {
+        const kind = profile.inputs[name]
+        if (kind === "string" && args && typeof args[name] === "string") inputs[name] = args[name]
+        else if (kind === "image" && dataUrl) inputs[name] = { dataUrl }
+      }
+      // Nothing runs without the reader's yes, asked in the session by the harness.
+      const approval = await fetch(base + "/harness/actions/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project }),
+        signal: AbortSignal.any([AbortSignal.timeout(APPROVAL_TIMEOUT_MS), context.signal]),
+      })
+        .then((response) => response.json())
+        .catch(() => undefined)
+      const verdict = approval && approval.data
+      if (!verdict || verdict.approved !== true)
+        return answer(
+          verdict && verdict.reason === "denied"
+            ? "El usuario denegó la acción."
+            : "La acción no se ejecutó: nadie la aprobó.",
+        )
+      const response = await fetch(base + "/harness/actions/run", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project, inputs }),
+        signal: AbortSignal.any([AbortSignal.timeout(RUN_TIMEOUT_MS), context.signal]),
+      }).catch(() => undefined)
+      if (!response) return answer("No se pudo contactar con el servidor del navegador. Comprueba que sigue en marcha.")
+      const payload = await response.json().catch(() => undefined)
+      if (response.status !== 200) {
+        const body = isPlainObject(payload) ? payload : {}
+        return answer(failureText(profile, body), await evidenceImage(base, token, body))
+      }
+      const data = payload && payload.data
+      return answer(summarise(profile, data), await evidenceImage(base, token, data))
+    },
+  }
+}
+
+export default {
+  id: "flupcode-actions",
+  setup: async (ctx) => {
+    if (process.env.FLUPCODE_BROWSER_DISABLED === "1") return
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const config = await loadConfig().catch(() => ({}))
+    const profiles = await loadProfiles(base, token)
+    if (profiles === undefined) return
+    const composeTools = config && config.flupcode && config.flupcode.composeTools
+    const project = ctx.location && ctx.location.directory
+    await ctx.tool.hook("execute.after", (after) => rememberImage(after, composeTools))
+    await ctx.tool.transform((editor) => {
+      for (const profile of profiles) {
+        if (!isPlainObject(profile) || typeof profile.tool !== "string" || !profile.tool) continue
+        if (typeof profile.id !== "string" || !PROFILE_ID.test(profile.id)) continue
+        if (typeof profile.origin !== "string" || !profile.origin) continue
+        if (!isPlainObject(profile.inputs) || !Array.isArray(profile.steps)) continue
+        editor.add(definition(profile, base, token, project))
+      }
+    })
+  },
+}
+`,
+}
+
+/**
+ * delivery: one tool per profile under `flupcode.delivery`, as on 1.x: the guards in the reader's
+ * config run first, then the piece is handed back with its composed image to copy by hand. 2.x hands
+ * the tool no conversation, so the image is the newest one a composing tool returned in the session,
+ * and a guard is given no messages.
+ */
+export const DELIVERY_PLUGIN_V2 = {
+  file: "flupcode-deliver.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Registers one delivery tool per profile declared under
+// flupcode.delivery: the guards run, then the piece comes back ready to copy, with its composed image.
+// Nothing is published. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+${CONFIG_HELPERS}
+
+// A safety gate must not disappear silently: a guard that cannot load or throws refuses the delivery.
+async function runGuards(paths, input) {
+  if (!Array.isArray(paths)) return undefined
+  const guards = []
+  for (const entry of paths) {
+    if (typeof entry !== "string" || !entry) continue
+    const mod = await import(pathToFileURL(path.resolve(CONFIG_DIR, entry)).href).catch(() => undefined)
+    if (!mod || !Array.isArray(mod.guards)) return "No se entrega. GUARD_LOAD_ERROR: " + entry
+    guards.push(...mod.guards)
+  }
+  for (const guard of guards) {
+    if (!guard || typeof guard.assess !== "function") continue
+    let verdict
+    try {
+      verdict = await guard.assess(input)
+    } catch (cause) {
+      return "No se entrega. GUARD_ERROR: " + String(guard.id) + " - " + (cause instanceof Error ? cause.message : String(cause))
+    }
+    if (verdict && verdict.allow === false) return "No se entrega. " + String(verdict.code) + ": " + String(verdict.reason)
+  }
+  return undefined
+}
+
+function definition(profile) {
+  return {
+    name: profile.tool,
+    description:
+      profile.description ||
+      "Deliver the piece you have just written and composed so a person can copy and paste it by hand. Does not publish anything: it re-emits the composed image as an attachment.",
+    input: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The exact text of the piece, as it is copied." },
+        template: { type: "string", description: "The template that was composed." },
+        alt: { type: "string", description: "The image alt text, when there is one." },
+        location: { type: "string", description: "The place the piece is about, when the guards need it." },
+      },
+      required: ["text", "template"],
+    },
+    options: { codemode: false },
+    execute: async (args, context) => {
+      const denied = await runGuards(profile.guards, { text: args.text, template: args.template, alt: args.alt, location: args.location })
+      if (denied) return { content: denied }
+      const dataUrl = await imageDataUrl(context.sessionID)
+      if (!dataUrl && profile.imageRequired !== false)
+        return { content: profile.imageMissing || "I cannot find the composed image in this conversation. Compose it first and try again." }
+      const image = dataUrl ? imagePart(dataUrl) : undefined
+      const labels = profile.labels || {}
+      const alt = args.alt || ""
+      const lines = [
+        labels.title || "Ready to copy and paste. Nothing was published.",
+        "",
+        labels.text || "Text:",
+        args.text,
+        "",
+        alt ? (labels.alt || "Image alt:") + "\n" + alt : labels.missingAlt || "The image has no alt.",
+      ]
+      if (image) lines.push("", labels.image || "The image goes with the piece, below: copy them together.")
+      const text = lines.join("\n")
+      return { content: image ? [{ type: "text", text }, image] : text }
+    },
+  }
+}
+
+export default {
+  id: "flupcode-deliver",
+  setup: async (ctx) => {
+    const config = await loadConfig().catch(() => undefined)
+    const profiles = config && config.flupcode && config.flupcode.delivery
+    if (!profiles || typeof profiles !== "object") return
+    const list = Object.values(profiles).filter((profile) => isPlainObject(profile) && typeof profile.tool === "string" && profile.tool)
+    const composeTools = [...new Set(list.flatMap((profile) => (Array.isArray(profile.composeTools) ? profile.composeTools : [])))]
+    await ctx.tool.hook("execute.after", (after) => rememberImage(after, composeTools))
+    await ctx.tool.transform((editor) => {
+      for (const profile of list) editor.add(definition(profile))
+    })
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -1525,4 +1967,6 @@ export const PLUGINS_V2 = [
   TOOL_TRIM_PLUGIN_V2,
   RELEVANCE_PLUGIN_V2,
   CACHE_SELECTION_PLUGIN_V2,
+  WEB_ACTIONS_PLUGIN_V2,
+  DELIVERY_PLUGIN_V2,
 ]

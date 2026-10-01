@@ -1,4 +1,5 @@
-import { dirname } from "node:path"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
@@ -38,6 +39,7 @@ import { createRetryingModel } from "./adaptive/providers/retry"
 import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
 import { createModelKey } from "./adaptive/model-key"
 import { createSmallLlmModel } from "./adaptive/providers/small-llm"
+import { createActionApprover } from "./action-approval"
 import { Engine } from "./engine"
 import { parseModelKey } from "./policy"
 import { createDecisionService } from "./adaptive/decision-service"
@@ -388,6 +390,15 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(actions ? { actions } : {}),
+      ...(actions
+        ? {
+            actionApprover: createActionApprover({
+              actions,
+              ask: (request) => new Engine(engineURL).askApproval(request),
+              file: join(databasePath === ":memory:" ? tmpdir() : dirname(databasePath), "action-approvals.json"),
+            }),
+          }
+        : {}),
       ...(vault ? { credentials: vault } : {}),
       runtimeProbe,
       decisions,

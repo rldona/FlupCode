@@ -125,6 +125,44 @@ export class V2Engine {
     await call(this.client.session.interrupt({ sessionID }))
   }
 
+  /**
+   * Asks the reader in the session itself, as a form the app shows like a question (V2-31): 2.x gives
+   * a plugin's tool no way to ask for a permission, so a web action's approval is asked from here.
+   * `undefined` when the form was cancelled or nobody answered in time.
+   */
+  async askApproval(input: { sessionID: string; title: string; description: string; timeoutMs: number }) {
+    const form = await call(
+      this.client.session.form.create({
+        sessionID: input.sessionID,
+        title: input.title,
+        metadata: { flupcode: "action-approval" },
+        fields: [
+          {
+            key: "decision",
+            title: input.title,
+            description: input.description,
+            type: "string",
+            required: true,
+            options: APPROVAL_OPTIONS,
+          },
+        ],
+      }),
+    )
+    const deadline = Date.now() + input.timeoutMs
+    while (Date.now() < deadline) {
+      const detail = await call(this.client.session.form.get({ sessionID: input.sessionID, formID: form.id }))
+      if (detail.state.status === "cancelled") return undefined
+      if (detail.state.status === "answered") {
+        const decision = detail.state.answer.decision
+        return decision === "once" || decision === "always" ? decision : ("deny" as const)
+      }
+      await Bun.sleep(500)
+    }
+    // Unanswered: the form goes, so a late answer cannot approve an action that already gave up.
+    await this.client.session.form.cancel({ sessionID: input.sessionID, formID: form.id }).catch(() => undefined)
+    return undefined
+  }
+
   /** The tool call the session's last assistant message is still inside, if any. */
   async activity(sessionID: string): Promise<Activity | undefined> {
     const assistant = (await this.transcript(sessionID)).findLast((message) => message.type === "assistant")
@@ -169,6 +207,13 @@ export class V2Engine {
     return pages.reverse()
   }
 }
+
+/** The answers a web action's approval offers, in the order the reader sees them. */
+const APPROVAL_OPTIONS = [
+  { value: "once", label: "Allow once" },
+  { value: "always", label: "Always allow" },
+  { value: "deny", label: "Deny" },
+]
 
 /** A 1.x rule as a 2.x one: same meaning, 2.x names, and `bash` is `shell`. */
 function toRule(rule: PermissionRule) {

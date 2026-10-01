@@ -531,6 +531,16 @@ export class Engine {
   }
 
   /** Stop the turn where it runs: a legacy one is aborted per folder, not interrupted by id. */
+  /**
+   * A web action's approval asked in the session (V2-31), on 2.x only: 1.x's plugin asks through the
+   * engine's own permission prompt, so there is nothing for this server to ask there.
+   */
+  async askApproval(input: { sessionID: string; title: string; description: string; timeoutMs: number }) {
+    const v2 = await this.v2()
+    if (!v2) return undefined
+    return v2.askApproval(input)
+  }
+
   async interrupt(sessionID: string, directory?: string) {
     const v2 = await this.v2()
     if (v2) return v2.interrupt(sessionID)

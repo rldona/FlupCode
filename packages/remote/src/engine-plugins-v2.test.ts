@@ -59,8 +59,8 @@ function context(directory = "/work/demo", events: unknown[] = []) {
   }
 }
 
-async function plugin(file: string) {
-  const config = await temp()
+async function plugin(file: string, config?: string) {
+  config ??= await temp()
   const { paths } = await installEnginePlugins(config, "v2")
   const target = paths.find((entry) => entry.endsWith(file))
   expect(target).toBeDefined()
@@ -75,24 +75,22 @@ const data = (...parts: string[]) => path.join(process.env.XDG_DATA_HOME!, "flup
 const json = async (file: string) => JSON.parse(await readFile(file, "utf8"))
 
 describe("installEnginePlugins for OpenCode 2", () => {
-  test("writes the 2.x set, and removes the 1.x plugins that have no 2.x version yet", async () => {
+  test("writes the 2.x set over the 1.x one, file for file, and back again", async () => {
     const config = await temp()
     await installEnginePlugins(config, "v1")
     const v1 = (await readdir(path.join(config, "plugins"))).sort()
-    expect(v1).toContain("flupcode-actions.js")
 
     const { paths, changed } = await installEnginePlugins(config, "v2")
     expect(changed).toBe(true)
-    const v2 = (await readdir(path.join(config, "plugins"))).sort()
-    expect(v2).toEqual(paths.map((file) => path.basename(file)).sort())
-    expect(v2).not.toContain("flupcode-actions.js")
-    for (const file of v2)
+    // Every 1.x plugin has its 2.x version under the same name, so a switch leaves nothing behind.
+    expect(paths.map((file) => path.basename(file)).sort()).toEqual(v1)
+    for (const file of v1)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
 
-    // Nothing to do the second time; and back on 1.x every 1.x plugin returns.
     expect((await installEnginePlugins(config, "v2")).changed).toBe(false)
     await installEnginePlugins(config, "v1")
-    expect((await readdir(path.join(config, "plugins"))).sort()).toEqual(v1)
+    for (const file of v1)
+      expect(await readFile(path.join(config, "plugins", file), "utf8")).not.toContain("for OpenCode 2")
   })
 })
 
@@ -235,11 +233,13 @@ async function harness(answers: Record<string, unknown> = {}) {
         authorization: request.headers.get("authorization"),
         body: await request.json().catch(() => ({})),
       })
-      return Response.json({ data: answers[route] ?? {} })
+      const answer = answers[route]
+      return Response.json({ data: (typeof answer === "function" ? answer() : answer) ?? {} })
     },
   })
   const config = await temp()
   await writeFile(path.join(config, "adaptive-token"), "adaptive-token\n")
+  await writeFile(path.join(config, "browser-token"), "browser-token\n")
   process.env.FLUPCODE_CONFIG_DIR = config
   process.env.FLUPCODE_HARNESS_SERVER_URL = `http://127.0.0.1:${server.port}`
   stops.push(() => server.stop(true))
@@ -534,5 +534,121 @@ describe("OpenCode 2 cache selection", () => {
     const unknown = request("ses_2")
     recorded.hooks.get("session.context")!(unknown as never)
     expect(unknown.messages[2]!.content[0]!.result!.value).toBe("x".repeat(4000))
+  })
+})
+
+describe("OpenCode 2 web actions and delivery", () => {
+  const profile = {
+    id: "post",
+    tool: "flupcode_post",
+    description: "Post the piece",
+    origin: "https://example.com",
+    inputs: { title: "string", image: "image" },
+    steps: [{ upload: { selector: "input", from: "{{image}}" } }, { submit: { selector: "form" } }],
+  }
+  const composed = "data:image/png;base64,iVBORw0KGgo="
+
+  async function actions(approved: boolean) {
+    const calls = await harness({
+      "/harness/actions": { profiles: [profile] },
+      "/harness/actions/approve": () => (approved ? { approved: true } : { approved: false, reason: "denied" }),
+      "/harness/actions/run": {
+        action: "post",
+        origin: "https://example.com",
+        steps: [{ index: 1, kind: "submit", status: "ok" }],
+      },
+    })
+    const plugin_ = await plugin("flupcode-actions.js")
+    const recorded = context("/work/demo")
+    await plugin_.setup(recorded.ctx)
+    const added: Array<{
+      name: string
+      options: unknown
+      execute: (input: unknown, context: unknown) => Promise<unknown>
+    }> = []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    // The composing tool's result is where the image comes from on 2.x.
+    recorded.hooks.get("tool.execute.after")!({
+      sessionID: "ses_1",
+      tool: "compose",
+      status: "completed",
+      result: {
+        content: [
+          { type: "text", text: "composed" },
+          { type: "file", uri: composed, mime: "image/png" },
+        ],
+      },
+    } as never)
+    return { calls, added }
+  }
+
+  test("an approved action runs with the composed image, after the harness asked in the session", async () => {
+    const { calls, added } = await actions(true)
+    expect(added.map((tool) => [tool.name, tool.options])).toEqual([["flupcode_post", { codemode: false }]])
+    const result = (await added[0]!.execute(
+      { title: "Hello" },
+      { sessionID: "ses_1", signal: new AbortController().signal },
+    )) as {
+      content: string
+    }
+    expect(result.content).toContain('Acción "post" completada.')
+    expect(calls.on("/harness/actions/approve")[0]!.body).toEqual({
+      action: "post",
+      sessionID: "ses_1",
+      project: "/work/demo",
+    })
+    expect(calls.on("/harness/actions/approve")[0]!.authorization).toBe("Bearer browser-token")
+    expect(calls.on("/harness/actions/run")[0]!.body).toEqual({
+      action: "post",
+      sessionID: "ses_1",
+      project: "/work/demo",
+      inputs: { title: "Hello", image: { dataUrl: composed } },
+    })
+  })
+
+  test("a denied action never reaches the runner", async () => {
+    const { calls, added } = await actions(false)
+    expect(
+      await added[0]!.execute({ title: "Hello" }, { sessionID: "ses_1", signal: new AbortController().signal }),
+    ).toEqual({
+      content: "El usuario denegó la acción.",
+    })
+    expect(calls.on("/harness/actions/run")).toHaveLength(0)
+  })
+
+  test("delivery runs the reader's guards and hands the piece back with its composed image", async () => {
+    const config = await temp()
+    await writeFile(
+      path.join(config, "guard.mjs"),
+      'export const guards = [{ id: "len", assess: (input) => input.text.length > 3 ? { allow: true } : { allow: false, code: "SHORT", reason: "too short" } }]',
+    )
+    await writeFile(
+      path.join(config, "opencode.jsonc"),
+      '{ // the reader\'s config\n "flupcode": { "delivery": { "post": { "tool": "flupcode_deliver_post", "guards": ["guard.mjs"], "composeTools": ["compose"] } } } }',
+    )
+    const deliver = await plugin("flupcode-deliver.js", config)
+    const recorded = context()
+    await deliver.setup(recorded.ctx)
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<unknown> }> = []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["flupcode_deliver_post"])
+
+    expect(await added[0]!.execute({ text: "Hi", template: "t" }, { sessionID: "ses_1" })).toEqual({
+      content: "No se entrega. SHORT: too short",
+    })
+    expect(await added[0]!.execute({ text: "Hello world", template: "t" }, { sessionID: "ses_1" })).toEqual({
+      content: "I cannot find the composed image in this conversation. Compose it first and try again.",
+    })
+    recorded.hooks.get("tool.execute.after")!({
+      sessionID: "ses_1",
+      tool: "compose",
+      status: "completed",
+      result: { content: [{ type: "file", uri: composed, mime: "image/png" }] },
+    } as never)
+    const delivered = (await added[0]!.execute({ text: "Hello world", template: "t" }, { sessionID: "ses_1" })) as {
+      content: Array<{ type: string; text?: string; uri?: string; mime?: string }>
+    }
+    expect(delivered.content[0]!.text).toContain("Hello world")
+    expect(delivered.content[1]).toEqual({ type: "file", uri: composed, mime: "image/png" })
   })
 })

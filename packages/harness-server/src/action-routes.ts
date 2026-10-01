@@ -5,6 +5,7 @@
  * here they are only the shape of the request and the shape of the answer.
  */
 
+import type { ActionApprover } from "./action-approval"
 import { toActionErrorBody, ActionRunError } from "./action-runner"
 import type { ActionRunner, ActionRunRequest } from "./action-runner"
 import { validateActionProfile } from "./actions"
@@ -31,16 +32,38 @@ export async function handleActionRequest(
   request: Request,
   segments: string[],
   actions: ActionRunner,
+  approver?: ActionApprover,
 ): Promise<Response> {
   try {
-    return await dispatch(request, segments, actions)
+    return await dispatch(request, segments, actions, approver)
   } catch (cause) {
     return failure(cause)
   }
 }
 
-const dispatch = async (request: Request, segments: string[], actions: ActionRunner): Promise<Response> => {
+const dispatch = async (
+  request: Request,
+  segments: string[],
+  actions: ActionRunner,
+  approver?: ActionApprover,
+): Promise<Response> => {
   const route = segments[0]
+  // The OpenCode 2 plugin's approval, asked in the session before a run (V2-31). It answers whether
+  // the reader allowed it; the run itself is the route below, unchanged.
+  if (route === "approve" && request.method === "POST" && approver) {
+    const body = await bodyFrom(request)
+    const sessionID = typeof body.sessionID === "string" ? body.sessionID : ""
+    const action = typeof body.action === "string" ? body.action : ""
+    if (!sessionID || !action) return error("A session and an action are required", "invalid_request", 400)
+    return json({
+      data: await approver.approve({
+        action,
+        sessionID,
+        ...(typeof body.project === "string" && body.project ? { project: body.project } : {}),
+        ...(typeof body.directory === "string" && body.directory ? { directory: body.directory } : {}),
+      }),
+    })
+  }
   if (route === undefined && request.method === "GET") {
     // No query is the plugin's own catalog: the global config alone. A folder makes it scope-aware,
     // which is what the editor lists so a project profile appears beside the global ones (WA-8).
