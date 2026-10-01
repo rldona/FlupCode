@@ -105,24 +105,6 @@ export async function probeServer(baseUrl: string): Promise<ServerStatus> {
 }
 
 /**
- * Whether an OpenCode 2 engine is answering behind a password. 2.x always runs behind one (it makes
- * one up when none is set) and a browser page has no way to send it, so only the desktop app, which
- * starts the engine with its own, can drive it. Told apart from a 1.x engine with a password by the
- * error 2.x names: 1.x refuses with plain text.
- */
-export async function openCodeV2Locked(baseUrl: string) {
-  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/api/info`, {
-    signal: AbortSignal.timeout(2000),
-  }).catch(() => undefined)
-  if (response?.status !== 401) {
-    void response?.body?.cancel()
-    return false
-  }
-  const body = (await response.json().catch(() => undefined)) as { _tag?: unknown } | undefined
-  return body?._tag === "UnauthorizedError"
-}
-
-/**
  * Whether the connected engine is FlupCode's build (with its patches), the stock OpenCode CLI, or
  * OpenCode 2, which loads none of FlupCode's plugins yet.
  */

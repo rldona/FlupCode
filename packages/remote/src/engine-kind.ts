@@ -37,6 +37,25 @@ export async function openCodeV2Version(baseUrl: string, fetchImpl: Fetch = fetc
   return typeof info?.version === "string" ? info.version : undefined
 }
 
+/**
+ * Whether an OpenCode 2.x engine answers behind a password the caller did not send. 2.x always runs
+ * behind one (it makes one up when `OPENCODE_SERVER_PASSWORD` is unset), so this is what a 2.x engine
+ * someone else started looks like. Told apart from a 1.x engine with a password by the error 2.x
+ * names: 1.x refuses with plain text.
+ */
+export async function openCodeV2Locked(baseUrl: string, fetchImpl: Fetch = fetch, init?: RequestInit) {
+  const response = await fetchImpl(`${baseUrl.replace(/\/+$/, "")}/api/info`, {
+    ...init,
+    signal: init?.signal ?? AbortSignal.timeout(2000),
+  }).catch(() => undefined)
+  if (response?.status !== 401) {
+    void response?.body?.cancel()
+    return false
+  }
+  const body = (await response.json().catch(() => undefined)) as { _tag?: unknown } | undefined
+  return body?._tag === "UnauthorizedError"
+}
+
 async function readJson(fetchImpl: Fetch, url: string, init?: RequestInit) {
   const response = await fetchImpl(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(1500) }).catch(
     () => undefined,

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { watchHarnessEvents } from "../src/notifier"
+import { watchEngineEvents, watchHarnessEvents } from "../src/notifier"
 
 const sse = (events: unknown[]) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
 
@@ -102,5 +102,54 @@ describe("watchHarnessEvents", () => {
     watcher.stop()
 
     expect(seen[0]?.kind).toBe("failed")
+  })
+})
+
+/** A fake engine: one session to name, and one event stream that ends as soon as it is read. */
+const engine = (events: unknown[]) =>
+  ((url: string | URL | Request) => {
+    const path = new URL(String(url)).pathname
+    if (path === "/api/session/ses_1")
+      return Promise.resolve(new Response(JSON.stringify({ data: { title: "Fix the build" } }), { status: 200 }))
+    if (path === "/api/event") return Promise.resolve(new Response(sse(events), { status: 200 }))
+    return Promise.resolve(new Response("", { status: 404 }))
+  }) as unknown as typeof globalThis.fetch
+
+describe("watchEngineEvents", () => {
+  test("an OpenCode 2 engine's permission, form, finished and failed runs are reported", async () => {
+    const seen: Seen[] = []
+    const watcher = watchEngineEvents({
+      engine: "http://e",
+      fetch: engine([
+        {
+          type: "permission.asked",
+          data: { id: "per_1", sessionID: "ses_1", action: "shell", resources: ["rm -rf dist"] },
+        },
+        {
+          type: "form.created",
+          data: {
+            form: {
+              id: "frm_1",
+              sessionID: "ses_1",
+              title: "Question",
+              fields: [{ key: "q0", title: "Which branch?" }],
+            },
+          },
+        },
+        { type: "session.execution.succeeded", data: { sessionID: "ses_1" } },
+        { type: "session.execution.interrupted", data: { sessionID: "ses_1" } },
+        { type: "session.execution.failed", data: { sessionID: "ses_1", error: { type: "unknown", message: "boom" } } },
+      ]),
+      onNotification: (notification) => seen.push(notification),
+    })
+    await Bun.sleep(30)
+    watcher.stop()
+
+    expect(seen).toEqual([
+      { kind: "permission", sessionID: "ses_1", session: "Fix the build", detail: "shell: rm -rf dist" },
+      { kind: "question", sessionID: "ses_1", session: "Fix the build", detail: "Which branch?" },
+      { kind: "finished", sessionID: "ses_1", session: "Fix the build" },
+      { kind: "failed", sessionID: "ses_1", session: "Fix the build" },
+    ])
   })
 })
