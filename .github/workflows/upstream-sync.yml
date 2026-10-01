@@ -1,9 +1,9 @@
 name: upstream-sync
 
+# Superseded by ADR-0027: FlupCode runs the official OpenCode 2 binary and follows upstream by
+# bumping its pin (opencode-bump.yml), so this no longer runs on a schedule. It stays dispatchable
+# until V2-71 removes the vendored packages, this workflow and the `dev` mirror.
 on:
-  schedule:
-    # Daily at 06:00 UTC.
-    - cron: "0 6 * * *"
   workflow_dispatch:
 
 permissions:
