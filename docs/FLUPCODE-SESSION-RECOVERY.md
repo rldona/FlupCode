@@ -1,131 +1,35 @@
 # Recovering Local FlupCode Sessions
 
-This guide covers the case where FlupCode opens correctly, but your project
-session list is empty or contains only a few sessions.
+This guide covers the case where FlupCode opens correctly, but your project session list is empty or
+shows only a few sessions.
 
 ## What happens
 
-The local FlupCode interface and the session engine are separate processes:
+The FlupCode interface and the engine are separate processes:
 
 ```text
-127.0.0.1:4097  →  harness de FlupCode (interfaz)
-127.0.0.1:4096  →  OpenCode engine (sessions and projects)
+127.0.0.1:4096  →  OpenCode 2, through FlupCode's engine proxy (sessions and projects)
+127.0.0.1:4097  →  FlupCode's harness server (runs, routines, artifacts)
 ```
 
-The harness uses `FLUPCODE_ENGINE_URL` to connect to the engine. Sessions are
-stored in a local SQLite database. On macOS, the primary database is usually:
+The OpenCode 2 engine FlupCode starts uses its own database:
+`~/.local/share/flupcode/opencode-v2/opencode.db` (under `$XDG_DATA_HOME` when it is set). It never
+opens OpenCode 1.x's `~/.local/share/opencode/opencode.db`, so sessions you had on 1.x are missing
+until you import them.
 
-```text
-~/.local/share/opencode/opencode.db
-```
+## Diagnose
 
-Local channels or profiles may use another database, such as
-`~/.local/share/opencode/opencode-local.db`. If the engine starts with that
-database, FlupCode has not lost the sessions: it is querying a different store.
+1. **Which engine answers?** Settings → Server shows `OpenCode <version>`. A banner saying the
+   engine is OpenCode 1.x means a 1.x engine took the port: stop it and reopen FlupCode.
+2. **Was the history imported?** While OpenCode 2 imports a 1.x copy, the session list shows a
+   banner with its progress. If you never imported, nothing from 1.x is there yet.
 
-## Diagnosis
+## Recover
 
-Check which processes are running:
+- **Your 1.x sessions:** File → _Import OpenCode 1.x History…_ in the desktop app, or
+  `flupcode engine import-v1` with FlupCode's engine stopped. The 1.x database is only read.
+- **Undo an import:** File → _Undo OpenCode 1.x Import…_, or `flupcode engine rollback-import`. The
+  database it replaces is kept aside, not deleted.
+- **Memories from 1.x:** `flupcode engine import-memory --from <url of a running 1.x engine>`.
 
-```bash
-ps -axo pid=,ppid=,command= | grep -iE 'flupcode|opencode' | grep -v grep
-```
-
-Check the available databases:
-
-```bash
-find "$HOME/Library/Application Support" -maxdepth 3 -type f \
-  \( -name 'opencode*.db' -o -name '*.sqlite' \) -print
-
-find "${XDG_DATA_HOME:-$HOME/.local/share}" -maxdepth 3 -type f \
-  \( -name 'opencode*.db' -o -name '*.sqlite' \) -print
-```
-
-Compare the number of sessions:
-
-```bash
-sqlite3 "$HOME/.local/share/opencode/opencode.db" \
-  "SELECT count(*) FROM session;"
-
-sqlite3 "$HOME/.local/share/opencode/opencode-local.db" \
-  "SELECT count(*) FROM session;"
-```
-
-The harness process should show configuration similar to this:
-
-```text
-FLUPCODE_ENGINE_URL=http://127.0.0.1:4096
-FLUPCODE_HARNESS_PORT=4097
-```
-
-## Fix
-
-Do not delete or move any database. Stop the engine listening on `4096` and
-start it again with the primary database explicitly selected:
-
-```bash
-kill <PID_DEL_MOTOR_EN_4096>
-kill <PID_DEL_LANZADOR_DEL_MOTOR>
-```
-
-Get the PIDs from the diagnosis above. If the engine was started from this
-repository, run it as follows:
-
-```bash
-cd "$REPO/packages/opencode"   # $REPO = the FlupCode checkout
-
-OPENCODE_DB="$HOME/.local/share/opencode/opencode.db" \
-env -u OPENCODE_SERVER_PASSWORD \
-bun run ./src/index.ts serve \
-  --port 4096 \
-  --hostname 127.0.0.1 \
-  --cors http://localhost:4444 \
-  --cors https://app.flupcode.com
-```
-
-If you use the installed binary, replace the `bun run ...` command with:
-
-```bash
-OPENCODE_DB="$HOME/.local/share/opencode/opencode.db" \
-env -u OPENCODE_SERVER_PASSWORD \
-opencode serve \
-  --port 4096 \
-  --hostname 127.0.0.1 \
-  --cors http://localhost:4444 \
-  --cors https://app.flupcode.com
-```
-
-The interface process on `4097` does not need to be changed. Reload the FlupCode
-window after restarting the engine.
-
-## Verification
-
-Check that the engine responds:
-
-```bash
-curl -i --max-time 5 http://127.0.0.1:4096/api/health
-```
-
-Check that it returns sessions:
-
-```bash
-curl -fsS \
-  'http://127.0.0.1:4096/session?limit=3&roots=true'
-```
-
-To confirm that it is reading the expected project:
-
-```bash
-curl -fsS \
-  'http://127.0.0.1:4096/session?limit=1&roots=true' \
-  | python3 -c 'import json,sys; x=json.load(sys.stdin); print(x[0]["directory"], "—", x[0]["title"])'
-```
-
-Finally, check that the harness is still listening on `4097`:
-
-```bash
-lsof -nP -iTCP:4097 -sTCP:LISTEN
-```
-
-This procedure only changes the engine process and does not modify the contents
-of any database.
+See [OPENCODE-2.md](OPENCODE-2.md) for what the import brings over.

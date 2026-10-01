@@ -1,93 +1,73 @@
 # Architecture
 
-FlupCode is a fork of [OpenCode](https://github.com/anomalyco/opencode). This document explains
-the upstream architecture we build on, the boundary we keep with upstream code, and how our
-product packages fit in.
+FlupCode is a web and desktop app on the official [OpenCode](https://github.com/anomalyco/opencode) 2
+engine. This document explains the engine we build on, the boundary we keep with it, and how our
+packages fit together. The repository holds only FlupCode's code (ADR-0027).
 
-## 1. Upstream in one picture
+## 1. The engine in one picture
 
 OpenCode is a client/server system. One engine, many front-ends:
 
 ```
                          ┌─────────────────────────────┐
-   TUI (packages/tui) ──▶│                             │
-   Web (packages/app) ──▶│   opencode server (Hono +   │
-   Desktop (Electron) ──▶│   Effect) + Core engine     │
-   IDE plugins        ──▶│   HTTP API + SSE events     │
+   OpenCode's TUI     ──▶│                             │
+   FlupCode web       ──▶│   opencode serve (2.x)      │
+   FlupCode desktop   ──▶│   HTTP API + SSE events     │
+   flupcode CLI       ──▶│   plugins (FlupCode's)      │
                          └─────────────────────────────┘
-                                      │
-                         packages/core  (sessions, tools,
-                         providers, permissions, LSP, PTY)
 ```
 
-- `packages/opencode` — CLI entrypoint, server bootstrap, TUI launcher.
-- `packages/server` — the authoritative `HttpApi` (routes, codecs, middleware).
-- `packages/core` — session runtime, tools, providers, permissions, LSP, PTY.
-- `packages/protocol` / `packages/schema` — shared public values and HTTP contract.
-- `packages/client` / `packages/sdk` / `packages/sdk-next` — generated clients.
-- `packages/tui` — the terminal UI (SolidJS + OpenTUI).
-- `packages/app` — the upstream web app (SolidJS + Vite), embedded by desktop.
-- `packages/desktop` — the upstream Electron app.
-- `packages/ui` — shared UI primitives, icons, themes, i18n.
-- `packages/session-ui` — message/session rendering and the composer.
+- The engine is the official `@opencode/cli-<platform>` binary at one pinned version
+  (`OPENCODE_V2_VERSION` in `packages/remote/src/opencode-v2.ts`), fetched from npm and checked
+  against its published integrity. The desktop, `flupcode remote` and `flupcode serve` start it with
+  a password of their own and FlupCode's own database.
+- The apps talk to it through `@opencode/client`, pinned to the same version.
+- What FlupCode adds to the engine (memory, `plan_exit`, permission modes, web actions, the adaptive
+  layer…) ships as 2.x plugins (`packages/remote/src/engine-plugins-v2.ts`), installed into the
+  engine's config folder before it starts.
 
-The server publishes an OpenAPI 3.1 spec at `/doc`; the SDK is generated from it. Any client that
-speaks the HTTP API is a first-class citizen.
+See [UPSTREAM.md](UPSTREAM.md) for how the pin moves.
 
-## 2. The FlupCode boundary
-
-**Rule: upstream packages are read-only.** We never edit `packages/{opencode,server,core,protocol,
-schema,client,sdk,sdk-next,tui,app,desktop,ui,session-ui}`. If we need behaviour we wrap or extend
-it from our own packages.
+## 2. The engine boundary
 
 ```
 packages/harness (web)
-  ├── depends on @opencode-ai/ui          (primitives, icons, themes, i18n)
-  ├── depends on @opencode-ai/session-ui  (timeline, message parts, composer)
-  ├── depends on @opencode-ai/client      (vendored, same tgz upstream/app uses)
-  └── depends on @opencode-ai/sdk         (full HTTP API + SSE)
+  └── src/engine/v2.ts         the adapter: EngineClient (src/engine/contract.ts) over @opencode/client
 
-packages/harness-desktop
-  └── Electron main process that boots the local server, hosts remote control and loads packages/harness
+packages/harness-server
+  └── src/engine-v2.ts         the server's door to the engine (runs, routines, the adaptive layer)
 
-packages/remote, packages/relay, packages/flupcode-cli
-  └── remote control: protocol and host, relay server, `flupcode remote` (ADR-0010)
+packages/remote
+  ├── opencode-v2.ts           installs and starts the pinned binary
+  ├── engine-plugins-v2.ts     FlupCode's plugins
+  └── engine-proxy.ts          signs the web app in to the engine (2.1)
 ```
 
-Why a new package instead of forking `packages/app`:
-
-- Upstream `dev` can be merged with near-zero conflicts.
-- We can restyle and restructure aggressively without touching shared code.
-- We still reuse the hard parts (message rendering, composer, diff viewer, theme engine).
-
-### Dependency direction
-
-FlupCode must respect upstream's layering:
-
-- `sdk`/`client` may be consumed freely.
-- `@opencode-ai/ui` and `@opencode-ai/session-ui` are UI-only and safe.
-- **Do not import `@opencode-ai/core` or `@opencode-ai/server` from browser code.** The web app
-  talks to the engine over HTTP/SSE via the client. Desktop may import core/server in the Electron
-  main process only.
+- Only the adapters import `@opencode/client`; a test in each package enforces it. The rest of the
+  app works with FlupCode's own types (`src/engine-types.ts`, `src/engine/sdk-types.ts`).
+- `bun script/opencode-pin.ts` (CI) checks that every pin agrees with the binary.
+- `packages/engine-contract` runs FlupCode's flows and plugins against the real binary, so a pin bump
+  is judged by what the engine actually does.
 
 ## 3. Runtime topology
 
 ```
  Desktop shell (Electron main)
-   ├── starts / attaches to `opencode serve` (loopback)
+   ├── starts the pinned OpenCode 2 on a private port, and the engine proxy on 4096
+   ├── starts harness-server (loopback)
    └── BrowserWindow ── loads packages/harness (renderer)
                             │
-                            └── HTTP + SSE ──▶ opencode server
+                            └── HTTP + SSE ──▶ proxy ──▶ opencode serve
  Web mode
-   └── browser ── packages/harness ── HTTP + SSE ──▶ opencode serve (LAN/localhost)
+   └── browser ── packages/harness ── HTTP + SSE ──▶ desktop or `flupcode serve` (proxy on 4096)
  Remote control (ADR-0010)
    phone PWA ── tunnel transport ══ E2E encrypted ══▶ relay ══▶ host: desktop main or `flupcode remote`
-                                                               └── HTTP + SSE + WS ──▶ opencode server
+                                                               └── HTTP + SSE + WS ──▶ opencode serve
 ```
 
 - `packages/remote` — protocol shared by every side: secure channel, tunnel, relay framing,
   pairing links, the desktop↔renderer bridge types and `createRemoteHost` (the host logic).
-- `packages/flupcode-cli` — the `flupcode` command; `flupcode remote` is a terminal host.
+- `packages/flupcode-cli` — the `flupcode` command: `remote`, `serve`, `engine`.
 - `packages/relay` — the Bun relay server (Docker/Fly.io); it routes opaque frames only.
 - The harness sends every engine call through `src/transport.ts`, which the remote client swaps for
   the tunnel. On touch devices controlling a computer it renders the phone layout
@@ -100,13 +80,14 @@ FlupCode must respect upstream's layering:
 
 - Language: **English only** for identifiers, types, comments, filenames, commits and branches.
   User-facing strings go through i18n (default `en`), never hardcoded. See ADR-0008.
-- Stack: SolidJS, Vite, Tailwind v4, Kobalte — identical to upstream to maximise reuse.
+- Stack: SolidJS, Vite, Tailwind v4.
 - Styling follows the design tokens in `docs/DESIGN.md`.
 - Tests run from package directories, never the repo root.
 
 ## 5. Related decisions
 
-- ADR-0001 — Fork and upstream synchronisation
+- ADR-0027 — FlupCode runs the official OpenCode 2, not a fork (supersedes ADR-0001)
+- ADR-0026 — What FlupCode does about the features OpenCode 2 removed
 - ADR-0002 — Where UI code lives
 - ADR-0003 — Design system
 - ADR-0004 — Branding and license
@@ -114,7 +95,7 @@ FlupCode must respect upstream's layering:
 - ADR-0006 — Definition of parity
 - ADR-0007 — Remote/mobile
 - ADR-0008 — Language and code conventions
-- ADR-0009 — Engine API layer uses the SDK v2 client
+- ADR-0009 — Engine API layer
 - ADR-0010 — Remote control through an end-to-end encrypted relay
 - ADR-0011 — Push notifications for remote control
 - ADR-0012 — Memory as a first-class knowledge primitive (see `docs/MEMORY.md`)

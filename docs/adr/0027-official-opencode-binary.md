@@ -1,6 +1,6 @@
 # ADR-0027: FlupCode runs on the official OpenCode 2, not on a fork
 
-- **Status:** Accepted. The decision holds now; the removals it describes land with V2-71.
+- **Status:** Accepted, and done with V2-71: the repository holds only FlupCode's packages.
 - **Date:** 2026-10-01
 - **Supersedes:** [ADR-0001](0001-fork-and-upstream-sync.md) (fork and upstream synchronisation)
 - **Related:** `docs/V2-MIGRATION-AUDIT.md` (V2-70, V2-71), [ADR-0009](0009-engine-api-layer.md),
