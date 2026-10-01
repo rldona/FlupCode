@@ -2,7 +2,7 @@
 
 FlupCode runs on [OpenCode](https://github.com/anomalyco/opencode) 2 and inherits every new engine
 capability, provider, tool and fix by moving one pinned version. It does not carry OpenCode's source:
-until V2-71 this repository was a fork that merged OpenCode's `dev` branch into `power` (ADR-0001);
+until V2-71 this repository was a fork that merged OpenCode's `dev` branch into `power`, now `main` (ADR-0001);
 [ADR-0027](adr/0027-official-opencode-binary.md) replaced that.
 
 ## The pin

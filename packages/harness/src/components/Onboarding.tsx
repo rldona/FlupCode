@@ -25,7 +25,7 @@ type OnboardingProps = {
 }
 
 const DESKTOP_DOWNLOAD = "https://github.com/rldona/FlupCode/releases/latest"
-const GETTING_STARTED = "https://github.com/rldona/FlupCode/blob/power/docs/GETTING-STARTED.md"
+const GETTING_STARTED = "https://github.com/rldona/FlupCode/blob/main/docs/GETTING-STARTED.md"
 
 export const Onboarding: Component<OnboardingProps> = (props) => {
   const [name, setName] = createSignal("")

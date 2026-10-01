@@ -15,8 +15,8 @@ What FlupCode adds to the engine ships as plugins (`packages/remote/src/engine-p
 
 ## Git Workflow
 
-- `power` is our master. It only receives changes through a pull request: never commit or push directly to it.
-- Work on a short feature branch based on `power`, push it, open a PR, and merge it. Do not leave local commits sitting on `power`.
+- `main` is the default branch. It only receives changes through a pull request: never commit or push directly to it.
+- Work on a short feature branch based on `main`, push it, open a PR, and merge it. Do not leave local commits sitting on `main`.
 
 ## Branch Names
 
@@ -35,8 +35,8 @@ Examples: `fix(harness): keep the scroll position`, `docs: update contributing g
 ## Deployments
 
 - Never trigger Vercel preview deployments: they consume paid quota. Work through GitHub only.
-- Production reaches Vercel later, from `power`, through the normal merge flow. Do not run the `vercel` CLI to deploy a preview.
-- Both `packages/harness/vercel.json` and `packages/landing/vercel.json` disable deployments for every branch except `power` (`git.deploymentEnabled`).
+- Production reaches Vercel later, from `main`, through the normal merge flow. Do not run the `vercel` CLI to deploy a preview.
+- Both `packages/harness/vercel.json` and `packages/landing/vercel.json` disable deployments for every branch except `main` (`git.deploymentEnabled`).
 
 ## Branding
 

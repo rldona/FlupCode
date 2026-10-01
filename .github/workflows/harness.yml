@@ -1,12 +1,12 @@
 name: harness
 
-# No `paths` filter on the triggers: `gate` is the required check on `power`, and a required check
+# No `paths` filter on the triggers: `gate` is the required check on `main`, and a required check
 # must report on every pull request. The `changes` job decides what actually needs to run.
 on:
   push:
-    branches: [power]
+    branches: [main]
   pull_request:
-    branches: [power]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -164,7 +164,7 @@ jobs:
           (cd packages/harness && bun test src/engine --timeout 60000)
           (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts --timeout 120000)
 
-  # The one required check on `power`. A job skipped because its paths did not change is a pass; a
+  # The one required check on `main`. A job skipped because its paths did not change is a pass; a
   # failed or cancelled one, or a `changes` job that could not decide, is not.
   gate:
     needs: [changes, build, engine]

@@ -55,7 +55,7 @@ pretending the engine is down. The permission is only asked for, and calls are o
 their address space, when the engine is on loopback or the local network — the desktop app and a
 local dev server are not gated and never see the prompt.
 
-The site deploys from Vercel on pushes to `power` only (no preview deployments for other branches),
+The site deploys from Vercel on pushes to `main` only (no preview deployments for other branches),
 and each Vercel project skips its build when the push did not touch it: `packages/landing` for the
 landing, and `packages/harness` or the packages it builds from for the app (`ignoreCommand` in each
 `vercel.json`).

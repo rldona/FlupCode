@@ -2,9 +2,9 @@ name: repo-hygiene
 
 on:
   push:
-    branches: [power, dev]
+    branches: [main]
   pull_request:
-    branches: [power, dev]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
