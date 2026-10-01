@@ -290,6 +290,40 @@ describe("flupcode remote", () => {
   }, 60_000)
 })
 
+describe("flupcode serve", () => {
+  // The web app cannot send 2.x's password; `serve` signs in for it, and for no other page.
+  test("runs OpenCode 2 for the web app behind a proxy that signs in only for FlupCode's pages", async () => {
+    const { bin, binary } = fakeOpenCodeV2()
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
+    const port = freePort()
+    try {
+      const served = cliWith(
+        { FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data, OPENCODE_SERVER_PASSWORD: undefined },
+        "serve",
+        "--port",
+        String(port),
+      )
+      const out = reader(served.stdout)
+      await out.wait(/OpenCode 2\.0\.20 for FlupCode's web app at http:\/\/127\.0\.0\.1:\d+/)
+      const page = await fetch(`http://127.0.0.1:${port}/api/info`, { headers: { origin: "https://app.flupcode.com" } })
+      expect(page.status).toBe(200)
+      expect(page.headers.get("access-control-allow-origin")).toBe("https://app.flupcode.com")
+      expect(await page.json()).toMatchObject({
+        version: "2.0.20",
+        db: join(data, "flupcode", "opencode-v2", "opencode.db"),
+      })
+      expect(
+        (await fetch(`http://127.0.0.1:${port}/api/info`, { headers: { origin: "https://evil.example" } })).status,
+      ).toBe(403)
+      served.kill("SIGINT")
+      expect(await served.exited).toBe(0)
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+      rmSync(data, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
 describe("flupcode engine", () => {
   /** A database with 1.x's session and message tables. */
   function v1Database(folder: string) {

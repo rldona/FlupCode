@@ -8,6 +8,7 @@ import { parseArgs } from "node:util"
 import { createRemoteHost, PAIRING_TTL, type RemoteHostState, type RemoteHostStore } from "@flupcode/remote"
 import { detectEngine, openCodeLineOf, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { startEngineProxy, WEB_ORIGINS } from "@flupcode/remote/engine-proxy"
 import {
   openCodeV2Database,
   openCodeV2Env,
@@ -26,6 +27,7 @@ Usage:
   flupcode remote [options]        Let a phone control this computer's OpenCode sessions
   flupcode remote devices          List paired devices
   flupcode remote revoke <device>  Remove a paired device (number from "devices", id or name)
+  flupcode serve [--port 4096]     Run OpenCode 2 for FlupCode's web app on this computer
   flupcode engine install          Fetch the pinned OpenCode 2 engine and print where it is
   flupcode engine import-v1        Copy OpenCode 1.x history into FlupCode's OpenCode 2 engine
   flupcode engine import-memory    Copy a running OpenCode 1.x engine's memories into it
@@ -307,6 +309,42 @@ async function runEngineCommand(subcommand: string | undefined, options: { engin
   fail(`unknown command "engine${subcommand ? ` ${subcommand}` : ""}"; see flupcode --help`)
 }
 
+/**
+ * `flupcode serve` (2.1): OpenCode 2 for the web app, with nothing to type in. 2.x always asks for a
+ * password and a page cannot send one, so the engine runs on a private port and a proxy at the port
+ * the web app asks signs in for it, serving only FlupCode's web app among browser pages.
+ */
+async function runServe(port: number) {
+  const address = `http://127.0.0.1:${port}`
+  if ((await runningEngine(address, engineCredentials())).kind !== "none" || (await openCodeV2Locked(address)))
+    fail(`an engine already answers at ${address}; stop it, or pass --port`)
+  const engine = await privateOpenCodeV2()
+  const proxy = await startEngineProxy({ port, engine: engine.url, authorization: engine.authorization }).catch(
+    (cause: unknown) => {
+      engine.stop()
+      return fail(`could not listen on ${address}: ${cause instanceof Error ? cause.message : String(cause)}`)
+    },
+  )
+  const info = (await (
+    await fetch(`${engine.url}/api/info`, { headers: { authorization: engine.authorization } })
+  ).json()) as {
+    version?: string
+  }
+  console.log(
+    `${bold("OpenCode")} ${info.version ?? OPENCODE_V2_VERSION} ${dim("for FlupCode's web app at")} ${proxy.url}`,
+  )
+  console.log(dim(`Open ${WEB_ORIGINS[0]} and connect to ${proxy.url}. Ctrl-C stops it.`))
+  const stop = () => {
+    void proxy.close().finally(() => {
+      engine.stop()
+      process.exit(0)
+    })
+  }
+  process.on("SIGINT", stop)
+  process.on("SIGTERM", stop)
+  await new Promise(() => undefined)
+}
+
 /** FlupCode's 2.x database is only changed while no 2.x engine has it open. */
 async function refuseWhileRunning(engine: string) {
   const running = await runningEngine(engine, engineCredentials())
@@ -450,6 +488,7 @@ const args = parseArgs({
     app: { type: "string" },
     "no-serve": { type: "boolean" },
     from: { type: "string" },
+    port: { type: "string" },
     help: { type: "boolean", short: "h" },
     version: { type: "boolean", short: "v" },
   },
@@ -461,10 +500,12 @@ if (args.values.version) {
 }
 
 const [command, subcommand, ...rest] = args.positionals
-if (args.values.help || (command !== "remote" && command !== "engine")) {
+if (args.values.help || (command !== "remote" && command !== "engine" && command !== "serve")) {
   console.log(HELP)
   process.exit(args.values.help || !command ? 0 : 1)
 }
+
+if (command === "serve") await runServe(Number(args.values.port ?? 4096))
 
 if (command === "engine") {
   await runEngineCommand(subcommand, {

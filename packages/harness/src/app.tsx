@@ -5754,9 +5754,12 @@ export const App: Component = () => {
                     fallback={
                       <span>
                         {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
-                        {t("start it and connect from Settings")} ·{" "}
+                        {t("start it, or open the desktop app")} ·{" "}
+                        {/* Blocked means something answers but not for this page: name it on the allowed list. */}
                         <code>
-                          env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors {window.location.origin}
+                          {health()?.blocked
+                            ? `FLUPCODE_WEB_ORIGINS=${window.location.origin} flupcode serve`
+                            : "flupcode serve"}
                         </code>
                       </span>
                     }
@@ -5775,7 +5778,7 @@ export const App: Component = () => {
                       }
                     >
                       <span>
-                        {t("This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one")} — {t("open FlupCode's desktop app, which starts the engine and signs in for you")}
+                        {t("This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one")} — {t("stop it and run flupcode serve, or open FlupCode's desktop app: both sign this page in")}
                       </span>
                     </Show>
                   </Show>

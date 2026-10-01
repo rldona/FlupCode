@@ -523,8 +523,6 @@ const ES: Record<string, string> = {
   "The engine is asking for authentication": "El motor pide autenticación",
   "This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one":
     "Este motor es OpenCode 2, que siempre pide contraseña, y una página del navegador no puede enviarla",
-  "open FlupCode's desktop app, which starts the engine and signs in for you":
-    "abre la app de escritorio de FlupCode, que arranca el motor e inicia sesión por ti",
   "This engine is OpenCode 2, which always runs behind a password, and a browser page has no way to send one. Open FlupCode's desktop app instead: it starts the engine and signs in for you.":
     "Este motor es OpenCode 2, que siempre funciona con contraseña, y una página del navegador no puede enviarla. Abre la app de escritorio de FlupCode: arranca el motor e inicia sesión por ti.",
   "restart it without a password, or use the desktop app": "reinícialo sin contraseña o usa la app de escritorio",
@@ -552,16 +550,9 @@ const ES: Record<string, string> = {
     "El engine está en marcha. Esta página web necesita tu permiso para llegar a él en este dispositivo.",
   "The engine is running, but local network access is blocked for this site. Allow it in your browser's site settings, then connect again.":
     "El engine está en marcha, pero el acceso a la red local está bloqueado para este sitio. Permítelo en los ajustes del navegador y vuelve a conectar.",
-  "FlupCode needs the OpenCode engine. Install it once, then start it:":
-    "FlupCode necesita el engine de OpenCode. Instálalo una vez y arráncalo:",
-  "FlupCode is a client and does not ship the engine.": "FlupCode es un cliente y no incluye el engine.",
-  "Install the OpenCode CLI": "Instala la CLI de OpenCode",
-  "Leave it running. If the engine is already running without --cors, stop it and start it with this command.":
-    "Déjalo en marcha. Si el engine ya está corriendo sin --cors, páralo y arráncalo con este comando.",
   "No terminal? Use the desktop app, which starts the engine for you:":
     "¿Sin terminal? Usa la app de escritorio, que arranca el engine por ti:",
   "Download FlupCode": "Descargar FlupCode",
-  "start it and connect from Settings": "arráncalo y conéctate desde Ajustes",
   Retry: "Reintentar",
   "Commit changes": "Confirmar cambios",
   "Commit the current changes with a clear message.": "Confirma los cambios actuales con un mensaje claro.",
@@ -757,6 +748,15 @@ const ES: Record<string, string> = {
   tokens: "tokens",
   "Error generating the response": "Error al generar la respuesta",
   "The run failed": "La ejecución ha fallado",
+  "start it, or open the desktop app": "arráncalo o abre la app de escritorio",
+  "stop it and run flupcode serve, or open FlupCode's desktop app: both sign this page in":
+    "páralo y ejecuta flupcode serve, o abre la app de escritorio de FlupCode: las dos conectan esta página",
+  "Start FlupCode's engine on this computer and leave it running, or keep the desktop app open:":
+    "Arranca el motor de FlupCode en este ordenador y déjalo en marcha, o mantén abierta la app de escritorio:",
+  "It runs OpenCode 2 and signs this page in.": "Ejecuta OpenCode 2 y conecta esta página.",
+  "Get the flupcode command": "Consigue el comando flupcode",
+  "It answers at http://localhost:4096. Use another port with --port and change the server below.":
+    "Responde en http://localhost:4096. Usa otro puerto con --port y cambia el servidor aquí debajo.",
   "OpenCode 1.x is deprecated in FlupCode: OpenCode 2 is the engine it starts now, and 1.x support goes in a coming release.":
     "OpenCode 1.x está obsoleto en FlupCode: ahora arranca OpenCode 2 y el soporte de 1.x desaparecerá en una próxima versión.",
   "Sign in to {server}": "Iniciar sesión en {server}",
