@@ -22,6 +22,16 @@ const reviewer = {
   bytes: 210,
 }
 
+const agent = (name: string, description: string, mode = "subagent") => ({
+  id: name,
+  name,
+  description,
+  mode,
+  hidden: false,
+  request: { headers: {}, body: {} },
+  permissions: [],
+})
+
 type Options = { files?: unknown[]; agents?: unknown[] }
 
 async function open(page: Page, options: Options = {}) {
@@ -57,32 +67,43 @@ async function open(page: Page, options: Options = {}) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/experimental/tool/ids") return route.fulfill({ json: ["bash", "read", "edit"] })
-    // The screen asks the legacy `/agent?directory=`, which is the only one that answers per folder.
-    // `/api/agent` is here too, answering something different on purpose: if the screen read that
-    // one, this fixture would show it.
-    if (url.pathname === "/agent")
-      return route.fulfill({
-        json: options.agents ?? [
-          { name: "build", description: "The default agent.", mode: "primary" },
-          { name: "reviewer", description: "Reviews a diff", mode: "subagent" },
-        ],
-      })
+    // The agents are asked for the folder, through `location[directory]`. Asked for anything else,
+    // the engine answers another folder's agents on purpose: if the screen read those, this would show.
     if (url.pathname === "/api/agent") {
       const directory = url.searchParams.get("location[directory]")
       agentListReads.push(directory)
       calls.push(`agent:${directory}`)
-      return route.fulfill({ json: { data: [{ id: "somewhere-else", description: "Another folder's" }] } })
+      return route.fulfill({
+        json: {
+          location: { directory: directory ?? "/elsewhere" },
+          data:
+            directory === "/work/demo"
+              ? (options.agents ?? [
+                  agent("build", "The default agent.", "primary"),
+                  agent("reviewer", "Reviews a diff"),
+                ])
+              : [agent("somewhere-else", "Another folder's")],
+        },
+      })
     }
-    if (url.pathname === "/config/reload" && route.request().method() === "POST") {
-      const directory = url.searchParams.get("directory")
+    // OpenCode 2 reloads a location, named in its header, where 1.x had `/config/reload?directory=`.
+    if (url.pathname === "/api/location/reload" && route.request().method() === "POST") {
+      const header = route.request().headers()["x-opencode-directory"]
+      const directory = header ? decodeURIComponent(header) : null
       reloads.push(directory)
       calls.push(`reload:${directory}`)
-      return route.fulfill({ json: true })
+      return route.fulfill({ status: 204 })
     }
-    if (url.pathname === "/mcp") return route.fulfill({ json: {} })
+    // 2.x lists no tool ids, so the tools an agent can switch are its MCP servers.
+    if (url.pathname === "/api/mcp")
+      return route.fulfill({
+        json: {
+          location: { directory: "/work/demo" },
+          data: ["docs", "linear", "github"].map((name) => ({ name, status: { status: "connected" } })),
+        },
+      })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
@@ -117,7 +138,7 @@ test("lists the agent files, with where each one lives", async ({ page }) => {
 
 test("opens one into a form with what the file says", async ({ page }) => {
   await open(page, {
-    files: [{ ...reviewer, fields: { ...reviewer.fields, tools: { bash: false, read: true } } }],
+    files: [{ ...reviewer, fields: { ...reviewer.fields, tools: { docs: false, linear: true } } }],
   })
   await page.locator(".fc-agent-row").click()
 
@@ -126,9 +147,9 @@ test("opens one into a form with what the file says", async ({ page }) => {
   await expect(page.locator(".fc-agent-prompt")).toHaveValue("Review the diff and say what is wrong.")
   await expect(page.locator(".fc-agent-form")).toContainText("/work/demo/.opencode/agent/reviewer.md")
   // The tools the file set are drawn as it set them, and the one it said nothing about is unset.
-  await expect(page.locator(".fc-agent-tool", { hasText: "bash" })).toHaveAttribute("data-state", "off")
-  await expect(page.locator(".fc-agent-tool", { hasText: "read" })).toHaveAttribute("data-state", "on")
-  await expect(page.locator(".fc-agent-tool", { hasText: "edit" })).toHaveAttribute("data-state", "unset")
+  await expect(page.locator(".fc-agent-tool", { hasText: "docs" })).toHaveAttribute("data-state", "off")
+  await expect(page.locator(".fc-agent-tool", { hasText: "linear" })).toHaveAttribute("data-state", "on")
+  await expect(page.locator(".fc-agent-tool", { hasText: "github" })).toHaveAttribute("data-state", "unset")
 })
 
 test("saving sends the file back, keeping what the form does not draw", async ({ page }) => {
@@ -175,16 +196,16 @@ test("a tool goes unset, off, on and back", async ({ page }) => {
   const { saved } = await open(page, { files: [{ ...reviewer, fields: { description: "d", mode: "subagent" } }] })
   await page.locator(".fc-agent-row").click()
 
-  const bash = page.locator(".fc-agent-tool", { hasText: "bash" })
-  await expect(bash).toHaveAttribute("data-state", "unset")
-  await bash.click()
-  await expect(bash).toHaveAttribute("data-state", "off")
-  await bash.click()
-  await expect(bash).toHaveAttribute("data-state", "on")
+  const docs = page.locator(".fc-agent-tool", { hasText: "docs" })
+  await expect(docs).toHaveAttribute("data-state", "unset")
+  await docs.click()
+  await expect(docs).toHaveAttribute("data-state", "off")
+  await docs.click()
+  await expect(docs).toHaveAttribute("data-state", "on")
 
   await page.getByRole("button", { name: /^Save$|^Guardar$/ }).click()
   await expect.poll(() => saved().length).toBe(1)
-  expect((saved()[0]!.fields as { tools: Record<string, boolean> }).tools).toEqual({ bash: true })
+  expect((saved()[0]!.fields as { tools: Record<string, boolean> }).tools).toEqual({ docs: true })
 })
 
 test("a new one asks for a name, and refuses to save without it", async ({ page }) => {

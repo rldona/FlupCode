@@ -57,6 +57,23 @@ async function open(page: Page, options: Options = {}) {
       })
     }
     if (url.pathname === "/harness/config-files") return route.fulfill({ json: { data: files } })
+    // OpenCode 2 writes no config files, so the harness server reads and patches them (V2-24).
+    if (url.pathname === "/harness/engine-config" && request.method() === "PATCH") {
+      calls.patches.push(request.postDataJSON() as Record<string, unknown>)
+      return route.fulfill({ json: { data: { path: "/home/opencode.json", changed: true } } })
+    }
+    if (url.pathname === "/harness/engine-config")
+      return route.fulfill({
+        json: {
+          data: {
+            path: "/home/opencode.json",
+            config:
+              url.searchParams.get("scope") === "global"
+                ? (options.config ?? { flupcode: { configRepo: "/repo" } })
+                : {},
+          },
+        },
+      })
     if (url.pathname === "/harness/events") return new Promise(() => {})
     return route.fulfill({ json: { data: [] } })
   })
@@ -66,15 +83,14 @@ async function open(page: Page, options: Options = {}) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/config" && request.method() === "GET")
-      return route.fulfill({ json: options.config ?? { flupcode: { configRepo: "/repo" } } })
-    if (url.pathname === "/global/config" && request.method() === "PATCH") {
-      calls.patches.push(request.postDataJSON() as Record<string, unknown>)
-      return route.fulfill({ json: {} })
-    }
-    if (url.pathname === "/mcp") return route.fulfill({ json: {} })
+    if (url.pathname === "/api/location")
+      return route.fulfill({
+        json: { directory: "/work/demo", project: { id: "p", directory: "/work/demo", canonical: "/work/demo" } },
+      })
+    if (url.pathname === "/api/location/reload") return route.fulfill({ status: 204 })
+    if (url.pathname === "/api/mcp") return route.fulfill({ json: { location: { directory: "/work/demo" }, data: [] } })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
@@ -143,5 +159,7 @@ test("with no repository set, the field saves one into the global config", async
   await dialog.getByLabel(/^Config repository$|^Repositorio de configuración$/).fill("/repo")
   await dialog.getByRole("button", { name: /^Save$|^Guardar$/ }).click()
 
-  await expect.poll(() => calls.patches[0]).toMatchObject({ flupcode: { configRepo: "/repo" } })
+  await expect
+    .poll(() => calls.patches[0])
+    .toMatchObject({ scope: "global", patch: { flupcode: { configRepo: "/repo" } } })
 })

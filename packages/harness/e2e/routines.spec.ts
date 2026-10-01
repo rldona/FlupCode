@@ -12,10 +12,24 @@ const session = {
   location: { directory: "/work/demo" },
 }
 
+// OpenCode 2's model shape, which the app reads its own from.
+const model = (providerID: string, id: string, name: string) => ({
+  id,
+  modelID: id,
+  providerID,
+  name,
+  variants: [],
+  time: { released: now },
+  cost: [],
+  status: "active",
+  enabled: true,
+  limit: { context: 200_000, output: 8_000 },
+})
+
 const models = [
-  { id: "claude-opus-5", providerID: "anthropic", name: "Claude Opus 5" },
-  { id: "gpt-5", providerID: "openai", name: "GPT-5" },
-  { id: "claude-sonnet-5", providerID: "anthropic", name: "Claude Sonnet 5" },
+  model("anthropic", "claude-opus-5", "Claude Opus 5"),
+  model("openai", "gpt-5", "GPT-5"),
+  model("anthropic", "claude-sonnet-5", "Claude Sonnet 5"),
 ]
 
 const routine = {
@@ -37,11 +51,8 @@ const engine = (page: import("@playwright/test").Page) =>
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/model") return route.fulfill({ json: { data: models } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
     if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })

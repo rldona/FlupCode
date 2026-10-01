@@ -751,7 +751,7 @@ export const App: Component = () => {
   const [historyImport, setHistoryImport] = createSignal<HistoryImportStatus>()
   createEffect(() => {
     const url = serverUrl()
-    if (health()?.healthy !== true) return setHistoryImport(undefined)
+    if (!ready()) return setHistoryImport(undefined)
     let stopped = false
     onCleanup(() => {
       stopped = true
@@ -2406,7 +2406,7 @@ export const App: Component = () => {
     // What the open session's inbox holds on 2.x (V2-41): queued prompts outlive a reload there.
     createEffect(() => {
       const sessionID = selected()
-      if (!sessionID || health()?.healthy !== true) return
+      if (!sessionID || !ready()) return
       void readInbox(sessionID)
     })
 
@@ -3321,36 +3321,26 @@ export const App: Component = () => {
           : undefined,
       async (key) => {
         const input = JSON.parse(key) as { url: string; directories: string[] }
-        const base = input.url.replace(/\/$/, "")
-        const lists = await Promise.all(
-          input.directories.map(async (directory) => {
-            const get = (path: string): Promise<unknown> =>
-              engineFetch(`${base}${path}?directory=${encodeURIComponent(directory)}`)
-                .then((response) => (response.ok ? response.json() : undefined))
-                .catch(() => undefined)
-            const [status, permissions, questions, vcs] = await Promise.all([
-              get("/session/status"),
-              get("/permission"),
-              get("/question"),
-              createClient(input.url)
-                .vcs.get(directory)
-                .catch(() => undefined),
-            ])
-            const requests = [permissions, questions].flatMap((list) =>
-              Array.isArray(list) ? (list as Array<{ sessionID?: string }>) : [],
-            )
-            return {
-              directory,
-              busy: Object.entries((status ?? {}) as Record<string, { type?: string }>)
-                .filter(([, value]) => value?.type && value.type !== "idle")
-                .map(([id]) => id),
-              waiting: requests.flatMap((request) => (request.sessionID ? [request.sessionID] : [])),
-              branch: (vcs as { branch?: string } | undefined)?.branch,
-            }
-          }),
-        )
+        const engine = createClient(input.url)
+        // OpenCode 2 reports the running sessions of every folder at once; what waits and the branch
+        // are still asked per folder.
+        const [busy, lists] = await Promise.all([
+          engine.session.active().catch(() => new Set<string>()),
+          Promise.all(
+            input.directories.map(async (directory) => {
+              const [pending, vcs] = await Promise.all([
+                engine.permission.pending({ location: { directory } }).then(
+                  (result) => result.data,
+                  () => [],
+                ),
+                engine.vcs.get(directory).catch(() => undefined),
+              ])
+              return { directory, waiting: pending.map((request) => request.sessionID), branch: vcs?.branch }
+            }),
+          ),
+        ])
         return {
-          busy: new Set(lists.flatMap((list) => list.busy)),
+          busy,
           waiting: new Set(lists.flatMap((list) => list.waiting)),
           branches: Object.fromEntries(lists.map((list) => [list.directory, list.branch])),
         }

@@ -13,18 +13,20 @@ const session = {
   location: { directory: "/work/demo" },
 }
 
-const legacy = [
+// OpenCode 2 pages a transcript newest first.
+const messages = [
   {
-    info: { id: "u", sessionID: "ses_exp", role: "user", time: { created: now } },
-    parts: [{ id: "pu", type: "text", text: "Plan it" }],
-  },
-  {
-    info: { id: "a", sessionID: "ses_exp", role: "assistant", agent: "build", time: { created: now + 1 } },
-    parts: [
-      { id: "pr", type: "reasoning", text: "Think about the reducer", time: { start: now + 1, end: now + 2 } },
-      { id: "pa", type: "text", text: "Here is the plan.", time: { start: now + 2, end: now + 3 } },
+    id: "a",
+    type: "assistant",
+    agent: "build",
+    model: { providerID: "openai", id: "gpt" },
+    time: { created: now + 1, completed: now + 3 },
+    content: [
+      { type: "reasoning", text: "Think about the reducer" },
+      { type: "text", text: "Here is the plan." },
     ],
   },
+  { id: "u", type: "user", text: "Plan it", time: { created: now } },
 ]
 
 async function open(page: Page) {
@@ -51,9 +53,8 @@ async function open(page: Page) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/api/session/ses_exp/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: legacy })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/session/ses_exp/message") return route.fulfill({ json: { data: messages, cursor: {} } })
+    if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
