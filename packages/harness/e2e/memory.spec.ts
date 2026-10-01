@@ -14,6 +14,7 @@ const session = {
 
 async function open(page: Page) {
   const added: Array<Record<string, unknown>> = []
+  const instructions: Array<{ key: string; value: unknown }> = []
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -45,6 +46,18 @@ async function open(page: Page) {
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_mem/message") return route.fulfill({ json: { data: [], cursor: {} } })
+    if (url.pathname === "/api/session/ses_mem" && request.method() === "PATCH") return route.fulfill({ status: 204 })
+    if (url.pathname === "/api/session/ses_mem") return route.fulfill({ json: { data: session } })
+    if (url.pathname === "/api/session/ses_mem/agent") return route.fulfill({ status: 204 })
+    if (url.pathname === "/api/session/ses_mem/prompt")
+      return route.fulfill({ json: { data: { id: "msg_1", sessionID: "ses_mem", type: "user", delivery: "steer" } } })
+    if (url.pathname === "/api/experimental/session/ses_mem/instructions/entries")
+      return route.fulfill({ json: { data: [] } })
+    const entry = url.pathname.match(/^\/api\/experimental\/session\/ses_mem\/instructions\/entries\/(.+)$/)?.[1]
+    if (entry && request.method() === "PUT") {
+      instructions.push({ key: decodeURIComponent(entry), value: (request.postDataJSON() as { value: unknown }).value })
+      return route.fulfill({ status: 204 })
+    }
     if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
       return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event") return new Promise(() => {})
@@ -52,10 +65,10 @@ async function open(page: Page) {
   })
   await page.goto("/")
   await expect(page.locator(".fc-transcript-body")).toBeVisible()
-  return { added }
+  return { added, instructions }
 }
 
-test("the project's notes are kept here", async ({ page }) => {
+test("the project's notes are kept here and handed to the next turn", async ({ page }) => {
   const api = await open(page)
 
   // The panel opens from the `/memory` command, and shows the harness's notes first.
@@ -71,4 +84,12 @@ test("the project's notes are kept here", async ({ page }) => {
   await dialog.getByRole("button", { name: "Add note" }).click()
   await expect.poll(() => api.added).toEqual([{ directory: "/work/demo", text: "Use the server" }])
   await expect(dialog.getByText("Use the server")).toBeVisible()
+
+  // The next turn carries every note, as the session instruction the engine puts in the system prompt.
+  await page.keyboard.press("Escape")
+  await composer.fill("What should I do next?")
+  await composer.press("Enter")
+  await expect
+    .poll(() => api.instructions.find((entry) => entry.key === "flupcode.notes")?.value)
+    .toBe("Project memory:\n- Conventional commits\n- Use the server")
 })

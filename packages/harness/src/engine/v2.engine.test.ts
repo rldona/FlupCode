@@ -49,6 +49,39 @@ describe.skipIf(!run)("the OpenCode 2 adapter", () => {
     expect(listed.data.map((session) => session.id)).toContain(created.id)
   })
 
+  // Chat and Cowork prompts and the project notes reach the model as session instructions: in the
+  // system prompt on the first turn, and as an appended update when one changes, never resent unchanged.
+  test("hands the model the session's instructions, and only what changed afterwards", async () => {
+    const session = await domains.session.create({ location: { directory: engine.project } })
+    const texts = () =>
+      (model.requests.at(-1) as { messages: Array<{ role: string; content: unknown }> }).messages.map(
+        (message) => [message.role, JSON.stringify(message.content)] as const,
+      )
+    const turn = async (text: string, instructions: Record<string, string | undefined>) => {
+      model.push({ type: "text", text: "ok" })
+      await domains.session.send({ sessionID: session.id, directory: engine.project, text, instructions })
+      await domains.session.wait({ sessionID: session.id })
+    }
+
+    await turn("one", { "flupcode.system": "MODE-CHAT", "flupcode.notes": "NOTE-A" })
+    const first = texts()
+    expect(first[0]![0]).toBe("system")
+    expect(first[0]![1]).toContain("MODE-CHAT")
+    expect(first[0]![1]).toContain("NOTE-A")
+
+    await turn("two", { "flupcode.system": "MODE-CHAT", "flupcode.notes": "NOTE-A" })
+    expect(texts().filter(([, content]) => content.includes("system-update"))).toEqual([])
+
+    await turn("three", { "flupcode.system": "MODE-CHAT", "flupcode.notes": "NOTE-B" })
+    const third = texts()
+    // The system prompt stays as the first turn wrote it, so the provider's cache still holds.
+    expect(third[0]).toEqual(first[0])
+    const updates = third.filter(([, content]) => content.includes("system-update"))
+    expect(updates).toHaveLength(1)
+    expect(updates[0]![1]).toContain("NOTE-B")
+    expect(updates[0]![1]).not.toContain("MODE-CHAT")
+  })
+
   test("sends a turn, waits for it, and reads the transcript oldest first without the idle marker", async () => {
     const session = await domains.session.create({ location: { directory: engine.project } })
     model.push({ type: "text", text: "Hello from the stub" })

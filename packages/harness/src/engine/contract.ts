@@ -212,7 +212,6 @@ export type EngineClient = {
          * Sends a prompt. It returns as soon as the engine admitted it into the session inbox; the
          * event stream carries the rest. A prompt sent while a turn is running is delivered by the
          * engine (V2-41): a steer joins the turn at its next boundary, a queued one waits in the inbox.
-         * `system` is not delivered on 2.x yet.
          */
         send: (input: {
             sessionID: string;
@@ -220,7 +219,13 @@ export type EngineClient = {
             text: string;
             id?: string | undefined;
             agent?: string | undefined;
-            system?: string | undefined;
+            /**
+             * Named instructions the session runs under, which the engine keeps: an entry goes into the
+             * system prompt, and when one changes later the engine appends the change instead of
+             * rewriting it, so the prompt cache holds. A key left out is kept as it is; `undefined`
+             * removes it.
+             */
+            instructions?: Record<string, string | undefined> | undefined;
             files?: {
                 uri: string;
                 name?: string | undefined;

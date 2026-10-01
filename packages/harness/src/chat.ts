@@ -38,6 +38,14 @@ export const COWORK_SYSTEM = [
   "Answer in the user's language, conversationally, with clear formatting.",
 ].join("\n")
 
+/**
+ * The session instructions FlupCode keeps on the engine: the mode's system prompt (Chat or Cowork)
+ * and the project's notes (H-37). The engine puts them in the system prompt and appends any change
+ * later, so each is its own entry and only the one that changed is sent again.
+ */
+export const INSTRUCTION_SYSTEM = "flupcode.system"
+export const INSTRUCTION_NOTES = "flupcode.notes"
+
 export function isChatSession(session: { location?: { directory?: string } }, chatsDirectory: string | undefined) {
   return !!chatsDirectory && session.location?.directory === chatsDirectory
 }
