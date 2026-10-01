@@ -38,6 +38,11 @@ test("a 2.x session with a title and a parent keeps both", () => {
   expect(child.parentID).toBe("ses_0")
 })
 
+test("a run's task, filed under its run in metadata on 2.x, nests under it", () => {
+  expect(toSession({ ...session, metadata: { parentID: "ses_run" } } as V2Session).parentID).toBe("ses_run")
+  expect(toSession({ ...session, metadata: { parentID: 7 } } as V2Session).parentID).toBeUndefined()
+})
+
 const assistant = {
   id: "msg_2",
   type: "assistant",

@@ -745,7 +745,11 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <div class="fc-settings-row">
                     <span>{t("Engine")}</span>
                     <span class="fc-settings-status">
-                      {props.engineVersion === "local" ? t("Source build") : (props.engineVersion ?? t("Unknown"))}
+                      {props.engineVersion === "local"
+                        ? t("Source build")
+                        : props.engineProfile === "v2"
+                          ? `OpenCode ${props.engineVersion ?? ""}`.trim()
+                          : (props.engineVersion ?? t("Unknown"))}
                     </span>
                   </div>
                   <Show when={props.engineVersionMismatch}>
@@ -753,6 +757,13 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       {t(
                         "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.",
                         { version: props.engineVersion ?? "", target: engineTargetVersion ?? "" },
+                      )}
+                    </div>
+                  </Show>
+                  <Show when={props.engineProfile === "v2"}>
+                    <div class="fc-settings-hint">
+                      {t(
+                        "This engine is OpenCode 2. FlupCode's plugins do not run on it yet, so its extras (permission modes, memory, the adaptive layer) are unavailable.",
                       )}
                     </div>
                   </Show>

@@ -1,4 +1,5 @@
 import { createV1Client } from "./engine/v1"
+import { createV2Domains } from "./engine/v2"
 import { subscribeEvents } from "./event-stream"
 import { anonymousFetch, engineFetch, harnessBrowserToken } from "./transport"
 import type {
@@ -103,8 +104,29 @@ export async function probeServer(baseUrl: string): Promise<ServerStatus> {
   return listening ? "blocked" : "offline"
 }
 
-/** Whether the connected engine is FlupCode's build (with its patches) or the stock OpenCode CLI. */
-export type EngineProfile = "flupcode" | "stock" | "unknown"
+/**
+ * Whether an OpenCode 2 engine is answering behind a password. 2.x always runs behind one (it makes
+ * one up when none is set) and a browser page has no way to send it, so only the desktop app, which
+ * starts the engine with its own, can drive it. Told apart from a 1.x engine with a password by the
+ * error 2.x names: 1.x refuses with plain text.
+ */
+export async function openCodeV2Locked(baseUrl: string) {
+  const response = await engineFetch(`${baseUrl.replace(/\/$/, "")}/api/info`, {
+    signal: AbortSignal.timeout(2000),
+  }).catch(() => undefined)
+  if (response?.status !== 401) {
+    void response?.body?.cancel()
+    return false
+  }
+  const body = (await response.json().catch(() => undefined)) as { _tag?: unknown } | undefined
+  return body?._tag === "UnauthorizedError"
+}
+
+/**
+ * Whether the connected engine is FlupCode's build (with its patches), the stock OpenCode CLI, or
+ * OpenCode 2, which loads none of FlupCode's plugins yet.
+ */
+export type EngineProfile = "flupcode" | "stock" | "v2" | "unknown"
 
 /**
  * FlupCode's engine exposes the memory API at `/api/memory`; the stock OpenCode CLI does not, and
@@ -126,12 +148,37 @@ export { EngineError, isSessionGone } from "./engine/error"
 export { invalidateLegacyHistory } from "./engine/v1"
 export { subscribeEvents }
 
+export type EngineLine = "v1" | "v2"
+
+const engineLines = new Map<string, EngineLine>()
+const v2Clients = new Map<string, EngineClient>()
+const lineKey = (baseUrl: string) => baseUrl.replace(/\/+$/, "")
+
 /**
- * The engine client the app talks through. Only the 1.x adapter exists; the OpenCode 2 one (V2-20)
- * will meet the same `EngineClient` type and be chosen here by the engine's line.
+ * What the health check found answering at `baseUrl` (V2-11). Every `createClient` afterwards picks
+ * that line's adapter; an address nothing has been learnt about is taken for 1.x, as it always was.
  */
-export function createClient(baseUrl = resolveServerUrl()) {
-  return createV1Client(baseUrl)
+export function rememberEngineLine(baseUrl: string, line: EngineLine) {
+  engineLines.set(lineKey(baseUrl), line)
+}
+
+export function engineLineOf(baseUrl: string) {
+  return engineLines.get(lineKey(baseUrl)) ?? "v1"
+}
+
+/**
+ * The engine client the app talks through: the 1.x adapter, or the OpenCode 2 one once the health
+ * check has found 2.x at this address. The 2.x client is kept per address because it remembers
+ * sign-ins in flight (the integration an OAuth attempt belongs to), which a fresh one would lose.
+ */
+export function createClient(baseUrl = resolveServerUrl()): EngineClient {
+  if (engineLineOf(baseUrl) === "v1") return createV1Client(baseUrl)
+  const known = v2Clients.get(lineKey(baseUrl))
+  if (known) return known
+  // 2.x no longer writes its own config files, so they are saved through the harness server.
+  const client = createV2Domains(baseUrl, { configStore: createHarnessClient().engineConfig })
+  v2Clients.set(lineKey(baseUrl), client)
+  return client
 }
 
 export type EngineClient = ReturnType<typeof createV1Client>

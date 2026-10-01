@@ -4,8 +4,11 @@ import {
   adaptiveSurfaces,
   createClient,
   createHarnessClient,
+  engineLineOf,
   isSessionGone,
+  openCodeV2Locked,
   probeServer,
+  rememberEngineLine,
   subscribeEvents,
 } from "./client"
 import { setEngineTransport } from "./transport"
@@ -959,4 +962,48 @@ test("health still reads an answer wrapped in data", async () => {
   answeringHarness({ data: { healthy: true, capabilities: ["memory"] } })
 
   expect(await createHarnessClient("http://harness").health()).toEqual({ healthy: true, capabilities: ["memory"] })
+})
+
+test("the client talks to the line the health check found at an address (V2-11)", async () => {
+  const asked: string[] = []
+  setEngineTransport({
+    fetch: async (input) => {
+      const url = new URL(new Request(input).url)
+      asked.push(url.pathname)
+      const body = url.pathname === "/global/health" ? { healthy: true, version: "1.4.0" } : { version: "2.0.18" }
+      return Response.json(body)
+    },
+    socket: () => {
+      throw new Error("not used")
+    },
+  })
+  const url = "http://127.0.0.1:4911"
+  expect(engineLineOf(url)).toBe("v1")
+  expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "1.4.0" })
+
+  rememberEngineLine(`${url}/`, "v2")
+  expect(engineLineOf(url)).toBe("v2")
+  expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "2.0.18" })
+  // One 2.x client per address: it remembers the sign-ins it started.
+  expect(createClient(url)).toBe(createClient(url))
+  expect(asked).toEqual(["/global/health", "/api/info"])
+
+  rememberEngineLine(url, "v1")
+  expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "1.4.0" })
+})
+
+test("a 2.x engine behind its password is told apart from a 1.x one", async () => {
+  const answer = (response: () => Response) =>
+    setEngineTransport({
+      fetch: async () => response(),
+      socket: () => {
+        throw new Error("not used")
+      },
+    })
+  answer(() => Response.json({ _tag: "UnauthorizedError", message: "Authentication required" }, { status: 401 }))
+  expect(await openCodeV2Locked("http://127.0.0.1:4912")).toBe(true)
+  answer(() => new Response("Unauthorized", { status: 401 }))
+  expect(await openCodeV2Locked("http://127.0.0.1:4912")).toBe(false)
+  answer(() => Response.json({ version: "2.0.18" }))
+  expect(await openCodeV2Locked("http://127.0.0.1:4912")).toBe(false)
 })
