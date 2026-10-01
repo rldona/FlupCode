@@ -82,7 +82,7 @@ type View = {
   source: Record<string, "env" | "block" | "default">
   env: { adaptiveDisabled: boolean; typesafeKeyPresent: boolean; typesafeKeySource?: "env" | "stored" | "none" }
   modelKeyStorable?: boolean
-  runtime: { runtime: string; degraded: boolean; checkedAt: number }
+  runtime: { runtime: string; degraded: boolean; checkedAt: number; alerts?: unknown[] }
   capabilities: Record<string, unknown>
   canWrite: boolean
   writer: { path: string; exists: boolean }
@@ -474,6 +474,38 @@ test("every inert card says why: the level, the runtime, missing permission, a m
     await dialog.locator(".fc-adaptive-level, .fc-adaptive-card, .fc-routines-notice").allInnerTexts()
   ).join("\n")
   expect(firstLevel).not.toMatch(/Jev|shadow|egress|token|FLUPCODE|[a-z]+\.[a-z]+\b/i)
+})
+
+// The probe has already answered for the engine running now, so the newest change says so instead of
+// asking the reader to check by hand, and each change stands on its own line.
+test("the engine changes since last looked are one per line, and the current one says the plugins answered", async ({
+  page,
+}) => {
+  await openApp(page, {
+    capabilities: ["adaptive-config", "adaptive-runtime-alerts"],
+    view: view({
+      runtime: {
+        runtime: "legacy",
+        degraded: false,
+        checkedAt: now,
+        alerts: [
+          { kind: "engine-version-changed", from: "local", to: "1.18.33", at: now - 2 },
+          { kind: "engine-version-changed", from: "1.18.33", to: "2.0.18", at: now - 1 },
+        ],
+      },
+    }),
+  })
+  await page.goto("/")
+  const dialog = await openSettings(page, "Adaptive")
+  const notice = dialog.locator(".fc-routines-notice").filter({ hasText: "The engine changed since you last looked." })
+  await notice.getByText("Details").click()
+  const lines = notice.locator(".fc-adaptive-more .fc-settings-hint")
+  await expect(lines).toHaveText([
+    "The engine changed from version local to 1.18.33.",
+    "The engine changed from version 1.18.33 to 2.0.18. FlupCode's plugins answered from it, so the adaptive features work there.",
+  ])
+  const [first, second] = await lines.evaluateAll((nodes) => nodes.map((node) => node.getBoundingClientRect().top))
+  expect(second).toBeGreaterThan(first!)
 })
 
 test("the value gate's pause is shown as the predictive model's state", async ({ page }) => {

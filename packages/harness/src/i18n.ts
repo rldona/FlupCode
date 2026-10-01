@@ -1640,8 +1640,11 @@ const ES: Record<string, string> = {
   "Configured, but inert on this runtime.": "Configurado, pero inerte en este runtime.",
   "The engine runtime changed from {from} to {to}. Relevance and guardrails rely on legacy hooks; check docs/V2-HOOKS.md.":
     "El runtime del motor pasó de {from} a {to}. Relevance y guardrails dependen de hooks legacy; revisa docs/V2-HOOKS.md.",
-  "The engine changed from version {from} to {to}. Check that the adaptive hooks still fire (docs/V2-HOOKS.md).":
-    "El motor pasó de la versión {from} a la {to}. Comprueba que los hooks adaptativos siguen disparándose (docs/V2-HOOKS.md).",
+  "The engine changed from version {from} to {to}.": "El motor pasó de la versión {from} a la {to}.",
+  "The engine changed from version {from} to {to}. FlupCode's plugins answered from it, so the adaptive features work there.":
+    "El motor pasó de la versión {from} a la {to}. Los plugins de FlupCode han respondido desde él, así que las funciones adaptativas funcionan ahí.",
+  "The engine changed from version {from} to {to}. FlupCode's plugins have not answered from it yet, so the adaptive features stay off until they do (docs/V2-HOOKS.md).":
+    "El motor pasó de la versión {from} a la {to}. Los plugins de FlupCode todavía no han respondido desde él, así que las funciones adaptativas siguen apagadas hasta que lo hagan (docs/V2-HOOKS.md).",
   "The engine ran turns on the V2 runner ({event}). The adaptive hooks do not fire on those turns.":
     "El motor ejecutó turnos en el runner V2 ({event}). En esos turnos no se disparan los hooks adaptativos.",
   "There is no model to draft skills with, so the built-in rules propose them instead.":

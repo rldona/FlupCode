@@ -406,7 +406,16 @@ describe("the runtime alert (AH-D05)", () => {
 
   test("a version change names both versions", () => {
     const text = runtimeAlertText({ kind: "engine-version-changed", from: "1.2.3", to: "1.3.0", at: 1 })
-    expect(t(text.key, text.params)).toContain("from version 1.2.3 to 1.3.0")
+    expect(t(text.key, text.params)).toBe("The engine changed from version 1.2.3 to 1.3.0.")
+  })
+
+  // For the engine running now the probe has already answered, so there is nothing left to check by hand.
+  test("the engine running now says whether FlupCode's plugins answered from it", () => {
+    const alert = { kind: "engine-version-changed" as const, from: "1.18.33", to: "2.0.18", at: 1 }
+    const confirmed = runtimeAlertText(alert, true)
+    expect(t(confirmed.key, confirmed.params)).toContain("FlupCode's plugins answered from it")
+    const silent = runtimeAlertText(alert, false)
+    expect(t(silent.key, silent.params)).toContain("have not answered from it yet")
   })
 
   test("V2 turns name the event that proved them", () => {
@@ -422,10 +431,11 @@ describe("the runtime alert (AH-D05)", () => {
         { kind: "engine-version-changed" as const, from: "1", to: "2", at: 1 },
         { kind: "v2-turns-observed" as const, to: "session.next.prompted", at: 1 },
       ]
-      for (const alert of alerts) {
-        const text = runtimeAlertText(alert)
-        expect(t(text.key, text.params)).not.toBe(text.key)
-      }
+      for (const alert of alerts)
+        for (const hooksFire of [undefined, true, false]) {
+          const text = runtimeAlertText(alert, hooksFire)
+          expect(t(text.key, text.params)).not.toBe(text.key)
+        }
     } finally {
       setLocale("en")
     }
