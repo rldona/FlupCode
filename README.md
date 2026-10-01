@@ -8,9 +8,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/rldona/FlupCode/actions/workflows/harness.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/rldona/FlupCode/harness.yml?branch=power&label=build" /></a>
+  <a href="https://github.com/rldona/FlupCode/actions/workflows/harness.yml"><img alt="build" src="https://img.shields.io/github/actions/workflow/status/rldona/FlupCode/harness.yml?branch=main&label=build" /></a>
   <a href="https://github.com/rldona/FlupCode/releases"><img alt="release" src="https://img.shields.io/github/v/release/rldona/FlupCode?label=release" /></a>
-  <a href="https://github.com/rldona/FlupCode/blob/power/LICENSE"><img alt="license" src="https://img.shields.io/github/license/rldona/FlupCode?label=license" /></a>
+  <a href="https://github.com/rldona/FlupCode/blob/main/LICENSE"><img alt="license" src="https://img.shields.io/github/license/rldona/FlupCode?label=license" /></a>
   <a href="https://flupcode.com"><img alt="website" src="https://img.shields.io/badge/website-flupcode.com-9aa84f" /></a>
 </p>
 

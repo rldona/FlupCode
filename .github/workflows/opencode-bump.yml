@@ -42,7 +42,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
         with:
-          ref: power
+          ref: main
           token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
 
       - name: Setup Bun
@@ -78,10 +78,10 @@ jobs:
           Upstream changes: https://github.com/anomalyco/opencode/compare/v$FROM...v$VERSION
 
           Merge once \`gate\` is green: the engine-contract suite and the live e2e ran against this binary (ADR-0027)."
-          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head opencode-bump --base power --state open --json number --jq '.[0].number // empty')
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head opencode-bump --base main --state open --json number --jq '.[0].number // empty')
           if [ -n "$pr" ]; then
             gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --title "chore(opencode): pin OpenCode $VERSION" --body "$body"
           else
-            gh pr create --repo "$GITHUB_REPOSITORY" --head opencode-bump --base power \
+            gh pr create --repo "$GITHUB_REPOSITORY" --head opencode-bump --base main \
               --title "chore(opencode): pin OpenCode $VERSION" --body "$body"
           fi

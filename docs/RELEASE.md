@@ -25,30 +25,30 @@ How FlupCode is versioned and released.
 
 1. Update the versions (`harness`, `harness-desktop`, `harness-server`, `remote`, `relay`,
    `flupcode-cli`) and the
-   lockfile on a branch, and open a pull request: `power` is protected, so nothing is pushed to it
+   lockfile on a branch, and open a pull request: `main` is protected, so nothing is pushed to it
    directly.
 
    ```bash
-   git switch -c release-X.Y.Z origin/power
+   git switch -c release-X.Y.Z origin/main
    # set the six package.json versions, then:
    npm_config_registry="https://registry.npmjs.org/" bun install
    git commit -am "chore: bump version to X.Y.Z"
    git push -u origin release-X.Y.Z
-   gh pr create --base power --title "chore: bump version to X.Y.Z"
+   gh pr create --base main --title "chore: bump version to X.Y.Z"
    ```
 
-2. Once CI is green, merge it with rebase, then tag the merged commit on `origin/power` (never a
+2. Once CI is green, merge it with rebase, then tag the merged commit on `origin/main` (never a
    local commit) and push the tag:
 
    ```bash
    gh pr merge <number> --rebase
    git fetch origin
-   git tag flupcode-vX.Y.Z origin/power
+   git tag flupcode-vX.Y.Z origin/main
    git push origin flupcode-vX.Y.Z
    ```
 
    Stop at the first failure (for example with `set -eo pipefail` in a script): a tag pushed after
-   a rejected push starts a release from a commit that is not on `power`.
+   a rejected push starts a release from a commit that is not on `main`.
 
 3. `.github/workflows/release.yml` runs on the tag. It opens the release **as a draft**, and then each
    job builds and publishes its own part of it, in parallel: the web bundle, the five `flupcode` CLI
@@ -69,9 +69,9 @@ How FlupCode is versioned and released.
    gh release edit flupcode-vX.Y.Z --notes-file notes.md
    ```
 
-   The web app (`app.flupcode.com`) deploys when this bump reaches `power`: its Vercel build only
+   The web app (`app.flupcode.com`) deploys when this bump reaches `main`: its Vercel build only
    runs for a commit that changes `packages/harness/package.json`'s version. The landing deploys
-   from `power` whenever it changes (see "Deploys" in [CONTRIBUTING.md](CONTRIBUTING.md)).
+   from `main` whenever it changes (see "Deploys" in [CONTRIBUTING.md](CONTRIBUTING.md)).
 
 5. Verify with:
 

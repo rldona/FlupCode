@@ -5,7 +5,7 @@
   "buildCommand": "bun run build",
   "outputDirectory": "dist",
   "ignoreCommand": "git diff HEAD^ HEAD -- package.json | grep -qE '^[+-][[:space:]]*\"version\"' && exit 1 || exit 0",
-  "git": { "deploymentEnabled": { "**": false, "power": true } },
+  "git": { "deploymentEnabled": { "**": false, "main": true } },
   "rewrites": [{ "source": "/((?!.*\\.).*)", "destination": "/index.html" }],
   "headers": [
     {

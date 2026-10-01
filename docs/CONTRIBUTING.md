@@ -100,7 +100,7 @@ build passes.
 
 ## Pull requests
 
-1. Branch off `power`, keep it focused.
+1. Branch off `main`, keep it focused.
 2. Reference the ticket ID (e.g. `F2-4`) in the PR description.
 3. Ensure CI passes (`typecheck`, harness build, tests).
 
@@ -114,29 +114,29 @@ of one push per small change.
 
 Merges happen on GitHub, never from Vercel, and one PR at a time:
 
-1. **Rebase** the branch onto the current `origin/power` if it is behind, and push with
+1. **Rebase** the branch onto the current `origin/main` if it is behind, and push with
    `--force-with-lease`.
 2. **Wait for CI** on that exact commit: `gate` (the last job of the `harness` workflow) is the
-   required check on `power` and must finish green. It runs on every PR and only passes when the
+   required check on `main` and must finish green. It runs on every PR and only passes when the
    build and the engine suite passed, or were skipped because the PR does not touch their paths.
    Never merge on red or while it is still running.
-3. **Merge with rebase**, so each conventional commit lands on `power` as written:
+3. **Merge with rebase**, so each conventional commit lands on `main` as written:
 
    ```bash
    gh pr merge <number> --rebase --repo rldona/FlupCode
    ```
 
 4. **Several PRs:** merge them in order, infrastructure and CI changes first. After each merge,
-   rebase the next PR onto the new `power` and wait for its CI again. Stop at the first conflict or
+   rebase the next PR onto the new `main` and wait for its CI again. Stop at the first conflict or
    red run.
 5. **Keep your checkout alone:** rebase other branches in a `git worktree` (`git worktree add ../fc-x
    <branch>`), so the branch a local dev server is serving does not change under it.
-6. **Clean up:** after merging, fast-forward `power` locally, and delete the merged branches and any
+6. **Clean up:** after merging, fast-forward `main` locally, and delete the merged branches and any
    worktrees.
 
 ### Deploys
 
-- **Web:** Vercel deploys production from `power` only; other branches get no preview deployments.
+- **Web:** Vercel deploys production from `main` only; other branches get no preview deployments.
   - **The app** (`app.flupcode.com`) builds only for a release: its `ignoreCommand` skips every push
     whose commit does not change the `version` in `packages/harness/package.json`, which only the
     release bump PR does. It ships with the desktop app and the CLI, not on every merge: on a busy

@@ -74,7 +74,7 @@ packages/remote
   (`components/RemoteHome.tsx`).
 - Push notifications (ADR-0011): the host watches engine events and encrypts a Web Push for each
   subscribed phone; the relay signs VAPID and delivers it; `public/sw.js` shows it.
-- Deployments: `app.flupcode.com` and `flupcode.com` on Vercel from `power`; the relay on Fly.io.
+- Deployments: `app.flupcode.com` and `flupcode.com` on Vercel from `main`; the relay on Fly.io.
 
 ## 4. Package conventions
 
