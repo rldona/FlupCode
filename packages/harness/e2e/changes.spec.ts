@@ -242,42 +242,59 @@ async function openSession(
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/vcs") return route.fulfill({ json: { branch: "feature", default_branch: "main" } })
-    if (url.pathname === "/vcs/status")
+    const location = { directory: "/work/demo" }
+    if (url.pathname === "/api/vcs")
+      return route.fulfill({ json: { location, data: { branch: { current: "feature", default: "main" } } } })
+    if (url.pathname === "/api/vcs/status")
       return route.fulfill({
-        json: options.twoHunks
-          ? [{ file: "src/two.ts", additions: 2, deletions: 2, status: "modified" }]
-          : options.clean
-            ? []
-            : status,
+        json: {
+          location,
+          data: options.twoHunks
+            ? [{ file: "src/two.ts", additions: 2, deletions: 2, status: "modified" }]
+            : options.clean
+              ? []
+              : status,
+        },
       })
-    if (url.pathname === "/vcs/diff") {
-      const mode = url.searchParams.get("mode") ?? "git"
+    if (url.pathname === "/api/vcs/diff") {
+      // 2.x calls the working tree against HEAD "working"; 1.x called it "git".
+      const mode = url.searchParams.get("mode") ?? "working"
       seen.modes.push(mode)
       seen.contexts.push(url.searchParams.get("context"))
       if (mode === "branch")
         return route.fulfill({
-          json: [{ file: "src/shipped.ts", patch: branchOnly, additions: 1, deletions: 1, status: "modified" }],
+          json: {
+            location,
+            data: [{ file: "src/shipped.ts", patch: branchOnly, additions: 1, deletions: 1, status: "modified" }],
+          },
         })
       if (options.long)
         return route.fulfill({
-          json: [{ file: "src/long.ts", patch: long, additions: 100, deletions: 100, status: "modified" }],
+          json: {
+            location,
+            data: [{ file: "src/long.ts", patch: long, additions: 100, deletions: 100, status: "modified" }],
+          },
         })
       if (options.twoHunks)
         return route.fulfill({
-          json: [{ file: "src/two.ts", patch: twoHunks, additions: 2, deletions: 2, status: "modified" }],
+          json: {
+            location,
+            data: [{ file: "src/two.ts", patch: twoHunks, additions: 2, deletions: 2, status: "modified" }],
+          },
         })
       return route.fulfill({
-        json: [
-          { file: "src/server.ts", patch: modified, additions: 2, deletions: 1, status: "modified" },
-          { file: "src/added.ts", patch: added, additions: 1, deletions: 0, status: "added" },
-        ],
+        json: {
+          location,
+          data: [
+            { file: "src/server.ts", patch: modified, additions: 2, deletions: 1, status: "modified" },
+            { file: "src/added.ts", patch: added, additions: 1, deletions: 0, status: "added" },
+          ],
+        },
       })
     }
     if (url.pathname === "/api/session/ses_diff/message") return route.fulfill({ json: { data: [], cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
