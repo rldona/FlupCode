@@ -55,7 +55,7 @@ const history = [
   compaction("c2", "auto", "## Resumen\n\n- A y B hechas.", now + 30),
 ]
 
-async function openSession(page: Page, messages: unknown[] = history) {
+async function openSession(page: Page, messages: unknown[] = history, live?: { events: unknown[] }) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -66,7 +66,8 @@ async function openSession(page: Page, messages: unknown[] = history) {
     const url = new URL(route.request().url())
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+    if (url.pathname === "/api/session/active")
+      return route.fulfill({ json: { data: live ? { ses_compact: { type: "running" } } : {} } })
     // A 200k window whose answers can run to 8k: the engine folds the session at 192k.
     if (url.pathname === "/api/model")
       return route.fulfill({
@@ -91,7 +92,10 @@ async function openSession(page: Page, messages: unknown[] = history) {
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/event")
-      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
+      return route.fulfill({
+        headers: { "content-type": "text/event-stream" },
+        body: (live?.events ?? []).map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+      })
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
@@ -114,6 +118,24 @@ test("a compaction is a marked boundary, not one more answer", async ({ page }) 
   await expect(markers.nth(0).locator(".fc-compaction-body")).toHaveCount(0)
   await markers.nth(0).locator(".fc-compaction-line").click()
   await expect(markers.nth(0).locator(".fc-compaction-body")).toContainText("A quedó hecha")
+})
+
+// A fold is a turn of its own, so without a word of its own the status line under the conversation
+// reads like the agent working on the task. An automatic one starts with no request from the reader.
+test("a session the engine starts folding on its own says so", async ({ page }) => {
+  await openSession(page, [user("u1", "Haz A y B", now), assistant("a1", "Hecha A.", now + 1)], {
+    events: [
+      {
+        id: "evt_1",
+        created: now + 5,
+        type: "session.compaction.started",
+        durable: { aggregateID: "ses_compact", seq: 1, version: 1 },
+        data: { sessionID: "ses_compact", reason: "auto", recent: "" },
+      },
+    ],
+  })
+
+  await expect(page.locator(".fc-message-pending")).toContainText(/Compacting session|Compactando sesión/)
 })
 
 test("a turn after the fold reads as thinking again", async ({ page }) => {
