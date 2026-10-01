@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { detectEngine } from "@flupcode/remote/engine-kind"
-import { installOpenCodeV2 } from "./opencode-v2"
+import { installSandboxOpenCodeV2 } from "./opencode-v2"
 
 /**
  * A real engine, isolated from the machine it runs on.
@@ -19,6 +19,8 @@ export async function startEngine(input: {
   env?: Record<string, string | undefined>
   /** Runs once the isolated home exists and before the engine starts, e.g. to install plugins. */
   prepare?: (home: string) => Promise<void>
+  /** Which line to start, for a test that needs both (V2-61); the suite's own line otherwise. */
+  line?: "v1" | "v2"
 }) {
   // The real path: macOS hands out `/var/...`, a link to `/private/var/...`, and the engine asks for
   // an external-directory permission when a tool reads a path that is not under the one it resolved.
@@ -30,7 +32,7 @@ export async function startEngine(input: {
   await input.prepare?.(home)
   const password = crypto.randomUUID()
   const port = freePort()
-  const command = await engineCommand()
+  const command = await engineCommand(input.line ?? CONTRACT_LINE)
   const child = Bun.spawn(
     command.map((part) => part.replaceAll("{port}", String(port))),
     {
@@ -97,11 +99,11 @@ export const STUB_MODEL = { providerID: "stub", modelID: "stub-model" }
  */
 export const CONTRACT_LINE = process.env.FLUPCODE_CONTRACT_LINE === "v2" ? "v2" : "v1"
 
-async function engineCommand() {
+async function engineCommand(line: "v1" | "v2") {
   const configured = process.env.FLUPCODE_CONTRACT_ENGINE?.trim()
-  if (configured) return configured.split(/\s+/)
+  if (configured && line === CONTRACT_LINE) return configured.split(/\s+/)
   // The pinned 2.x binary from the sandbox (V2-05), fetched and verified on first use.
-  if (CONTRACT_LINE === "v2") return [await installOpenCodeV2(), "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
+  if (line === "v2") return [await installSandboxOpenCodeV2(), "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
   const entry = resolve(import.meta.dir, "../../opencode/src/index.ts")
   return [process.execPath, "run", entry, "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
 }

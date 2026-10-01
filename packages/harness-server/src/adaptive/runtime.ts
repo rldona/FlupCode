@@ -8,13 +8,14 @@ import type { RuntimeProbeConfig } from "./runtime-config"
 
 /**
  * Whether the adaptive plugins' hooks fire. `legacy` is the proof that they do: 1.x's legacy runner,
- * or an OpenCode 2 engine running FlupCode's 2.x plugins (their `context` hook writes the same canary,
- * V2-30). `v2` is 1.x's embedded V2 runner, where those hooks never fire; it is not OpenCode 2.
+ * or an OpenCode 2 engine running FlupCode's 2.x plugins, which says so itself over the plugin RPC
+ * (V2-51). `v2` is 1.x's embedded V2 runner, where those hooks never fire; it is not OpenCode 2.
  */
 export type RuntimeKind = "legacy" | "v2" | "unknown"
 
 export type RuntimeProbeEvidenceReason =
   | "legacy-hook-fired"
+  | "plugin-acknowledged"
   | "v2-turn-observed"
   | "config-override"
   | "version-map"
@@ -33,7 +34,8 @@ export type RuntimeCanary = {
   event?: string
 }
 
-export type EngineHealth = { reachable: boolean; version?: string }
+/** `line` is which OpenCode answered: the 2.x line is asked over the plugin RPC, never the canary. */
+export type EngineHealth = { reachable: boolean; version?: string; line?: "v1" | "v2" }
 
 export type RuntimeProbeEvidence = {
   reason: RuntimeProbeEvidenceReason
@@ -87,6 +89,8 @@ export type RuntimeProbeDeps = {
   now?: () => number
   readFile?: (path: string) => Promise<string | undefined>
   engineHealth?: (url: string) => Promise<EngineHealth>
+  /** The 2.x runtime probe plugin's answer to `flupcode.runtime` `ack`, if it gave one (V2-51). */
+  engineAck?: (url: string) => Promise<RuntimeCanary | undefined>
   filePath?: string
   env?: NodeJS.ProcessEnv
   /** Where the runtime watch persists; without one it lives in memory for the process only. */
@@ -144,6 +148,16 @@ export function classifyRuntime(input: {
     if (input.config.override === "legacy") return { runtime: "legacy", reason: "config-override" }
     if (input.config.override === "v2") return { runtime: "v2", reason: "config-override" }
     if (!input.engine.reachable) return { runtime: "unknown", reason: "engine-unreachable" }
+    // OpenCode 2 has one runner: a FlupCode plugin that answers the RPC is one whose hooks run, with or
+    // without a turn yet. The answer comes from the engine's own process, so nothing can be stale.
+    if (input.engine.line === "v2") {
+      const ack = input.canary
+      if (ack?.token && typeof ack.loadedAt === "number")
+        return { runtime: "legacy", reason: "plugin-acknowledged", ...(ack.hook ? { detail: ack.hook } : {}) }
+      const mapped = runtimeForVersion(input.engine.version, input.config.versionMap)
+      if (mapped) return { runtime: mapped, reason: "version-map", detail: input.engine.version }
+      return { runtime: "unknown", reason: "no-evidence" }
+    }
     const canary = input.canary
     // The token is the process's boot identity: a pid alone is reused by the OS, so evidence keyed
     // only by pid cannot be attributed to the current process. Missing any of the three degrades to
@@ -268,7 +282,22 @@ const defaultEngineHealth = async (url: string): Promise<EngineHealth> => {
     ...(authorization ? { headers: { authorization } } : {}),
   })
   if (detected.kind === "none") return { reachable: false }
-  return { reachable: true, ...(detected.version ? { version: detected.version } : {}) }
+  return { reachable: true, line: detected.kind, ...(detected.version ? { version: detected.version } : {}) }
+}
+
+// The runtime probe plugin's RPC on OpenCode 2 (V2-51). No location: the engine boots its default one,
+// where the plugin registers as it does everywhere. Anything but an answer reads as no answer.
+const defaultEngineAck = async (url: string): Promise<RuntimeCanary | undefined> => {
+  const authorization = engineAuthorization()
+  const response = await fetch(new URL("/api/rpc/flupcode.runtime/ack", url), {
+    method: "POST",
+    signal: AbortSignal.timeout(HEALTH_TIMEOUT_MS),
+    headers: { "content-type": "application/json", ...(authorization ? { authorization } : {}) },
+    body: JSON.stringify({ input: {} }),
+  }).catch(() => undefined)
+  if (!response?.ok) return undefined
+  const body: unknown = await response.json().catch(() => undefined)
+  return isPlainObject(body) && isPlainObject(body.output) ? asCanary(body.output) : undefined
 }
 
 const defaultReadFile = async (path: string): Promise<string | undefined> => {
@@ -359,6 +388,7 @@ export function createRuntimeProbe(deps: RuntimeProbeDeps): RuntimeProbe {
   const now = deps.now ?? Date.now
   const health = deps.engineHealth ?? defaultEngineHealth
   const readFile = deps.readFile ?? defaultReadFile
+  const engineAck = deps.engineAck ?? defaultEngineAck
   const path = deps.filePath ?? runtimeProbeFilePath(deps.env)
 
   let cached = initialUnknown(deps.engineURL)
@@ -379,8 +409,11 @@ export function createRuntimeProbe(deps: RuntimeProbeDeps): RuntimeProbe {
   }
 
   const investigate = async (): Promise<RuntimeState> => {
-    const engine = await health(deps.engineURL).catch(() => ({ reachable: false }))
-    const canary = await readCanary(readFile, path)
+    // A health check answering something other than its shape reads as unreachable, never a throw.
+    const engine: EngineHealth = (await health(deps.engineURL).catch(() => undefined)) ?? { reachable: false }
+    // On 2.x the plugin answers for itself; the canary file is 1.x's proof.
+    const canary =
+      engine.line === "v2" ? await engineAck(deps.engineURL).catch(() => undefined) : await readCanary(readFile, path)
     return classifyRuntime({
       config,
       engine: { ...engine, url: deps.engineURL },

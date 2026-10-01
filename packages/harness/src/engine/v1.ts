@@ -77,6 +77,12 @@ async function reloadConfig(baseUrl: string, input?: { directory?: string; works
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
 
+/** OpenCode 2's import of the 1.x history it was given, which runs once, when the engine starts. */
+export type HistoryImportStatus =
+  | { status: "required" | "completed" }
+  | { status: "running"; progress: { label: string; numerator?: number; denominator?: number } }
+  | { status: "error"; error: string }
+
 /** A prompt the engine admitted and holds until the session can take it (V2-41). */
 export type InboxPrompt = {
   id: string
@@ -808,6 +814,10 @@ export function createV1Client(baseUrl: string) {
     },
     skill: {
       list: async (input?: LocationInput) => ({ data: (await unwrap(client.v2.skill.list(input))).data }),
+    },
+    /** Where OpenCode 2 is in importing 1.x history (V2-61); 1.x imports nothing. */
+    migration: {
+      status: async (): Promise<HistoryImportStatus | undefined> => undefined,
     },
     memory: {
       list: async (input?: {

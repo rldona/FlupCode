@@ -13,14 +13,15 @@
 import { mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
-import { installOpenCodeV2, OPENCODE_V2_VERSION, openCodeV2Path } from "../src/opencode-v2"
+import { OPENCODE_V2_VERSION, openCodeV2Path } from "@flupcode/remote/opencode-v2"
+import { installSandboxOpenCodeV2 } from "../src/opencode-v2"
 
 const { positionals, values } = parseArgs({
   allowPositionals: true,
   options: { port: { type: "string", default: "4196" }, directory: { type: "string" } },
 })
 
-const binary = await installOpenCodeV2()
+const binary = await installSandboxOpenCodeV2()
 if (positionals[0] === "install") {
   console.log(binary)
   process.exit(0)

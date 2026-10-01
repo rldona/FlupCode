@@ -37,10 +37,19 @@ type Callback = (input: never) => unknown
 function context(directory = "/work/demo", events: unknown[] = []) {
   const hooks = new Map<string, Callback>()
   const transforms: Record<string, Callback> = {}
+  // What each plugin registered over the RPC, by id: its handlers, as the engine would call them.
+  const rpcs = new Map<string, Record<string, Callback>>()
   return {
     hooks,
     transforms,
+    rpcs,
     ctx: {
+      rpc: {
+        register: async (definition: { id: string }, handlers: Record<string, Callback>) => {
+          rpcs.set(definition.id, handlers)
+          return { dispose: async () => {}, events: { emit: async () => {} } }
+        },
+      },
       location: { directory },
       tool: {
         hook: async (name: string, callback: Callback) => void hooks.set(`tool.${name}`, callback),
@@ -271,6 +280,13 @@ describe("OpenCode 2 adaptive plugins", () => {
     expect(await json(process.env.FLUPCODE_RUNTIME_PROBE_FILE)).toMatchObject({
       token: stamped.token,
       loadedAt: stamped.loadedAt,
+      hook: "session.context",
+      hookAt: expect.any(Number),
+    })
+    // What harness-server asks over the RPC (V2-51): the same record, from the engine's own process.
+    expect(await recorded.rpcs.get("flupcode.runtime")!.ack!({} as never)).toMatchObject({
+      token: stamped.token,
+      pid: process.pid,
       hook: "session.context",
       hookAt: expect.any(Number),
     })
