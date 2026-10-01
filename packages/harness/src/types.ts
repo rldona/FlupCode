@@ -111,6 +111,8 @@ export type McpLocalConfig = {
   enabled?: boolean
   /** Milliseconds; the engine defaults to 5000. */
   timeout?: number
+  /** `false` offers the server's tools one by one instead of through `execute` (OpenCode 2's default). */
+  codemode?: boolean
 }
 
 export type McpRemoteConfig = {
@@ -119,6 +121,7 @@ export type McpRemoteConfig = {
   headers?: Record<string, string>
   enabled?: boolean
   timeout?: number
+  codemode?: boolean
 }
 
 export type McpConfig = McpLocalConfig | McpRemoteConfig

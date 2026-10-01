@@ -3062,6 +3062,19 @@ button.fc-status {
   color: var(--fc-text-muted);
 }
 
+.fc-mcp-blocked {
+  display: flex;
+  align-items: center;
+  gap: var(--fc-space-2);
+  font-size: var(--fc-text-sm);
+  color: var(--fc-warning);
+}
+
+.fc-mcp-blocked p {
+  flex: 1;
+  margin: 0;
+}
+
 .fc-mcp-name {
   flex: 1;
   min-width: 0;

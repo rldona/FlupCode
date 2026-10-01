@@ -24,8 +24,6 @@ type McpEditorProps = {
   onOAuth: (name: string) => void
 }
 
-
-
 const statusLabel = (server: McpServer) => {
   const value = (server.status as { status?: string } | undefined)?.status
   return value ?? "unknown"
@@ -78,6 +76,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
   const [headers, setHeaders] = createSignal("")
   const [timeout, setTimeout] = createSignal("")
   const [enabled, setEnabled] = createSignal(true)
+  const [codeMode, setCodeMode] = createSignal(true)
   const [scope, setScope] = createSignal<McpScope>(DEFAULT_MCP_SCOPE)
   const [formOpen, setFormOpen] = createSignal(false)
   const [editing, setEditing] = createSignal(false)
@@ -87,9 +86,12 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     () =>
       new Map(
         mcpAccess(
-          props.servers.map((server) => server.name),
+          props.servers.map((server) => ({
+            name: server.name,
+            codeMode: props.configs?.[server.name]?.codemode !== false,
+          })),
           props.agents ?? [],
-        ).map((entry) => [entry.server, entry.agents]),
+        ).map((entry) => [entry.server, entry]),
       ),
   )
   const resourcesFor = (server: string) => (props.resources ?? []).filter((resource) => resource.client === server)
@@ -103,6 +105,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     setHeaders("")
     setTimeout("")
     setEnabled(true)
+    setCodeMode(true)
   }
 
   const edit = (server: McpServer) => {
@@ -124,6 +127,7 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     }
     setTimeout(config.timeout === undefined ? "" : String(config.timeout))
     setEnabled(config.enabled !== false)
+    setCodeMode(config.codemode !== false)
   }
 
   const startAdd = () => {
@@ -139,6 +143,13 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
     const serverName = name().trim()
     if (!serverName) return
     const maybeTimeout = timeoutFrom(timeout())
+    // The engine config is merged key by key, so turning a switch back on has to say so: leaving
+    // the key out would keep the `false` already written.
+    const saved = editing() ? props.configs?.[serverName] : undefined
+    const switches = {
+      ...(enabled() ? (saved?.enabled === false ? { enabled: true } : {}) : { enabled: false }),
+      ...(codeMode() ? (saved?.codemode === false ? { codemode: true } : {}) : { codemode: false }),
+    }
     const config: McpConfig =
       type() === "local"
         ? {
@@ -147,14 +158,14 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
             ...(cwd().trim() ? { cwd: cwd().trim() } : {}),
             ...(Object.keys(pairsFrom(environment())).length ? { environment: pairsFrom(environment()) } : {}),
             ...(maybeTimeout === undefined ? {} : { timeout: maybeTimeout }),
-            ...(enabled() ? {} : { enabled: false }),
+            ...switches,
           }
         : {
             type: "remote",
             url: url().trim(),
             ...(Object.keys(pairsFrom(headers())).length ? { headers: pairsFrom(headers()) } : {}),
             ...(maybeTimeout === undefined ? {} : { timeout: maybeTimeout }),
-            ...(enabled() ? {} : { enabled: false }),
+            ...switches,
           }
     if (config.type === "local" && config.command.length === 0) return
     if (config.type === "remote" && !config.url) return
@@ -188,7 +199,9 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                     type="button"
                     disabled={props.busy}
                     onClick={() =>
-                      statusLabel(server) === "connected" ? props.onDisconnect(server.name) : props.onConnect(server.name)
+                      statusLabel(server) === "connected"
+                        ? props.onDisconnect(server.name)
+                        : props.onConnect(server.name)
                     }
                   >
                     {statusLabel(server) === "connected" ? t("Disconnect") : t("Connect")}
@@ -196,7 +209,12 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                   {/* OAuth the engine offers: open its authorization URL, then wait for its
                       callback. Plain connect cannot finish these (SE-2). */}
                   <Show when={needsOAuth(server)}>
-                    <button class="fc-button" type="button" disabled={props.busy} onClick={() => props.onOAuth(server.name)}>
+                    <button
+                      class="fc-button"
+                      type="button"
+                      disabled={props.busy}
+                      onClick={() => props.onOAuth(server.name)}
+                    >
                       {t("Connect with OAuth")}
                     </button>
                   </Show>
@@ -237,14 +255,43 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                   </div>
                 </Show>
 
-                {/* Who can reach it: an agent's `tools` map is where access lives (H-34). */}
+                {/* Who can reach it, by the agents' permissions and `tools` maps (H-34). */}
                 <Show
-                  when={(access().get(server.name) ?? []).length > 0}
+                  when={(access().get(server.name)?.agents ?? []).length > 0}
                   fallback={<p class="fc-mcp-access-none">{t("No agent allows this server yet.")}</p>}
                 >
                   <p class="fc-mcp-access">
-                    {t("Agents that allow it: {agents}", { agents: (access().get(server.name) ?? []).join(", ") })}
+                    {t("Agents that allow it: {agents}", {
+                      agents: (access().get(server.name)?.agents ?? []).join(", "),
+                    })}
                   </p>
+                </Show>
+
+                {/*
+                  An agent that lists the server's tools but denies `execute` never sees them under
+                  Code Mode: the usual shape of an agent written for 1.x, and silent in the engine.
+                */}
+                <Show when={(access().get(server.name)?.blocked ?? []).length > 0}>
+                  <div class="fc-mcp-blocked" role="alert">
+                    <p>
+                      {t(
+                        "Code Mode hides this server from {agents}: they allow its tools but not execute, which Code Mode reaches them through. Allow execute in those agents, or offer the tools one by one.",
+                        { agents: (access().get(server.name)?.blocked ?? []).join(", ") },
+                      )}
+                    </p>
+                    <Show when={props.configs?.[server.name]}>
+                      {(config) => (
+                        <button
+                          class="fc-button"
+                          type="button"
+                          disabled={props.busy}
+                          onClick={() => props.onAdd(server.name, { ...config(), codemode: false }, DEFAULT_MCP_SCOPE)}
+                        >
+                          {t("Turn off Code Mode")}
+                        </button>
+                      )}
+                    </Show>
+                  </div>
                 </Show>
               </li>
             )}
@@ -390,6 +437,19 @@ export const McpEditor: Component<McpEditorProps> = (props) => {
                     onChange={(event) => setEnabled(event.currentTarget.checked)}
                   />
                   <span>{t("Start on launch")}</span>
+                </label>
+                <label class="fc-field fc-check">
+                  <input
+                    type="checkbox"
+                    checked={codeMode()}
+                    onChange={(event) => setCodeMode(event.currentTarget.checked)}
+                  />
+                  <span>{t("Code Mode")}</span>
+                  <span class="fc-field-hint">
+                    {t(
+                      "Its tools are reached through execute. Off, each tool is offered on its own, as in OpenCode 1.x.",
+                    )}
+                  </span>
                 </label>
               </div>
 
