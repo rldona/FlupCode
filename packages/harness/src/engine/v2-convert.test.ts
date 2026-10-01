@@ -97,6 +97,20 @@ test("an assistant's content gets stable ids, the app's tool states and an unkno
   })
 })
 
+test("reasoning that started and has not completed is still streaming", () => {
+  const [converted] = toMessages([
+    {
+      ...assistant,
+      content: [
+        { type: "reasoning", text: "Done", time: { created: 3, completed: 4 } },
+        { type: "reasoning", text: "Still", time: { created: 4 } },
+      ],
+    } as V2Message,
+  ])
+  const content = converted?.type === "assistant" ? converted.content : []
+  expect(content.map((item) => (item as { streaming?: boolean }).streaming ?? false)).toEqual([false, true])
+})
+
 test("kinds the app has no view for are dropped, and a running compaction waits for its summary", () => {
   const messages = [
     { id: "m1", type: "user", time: { created: 1 }, text: "hi" },

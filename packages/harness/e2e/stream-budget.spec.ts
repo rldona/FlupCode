@@ -33,15 +33,12 @@ test("the window never holds more event streams open than the browser can spare"
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
     if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/permission" || url.pathname === "/question") return route.fulfill({ json: [] })
     if (url.pathname === "/api/permission/request") return route.fulfill({ json: { data: [] } })
     // Held open, like a healthy stream, and counted while it is.
-    if (url.pathname === "/api/event" || url.pathname === "/event") {
+    if (url.pathname === "/api/event") {
       open++
       peak = Math.max(peak, open)
       return new Promise(() => {})
@@ -53,7 +50,7 @@ test("the window never holds more event streams open than the browser can spare"
   await expect(page.locator(".fc-session-pane, .fc-transcript").first()).toBeVisible()
   await page.waitForTimeout(3_000)
 
-  // The global stream plus the folders being followed, with room left over for the app's own calls.
-  expect(peak).toBeGreaterThan(1)
-  expect(peak).toBeLessThanOrEqual(3)
+  // OpenCode 2 carries every folder on its one global stream, so however many folders are on screen
+  // the window holds that one, and every other connection is left for the app's own calls.
+  expect(peak).toBe(1)
 })
