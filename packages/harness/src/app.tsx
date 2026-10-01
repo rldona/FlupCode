@@ -2712,22 +2712,36 @@ export const App: Component = () => {
           // may carry a new configuration: ask the cached lists again. A restart the health poll did
           // not catch still lands here.
           if (attempt > 0) setServerReload((count) => count + 1)
-          try {
-            // This stream carries no Last-Event-ID, so whatever happened while it was away is gone:
-            // every reconnection resyncs the state the events would have carried. Missing the blocked
-            // ones is the worst of it — an agent stuck on a permission with no dock to answer it.
-            // Untracked: this effect owns the global stream, and re-running it on every change of
-            // the session list or the open session would drop and reopen that stream for no reason.
+          // Neither line can replay what this stream missed (2.x calls its stream volatile by
+          // contract, and 1.x has no Last-Event-ID), so every connection resyncs the state the events
+          // would have carried. Missing the blocked ones is the worst of it — an agent stuck on a
+          // permission with no dock to answer it. Untracked: this effect owns the global stream, and
+          // re-running it on every change of the session list or the open session would drop and
+          // reopen that stream for no reason.
+          const resync = () => {
             void untrack(() => resyncRuns(createClient(url), runDirectories())).catch(() => undefined)
             void refetchPermissions()
             void refetchQuestions()
             void refetchBlocked()
+          }
+          // A reconnection waits for the new stream's first event (`server.connected` on both lines):
+          // asked before the stream was open, whatever happened between the answers and the opening
+          // was lost for good.
+          let synced = attempt === 0
+          if (synced) resync()
+          try {
             // A 2.x engine streams the transcript here instead of on each folder's stream (V2-21). What
-            // it holds is only good for this connection: after a gap the refetch below starts over.
+            // it holds is only good for this connection: after a gap the resync starts over.
             const v2Transcript = createV2Transcript()
             for await (const event of createClient(url).event.subscribe({ signal: controller.signal })) {
               attempt = 0
               setStreamState("global", "live")
+              if (!synced) {
+                synced = true
+                resync()
+                scheduleRefetch(true, true)
+                publishSessionEvent({ kind: "changed" })
+              }
               const type = event.type ?? ""
               const payload = (event as { data?: { sessionID?: string; delta?: string } }).data
               trackActivity(
@@ -2849,12 +2863,15 @@ export const App: Component = () => {
             if (controller.signal.aborted) return
           }
           if (controller.signal.aborted) return
-          setStreamState("global", "reconnecting")
-          await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
-          if (!controller.signal.aborted) {
+          // A stream that dropped before saying a word still came back from a gap: resync anyway, or
+          // a connection that keeps failing that way would never catch up.
+          if (!synced) {
+            resync()
             scheduleRefetch(true, true)
             publishSessionEvent({ kind: "changed" })
           }
+          setStreamState("global", "reconnecting")
+          await new Promise((resolve) => setTimeout(resolve, Math.min(10_000, 500 * 2 ** attempt)))
         }
       })()
     })

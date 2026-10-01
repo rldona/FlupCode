@@ -1,3 +1,5 @@
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { expect, test } from "@playwright/test"
 
 const now = Date.now()
@@ -59,6 +61,57 @@ test("a reconnection picks up the permission that was asked while the stream was
 
   // The app reconnects on its own backoff and asks again for what it may have missed.
   await expect(page.getByText("rm -rf build")).toBeVisible({ timeout: 15_000 })
+})
+
+test("a reconnection resyncs once the new stream is open, not before it", async ({ page }) => {
+  // The permission is asked while the stream is being reopened: after anything read before the
+  // stream opened, and before the stream could announce it. Only a resync once the engine says the
+  // stream is open (`server.connected`) can surface it, since this stream then stays open and quiet.
+  // A mocked route cannot hold a stream open, so the event stream is a real one.
+  let streams = 0
+  const blocked = () => streams > 1
+  const events = createServer((request, response) => {
+    streams++
+    response.writeHead(200, { "content-type": "text/event-stream", "access-control-allow-origin": "*" })
+    // The first connection drops at once; the second opens, says so, and then stays quiet.
+    if (streams === 1) return response.end()
+    response.write(`data: ${JSON.stringify({ id: "evt_1", type: "server.connected", data: {} })}\n\n`)
+    request.on("close", () => response.end())
+  })
+  await new Promise<void>((resolve) => events.listen(0, "127.0.0.1", resolve))
+  const eventsUrl = `http://127.0.0.1:${(events.address() as AddressInfo).port}/api/event`
+
+  try {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+      window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+      window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
+    })
+    await page.route("http://127.0.0.1:9/**", (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+      if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+      if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+      if (url.pathname === "/api/session/ses_stream/message")
+        return route.fulfill({
+          json: { data: [{ id: "msg_u", type: "user", text: "Clean up", time: { created: now } }], cursor: {} },
+        })
+      if (url.pathname === "/api/session/ses_stream/permission")
+        return route.fulfill({ json: { data: blocked() ? [permission] : [] } })
+      if (/^\/api\/session\/[^/]+\/question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+      if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+      if (url.pathname === "/api/event") return route.continue({ url: eventsUrl })
+      return route.fulfill({ status: 404, json: {} })
+    })
+    await page.goto("/")
+
+    await expect(page.getByText("Clean up")).toBeVisible()
+    await expect(page.getByText("rm -rf build")).toBeVisible({ timeout: 15_000 })
+    expect(streams).toBe(2)
+  } finally {
+    events.closeAllConnections()
+    events.close()
+  }
 })
 
 test("a prompt shows as the stream announces it, not only after a reload", async ({ page }) => {
