@@ -79,13 +79,13 @@ describe("installEnginePlugins for OpenCode 2", () => {
     const config = await temp()
     await installEnginePlugins(config, "v1")
     const v1 = (await readdir(path.join(config, "plugins"))).sort()
-    expect(v1).toContain("flupcode-relevance.js")
+    expect(v1).toContain("flupcode-cache-selection.js")
 
     const { paths, changed } = await installEnginePlugins(config, "v2")
     expect(changed).toBe(true)
     const v2 = (await readdir(path.join(config, "plugins"))).sort()
     expect(v2).toEqual(paths.map((file) => path.basename(file)).sort())
-    expect(v2).not.toContain("flupcode-relevance.js")
+    expect(v2).not.toContain("flupcode-cache-selection.js")
     for (const file of v2)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
 
@@ -219,5 +219,257 @@ describe("OpenCode 2 plugins", () => {
       { id: "high", settings: { reasoningEffort: "high" } },
     ])
     expect(models[1]!.variants).toEqual([{ id: "max", settings: {} }])
+  })
+})
+
+/** A loopback harness that records every call and answers each route as the test says. */
+async function harness(answers: Record<string, unknown> = {}) {
+  const calls: Array<{ route: string; authorization: string | null; body: Record<string, unknown> }> = []
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: async (request) => {
+      const route = new URL(request.url).pathname
+      calls.push({ route, authorization: request.headers.get("authorization"), body: await request.json() })
+      return Response.json({ data: answers[route] ?? {} })
+    },
+  })
+  const config = await temp()
+  await writeFile(path.join(config, "adaptive-token"), "adaptive-token\n")
+  process.env.FLUPCODE_CONFIG_DIR = config
+  process.env.FLUPCODE_HARNESS_SERVER_URL = `http://127.0.0.1:${server.port}`
+  stops.push(() => server.stop(true))
+  return { calls, on: (route: string) => calls.filter((call) => call.route === route) }
+}
+
+const stops: Array<() => void> = []
+afterEach(() => {
+  stops.splice(0).forEach((stop) => stop())
+  delete process.env.FLUPCODE_CONFIG_DIR
+  delete process.env.FLUPCODE_HARNESS_SERVER_URL
+  delete process.env.FLUPCODE_RUNTIME_PROBE_FILE
+})
+
+describe("OpenCode 2 adaptive plugins", () => {
+  test("runtime-probe stamps its boot and proves the hooks fire once a request is made", async () => {
+    process.env.FLUPCODE_RUNTIME_PROBE_FILE = path.join(await temp(), "runtime-probe.json")
+    const probe = await plugin("flupcode-runtime-probe.js")
+    const recorded = context()
+    await probe.setup(recorded.ctx)
+    const stamped = await json(process.env.FLUPCODE_RUNTIME_PROBE_FILE)
+    expect(stamped).toMatchObject({ pid: process.pid, hookAt: 0 })
+    recorded.hooks.get("session.context")!({} as never)
+    await settle()
+    expect(await json(process.env.FLUPCODE_RUNTIME_PROBE_FILE)).toMatchObject({
+      token: stamped.token,
+      loadedAt: stamped.loadedAt,
+      hook: "session.context",
+      hookAt: expect.any(Number),
+    })
+  })
+
+  test("guardrails sends a call's digest and a tool error's, with the adaptive token, under 1.x names", async () => {
+    const harnessCalls = await harness()
+    const guard = await plugin("flupcode-guardrails.js")
+    const recorded = context("/work/demo")
+    await guard.setup(recorded.ctx)
+    const call = {
+      sessionID: "ses_1",
+      agent: "build",
+      messageID: "msg_1",
+      id: "call_1",
+      tool: "shell",
+      input: { command: "ls" },
+    }
+    recorded.hooks.get("tool.execute.before")!(call as never)
+    recorded.hooks.get("tool.execute.after")!({ ...call, status: "error", error: { message: "denied" } } as never)
+    recorded.hooks.get("tool.execute.after")!({
+      ...call,
+      id: "call_2",
+      status: "error",
+      error: { message: "Aborted" },
+    } as never)
+    await settle()
+    const sent = harnessCalls.on("/harness/adaptive/guardrails")
+    expect(sent.map((hit) => hit.authorization)).toEqual(["Bearer adaptive-token", "Bearer adaptive-token"])
+    expect(sent.map((hit) => hit.body)).toEqual([
+      {
+        projectID: "/work/demo",
+        sessionID: "ses_1",
+        observation: {
+          kind: "call",
+          tool: "bash",
+          argsDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+          callID: "call_1",
+        },
+      },
+      {
+        projectID: "/work/demo",
+        sessionID: "ses_1",
+        observation: {
+          kind: "error",
+          tool: "bash",
+          errorDigest: expect.stringMatching(/^[0-9a-f]{64}$/),
+          callID: "call_1",
+        },
+      },
+    ])
+  })
+
+  test("session-metrics turns a turn's events into a step, a tool and a compaction for its user message", async () => {
+    const harnessCalls = await harness()
+    const metrics = await plugin("flupcode-session-metrics.js")
+    const at = (type: string, data: Record<string, unknown>) => ({
+      type,
+      location: { directory: "/work/demo" },
+      data: { sessionID: "ses_1", ...data },
+    })
+    const recorded = context("/work/demo", [
+      at("session.inbox.enqueued", { inboxID: "msg_u", item: { type: "user" } }),
+      at("session.inbox.delivered", { inboxID: "msg_u" }),
+      at("session.step.started", {
+        assistantMessageID: "msg_a",
+        agent: "build",
+        model: { providerID: "stub", id: "m" },
+      }),
+      at("session.tool.input.started", { assistantMessageID: "msg_a", id: "call_1", name: "shell" }),
+      at("session.tool.called", { assistantMessageID: "msg_a", id: "call_1", input: { command: "ls" } }),
+      at("session.tool.success", {
+        assistantMessageID: "msg_a",
+        id: "call_1",
+        content: [{ type: "text", text: "abc" }],
+      }),
+      at("session.step.ended", {
+        assistantMessageID: "msg_a",
+        cost: 0.5,
+        tokens: { input: 10, output: 5, reasoning: 0, cache: { read: 2, write: 1 } },
+      }),
+      at("session.compaction.ended", { inputID: "msg_c" }),
+    ])
+    await metrics.setup(recorded.ctx)
+    await settle()
+    expect(harnessCalls.on("/harness/adaptive/metrics").map((hit) => hit.body.observation)).toEqual([
+      { kind: "tool", id: "call_1", turnID: "msg_u", tool: "bash", error: false, bytes: 3 },
+      expect.objectContaining({
+        kind: "step",
+        id: "msg_a",
+        turnID: "msg_u",
+        providerID: "stub",
+        modelID: "m",
+        agent: "build",
+        cost: 0.5,
+        tokens: { input: 10, output: 5, reasoning: 0, cacheRead: 2, cacheWrite: 1 },
+      }),
+      { kind: "compaction", id: "msg_c", turnID: "msg_c" },
+    ])
+  })
+
+  test("compaction-anchors hands the compaction request the harness's block with the goal and the reads", async () => {
+    const block = "<compaction_anchors>\nGoal: fix it\n</compaction_anchors>"
+    const harnessCalls = await harness({ "/harness/adaptive/anchors": { block } })
+    const anchors = await plugin("flupcode-compaction-anchors.js")
+    const recorded = context("/work/demo")
+    await anchors.setup(recorded.ctx)
+    recorded.hooks.get("session.context")!({
+      sessionID: "ses_1",
+      messages: [{ id: "msg_u", role: "user", content: [{ type: "text", text: "fix the build" }] }],
+    } as never)
+    recorded.hooks.get("tool.execute.after")!({
+      sessionID: "ses_1",
+      tool: "read",
+      input: { path: "/work/demo/a.ts" },
+    } as never)
+    const compaction = { sessionID: "ses_1", system: [{ type: "text", text: "Summarise." }] }
+    await recorded.hooks.get("session.compaction")!(compaction as never)
+    expect(harnessCalls.on("/harness/adaptive/anchors")[0]!.body).toEqual({
+      projectID: "/work/demo",
+      sessionID: "ses_1",
+      goal: "fix the build",
+      reads: ["/work/demo/a.ts"],
+    })
+    expect(compaction.system).toEqual([
+      { type: "text", text: "Summarise." },
+      { type: "text", text: block },
+    ])
+  })
+
+  test("tool-trim replaces a large output the harness stored, and evidence_read reads it back", async () => {
+    const original = "x".repeat(6000)
+    const replacement = "head … tail evidence:0123456789abcdef"
+    const harnessCalls = await harness({
+      "/harness/adaptive/tool-trim": { trimmed: true, ref: "0123456789abcdef", replacement },
+      "/harness/adaptive/evidence/read": { text: "lines 1-10" },
+    })
+    const trim = await plugin("flupcode-tool-trim.js")
+    const recorded = context()
+    await trim.setup(recorded.ctx)
+    const after = {
+      sessionID: "ses_1",
+      id: "call_1",
+      tool: "read",
+      status: "completed",
+      result: { output: { type: "file" }, content: [{ type: "text", text: original }] },
+    }
+    await recorded.hooks.get("tool.execute.after")!(after as never)
+    expect(after.result as unknown).toEqual({
+      output: { type: "file" },
+      content: [{ type: "text", text: replacement }],
+      metadata: { evidenceRef: "0123456789abcdef" },
+    })
+    expect(harnessCalls.on("/harness/adaptive/tool-trim")[0]!.body).toEqual({
+      sessionID: "ses_1",
+      tool: "read",
+      callID: "call_1",
+      output: original,
+    })
+
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<unknown> }> = []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["evidence_read"])
+    expect(await added[0]!.execute({ ref: "0123456789abcdef", range: "1-10" }, { sessionID: "ses_1" })).toEqual({
+      content: "lines 1-10",
+    })
+  })
+
+  test("relevance pins one line to a turn it admitted and renders the same bytes on every request", async () => {
+    const line =
+      "<skill_relevance>Possibly relevant skills: deploy. Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>"
+    const harnessCalls = await harness({ "/harness/adaptive/relevance": { line } })
+    const relevance = await plugin("flupcode-relevance.js")
+    const recorded = context("/work/demo")
+    await relevance.setup(recorded.ctx)
+    const request = () => ({
+      sessionID: "ses_1",
+      messages: [{ id: "msg_u", role: "user", content: [{ type: "text", text: "ship it" }] }] as Array<{
+        id?: string
+        role: string
+        content: unknown[]
+      }>,
+    })
+
+    // A user message this process never admitted (a session first seen after a restart) is left alone.
+    const unknown = request()
+    await recorded.hooks.get("session.context")!(unknown as never)
+    expect(unknown.messages[0]!.content).toHaveLength(1)
+
+    recorded.hooks.get("session.prompt")!({
+      sessionID: "ses_1",
+      messageID: "msg_u",
+      prompt: { text: "ship it" },
+    } as never)
+    const first = request()
+    await recorded.hooks.get("session.context")!(first as never)
+    const second = request()
+    second.messages.push({ role: "assistant", content: [{ type: "text", text: "On it" }] })
+    await recorded.hooks.get("session.context")!(second as never)
+
+    expect(first.messages[0]!.content).toEqual([
+      { type: "text", text: "ship it" },
+      { type: "text", text: line },
+    ])
+    expect(second.messages[0]!.content).toEqual(first.messages[0]!.content)
+    expect(harnessCalls.on("/harness/adaptive/relevance").map((hit) => hit.body)).toEqual([
+      { projectID: "/work/demo", sessionID: "ses_1", messageID: "msg_u", objective: "ship it" },
+    ])
   })
 })

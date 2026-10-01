@@ -82,7 +82,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
       <Show when={props.serverHealthy === true && props.engineProfile === "v2"}>
         <p class="fc-onboarding-text">
           {t(
-            "This engine is OpenCode 2. FlupCode's plugins do not run on it yet, so its extras (permission modes, memory, the adaptive layer) are unavailable.",
+            "This engine is OpenCode 2. Some of FlupCode's plugins do not run on it yet, so permission modes and memory are unavailable.",
           )}
         </p>
       </Show>

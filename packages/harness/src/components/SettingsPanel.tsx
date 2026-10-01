@@ -763,7 +763,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <Show when={props.engineProfile === "v2"}>
                     <div class="fc-settings-hint">
                       {t(
-                        "This engine is OpenCode 2. FlupCode's plugins do not run on it yet, so its extras (permission modes, memory, the adaptive layer) are unavailable.",
+                        "This engine is OpenCode 2. Some of FlupCode's plugins do not run on it yet, so permission modes and memory are unavailable.",
                       )}
                     </div>
                   </Show>

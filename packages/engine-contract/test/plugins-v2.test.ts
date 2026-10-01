@@ -8,15 +8,17 @@ import { startModel } from "../src/model"
 
 /**
  * FlupCode's OpenCode 2 plugins, loaded into the pinned 2.x engine (V2-30). Like the 1.x smoke test
- * (`plugins.test.ts`), each plugin is proven by what it leaves behind after one turn that runs a
- * failing shell command, keeps a document and reads with arguments the tool refuses. Runs on the v2
- * line only:
+ * (`plugins.test.ts`), each plugin is proven by what it leaves behind: a file it writes, or a call it
+ * makes to a stand-in for harness-server. The session runs one turn (a failing shell command, a kept
+ * document, a refused read, a large read the trim is asked about, an evidence read) and is compacted.
+ * Runs on the v2 line only:
  *
  *   FLUPCODE_CONTRACT_LINE=v2 bun test test/plugins-v2.test.ts
  */
 
 const run = CONTRACT_LINE === "v2"
 const model = startModel()
+const harness = startHarness()
 let engine: Engine
 let installed: string[] = []
 let sessionID = ""
@@ -26,13 +28,17 @@ beforeAll(async () => {
   engine = await startEngine({
     modelUrl: model.url,
     env: {
-      // Plugins load only outside pure mode.
+      // Plugins load only outside pure mode; the harness is the stand-in below.
       OPENCODE_PURE: undefined,
+      FLUPCODE_HARNESS_SERVER_URL: harness.url,
     },
     prepare: async (home) => {
       installed = (await installEnginePlugins(join(home, ".config", "opencode"), "v2")).paths.map((file) =>
         basename(file),
       )
+      // The adaptive plugins only call a loopback harness, and only with the token the harness wrote.
+      mkdirSync(join(home, ".config", "flupcode"), { recursive: true })
+      writeFileSync(join(home, ".config", "flupcode", "adaptive-token"), "adaptive-token")
       // The models.dev cache reasoning-variants reads, with effort levels for the stub model.
       mkdirSync(join(home, ".cache", "opencode"), { recursive: true })
       writeFileSync(
@@ -45,17 +51,31 @@ beforeAll(async () => {
   })
   const stream = recordEvents(`${engine.url}/api/event`, engine.authorization)
   await stream.opened
+  writeFileSync(join(engine.project, "large.txt"), "contract line\n".repeat(800))
   sessionID = ((await call("POST", "/api/session", {})) as { data: { id: string } }).data.id
   model.push(
     { type: "tool", name: "shell", input: { command: "echo broken && exit 3", description: "Fail" } },
     { type: "tool", name: "artifact_write", input: { title: "Report", filename: "report.md", content: "# Report" } },
     // Without its `path`, 2.x refuses the call: a tool that ends in error.
     { type: "tool", name: "read", input: {} },
+    { type: "tool", name: "read", input: { path: join(engine.project, "large.txt") } },
+    { type: "tool", name: "evidence_read", input: { ref: "0123456789abcdef", range: "1-10" } },
     { type: "text", text: "Done" },
   )
   await call("POST", `/api/session/${sessionID}/prompt`, { text: "go" })
   await stream.until(
     (event) => event.type === "session.execution.succeeded" && event.data.sessionID === sessionID,
+    60_000,
+  )
+  // The stub's summary is not the template 2.x asks for, so the compaction fails, after its request.
+  model.push({ type: "text", text: "Summary" })
+  await call("POST", `/api/session/${sessionID}/compact`, {})
+  await stream.until(
+    (event) =>
+      event.type.startsWith("session.compaction.") &&
+      event.type !== "session.compaction.started" &&
+      event.type !== "session.compaction.delta" &&
+      event.data.sessionID === sessionID,
     60_000,
   )
   stream.close()
@@ -64,6 +84,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await engine?.stop()
   model.stop()
+  harness.stop()
 })
 
 /** What each plugin leaves behind when it loaded and its hooks fired. */
@@ -97,7 +118,37 @@ const evidence: Record<string, () => Promise<void> | void> = {
   },
   "flupcode-episode-events.js": () => {
     const ring = JSON.parse(readFileSync(join(data(), "events", `${sessionID}.json`), "utf8"))
-    expect(ring.events).toEqual([expect.objectContaining({ kind: "tool.error", tool: "read" })])
+    expect(ring.events).toContainEqual(expect.objectContaining({ kind: "tool.error", tool: "read" }))
+  },
+  "flupcode-runtime-probe.js": () => {
+    // What harness-server needs to know the plugin hooks fire on this engine.
+    const probe = JSON.parse(readFileSync(join(data(), "runtime-probe.json"), "utf8"))
+    expect(probe).toMatchObject({ hook: "session.context" })
+    expect(probe.hookAt).toBeGreaterThanOrEqual(probe.loadedAt)
+  },
+  "flupcode-relevance.js": () => {
+    expect(harness.hits("POST /harness/adaptive/relevance")).toContainEqual(
+      expect.objectContaining({ body: expect.stringContaining('"objective":"go"') }),
+    )
+  },
+  "flupcode-guardrails.js": () => {
+    const calls = harness.hits("POST /harness/adaptive/guardrails").map((hit) => JSON.parse(hit.body).observation)
+    expect(calls).toContainEqual(expect.objectContaining({ kind: "call", tool: "bash" }))
+    expect(calls).toContainEqual(expect.objectContaining({ kind: "error", tool: "read" }))
+  },
+  "flupcode-session-metrics.js": () => {
+    const kinds = harness.hits("POST /harness/adaptive/metrics").map((hit) => JSON.parse(hit.body).observation.kind)
+    expect(kinds).toEqual(expect.arrayContaining(["step", "tool"]))
+  },
+  "flupcode-compaction-anchors.js": () => {
+    const anchors = harness.hits("POST /harness/adaptive/anchors")
+    expect(anchors.some((hit) => hit.body.includes(sessionID) && hit.body.includes('"goal":"go"'))).toBe(true)
+  },
+  "flupcode-tool-trim.js": () => {
+    expect(harness.hits("POST /harness/adaptive/tool-trim")).toContainEqual(
+      expect.objectContaining({ body: expect.stringContaining('"tool":"read"') }),
+    )
+    expect(harness.hits("POST /harness/adaptive/evidence/read").length).toBe(1)
   },
 }
 
@@ -118,6 +169,12 @@ describe.skipIf(!run)("FlupCode's OpenCode 2 plugins", () => {
   test("nothing lands for a session that does not exist", () => {
     expect(existsSync(join(data(), "events", "undefined.json"))).toBe(false)
   })
+
+  test("the adaptive plugins send the harness's token", () => {
+    const adaptive = harness.all().filter((hit) => hit.route.includes("/harness/adaptive/"))
+    expect(adaptive.length).toBeGreaterThan(0)
+    expect(adaptive.every((hit) => hit.authorization === "Bearer adaptive-token")).toBe(true)
+  })
 })
 
 function data() {
@@ -136,4 +193,27 @@ async function call(method: string, path: string, body?: unknown) {
   })
   expect(response.ok).toBe(true)
   return response.status === 204 ? undefined : (response.json() as Promise<unknown>)
+}
+
+/** A stand-in for harness-server: it records every call and answers with an empty body. */
+function startHarness() {
+  const calls: Array<{ route: string; authorization: string | null; body: string }> = []
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: async (request) => {
+      calls.push({
+        route: `${request.method} ${new URL(request.url).pathname}`,
+        authorization: request.headers.get("authorization"),
+        body: await request.text(),
+      })
+      return Response.json({ data: {} })
+    },
+  })
+  return {
+    url: `http://127.0.0.1:${server.port}`,
+    hits: (route: string) => calls.filter((call) => call.route === route),
+    all: () => calls,
+    stop: () => server.stop(true),
+  }
 }

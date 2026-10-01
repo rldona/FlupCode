@@ -6,6 +6,11 @@ import { engineAuthorization } from "../engine"
 import { DEFAULT_RUNTIME_PROBE_CONFIG } from "./runtime-config"
 import type { RuntimeProbeConfig } from "./runtime-config"
 
+/**
+ * Whether the adaptive plugins' hooks fire. `legacy` is the proof that they do: 1.x's legacy runner,
+ * or an OpenCode 2 engine running FlupCode's 2.x plugins (their `context` hook writes the same canary,
+ * V2-30). `v2` is 1.x's embedded V2 runner, where those hooks never fire; it is not OpenCode 2.
+ */
 export type RuntimeKind = "legacy" | "v2" | "unknown"
 
 export type RuntimeProbeEvidenceReason =
