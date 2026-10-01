@@ -1,12 +1,24 @@
 import type {
   FormInfo as V2Form,
+  IntegrationInfo as V2Integration,
+  ModelInfo as V2Model,
+  ProviderInfo as V2Provider,
   PermissionRequest as V2Permission,
   SessionInfo as V2Session,
   SessionMessageAssistant as V2Assistant,
   SessionMessageInfo as V2Message,
   ToolContent as V2ToolContent,
 } from "@opencode/client"
-import type { PermissionV2Request, QuestionV2Request, SessionInfo, SessionMessageInfo } from "../engine-types"
+import type {
+  IntegrationInfo,
+  ModelInfo,
+  PermissionV2Request,
+  ProviderDirectoryInfo,
+  ProviderInfo,
+  QuestionV2Request,
+  SessionInfo,
+  SessionMessageInfo,
+} from "../engine-types"
 
 /**
  * OpenCode 2's session and message shapes, turned into the ones the app renders today (V2-20).
@@ -226,4 +238,97 @@ export function toFormAnswer(form: V2Form, answers: string[][]) {
       return [[field.key, value(picked[0]!)]]
     }),
   )
+}
+
+/**
+ * A 2.x model in the app's shape (V2-25). 2.x flattens what 1.x kept under `api` and `request`. Its
+ * `settings` are left out on purpose: they can carry the provider's API key, which nothing in the app
+ * needs and which must not reach a phone over remote control (the 1.x adapter drops keys for the same
+ * reason).
+ */
+export function toModel(model: V2Model): ModelInfo {
+  return {
+    id: model.id,
+    providerID: model.providerID,
+    ...(model.family ? { family: model.family } : {}),
+    name: model.name,
+    api: { id: model.modelID, type: "aisdk", package: model.package ?? "" },
+    capabilities: model.capabilities,
+    request: { headers: model.headers ?? {}, body: model.body ?? {} },
+    variants: model.variants.map((variant) => ({
+      id: variant.id,
+      headers: variant.headers ?? {},
+      body: variant.body ?? {},
+    })),
+    time: model.time,
+    cost: model.cost,
+    status: model.status,
+    enabled: model.enabled,
+    limit: model.limit,
+  }
+}
+
+/** A 2.x provider in the app's shape, without its settings for the same reason as `toModel`. */
+export function toProvider(provider: V2Provider): ProviderInfo {
+  return {
+    id: provider.id,
+    ...(provider.integrationID ? { integrationID: provider.integrationID } : {}),
+    name: provider.name,
+    ...(provider.activation === "disabled" ? { disabled: true } : {}),
+    api: { type: "aisdk", package: provider.package },
+    request: { headers: provider.headers ?? {}, body: provider.body ?? {} },
+  }
+}
+
+/**
+ * 2.x's integration in the app's shape. Its OAuth and key methods ask their questions as a form where
+ * 1.x had `prompts`; the providers panel only reads a method's type and id, so the form is dropped.
+ */
+export function toIntegration(integration: V2Integration): IntegrationInfo {
+  return {
+    id: integration.id,
+    name: integration.name,
+    methods: integration.methods.flatMap((method): IntegrationInfo["methods"] => {
+      if (method.type === "oauth") return [{ id: method.id, type: "oauth" as const, label: method.label }]
+      if (method.type === "key") return [{ type: "key" as const, ...(method.label ? { label: method.label } : {}) }]
+      if (method.type === "env") return [{ type: "env" as const, names: method.names }]
+      // A command method (a CLI that signs in on its own) has no 1.x counterpart.
+      return []
+    }),
+    connections: integration.connections,
+  }
+}
+
+/**
+ * The 1.x provider directory (`GET /provider`), which the providers panel is built on, rebuilt from
+ * 2.x's integrations (every provider it knows) and providers (the ones that can serve a model). A
+ * provider that has no integration of its own was declared in the config. Models are only counted by
+ * the panel, so each is an empty entry; no key ever travels.
+ */
+export function toProviderDirectory(input: {
+  integrations: readonly V2Integration[]
+  providers: readonly V2Provider[]
+  models: readonly V2Model[]
+}) {
+  const ids = [...new Set([...input.integrations.map((item) => item.id), ...input.providers.map((item) => item.id)])]
+  const all = ids.map((id): ProviderDirectoryInfo => {
+    const integration = input.integrations.find((item) => item.id === id)
+    const provider = input.providers.find((item) => item.id === id)
+    const env = integration?.methods.flatMap((method) => (method.type === "env" ? method.names : [])) ?? []
+    return {
+      id,
+      name: provider?.name ?? integration?.name ?? id,
+      source: provider && !provider.integrationID ? "config" : "api",
+      env,
+      options: {},
+      models: Object.fromEntries(
+        input.models.filter((model) => model.providerID === id).map((model) => [model.id, {}]),
+      ) as ProviderDirectoryInfo["models"],
+    }
+  })
+  return {
+    all,
+    default: {} as Record<string, string>,
+    connected: input.providers.filter((provider) => provider.activation !== "disabled").map((provider) => provider.id),
+  }
 }
