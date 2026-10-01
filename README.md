@@ -47,9 +47,10 @@ terminal-grade feature set and packages it into a first-class **web and desktop 
 a harness layout with a project sidebar, usage dashboard, runs, workflows, artifacts, routines and a
 polished composer — modelled on the Anthropic Claude Code desktop app.
 
-> **Requires the OpenCode engine.** FlupCode is a client and does not bundle it: install the
-> [OpenCode CLI](https://opencode.ai/docs/) and the app connects to it. Without an engine reachable,
-> the desktop app, the hosted web app and `flupcode remote` cannot run.
+> **Runs on OpenCode 2, with nothing to install for it.** The desktop app and the `flupcode` command
+> fetch the pinned OpenCode 2 engine once, check it against its published integrity, and start it.
+> The web app connects to one of them: the desktop app while it is open, or `flupcode serve`. See
+> [docs/OPENCODE-2.md](docs/OPENCODE-2.md).
 
 > **Not affiliated with OpenCode or Anthropic.** FlupCode is an independent fork. "OpenCode"
 > is the upstream project by [Anomaly](https://anoma.ly), and "Claude Code" is a product of
@@ -103,7 +104,7 @@ packages/harness              # FlupCode web app (SolidJS + Vite) — our produc
 packages/harness-desktop      # Electron desktop app (also hosts remote control)
 packages/remote               # remote control protocol and host (shared by desktop, CLI, web)
 packages/relay                # remote control relay server (Bun, deployed on Fly.io)
-packages/flupcode-cli         # the `flupcode` command (`flupcode remote`)
+packages/flupcode-cli         # the `flupcode` command (`remote`, `serve`, `engine`)
 packages/landing              # flupcode.com static site
 packages/app                  # upstream OpenCode web app (pristine, reused for parts)
 packages/tui                  # upstream terminal UI (pristine)
@@ -114,15 +115,6 @@ docs/                         # project documentation (this fork)
 ```
 
 ## Install
-
-> **Install the engine first.** FlupCode does not ship OpenCode. Get the
-> [OpenCode CLI](https://opencode.ai/docs/) so the desktop app can start it for you, or run it
-> yourself:
->
-> ```bash
-> env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096                                  # desktop
-> env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com  # hosted web app
-> ```
 
 Download the desktop app and the `flupcode` CLI from the
 [latest release](https://github.com/rldona/FlupCode/releases/latest):
@@ -157,34 +149,35 @@ bun run dev:desktop      # start the upstream desktop app (reference)
 
 ## Web app
 
-Use the hosted UI at [app.flupcode.com](https://app.flupcode.com) — it connects to an engine on
-your machine. First install the OpenCode CLI (see [opencode.ai/docs](https://opencode.ai/docs/) for
-your platform), then start it with CORS enabled for the hosted origin:
+Use the hosted UI at [app.flupcode.com](https://app.flupcode.com). It connects to OpenCode 2 on your
+machine at `http://localhost:4096`, which either of these provides:
 
-```bash
-env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
-```
+- **The desktop app, while it is open.** It serves the web app too, with the same engine and
+  sessions.
+- **`flupcode serve`, without the desktop.** It starts the pinned OpenCode 2 and leaves it running:
 
-`--cors` is required because the page and the engine are different origins; the app connects to
-`http://localhost:4096` by default (change it in **Settings → Server**). `env -u
-OPENCODE_SERVER_PASSWORD` keeps that variable out of the engine's environment, so a shell that
-exports it does not make the engine demand credentials a browser page cannot send.
+  ```bash
+  flupcode serve             # until Ctrl-C
+  flupcode serve --install   # at every login (macOS launchd, Linux systemd); --uninstall removes it
+  ```
 
-> The published OpenCode CLI tracks upstream and does **not** include FlupCode's core patches
-> (GitHub Copilot OAuth in the v2 catalog, session permission modes). To get those, run the engine
-> from this fork's source instead:
->
-> ```bash
-> bun install
-> env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
->   --port 4096 --cors https://app.flupcode.com
-> ```
+OpenCode 2 always asks for a password, and a web page cannot send one. So both sign in for the page,
+and only for FlupCode's own pages: app.flupcode.com and `localhost:4444`, plus any you add with
+`FLUPCODE_WEB_ORIGINS`. Every other page open in your browser is refused. Change the address in
+**Settings → Server** if you use another port.
+
+Controlling a computer from your phone needs none of this. The computer runs the desktop app (or
+`flupcode remote`) and the phone pairs once; see [docs/USAGE.md](docs/USAGE.md#remote-control).
+
+OpenCode 1.x is deprecated: `FLUPCODE_ENGINE=v1` keeps it for now. See
+[docs/GETTING-STARTED.md](docs/GETTING-STARTED.md#opencode-1x-deprecated).
 
 ## Documentation
 
 | Document | Purpose |
 | --- | --- |
-| [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) | First run: install the engine per platform, start it and fix a blocked connection |
+| [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md) | First run: the desktop app, the web app with `flupcode serve`, and fixing a blocked connection |
+| [docs/OPENCODE-2.md](docs/OPENCODE-2.md) | FlupCode on OpenCode 2: what changed, importing 1.x history, staying on 1.x for now |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the monorepo fits together and where FlupCode lives |
 | [docs/USAGE.md](docs/USAGE.md) | Install, run, keyboard shortcuts and troubleshooting |
 | [docs/UPSTREAM.md](docs/UPSTREAM.md) | Branch model, syncing with `anomalyco/opencode` |

@@ -28,6 +28,7 @@ Usage:
   flupcode remote devices          List paired devices
   flupcode remote revoke <device>  Remove a paired device (number from "devices", id or name)
   flupcode serve [--port 4096]     Run OpenCode 2 for FlupCode's web app on this computer
+  flupcode serve --install         Run it whenever you log in (macOS, Linux); --uninstall undoes it
   flupcode engine install          Fetch the pinned OpenCode 2 engine and print where it is
   flupcode engine import-v1        Copy OpenCode 1.x history into FlupCode's OpenCode 2 engine
   flupcode engine import-memory    Copy a running OpenCode 1.x engine's memories into it
@@ -319,12 +320,17 @@ async function runServe(port: number) {
   if ((await runningEngine(address, engineCredentials())).kind !== "none" || (await openCodeV2Locked(address)))
     fail(`an engine already answers at ${address}; stop it, or pass --port`)
   const engine = await privateOpenCodeV2()
-  const proxy = await startEngineProxy({ port, engine: engine.url, authorization: engine.authorization }).catch(
-    (cause: unknown) => {
-      engine.stop()
-      return fail(`could not listen on ${address}: ${cause instanceof Error ? cause.message : String(cause)}`)
-    },
-  )
+  // The desktop app, opened while this runs, uses this engine rather than starting one: its window is
+  // served too.
+  const proxy = await startEngineProxy({
+    port,
+    engine: engine.url,
+    authorization: engine.authorization,
+    origins: ["oc://renderer"],
+  }).catch((cause: unknown) => {
+    engine.stop()
+    return fail(`could not listen on ${address}: ${cause instanceof Error ? cause.message : String(cause)}`)
+  })
   const info = (await (
     await fetch(`${engine.url}/api/info`, { headers: { authorization: engine.authorization } })
   ).json()) as {
@@ -343,6 +349,120 @@ async function runServe(port: number) {
   process.on("SIGINT", stop)
   process.on("SIGTERM", stop)
   await new Promise(() => undefined)
+}
+
+/**
+ * `flupcode serve --install` / `--uninstall`: the web app's engine whenever the reader is logged in,
+ * so the web app works with nothing to start. A launchd agent on macOS, a systemd user unit on
+ * Linux; each restarts it when it stops, and waits while something else (the desktop app) holds the
+ * port. `FLUPCODE_SERVICE_MANAGER=none` writes the file without loading it.
+ */
+async function serveService(action: "install" | "uninstall", port: number) {
+  const home = process.env.HOME ?? homedir()
+  const load = process.env.FLUPCODE_SERVICE_MANAGER !== "none"
+  // The compiled binary is itself; from a checkout, Bun runs this file.
+  const program = Bun.main.startsWith("/$bunfs") ? [process.execPath] : [process.execPath, Bun.main]
+  const args = [...program, "serve", "--port", String(port)]
+  if (process.platform === "darwin") {
+    const file = join(home, "Library", "LaunchAgents", `${SERVICE_LABEL}.plist`)
+    const domain = `gui/${process.getuid?.() ?? 0}`
+    if (load) spawnSync("launchctl", ["bootout", `${domain}/${SERVICE_LABEL}`], { stdio: "ignore" })
+    if (action === "uninstall") {
+      rmSync(file, { force: true })
+      return console.log(`Removed ${file}`)
+    }
+    mkdirSync(join(file, ".."), { recursive: true })
+    writeFileSync(file, launchAgent(args, join(home, "Library", "Logs", "flupcode-serve.log")))
+    if (load) {
+      const loaded = spawnSync("launchctl", ["bootstrap", domain, file], { encoding: "utf8" })
+      if (loaded.status !== 0) fail(`launchctl could not load ${file}: ${loaded.stderr.trim()}`)
+    }
+    return installed(file, port)
+  }
+  if (process.platform === "linux") {
+    const file = join(
+      process.env.XDG_CONFIG_HOME ?? join(home, ".config"),
+      "systemd",
+      "user",
+      `${SERVICE_UNIT}.service`,
+    )
+    if (load) spawnSync("systemctl", ["--user", "disable", "--now", SERVICE_UNIT], { stdio: "ignore" })
+    if (action === "uninstall") {
+      rmSync(file, { force: true })
+      if (load) spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" })
+      return console.log(`Removed ${file}`)
+    }
+    mkdirSync(join(file, ".."), { recursive: true })
+    writeFileSync(file, systemdUnit(args))
+    if (load) {
+      spawnSync("systemctl", ["--user", "daemon-reload"], { stdio: "ignore" })
+      const enabled = spawnSync("systemctl", ["--user", "enable", "--now", SERVICE_UNIT], { encoding: "utf8" })
+      if (enabled.status !== 0) fail(`systemctl could not start ${SERVICE_UNIT}: ${enabled.stderr.trim()}`)
+    }
+    return installed(file, port)
+  }
+  fail("flupcode serve --install supports macOS and Linux; on Windows, run flupcode serve from a startup task")
+}
+
+const SERVICE_LABEL = "com.flupcode.serve"
+const SERVICE_UNIT = "flupcode-serve"
+
+function installed(file: string, port: number) {
+  console.log(green(`Installed ${file}`))
+  console.log(dim(`FlupCode's web app finds OpenCode 2 at http://127.0.0.1:${port} whenever you are logged in.`))
+  console.log(dim("flupcode serve --uninstall removes it."))
+}
+
+const xml = (value: string) =>
+  value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;")
+
+function launchAgent(args: string[], log: string) {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${SERVICE_LABEL}</string>
+  <key>ProgramArguments</key>
+  <array>
+${args.map((arg) => `    <string>${xml(arg)}</string>`).join("\n")}
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${xml(process.env.PATH ?? "/usr/bin:/bin")}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>${xml(log)}</string>
+  <key>StandardErrorPath</key>
+  <string>${xml(log)}</string>
+</dict>
+</plist>
+`
+}
+
+function systemdUnit(args: string[]) {
+  const quoted = args.map((arg) =>
+    /[\s"\\]/.test(arg) ? `"${arg.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}"` : arg,
+  )
+  return `[Unit]
+Description=OpenCode 2 for FlupCode's web app (flupcode serve)
+
+[Service]
+ExecStart=${quoted.join(" ")}
+Environment=PATH=${process.env.PATH ?? "/usr/bin:/bin"}
+Restart=always
+RestartSec=30
+
+[Install]
+WantedBy=default.target
+`
 }
 
 /** FlupCode's 2.x database is only changed while no 2.x engine has it open. */
@@ -487,6 +607,8 @@ const args = parseArgs({
     relay: { type: "string" },
     app: { type: "string" },
     "no-serve": { type: "boolean" },
+    install: { type: "boolean" },
+    uninstall: { type: "boolean" },
     from: { type: "string" },
     port: { type: "string" },
     help: { type: "boolean", short: "h" },
@@ -505,6 +627,10 @@ if (args.values.help || (command !== "remote" && command !== "engine" && command
   process.exit(args.values.help || !command ? 0 : 1)
 }
 
+if (command === "serve" && (args.values.install || args.values.uninstall)) {
+  await serveService(args.values.install ? "install" : "uninstall", Number(args.values.port ?? 4096))
+  process.exit(0)
+}
 if (command === "serve") await runServe(Number(args.values.port ?? 4096))
 
 if (command === "engine") {

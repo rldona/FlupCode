@@ -45,6 +45,16 @@ It does that only for FlupCode's own pages (app.flupcode.com and `localhost:4444
 was protecting. Then open [app.flupcode.com](https://app.flupcode.com). It connects to
 `http://localhost:4096`; change the address in **Settings → Server** if you passed `--port`.
 
+To have it whenever you log in, with nothing to start, install it as a login service (a launchd
+agent on macOS, a systemd user unit on Linux):
+
+```bash
+flupcode serve --install
+```
+
+It restarts when it stops, and waits while the desktop app holds the port. If you open the desktop
+app while it runs, the desktop uses this engine. `flupcode serve --uninstall` removes it.
+
 ## Your OpenCode 1.x history
 
 FlupCode's OpenCode 2 keeps its own database, so your 1.x sessions stay where they are until you
