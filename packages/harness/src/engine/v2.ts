@@ -127,7 +127,7 @@ export function createV2Domains(
         client.session.update({
           sessionID: input.sessionID,
           permissions: input.permission.map((rule) => ({
-            action: rule.permission,
+            action: rule.permission === "bash" ? "shell" : rule.permission,
             resource: rule.pattern,
             effect: rule.action,
           })),

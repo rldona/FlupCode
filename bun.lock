@@ -593,6 +593,7 @@
       "dependencies": {
         "@flupcode/remote": "workspace:*",
         "@opencode-ai/sdk": "workspace:*",
+        "@opencode/client": "2.0.18",
         "jsonc-parser": "3.3.1",
         "playwright-core": "catalog:",
       },

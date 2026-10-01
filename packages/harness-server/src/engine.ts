@@ -1,4 +1,5 @@
 import { createOpencodeClient } from "@opencode-ai/sdk/v2/client"
+import { detectEngine } from "@flupcode/remote/engine-kind"
 import { basename } from "node:path"
 import { pathToFileURL } from "node:url"
 import type { BrowserAllowRule } from "./types"
@@ -128,7 +129,11 @@ export function sessionPermission(run: {
   return [
     ...(run.outside ? [] : CONFINED),
     ...(run.shell === false ? NO_SHELL : []),
-    ...(run.allow ?? []).map((rule) => ({ permission: rule.permission, pattern: rule.pattern, action: "allow" as const })),
+    ...(run.allow ?? []).map((rule) => ({
+      permission: rule.permission,
+      pattern: rule.pattern,
+      action: "allow" as const,
+    })),
   ]
 }
 
@@ -199,20 +204,47 @@ export class McpNotConnectedError extends Error {
     readonly status: string,
     readonly directory: string,
   ) {
-    super(`MCP server "${server}" is not connected (${status}) for ${directory}, so this run would start without its tools`)
+    super(
+      `MCP server "${server}" is not connected (${status}) for ${directory}, so this run would start without its tools`,
+    )
     this.name = "McpNotConnectedError"
   }
 }
 
 export class Engine {
   private readonly client: ReturnType<typeof createOpencodeClient>
+  private readonly authorization: string | undefined
+  private line: Promise<import("./engine-v2").V2Engine | undefined> | undefined
 
-  constructor(readonly url: string) {
-    const authorization = engineAuthorization()
+  /** `authorization` defaults to the engine credentials of this process; a test hands its own. */
+  constructor(
+    readonly url: string,
+    authorization = engineAuthorization(),
+  ) {
+    this.authorization = authorization
     this.client = createOpencodeClient({
       baseUrl: url,
-      ...(authorization ? { headers: { authorization } } : {}),
+      ...(this.authorization ? { headers: { authorization: this.authorization } } : {}),
     })
+  }
+
+  /**
+   * The OpenCode 2 backend when the engine is 2.x (V2-26), asked once; `undefined` keeps the 1.x
+   * code below. An engine that cannot be reached yet is asked again next time instead of being
+   * taken for 1.x for good, because this server starts before the engine does.
+   */
+  private async v2() {
+    this.line ??= detectEngine(
+      this.url,
+      fetch,
+      this.authorization ? { headers: { authorization: this.authorization } } : {},
+    ).then(async (detected) => {
+      if (detected.kind === "none") this.line = undefined
+      if (detected.kind !== "v2") return undefined
+      const { V2Engine } = await import("./engine-v2")
+      return new V2Engine(this.url, this.authorization)
+    })
+    return this.line
   }
 
   /**
@@ -237,6 +269,8 @@ export class Engine {
      */
     permission?: PermissionRule[]
   }) {
+    const v2 = await this.v2()
+    if (v2) return v2.createSession(input)
     return (await unwrap(
       this.client.session.create({
         ...(input.parentID ? { parentID: input.parentID } : {}),
@@ -248,7 +282,9 @@ export class Engine {
   }
 
   /** Remove a throwaway session and its messages, so helper sessions do not pile up in the list. */
-  deleteSession(sessionID: string, directory?: string) {
+  async deleteSession(sessionID: string, directory?: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.deleteSession(sessionID)
     return unwrap(this.client.session.delete({ sessionID, ...(directory ? { directory } : {}) }))
   }
 
@@ -261,6 +297,8 @@ export class Engine {
    * again later instead of forgetting a session it never saw.
    */
   async describeSession(sessionID: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.describeSession(sessionID)
     const result = await this.client.session.get({ sessionID })
     const status = result.response?.status ?? 0
     if (status >= 400 && status < 500 && status !== 401 && status !== 403) return undefined
@@ -275,12 +313,16 @@ export class Engine {
 
   /** A session's whole legacy transcript, oldest first: every message with its parts. */
   async messages(sessionID: string, directory?: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.messages(sessionID)
     return (await unwrap(
       this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
     )) as TranscriptMessage[]
   }
 
-  rename(sessionID: string, title: string) {
+  async rename(sessionID: string, title: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.rename(sessionID, title)
     return unwrap(this.client.session.update({ sessionID, title }))
   }
 
@@ -291,7 +333,12 @@ export class Engine {
    * data directory — so the branch, the sandbox bookkeeping and the eventual cleanup all stay its.
    * A task writes here and the primary checkout is left alone until somebody merges.
    */
-  async createWorktree(input: { directory?: string; name?: string }): Promise<{ name: string; branch?: string; directory: string }> {
+  async createWorktree(input: {
+    directory?: string
+    name?: string
+  }): Promise<{ name: string; branch?: string; directory: string }> {
+    const v2 = await this.v2()
+    if (v2) return v2.createWorktree(input)
     return (await unwrap(
       this.client.worktree.create({
         ...(input.directory ? { directory: input.directory } : {}),
@@ -302,6 +349,8 @@ export class Engine {
 
   /** Removes a worktree and the branch it was on. The engine's own bookkeeping too. */
   async removeWorktree(input: { directory: string; project?: string }) {
+    const v2 = await this.v2()
+    if (v2) return v2.removeWorktree(input)
     return unwrap(
       this.client.worktree.remove({
         ...(input.project ? { directory: input.project } : {}),
@@ -323,19 +372,25 @@ export class Engine {
    * existed. The one thing never swallowed is this method's own refusal, thrown after the second read.
    */
   async ensureMcp(directory: string) {
+    const v2 = await this.v2()
+    // The same read, connect and read again on either line; only the routes differ.
+    const statuses = async () =>
+      v2
+        ? await v2.mcpServers(directory)
+        : Object.entries(
+            (await unwrap(this.client.mcp.status({ directory }))) as Record<string, { status?: string }>,
+          ).map(([name, server]) => ({ name, status: server.status }))
+    const connect = (name: string) =>
+      v2 ? v2.connectMcp(name, directory) : unwrap(this.client.mcp.connect({ name, directory }))
     try {
-      const before = (await unwrap(this.client.mcp.status({ directory }))) as Record<string, { status?: string }>
-      const pending = Object.entries(before)
-        .filter(([, server]) => server.status !== "connected" && server.status !== "disabled")
-        .map(([name]) => name)
-      for (const name of pending) {
-        await unwrap(this.client.mcp.connect({ name, directory })).catch(() => undefined)
-      }
-      const after = (await unwrap(this.client.mcp.status({ directory }))) as Record<string, { status?: string }>
-      const [stranded] = Object.entries(after).filter(
-        ([, server]) => server.status !== "connected" && server.status !== "disabled",
+      const pending = (await statuses()).filter(
+        (server) => server.status !== "connected" && server.status !== "disabled",
       )
-      if (stranded) throw new McpNotConnectedError(stranded[0], stranded[1].status ?? "unknown", directory)
+      for (const server of pending) await connect(server.name).catch(() => undefined)
+      const stranded = (await statuses()).find(
+        (server) => server.status !== "connected" && server.status !== "disabled",
+      )
+      if (stranded) throw new McpNotConnectedError(stranded.name, stranded.status ?? "unknown", directory)
     } catch (cause) {
       if (cause instanceof McpNotConnectedError) throw cause
       // An engine without /mcp, or a read that failed: the run continues without this guarantee.
@@ -347,7 +402,7 @@ export class Engine {
    * subagents, MCP, retries and titles live, and where a question or permission raised by this work
    * can be answered from the app at all. It returns before the turn does.
    */
-  prompt(input: {
+  async prompt(input: {
     sessionID: string
     text: string
     directory?: string
@@ -361,6 +416,8 @@ export class Engine {
      */
     files?: Array<{ path: string; filename?: string }>
   }) {
+    const v2 = await this.v2()
+    if (v2) return v2.prompt(input)
     return unwrap(
       this.client.session.promptAsync({
         sessionID: input.sessionID,
@@ -391,6 +448,8 @@ export class Engine {
    * for it, and the v2 list is only the fallback when there is no folder to ask.
    */
   async isBusy(sessionID: string, directory?: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.isBusy(sessionID)
     if (directory) {
       const status = (await unwrap(this.client.session.status({ directory })).catch(() => undefined)) as
         | Record<string, { type?: string } | undefined>
@@ -473,6 +532,8 @@ export class Engine {
 
   /** Stop the turn where it runs: a legacy one is aborted per folder, not interrupted by id. */
   async interrupt(sessionID: string, directory?: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.interrupt(sessionID)
     if (directory) {
       const aborted = await unwrap(this.client.session.abort({ sessionID, directory })).then(
         () => true,
@@ -501,6 +562,8 @@ export class Engine {
    * else in there. It is asked for while somebody is looking.
    */
   async activity(sessionID: string, directory?: string): Promise<Activity | undefined> {
+    const v2 = await this.v2()
+    if (v2) return v2.activity(sessionID)
     const messages = (await unwrap(
       this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
     ).catch(() => undefined)) as Array<{ info?: { role?: string }; parts?: unknown[] }> | undefined
@@ -571,6 +634,8 @@ export class Engine {
   }
 
   async lastAnswer(sessionID: string, directory?: string) {
+    const v2 = await this.v2()
+    if (v2) return v2.lastAnswer(sessionID)
     const messages = (await unwrap(
       this.client.session.messages({ sessionID, ...(directory ? { directory } : {}) }) as Promise<Result<unknown>>,
     ).catch(() => undefined)) as
