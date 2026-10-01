@@ -376,16 +376,6 @@ export type EngineClient = {
         }) => Promise<{
             data: SessionV2Info[];
         }>;
-        /** The engine's own todo store, which the todowrite tool keeps and the transcript may prune. */
-        todos: (input: {
-            sessionID: string;
-            directory?: string | undefined;
-        }) => Promise<{
-            data: {
-                content: string;
-                status: string;
-            }[];
-        }>;
     };
     message: {
         list: (input: {

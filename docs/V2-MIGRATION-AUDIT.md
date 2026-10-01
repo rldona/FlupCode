@@ -1105,8 +1105,12 @@ event names.
   - engine-contract: runs only the 2.x suites. The 1.x import is tested on a recorded 1.x database
     (`fixtures/v1/history.db`).
   - `docs/opencode-boundary.txt` is empty.
-  - Left for a follow-up: the todo list UI, the legacy question and permission registries, and the
-    1.x provider sign-in, which the adapter already answers as empty or unsupported.
+  - Done after it: Chat and Cowork prompts and the project notes reach the model as session
+    instructions (they were dropped on 2.x since 2.0.0); an automatic compaction shows "Compacting
+    session…" from `session.compaction.*`; the todo list panel is removed (a `todowrite` call in
+    imported 1.x history still renders in the transcript).
+  - Left for a follow-up: the legacy question and permission registries and the 1.x provider
+    sign-in in the contract, which the adapter answers as empty or unsupported.
 - **Step 2:** remove the vendored upstream packages and reshape the repo (below).
 - **Change:** the V1 adapter, V1 plugin shell, vendored `packages/opencode`, legacy `sdk/js` usage
   and engine patches. With them: every upstream package, the upstream workflows, `dev`,
