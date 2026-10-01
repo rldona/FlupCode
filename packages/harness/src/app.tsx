@@ -258,7 +258,17 @@ export const App: Component = () => {
   const [busy, setBusy] = createSignal(false)
   // A fold this app asked for is in flight. The engine's own folds are read from the transcript,
   // but this app answers the request directly, so the transcript does not show it yet.
-  const [compactingManually, setCompactingManually] = createSignal(false)
+  // Sessions the engine is folding right now, from its `session.compaction.*` events: an automatic
+  // compaction starts on its own, between steps of a turn.
+  const [folding, setFolding] = createSignal<ReadonlySet<string>>(new Set())
+  const fold = (sessionID: string, active: boolean) =>
+    setFolding((current) => {
+      if (current.has(sessionID) === active) return current
+      const next = new Set(current)
+      if (active) next.add(sessionID)
+      if (!active) next.delete(sessionID)
+      return next
+    })
   const [routineBusy, setRoutineBusy] = createSignal(false)
   const [routineBusyID, setRoutineBusyID] = createSignal<string>()
   const [routineRunID, setRoutineRunID] = createSignal<string>()
@@ -2069,22 +2079,10 @@ export const App: Component = () => {
     })
   })
   /**
-   * Whether the session is being folded right now. A compaction is a turn of its own — the engine
-   * writes its summary as an assistant message — so the status line reads like any other answer
-   * unless this is checked. The newest settled message decides: while it is the request and its
-   * summary has not landed, the engine is compacting.
+   * Whether the session is being folded right now, as the engine said: a manual compaction or one it
+   * started on its own. Without it the status line reads like any other answer.
    */
-  const compacting = () => {
-    if (compactingManually()) return true
-    if (!generating()) return false
-    const list = activeMessages() ?? []
-    const settled = list.filter((message) => {
-      const time = (message as { time?: { completed?: number } }).time
-      return message.type !== "assistant" || time?.completed !== undefined
-    })
-    const last = settled[settled.length - 1]
-    return last !== undefined && !!(last as { compaction?: unknown }).compaction
-  }
+  const compacting = () => folding().has(selected() ?? "")
   /**
    * The model the selected session is cached for: what the engine reuses on the next turn. It is
    * stored on the session when this app switches it, and older sessions only say it on their answers.
@@ -2784,7 +2782,10 @@ export const App: Component = () => {
                   pendingPrompts.remove((payload as { inboxID?: string }).inboxID ?? "")
                 if (payload.sessionID === selected()) void readInbox(payload.sessionID)
               }
-              // 1.x names its events `session.next.*`, so on 1.x this never matches a thing.
+              if (payload?.sessionID && type.startsWith("session.compaction."))
+                fold(payload.sessionID, type === "session.compaction.started" || type === "session.compaction.delta")
+              if (payload?.sessionID && type.startsWith("session.execution.") && type !== "session.execution.started")
+                fold(payload.sessionID, false)
               const v2 = v2Transcript.reduce(event)
               if (v2) {
                 if (type === "session.execution.started") {
@@ -4608,7 +4609,7 @@ export const App: Component = () => {
     void run(async (current) => {
       const sessionID =
         selected() ?? (await current.session.create({ model: { providerID: model.providerID, id: model.id } })).id
-      setCompactingManually(true)
+      fold(sessionID, true)
       try {
         await current.session.compact({
           sessionID,
@@ -4617,7 +4618,7 @@ export const App: Component = () => {
           modelID: model.id,
         })
       } finally {
-        setCompactingManually(false)
+        fold(sessionID, false)
       }
       void refetchMessages()
       return sessionID
