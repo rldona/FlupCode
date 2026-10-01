@@ -104,7 +104,7 @@ describe.skipIf(!run)("MCP on the OpenCode 2 adapter", () => {
     await status("remote", (value) => value === "needs_auth")
   })
 
-  test("adding or removing a saved server says it waits for config writes", async () => {
+  test("without a config store, saving a server says why (see v2-config.engine.test.ts)", async () => {
     const refused = await domains.mcp
       .add({ server: "new", config: { type: "local", command: ["true"] }, directory: engine.project })
       .catch((cause: unknown) => cause)

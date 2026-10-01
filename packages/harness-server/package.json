@@ -23,6 +23,7 @@
     "playwright-core": "catalog:"
   },
   "devDependencies": {
+    "@flupcode/engine-contract": "workspace:*",
     "@types/bun": "catalog:",
     "@typescript/native-preview": "catalog:",
     "playwright": "catalog:",
