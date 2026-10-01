@@ -6,7 +6,7 @@ import { homedir, hostname } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { createRemoteHost, PAIRING_TTL, type RemoteHostState, type RemoteHostStore } from "@flupcode/remote"
-import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
+import { detectEngine, openCodeLineOf, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import QRCode from "qrcode"
 import pkg from "../package.json"
@@ -132,7 +132,11 @@ function runningEngine(engine: string, credentials: string | undefined) {
  */
 async function ensureEngine(engine: string, credentials: string | undefined, serve: boolean) {
   const running = await runningEngine(engine, credentials)
+  // Plugins live in this computer's OpenCode config, so they only matter for a local engine.
+  const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
   if (running.kind === "v2") {
+    const plugins = local ? await installEnginePlugins(undefined, "v2") : undefined
+    if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins."))
     noteV2(running.version)
     return { child: undefined, credentials }
   }
@@ -141,21 +145,19 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
       `the engine at ${engine} is OpenCode 2 and wants a password; ` +
         "set OPENCODE_SERVER_PASSWORD to the one it was started with, or stop it and let flupcode start its own",
     )
-  // Plugins live in this computer's OpenCode config, so they only matter for a local engine.
-  const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
-  const plugins = local ? await installEnginePlugins() : undefined
   if (running.kind === "v1") {
+    const plugins = local ? await installEnginePlugins(undefined, "v1") : undefined
     if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins (reasoning effort levels, context capture)."))
     return { child: undefined, credentials }
   }
   const hint = `start it with "opencode serve --port ${new URL(engine).port || 4096}" or pass --engine`
   if (!serve) fail(`no OpenCode server at ${engine}; ${hint}`)
-  // 2.x prints `opencode v2.0.18`; 1.x the bare version.
   const version = spawnSync("opencode", ["--version"], { encoding: "utf8", shell: process.platform === "win32" })
   if (version.error) fail(`no OpenCode server at ${engine} and the opencode CLI is not installed; ${hint}`)
-  const password =
-    process.env.OPENCODE_SERVER_PASSWORD ||
-    (/(^|\s)v?2\.\d/.test(version.stdout ?? "") ? randomBytes(24).toString("hex") : undefined)
+  const line = openCodeLineOf(version.stdout)
+  // Before it starts: an engine reads its plugins once, at startup.
+  if (local) await installEnginePlugins(undefined, line)
+  const password = process.env.OPENCODE_SERVER_PASSWORD || (line === "v2" ? randomBytes(24).toString("hex") : undefined)
   const username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
   const signIn = password ? btoa(`${username}:${password}`) : undefined
   console.log(dim(`Starting opencode serve on ${engine}…`))
@@ -180,12 +182,12 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
   fail(`opencode serve did not become ready at ${engine}`)
 }
 
-/** The app drives OpenCode 2 (V2-11), but none of FlupCode's plugins load on it yet. */
+/** The app drives OpenCode 2 (V2-11), but not every FlupCode plugin runs on it yet. */
 function noteV2(version: string) {
   console.log(
     yellow(
-      `The engine is OpenCode ${version}: chats and runs work, but FlupCode's plugins do not run on it yet ` +
-        "(permission modes, memory, the adaptive layer).",
+      `The engine is OpenCode ${version}: chats and runs work, but some of FlupCode's plugins do not run on it ` +
+        "yet (permission modes, memory, the adaptive layer).",
     ),
   )
 }

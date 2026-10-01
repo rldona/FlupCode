@@ -20,6 +20,8 @@ const engine = Bun.serve({
       : new Response("not found", { status: 404 }),
 })
 const configDir = mkdtempSync(join(tmpdir(), "flupcode-cli-"))
+// Where the CLI installs the engine plugins for a local engine: never the real OpenCode config.
+const engineConfigDir = mkdtempSync(join(tmpdir(), "flupcode-cli-opencode-"))
 const spawned: Array<ReturnType<typeof Bun.spawn>> = []
 
 afterAll(() => {
@@ -27,6 +29,7 @@ afterAll(() => {
   relay.stop()
   engine.stop(true)
   rmSync(configDir, { recursive: true, force: true })
+  rmSync(engineConfigDir, { recursive: true, force: true })
 })
 
 function cli(...args: string[]) {
@@ -35,7 +38,13 @@ function cli(...args: string[]) {
 
 function cliWith(env: Record<string, string | undefined>, ...args: string[]) {
   const child = Bun.spawn(["bun", join(import.meta.dir, "../src/index.ts"), ...args], {
-    env: { ...process.env, FLUPCODE_CONFIG_DIR: configDir, NO_COLOR: "1", ...env },
+    env: {
+      ...process.env,
+      FLUPCODE_CONFIG_DIR: configDir,
+      OPENCODE_CONFIG_DIR: engineConfigDir,
+      NO_COLOR: "1",
+      ...env,
+    },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -202,6 +211,11 @@ Bun.serve({
       expect(await (await tunnel.fetch("https://remote.invalid/api/info")).json()).toEqual({ version: "2.0.20" })
       // Nobody else can: the engine is not open to a caller without the password.
       expect((await fetch(`http://127.0.0.1:${port}/api/info`)).status).toBe(401)
+
+      // The plugins went to the engine's config before it started, in the set 2.x loads.
+      expect(readFileSync(join(engineConfigDir, "plugins", "flupcode-tool-uses.js"), "utf8")).toContain(
+        "for OpenCode 2",
+      )
 
       host.stdin.write("q\n")
       expect(await host.exited).toBe(0)

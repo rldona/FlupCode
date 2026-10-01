@@ -56,6 +56,14 @@ export async function openCodeV2Locked(baseUrl: string, fetchImpl: Fetch = fetch
   return body?._tag === "UnauthorizedError"
 }
 
+/**
+ * The line an `opencode --version` answer names: 2.x prints `opencode v2.0.18`, 1.x the bare version
+ * (or `local` for a source build). Read before an engine starts, to install the plugins it can load.
+ */
+export function openCodeLineOf(versionOutput: string | undefined): "v1" | "v2" {
+  return /(^|\s)v?2\.\d/.test(versionOutput ?? "") ? "v2" : "v1"
+}
+
 async function readJson(fetchImpl: Fetch, url: string, init?: RequestInit) {
   const response = await fetchImpl(url, { ...init, signal: init?.signal ?? AbortSignal.timeout(1500) }).catch(
     () => undefined,

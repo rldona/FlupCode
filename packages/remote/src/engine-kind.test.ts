@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { detectEngine, openCodeV2Locked, openCodeV2Version } from "./engine-kind"
+import { detectEngine, openCodeLineOf, openCodeV2Locked, openCodeV2Version } from "./engine-kind"
 
 const html = () => new Response("<!doctype html><title>OpenCode</title>", { headers: { "content-type": "text/html" } })
 
@@ -74,5 +74,14 @@ describe("openCodeV2Locked", () => {
     expect(await openCodeV2Locked(v1Locked.url.href)).toBe(false)
     expect(await openCodeV2Locked(v2.url.href)).toBe(false)
     expect(await openCodeV2Locked("http://127.0.0.1:9")).toBe(false)
+  })
+})
+
+describe("openCodeLineOf", () => {
+  test("reads the line from what opencode --version prints", () => {
+    expect(openCodeLineOf("opencode v2.0.18\n")).toBe("v2")
+    expect(openCodeLineOf("1.18.32\n")).toBe("v1")
+    expect(openCodeLineOf("local")).toBe("v1")
+    expect(openCodeLineOf(undefined)).toBe("v1")
   })
 })

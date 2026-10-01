@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
-import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
+import { detectEngine, openCodeLineOf, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
@@ -157,6 +157,21 @@ function resolveEngine(): { command: string; args: string[]; cwd?: string } | un
   return undefined
 }
 
+/**
+ * The line the engine about to start is on, from its `--version`. A source checkout run through Bun
+ * is FlupCode's 1.x engine.
+ */
+function engineLine(engine: { command: string; args: string[] }) {
+  if (engine.args[0] === "run") return "v1"
+  const version = spawnSync(engine.command, ["--version"], {
+    encoding: "utf8",
+    env: { ...process.env, PATH: searchPath() },
+    shell: process.platform === "win32",
+    timeout: 10_000,
+  })
+  return openCodeLineOf(version.stdout)
+}
+
 function resolveHarnessServer(): { command: string; args: string[]; cwd?: string } | undefined {
   if (process.env.FLUPCODE_HARNESS_SERVER) {
     return { command: process.env.FLUPCODE_HARNESS_SERVER, args: [] }
@@ -223,7 +238,7 @@ function promptEngineV2(version: string, command?: string) {
         (command
           ? `The engine started from "${command}" is OpenCode ${version}.`
           : `The engine at ${SERVER_URL} is OpenCode ${version}.`) +
-        "\n\nChats, runs and routines work, but FlupCode's plugins do not run on OpenCode 2 yet, so permission modes, memory and the adaptive layer are unavailable.\n\n" +
+        "\n\nChats, runs and routines work, but some of FlupCode's plugins do not run on OpenCode 2 yet, so permission modes, memory and the adaptive layer are unavailable.\n\n" +
         "To get them back, install OpenCode 1.x, or set FLUPCODE_OPENCODE to the path of a 1.x opencode binary, then reopen FlupCode.",
       buttons: ["Continue", "Open install docs"],
       defaultId: 0,
@@ -273,16 +288,17 @@ function promptPluginRestart() {
 export async function ensureServer() {
   if (process.env.FLUPCODE_NO_SERVER === "1") return
   const running = await runningEngine()
-  // Nothing is installed for an engine that would reject it: 2.x refuses every FlupCode plugin.
-  if (running.kind === "v2") return promptEngineV2(running.version)
+  if (running.kind === "v2") {
+    // An engine already running picks its plugins up on restart.
+    if ((await installEnginePlugins(undefined, "v2")).changed) promptPluginRestart()
+    return promptEngineV2(running.version)
+  }
   // An OpenCode 2 engine someone else started, behind a password FlupCode was not given: starting
   // another one on its port would only fail, so say what it needs instead.
   if (running.kind === "none" && (await openCodeV2Locked(SERVER_URL, fetch, { headers: authHeaders() })))
     return promptLockedEngine()
-  // Before any engine starts: plugins load at startup (an engine already running picks them up on restart).
-  const plugins = await installEnginePlugins()
   if (running.kind === "v1") {
-    if (plugins.changed) promptPluginRestart()
+    if ((await installEnginePlugins(undefined, "v1")).changed) promptPluginRestart()
     return
   }
 
@@ -291,6 +307,8 @@ export async function ensureServer() {
     promptInstall()
     return
   }
+  // Before the engine starts, since it reads its plugins once, at startup: the set its line loads.
+  await installEnginePlugins(undefined, engineLine(engine))
 
   console.info(`[flupcode] starting the engine: ${[engine.command, ...engine.args].join(" ")}`)
   ensureEngineCredentials()
