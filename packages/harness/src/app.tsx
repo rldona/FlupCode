@@ -4899,13 +4899,34 @@ export const App: Component = () => {
    */
   const oauthMcp = (server: string) =>
     run(async (current) => {
-      const started = (await current.mcp.authStart({ server, directory: mcpDirectory() })) as { authorizationUrl?: string }
+      const started = (await current.mcp.authStart({ server, directory: mcpDirectory() })) as {
+        authorizationUrl?: string
+        code?: boolean
+        instructions?: string
+      }
       if (!started?.authorizationUrl) throw new Error(t("This server did not offer OAuth"))
+      // On 2.x some providers show a code to paste back instead of calling the engine; the page is
+      // already open, so what is left is asking for the code.
+      if (started.code) return void setMcpCode({ server, instructions: started.instructions ?? "" })
       await current.mcp.authenticate({ server, directory: mcpDirectory() })
+      void refetchMcp()
+      void refetchMcpResources()
+      toast(t("MCP server connected"), "success")
+      return undefined
+    })
+
+  const [mcpCode, setMcpCode] = createSignal<{ server: string; instructions: string }>()
+  const completeMcpCode = (code: string) => {
+    const pending = mcpCode()
+    if (!pending) return
+    setMcpCode(undefined)
+    void run(async (current) => {
+      await current.mcp.authComplete({ server: pending.server, code, directory: mcpDirectory() })
       void refetchMcp()
       void refetchMcpResources()
       return undefined
     }, t("MCP server connected"))
+  }
 
   const saveProvider = (providerID: string, key: string) =>
     run(async (current) => {
@@ -6409,6 +6430,15 @@ export const App: Component = () => {
         onExport={runExport}
         onShare={runShare}
         onClose={() => setExportOpen(false)}
+      />
+      <RenameDialog
+        open={!!mcpCode()}
+        title={t("Sign in to {server}", { server: mcpCode()?.server ?? "" })}
+        description={mcpCode()?.instructions || t("Paste the code the sign-in page showed you.")}
+        placeholder={t("Code")}
+        initial=""
+        onSave={completeMcpCode}
+        onClose={() => setMcpCode(undefined)}
       />
       <RenameDialog
         open={!!renameTarget()}

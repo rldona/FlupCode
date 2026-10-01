@@ -760,6 +760,13 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       )}
                     </div>
                   </Show>
+                  <Show when={props.engineProfile !== undefined && props.engineProfile !== "v2" && props.engineVersion}>
+                    <div class="fc-settings-hint">
+                      {t(
+                        "OpenCode 1.x is deprecated in FlupCode: OpenCode 2 is the engine it starts now, and 1.x support goes in a coming release.",
+                      )}
+                    </div>
+                  </Show>
                   <Show when={props.engineProfile === "stock"}>
                     <div class="fc-settings-hint">
                       {t(

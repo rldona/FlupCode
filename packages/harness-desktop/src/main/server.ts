@@ -285,14 +285,18 @@ export async function ensureServer() {
     return
   }
 
-  // `FLUPCODE_ENGINE=v2` asks for OpenCode 2 (V2-60): the pinned binary or `FLUPCODE_OPENCODE`, never
-  // whichever `opencode` the PATH happens to hold.
-  const engine = wantsOpenCodeV2() ? await pinnedOpenCodeV2() : resolveEngine()
+  // OpenCode 2 unless `FLUPCODE_ENGINE=v1` (V2-70): the pinned binary or `FLUPCODE_OPENCODE`, never
+  // whichever `opencode` the PATH happens to hold. When it cannot be had (offline on the first launch,
+  // say), the engine FlupCode used to start is better than none.
+  const pinned = wantsOpenCodeV2() ? await pinnedOpenCodeV2() : undefined
+  const engine = pinned ?? resolveEngine()
   if (!engine) {
     promptInstall()
     return
   }
-  const line = wantsOpenCodeV2() ? "v2" : engineLine(engine)
+  const line = pinned ? "v2" : engineLine(engine)
+  if (line === "v1")
+    console.info("[flupcode] OpenCode 1.x is deprecated in FlupCode; OpenCode 2 is the engine it starts")
   // Before the engine starts, since it reads its plugins once, at startup: the set its line loads.
   await installEnginePlugins(undefined, line)
 
@@ -378,6 +382,99 @@ export async function ensureHarnessServer() {
     if (await isHarnessServerHealthy()) return
     await new Promise((resolve) => setTimeout(resolve, 250))
   }
+}
+
+/**
+ * "Import OpenCode 1.x History…" (V2-61): FlupCode's 2.x engine is stopped, the harness binary copies
+ * 1.x's database into the 2.x one (read-only on the 1.x side, the previous 2.x database kept), and the
+ * engine starts again, importing the copy as it does; the window shows that import's progress.
+ */
+export function importOpenCodeV1History() {
+  return changeV2Database({
+    command: ["import-v1"],
+    question: "Import your OpenCode 1.x history into OpenCode 2?",
+    detail:
+      "FlupCode copies OpenCode 1.x's database into its own OpenCode 2 database and restarts the engine, which " +
+      "imports the copy. The 1.x database is only read, never changed, and what OpenCode 2 holds now is kept: " +
+      '"Undo OpenCode 1.x Import" puts it back.',
+    action: "Import",
+    done: (answer) => `Copied ${answer.sessions ?? 0} sessions. OpenCode 2 is importing them now.`,
+  })
+}
+
+/** "Undo OpenCode 1.x Import…": FlupCode's 2.x database goes back to what it was before the import. */
+export function undoOpenCodeV1Import() {
+  return changeV2Database({
+    command: ["rollback-import"],
+    question: "Put FlupCode's OpenCode 2 database back as it was before the last import?",
+    detail: "The engine restarts. The database it has now is moved aside, not deleted.",
+    action: "Undo import",
+    done: (answer) =>
+      answer.restored ? "The previous OpenCode 2 database is back." : "OpenCode 2 starts empty again.",
+  })
+}
+
+async function changeV2Database(input: {
+  command: string[]
+  question: string
+  detail: string
+  action: string
+  done: (answer: Record<string, unknown>) => string
+}) {
+  const harness = resolveHarnessServer()
+  // Only the engine this app started is FlupCode's 2.x engine on FlupCode's database; one someone else
+  // runs keeps it open, and changing a database under a running engine is how it gets corrupted.
+  if (!wantsOpenCodeV2() || !harness || (!child && (await runningEngine()).kind !== "none")) {
+    await dialog.showMessageBox({
+      type: "info",
+      message: "FlupCode can only do this with the OpenCode 2 engine it starts",
+      detail: 'Stop the engine that is running and reopen FlupCode, or use "flupcode engine import-v1" in a terminal.',
+      buttons: ["OK"],
+    })
+    return
+  }
+  const confirmed = await dialog.showMessageBox({
+    type: "question",
+    message: input.question,
+    detail: input.detail,
+    buttons: [input.action, "Cancel"],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (confirmed.response !== 0) return
+  await stopEngine()
+  const run = spawnSync(harness.command, [...harness.args, "engine-data", ...input.command], {
+    cwd: harness.cwd,
+    encoding: "utf8",
+    env: { ...process.env, PATH: searchPath() },
+    shell: process.platform === "win32",
+  })
+  const answer = parseAnswer(run.stdout)
+  await ensureServer()
+  await dialog.showMessageBox(
+    typeof answer.error === "string" || run.status !== 0
+      ? { type: "error", message: "That did not work", detail: String(answer.error ?? run.stderr), buttons: ["OK"] }
+      : { type: "info", message: input.done(answer), buttons: ["OK"] },
+  )
+}
+
+function parseAnswer(stdout: string | null): Record<string, unknown> {
+  const line = (stdout ?? "").trim().split("\n").at(-1) ?? ""
+  try {
+    return JSON.parse(line) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+/** Stops the engine this app started and waits until its port is free. */
+async function stopEngine() {
+  const running = child
+  child = undefined
+  if (!running || running.exitCode !== null) return
+  const exited = new Promise((resolve) => running.once("exit", resolve))
+  running.kill()
+  await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 10_000))])
 }
 
 export function stopServer() {

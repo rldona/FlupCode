@@ -988,6 +988,9 @@ export function createV1Client(baseUrl: string) {
         unwrap(client.mcp.auth.start({ name: input.server, directory: input.directory })),
       authenticate: (input: { server: string; directory?: string }) =>
         unwrap(client.mcp.auth.authenticate({ name: input.server, directory: input.directory })),
+      /** 1.x's sign-in always comes back through the engine's callback; a pasted code is 2.x's. */
+      authComplete: async (_input: { server: string; code: string; directory?: string }): Promise<void> =>
+        unsupported("an MCP sign-in that needs a pasted code"),
       authRemove: (input: { server: string; directory?: string }) =>
         unwrap(client.mcp.auth.remove({ name: input.server, directory: input.directory })),
       /**

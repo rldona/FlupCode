@@ -1,6 +1,7 @@
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
+import { runEngineDataCommand } from "./engine-data-command"
 import { SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
 import { seedTemplates } from "./workflow"
@@ -560,6 +561,9 @@ const createVaultKey = (): string | undefined => {
     return undefined
   }
 }
+
+// The desktop's explicit 1.x import runs through this binary and exits; it never starts the server.
+if (import.meta.main && process.argv[2] === "engine-data") process.exit(runEngineDataCommand(process.argv.slice(3)))
 
 if (import.meta.main) {
   // Only here, and not in `createHarnessServer`: a test that builds a server would otherwise write

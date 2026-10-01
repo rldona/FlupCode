@@ -6,6 +6,10 @@ type RenameDialogProps = {
   /** Heading shown in the modal, e.g. "Rename". */
   title: string
   initial: string
+  /** What the field asks for; a new title unless said otherwise. */
+  placeholder?: string
+  /** A line above the field, e.g. where the value comes from. */
+  description?: string
   onSave: (value: string) => void
   onClose: () => void
 }
@@ -54,12 +58,15 @@ export const RenameDialog: Component<RenameDialogProps> = (props) => {
               ×
             </button>
           </div>
+          <Show when={props.description}>
+            <p class="fc-rename-description">{props.description}</p>
+          </Show>
           <input
             ref={input}
             class="fc-question-custom fc-rename-input"
             value={value()}
-            placeholder={t("New title")}
-            aria-label={t("New title")}
+            placeholder={props.placeholder ?? t("New title")}
+            aria-label={props.placeholder ?? t("New title")}
             spellcheck={false}
             onInput={(event) => setValue(event.currentTarget.value)}
             onKeyDown={(event) => {

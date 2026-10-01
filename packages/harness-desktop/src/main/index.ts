@@ -5,7 +5,15 @@ import { extname, isAbsolute, join, relative, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
 import { setApplicationMenu } from "./menu"
 import { initRemoteHost } from "./remote"
-import { engineCredentials, ensureHarnessServer, ensureServer, harnessBrowserToken, stopServer } from "./server"
+import {
+  engineCredentials,
+  ensureHarnessServer,
+  ensureServer,
+  harnessBrowserToken,
+  importOpenCodeV1History,
+  stopServer,
+  undoOpenCodeV1Import,
+} from "./server"
 import { initSpeech, speechAvailable, stopSpeech } from "./speech"
 import { initAutoUpdate, checkForUpdates } from "./updater"
 import { loadWindowStates, saveWindowState } from "./window-state"
@@ -144,7 +152,12 @@ app.whenReady().then(async () => {
   // Copy Image (on by default) and Save Image As. Mirrors packages/desktop.
   contextMenu({ showSaveImageAs: true, showLookUpSelection: false, showSearchWithGoogle: false })
   registerRendererProtocol()
-  setApplicationMenu({ onNewWindow: createWindow, onCheckUpdates: () => void checkForUpdates() })
+  setApplicationMenu({
+    onNewWindow: createWindow,
+    onCheckUpdates: () => void checkForUpdates(),
+    onImportV1History: () => void importOpenCodeV1History(),
+    onUndoV1Import: () => void undoOpenCodeV1Import(),
+  })
   initAutoUpdate()
   initSpeech()
   // The harness starts first: the actions plugin reads its token and its profiles from it as the

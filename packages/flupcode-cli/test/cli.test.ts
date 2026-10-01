@@ -207,6 +207,8 @@ describe("flupcode remote", () => {
           OPENCODE_SERVER_PASSWORD: undefined,
           OPENCODE_SERVER_USERNAME: "someone",
           XDG_DATA_HOME: data,
+          // The `opencode` on the PATH, which here is a 2.x: it still gets FlupCode's environment.
+          FLUPCODE_ENGINE: "v1",
         },
         "remote",
         "--engine",
@@ -254,8 +256,8 @@ describe("flupcode remote", () => {
     }
   }, 60_000)
 
-  // `FLUPCODE_ENGINE=v2` names the engine explicitly: whatever `opencode` the PATH holds is not run.
-  test("FLUPCODE_ENGINE=v2 starts the named OpenCode 2 binary, not the opencode on the PATH", async () => {
+  // OpenCode 2 is the default (V2-70), named explicitly: whatever `opencode` the PATH holds is not run.
+  test("starts the named OpenCode 2 binary by default, not the opencode on the PATH", async () => {
     const { bin, binary } = fakeOpenCodeV2()
     const decoy = mkdtempSync(join(tmpdir(), "flupcode-cli-decoy-"))
     writeFileSync(join(decoy, "opencode"), `#!/bin/sh\necho "opencode 1.4.0"\nexit 3\n`)
@@ -266,7 +268,7 @@ describe("flupcode remote", () => {
       const host = cliWith(
         {
           PATH: `${decoy}:${process.env.PATH ?? ""}`,
-          FLUPCODE_ENGINE: "v2",
+          FLUPCODE_ENGINE: undefined,
           FLUPCODE_OPENCODE: binary,
           FLUPCODE_CONFIG_DIR: ownDir,
           OPENCODE_SERVER_PASSWORD: undefined,

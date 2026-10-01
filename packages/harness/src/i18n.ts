@@ -757,6 +757,10 @@ const ES: Record<string, string> = {
   tokens: "tokens",
   "Error generating the response": "Error al generar la respuesta",
   "The run failed": "La ejecución ha fallado",
+  "OpenCode 1.x is deprecated in FlupCode: OpenCode 2 is the engine it starts now, and 1.x support goes in a coming release.":
+    "OpenCode 1.x está obsoleto en FlupCode: ahora arranca OpenCode 2 y el soporte de 1.x desaparecerá en una próxima versión.",
+  "Sign in to {server}": "Iniciar sesión en {server}",
+  "Paste the code the sign-in page showed you.": "Pega el código que te mostró la página de inicio de sesión.",
   "Importing your OpenCode 1.x history…": "Importando tu historial de OpenCode 1.x…",
   "OpenCode 2 could not import the 1.x history: {error}":
     "OpenCode 2 no ha podido importar el historial de 1.x: {error}",

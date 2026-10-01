@@ -3788,6 +3788,12 @@ button.fc-status {
   font-size: var(--fc-text-sm);
 }
 
+.fc-rename-description {
+  margin: 0 0 8px;
+  color: var(--fc-text-muted);
+  font-size: var(--fc-text-sm);
+}
+
 .fc-rename-input {
   width: 100%;
 }
