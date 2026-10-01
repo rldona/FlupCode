@@ -3,6 +3,8 @@ import { Menu, shell, type MenuItemConstructorOptions } from "electron"
 type MenuHandlers = {
   onNewWindow: () => void
   onCheckUpdates: () => void
+  onImportV1History: () => void
+  onUndoV1Import: () => void
 }
 
 export function setApplicationMenu(handlers: MenuHandlers) {
@@ -34,6 +36,11 @@ export function setApplicationMenu(handlers: MenuHandlers) {
       label: "File",
       submenu: [
         { label: "New Window", accelerator: "CmdOrCtrl+N", click: () => handlers.onNewWindow() },
+        { type: "separator" },
+        // V2-61: bringing OpenCode 1.x history into FlupCode's OpenCode 2 engine is only ever asked for.
+        { label: "Import OpenCode 1.x History…", click: () => handlers.onImportV1History() },
+        { label: "Undo OpenCode 1.x Import…", click: () => handlers.onUndoV1Import() },
+        { type: "separator" },
         ...(isMac ? [] : [{ role: "quit" } as MenuItemConstructorOptions]),
       ],
     },

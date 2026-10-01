@@ -594,6 +594,24 @@ export function createV2Domains(
 
   // The OAuth attempt each server's sign-in is waiting on, from `authStart` to `authenticate`.
   const attempts = new Map<string, { integrationID: string; attemptID: string; url: string }>()
+  /** Until a sign-in completes; this runs in the page, so it waits with a timer, not a Bun API. */
+  const settled = async (attempt: { integrationID: string; attemptID: string }, directory?: string) => {
+    for (;;) {
+      const status = (
+        await call(
+          client.integration.oauth.status({
+            integrationID: attempt.integrationID,
+            attemptID: attempt.attemptID,
+            ...where(directory),
+          }),
+        )
+      ).data
+      if (status.status === "complete") return
+      if (status.status === "failed") throw new EngineError(status.message)
+      if (status.status === "expired") throw new EngineError("The sign-in expired")
+      await new Promise((resolve) => setTimeout(resolve, OAUTH_POLL))
+    }
+  }
   const where = (directory?: string) => (directory ? { location: { directory } } : {})
   /** A server's sign-in is an integration in 2.x, with an OAuth method when it can sign in. */
   const integrationOf = async (server: string, directory?: string) => {
@@ -644,11 +662,18 @@ export function createV2Domains(
           }),
         )
       ).data
-      if (attempt.mode === "code") {
-        await client.integration.oauth.cancel({ integrationID: integration.id, attemptID: attempt.attemptID })
-        return unsupported("an MCP sign-in that needs a pasted code")
-      }
       attempts.set(input.server, { integrationID: integration.id, attemptID: attempt.attemptID, url: attempt.url })
+      // A provider that shows a code to paste back instead of calling the engine: the page opens now
+      // and the reader brings the code to `authComplete`.
+      if (attempt.mode === "code") {
+        openUrl(attempt.url)
+        return {
+          authorizationUrl: attempt.url,
+          oauthState: attempt.attemptID,
+          code: true,
+          instructions: attempt.instructions,
+        }
+      }
       // 1.x's state names the flow; in 2.x the attempt does.
       return { authorizationUrl: attempt.url, oauthState: attempt.attemptID }
     },
@@ -658,21 +683,24 @@ export function createV2Domains(
       if (!attempt) throw new EngineError(`No sign-in was started for MCP server "${input.server}"`)
       attempts.delete(input.server)
       openUrl(attempt.url)
-      for (;;) {
-        const status = (
-          await call(
-            client.integration.oauth.status({
-              integrationID: attempt.integrationID,
-              attemptID: attempt.attemptID,
-              ...where(input.directory),
-            }),
-          )
-        ).data
-        if (status.status === "complete") return nothing()
-        if (status.status === "failed") throw new EngineError(status.message)
-        if (status.status === "expired") throw new EngineError("The sign-in expired")
-        await Bun.sleep(OAUTH_POLL)
-      }
+      await settled(attempt, input.directory)
+      return nothing()
+    },
+    /** Hands the engine the code a provider showed the reader, then waits for the sign-in to land. */
+    authComplete: async (input) => {
+      const attempt = attempts.get(input.server)
+      if (!attempt) throw new EngineError(`No sign-in was started for MCP server "${input.server}"`)
+      attempts.delete(input.server)
+      await call(
+        client.integration.oauth.complete({
+          integrationID: attempt.integrationID,
+          attemptID: attempt.attemptID,
+          code: input.code,
+          ...where(input.directory),
+        }),
+      )
+      await settled(attempt, input.directory)
+      return nothing()
     },
     authRemove: async (input) => {
       const integration = await integrationOf(input.server, input.directory)

@@ -70,9 +70,12 @@ export async function installOpenCodeV2(
   return target
 }
 
-/** Whether the reader asked for OpenCode 2 (`FLUPCODE_ENGINE=v2`); 1.x stays the default until V2-70. */
+/**
+ * Whether FlupCode starts OpenCode 2 (V2-70): the default. `FLUPCODE_ENGINE=v1` keeps the way before
+ * it, the `opencode` on the PATH (normally 1.x, which is deprecated and goes in V2-71).
+ */
 export function wantsOpenCodeV2(env: NodeJS.ProcessEnv = process.env) {
-  return env.FLUPCODE_ENGINE?.trim().toLowerCase() === "v2"
+  return env.FLUPCODE_ENGINE?.trim().toLowerCase() !== "v1"
 }
 
 /**
