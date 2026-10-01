@@ -3,27 +3,24 @@
 Tests that drive a real OpenCode engine the way FlupCode does (ticket V2-02 in
 [docs/V2-MIGRATION-AUDIT.md](../../docs/V2-MIGRATION-AUDIT.md)).
 
-Each run starts `opencode serve` from this checkout with its own temporary home, XDG folders,
-database and config, and a stub OpenAI-compatible model (`src/model.ts`) that replies what the test
-scripts. It never touches the user's engine or `opencode.db`.
+Each run starts the pinned OpenCode 2 binary with its own temporary home, XDG folders, database and
+config, and a stub OpenAI-compatible model (`src/model.ts`) that replies what the test scripts. It
+never touches the user's engine or `opencode.db`.
 
-The flows: a text turn, a tool call, a permission asked and answered, a question asked and answered,
-an aborted turn, and the routes the harness reads outside a turn. Each one records a fixture in
-`fixtures/<v1|v2>/`: the session's event types, the transcript's roles, part types and tool
-statuses, and the keys of the responses FlupCode reads.
-
-`test/plugins.test.ts` (ticket V2-03) starts a second engine with FlupCode's 14 engine plugins
-installed from `packages/remote/src/engine-plugins.ts`, a stand-in harness-server, and the tokens
-and config the desktop writes. The engine refuses a plugin silently, so each test checks what one
-plugin leaves behind once its hooks fire: a file it writes, a tool it registers, or a call it makes
-to harness-server. A new plugin without an entry there fails the suite.
+- `test/contract-v2.test.ts` (V2-06): a text turn, a tool call, a permission asked and answered, a
+  question asked and answered, an aborted turn, and the routes the app reads outside a turn. Each
+  records a fixture in `fixtures/v2/`, so a pin bump that changes the contract shows up as a diff.
+- `test/plugins-v2.test.ts` (V2-30): FlupCode's 2.x plugins installed from
+  `packages/remote/src/engine-plugins-v2.ts`, each one checked by what it leaves behind.
+- `test/mcp-stats-v2.test.ts`: an MCP tool called from Code Mode is counted and timed.
+- `test/v1-import-v2.test.ts` (V2-61): a recorded 1.x database (`fixtures/v1/history.db`, written by
+  FlupCode's last 1.x engine) imported into 2.x, memories included, and rolled back.
 
 ```bash
 bun run --cwd packages/engine-contract test
 ```
 
-- `FLUPCODE_CONTRACT_ENGINE`: another engine command, with `{port}` for the port it listens on,
-  for example a released `opencode` binary or an OpenCode 2.x one.
+- `FLUPCODE_CONTRACT_ENGINE`: another OpenCode 2 command, with `{port}` for the port it listens on.
 - `UPDATE_FIXTURES=1`: rewrite the fixtures after an intended contract change. In CI (`CI` set) a
   missing fixture fails instead of being written.
 
@@ -44,16 +41,5 @@ bun run --cwd packages/engine-contract opencode-v2 serve     # http://127.0.0.1:
 package against the published sha512 integrity and unpacks it to `~/.cache/flupcode/engines/opencode-<version>/`. `serve` runs it with a home under
 `~/.cache/flupcode/engines/sandbox-<version>/` and prints a fresh password; delete that folder to
 start over.
-
-## Running the flows on OpenCode 2
-
-Ticket V2-06. `test/contract-v2.test.ts` drives the same flows through OpenCode 2's API and records
-`fixtures/v2/`. It also pins down what FlupCode meets there today: its 1.x routes answer the web UI's
-HTML, and its 1.x plugins are all refused. Each suite runs only on its own line:
-
-```bash
-bun run --cwd packages/engine-contract test      # 1.x flows (default line, runs in CI)
-bun run --cwd packages/engine-contract test:v2   # 2.x flows against the pinned sandbox binary
-```
 
 The findings are in [docs/V2-CONTRACT-REPORT.md](../../docs/V2-CONTRACT-REPORT.md).

@@ -1,6 +1,7 @@
-import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { afterAll, describe, expect, test } from "bun:test"
+import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
+import { copyFileSync, existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
@@ -9,11 +10,12 @@ import { CONTRACT_LINE, startEngine, type Engine } from "../src/engine"
 import { startModel } from "../src/model"
 
 /**
- * The explicit 1.x → 2.x import (V2-61), end to end on real engines, isolated: FlupCode's 1.x engine
- * from this checkout keeps a session and memories in its own temporary home; its database is copied
- * while it runs into the place FlupCode's 2.x engine opens, 2.x imports that copy on start, the
- * memories come over 1.x's `/api/memory`, and a rollback puts the 2.x database back. Nothing here
- * opens the reader's own `opencode.db`. Runs on the v2 line:
+ * The explicit 1.x → 2.x import (V2-61), end to end on a real 2.x engine, isolated. The 1.x side is
+ * recorded: `fixtures/v1/history.db` is a 1.x database (one session, asked and answered with the stub
+ * model) written by FlupCode's last 1.x engine, and a stand-in answers the 1.x `/project` and
+ * `/api/memory` routes the memory import reads. A copy is imported into the place FlupCode's 2.x engine
+ * opens, 2.x imports it on start, the memories come over, and a rollback puts the 2.x database back.
+ * Nothing here opens the reader's own `opencode.db`. Runs on the v2 line:
  *
  *   FLUPCODE_CONTRACT_LINE=v2 bun test test/v1-import-v2.test.ts
  */
@@ -21,35 +23,24 @@ const run = CONTRACT_LINE === "v2"
 const model = startModel()
 const scratch = realpathSync(mkdtempSync(join(tmpdir(), "flupcode-v1-import-")))
 const target = join(scratch, "opencode-v2", "opencode.db")
-let v1: Engine
-let v1Session: string
-
-beforeAll(async () => {
-  if (!run) return
-  v1 = await startEngine({ modelUrl: model.url, line: "v1" })
-  const created = (await call(v1, "POST", `/session?directory=${encodeURIComponent(v1.project)}`, {})) as { id: string }
-  v1Session = created.id
-  model.push({ type: "text", text: "Answered on 1.x" })
-  await call(v1, "POST", `/session/${v1Session}/message?directory=${encodeURIComponent(v1.project)}`, {
-    parts: [{ type: "text", text: "Asked on 1.x" }],
-  })
-  await call(v1, "POST", "/api/memory", { scope: "global", title: "Lint", content: "Run bun run lint before pushing" })
-  await call(v1, "POST", `/api/memory?${new URLSearchParams({ "location[directory]": v1.project })}`, {
-    scope: "project",
-    title: "Branch",
-    content: "Releases are cut from power",
-  })
-}, 180_000)
+const source = join(scratch, "opencode.db")
+copyFileSync(join(import.meta.dir, "..", "fixtures", "v1", "history.db"), source)
+const v1Session = (() => {
+  const db = new Database(source, { readonly: true })
+  const row = db.query("select id from session").get() as { id: string }
+  db.close()
+  return row.id
+})()
+const v1 = startV1Memories(scratch)
 
 afterAll(async () => {
-  await v1?.stop()
+  v1.stop(true)
   model.stop()
   rmSync(scratch, { recursive: true, force: true })
 })
 
 describe.skipIf(!run)("importing OpenCode 1.x history into FlupCode's OpenCode 2 engine", () => {
   test("a copy of the running 1.x database is imported by 2.x, memories follow, and a rollback undoes it", async () => {
-    const source = v1Database(v1)
     const before = digest(source)
     const imported = importV1History({ source, target })
     expect(imported).toMatchObject({ sessions: 1, target })
@@ -58,10 +49,9 @@ describe.skipIf(!run)("importing OpenCode 1.x history into FlupCode's OpenCode 2
 
     const v2 = await startEngine({
       modelUrl: model.url,
-      line: "v2",
       env: { OPENCODE_DB: target, OPENCODE_PURE: undefined },
       prepare: async (home) => {
-        await installEnginePlugins(join(home, ".config", "opencode"), "v2")
+        await installEnginePlugins(join(home, ".config", "opencode"))
       },
     })
     try {
@@ -79,7 +69,7 @@ describe.skipIf(!run)("importing OpenCode 1.x history into FlupCode's OpenCode 2
       const memories = await until(
         () =>
           importV1Memories({
-            from: { url: v1.url, authorization: v1.authorization },
+            from: { url: v1.url.href },
             to: { url: v2.url, authorization: v2.authorization },
           }).catch(() => undefined),
         (result) => result !== undefined,
@@ -92,7 +82,7 @@ describe.skipIf(!run)("importing OpenCode 1.x history into FlupCode's OpenCode 2
       // Again, nothing new: what 2.x already has is not added twice.
       expect(
         await importV1Memories({
-          from: { url: v1.url, authorization: v1.authorization },
+          from: { url: v1.url.href },
           to: { url: v2.url, authorization: v2.authorization },
         }),
       ).toEqual({ found: 2, imported: 0 })
@@ -111,10 +101,39 @@ describe.skipIf(!run)("importing OpenCode 1.x history into FlupCode's OpenCode 2
   }, 240_000)
 })
 
-/** FlupCode's 1.x engine from source runs on the local channel, whose database is named for it. */
-function v1Database(engine: Engine) {
-  const folder = join(engine.home, ".local", "share", "opencode")
-  return ["opencode.db", "opencode-local.db"].map((name) => join(folder, name)).find((path) => existsSync(path))!
+/**
+ * The routes of a 1.x engine `importV1Memories` reads, answering as 1.x did with one global memory and
+ * one for the project 1.x knew.
+ */
+function startV1Memories(project: string) {
+  const memory = (scope: "global" | "project", title: string, content: string) => ({
+    id: `mem_${title.toLowerCase()}`,
+    scope,
+    scopeID: scope === "global" ? "global" : project,
+    kind: "fact",
+    title,
+    content,
+    tags: [],
+    status: "active",
+    confidence: 1,
+    importance: 0.5,
+    ...(scope === "project" ? { directory: project } : {}),
+  })
+  return Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (request) => {
+      const url = new URL(request.url)
+      if (url.pathname === "/project") return Response.json([{ worktree: project }])
+      if (url.pathname !== "/api/memory") return new Response("not found", { status: 404 })
+      if (url.searchParams.get("status") !== "active") return Response.json({ data: [] })
+      return Response.json({
+        data: url.searchParams.get("location[directory]")
+          ? [memory("project", "Branch", "Releases are cut from power")]
+          : [memory("global", "Lint", "Run bun run lint before pushing")],
+      })
+    },
+  })
 }
 
 function digest(path: string) {

@@ -863,7 +863,7 @@ class SlowEngine extends Engine {
   }
 
   override async lastAnswer() {
-    return { text: "```json\n" + JSON.stringify(validDraft()) + "\n```", tokens: undefined, cost: undefined }
+    return { text: "```json\n" + JSON.stringify(validDraft()) + "\n```", tokens: undefined, cost: 0 }
   }
 
   override async interrupt(sessionID: string) {
@@ -872,7 +872,6 @@ class SlowEngine extends Engine {
 
   override async deleteSession(sessionID: string) {
     this.deleted.push(sessionID)
-    return true
   }
 }
 

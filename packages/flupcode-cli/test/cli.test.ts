@@ -13,11 +13,12 @@ import {
 import { startRelay } from "../../relay/src/relay"
 
 const relay = startRelay({ port: 0, hostname: "127.0.0.1" })
+// An OpenCode 2 engine as far as `detectEngine` can tell: its version on `/api/info`.
 const engine = Bun.serve({
   port: 0,
   fetch: (request) =>
-    new URL(request.url).pathname === "/global/health"
-      ? Response.json({ healthy: true })
+    new URL(request.url).pathname === "/api/info"
+      ? Response.json({ version: "2.0.18" })
       : new Response("not found", { status: 404 }),
 })
 const configDir = mkdtempSync(join(tmpdir(), "flupcode-cli-"))
@@ -146,7 +147,7 @@ describe("flupcode remote", () => {
     await new Promise((resolve) => tunnel.onControl(resolve))
     tunnel.sendControl({ type: "device", name: "Test phone" })
     await out.wait(/Paired Test phone/)
-    expect(await (await tunnel.fetch("https://remote.invalid/global/health")).json()).toEqual({ healthy: true })
+    expect(await (await tunnel.fetch("https://remote.invalid/api/info")).json()).toEqual({ version: "2.0.18" })
 
     const again = cli("remote", "--no-serve", "--engine", `http://127.0.0.1:${engine.port}`)
     expect(await new Response(again.stderr).text()).toContain("already running")
@@ -168,8 +169,25 @@ describe("flupcode remote", () => {
 
   test("explains how to start the engine when it is not running", async () => {
     const run = cli("remote", "--no-serve", "--engine", "http://127.0.0.1:9")
-    expect(await new Response(run.stderr).text()).toContain("opencode serve --port 9")
+    expect(await new Response(run.stderr).text()).toContain('start one with "flupcode serve"')
     expect(await run.exited).toBe(1)
+  })
+
+  test("refuses an OpenCode 1.x engine, which FlupCode no longer drives", async () => {
+    const v1 = Bun.serve({
+      port: 0,
+      fetch: (request) =>
+        new URL(request.url).pathname === "/global/health"
+          ? Response.json({ healthy: true, version: "1.18.32" })
+          : new Response("not found", { status: 404 }),
+    })
+    try {
+      const run = cli("remote", "--no-serve", "--engine", v1.url.href.replace(/\/$/, ""))
+      expect(await new Response(run.stderr).text()).toContain("is OpenCode 1.x, which FlupCode no longer supports")
+      expect(await run.exited).toBe(1)
+    } finally {
+      v1.stop(true)
+    }
   })
 
   test("asks for the password of an OpenCode 2.x engine it did not start", async () => {
@@ -195,20 +213,19 @@ describe("flupcode remote", () => {
   // OpenCode 2 always runs behind a password, so the one flupcode starts gets its own, and the relay
   // signs in with it: a paired phone reaches the engine without ever being told the password.
   test("starts an OpenCode 2.x engine with a password of its own and exposes it through the relay", async () => {
-    const { bin } = fakeOpenCodeV2()
+    const { bin, binary } = fakeOpenCodeV2()
     const port = freePort()
     const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
     const ownDir = mkdtempSync(join(tmpdir(), "flupcode-cli-v2-"))
     try {
       const host = cliWith(
         {
-          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          FLUPCODE_OPENCODE: binary,
           FLUPCODE_CONFIG_DIR: ownDir,
           OPENCODE_SERVER_PASSWORD: undefined,
+          // 2.x has no user name setting: this one is not passed on.
           OPENCODE_SERVER_USERNAME: "someone",
           XDG_DATA_HOME: data,
-          // The `opencode` on the PATH, which here is a 2.x: it still gets FlupCode's environment.
-          FLUPCODE_ENGINE: "v1",
         },
         "remote",
         "--engine",
@@ -256,8 +273,8 @@ describe("flupcode remote", () => {
     }
   }, 60_000)
 
-  // OpenCode 2 is the default (V2-70), named explicitly: whatever `opencode` the PATH holds is not run.
-  test("starts the named OpenCode 2 binary by default, not the opencode on the PATH", async () => {
+  // Whatever `opencode` the PATH holds is not run: it may be 1.x.
+  test("starts the named OpenCode 2 binary, not the opencode on the PATH", async () => {
     const { bin, binary } = fakeOpenCodeV2()
     const decoy = mkdtempSync(join(tmpdir(), "flupcode-cli-decoy-"))
     writeFileSync(join(decoy, "opencode"), `#!/bin/sh\necho "opencode 1.4.0"\nexit 3\n`)
@@ -268,7 +285,6 @@ describe("flupcode remote", () => {
       const host = cliWith(
         {
           PATH: `${decoy}:${process.env.PATH ?? ""}`,
-          FLUPCODE_ENGINE: undefined,
           FLUPCODE_OPENCODE: binary,
           FLUPCODE_CONFIG_DIR: ownDir,
           OPENCODE_SERVER_PASSWORD: undefined,

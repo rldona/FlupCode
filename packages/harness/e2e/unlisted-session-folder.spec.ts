@@ -35,7 +35,7 @@ test("a session opened from the palette still has its folder polled", async ({ p
   await page.route("http://127.0.0.1:9/**", (route) => {
     const request = route.request()
     const url = new URL(request.url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     // Only the search knows this session; no page of the list ever carries it.
     if (url.pathname === "/api/session")
       return route.fulfill({ json: { data: url.searchParams.get("search") ? [hidden] : [], cursor: {} } })

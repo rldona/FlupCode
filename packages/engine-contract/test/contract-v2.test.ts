@@ -1,19 +1,17 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test"
 import { writeFileSync } from "node:fs"
 import { join } from "node:path"
-import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { CONTRACT_LINE, startEngine, type Engine } from "../src/engine"
 import { recordEvents, type EngineEvent } from "../src/events"
 import { keys, matchFixture } from "../src/fixture"
 import { startModel } from "../src/model"
 
 /**
- * The same flows as `contract.test.ts`, driven through OpenCode 2's API (V2-06): `/api/session`,
- * `/api/session/:id/prompt`, the global `/api/event` stream, permissions and forms per session.
- * It runs only on the v2 line (`FLUPCODE_CONTRACT_LINE=v2`), against the pinned sandbox binary, and
- * records `fixtures/v2/`. Side by side with `fixtures/v1/`, that is what FlupCode's V2 adapter
- * (V2-20 onwards) has to absorb. Two more tests pin down what FlupCode meets on V2 today: its legacy
- * routes answer the web UI's HTML, and its 1.x plugins are all refused.
+ * The engine as FlupCode drives it, through OpenCode 2's API (V2-06): `/api/session`,
+ * `/api/session/:id/prompt`, the global `/api/event` stream, permissions and forms per session. It
+ * runs against the pinned binary (`FLUPCODE_CONTRACT_LINE=v2`) and records `fixtures/v2/`, so a pin
+ * bump that changes the contract shows up as a fixture diff. One more test pins down that the 1.x
+ * routes are gone: they answer the web UI's HTML.
  */
 
 const run = CONTRACT_LINE === "v2"
@@ -202,48 +200,6 @@ describe.skipIf(!run)("engine contract on OpenCode 2", () => {
   })
 })
 
-describe.skipIf(!run)("FlupCode's 1.x engine plugins on OpenCode 2", () => {
-  test("are discovered and every one of them fails to load", async () => {
-    const plugins = startModel()
-    const withPlugins = await startEngine({
-      modelUrl: plugins.url,
-      env: { OPENCODE_PURE: undefined },
-      prepare: async (home) => {
-        await installEnginePlugins(join(home, ".config", "opencode"))
-      },
-    })
-    try {
-      const list = async () =>
-        (
-          (await (await fetch(`${withPlugins.url}/api/plugin`, { headers: headers(withPlugins) })).json()) as {
-            data: Array<{ source?: { type?: string; path?: string }; state?: { status?: string; error?: string } }>
-          }
-        ).data.filter((plugin) => plugin.source?.path?.includes("/plugins/flupcode-"))
-      // Local plugins activate once the location has booted, a moment after its first request.
-      const deadline = Date.now() + 20_000
-      let ours = await list()
-      while (ours.length < 14 && Date.now() < deadline) {
-        await Bun.sleep(250)
-        ours = await list()
-      }
-      expect(ours).toHaveLength(14)
-      expect(ours.every((plugin) => plugin.state?.status === "failed")).toBe(true)
-      matchFixture(
-        withPlugins.detected.kind,
-        "plugins",
-        Object.fromEntries(
-          ours
-            .map((plugin) => [plugin.source!.path!.split("/").at(-1)!, firstLine(plugin.state?.error)])
-            .sort(([a], [b]) => (a! < b! ? -1 : 1)),
-        ),
-      )
-    } finally {
-      await withPlugins.stop()
-      plugins.stop()
-    }
-  }, 60_000)
-})
-
 type Content = { type: string; text?: string; state?: { status?: string } }
 type Message = { type: string; outcome?: string; content?: Content[]; error?: unknown }
 
@@ -306,12 +262,4 @@ function shape(messages: Message[]) {
       ? { content: message.content.map((item) => (item.type === "tool" ? `tool:${item.state?.status}` : item.type)) }
       : {}),
   }))
-}
-
-/** A plugin error without the stack and the machine's paths. */
-function firstLine(error: string | undefined) {
-  return (error ?? "")
-    .split("\n")[0]!
-    .replace(/\(\/[^)]*\)/g, "")
-    .trim()
 }

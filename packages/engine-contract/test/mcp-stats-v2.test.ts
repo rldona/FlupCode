@@ -25,7 +25,7 @@ beforeAll(async () => {
     env: { OPENCODE_PURE: undefined },
     config: { mcp: { contract: { type: "local", command: mcpStdioCommand() } } },
     prepare: async (home) => {
-      await installEnginePlugins(join(home, ".config", "opencode"), "v2")
+      await installEnginePlugins(join(home, ".config", "opencode"))
     },
   })
 }, 120_000)

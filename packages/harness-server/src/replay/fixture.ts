@@ -49,7 +49,7 @@ export async function exportSession(input: {
   const session = await input.engine.describeSession(input.sessionID)
   if (!session) throw new Error(`The engine has no session ${input.sessionID}`)
   const directory = input.directory ?? session.directory
-  const messages = await input.engine.messages(input.sessionID, directory)
+  const messages = await input.engine.messages(input.sessionID)
   const users = messages.filter((message) => message.info?.role === "user")
   // Only what the person typed: synthetic parts are file reads and reminders the engine added.
   const prompts = users

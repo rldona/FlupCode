@@ -29,12 +29,9 @@ import {
   createClient,
   createHarnessClient,
   engineTargetVersion,
-  invalidateLegacyHistory,
+  type HistoryImportStatus,
   isSessionGone,
-  engineLineOf,
-  probeEngineProfile,
   probeServer,
-  rememberEngineLine,
   resolveHarnessServerUrl,
   resolveServerUrl,
 } from "./client"
@@ -69,8 +66,6 @@ import {
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
 import { runOutcome, type RunOutcome } from "./run-outcome"
-import type { HistoryImportStatus } from "./engine/v1"
-import { recoverablePrompt } from "./unsend"
 import {
   externalLinkOrigin,
   isBrowsableUrl,
@@ -149,7 +144,6 @@ import { SkillsPanel } from "./components/SkillsPanel"
 import { WorkflowsPanel } from "./components/WorkflowsPanel"
 import { WorkflowLaunchDialog, type WorkflowLaunch } from "./components/WorkflowLaunchDialog"
 import { BestOfNDialog, type BestOfNLaunch } from "./components/BestOfNDialog"
-import { ReplayPanel } from "./components/ReplayPanel"
 import { ComparePanel } from "./components/ComparePanel"
 import { DecisionsPanel } from "./components/DecisionsPanel"
 import { GuardrailBanner, guardrailFor, type GuardrailReading } from "./components/GuardrailBanner"
@@ -196,8 +190,6 @@ function readColorTheme() {
   return "flupcode"
 }
 
-/** App actions built on what OpenCode 2 removed: its replay history and archiving (ADR-0026). */
-const V2_REMOVED_COMMANDS = new Set(["replay", "archive"])
 
 /** Whether a key event is going into a text field, where a bare shortcut must not fire. */
 function isTypingTarget(target: EventTarget | null) {
@@ -220,7 +212,6 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "stashes", descriptionKey: "View saved prompts" },
   { name: "skills", descriptionKey: "Skills" },
   { name: "workflows", descriptionKey: "Workflows" },
-  { name: "replay", descriptionKey: "Replay this session", session: true },
   { name: "compare", descriptionKey: "Compare two runs" },
   { name: "best-of-n", descriptionKey: "Best of N: one task, several models" },
   { name: "skillify", descriptionKey: "Save this session as a skill", session: true },
@@ -241,7 +232,6 @@ const BUILTIN_COMMANDS: Array<{ name: string; descriptionKey: string; session?: 
   { name: "split", descriptionKey: "Split view", session: true },
   { name: "rename", descriptionKey: "Rename session", session: true },
   { name: "pin", descriptionKey: "Pin or unpin this session", session: true },
-  { name: "archive", descriptionKey: "Archive this session", session: true },
   { name: "delete", descriptionKey: "Delete this session", session: true },
   { name: "toggle-sidebar", descriptionKey: "Toggle sidebar" },
   { name: "providers", descriptionKey: "Providers & API keys" },
@@ -330,14 +320,9 @@ export const App: Component = () => {
     idleTimers.delete(sessionID)
     const wasRunning = runState()[sessionID] === true
     setRunState((state) => (state[sessionID] === running ? state : { ...state, [sessionID]: running }))
-    // The moment a session stops working is the only safe one to hand it a prompt that was waiting:
-    // anything sent earlier is swallowed by the turn still running. See pending-prompts.ts.
-    if (wasRunning && !running) {
-      pendingPrompts.release(sessionID, expandPastes, serverUrl())
-      turnEnded(sessionID)
-    }
+    if (wasRunning && !running) turnEnded(sessionID)
   }
-  // A session's 2.x inbox, read again whenever it moves: the prompts waiting there are the engine's.
+  // A session's inbox, read again whenever it moves: the prompts waiting there are the engine's.
   const readInbox = (sessionID: string) =>
     createClient(serverUrl())
       .session.inbox.list({ sessionID })
@@ -551,7 +536,6 @@ export const App: Component = () => {
   const skillsScreenOpen = () => screen() === "skills"
   const workflowsScreenOpen = () => screen() === "workflows"
   const actionsOpen = () => screen() === "actions"
-  const replayOpen = () => screen() === "replay"
   const compareOpen = () => screen() === "compare"
   /**
    * The tool screens that live in the main column (HF-9): runs, workflows, artifacts, changes,
@@ -722,22 +706,19 @@ export const App: Component = () => {
       const result = await createClient(url)
         .health.get()
         .catch(() => ({ healthy: false, version: undefined as string | undefined }))
-      if (result.healthy) return { ...result, line: engineLineOf(url), blocked: false, authRequired: false }
-      // The line remembered for this address did not answer: the other one may have been started in
-      // its place. Every client created from here on talks to what answers now (V2-11).
+      if (result.healthy) return { ...result, legacy: false, blocked: false, authRequired: false }
+      // An OpenCode 1.x engine answers, which FlupCode no longer drives: said apart from a stopped one
+      // so the banner can tell the reader to start OpenCode 2 instead (ADR-0027).
       const detected = await detectEngine(url, engineFetch)
-      if (detected.kind !== "none") {
-        rememberEngineLine(url, detected.kind)
-        return { healthy: true, version: detected.version, line: detected.kind, blocked: false, authRequired: false }
-      }
+      if (detected.kind === "v1")
+        return { healthy: false, version: detected.version, legacy: true, blocked: false, authRequired: false }
       // 2.x always runs behind a password and a browser page has no way to send one: only the desktop
-      // app, which starts the engine with its own, can drive it.
-      if (await openCodeV2Locked(url, engineFetch))
-        return { ...result, line: "v2" as const, blocked: false, authRequired: true }
+      // app or `flupcode serve`, which sign in for the page, can drive it.
+      if (await openCodeV2Locked(url, engineFetch)) return { ...result, legacy: false, blocked: false, authRequired: true }
       const status = await probeServer(url)
       return {
         ...result,
-        line: engineLineOf(url),
+        legacy: false,
         blocked: status === "blocked",
         authRequired: status === "unauthorized",
       }
@@ -765,15 +746,12 @@ export const App: Component = () => {
     () =>
       Boolean(localNetworkEngine() && health()?.blocked) && (localNetwork() === "prompt" || localNetwork() === "denied"),
   )
-  // OpenCode 2 drops features the UI offers on 1.x (sharing, archiving, the replay history, deleting
-  // a message, the todo list); they are hidden rather than offered and refused (ADR-0026).
-  const engineV2 = () => health()?.line === "v2"
   // OpenCode 2 importing the 1.x history it was given (V2-61): it runs once, when the engine starts,
   // and until it finishes those sessions are missing from the list. Asked while it runs, then no more.
   const [historyImport, setHistoryImport] = createSignal<HistoryImportStatus>()
   createEffect(() => {
     const url = serverUrl()
-    if (!engineV2() || health()?.healthy !== true) return setHistoryImport(undefined)
+    if (health()?.healthy !== true) return setHistoryImport(undefined)
     let stopped = false
     onCleanup(() => {
       stopped = true
@@ -790,18 +768,11 @@ export const App: Component = () => {
     }
     void ask()
   })
-  // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
-  // stock OpenCode CLI, whose extras (permission modes, memory) are missing.
-  // OpenCode 2 is named for what it is: its extras come from FlupCode's 2.x plugins, not a build.
-  const [engineProfile] = createResource(
-    () => (ready() ? serverUrl() : undefined),
-    (url) => (health()?.line === "v2" ? ("v2" as const) : probeEngineProfile(url)),
-  )
-  // `/global/health` reports the engine's own version. "local" is a source build (FlupCode's own),
-  // so only a released version is compared against the one this UI was generated from.
+  // The engine's own version against the pin this build was made for (ADR-0027): an OpenCode 2 started
+  // some other way may be another release.
   const engineVersionMismatch = () => {
     const reported = health()?.version
-    return health()?.line !== "v2" && !!reported && reported !== "local" && !!engineTargetVersion && reported !== engineTargetVersion
+    return !!reported && !!engineTargetVersion && reported !== engineTargetVersion
   }
 
   createEffect(() => {
@@ -2377,7 +2348,7 @@ export const App: Component = () => {
     const commandOptions = (): CommandOption[] => [
       ...BUILTIN_COMMANDS.filter(
         (command) =>
-          (desktopWindow() || command.name !== "actions") && !(engineV2() && V2_REMOVED_COMMANDS.has(command.name)),
+          desktopWindow() || command.name !== "actions",
       ).map((command) => ({
         name: command.name,
         description: t(command.descriptionKey),
@@ -2428,14 +2399,14 @@ export const App: Component = () => {
     // Prompts shown before the engine projects their message, reconciled by id once it does. The ones
     // sent while a turn was already running offer "Send now".
     const pendingForSession = () =>
-      pendingPrompts.forSession(selected(), activeMessages() ?? [], expandPastes, serverUrl())
+      pendingPrompts.forSession(selected(), activeMessages() ?? [], serverUrl())
 
     // Once a real message replaces its optimistic prompt, forget it so the list cannot grow.
     createEffect(() => pendingPrompts.reconcile(new Set((activeMessages() ?? []).map((message) => message.id))))
     // What the open session's inbox holds on 2.x (V2-41): queued prompts outlive a reload there.
     createEffect(() => {
       const sessionID = selected()
-      if (!sessionID || health()?.line !== "v2") return
+      if (!sessionID || health()?.healthy !== true) return
       void readInbox(sessionID)
     })
 
@@ -2501,10 +2472,6 @@ export const App: Component = () => {
         showScreen("workflows")
         return
       }
-      if (name === "replay") {
-        showScreen("replay")
-        return
-      }
       if (name === "compare") {
         showScreen("compare")
         return
@@ -2565,10 +2532,6 @@ export const App: Component = () => {
       }
       if (name === "pin") {
         if (selected()) togglePin(selected()!)
-        return
-      }
-      if (name === "archive") {
-        if (selected()) archiveSession(selected()!, true)
         return
       }
       if (name === "delete") {
@@ -2893,14 +2856,6 @@ export const App: Component = () => {
                 void refetchQuestions()
                 void refetchBlocked()
               } else if (type.startsWith("message.") || type.startsWith("session.next.")) {
-                if (type.startsWith("message.")) {
-                  const legacy = event as {
-                    data?: { sessionID?: string; info?: { sessionID?: string }; part?: { sessionID?: string } }
-                  }
-                  invalidateLegacyHistory(
-                    legacy.data?.sessionID ?? legacy.data?.info?.sessionID ?? legacy.data?.part?.sessionID,
-                  )
-                }
                 const changed = event as {
                   data?: {
                     sessionID?: string
@@ -3097,14 +3052,9 @@ export const App: Component = () => {
                 publishSessionEvent({ kind: "turn", sessionID })
                 if (sessionID === selected()) setStreamedChars(0)
               }
-              // The cached legacy history is now behind the store, so the next refetch must rebuild it.
-              invalidateLegacyHistory(sessionID)
             } else if (type === "session.idle") {
               // The end of a turn is where the applied events are reconciled against the engine's own
-              // copy: one refetch per turn instead of one every 300ms. The cache is dropped first: if
-              // the final `message.updated` was lost with a dying stream, the refetch would otherwise
-              // rebuild the same unfinished last message and the composer would stay on Stop.
-              invalidateLegacyHistory(sessionID)
+              // copy: one refetch per turn instead of one every 300ms.
               scheduleRefetch(true, true)
             } else if (type.startsWith("session.")) {
               scheduleRefetch(false, true)
@@ -4460,13 +4410,6 @@ export const App: Component = () => {
         return removed
       })
 
-  /** One page of the open session's durable events, for the replay (H-33). */
-  const replayPage = (after?: number) => {
-    const sessionID = selected()
-    if (!sessionID) return Promise.resolve({ data: [], hasMore: false })
-    return createClient(serverUrl()).session.history({ sessionID, after, limit: 200 })
-  }
-
   /** Everything the comparison needs about one run (H-33): itself, its tasks, and what they changed. */
   const compareSnapshot = async (id: string) => {
     const client = createHarnessClient(harnessServerUrl())
@@ -4650,33 +4593,6 @@ export const App: Component = () => {
     })
   }
 
-  /**
-   * Take a sent prompt back (UN-1): the text returns to the composer first so nothing that
-   * follows can lose it, then the turn stops and the prompt plus its partial turn are deleted
-   * newest-first. Anything already deleted or appended in the meantime leaves the text recovered
-   * with an honest note instead of rewritten history.
-   */
-  const unsendMessage = (messageID: string) => {
-    const sessionID = selected()
-    const plan = recoverablePrompt(activeMessages() ?? [], messageID)
-    if (!sessionID || !plan) return
-    setPrompt(plan.text)
-    void (async () => {
-      try {
-        const client = createClient(serverUrl())
-        await client.session.abort({ sessionID, directory: sessionDirectory(sessionID) })
-        const deadline = Date.now() + 10_000
-        while (generating() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 300))
-        for (const id of plan.deleteIDs) {
-          await client.session.removeMessage({ sessionID, messageID: id, directory: sessionDirectory(sessionID) })
-        }
-        void refetchMessages()
-      } catch {
-        toast(t("Kept in the composer; the turn could not be fully recalled"), "info")
-      }
-    })()
-  }
-
   const forkSession = (messageID?: string) => {
     const sessionID = selected()
     if (!sessionID) return
@@ -4731,16 +4647,6 @@ export const App: Component = () => {
 
   // Archiving is the engine's own `time.archived` (H-18): the session stays, it just leaves the
   // list. Bringing it back is the same call with zero.
-  const archiveSession = (id: string, archived: boolean) => {
-    void createClient(serverUrl())
-      .session.setArchived(id, archived)
-      .then(() => {
-        if (archived && selected() === id) setSelected(undefined)
-        return refetchSessions()
-      })
-      .catch((cause) => toast(cause instanceof Error ? cause.message : String(cause), "error"))
-  }
-
   const deleteProject = (groupId: string) => {
     const sessions = (sessionList() ?? []).filter((session) => sessionGroupKey(session, noFolderSessions()) === groupId)
     if (sessions.length === 0) return
@@ -4769,28 +4675,6 @@ export const App: Component = () => {
         })()
       },
     })
-  }
-
-  // The engine has served share links all along; the UI just never asked for one. It cannot say
-  // whether a session is already shared — the v2 session record carries no share state — so both
-  // actions are always offered rather than pretending to know.
-  const shareSession = () => {
-    const session = selectedSession()
-    if (!session) return
-    void run(async (current) => {
-      const url = await current.session.share({ sessionID: session.id, directory: session.location?.directory })
-      if (url) await navigator.clipboard?.writeText(url).catch(() => undefined)
-      return undefined
-    }, t("Share link copied"))
-  }
-
-  const unshareSession = () => {
-    const session = selectedSession()
-    if (!session) return
-    void run(async (current) => {
-      await current.session.unshare({ sessionID: session.id, directory: session.location?.directory })
-      return undefined
-    }, t("Sharing stopped"))
   }
 
   const moveSession = (directory: string) => {
@@ -5164,9 +5048,8 @@ export const App: Component = () => {
   const submitPrompt = (text: string, files: Attachment[], keepDraft = false, options?: { agent?: string; system?: string }) => {
     // Delivery only means something when a turn is already running; an idle session starts one.
     const mode = generating() ? delivery() : undefined
-    // 2.x delivers prompts itself (V2-41): the inbox holds a queued one, and a steer joins the
+    // The engine delivers prompts itself (V2-41): its inbox holds a queued one, and a steer joins the
     // running execution at its next boundary with nothing to stop first.
-    const engineDelivers = engineLineOf(serverUrl()) === "v2"
     const id = messageID()
     // Cowork overrides the app's agent and adds its system prompt; Code sends neither.
     const promptAgent = options?.agent ?? agent()
@@ -5210,23 +5093,13 @@ export const App: Component = () => {
         ...(system ? { system } : {}),
         ...(model ? { model } : {}),
         delivery: mode,
-        ...(engineDelivers && mode === "queue" ? { held: true } : {}),
+        ...(mode === "queue" ? { held: true } : {}),
       })
       setStreamedChars(0)
       if (!keepDraft) {
         setPrompt("")
         setAttachments([])
       }
-      // On 1.x queued prompts wait here, not in the engine: the legacy runner has no queue of its
-      // own, so one sent now would join the turn in flight instead of following it. pending-prompts.ts
-      // sends it when the session goes idle, which is also what makes it cancellable. 2.x queues it.
-      if (mode === "queue" && !engineDelivers) return sessionID
-      // A message sent while the agent is working interrupts it — the running tool included — and
-      // starts a new turn with this one, so the agent answers now instead of after the work it is
-      // waiting on. Queue is how the reader asks for the opposite. The interrupted turn, and the
-      // partial output of the tool it was running, stay in history for the next turn to read.
-      if (mode === "steer" && !engineDelivers)
-        await current.session.abort({ sessionID, directory }).catch(() => {})
       try {
         await current.session.send({
           sessionID,
@@ -5237,7 +5110,7 @@ export const App: Component = () => {
           ...(system ? { system } : {}),
           ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
-          ...(engineDelivers && mode ? { delivery: mode } : {}),
+          ...(mode ? { delivery: mode } : {}),
         })
       } catch (cause) {
         pendingPrompts.remove(id)
@@ -5417,11 +5290,6 @@ export const App: Component = () => {
       if (name === "workflows") {
         setPrompt("")
         showScreen("workflows")
-        return
-      }
-      if (name === "replay") {
-        setPrompt("")
-        showScreen("replay")
         return
       }
       if (name === "compare") {
@@ -5619,8 +5487,6 @@ export const App: Component = () => {
                       onCompact={compactSession}
                       onRename={renameSession}
                       onExport={() => setExportOpen(true)}
-                      onShare={engineV2() ? undefined : shareSession}
-                      onUnshare={engineV2() ? undefined : unshareSession}
                       onMove={moveSession}
                       onDelete={deleteSession}
                       onUndo={undo}
@@ -5677,7 +5543,6 @@ export const App: Component = () => {
             onDisplayName={updateDisplayName}
             onToggleSessionPin={togglePin}
             onEditTags={editTags}
-            onArchiveSession={engineV2() ? undefined : archiveSession}
             onToggleProject={toggleProject}
             onNewSession={newSession}
             onSelectSession={selectSession}
@@ -5752,6 +5617,9 @@ export const App: Component = () => {
                   <Show
                     when={serverAuthRequired()}
                     fallback={
+                      <Show
+                        when={health()?.legacy}
+                        fallback={
                       <span>
                         {health()?.blocked ? t("Connection blocked by the browser") : t("Server offline")} —{" "}
                         {t("start it, or open the desktop app")} ·{" "}
@@ -5762,25 +5630,18 @@ export const App: Component = () => {
                             : "flupcode serve"}
                         </code>
                       </span>
+                        }
+                      >
+                        <span>
+                          {t("This engine is OpenCode 1.x, which FlupCode no longer supports")} —{" "}
+                          {t("stop it and run flupcode serve, or open FlupCode's desktop app")} · <code>flupcode serve</code>
+                        </span>
+                      </Show>
                     }
                   >
-                    <Show
-                      when={health()?.line === "v2"}
-                      fallback={
-                        <span>
-                          {t("The engine is asking for authentication")} —{" "}
-                          {t("restart it without a password, or use the desktop app")} ·{" "}
-                          <code>
-                            env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors{" "}
-                            {window.location.origin}
-                          </code>
-                        </span>
-                      }
-                    >
-                      <span>
-                        {t("This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one")} — {t("stop it and run flupcode serve, or open FlupCode's desktop app: both sign this page in")}
-                      </span>
-                    </Show>
+                    <span>
+                      {t("This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one")} — {t("stop it and run flupcode serve, or open FlupCode's desktop app: both sign this page in")}
+                    </span>
                   </Show>
                   <button class="fc-button" type="button" onClick={() => void refetchHealth()}>
                     {t("Retry")}
@@ -6182,7 +6043,6 @@ export const App: Component = () => {
                 chat={plainChatView()}
                 pending={pendingForSession()}
                 onEditUser={editMessage}
-                onRecoverUser={engineV2() ? undefined : unsendMessage}
                 onForkUser={forkSession}
                 onRetry={retryTurn}
                 onOpenSession={selectSession}
@@ -6353,8 +6213,8 @@ export const App: Component = () => {
           <PanelBoundary name={t("The context panel")}>
             <RightAside
               todos={todos()}
-              tasks={!engineV2()}
               onClearTodos={clearTodos}
+              tasks={false}
               subagents={visibleSubagents()}
               onClearSubagents={clearSubagents}
               onOpenSubagent={selectSession}
@@ -6518,7 +6378,6 @@ export const App: Component = () => {
         displayName={displayName()}
         serverInput={serverInput()}
         serverStatus={serverStatus()}
-        engineProfile={engineProfile()}
         engineVersion={health()?.version}
         engineVersionMismatch={engineVersionMismatch()}
         running={generating()}
@@ -6681,11 +6540,9 @@ export const App: Component = () => {
         serverHealthy={health()?.healthy}
         serverBlocked={health()?.blocked === true}
         serverAuthRequired={serverAuthRequired()}
-        serverLockedV2={serverAuthRequired() && health()?.line === "v2"}
         localNetwork={localNetwork()}
         allowingLocalNetwork={allowingLocalNetwork()}
         onAllowLocalNetwork={() => void allowLocalNetwork()}
-        engineProfile={engineProfile()}
         serverInput={serverInput()}
         onServerInput={setServerInput}
         onConnect={() => {
@@ -6714,13 +6571,6 @@ export const App: Component = () => {
           setSkillsOpen(false)
         }}
         onClose={() => setSkillsOpen(false)}
-      />
-      <ReplayPanel
-        open={replayOpen()}
-        sessionID={selected()}
-        title={selectedSession()?.title}
-        onPage={replayPage}
-        onClose={() => leaveScreen()}
       />
       <MemoryPanel
         open={memoryOpen()}

@@ -68,9 +68,6 @@ type SidebarProps = {
   onToggleSessionPin: (id: string) => void
   /** Opens the dialog that edits a session's tags, so this only asks for it (H-18). */
   onEditTags: (id: string) => void
-  /** Archives a session, or brings it back (H-18). */
-  /** Omitted where the engine cannot archive (OpenCode 2, ADR-0026). */
-  onArchiveSession?: (id: string, archived: boolean) => void
   onToggleProject: (id: string) => void
   onNewSession: (directory?: string) => void
   onSelectSession: (id: string) => void
@@ -300,15 +297,6 @@ export const Sidebar: Component<SidebarProps> = (props) => {
           onSelect: () => props.onToggleSessionPin(session.id),
         },
         { label: t("Edit tags…"), icon: "🏷", onSelect: () => props.onEditTags(session.id) },
-        ...(props.onArchiveSession
-          ? [
-              {
-                label: archived(session) ? t("Unarchive") : t("Archive"),
-                icon: "▣",
-                onSelect: () => props.onArchiveSession?.(session.id, !archived(session)),
-              },
-            ]
-          : []),
         { label: t("Rename"), icon: "✎", onSelect: () => props.onRenameSession(session.id) },
         ...(props.view === "code"
           ? [

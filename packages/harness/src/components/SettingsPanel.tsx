@@ -14,7 +14,7 @@ import type {
 } from "../engine-types"
 import type { AgentFile, CommandFile, McpConfig, McpScope } from "../types"
 import type { ConfiguredProvider, CustomProviderResult } from "../custom-provider"
-import { engineTargetVersion, type EngineProfile } from "../client"
+import { engineTargetVersion } from "../client"
 import { t, type Locale } from "../i18n"
 import { formatDateTime } from "../dates"
 import { effortLabel } from "../effort"
@@ -40,7 +40,6 @@ type SettingsPanelProps = {
   displayName: string
   serverInput: string
   serverStatus: string
-  engineProfile: EngineProfile | undefined
   engineVersion: string | undefined
   engineVersionMismatch: boolean
   /** A turn is running: switching the model now would break it, so the model controls are locked. */
@@ -745,11 +744,7 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                   <div class="fc-settings-row">
                     <span>{t("Engine")}</span>
                     <span class="fc-settings-status">
-                      {props.engineVersion === "local"
-                        ? t("Source build")
-                        : props.engineProfile === "v2"
-                          ? `OpenCode ${props.engineVersion ?? ""}`.trim()
-                          : (props.engineVersion ?? t("Unknown"))}
+                      {props.engineVersion ? `OpenCode ${props.engineVersion}` : t("Unknown")}
                     </span>
                   </div>
                   <Show when={props.engineVersionMismatch}>
@@ -757,20 +752,6 @@ export const SettingsPanel: Component<SettingsPanelProps> = (props) => {
                       {t(
                         "This engine ({version}) does not match the version this FlupCode build was generated against ({target}). Update the engine or FlupCode.",
                         { version: props.engineVersion ?? "", target: engineTargetVersion ?? "" },
-                      )}
-                    </div>
-                  </Show>
-                  <Show when={props.engineProfile !== undefined && props.engineProfile !== "v2" && props.engineVersion}>
-                    <div class="fc-settings-hint">
-                      {t(
-                        "OpenCode 1.x is deprecated in FlupCode: OpenCode 2 is the engine it starts now, and 1.x support goes in a coming release.",
-                      )}
-                    </div>
-                  </Show>
-                  <Show when={props.engineProfile === "stock"}>
-                    <div class="fc-settings-hint">
-                      {t(
-                        "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.",
                       )}
                     </div>
                   </Show>

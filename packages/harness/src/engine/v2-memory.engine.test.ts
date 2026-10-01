@@ -26,7 +26,7 @@ beforeAll(async () => {
     // Plugins load only outside pure mode.
     env: { OPENCODE_PURE: undefined },
     prepare: async (home) => {
-      await installEnginePlugins(join(home, ".config", "opencode"), "v2")
+      await installEnginePlugins(join(home, ".config", "opencode"))
     },
   })
   setEngineTransport({

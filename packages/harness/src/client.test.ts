@@ -4,10 +4,8 @@ import {
   adaptiveSurfaces,
   createClient,
   createHarnessClient,
-  engineLineOf,
   isSessionGone,
   probeServer,
-  rememberEngineLine,
   subscribeEvents,
 } from "./client"
 import { setEngineTransport } from "./transport"
@@ -131,104 +129,12 @@ test("an engine that does not answer at all is offline", async () => {
   expect(await probeServer("http://engine")).toBe("offline")
 })
 
-test("saving a credential drops the engine's cached providers, so the new key is the one used", async () => {
-  const calls: string[] = []
-  setEngineTransport({
-    fetch: async (input) => {
-      const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url)
-      calls.push(url.pathname)
-      return new Response(JSON.stringify(true), { status: 200, headers: { "content-type": "application/json" } })
-    },
-    socket: () => {
-      throw new Error("not used")
-    },
-  })
 
-  const client = createClient("http://engine")
-  await client.auth.set({ providerID: "opencode-go", key: "oc_sk_new" })
-  await client.auth.reload()
 
-  expect(calls).toEqual(["/auth/opencode-go", "/global/dispose"])
-})
 
-/** Records every request, and answers with an empty object the generated calls can unwrap. */
-function recordingEngine(calls: Array<{ method: string; path: string }>) {
-  setEngineTransport({
-    fetch: async (input, init) => {
-      const request = input instanceof Request ? input : new Request(String(input), init)
-      calls.push({ method: request.method.toUpperCase(), path: new URL(request.url).pathname })
-      return new Response(JSON.stringify({ data: [] }), { status: 200, headers: { "content-type": "application/json" } })
-    },
-    socket: () => {
-      throw new Error("not used")
-    },
-  })
-}
 
-test("an MCP server added with the global scope is written to the global configuration", async () => {
-  const calls: Array<{ method: string; path: string }> = []
-  recordingEngine(calls)
 
-  await createClient("http://engine").mcp.add({
-    server: "srv",
-    config: { type: "remote", url: "https://mcp.example" },
-    scope: "global",
-  })
 
-  expect(calls.filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: "/global/config" }])
-})
-
-test("an MCP server added with the project scope is written to the directory configuration", async () => {
-  const calls: Array<{ method: string; path: string }> = []
-  recordingEngine(calls)
-
-  await createClient("http://engine").mcp.add({
-    server: "srv",
-    config: { type: "remote", url: "https://mcp.example" },
-    scope: "project",
-  })
-
-  expect(calls.filter((call) => call.method === "PATCH")).toEqual([{ method: "PATCH", path: "/config" }])
-})
-
-test("updateGlobalConfig writes to the global configuration", async () => {
-  const calls: Array<{ method: string; path: string }> = []
-  recordingEngine(calls)
-
-  await createClient("http://engine").updateGlobalConfig({ flupcode: { composeTools: [] } })
-
-  expect(calls).toEqual([{ method: "PATCH", path: "/global/config" }])
-})
-
-test("reloadConfig re-reads the configuration for the directory it is given", async () => {
-  const calls: Array<{ method: string; path: string; search: string }> = []
-  setEngineTransport({
-    fetch: async (input, init) => {
-      const request = input instanceof Request ? input : new Request(String(input), init)
-      const url = new URL(request.url)
-      calls.push({ method: request.method.toUpperCase(), path: url.pathname, search: url.search })
-      return new Response("true", { status: 200, headers: { "content-type": "application/json" } })
-    },
-    socket: () => {
-      throw new Error("not used")
-    },
-  })
-
-  await createClient("http://engine").reloadConfig({ directory: "/work/demo" })
-
-  expect(calls).toEqual([{ method: "POST", path: "/config/reload", search: "?directory=%2Fwork%2Fdemo" }])
-})
-
-test("reloadConfig reports a response that is not ok", async () => {
-  setEngineTransport({
-    fetch: async () => new Response("{}", { status: 500 }),
-    socket: () => {
-      throw new Error("not used")
-    },
-  })
-
-  await expect(createClient("http://engine").reloadConfig()).rejects.toThrow()
-})
 
 /** Records method, path and query, and answers with an empty object the MCP calls can unwrap. */
 function recordingEngineQueries(calls: Array<{ method: string; path: string; search: string }>) {
@@ -245,89 +151,10 @@ function recordingEngineQueries(calls: Array<{ method: string; path: string; sea
   })
 }
 
-test("mcp.list asks for the directory it is given, and omits it when there is none", async () => {
-  const calls: Array<{ method: string; path: string; search: string }> = []
-  recordingEngineQueries(calls)
 
-  await createClient("http://engine").mcp.list({ directory: "/work/demo" })
-  await createClient("http://engine").mcp.list()
 
-  expect(calls).toEqual([
-    { method: "GET", path: "/mcp", search: "?directory=%2Fwork%2Fdemo" },
-    { method: "GET", path: "/mcp", search: "" },
-  ])
-})
 
-test("mcp.config asks for the directory it is given, and omits it when there is none", async () => {
-  const calls: Array<{ method: string; path: string; search: string }> = []
-  recordingEngineQueries(calls)
 
-  await createClient("http://engine").mcp.config({ directory: "/work/demo" })
-  await createClient("http://engine").mcp.config()
-
-  expect(calls).toEqual([
-    { method: "GET", path: "/config", search: "?directory=%2Fwork%2Fdemo" },
-    { method: "GET", path: "/config", search: "" },
-  ])
-})
-
-test("mcp.resources asks for the directory it is given, and omits it when there is none", async () => {
-  const calls: Array<{ method: string; path: string; search: string }> = []
-  recordingEngineQueries(calls)
-
-  await createClient("http://engine").mcp.resources({ directory: "/work/demo" })
-  await createClient("http://engine").mcp.resources()
-
-  expect(calls).toEqual([
-    { method: "GET", path: "/experimental/resource", search: "?directory=%2Fwork%2Fdemo" },
-    { method: "GET", path: "/experimental/resource", search: "" },
-  ])
-})
-
-test("removing an MCP server clears it from both configurations and disconnects it", async () => {
-  const calls: Array<{ method: string; path: string }> = []
-  recordingEngine(calls)
-
-  await createClient("http://engine").mcp.remove({ server: "srv" })
-
-  const patches = calls
-    .filter((call) => call.method === "PATCH")
-    .map((call) => call.path)
-    .sort()
-  expect(patches).toEqual(["/config", "/global/config"])
-  expect(calls.some((call) => call.path.endsWith("/disconnect"))).toBe(true)
-})
-
-test("MCP writes act on the directory the list was read for", async () => {
-  const calls: Array<{ method: string; path: string; search: string }> = []
-  recordingEngineQueries(calls)
-  const mcp = createClient("http://engine").mcp
-  const directory = "/work/demo"
-
-  await mcp.connect({ server: "srv", directory })
-  await mcp.disconnect({ server: "srv", directory })
-  await mcp.authStart({ server: "srv", directory })
-  await mcp.authenticate({ server: "srv", directory })
-  await mcp.authRemove({ server: "srv", directory })
-  const config = { type: "remote" as const, url: "https://mcp.example" }
-  await mcp.add({ server: "srv", config, scope: "project", directory })
-  await mcp.remove({ server: "srv", directory })
-
-  // Only the global config file has no directory: it applies to every instance.
-  const unscoped = calls.filter(
-    (call) => !call.path.startsWith("/global/") && call.search !== "?directory=%2Fwork%2Fdemo",
-  )
-  expect(unscoped).toEqual([])
-  const routes = calls.filter((call) => call.path.startsWith("/mcp/srv")).map((call) => `${call.method} ${call.path}`)
-  expect(routes).toEqual([
-    "POST /mcp/srv/connect",
-    "POST /mcp/srv/disconnect",
-    "POST /mcp/srv/auth",
-    "POST /mcp/srv/auth/authenticate",
-    "DELETE /mcp/srv/auth",
-    "POST /mcp/srv/disconnect",
-  ])
-})
 
 type HarnessCall = { method: string; path: string; search: string; body?: unknown }
 
@@ -963,30 +790,19 @@ test("health still reads an answer wrapped in data", async () => {
   expect(await createHarnessClient("http://harness").health()).toEqual({ healthy: true, capabilities: ["memory"] })
 })
 
-test("the client talks to the line the health check found at an address (V2-11)", async () => {
+test("one OpenCode 2 client per address, which remembers the sign-ins it started", async () => {
   const asked: string[] = []
   setEngineTransport({
     fetch: async (input) => {
-      const url = new URL(new Request(input).url)
-      asked.push(url.pathname)
-      const body = url.pathname === "/global/health" ? { healthy: true, version: "1.4.0" } : { version: "2.0.18" }
-      return Response.json(body)
+      asked.push(new URL(new Request(input).url).pathname)
+      return Response.json({ version: "2.0.18" })
     },
     socket: () => {
       throw new Error("not used")
     },
   })
   const url = "http://127.0.0.1:4911"
-  expect(engineLineOf(url)).toBe("v1")
-  expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "1.4.0" })
-
-  rememberEngineLine(`${url}/`, "v2")
-  expect(engineLineOf(url)).toBe("v2")
   expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "2.0.18" })
-  // One 2.x client per address: it remembers the sign-ins it started.
-  expect(createClient(url)).toBe(createClient(url))
-  expect(asked).toEqual(["/global/health", "/api/info"])
-
-  rememberEngineLine(url, "v1")
-  expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "1.4.0" })
+  expect(createClient(url)).toBe(createClient(`${url}/`))
+  expect(asked).toEqual(["/api/info"])
 })

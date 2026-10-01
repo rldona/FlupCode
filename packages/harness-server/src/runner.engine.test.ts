@@ -10,15 +10,13 @@ import { TaskRunner } from "./runner"
 import type { RunSource } from "./types"
 
 /**
- * The task runner against a real engine (V2-26), on either line: `v1` drives the vendored 1.x engine,
- * `v2` the pinned 2.x one. The same four runs must come out the same on both: two tasks in order, a
- * run stopped mid-turn, a failed check retried until it passes, and a task in a worktree of its own.
- * It starts an engine, so it only runs when a line is named, as CI's engine job does:
+ * The task runner against the pinned OpenCode 2 engine (V2-26): two tasks in order, a run stopped
+ * mid-turn, a failed check retried until it passes, and a task in a worktree of its own. It starts an
+ * engine, so it only runs when asked, as CI's engine job does:
  *
- *   FLUPCODE_CONTRACT_LINE=v1 bun test src/runner.engine.test.ts
  *   FLUPCODE_CONTRACT_LINE=v2 bun test src/runner.engine.test.ts
  */
-const run = !!process.env.FLUPCODE_CONTRACT_LINE
+const run = CONTRACT_LINE === "v2"
 const model = startModel()
 const manual: RunSource = { type: "manual" }
 const repositories: SqliteRoutineRepository[] = []
@@ -45,7 +43,7 @@ const open = () => {
   return repository
 }
 
-describe.skipIf(!run)(`the task runner on a ${CONTRACT_LINE} engine`, () => {
+describe.skipIf(!run)("the task runner on an OpenCode 2 engine", () => {
   test("two tasks run in order, the second handed the first's closing note", async () => {
     const repository = open()
     // The first task, its closing note (a session of its own), the second task, its note.
@@ -69,7 +67,7 @@ describe.skipIf(!run)(`the task runner on a ${CONTRACT_LINE} engine`, () => {
     ])
     expect(tasks.every((task) => typeof task.sessionID === "string" && (task.tokens ?? 0) > 0)).toBe(true)
     // The second task's prompt carried the first one's note, which the engine recorded as its message.
-    const messages = await engine.messages(tasks[1]!.sessionID!, contract.project)
+    const messages = await engine.messages(tasks[1]!.sessionID!)
     const prompt = messages.find((message) => message.info?.role === "user")
     expect(JSON.stringify(prompt)).toContain("Decided: notes")
   })
@@ -85,12 +83,12 @@ describe.skipIf(!run)(`the task runner on a ${CONTRACT_LINE} engine`, () => {
       stopped: () => stop,
     })
     const session = await until(() => repository.listTasks(run.id)[0]?.sessionID)
-    await until(async () => (await engine.isBusy(session, contract.project)) || undefined)
+    await until(async () => (await engine.isBusy(session)) || undefined)
     stop = true
-    await engine.interrupt(session, contract.project)
+    await engine.interrupt(session)
     await execution
     expect(repository.listTasks(run.id)[0]?.status).toBe("stopped")
-    await until(async () => !(await engine.isBusy(session, contract.project)) || undefined)
+    await until(async () => !(await engine.isBusy(session)) || undefined)
   })
 
   test("a failed check is retried with its evidence, and the second attempt fixes it", async () => {
@@ -103,12 +101,11 @@ describe.skipIf(!run)(`the task runner on a ${CONTRACT_LINE} engine`, () => {
       "verify:\n  test: test ! -f broken || { echo 'still broken' >&2; exit 1; }\n",
     )
     // The first attempt only talks (and its closing note is a session of its own); the second runs
-    // the shell, which is `bash` on 1.x and `shell` on 2.x.
-    const shell = CONTRACT_LINE === "v2" ? "shell" : "bash"
+    // the shell.
     model.push(
       { type: "text", text: "I looked at it" },
       { type: "text", text: "Decided: nothing yet" },
-      { type: "tool", name: shell, input: { command: `rm ${join(directory, "broken")}`, description: "Fix it" } },
+      { type: "tool", name: "shell", input: { command: `rm ${join(directory, "broken")}`, description: "Fix it" } },
       { type: "text", text: "Removed it" },
     )
     const run = repository.startRun(manual, Date.now(), directory)
@@ -150,7 +147,7 @@ describe.skipIf(!run)(`the task runner on a ${CONTRACT_LINE} engine`, () => {
   })
 })
 
-test.skipIf(!run || CONTRACT_LINE !== "v2")("a confined session's rules reach 2.x in its own names", async () => {
+test.skipIf(!run)("a confined session's rules reach 2.x in its own names", async () => {
   const session = await engine.createSession({
     directory: contract.project,
     title: "confined",
@@ -165,7 +162,7 @@ test.skipIf(!run || CONTRACT_LINE !== "v2")("a confined session's rules reach 2.
   ])
 })
 
-test.skipIf(!run || CONTRACT_LINE !== "v2")(
+test.skipIf(!run)(
   "a web action's approval is asked in the session and answered there",
   async () => {
     const session = await engine.createSession({ directory: contract.project, title: "approval" })

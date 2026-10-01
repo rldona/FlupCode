@@ -1,4 +1,4 @@
-import type { ModelV2Info, SessionMessagesResponse as SdkSessionMessagesResponse } from "@opencode-ai/sdk/v2/client"
+import type { ModelV2Info, SessionMessagesResponse as SdkSessionMessagesResponse } from "./engine/sdk-types"
 
 export type {
   AgentV2Info as AgentInfo,
@@ -13,27 +13,27 @@ export type {
   SessionMessageAssistantTool,
   SessionV2Info as SessionInfo,
   SkillV2Info as SkillInfo,
-} from "@opencode-ai/sdk/v2/client"
+} from "./engine/sdk-types"
 
 export type ModelVariant = ModelV2Info["variants"][number]
 export type SessionMessagesResponse = SdkSessionMessagesResponse
 export type SessionMessageInfo = SdkSessionMessagesResponse["data"][number]
 
-export type { SnapshotFileDiff as FileDiffInfo } from "@opencode-ai/sdk/v2/client"
+export type { SnapshotFileDiff as FileDiffInfo } from "./engine/sdk-types"
 export type {
   Provider as ProviderDirectoryInfo,
   ProviderAuthAuthorization,
   ProviderAuthMethod,
-} from "@opencode-ai/sdk/v2/client"
+} from "./engine/sdk-types"
 
-export type { MemoryInfo } from "@opencode-ai/sdk/v2/client"
+export type { MemoryInfo } from "./engine/sdk-types"
 
 export type {
   IntegrationAttempt,
   IntegrationAttemptStatus,
   IntegrationInfo,
   IntegrationOAuthMethod,
-} from "@opencode-ai/sdk/v2/client"
+} from "./engine/sdk-types"
 
 export type McpServer = {
   name: string

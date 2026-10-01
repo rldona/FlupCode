@@ -35,7 +35,7 @@ beforeAll(async () => {
       FLUPCODE_BROWSER_TOKEN: "browser-token",
     },
     prepare: async (home) => {
-      installed = (await installEnginePlugins(join(home, ".config", "opencode"), "v2")).paths.map((file) =>
+      installed = (await installEnginePlugins(join(home, ".config", "opencode"))).paths.map((file) =>
         basename(file),
       )
       // The adaptive plugins only call a loopback harness, and only with the token the harness wrote.

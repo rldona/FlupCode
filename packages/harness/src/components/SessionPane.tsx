@@ -14,7 +14,7 @@ import type {
   SessionMessageInfo,
 } from "../engine-types"
 import type { Attachment, ProjectItem } from "../types"
-import { createClient, invalidateLegacyHistory } from "../client"
+import { createClient } from "../client"
 import { CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, type ChatClass } from "../chat"
 import { messageID } from "../ids"
 import { pendingPrompts, type Delivery } from "../pending-prompts"
@@ -163,7 +163,6 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
     }
     if (event.kind === "changed") {
       if (event.sessionID && event.sessionID !== sessionID()) return
-      if (event.sessionID) invalidateLegacyHistory(event.sessionID)
       scheduleRefetch()
       return
     }
@@ -223,7 +222,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
   const lastAssistant = () =>
     [...(list() ?? [])].reverse().find((message) => message.type === "assistant") as SessionMessageAssistant | undefined
   const usage = () => contextFigures(props.session, list() ?? [], props.models, currentModel(), props.compaction)
-  const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.expandPastes, props.serverUrl)
+  const pending = () => pendingPrompts.forSession(sessionID(), list() ?? [], props.serverUrl)
   createEffect(() => pendingPrompts.reconcile(new Set((list() ?? []).map((message) => message.id))))
   const liveUsage = () => {
     const assistant = lastAssistant()
@@ -311,29 +310,25 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           ...(cowork ? { system: COWORK_SYSTEM } : {}),
           ...(validModel() ? { model: validModel()! } : {}),
           delivery: mode,
+          ...(mode === "queue" ? { held: true } : {}),
         })
-        // A queued prompt waits in the harness until the session goes idle; see pending-prompts.ts.
-        if (mode !== "queue") {
-          // Sending while the agent is working interrupts it and starts a turn with this message.
-          if (mode === "steer")
-            await current.session
-              .abort({ sessionID: sessionID(), directory: props.session.location?.directory })
-              .catch(() => {})
-          try {
-            await current.session.send({
-              sessionID: sessionID(),
-              directory: props.session.location?.directory,
-              id,
-              text: body,
-              agent: promptAgent,
-              ...(cowork ? { system: COWORK_SYSTEM } : {}),
-              ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
-              ...(validModel() ? { model: validModel()! } : {}),
-            })
-          } catch (cause) {
-            pendingPrompts.remove(id)
-            throw cause
-          }
+        // The engine delivers it (V2-41): a steer joins the running turn at its next boundary, and a
+        // queued prompt waits in the session inbox.
+        try {
+          await current.session.send({
+            sessionID: sessionID(),
+            directory: props.session.location?.directory,
+            id,
+            text: body,
+            agent: promptAgent,
+            ...(cowork ? { system: COWORK_SYSTEM } : {}),
+            ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
+            ...(validModel() ? { model: validModel()! } : {}),
+            ...(mode ? { delivery: mode } : {}),
+          })
+        } catch (cause) {
+          pendingPrompts.remove(id)
+          throw cause
         }
       }
       batch(() => {

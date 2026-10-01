@@ -418,9 +418,7 @@ export class RoutineScheduler {
       return this.repository.getRun(runID)
     }
     if (!run.sessionID) return run
-    const routineID = run.source.type === "routine" ? run.source.routineID : undefined
-    const directory = routineID ? this.repository.get(routineID)?.projectDirectory : undefined
-    await this.engine.interrupt(run.sessionID, directory)
+    await this.engine.interrupt(run.sessionID)
     return this.repository.getRun(runID)
   }
 

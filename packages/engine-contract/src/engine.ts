@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join } from "node:path"
 import { detectEngine } from "@flupcode/remote/engine-kind"
 import { installSandboxOpenCodeV2 } from "./opencode-v2"
 
@@ -9,8 +9,8 @@ import { installSandboxOpenCodeV2 } from "./opencode-v2"
  *
  * Its home, XDG folders, database, credentials and config live in a temporary folder, and its only
  * model is the stub one, so the same test gives the same answers on a laptop and in CI and never
- * touches the user's `opencode.db`. `FLUPCODE_CONTRACT_ENGINE` points the suite at another engine
- * (a released 1.x binary, or 2.x for V2-06): a command line where `{port}` is the port to listen on.
+ * touches the user's `opencode.db`. `FLUPCODE_CONTRACT_ENGINE` points the suite at another OpenCode 2
+ * binary: a command line where `{port}` is the port to listen on.
  */
 export async function startEngine(input: {
   modelUrl: string
@@ -19,8 +19,6 @@ export async function startEngine(input: {
   env?: Record<string, string | undefined>
   /** Runs once the isolated home exists and before the engine starts, e.g. to install plugins. */
   prepare?: (home: string) => Promise<void>
-  /** Which line to start, for a test that needs both (V2-61); the suite's own line otherwise. */
-  line?: "v1" | "v2"
 }) {
   // The real path: macOS hands out `/var/...`, a link to `/private/var/...`, and the engine asks for
   // an external-directory permission when a tool reads a path that is not under the one it resolved.
@@ -32,7 +30,7 @@ export async function startEngine(input: {
   await input.prepare?.(home)
   const password = crypto.randomUUID()
   const port = freePort()
-  const command = await engineCommand(input.line ?? CONTRACT_LINE)
+  const command = await engineCommand()
   const child = Bun.spawn(
     command.map((part) => part.replaceAll("{port}", String(port))),
     {
@@ -94,18 +92,16 @@ export type Engine = Awaited<ReturnType<typeof startEngine>>
 export const STUB_MODEL = { providerID: "stub", modelID: "stub-model" }
 
 /**
- * Which engine line the suite targets: `v1` (default) or `v2`. Each suite runs only on its own line,
- * and the fixtures of one line live apart from the other's.
+ * Whether the suites that start a real engine run: `FLUPCODE_CONTRACT_LINE=v2`, as CI's engine job
+ * sets. Unset, they are skipped, so a plain `bun test` never downloads or starts an engine.
  */
-export const CONTRACT_LINE = process.env.FLUPCODE_CONTRACT_LINE === "v2" ? "v2" : "v1"
+export const CONTRACT_LINE = process.env.FLUPCODE_CONTRACT_LINE === "v2" ? "v2" : undefined
 
-async function engineCommand(line: "v1" | "v2") {
+async function engineCommand() {
   const configured = process.env.FLUPCODE_CONTRACT_ENGINE?.trim()
-  if (configured && line === CONTRACT_LINE) return configured.split(/\s+/)
+  if (configured) return configured.split(/\s+/)
   // The pinned 2.x binary from the sandbox (V2-05), fetched and verified on first use.
-  if (line === "v2") return [await installSandboxOpenCodeV2(), "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
-  const entry = resolve(import.meta.dir, "../../opencode/src/index.ts")
-  return [process.execPath, "run", entry, "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
+  return [await installSandboxOpenCodeV2(), "serve", "--port", "{port}", "--hostname", "127.0.0.1"]
 }
 
 function stubConfig(modelUrl: string) {

@@ -34,7 +34,7 @@ test("shows the provider's failure reason instead of a generic error", async ({ 
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
@@ -61,7 +61,7 @@ test("Retry resends the failed turn's prompt with the same session", async ({ pa
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
@@ -104,7 +104,7 @@ test("a turn waiting on a spent quota says so, instead of thinking on forever", 
   }
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
       return route.fulfill({ json: { data: [messages[0]], cursor: {} } })
@@ -147,7 +147,7 @@ test("a turn that has spent no tokens does not say 0 tokens", async ({ page }) =
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message") return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/session/ses_error/message") return route.fulfill({ json: zero })

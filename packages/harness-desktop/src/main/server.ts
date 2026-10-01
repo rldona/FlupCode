@@ -4,10 +4,10 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
-import { detectEngine, openCodeLineOf, openCodeV2Locked } from "@flupcode/remote/engine-kind"
+import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { startEngineProxy } from "@flupcode/remote/engine-proxy"
-import { openCodeV2Env, resolveOpenCodeV2, wantsOpenCodeV2 } from "@flupcode/remote/opencode-v2"
+import { openCodeV2Env, OPENCODE_V2_VERSION, resolveOpenCodeV2 } from "@flupcode/remote/opencode-v2"
 import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
 
@@ -34,13 +34,12 @@ let promptedLocked = false
  * every page the machine serves drive the agent. The engine FlupCode starts gets a password for the
  * life of the app; one the user started keeps whatever they configured through the environment.
  */
-// 2.x has no user name setting: an engine on that line this app starts signs in as "opencode".
-let username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
+// 2.x has no user name setting: it always signs in as "opencode".
 let password = process.env.OPENCODE_SERVER_PASSWORD
 
 /** `base64(user:pass)` for the engine, or nothing when it needs no credentials. */
 export function engineCredentials() {
-  return password ? Buffer.from(`${username}:${password}`).toString("base64") : undefined
+  return password ? Buffer.from(`opencode:${password}`).toString("base64") : undefined
 }
 
 /**
@@ -139,37 +138,12 @@ function loginShellPath() {
   return (probe.stdout ?? "").trim().split(delimiter)
 }
 
-function repoEngineDir() {
-  return join(app.getAppPath(), "..", "..", "packages", "opencode")
-}
-
 function repoHarnessDir() {
   return join(app.getAppPath(), "..", "..", "packages", "harness-server")
 }
 
-function resolveEngine(): { command: string; args: string[]; cwd?: string } | undefined {
-  if (process.env.FLUPCODE_OPENCODE) {
-    return { command: process.env.FLUPCODE_OPENCODE, args: ["serve", "--port", "4096"] }
-  }
-
-  const directory = repoEngineDir()
-  if (existsSync(join(directory, "src", "index.ts"))) {
-    return {
-      command: process.env.FLUPCODE_BUN ?? "bun",
-      args: ["run", "./src/index.ts", "serve", "--port", "4096"],
-      cwd: directory,
-    }
-  }
-
-  if (commandExists("opencode")) {
-    return { command: "opencode", args: ["serve", "--port", "4096"] }
-  }
-
-  return undefined
-}
-
 /**
- * The proxy at `SERVER_URL` in front of the 2.x engine, started once: across an engine restart (the
+ * The proxy at `SERVER_URL` in front of the engine, started once: across an engine restart (the
  * 1.x import) it keeps listening and answers 502 until the engine is back. Besides FlupCode's web app
  * it serves this app's own window, whose origin is `oc://renderer` (or the dev server's).
  */
@@ -188,30 +162,6 @@ async function serveEngine() {
     )
     return undefined
   })
-}
-
-/** The pinned OpenCode 2 binary, fetched and verified on first use; nothing when that fails. */
-async function pinnedOpenCodeV2(): Promise<{ command: string; args: string[]; cwd?: string } | undefined> {
-  const command = await resolveOpenCodeV2().catch((cause: unknown) => {
-    console.error(`[flupcode] could not get OpenCode 2: ${cause instanceof Error ? cause.message : String(cause)}`)
-    return undefined
-  })
-  return command ? { command, args: [] } : undefined
-}
-
-/**
- * The line the engine about to start is on, from its `--version`. A source checkout run through Bun
- * is FlupCode's 1.x engine.
- */
-function engineLine(engine: { command: string; args: string[] }) {
-  if (engine.args[0] === "run") return "v1"
-  const version = spawnSync(engine.command, ["--version"], {
-    encoding: "utf8",
-    env: { ...process.env, PATH: searchPath() },
-    shell: process.platform === "win32",
-    timeout: 10_000,
-  })
-  return openCodeLineOf(version.stdout)
 }
 
 function resolveHarnessServer(): { command: string; args: string[]; cwd?: string } | undefined {
@@ -240,26 +190,40 @@ function resolveHarnessServer(): { command: string; args: string[]; cwd?: string
   return undefined
 }
 
-function promptInstall() {
+function promptNoEngine() {
   if (prompted) return
   prompted = true
   void dialog
     .showMessageBox({
-      type: "info",
-      title: "OpenCode engine not found",
-      message: "FlupCode needs the OpenCode engine",
+      type: "warning",
+      title: "OpenCode 2 is not available",
+      message: `FlupCode could not start OpenCode ${OPENCODE_V2_VERSION}`,
       detail:
-        "FlupCode connects to a local OpenCode server, but no engine was found.\n\n" +
-        "Install the OpenCode CLI and FlupCode will start it automatically, or start it yourself with:\n\n" +
-        "    opencode serve --port 4096\n\n" +
-        "Then reopen FlupCode.",
-      buttons: ["Open install docs", "Continue offline"],
-      defaultId: 0,
+        "FlupCode downloads its OpenCode 2 engine once and keeps it in its cache. The download or the start " +
+        "failed, so FlupCode is offline for now.\n\n" +
+        "Check the connection and reopen FlupCode, or name an OpenCode 2 binary with FLUPCODE_OPENCODE.",
+      buttons: ["Open OpenCode docs", "Continue offline"],
+      defaultId: 1,
       cancelId: 1,
     })
     .then((result) => {
       if (result.response === 0) void shell.openExternal(OPENCODE_DOCS)
     })
+}
+
+/** An OpenCode 1.x engine on FlupCode's port: it would take the address the 2.x engine needs. */
+function promptLegacyEngine(version: string | undefined) {
+  if (prompted) return
+  prompted = true
+  void dialog.showMessageBox({
+    type: "warning",
+    title: "OpenCode 1.x is no longer supported",
+    message: `An OpenCode ${version ?? "1.x"} engine is running at ${SERVER_URL}`,
+    detail:
+      "FlupCode runs on OpenCode 2 now. Stop that engine and reopen FlupCode, which starts its own.\n\n" +
+      "Your 1.x history stays where it is: File → Import OpenCode 1.x History… brings it over.",
+    buttons: ["Continue offline"],
+  })
 }
 
 function promptLockedEngine() {
@@ -303,82 +267,58 @@ export async function ensureServer() {
   const running = await runningEngine()
   if (running.kind === "v2") {
     // An engine already running picks its plugins up on restart.
-    if ((await installEnginePlugins(undefined, "v2")).changed) promptPluginRestart()
+    if ((await installEnginePlugins()).changed) promptPluginRestart()
     console.info(`[flupcode] engine running: OpenCode ${running.version}`)
     return
   }
+  if (running.kind === "v1") return promptLegacyEngine(running.version)
   // An OpenCode 2 engine someone else started, behind a password FlupCode was not given: starting
   // another one on its port would only fail, so say what it needs instead.
-  if (running.kind === "none" && (await openCodeV2Locked(SERVER_URL, fetch, { headers: authHeaders() })))
-    return promptLockedEngine()
-  if (running.kind === "v1") {
-    if ((await installEnginePlugins(undefined, "v1")).changed) promptPluginRestart()
-    return
-  }
+  if (await openCodeV2Locked(SERVER_URL, fetch, { headers: authHeaders() })) return promptLockedEngine()
 
-  // OpenCode 2 unless `FLUPCODE_ENGINE=v1` (V2-70): the pinned binary or `FLUPCODE_OPENCODE`, never
-  // whichever `opencode` the PATH happens to hold. When it cannot be had (offline on the first launch,
-  // say), the engine FlupCode used to start is better than none.
-  const pinned = wantsOpenCodeV2() ? await pinnedOpenCodeV2() : undefined
-  const engine = pinned ?? resolveEngine()
-  if (!engine) {
-    promptInstall()
-    return
-  }
-  const line = pinned ? "v2" : engineLine(engine)
-  if (line === "v1")
-    console.info("[flupcode] OpenCode 1.x is deprecated in FlupCode; OpenCode 2 is the engine it starts")
-  // Before the engine starts, since it reads its plugins once, at startup: the set its line loads.
-  await installEnginePlugins(undefined, line)
+  // The pinned binary or `FLUPCODE_OPENCODE`, never whichever `opencode` the PATH happens to hold.
+  const command = await resolveOpenCodeV2().catch((cause: unknown) => {
+    console.error(`[flupcode] could not get OpenCode 2: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return undefined
+  })
+  if (!command) return promptNoEngine()
+  // Before the engine starts, since it reads its plugins once, at startup.
+  await installEnginePlugins()
 
-  // 2.x listens privately; the proxy takes the address everything else asks for, once it is up.
-  const args = line === "v2" ? ["serve", "--port", String(ENGINE_PORT), "--hostname", "127.0.0.1"] : engine.args
-  console.info(`[flupcode] starting the engine: ${[engine.command, ...args].join(" ")}`)
+  // The engine listens privately; the proxy takes the address everything else asks for, once it is up.
+  const args = ["serve", "--port", String(ENGINE_PORT), "--hostname", "127.0.0.1"]
+  console.info(`[flupcode] starting the engine: ${[command, ...args].join(" ")}`)
   const secret = ensureEngineCredentials()
   // The actions plugin reads its token and profiles from the harness, so the engine is told where
   // that server answers. It is not the engine's own URL.
-  const base = {
+  const env = {
     ...process.env,
     PATH: searchPath(),
     FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
     FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
   }
-  // A 2.x engine gets FlupCode's own database: it would migrate 1.x's `opencode.db` one way, so 1.x
-  // history only reaches it through the explicit import (V2-61).
-  if (line === "v2") username = "opencode"
-  child = spawn(engine.command, args, {
-    cwd: engine.cwd,
+  // FlupCode's own database: 2.x would migrate 1.x's `opencode.db` one way, so 1.x history only
+  // reaches it through the explicit import (V2-61).
+  child = spawn(command, args, {
     stdio: "inherit",
     shell: process.platform === "win32",
-    env:
-      line === "v2"
-        ? openCodeV2Env({ password: secret, env: base })
-        : { ...base, OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: secret },
+    env: openCodeV2Env({ password: secret, env }),
   })
   child.on("error", () => {
     child = undefined
   })
 
   for (let attempt = 0; attempt < 40; attempt++) {
-    const started =
-      line === "v2" ? await detectEngine(ENGINE_URL, fetch, { headers: authHeaders() }) : await runningEngine()
-    if (started.kind === "v2" && line === "v2") {
+    const started = await detectEngine(ENGINE_URL, fetch, { headers: authHeaders() })
+    if (started.kind === "v2") {
       await serveEngine()
       console.info(`[flupcode] engine ready: OpenCode ${started.version}, for the web app too at ${SERVER_URL}`)
-      return
-    }
-    if (started.kind === "v1") {
-      console.info(`[flupcode] engine ready: OpenCode ${started.version ?? "unknown version"}`)
-      return
-    }
-    if (started.kind === "v2") {
-      console.info(`[flupcode] engine ready: OpenCode ${started.version}`)
       return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
 
-  promptInstall()
+  promptNoEngine()
 }
 
 export async function ensureHarnessServer() {
@@ -463,7 +403,7 @@ async function changeV2Database(input: {
   const harness = resolveHarnessServer()
   // Only the engine this app started is FlupCode's 2.x engine on FlupCode's database; one someone else
   // runs keeps it open, and changing a database under a running engine is how it gets corrupted.
-  if (!wantsOpenCodeV2() || !harness || (!child && (await runningEngine()).kind !== "none")) {
+  if (!harness || (!child && (await runningEngine()).kind !== "none")) {
     await dialog.showMessageBox({
       type: "info",
       message: "FlupCode can only do this with the OpenCode 2 engine it starts",

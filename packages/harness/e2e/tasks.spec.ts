@@ -55,7 +55,7 @@ async function openSession(page: Page, options: { blockedChild?: boolean; finish
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session, child], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/vcs") return route.fulfill({ json: { branch: "feature", default_branch: "main" } })
@@ -188,7 +188,7 @@ test("switching to an idle session never flashes the panel the last one opened",
   const slow = () => new Promise((resolve) => setTimeout(resolve, 500))
   await page.route("http://127.0.0.1:9/**", async (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session, other], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_tasks/message")

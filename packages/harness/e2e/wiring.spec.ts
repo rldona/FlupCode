@@ -30,7 +30,7 @@ async function openApp(page: Page, options: { mcp?: Record<string, unknown> } = 
       if (request.method() === "POST") calls.posts.push({ path: url.pathname, body })
       if (request.method() === "PATCH") calls.patches.push({ path: url.pathname, body })
     }
-    if (url.pathname.endsWith("/health")) return route.fulfill({ json: { healthy: true, version: "e2e" } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_w/message") return route.fulfill({ json: { data: [], cursor: {} } })
@@ -114,15 +114,6 @@ test("adding an MCP server reaches the engine and its configuration", async ({ p
     })
 })
 
-test("sharing a session asks the engine for a link", async ({ page }) => {
-  const calls = await openApp(page)
-  await page.getByRole("button", { name: "Menu", exact: true }).first().click()
-  await page.getByText("Share", { exact: true }).click()
-
-  // The roadmap called this impossible; the endpoint was there all along.
-  await expect.poll(() => calls.posts.some((call) => call.path === "/session/ses_w/share")).toBe(true)
-})
-
 test("/compact runs the engine's compaction, with the model to summarize with", async ({ page }) => {
   const calls = await openApp(page)
   const input = page.locator(".fc-composer textarea.fc-input")
@@ -136,16 +127,14 @@ test("/compact runs the engine's compaction, with the model to summarize with", 
 })
 
 test("Settings names the engine it is talking to", async ({ page }) => {
-  // The version only ever comes from `/global/health`; the v2 route answers `{ healthy: true }` and
-  // nothing else, so everything that compared versions was reading a field that never arrived.
+  // The version comes from `/api/info`, the route OpenCode 2 names itself on.
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
   })
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
-    if (url.pathname === "/global/health") return route.fulfill({ json: { healthy: true, version: "1.18.30" } })
-    if (url.pathname === "/api/health") return route.fulfill({ json: { healthy: true } })
+    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "2.0.18" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
@@ -158,5 +147,5 @@ test("Settings names the engine it is talking to", async ({ page }) => {
     .click()
   await page.getByRole("tab", { name: /Server|Servidor/ }).click()
   const engine = page.locator(".fc-settings-row").filter({ hasText: /^Engine|^Motor/ })
-  await expect(engine).toContainText("1.18.30")
+  await expect(engine).toContainText("OpenCode 2.0.18")
 })

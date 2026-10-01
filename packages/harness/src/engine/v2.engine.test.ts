@@ -137,7 +137,7 @@ describe.skipIf(!run)("the OpenCode 2 adapter", () => {
 
   test("says what 2.x no longer has instead of failing some other way", async () => {
     const session = await domains.session.create({ location: { directory: engine.project } })
-    const refused = await domains.session.share({ sessionID: session.id }).catch((cause: unknown) => cause)
+    const refused = await domains.console.switchOrg({ accountID: "acc", orgID: "org" }).catch((cause: unknown) => cause)
     expect(refused).toBeInstanceOf(EngineError)
     expect((refused as EngineError).tag).toBe("UnsupportedByEngine")
     expect(await domains.session.todos({ sessionID: session.id })).toEqual({ data: [] })

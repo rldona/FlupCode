@@ -71,14 +71,6 @@ export async function installOpenCodeV2(
 }
 
 /**
- * Whether FlupCode starts OpenCode 2 (V2-70): the default. `FLUPCODE_ENGINE=v1` keeps the way before
- * it, the `opencode` on the PATH (normally 1.x, which is deprecated and goes in V2-71).
- */
-export function wantsOpenCodeV2(env: NodeJS.ProcessEnv = process.env) {
-  return env.FLUPCODE_ENGINE?.trim().toLowerCase() !== "v1"
-}
-
-/**
  * The 2.x binary to start: `FLUPCODE_OPENCODE` when the reader names one, otherwise the pinned binary,
  * fetched on first use. Never `opencode` from the PATH: that name is 1.x or 2.x depending on which
  * installer ran last.

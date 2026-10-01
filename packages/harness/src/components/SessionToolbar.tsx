@@ -75,9 +75,6 @@ type SessionActionsProps = {
   onCompact: () => void
   onRename: () => void
   onExport: () => void
-  /** Omitted where the engine has no share service (OpenCode 2, ADR-0026). */
-  onShare?: () => void
-  onUnshare?: () => void
   onMove: (directory: string) => void
   onDelete: () => void
   onUndo: () => void
@@ -96,8 +93,6 @@ export const SessionActions: Component<SessionActionsProps> = (props) => {
     ...(props.reverting ? [{ label: t("Confirm revert"), icon: "✓", onSelect: props.onCommitRevert }] : []),
     { label: t("Rename"), icon: "✎", onSelect: props.onRename },
     { label: t("Export MD"), icon: "↓", onSelect: props.onExport },
-    ...(props.onShare ? [{ label: t("Share"), icon: "↗", onSelect: props.onShare }] : []),
-    ...(props.onUnshare ? [{ label: t("Stop sharing"), icon: "⌀", onSelect: props.onUnshare }] : []),
     ...props.projects.map((project) => ({
       label: `${t("Move to…")} ${project.name}`,
       icon: "→",

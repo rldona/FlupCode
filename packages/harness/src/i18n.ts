@@ -521,6 +521,8 @@ const ES: Record<string, string> = {
   "Connection blocked by the browser": "Conexión bloqueada por el navegador",
   "Authentication required": "Autenticación requerida",
   "The engine is asking for authentication": "El motor pide autenticación",
+  "This engine is OpenCode 1.x, which FlupCode no longer supports": "Este motor es OpenCode 1.x, que FlupCode ya no soporta",
+  "stop it and run flupcode serve, or open FlupCode's desktop app": "páralo y ejecuta flupcode serve, o abre la app de escritorio de FlupCode",
   "This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one":
     "Este motor es OpenCode 2, que siempre pide contraseña, y una página del navegador no puede enviarla",
   "This engine is OpenCode 2, which always runs behind a password, and a browser page has no way to send one. Open FlupCode's desktop app instead: it starts the engine and signs in for you.":

@@ -7,7 +7,6 @@ import {
   ToolLimitReached,
   engineAuthorization,
   sessionPermission,
-  unwrap,
   type Activity,
 } from "./engine"
 
@@ -163,28 +162,11 @@ describe("signing in to the engine", () => {
   })
 })
 
-describe("what a refused engine request says", () => {
-  test("a NamedError body surfaces its nested message instead of a generic one", async () => {
-    await expect(
-      unwrap(Promise.resolve({ error: { name: "BadRequest", data: { message: "That session is gone" } } })),
-    ).rejects.toThrow("That session is gone")
-  })
-
-  test("a bare string body is kept", async () => {
-    await expect(unwrap(Promise.resolve({ error: "Forbidden" }))).rejects.toThrow("Forbidden")
-  })
-
-  test("an empty body still names the failure rather than hiding it", async () => {
-    await expect(unwrap(Promise.resolve({ error: {} }))).rejects.toThrow("Engine request failed")
-    await expect(unwrap(Promise.resolve({}))).rejects.toThrow("Engine returned no data")
-  })
-})
-
 /**
  * Bringing a project's MCP servers up.
  *
- * `Engine` builds its own client from a URL, so the client is replaced here with one that answers
- * the two endpoints this concerns — status and connect — and what is exercised is the real
+ * `Engine` builds its own 2.x client from a URL, so the client is replaced here with one that answers
+ * the two calls this concerns — the servers' status and connect — and what is exercised is the real
  * decision: who is connected, who is left alone, and who makes the run refuse to start.
  */
 const mcpEngine = (script: {
@@ -195,20 +177,17 @@ const mcpEngine = (script: {
   const connects: string[] = []
   const engine = new Engine("http://127.0.0.1:1")
   Object.assign(engine, {
-    client: {
-      mcp: {
-        status: async () => {
-          // An engine that predates `/mcp` answers with an error, not a status map.
-          if (script.unavailable) throw new Error("404 Not Found")
-          return { data: script.status?.() ?? {} }
-        },
-        connect: async (input: { name: string }) => {
-          connects.push(input.name)
-          script.connect?.(input.name)
-          return { data: true }
-        },
+    backend: Promise.resolve({
+      mcpServers: async () => {
+        // An engine whose MCP routes fail answers with an error, not a status list.
+        if (script.unavailable) throw new Error("404 Not Found")
+        return Object.entries(script.status?.() ?? {}).map(([name, server]) => ({ name, status: server.status }))
       },
-    },
+      connectMcp: async (name: string) => {
+        connects.push(name)
+        script.connect?.(name)
+      },
+    }),
   })
   return { engine, connects }
 }
@@ -236,7 +215,7 @@ describe("bringing a project's MCP servers up", () => {
   })
 
   test("a server that stays unauthenticated after connect refuses the run by name", async () => {
-    // `mcp.connect` answers true even when the OAuth flow was never finished, so the second read is
+    // Connecting answers success even when the OAuth flow was never finished, so the second read is
     // what decides — and the run must not start with a reduced toolset.
     const { engine } = mcpEngine({ status: () => ({ solo: { status: "needs_auth" } }) })
 
@@ -247,7 +226,7 @@ describe("bringing a project's MCP servers up", () => {
     expect((failure as Error).message).toContain("/tmp/project")
   })
 
-  test("an engine without /mcp does not break the run", async () => {
+  test("an engine whose MCP routes fail does not break the run", async () => {
     const { engine, connects } = mcpEngine({ unavailable: true })
 
     await engine.ensureMcp("/tmp/project")

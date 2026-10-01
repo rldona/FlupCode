@@ -171,26 +171,16 @@ jobs:
             echo "::endgroup::"
           done
 
-      # The engine as FlupCode drives it: a real `opencode serve` from this checkout, isolated, with a
-      # stub model, checked against the recorded fixtures (V2-02), and with FlupCode's engine plugins
-      # installed, each one checked by what it leaves behind (V2-03).
-      - name: Engine contract
-        env:
-          CI: "1"
-        run: |
-          bun run --cwd packages/engine-contract typecheck
-          bun run --cwd packages/engine-contract test
-          (cd packages/harness-server && FLUPCODE_CONTRACT_LINE=v1 bun test src/runner.engine.test.ts --timeout 120000)
-
-      # The same flows and FlupCode's OpenCode 2 adapter against a real 2.x engine: the pinned sandbox
-      # binary, fetched from the npm registry and checked against its integrity (V2-05, V2-06, V2-20
-      # to V2-26).
+      # The engine as FlupCode drives it, and FlupCode's OpenCode 2 adapter, against a real engine: the
+      # pinned binary, fetched from the npm registry and checked against its integrity, isolated, with
+      # a stub model and FlupCode's plugins installed (V2-05, V2-06, V2-20 to V2-26).
       - name: OpenCode 2 contract and adapter
         env:
           CI: "1"
           FLUPCODE_CONTRACT_LINE: v2
         run: |
-          bun run --cwd packages/engine-contract test:v2
+          bun run --cwd packages/engine-contract typecheck
+          bun run --cwd packages/engine-contract test
           (cd packages/harness && bun test src/engine --timeout 60000)
           (cd packages/harness-server && bun test src/engine-config.engine.test.ts src/runner.engine.test.ts --timeout 120000)
 
