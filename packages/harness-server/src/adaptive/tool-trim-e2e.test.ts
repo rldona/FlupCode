@@ -1,14 +1,15 @@
 /**
  * Recovery end to end (AH-D02): the installed engine plugin against the real harness routes and store.
  *
- * The plugin source is the one FlupCode writes into the engine's config folder
- * (`packages/remote/src/engine-plugins.ts`). It is loaded at runtime from its path, not imported as
- * a package, so harness-server takes no dependency on the remote package. A trimmed output must read
- * back byte for byte through `evidence_read`, only from the session that produced it.
+ * The plugin source is the OpenCode 2 one FlupCode writes into the engine's config folder
+ * (TOOL_TRIM_PLUGIN_V2 in `packages/remote/src/engine-plugins-v2.ts`). It is loaded at runtime from its
+ * path, not imported as a package, so harness-server takes no dependency on the remote package. A
+ * trimmed output must read back byte for byte through `evidence_read`, only from the session that
+ * produced it.
  */
 
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -18,7 +19,7 @@ import { RoutineScheduler } from "../scheduler"
 import { resolveAdaptiveConfig } from "./config"
 
 const ADAPTIVE = "adaptive-e2e-secret"
-const ENGINE_PLUGINS = resolve(import.meta.dir, "../../../remote/src/engine-plugins.ts")
+const ENGINE_PLUGINS = resolve(import.meta.dir, "../../../remote/src/engine-plugins-v2.ts")
 
 const cleanups: Array<() => Promise<void> | void> = []
 afterEach(async () => {
@@ -45,30 +46,62 @@ async function start() {
   cleanups.push(() => repository.close())
   cleanups.push(() => void server.stop(true))
 
-  const plugins: { installEnginePlugins: (dir: string) => Promise<{ paths: string[] }> } = await import(
+  const plugins: { TOOL_TRIM_PLUGIN_V2: { file: string; source: string } } = await import(
     pathToFileURL(ENGINE_PLUGINS).href
   )
-  const installed = await plugins.installEnginePlugins(join(dir, "engine"))
-  const file = installed.paths.find((entry) => entry.endsWith("flupcode-tool-trim.js"))
-  expect(file).toBeDefined()
-  const module: { flupcodeToolTrim: () => Promise<PluginHooks> } = await import(pathToFileURL(file!).href)
-  return { hooks: await module.flupcodeToolTrim(), server, repository }
+  // Written where the engine would find it, and set up against the slice of the 2.x plugin context it uses.
+  const file = join(dir, "plugins", plugins.TOOL_TRIM_PLUGIN_V2.file)
+  await mkdir(join(dir, "plugins"))
+  await writeFile(file, plugins.TOOL_TRIM_PLUGIN_V2.source)
+  const module: { default: { setup: (ctx: unknown) => Promise<unknown> } } = await import(pathToFileURL(file).href)
+  const hooks = {} as PluginHooks
+  await module.default.setup({
+    tool: {
+      hook: async (name: string, callback: PluginHooks["after"]) => {
+        if (name === "execute.after") hooks.after = callback
+      },
+      transform: async (callback: (editor: { add: (tool: EvidenceRead) => void }) => void) =>
+        callback({ add: (tool) => void (hooks.evidenceRead = tool) }),
+    },
+  })
+  return { hooks, server, repository }
 }
 
-type PluginHooks = {
-  "tool.execute.after": (
-    input: { tool: string; sessionID: string; callID: string; args: unknown },
-    output: { title: string; output: string; metadata: Record<string, unknown> },
-  ) => Promise<void>
-  tool: { evidence_read: { execute: (args: { ref: string; range: string }, context: { sessionID: string }) => Promise<string> } }
+/** What a 2.x engine hands `execute.after` for a finished call: the result's content is what the model reads. */
+type After = {
+  sessionID: string
+  id: string
+  tool: string
+  status: "completed"
+  result: {
+    output: { exit: number }
+    content: Array<{ type: "text"; text: string }>
+    metadata?: Record<string, unknown>
+  }
 }
+type EvidenceRead = {
+  name: string
+  execute: (args: { ref: string; range: string }, context: { sessionID: string }) => Promise<{ content: string }>
+}
+type PluginHooks = { after: (input: After) => Promise<void>; evidenceRead: EvidenceRead }
+
+const finished = (id: string, text: string): After => ({
+  sessionID: "ses_e2e",
+  id,
+  tool: "shell",
+  status: "completed",
+  result: { output: { exit: 0 }, content: [{ type: "text", text }] },
+})
+
+const read = async (hooks: PluginHooks, args: { ref: string; range: string }, sessionID: string) =>
+  (await hooks.evidenceRead.execute(args, { sessionID })).content
 
 /** Every line of a stored output, read back range by range the way the model is told to. */
 async function readAll(hooks: PluginHooks, sessionID: string, ref: string) {
   const lines: string[] = []
   let range = "1-"
   for (let guard = 0; guard < 200 && range; guard++) {
-    const text = await hooks.tool.evidence_read.execute({ ref, range }, { sessionID })
+    const text = await read(hooks, { ref, range }, sessionID)
     const [header, ...rest] = text.split("\n")
     expect(header).toMatch(/^\[evidence:[0-9a-f]{16} lines \d+-\d+ of \d+\]$/)
     const next = /\n\[more: call evidence_read with range "([^"]+)"\]$/.exec(text)
@@ -81,22 +114,26 @@ async function readAll(hooks: PluginHooks, sessionID: string, ref: string) {
 describe("tool-output trim recovery, plugin to store and back (AH-D02)", () => {
   test("a trimmed output is recoverable in full, and only by its own session", async () => {
     const { hooks } = await start()
+    expect(hooks.evidenceRead.name).toBe("evidence_read")
     const original = Array.from({ length: 600 }, (_, index) => `${index + 1}\t${"payload ".repeat(6)}é`)
-    const output = { title: "bash", output: original.join("\n"), metadata: {} as Record<string, unknown> }
+    const after = finished("call_1", original.join("\n"))
 
-    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_e2e", callID: "call_1", args: {} }, output)
+    await hooks.after(after)
 
-    const ref = /evidence:([0-9a-f]{16})/.exec(output.output)?.[1]
+    const trimmed = after.result.content[0]!.text
+    const ref = /evidence:([0-9a-f]{16})/.exec(trimmed)?.[1]
     expect(ref).toBeDefined()
-    expect(output.metadata.evidenceRef).toBe(ref)
-    expect(output.output.length).toBeLessThan(original.join("\n").length / 4)
-    expect(output.output).toContain(`call evidence_read with ref "${ref}"`)
+    expect(after.result.metadata).toEqual({ evidenceRef: ref })
+    // The structured output stays for the transcript; only what the model reads is replaced.
+    expect(after.result.output).toEqual({ exit: 0 })
+    expect(trimmed.length).toBeLessThan(original.join("\n").length / 4)
+    expect(trimmed).toContain(`call evidence_read with ref "${ref}"`)
 
     expect(await readAll(hooks, "ses_e2e", ref!)).toEqual(original)
-    const middle = await hooks.tool.evidence_read.execute({ ref: `evidence:${ref}`, range: "300-301" }, { sessionID: "ses_e2e" })
+    const middle = await read(hooks, { ref: `evidence:${ref}`, range: "300-301" }, "ses_e2e")
     expect(middle).toBe(`[evidence:${ref} lines 300-301 of 600]\n${original[299]}\n${original[300]}`)
 
-    const stranger = await hooks.tool.evidence_read.execute({ ref: ref!, range: "1-5" }, { sessionID: "ses_other" })
+    const stranger = await read(hooks, { ref: ref!, range: "1-5" }, "ses_other")
     expect(stranger).toContain("is not available")
   })
 
@@ -104,9 +141,8 @@ describe("tool-output trim recovery, plugin to store and back (AH-D02)", () => {
     const { hooks, server } = await start()
     await server.stop(true)
     const text = "line\n".repeat(2_000)
-    const output = { title: "bash", output: text, metadata: {} }
-    await hooks["tool.execute.after"]({ tool: "bash", sessionID: "ses_e2e", callID: "call_2", args: {} }, output)
-    expect(output.output).toBe(text)
-    expect(output.metadata).toEqual({})
+    const after = finished("call_2", text)
+    await hooks.after(after)
+    expect(after.result).toEqual({ output: { exit: 0 }, content: [{ type: "text", text }] })
   })
 })

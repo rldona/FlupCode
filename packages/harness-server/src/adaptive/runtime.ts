@@ -114,7 +114,7 @@ const HEALTH_TIMEOUT_MS = 1500
 const isPlainObject = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-/** Where the canary plugin writes, kept in step with `RUNTIME_PROBE_PLUGIN` in `packages/remote`. */
+/** Where the canary plugin writes, kept in step with `RUNTIME_PROBE_PLUGIN_V2` in `packages/remote`. */
 export function runtimeProbeFilePath(env: NodeJS.ProcessEnv = process.env): string {
   if (env.FLUPCODE_RUNTIME_PROBE_FILE) return env.FLUPCODE_RUNTIME_PROBE_FILE
   const base = env.XDG_DATA_HOME ?? join(homedir(), ".local", "share")

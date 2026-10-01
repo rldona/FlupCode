@@ -285,9 +285,11 @@ async function prune(folder) {
 
 async function record(sessionID, system, model) {
   if (typeof sessionID !== "string" || !/^[A-Za-z0-9_-]+$/.test(sessionID)) return
+  // Stamped before anything is awaited: the hook does not wait for the write, so the recordings of
+  // requests in quick succession overlap, and only the stamp keeps them in the order they were made.
+  const at = stamp()
   const folder = path.join(directory(), sessionID)
   await mkdir(folder, { recursive: true })
-  const at = stamp()
   await writeFile(
     path.join(folder, at + "-" + Math.random().toString(36).slice(2, 8) + ".json"),
     JSON.stringify({ at, providerID: model && model.providerID, modelID: model && model.id, system }),
@@ -1192,6 +1194,8 @@ const DECIDE_WINDOW_MS = 5 * 60 * 1000
 const IDLE_MS = 65 * 60 * 1000
 const MAX_SESSIONS = 500
 const MAX_LINES_PER_SESSION = 200
+// Across sessions, so the lines held stay a few megabytes at most whatever the sessions hold.
+const MAX_PINNED_LINES = 5000
 const MAX_ADMITTED = 2000
 const FETCH_TIMEOUT_MS = (() => {
   const raw = Number(process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS)
@@ -1255,10 +1259,13 @@ function touch(sessionID, now) {
   entry.at = now
   sessions.delete(sessionID)
   sessions.set(sessionID, entry)
+  let total = 0
+  for (const other of sessions.values()) total += other.lines.size
   for (const [id, other] of sessions) {
     if (sessions.size <= 1) break
-    if (now - other.at > IDLE_MS || sessions.size > MAX_SESSIONS) sessions.delete(id)
-    else break
+    if (now - other.at <= IDLE_MS && sessions.size <= MAX_SESSIONS && total <= MAX_PINNED_LINES) break
+    sessions.delete(id)
+    total -= other.lines.size
   }
   return entry
 }
