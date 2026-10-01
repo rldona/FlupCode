@@ -1,6 +1,13 @@
 import { expect, test } from "bun:test"
-import type { FormInfo as V2Form, SessionInfo as V2Session, SessionMessageInfo as V2Message } from "@opencode/client"
-import { toFormAnswer, toMessages, toQuestion, toSession } from "./v2-convert"
+import type {
+  FormInfo as V2Form,
+  IntegrationInfo as V2Integration,
+  ModelInfo as V2Model,
+  ProviderInfo as V2Provider,
+  SessionInfo as V2Session,
+  SessionMessageInfo as V2Message,
+} from "@opencode/client"
+import { toFormAnswer, toMessages, toModel, toProviderDirectory, toQuestion, toSession } from "./v2-convert"
 
 const session = {
   id: "ses_1",
@@ -173,4 +180,49 @@ test("the dock's answers go back typed by field, a picked option as its value", 
   expect(toFormAnswer(form, [["Yes"], ["3"], ["Fast"]])).toEqual({ confirm: true, count: 3, mode: "fast" })
   // A question left unanswered is left out of the answer.
   expect(toFormAnswer(form, [[], ["3"]])).toEqual({ count: 3 })
+})
+
+const model = {
+  id: "gpt",
+  modelID: "gpt",
+  providerID: "openai",
+  name: "GPT",
+  package: "@ai-sdk/openai",
+  settings: { apiKey: "sk-never", baseURL: "https://api.example.com" },
+  capabilities: { tools: true, input: ["text"], output: ["text"] },
+  variants: [{ id: "high", settings: { reasoningEffort: "high" } }],
+  time: { released: 1 },
+  cost: [],
+  status: "active",
+  enabled: true,
+  limit: { context: 1000, output: 100 },
+} as unknown as V2Model
+
+test("a 2.x model keeps what the app reads and never its settings, which can hold the key", () => {
+  const converted = toModel(model)
+  expect(converted).toMatchObject({
+    id: "gpt",
+    providerID: "openai",
+    variants: [{ id: "high" }],
+    limit: { context: 1000 },
+  })
+  expect(JSON.stringify(converted)).not.toContain("sk-never")
+})
+
+test("the provider directory is every integration, with config providers told apart and models counted", () => {
+  const integrations = [
+    { id: "openai", name: "OpenAI", methods: [{ type: "env", names: ["OPENAI_API_KEY"] }], connections: [] },
+  ] as unknown as V2Integration[]
+  const providers = [
+    { id: "openai", integrationID: "openai", name: "OpenAI", activation: "auto", package: "x" },
+    { id: "mine", name: "Mine", activation: "enabled", package: "x" },
+    { id: "off", name: "Off", activation: "disabled", package: "x" },
+  ] as unknown as V2Provider[]
+  const directory = toProviderDirectory({ integrations, providers, models: [model] })
+  expect(directory.all.map((item) => [item.id, item.source, item.env, Object.keys(item.models)])).toEqual([
+    ["openai", "api", ["OPENAI_API_KEY"], ["gpt"]],
+    ["mine", "config", [], []],
+    ["off", "config", [], []],
+  ])
+  expect(directory.connected).toEqual(["openai", "mine"])
 })

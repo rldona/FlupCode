@@ -3,15 +3,25 @@ import type { EngineClient } from "../client"
 import { openExternalUrl } from "../external-links"
 import { engineFetch } from "../transport"
 import { EngineError, unsupported } from "./error"
-import { toFormAnswer, toMessages, toPermission, toQuestion, toSession } from "./v2-convert"
+import {
+  toFormAnswer,
+  toIntegration,
+  toMessages,
+  toModel,
+  toPermission,
+  toProvider,
+  toProviderDirectory,
+  toQuestion,
+  toSession,
+} from "./v2-convert"
 
 /**
  * The client for an OpenCode 2 engine, through its generated `@opencode/client` (pinned to the same
  * version as the sandbox engine, see packages/engine-contract/src/opencode-v2.ts).
  *
  * It is being built domain by domain against `EngineClient`, the 1.x adapter's type, so the app keeps
- * one contract: sessions and messages (V2-20), events (V2-21), permissions and forms (V2-22) and
- * MCP (V2-23) here, then config (V2-24) and providers (V2-25). `createClient` picks it once every
+ * one contract: sessions and messages (V2-20), events (V2-21), permissions and forms (V2-22), MCP
+ * (V2-23), config (V2-24) and providers (V2-25). `createClient` picks it once every
  * domain exists. What 2.x removed (sharing, todos, deleting a message, the 1.x replay history) fails
  * with an `UnsupportedByEngine` EngineError, or reads as empty where the app has an empty state.
  */
@@ -296,6 +306,105 @@ export function createV2Domains(
       },
     }
 
+  /**
+   * Models, providers and integrations (V2-25). 2.x has only the `/api` ones, so the 1.x directory the
+   * providers panel reads is rebuilt from them (`toProviderDirectory`). 2.x keeps a key only as an
+   * integration credential: a custom provider in the config gets an integration of its own, and the
+   * app already stores a key through `integration.connectKey` right after `auth.set`, so `auth` has
+   * nothing left to do. A key in the config is used as it is, so there is nothing to link either.
+   */
+  const model: EngineClient["model"] = {
+    list: async (input) => ({
+      data: (await call(client.model.list(where(input?.location?.directory)))).data.map(toModel),
+    }),
+    directory: async () => ({ providers: [], default: {} }),
+    default: async () => {
+      const chosen = (await call(client.model.default())).data
+      return { data: chosen ? toModel(chosen) : undefined }
+    },
+  }
+  const provider: EngineClient["provider"] = {
+    list: async (input) => ({
+      data: (await call(client.provider.list(where(input?.location?.directory)))).data.map(toProvider),
+    }),
+    directory: async () => {
+      const [integrations, providers, models] = await Promise.all([
+        call(client.integration.list()),
+        call(client.provider.list()),
+        call(client.model.list()),
+      ])
+      return toProviderDirectory({ integrations: integrations.data, providers: providers.data, models: models.data })
+    },
+    // 1.x's own provider sign-in; every 2.x provider signs in through its integration instead.
+    auth: async () => ({}),
+    oauth: {
+      authorize: async () => unsupported("the 1.x provider sign-in"),
+      callback: async () => unsupported("the 1.x provider sign-in"),
+    },
+    linkConfiguredKeys: async () => 0,
+    unlinked: async () => [],
+  }
+  const auth: EngineClient["auth"] = {
+    set: async () => nothing(),
+    remove: async () => nothing(),
+    reload: async () => {
+      await call(client.location.reload())
+      return nothing()
+    },
+  }
+  // The attempt an OAuth sign-in is waiting on belongs to an integration, which 2.x asks for again.
+  const integrationAttempts = new Map<string, string>()
+  const integration: EngineClient["integration"] = {
+    list: async () => ({ data: (await call(client.integration.list())).data.map(toIntegration) }),
+    connectKey: async (input) => {
+      await call(
+        client.integration.connect.key({
+          integrationID: input.integrationID,
+          key: input.key,
+          ...(input.label ? { label: input.label } : {}),
+        }),
+      )
+      return nothing()
+    },
+    oauth: async (input) => {
+      const methods = (await call(client.integration.get({ integrationID: input.integrationID }))).data.methods
+      const methodID = input.methodID ?? methods.find((method) => method.type === "oauth")?.id
+      if (!methodID) throw new EngineError(`${input.integrationID} does not sign in with OAuth`)
+      const attempt = (
+        await call(
+          client.integration.oauth.connect({
+            integrationID: input.integrationID,
+            methodID,
+            // 1.x's text answers are 2.x's form answer, by the same keys.
+            ...(input.inputs && Object.keys(input.inputs).length ? { answer: input.inputs } : {}),
+            ...(input.label ? { label: input.label } : {}),
+          }),
+        )
+      ).data
+      integrationAttempts.set(attempt.attemptID, input.integrationID)
+      return { data: attempt }
+    },
+    attempt: {
+      status: async (attemptID) => {
+        const integrationID = integrationAttempts.get(attemptID)
+        if (!integrationID) throw new EngineError(`No sign-in ${attemptID} was started here`)
+        const status = (await call(client.integration.oauth.status({ integrationID, attemptID }))).data
+        if (status.status !== "pending") integrationAttempts.delete(attemptID)
+        return { data: status }
+      },
+      cancel: async (attemptID) => {
+        const integrationID = integrationAttempts.get(attemptID)
+        integrationAttempts.delete(attemptID)
+        if (integrationID) await call(client.integration.oauth.cancel({ integrationID, attemptID }))
+        return nothing()
+      },
+    },
+    disconnect: async (credentialID) => {
+      await call(client.credential.remove({ credentialID }))
+      return nothing()
+    },
+  }
+
   // The OAuth attempt each server's sign-in is waiting on, from `authStart` to `authenticate`.
   const attempts = new Map<string, { integrationID: string; attemptID: string; url: string }>()
   const where = (directory?: string) => (directory ? { location: { directory } } : {})
@@ -397,7 +506,7 @@ export function createV2Domains(
       })),
   }
 
-  return { session, message, blocked, permission, mcp, ...config }
+  return { session, message, blocked, permission, mcp, model, provider, auth, integration, ...config }
 }
 
 /** Reads and patches one scope of the engine's config files, in the 1.x shape (V2-24). */

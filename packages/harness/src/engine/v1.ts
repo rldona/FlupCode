@@ -537,12 +537,13 @@ export function createV1Client(baseUrl: string) {
       },
     },
     model: {
-      list: (input?: LocationInput) => unwrap(client.v2.model.list(input)),
+      // Only the data: the location a list was read at is not something the app looks at.
+      list: async (input?: LocationInput) => ({ data: (await unwrap(client.v2.model.list(input))).data }),
       directory: () => unwrap(client.config.providers()),
       default: async () => ({ data: undefined as ModelV2Info | undefined }),
     },
     provider: {
-      list: (input?: LocationInput) => unwrap(client.v2.provider.list(input)),
+      list: async (input?: LocationInput) => ({ data: (await unwrap(client.v2.provider.list(input))).data }),
       /**
        * The engine answers this one with every configured API key in the clear. Nothing in the UI
        * needs the key itself, and over remote control the answer crosses to a phone, so the keys are
@@ -632,7 +633,8 @@ export function createV1Client(baseUrl: string) {
       reload: () => unwrap(client.global.dispose()),
     },
     integration: {
-      list: () => unwrap(client.v2.integration.list()),      connectKey: (input: { integrationID: string; key: string; label?: string }) =>
+      list: async () => ({ data: (await unwrap(client.v2.integration.list())).data }),
+      connectKey: (input: { integrationID: string; key: string; label?: string }) =>
         unwrap(
           client.v2.integration.connect.key({
             integrationID: input.integrationID,
@@ -640,17 +642,27 @@ export function createV1Client(baseUrl: string) {
             label: input.label,
           }),
         ),
-      oauth: (input: { integrationID: string; methodID?: string; inputs?: Record<string, string>; label?: string }) =>
-        unwrap(
-          client.v2.integration.connect.oauth({
-            integrationID: input.integrationID,
-            methodID: input.methodID,
-            inputs: input.inputs ?? {},
-            label: input.label,
-          }),
-        ),
+      oauth: async (input: {
+        integrationID: string
+        methodID?: string
+        inputs?: Record<string, string>
+        label?: string
+      }) => ({
+        data: (
+          await unwrap(
+            client.v2.integration.connect.oauth({
+              integrationID: input.integrationID,
+              methodID: input.methodID,
+              inputs: input.inputs ?? {},
+              label: input.label,
+            }),
+          )
+        ).data,
+      }),
       attempt: {
-        status: (attemptID: string) => unwrap(client.v2.integration.attempt.status({ attemptID })),
+        status: async (attemptID: string) => ({
+          data: (await unwrap(client.v2.integration.attempt.status({ attemptID }))).data,
+        }),
         cancel: (attemptID: string) => unwrap(client.v2.integration.attempt.cancel({ attemptID })),
       },
       disconnect: (credentialID: string) => unwrap(client.v2.credential.remove({ credentialID })),
