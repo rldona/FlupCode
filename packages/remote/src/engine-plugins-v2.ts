@@ -14,6 +14,7 @@
  * 1.x name is what is written (`shell` is recorded as `bash`, `patch` as `apply_patch`, `subagent` as
  * `task`), since that is what every reader keys on.
  */
+import { CACHE_SELECTION_SOURCE } from "./cache-selection-source"
 
 /** reasoning-variants: effort levels for models 2.x's catalog lists without any. */
 export const REASONING_VARIANTS_PLUGIN_V2 = {
@@ -1323,6 +1324,194 @@ export default {
 `,
 }
 
+/**
+ * cache-selection: old, large tool outputs replaced with a placeholder at a cold step (AH-D03,
+ * ADR-0024), by the same `selectForCache` the 1.x plugin runs. 2.x hands the `context` hook the
+ * request's messages in the provider's shape (a tool's result is a `tool` message after the call) and
+ * without times, which the cold boundary is made of. So the plugin keeps each message's time from the
+ * events (a user message's delivery, an assistant step's end), lays the request out in the 1.x shape
+ * the selection reads, and writes each placeholder back into its `tool-result`. A message whose time
+ * it never saw (one from before the engine started) is never a boundary, so nothing is trimmed on a
+ * guess.
+ */
+export const CACHE_SELECTION_PLUGIN_V2 = {
+  file: "flupcode-cache-selection.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Replaces old, large tool outputs with a short placeholder at
+// the steps where the prompt cache is cold anyway, so they stop costing context. Off unless the
+// harness says otherwise; any failure leaves the request exactly as it was. Regenerated when FlupCode
+// starts the engine; edits here are overwritten.
+import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+${CACHE_SELECTION_SOURCE}
+
+const REFRESH_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_SELECTION_REFRESH_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 30 * 1000
+})()
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_SELECTION_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000
+})()
+const POLICY_TTL_MS = 5 * 60 * 1000
+const DEFAULT_COLD_GAP_MS = 65 * 60 * 1000
+const MAX_KEEP_RECENT_TURNS = 50
+const MAX_COLD_GAP_MS = 24 * 60 * 60 * 1000
+const OFF = { enabled: false, keepRecentTurns: 2, minSavingsTokens: 4096, coldGapMs: DEFAULT_COLD_GAP_MS }
+const MAX_SESSIONS = 500
+const MAX_TIMES = 20000
+
+${ADAPTIVE_HELPERS}
+
+let policy = undefined
+let timer = undefined
+const latches = new Map()
+// When each user message was delivered and each assistant message's step ended, by message id.
+const created = new Map()
+const completed = new Map()
+
+function keep(map, key, value) {
+  map.set(key, value)
+  if (map.size > MAX_TIMES) map.delete(map.keys().next().value)
+}
+
+function integerIn(value, min, max) {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+}
+
+function policyOf(data) {
+  if (!data || typeof data !== "object" || typeof data.enabled !== "boolean") return undefined
+  if (!integerIn(data.keepRecentTurns, 0, MAX_KEEP_RECENT_TURNS)) return undefined
+  if (!integerIn(data.minSavingsTokens, 0, Number.MAX_SAFE_INTEGER)) return undefined
+  if (!integerIn(data.coldGapMs, 1, MAX_COLD_GAP_MS)) return undefined
+  return {
+    enabled: data.enabled,
+    keepRecentTurns: data.keepRecentTurns,
+    minSavingsTokens: data.minSavingsTokens,
+    coldGapMs: data.coldGapMs,
+  }
+}
+
+function holdoutOf(data) {
+  const value = data ? data.holdoutFraction : undefined
+  return typeof value === "number" && value >= 0 && value <= 0.5 ? value : 0
+}
+
+// A control-arm session of the holdout keeps every output, deterministically by its id.
+function control(sessionID, fraction) {
+  if (fraction <= 0) return false
+  return createHash("sha256").update("selection:" + sessionID).digest().readUInt32BE(0) / 2 ** 32 < fraction
+}
+
+function pausedOf(data) {
+  const list = data && Array.isArray(data.pausedSessions) ? data.pausedSessions : []
+  return new Set(list.filter((id) => typeof id === "string").slice(0, MAX_SESSIONS))
+}
+
+async function refresh(base, token) {
+  const response = await fetch(base + "/harness/adaptive/selection", {
+    headers: { authorization: "Bearer " + token },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  }).catch(() => undefined)
+  if (!response || !response.ok) return
+  const body = await response.json().catch(() => undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  const next = policyOf(data)
+  if (next) policy = { ...next, paused: pausedOf(data), holdout: holdoutOf(data), at: Date.now() }
+}
+
+function currentPolicy(now) {
+  return policy && now - policy.at <= POLICY_TTL_MS ? policy : OFF
+}
+
+// The policy changes only at a cold step, so a switch flipped mid-session cannot rewrite a warm cache.
+function latched(sessionID, view, current) {
+  const held = latches.get(sessionID)
+  const next = !held || coldStep(view, current.coldGapMs) ? current : held
+  latches.delete(sessionID)
+  latches.set(sessionID, next)
+  while (latches.size > MAX_SESSIONS) latches.delete(latches.keys().next().value)
+  return next
+}
+
+// The request in the 1.x shape the selection reads: one entry per user or assistant message, each
+// assistant entry carrying its calls' text results as tool parts, which point back at the 2.x part.
+function layout(messages) {
+  const view = []
+  const results = new Map()
+  for (const message of messages) {
+    if (!message || message.role !== "tool" || !Array.isArray(message.content)) continue
+    for (const part of message.content) if (part && part.type === "tool-result") results.set(part.id, part)
+  }
+  for (const message of messages) {
+    if (!message || (message.role !== "user" && message.role !== "assistant")) continue
+    const id = typeof message.id === "string" ? message.id : undefined
+    if (message.role === "user") {
+      view.push({ info: { role: "user", time: { created: id ? created.get(id) : undefined } }, parts: [] })
+      continue
+    }
+    const calls = Array.isArray(message.content) ? message.content.filter((part) => part && part.type === "tool-call") : []
+    const parts = calls.flatMap((call) => {
+      const result = results.get(call.id)
+      if (!result || !result.result || result.result.type !== "text" || typeof result.result.value !== "string") return []
+      return [{ type: "tool", tool: named(call.name), state: { status: "completed", output: result.result.value }, origin: result }]
+    })
+    view.push({ info: { role: "assistant", time: { completed: id ? completed.get(id) : undefined } }, parts })
+  }
+  return view
+}
+
+export default {
+  id: "flupcode-cache-selection",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const directory = ctx.location && ctx.location.directory
+    if (!timer) {
+      void refresh(base, token)
+      timer = setInterval(() => void refresh(base, token), REFRESH_MS)
+      if (typeof timer.unref === "function") timer.unref()
+    }
+    const controller = new AbortController()
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        if (event.location && event.location.directory && event.location.directory !== directory) continue
+        const data = event.data || {}
+        if (event.type === "session.inbox.delivered" && typeof data.inboxID === "string") keep(created, data.inboxID, Date.now())
+        if (event.type === "session.step.ended" && typeof data.assistantMessageID === "string")
+          keep(completed, data.assistantMessageID, Date.now())
+      }
+    })().catch(() => {})
+    await ctx.session.hook("context", (input) => {
+      try {
+        if (!Array.isArray(input.messages) || input.messages.length === 0) return
+        const view = layout(input.messages)
+        const current = currentPolicy(Date.now())
+        const held = (current.paused && current.paused.has(input.sessionID)) || control(input.sessionID, current.holdout || 0)
+        const effective = latched(input.sessionID, view, held ? { ...current, enabled: false } : current)
+        if (!effective.enabled) return
+        const result = selectForCache(view, effective)
+        result.messages.forEach((message, index) => {
+          if (message === view[index]) return
+          message.parts.forEach((part, at) => {
+            const before = view[index].parts[at]
+            if (part.state.output !== before.state.output) before.origin.result = { type: "text", value: part.state.output }
+          })
+        })
+      } catch {
+        // Any failure leaves the request exactly as it arrived.
+      }
+    })
+    return () => controller.abort()
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -1335,4 +1524,5 @@ export const PLUGINS_V2 = [
   COMPACTION_ANCHORS_PLUGIN_V2,
   TOOL_TRIM_PLUGIN_V2,
   RELEVANCE_PLUGIN_V2,
+  CACHE_SELECTION_PLUGIN_V2,
 ]

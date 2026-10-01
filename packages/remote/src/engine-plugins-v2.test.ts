@@ -79,13 +79,13 @@ describe("installEnginePlugins for OpenCode 2", () => {
     const config = await temp()
     await installEnginePlugins(config, "v1")
     const v1 = (await readdir(path.join(config, "plugins"))).sort()
-    expect(v1).toContain("flupcode-cache-selection.js")
+    expect(v1).toContain("flupcode-actions.js")
 
     const { paths, changed } = await installEnginePlugins(config, "v2")
     expect(changed).toBe(true)
     const v2 = (await readdir(path.join(config, "plugins"))).sort()
     expect(v2).toEqual(paths.map((file) => path.basename(file)).sort())
-    expect(v2).not.toContain("flupcode-cache-selection.js")
+    expect(v2).not.toContain("flupcode-actions.js")
     for (const file of v2)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
 
@@ -230,7 +230,11 @@ async function harness(answers: Record<string, unknown> = {}) {
     hostname: "127.0.0.1",
     fetch: async (request) => {
       const route = new URL(request.url).pathname
-      calls.push({ route, authorization: request.headers.get("authorization"), body: await request.json() })
+      calls.push({
+        route,
+        authorization: request.headers.get("authorization"),
+        body: await request.json().catch(() => ({})),
+      })
       return Response.json({ data: answers[route] ?? {} })
     },
   })
@@ -471,5 +475,64 @@ describe("OpenCode 2 adaptive plugins", () => {
     expect(harnessCalls.on("/harness/adaptive/relevance").map((hit) => hit.body)).toEqual([
       { projectID: "/work/demo", sessionID: "ses_1", messageID: "msg_u", objective: "ship it" },
     ])
+  })
+})
+
+describe("OpenCode 2 cache selection", () => {
+  type Part = { type: string; id?: string; name?: string; text?: string; result?: { type: string; value: string } }
+  const request = (sessionID: string) => ({
+    sessionID,
+    messages: [
+      { id: "msg_u1", role: "user", content: [{ type: "text", text: "read it" }] as Part[] },
+      { id: "msg_a1", role: "assistant", content: [{ type: "tool-call", id: "call_1", name: "read" }] as Part[] },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", id: "call_1", name: "read", result: { type: "text", value: "x".repeat(4000) } },
+        ] as Part[],
+      },
+      { id: "msg_u2", role: "user", content: [{ type: "text", text: "and now?" }] as Part[] },
+    ],
+  })
+
+  async function selection(events: Array<{ type: string; data: Record<string, unknown> }>) {
+    await harness({
+      "/harness/adaptive/selection": { enabled: true, keepRecentTurns: 0, minSavingsTokens: 0, coldGapMs: 1 },
+    })
+    const plugin_ = await plugin("flupcode-cache-selection.js")
+    const recorded = context()
+    // A gap between the assistant's end and the next delivery: the cache has gone cold.
+    recorded.ctx.event.subscribe = () => ({
+      async *[Symbol.asyncIterator]() {
+        for (const event of events) {
+          await Bun.sleep(5)
+          yield event
+        }
+      },
+    })
+    await plugin_.setup(recorded.ctx)
+    await Bun.sleep(150)
+    return recorded
+  }
+
+  test("at a cold step an old large output becomes a placeholder in its tool-result", async () => {
+    const recorded = await selection([
+      { type: "session.inbox.delivered", data: { sessionID: "ses_1", inboxID: "msg_u1" } },
+      { type: "session.step.ended", data: { sessionID: "ses_1", assistantMessageID: "msg_a1" } },
+      { type: "session.inbox.delivered", data: { sessionID: "ses_1", inboxID: "msg_u2" } },
+    ])
+    const cold = request("ses_1")
+    recorded.hooks.get("session.context")!(cold as never)
+    const result = cold.messages[2]!.content[0]!.result!
+    expect(result.type).toBe("text")
+    expect(result.value).toContain("[Old read output (4000 characters) cleared by FlupCode to save context.")
+    expect(cold.messages[3]!.content).toEqual([{ type: "text", text: "and now?" }])
+  })
+
+  test("messages whose times it never saw are never a boundary, so nothing is trimmed", async () => {
+    const recorded = await selection([])
+    const unknown = request("ses_2")
+    recorded.hooks.get("session.context")!(unknown as never)
+    expect(unknown.messages[2]!.content[0]!.result!.value).toBe("x".repeat(4000))
   })
 })
