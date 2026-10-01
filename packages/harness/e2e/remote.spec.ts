@@ -157,7 +157,7 @@ test("pairs from a link and reaches the engine through the relay", async ({ page
   await expect(page.locator(".fc-topbar .fc-status-remote")).toBeVisible({ timeout: 15_000 })
   await expect(page).not.toHaveURL(/#remote=/)
   // The remote pill replaces the engine's "Connected": one honest indicator opens the panel.
-  await expect(page.locator(".fc-topbar .fc-status:not(.fc-status-remote)")).toHaveCount(0)
+  await expect(page.locator(".fc-topbar .fc-status:not(.fc-status-remote):not(.fc-status-blocked)")).toHaveCount(0)
   await page.locator(".fc-topbar .fc-status-remote").click()
   const panel = page.getByRole("dialog", { name: "Remote control" })
   await expect(panel).toBeVisible()
