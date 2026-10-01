@@ -1,6 +1,7 @@
 import { OpenCode } from "@opencode/client"
 import type { EngineClient } from "../client"
 import { openExternalUrl } from "../external-links"
+import { subscribeEvents } from "../event-stream"
 import { engineFetch } from "../transport"
 import { EngineError, unsupported } from "./error"
 import {
@@ -405,6 +406,137 @@ export function createV2Domains(
     },
   }
 
+  /**
+   * The rest of `EngineClient` (V2-11 groundwork). Most of it is the same `/api` route under its 2.x
+   * name. What 2.x no longer has reads as the app's empty state: memory (a 1.x store with no 2.x
+   * counterpart), the tool id list and the Console org. 1.x's per-folder event stream is gone too;
+   * every event, transcript included, is on `/api/event` (V2-21), so the folder stream waits quietly
+   * for its signal instead of answering HTML and being retried.
+   */
+  const rest: Pick<
+    EngineClient,
+    | "health"
+    | "reload"
+    | "event"
+    | "paths"
+    | "suggest"
+    | "console"
+    | "agent"
+    | "command"
+    | "tools"
+    | "skill"
+    | "memory"
+    | "file"
+    | "vcs"
+  > = {
+    health: {
+      get: async () => ({ healthy: true, version: (await call(client.server.info())).version }),
+    },
+    // 1.x disposed every instance so they read their configuration again; 2.x reloads a location.
+    reload: async () => {
+      await call(client.location.reload())
+      return nothing()
+    },
+    event: {
+      subscribe: (options?: { signal?: AbortSignal; idleTimeout?: number }) =>
+        subscribeEvents(baseUrl, options?.signal, "/api/event", options?.idleTimeout),
+      subscribeDirectory: (_directory: string, options?: { signal?: AbortSignal }) => quietUntil(options?.signal),
+    },
+    /** 2.x names only the folder it serves and its temp folder; the rest of 1.x's `/path` is gone. */
+    paths: async () => {
+      const [location, info] = await Promise.all([call(client.location.get()), call(client.server.info())])
+      return { home: "", state: info.paths.tmp, config: "", directory: location.directory }
+    },
+    suggest: {
+      smallModel: async () => {
+        const value = (await merged()).small_model
+        const slash = typeof value === "string" ? value.indexOf("/") : -1
+        return typeof value === "string" && slash > 0
+          ? { providerID: value.slice(0, slash), id: value.slice(slash + 1) }
+          : undefined
+      },
+      /** 2.x generates without a session, which is what 1.x needed a throwaway one for. */
+      reply: async (input: Parameters<EngineClient["suggest"]["reply"]>[0]) =>
+        (
+          await call(client.generate.text({ prompt: `${input.system}\n\n${input.prompt}`, model: input.model }))
+        ).text.trim(),
+    },
+    console: {
+      active: async () => ({ consoleManagedProviders: [], switchableOrgCount: 0 }),
+      orgs: async () => [],
+      switchOrg: async () => unsupported("switching the Console org"),
+    },
+    agent: {
+      list: async (input?: { location?: { directory?: string } }) => ({
+        data: (await call(client.agent.list(where(input?.location?.directory)))).data,
+      }),
+      listFor: async (directory?: string) => (await call(client.agent.list(where(directory)))).data,
+    },
+    command: {
+      list: async (input?: { location?: { directory?: string } }) => ({
+        // 2.x lists a command's name and description; its text stays with the command, and the
+        // app edits command files through the harness server anyway.
+        data: (await call(client.command.list(where(input?.location?.directory)))).data.map((command) => ({
+          name: command.name,
+          template: "",
+          ...(command.description ? { description: command.description } : {}),
+        })),
+      }),
+    },
+    tools: async () => [] as string[],
+    skill: {
+      list: async (input?: { location?: { directory?: string } }) => ({
+        data: (await call(client.skill.list(where(input?.location?.directory)))).data.map((skill) => ({
+          name: skill.name,
+          ...(skill.description ? { description: skill.description } : {}),
+          location: skill.path,
+          content: skill.content,
+        })),
+      }),
+    },
+    memory: {
+      list: async () => ({ data: [] }),
+      get: async () => unsupported("memory"),
+      create: async () => unsupported("memory"),
+      update: async () => unsupported("memory"),
+      remove: async () => unsupported("memory"),
+      verify: async () => unsupported("memory"),
+      used: async () => ({ data: [] }),
+    },
+    file: {
+      find: async (input: { query: string; limit?: number }) => ({
+        data: (
+          await call(
+            client.file.find({ query: input.query, ...(input.limit !== undefined ? { limit: input.limit } : {}) }),
+          )
+        ).data,
+      }),
+      list: async (input: { directory: string; path?: string }) =>
+        (await call(client.file.list({ ...where(input.directory), ...(input.path ? { path: input.path } : {}) }))).data,
+    },
+    vcs: {
+      get: async (directory: string) => {
+        const branch = (await call(client.vcs.get(where(directory)))).data.branch
+        return {
+          ...(branch.current ? { branch: branch.current } : {}),
+          ...(branch.default ? { default_branch: branch.default } : {}),
+        }
+      },
+      status: async (directory: string) => (await call(client.vcs.status(where(directory)))).data,
+      // 1.x's "git" is the working tree against HEAD, which 2.x calls "working".
+      diff: async (directory: string, options: { mode?: "git" | "branch"; context?: number } = {}) =>
+        (
+          await call(
+            client.vcs.diff({
+              ...where(directory),
+              mode: options.mode === "branch" ? "branch" : "working",
+              context: options.context ?? 3,
+            }),
+          )
+        ).data,
+    },
+  }
+
   // The OAuth attempt each server's sign-in is waiting on, from `authStart` to `authenticate`.
   const attempts = new Map<string, { integrationID: string; attemptID: string; url: string }>()
   const where = (directory?: string) => (directory ? { location: { directory } } : {})
@@ -506,7 +638,7 @@ export function createV2Domains(
       })),
   }
 
-  return { session, message, blocked, permission, mcp, model, provider, auth, integration, ...config }
+  return { session, message, blocked, permission, mcp, model, provider, auth, integration, ...config, ...rest }
 }
 
 /** Reads and patches one scope of the engine's config files, in the 1.x shape (V2-24). */
@@ -534,6 +666,12 @@ function deepMerge(base: Record<string, unknown>, over: Record<string, unknown>)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+/** A stream that never yields and ends when `signal` aborts. */
+async function* quietUntil(signal?: AbortSignal): AsyncGenerator<{ type?: string }> {
+  if (!signal || signal.aborted) return
+  await new Promise((resolve) => signal.addEventListener("abort", resolve, { once: true }))
 }
 
 /** How often a sign-in in progress is asked about. */

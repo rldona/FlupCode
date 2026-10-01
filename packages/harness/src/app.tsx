@@ -2767,6 +2767,11 @@ export const App: Component = () => {
               // The engine rebuilds its catalog from models.dev on its own schedule (and when an
               // integration connects). The list it serves moves with it, so the picker must not keep
               // offering the snapshot taken when the page loaded.
+              // 2.x reads a folder's branch in the background and says when it is known.
+              if (type === "vcs.branch.updated") {
+                void refetchVcsInfo()
+                continue
+              }
               // An MCP server's status, tools or resources moved: 2.x says so for each (V2-23), 1.x only
               // for tools.
               if (type.startsWith("mcp.")) {
