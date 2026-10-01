@@ -18,7 +18,12 @@ const FIXTURE_PORT = 4197
 const model = startModel()
 const engine = await startEngine({
   modelUrl: model.url,
-  config: { mcp: { contract: { type: "local", command: mcpStdioCommand() } } },
+  config: {
+    mcp: { contract: { type: "local", command: mcpStdioCommand() } },
+    // 2.x enables OpenCode Zen with a public key out of the box. On a runner with a network the app
+    // could pick one of its free models and the specs would talk to a real model instead of the stub.
+    disabled_providers: ["opencode"],
+  },
 })
 
 const cors = (origin: string | null) => ({

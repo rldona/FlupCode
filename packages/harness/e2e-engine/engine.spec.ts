@@ -32,6 +32,8 @@ async function openSession(
       window.localStorage.setItem("flupcode.serverUrl", JSON.stringify(values.engine))
       window.localStorage.setItem("flupcode.selectedSession", JSON.stringify(values.sessionID))
       window.localStorage.setItem("flupcode.agent", JSON.stringify("build"))
+      // The stub model, named: the replies each spec scripts come from it and nowhere else.
+      window.localStorage.setItem("flupcode.selectedModel", JSON.stringify({ providerID: "stub", id: "stub-model" }))
       window.localStorage.setItem("flupcode.permissionMode", JSON.stringify(values.mode))
       window.localStorage.setItem("flupcode.delivery", JSON.stringify(values.delivery))
     },
