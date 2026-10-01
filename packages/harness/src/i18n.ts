@@ -373,6 +373,12 @@ const ES: Record<string, string> = {
   Resources: "Recursos",
   "No agent allows this server yet.": "Ningún agente permite todavía este servidor.",
   "Agents that allow it: {agents}": "Agentes que lo permiten: {agents}",
+  "Code Mode hides this server from {agents}: they allow its tools but not execute, which Code Mode reaches them through. Allow execute in those agents, or offer the tools one by one.":
+    "Code Mode oculta este servidor a {agents}: permiten sus herramientas pero no execute, que es por donde Code Mode las llama. Permite execute en esos agentes u ofrece las herramientas una a una.",
+  "Turn off Code Mode": "Desactivar Code Mode",
+  "Code Mode": "Code Mode",
+  "Its tools are reached through execute. Off, each tool is offered on its own, as in OpenCode 1.x.":
+    "Sus herramientas se llaman a través de execute. Desactivado, cada herramienta se ofrece por separado, como en OpenCode 1.x.",
   "Open sessions": "Sesiones abiertas",
   "Untitled session": "Sesión sin título",
   "Close tab": "Cerrar pestaña",

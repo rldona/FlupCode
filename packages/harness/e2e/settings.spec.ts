@@ -156,6 +156,8 @@ test("an MCP server can be given an environment and headers, not just a command"
   await dialog.getByPlaceholder("Name").fill("local1")
   await dialog.getByPlaceholder("command and arguments").fill("npx -y server")
   await dialog.getByPlaceholder("API_KEY=…").fill("API_KEY=abc\nDEBUG=true")
+  // Off, the tools are offered one by one instead of through `execute`.
+  await dialog.getByRole("checkbox", { name: "Code Mode" }).uncheck()
   await dialog.locator(".fc-mcp-form .fc-button-primary").click()
 
   await expect
@@ -164,7 +166,12 @@ test("an MCP server can be given an environment and headers, not just a command"
       scope: "global",
       patch: {
         mcp: {
-          local1: { type: "local", command: ["npx", "-y", "server"], environment: { API_KEY: "abc", DEBUG: "true" } },
+          local1: {
+            type: "local",
+            command: ["npx", "-y", "server"],
+            environment: { API_KEY: "abc", DEBUG: "true" },
+            codemode: false,
+          },
         },
       },
     })
@@ -193,6 +200,7 @@ test("a pattern rule is edited in place, and survives the save", async ({ page }
 
 // H-34: a server that failed says why, what it exposes is shown, and so is who may use it.
 test("an MCP server shows its failure, its resources and the agents that allow it", async ({ page }) => {
+  const patches: unknown[] = []
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -212,13 +220,27 @@ test("an MCP server shows its failure, its resources and the agents that allow i
               path: "/work/demo/.opencode/agent/build.md",
               scope: "project",
               root: "/work/demo/.opencode",
-              fields: { tools: { docs_search: true } },
+              fields: { permission: { "*": "deny", docs_search: "allow", execute: "allow" } },
+              prompt: "",
+              bytes: 0,
+            },
+            {
+              // Written for 1.x: its tools by name and nothing else, so Code Mode leaves it without them.
+              name: "publisher",
+              path: "/home/.config/opencode/agent/publisher.md",
+              scope: "global",
+              root: "/home/.config/opencode",
+              fields: { permission: { "*": "deny", docs_search: "allow" } },
               prompt: "",
               bytes: 0,
             },
           ],
         },
       })
+    if (url.pathname === "/harness/engine-config" && route.request().method() === "PATCH") {
+      patches.push(route.request().postDataJSON())
+      return route.fulfill({ json: { data: { path: "/home/opencode.json", changed: true } } })
+    }
     if (url.pathname === "/harness/engine-config")
       return route.fulfill({
         json: {
@@ -247,6 +269,7 @@ test("an MCP server shows its failure, its resources and the agents that allow i
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(permission|form)$/.test(url.pathname)) return route.fulfill({ json: [] })
     if (url.pathname === "/api/location") return route.fulfill({ json: location })
+    if (url.pathname === "/api/location/reload") return route.fulfill({ status: 204 })
     if (url.pathname === "/api/mcp")
       return route.fulfill({
         json: {
@@ -282,10 +305,21 @@ test("an MCP server shows its failure, its resources and the agents that allow i
   // What it exposes.
   await expect(dialog.locator(".fc-mcp-resource")).toContainText("readme")
   await expect(dialog.locator(".fc-mcp-resource-uri")).toContainText("docs://readme")
-  // And who may reach it, from the agent files the engine reads.
-  await expect(dialog.locator(".fc-mcp-access")).toContainText("build")
+  // And who may reach it, from the agents' permissions.
+  await expect(dialog.locator(".fc-mcp-access")).toHaveText("Agents that allow it: build")
   // A server no agent allows says so instead of looking open.
   await expect(dialog.locator(".fc-mcp-access-none")).toHaveCount(1)
+
+  // An agent that lists the tools but not `execute` is told apart, with the way out.
+  const blocked = rows.filter({ hasText: "docs" }).locator(".fc-mcp-blocked")
+  await expect(blocked).toContainText("Code Mode hides this server from publisher")
+  await blocked.getByRole("button", { name: "Turn off Code Mode" }).click()
+  await expect
+    .poll(() => patches[0])
+    .toMatchObject({
+      scope: "global",
+      patch: { mcp: { docs: { type: "remote", url: "https://docs.example", codemode: false } } },
+    })
 })
 
 test("a conversation toggle survives a reload", async ({ page }) => {
@@ -301,9 +335,10 @@ test("a conversation toggle survives a reload", async ({ page }) => {
   await page.reload()
   dialog = await openSettings(page)
   await dialog.getByRole("tab", { name: "Conversation" }).click()
-  await expect(
-    dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("switch"),
-  ).toHaveAttribute("aria-checked", "false")
+  await expect(dialog.locator(".fc-settings-row", { hasText: "Show tool steps" }).getByRole("switch")).toHaveAttribute(
+    "aria-checked",
+    "false",
+  )
 })
 
 test("on a narrow screen the rail becomes a horizontally scrollable tab strip", async ({ page }) => {
