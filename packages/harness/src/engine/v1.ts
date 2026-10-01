@@ -757,7 +757,7 @@ export function createV1Client(baseUrl: string) {
       },
     },
     agent: {
-      list: (input?: LocationInput) => unwrap(client.v2.agent.list(input)),
+      list: async (input?: LocationInput) => ({ data: (await unwrap(client.v2.agent.list(input))).data }),
       /**
        * The agents this folder actually has (H-13), through the legacy `/agent?directory=`, which is
        * the list the engine reads those files with.
@@ -774,7 +774,7 @@ export function createV1Client(baseUrl: string) {
       },
     },
     command: {
-      list: (input?: LocationInput) => unwrap(client.v2.command.list(input)),
+      list: async (input?: LocationInput) => ({ data: (await unwrap(client.v2.command.list(input))).data }),
     },
     /** Every tool the engine offers, by id (H-17). */
     tools: async () => {
@@ -786,10 +786,10 @@ export function createV1Client(baseUrl: string) {
       return result?.data ?? []
     },
     skill: {
-      list: (input?: LocationInput) => unwrap(client.v2.skill.list(input)),
+      list: async (input?: LocationInput) => ({ data: (await unwrap(client.v2.skill.list(input))).data }),
     },
     memory: {
-      list: (input?: {
+      list: async (input?: {
         location?: { directory?: string }
         text?: string
         scope?: MemoryInfo["scope"]
@@ -797,18 +797,21 @@ export function createV1Client(baseUrl: string) {
         sessionID?: string
         agent?: string
         limit?: number
-      }) =>
-        unwrap(
-          client.v2.memory.list({
-            ...(input?.location ? { location: input.location } : {}),
-            ...(input?.text ? { text: input.text } : {}),
-            ...(input?.scope ? { scope: input.scope } : {}),
-            ...(input?.status ? { status: input.status } : {}),
-            ...(input?.sessionID ? { sessionID: input.sessionID } : {}),
-            ...(input?.agent ? { agent: input.agent } : {}),
-            ...(input?.limit !== undefined ? { limit: String(input.limit) } : {}),
-          }),
-        ),
+      }) => ({
+        data: (
+          await unwrap(
+            client.v2.memory.list({
+              ...(input?.location ? { location: input.location } : {}),
+              ...(input?.text ? { text: input.text } : {}),
+              ...(input?.scope ? { scope: input.scope } : {}),
+              ...(input?.status ? { status: input.status } : {}),
+              ...(input?.sessionID ? { sessionID: input.sessionID } : {}),
+              ...(input?.agent ? { agent: input.agent } : {}),
+              ...(input?.limit !== undefined ? { limit: String(input.limit) } : {}),
+            }),
+          )
+        ).data,
+      }),
       get: (input: { id: string }) => unwrap(client.v2.memory.get({ id: input.id })),
       create: (input: {
         scope?: MemoryInfo["scope"]
@@ -849,13 +852,21 @@ export function createV1Client(baseUrl: string) {
         ),
       remove: (input: { id: string }) => unwrap(client.v2.memory.remove({ id: input.id })),
       verify: (input: { id: string }) => unwrap(client.v2.memory.verify({ id: input.id })),
-      used: (input: { sessionID: string }) => unwrap(client.v2.memory.used({ sessionID: input.sessionID })),
+      used: async (input: { sessionID: string }) => ({
+        data: (await unwrap(client.v2.memory.used({ sessionID: input.sessionID }))).data,
+      }),
     },
     file: {
-      find: (input: { query: string; limit?: number }) =>
-        unwrap(
-          client.v2.fs.find({ query: input.query, limit: input.limit !== undefined ? String(input.limit) : undefined }),
-        ),
+      find: async (input: { query: string; limit?: number }) => ({
+        data: (
+          await unwrap(
+            client.v2.fs.find({
+              query: input.query,
+              limit: input.limit !== undefined ? String(input.limit) : undefined,
+            }),
+          )
+        ).data,
+      }),
       /**
        * Lists one directory level. The engine only lists inside a location, so the folder browser
        * passes the folder it browses from as the location and walks it with relative paths.
