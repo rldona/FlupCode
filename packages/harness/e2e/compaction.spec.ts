@@ -40,36 +40,12 @@ const compaction = (id: string, reason: "auto" | "manual", summary: string, crea
   id,
   sessionID: "ses_compact",
   type: "compaction",
+  status: "completed",
   reason,
   summary,
   recent: "",
   time: { created },
 })
-/** A turn the engine pruned: `compaction.prune` marks the result it cleared, and only the legacy
- *  store carries that mark — it is the store every FlupCode turn is written to. */
-const clearedTurn = [
-  {
-    info: { id: "l1", sessionID: "ses_compact", role: "user", time: { created: now } },
-    parts: [{ id: "l1p", type: "text", text: "Lee el log" }],
-  },
-  {
-    info: { id: "l2", sessionID: "ses_compact", role: "assistant", agent: "build", time: { created: now + 1 } },
-    parts: [
-      {
-        id: "l2t",
-        type: "tool",
-        tool: "bash",
-        state: {
-          status: "completed",
-          input: { command: "cat big.log" },
-          output: "3 líneas",
-          time: { start: now, end: now, compacted: now + 2 },
-        },
-      },
-    ],
-  },
-]
-
 const history = [
   user("u1", "Haz A y B", now),
   assistant("a1", "Hecha A.", now + 1),
@@ -79,21 +55,7 @@ const history = [
   compaction("c2", "auto", "## Resumen\n\n- A y B hechas.", now + 30),
 ]
 
-/** A fold in flight: the request is written, and the summary that answers it has not landed. */
-const compactionRequest = (id: string, created: number) => ({
-  ...user(id, "", created),
-  compaction: { auto: true, overflow: false },
-})
-/** The summary the engine streams while it folds; it answers the request and is not finished. */
-const streamingSummary = (id: string, created: number) => ({
-  ...assistant(id, "", created),
-  parentID: "u2",
-  summary: true,
-  time: { created },
-  content: [{ type: "reasoning", id: `${id}_r`, streaming: true, text: "…" }],
-})
-
-async function openSession(page: Page, messages = history, legacy: unknown[] = []) {
+async function openSession(page: Page, messages: unknown[] = history) {
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -123,10 +85,9 @@ async function openSession(page: Page, messages = history, legacy: unknown[] = [
           ],
         },
       })
-    if (url.pathname === "/config") return route.fulfill({ json: {} })
     if (url.pathname === "/api/session/ses_compact/message")
-      return route.fulfill({ json: { data: messages, cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: legacy })
+      // The engine pages its transcript newest first.
+      return route.fulfill({ json: { data: [...messages].reverse(), cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/event")
@@ -155,33 +116,17 @@ test("a compaction is a marked boundary, not one more answer", async ({ page }) 
   await expect(markers.nth(0).locator(".fc-compaction-body")).toContainText("A quedó hecha")
 })
 
-// A fold is a turn of its own, so without a word of its own the status line under the conversation
-// reads like the agent working on the task.
-test("a session being folded says so, instead of looking like any other turn", async ({ page }) => {
-  await openSession(page, [user("u1", "Haz A y B", now), assistant("a1", "Hecha A.", now + 1), compactionRequest("u2", now + 5)])
-
-  await expect(page.locator(".fc-message-pending")).toContainText(/Compacting session|Compactando sesión/)
-})
-
-test("the summary being written is still a fold, not thinking", async ({ page }) => {
-  await openSession(page, [
-    user("u1", "Haz A y B", now),
-    assistant("a1", "Hecha A.", now + 1),
-    compactionRequest("u2", now + 5),
-    streamingSummary("s1", now + 6),
-  ])
-
-  // The streaming reasoning part would read "Thinking…" on any other turn.
-  await expect(page.locator(".fc-message-pending")).toContainText(/Compacting session|Compactando sesión/)
-})
-
 test("a turn after the fold reads as thinking again", async ({ page }) => {
   await openSession(page, [
     user("u1", "Haz A y B", now),
     assistant("a1", "Hecha A.", now + 1),
-    compactionRequest("u2", now + 5),
-    { ...assistant("s1", "", now + 6), summary: true, time: { created: now + 6, completed: now + 7 } },
-    { ...assistant("a3", "", now + 20), time: { created: now + 20 }, content: [{ type: "reasoning", id: "a3r", streaming: true, text: "…" }] },
+    compaction("c1", "auto", "## Resumen\n\n- A quedó hecha.", now + 6),
+    {
+      ...assistant("a3", "", now + 20),
+      time: { created: now + 20 },
+      // Reasoning that started and has not completed is still being written.
+      content: [{ type: "reasoning", text: "…", time: { created: now + 20 } }],
+    },
   ])
 
   await expect(page.locator(".fc-message-pending")).toContainText(/Thinking|Pensando/)
@@ -221,19 +166,6 @@ test("a step after the compaction measures the session again", async ({ page }) 
   const value = (await openMeter(page)).locator(".fc-context-strong")
   await expect(value).toContainText("21.0k")
   await expect(value).not.toContainText("~")
-})
-
-test("a cleared tool result says the engine dropped it from the context", async ({ page }) => {
-  await openSession(page, [], clearedTurn)
-
-  // The block is closed, and still says how much of it left the context.
-  const group = page.locator(".fc-toolgroup")
-  await expect(group.locator(".fc-toolgroup-cleared")).toContainText(/1 cleared|1 borrados/)
-  await group.locator(".fc-toolgroup-line").click()
-
-  const tool = page.locator(".fc-tool")
-  await expect(tool).toHaveClass(/fc-tool-cleared/)
-  await expect(tool.locator(".fc-tool-cleared-badge")).toContainText(/Cleared from context|Borrado del contexto/)
 })
 
 // The engine folds a session at its own point — the window less the room it keeps for the answer —

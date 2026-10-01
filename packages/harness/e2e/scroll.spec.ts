@@ -31,7 +31,9 @@ test("loading earlier messages keeps the reader in place", async ({ page }) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/ses_long/message") return route.fulfill({ json: { data: messages, cursor: {} } })
+    // The engine pages its transcript newest first.
+    if (url.pathname === "/api/session/ses_long/message")
+      return route.fulfill({ json: { data: [...messages].reverse(), cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     return route.fulfill({ status: 404, json: {} })
@@ -102,7 +104,9 @@ test("a jump to an earlier prompt stays up", async ({ page }) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/ses_long/message") return route.fulfill({ json: { data: messages, cursor: {} } })
+    // The engine pages its transcript newest first.
+    if (url.pathname === "/api/session/ses_long/message")
+      return route.fulfill({ json: { data: [...messages].reverse(), cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     return route.fulfill({ status: 404, json: {} })

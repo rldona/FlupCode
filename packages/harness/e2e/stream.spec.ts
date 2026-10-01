@@ -1,4 +1,4 @@
-import { createServer } from "node:http"
+import { createServer, type ServerResponse } from "node:http"
 import type { AddressInfo } from "node:net"
 import { expect, test } from "@playwright/test"
 
@@ -115,55 +115,70 @@ test("a reconnection resyncs once the new stream is open, not before it", async 
 })
 
 test("a prompt shows as the stream announces it, not only after a reload", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
-    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
-    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
+  let historyReads = 0
+  // A stream that closes makes the app reconnect and refetch the history, which would show the prompt
+  // without the stream: the stream is a real one that stays open.
+  const streams: ServerResponse[] = []
+  const events = createServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream", "access-control-allow-origin": "*" })
+    response.write(`data: ${JSON.stringify({ id: "evt_c", type: "server.connected", data: {} })}\n\n`)
+    streams.push(response)
+    request.on("close", () => response.end())
   })
-  await page.route("http://127.0.0.1:9/**", (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/active")
-      return route.fulfill({ json: { data: { ses_stream: { type: "running" } } } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: { ses_stream: { type: "busy" } } })
-    // The engine's history still has no user message: only the stream announces it, the way it does
-    // for a prompt sent from the composer.
-    if (url.pathname === "/api/session/ses_stream/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (url.pathname === "/event") {
-      // The engine announces the user message empty and sends its text as a part right after. That
-      // order used to leave the prompt blank for the whole turn, shown only once a refetch rebuilt
-      // the message from its parts.
-      const events = [
-        {
-          type: "message.updated",
-          properties: {
-            sessionID: "ses_stream",
-            info: { id: "msg_live", sessionID: "ses_stream", role: "user" },
-          },
-        },
-        {
-          type: "message.part.updated",
-          properties: {
-            sessionID: "ses_stream",
-            part: { id: "part_live", messageID: "msg_live", sessionID: "ses_stream", type: "text", text: "Live prompt" },
-          },
-        },
-      ]
-      return route.fulfill({
-        headers: { "content-type": "text/event-stream" },
-        body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
-      })
-    }
-    if (url.pathname === "/api/event")
-      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
-    return route.fulfill({ status: 404, json: {} })
-  })
-  await page.goto("/")
+  await new Promise<void>((resolve) => events.listen(0, "127.0.0.1", resolve))
+  const eventsUrl = `http://127.0.0.1:${(events.address() as AddressInfo).port}/api/event`
 
-  await expect(page.locator(".fc-message-user .fc-message-text")).toContainText("Live prompt")
+  try {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+      window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+      window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
+    })
+    await page.route("http://127.0.0.1:9/**", (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
+      if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+      if (url.pathname === "/api/session/active")
+        return route.fulfill({ json: { data: { ses_stream: { type: "running" } } } })
+      // The engine's history still has no user message: only the stream announces it, the way it does
+      // for a prompt sent from the composer.
+      if (url.pathname === "/api/session/ses_stream/message") {
+        historyReads++
+        return route.fulfill({ json: { data: [], cursor: {} } })
+      }
+      if (url.pathname === "/api/session/ses_stream/inbox") return route.fulfill({ json: { data: [] } })
+      if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+        return route.fulfill({ json: { data: [] } })
+      if (url.pathname === "/api/event") return route.continue({ url: eventsUrl })
+      return route.fulfill({ status: 404, json: {} })
+    })
+    await page.goto("/")
+
+    await expect.poll(() => historyReads > 0 && streams.length === 1).toBe(true)
+    // The engine admits the prompt into the session inbox and delivers it into the transcript at its
+    // next safe boundary; the text is only in the admission, so the delivery must find it there.
+    const inbox = [
+      {
+        type: "session.inbox.enqueued",
+        data: {
+          sessionID: "ses_stream",
+          inboxID: "inb_live",
+          item: { type: "user", payload: { text: "Live prompt" }, delivery: "steer" },
+        },
+      },
+      { type: "session.inbox.delivered", data: { sessionID: "ses_stream", inboxID: "inb_live" } },
+    ]
+    streams[0]!.write(
+      inbox
+        .map((event, index) => `data: ${JSON.stringify({ id: `evt_${index}`, created: now + index, ...event })}\n\n`)
+        .join(""),
+    )
+
+    await expect(page.locator(".fc-message-user .fc-message-text")).toContainText("Live prompt")
+  } finally {
+    events.closeAllConnections()
+    events.close()
+  }
 })
 
 test("the desktop pill admits the app is no longer following the engine", async ({ page }) => {
@@ -191,38 +206,6 @@ test("the desktop pill admits the app is no longer following the engine", async 
   })
   await page.goto("/")
 
-  await expect(page.locator(".fc-status")).toContainText(/Reconnecting|Reconectando/i, { timeout: 15_000 })
-})
-
-test("a folder whose stream died is admitted, even while the global one is healthy", async ({ page }) => {
-  await page.addInitScript(() => {
-    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
-    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
-    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_stream"))
-    window.flupcode = { ownsTitleBar: true, platform: "darwin" }
-  })
-  await page.route("http://127.0.0.1:9/**", (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
-    if (url.pathname === "/api/session/ses_stream/message")
-      return route.fulfill({
-        json: { data: [{ id: "m", type: "user", text: "Hola", time: { created: now } }], cursor: {} },
-      })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    // The global stream is perfectly healthy and stays open…
-    if (url.pathname === "/api/event") return new Promise(() => {})
-    // …while the folder's own stream is gone. That folder carries the transcript, so the app is not
-    // following the engine, however fine the global stream looks.
-    if (url.pathname === "/event") return route.abort()
-    return route.fulfill({ status: 404, json: {} })
-  })
-  await page.goto("/")
-
-  await expect(page.getByText("Hola")).toBeVisible()
   await expect(page.locator(".fc-status")).toContainText(/Reconnecting|Reconectando/i, { timeout: 15_000 })
 })
 

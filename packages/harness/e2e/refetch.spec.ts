@@ -2,17 +2,22 @@ import { expect, test, type Page } from "@playwright/test"
 
 const sse = (events: unknown[]) => events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("")
 
+// The engine asks a question as a form: one field per question, a custom answer allowed.
 const question = {
-  id: "que_1",
+  id: "frm_1",
   sessionID: "ses_q",
-  questions: [
+  title: "Deploy",
+  fields: [
     {
-      header: "Deploy",
-      question: "Where should it go?",
+      key: "q0",
+      type: "string",
+      title: "Deploy",
+      description: "Where should it go?",
       options: [
-        { label: "Staging", description: "Test first" },
-        { label: "Production", description: "Ship it" },
+        { value: "Staging", label: "Staging", description: "Test first" },
+        { value: "Production", label: "Production", description: "Ship it" },
       ],
+      custom: true,
     },
   ],
 }
@@ -90,7 +95,7 @@ async function openSessionWithEvents(page: Page, events: unknown[][]) {
       })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_q/message") return route.fulfill({ json: messages(now) })
-    if (url.pathname === "/api/session/ses_q/question") return route.fulfill({ json: { data: [question] } })
+    if (url.pathname === "/api/session/ses_q/form") return route.fulfill({ json: { data: [question] } })
     if (/^\/api\/session\/[^/]+\/permission/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event") {
       const call = eventCalls++
@@ -108,7 +113,9 @@ async function openSessionWithEvents(page: Page, events: unknown[][]) {
 }
 
 test("an open tool group stays open when the chat refetches", async ({ page }) => {
-  const { release } = await openSessionWithEvents(page, [[{ type: "message.updated", data: { sessionID: "ses_q" } }]])
+  const { release } = await openSessionWithEvents(page, [
+    [{ type: "session.execution.succeeded", data: { sessionID: "ses_q" } }],
+  ])
   await page.goto("/")
 
   const group = page.locator(".fc-toolgroup-line")
@@ -126,8 +133,8 @@ test("an open tool group stays open when the chat refetches", async ({ page }) =
 
 test("the question free-text answer survives a refetch", async ({ page }) => {
   const { release } = await openSessionWithEvents(page, [
-    [{ type: "message.updated", data: { sessionID: "ses_q" } }],
-    [{ type: "question.v2.asked", data: { sessionID: "ses_q" } }],
+    [{ type: "session.execution.succeeded", data: { sessionID: "ses_q" } }],
+    [{ type: "form.created", data: { sessionID: "ses_q" } }],
   ])
   await page.goto("/")
 

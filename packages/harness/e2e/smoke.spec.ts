@@ -54,7 +54,7 @@ test("completes onboarding", async ({ page }) => {
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
   })
   // "Get started" needs a healthy engine; CI has none, so answer the health check.
-  await page.route(/\/(api|global)\/health/, (route) => route.fulfill({ json: { healthy: true, version: "e2e" } }))
+  await page.route("http://127.0.0.1:9/api/info", (route) => route.fulfill({ json: { version: "e2e" } }))
   await page.goto("/")
   await expect(page.getByText(/Welcome to FlupCode/i)).toBeVisible()
   await page
@@ -287,7 +287,8 @@ test("a long session shows its newest messages past the engine's first page", as
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_long"))
   })
-  // The engine pages messages: at most `limit`, then the rest through `cursor`.
+  // The engine pages messages newest first: at most `limit`, then the rest through `cursor`.
+  const newestFirst = [...messages].reverse()
   await page.route("http://127.0.0.1:9/**", (route) => {
     const url = new URL(route.request().url())
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
@@ -312,7 +313,7 @@ test("a long session shows its newest messages past the engine's first page", as
       const start = url.searchParams.has("cursor") ? Number(url.searchParams.get("cursor")) : 0
       const limit = Number(url.searchParams.get("limit") ?? 50)
       return route.fulfill({
-        json: { data: messages.slice(start, start + limit), cursor: { next: String(start + limit) } },
+        json: { data: newestFirst.slice(start, start + limit), cursor: { next: String(start + limit) } },
       })
     }
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
@@ -566,8 +567,7 @@ test("a transcript link asks before opening in the reader's browser", async ({ p
 test("a prompt keeps its attached image in the transcript", async ({ page }) => {
   const now = Date.now()
   // A 1x1 PNG: the transcript must show the attached image above the prompt's text.
-  const image =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
+  const image = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII="
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
     window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_files"))
@@ -592,7 +592,7 @@ test("a prompt keeps its attached image in the transcript", async ({ page }) => 
           cursor: {},
         },
       })
-    if (/^\/(api\/)?session\/ses_files\/message/.test(url.pathname))
+    if (url.pathname === "/api/session/ses_files/message")
       return route.fulfill({
         json: {
           data: [
@@ -600,7 +600,8 @@ test("a prompt keeps its attached image in the transcript", async ({ page }) => 
               id: "msg_file",
               type: "user",
               text: "¿Lo ves?",
-              files: [{ uri: image, mime: "image/png", name: "captura.png" }],
+              // Pasted into the prompt, so the engine keeps it inline.
+              files: [{ data: image, mime: "image/png", source: { type: "inline" }, name: "captura.png" }],
               time: { created: now },
             },
           ],
@@ -608,8 +609,6 @@ test("a prompt keeps its attached image in the transcript", async ({ page }) => 
         },
       })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/(api\/)?session\/[^/]+\/message/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     return route.fulfill({ status: 404, json: {} })
   })
@@ -649,7 +648,7 @@ test("a prompt image zooms in place and opens in a preview", async ({ page }) =>
           cursor: {},
         },
       })
-    if (/^\/(api\/)?session\/ses_zoom\/message/.test(url.pathname))
+    if (url.pathname === "/api/session/ses_zoom/message")
       return route.fulfill({
         json: {
           data: [
@@ -657,7 +656,7 @@ test("a prompt image zooms in place and opens in a preview", async ({ page }) =>
               id: "msg_zoom",
               type: "user",
               text: "Mira esto",
-              files: [{ uri: image, mime: "image/svg+xml", name: "captura.svg" }],
+              files: [{ data: "", mime: "image/svg+xml", source: { type: "uri", uri: image }, name: "captura.svg" }],
               time: { created: now },
             },
           ],
@@ -665,8 +664,6 @@ test("a prompt image zooms in place and opens in a preview", async ({ page }) =>
         },
       })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/(api\/)?session\/[^/]+\/message/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     return route.fulfill({ status: 404, json: {} })
   })

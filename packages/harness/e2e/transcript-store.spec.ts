@@ -1,3 +1,5 @@
+import { createServer, type ServerResponse } from "node:http"
+import type { AddressInfo } from "node:net"
 import { expect, test } from "@playwright/test"
 
 const now = Date.now()
@@ -12,95 +14,78 @@ const session = {
   location: { directory: "/work/demo" },
 }
 
-const history = [
-  {
-    info: { id: "msg_u", sessionID: "ses_store", role: "user", time: { created: now } },
-    parts: [{ id: "p_u", type: "text", text: "Write the helper" }],
-  },
-]
+const history = [{ id: "msg_u", type: "user", text: "Write the helper", time: { created: now } }]
 
-// What the engine sends while a turn runs: the message first, then its parts, then the text of each
-// part a slice at a time.
+// What the engine sends while a turn runs: the step that opens the answer, its text a slice at a
+// time, then its tool from the call to the result.
+const data = (fields: object) => ({ sessionID: "ses_store", assistantMessageID: "msg_a", ...fields })
 const turn = [
+  { type: "session.execution.started", data: { sessionID: "ses_store" } },
   {
-    type: "message.updated",
-    properties: {
-      info: { id: "msg_a", sessionID: "ses_store", role: "assistant", agent: "build", time: { created: now + 1 } },
-    },
+    type: "session.step.started",
+    data: data({ agent: "build", model: { providerID: "openai", id: "gpt" }, started: now + 1 }),
   },
-  {
-    type: "message.part.updated",
-    properties: { part: { id: "p_a", messageID: "msg_a", sessionID: "ses_store", type: "text", text: "Writing " } },
-  },
-  {
-    type: "message.part.delta",
-    properties: { sessionID: "ses_store", messageID: "msg_a", partID: "p_a", field: "text", delta: "the " },
-  },
-  {
-    type: "message.part.delta",
-    properties: { sessionID: "ses_store", messageID: "msg_a", partID: "p_a", field: "text", delta: "helper now" },
-  },
-  {
-    type: "message.part.updated",
-    properties: {
-      part: {
-        id: "t_a",
-        messageID: "msg_a",
-        sessionID: "ses_store",
-        type: "tool",
-        tool: "write",
-        state: { status: "completed", input: { filePath: "/work/demo/a.ts" }, output: "wrote a.ts" },
-      },
-    },
-  },
-]
+  { type: "session.text.started", data: data({}) },
+  { type: "session.text.delta", data: data({ delta: "Writing " }) },
+  { type: "session.text.delta", data: data({ delta: "the " }) },
+  { type: "session.text.delta", data: data({ delta: "helper now" }) },
+  { type: "session.tool.input.started", data: data({ id: "t_a", name: "write" }) },
+  { type: "session.tool.called", data: data({ id: "t_a", input: { filePath: "/work/demo/a.ts" } }) },
+  { type: "session.tool.success", data: data({ id: "t_a", content: [{ type: "text", text: "wrote a.ts" }] }) },
+].map((event, index) => ({ id: `evt_${index}`, created: now + index, ...event }))
 
 test("a running turn is built from its events, not from refetching the history", async ({ page }) => {
   let historyReads = 0
-  let streams = 0
-
-  await page.addInitScript(() => {
-    window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
-    window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
-    window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_store"))
+  // A mocked route cannot hold a stream open, and a stream that closes makes the app reconnect and
+  // refetch the history, which is exactly what this test must not rely on: the stream is a real one.
+  const streams: ServerResponse[] = []
+  const events = createServer((request, response) => {
+    response.writeHead(200, { "content-type": "text/event-stream", "access-control-allow-origin": "*" })
+    response.write(`data: ${JSON.stringify({ id: "evt_c", type: "server.connected", data: {} })}\n\n`)
+    streams.push(response)
+    request.on("close", () => response.end())
   })
-  await page.route("http://127.0.0.1:9/**", (route) => {
-    const url = new URL(route.request().url())
-    if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
-    if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
-    if (url.pathname === "/api/session/ses_store/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) {
-      historyReads++
-      return route.fulfill({ json: history })
-    }
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    // Held open, like a healthy stream: a body that closes makes the app reconnect, and every
-    // reconnection refetches the history, which is exactly what this test must not rely on.
-    if (url.pathname === "/api/event") return new Promise(() => {})
-    if (url.pathname === "/event") {
-      // The first connection is empty so the history lands first; the turn comes on the next one.
-      const events = streams++ === 1 ? turn : [{ type: "server.heartbeat", properties: {} }]
-      return route.fulfill({
-        headers: { "content-type": "text/event-stream" },
-        body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
-      })
-    }
-    return route.fulfill({ status: 404, json: {} })
-  })
-  await page.goto("/")
+  await new Promise<void>((resolve) => events.listen(0, "127.0.0.1", resolve))
+  const eventsUrl = `http://127.0.0.1:${(events.address() as AddressInfo).port}/api/event`
 
-  await expect(page.getByText("Write the helper")).toBeVisible()
-  const readsAfterLoad = historyReads
+  try {
+    await page.addInitScript(() => {
+      window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
+      window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
+      window.localStorage.setItem("flupcode.selectedSession", JSON.stringify("ses_store"))
+    })
+    await page.route("http://127.0.0.1:9/**", (route) => {
+      const url = new URL(route.request().url())
+      if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
+      if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
+      if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
+      if (url.pathname === "/api/session/ses_store/message") {
+        historyReads++
+        return route.fulfill({ json: { data: history, cursor: {} } })
+      }
+      if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+        return route.fulfill({ json: { data: [], cursor: {} } })
+      if (url.pathname === "/api/event") return route.continue({ url: eventsUrl })
+      return route.fulfill({ status: 404, json: {} })
+    })
+    await page.goto("/")
 
-  // The answer, its deltas and its tool all arrive as events and land in the transcript.
-  await expect(page.getByText("Writing the helper now")).toBeVisible({ timeout: 15_000 })
-  await expect(page.locator(".fc-toolgroup-line, .fc-tool-header").first()).toBeVisible()
+    await expect(page.getByText("Write the helper")).toBeVisible()
+    await expect.poll(() => streams.length).toBe(1)
+    const readsAfterLoad = historyReads
+    // The turn starts once the history has landed.
+    streams[0]!.write(turn.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""))
 
-  // And none of it cost a refetch: every event used to schedule a full reload of the history.
-  expect(historyReads).toBe(readsAfterLoad)
+    // The answer, its deltas and its tool all arrive as events and land in the transcript.
+    await expect(page.getByText("Writing the helper now")).toBeVisible({ timeout: 15_000 })
+    await expect(page.locator(".fc-toolgroup-line, .fc-tool-header").first()).toBeVisible()
+
+    // And none of it cost a refetch: every event used to schedule a full reload of the history.
+    expect(historyReads).toBe(readsAfterLoad)
+  } finally {
+    events.closeAllConnections()
+    events.close()
+  }
 })
 
 test("the running status line keeps the same air above as the transcript keeps below", async ({ page }) => {

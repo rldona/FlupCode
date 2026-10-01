@@ -124,7 +124,14 @@ function toAssistant(message: V2Assistant): SessionMessageInfo {
       // 2.x text and reasoning carry no id; the app keys content by it, and the position is stable.
       const id = `${message.id}:${index}`
       if (item.type === "text") return { type: "text" as const, id, text: item.text }
-      if (item.type === "reasoning") return { type: "reasoning" as const, id, text: item.text }
+      // Reasoning still arriving has started and not completed: the view says "Thinking…" for it.
+      if (item.type === "reasoning")
+        return {
+          type: "reasoning" as const,
+          id,
+          text: item.text,
+          ...(item.time && !item.time.completed ? { streaming: true } : {}),
+        }
       return {
         type: "tool" as const,
         id: item.id,

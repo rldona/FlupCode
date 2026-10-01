@@ -29,16 +29,15 @@ const answer = [
   "```",
 ].join("\n")
 
-const legacy = [
-  {
-    info: { id: "u", sessionID: "ses_md", role: "user", time: { created: now } },
-    parts: [{ id: "pu", type: "text", text: "Plan it" }],
-  },
-  {
-    info: { id: "a", sessionID: "ses_md", role: "assistant", agent: "build", time: { created: now + 1 } },
-    parts: [{ id: "pa", type: "text", text: answer, time: { start: now + 1, end: now + 2 } }],
-  },
-]
+const prompt = { id: "u", type: "user", text: "Plan it", time: { created: now } }
+const reply = (content: unknown[]) => ({
+  id: "a",
+  type: "assistant",
+  agent: "build",
+  model: { providerID: "openai", id: "gpt" },
+  content,
+  time: { created: now + 1, completed: now + 3 },
+})
 
 test("the transcript renders markdown with real syntax highlighting", async ({ page }) => {
   await page.addInitScript(() => {
@@ -51,10 +50,11 @@ test("the transcript renders markdown with real syntax highlighting", async ({ p
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/api/session/ses_md/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: legacy })
+    // The engine pages its transcript newest first.
+    if (url.pathname === "/api/session/ses_md/message")
+      return route.fulfill({ json: { data: [reply([{ type: "text", text: answer }]), prompt], cursor: {} } })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
@@ -127,22 +127,21 @@ async function openThinkingSession(page: Page) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/api/session/ses_md/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname))
+    if (url.pathname === "/api/session/ses_md/message")
       return route.fulfill({
-        json: [
-          legacy[0],
-          {
-            info: { id: "a", sessionID: "ses_md", role: "assistant", agent: "build", time: { created: now + 1 } },
-            parts: [
-              { id: "pr", type: "reasoning", text: thinking, time: { start: now + 1, end: now + 2 } },
-              { id: "pa", type: "text", text: "Done.", time: { start: now + 2, end: now + 3 } },
-            ],
-          },
-        ],
+        json: {
+          data: [
+            reply([
+              { type: "reasoning", text: thinking, time: { created: now + 1, completed: now + 2 } },
+              { type: "text", text: "Done." },
+            ]),
+            prompt,
+          ],
+          cursor: {},
+        },
       })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")

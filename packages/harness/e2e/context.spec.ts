@@ -23,9 +23,8 @@ const report = {
 
 type Options = {
   report?: unknown
-  tools?: string[]
   skills?: unknown[]
-  mcp?: unknown
+  mcp?: Array<{ name: string; status: { status: string } }>
   prompts?: unknown[]
   toolUses?: unknown
 }
@@ -58,20 +57,19 @@ async function open(page: Page, options: Options = {}) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/experimental/tool/ids")
-      return route.fulfill({ json: options.tools ?? ["bash", "read", "edit", "glob"] })
     if (url.pathname === "/api/skill")
       return route.fulfill({
         json: { data: options.skills ?? [{ name: "effect", description: "Work with Effect v4 in this repo" }] },
       })
-    if (url.pathname === "/mcp") return route.fulfill({ json: options.mcp ?? {} })
+    if (url.pathname === "/api/mcp")
+      return route.fulfill({ json: { location: { directory: "/work/demo" }, data: options.mcp ?? [] } })
     if (url.pathname === "/api/agent")
       return route.fulfill({
         json: { data: [{ id: "build", description: "The default agent.", mode: "primary" }] },
       })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
     if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/context")
@@ -128,17 +126,20 @@ test("a reason for loading nothing is shown as a reason", async ({ page }) => {
   await expect(page.getByText(/outside the project/)).toBeVisible()
 })
 
-test("shows the skills and the tools the model is offered", async ({ page }) => {
+// OpenCode 2 lists no tool ids, so the skills are what is left to show of what the model is offered.
+test("shows the skills the model is offered", async ({ page }) => {
   await open(page)
 
   await expect(page.locator(".fc-usage-block").filter({ hasText: "Skills" })).toContainText("effect")
-  const tools = page.locator(".fc-context-chip")
-  await expect(tools).toHaveCount(4)
-  await expect(tools.first()).toHaveText("bash")
 })
 
 test("an MCP server that is not answering is not drawn as one that is", async ({ page }) => {
-  await open(page, { mcp: { docs: { status: "connected" }, linear: { status: "failed" } } })
+  await open(page, {
+    mcp: [
+      { name: "docs", status: { status: "connected" } },
+      { name: "linear", status: { status: "failed" } },
+    ],
+  })
 
   const block = page.locator(".fc-usage-block").filter({ hasText: "Tools" })
   await expect(block).toContainText(/1 of 2|1 de 2/)
@@ -147,7 +148,10 @@ test("an MCP server that is not answering is not drawn as one that is", async ({
 
 test("says which of an MCP server's own tools this session used", async ({ page }) => {
   await open(page, {
-    mcp: { docs: { status: "connected" }, linear: { status: "connected" } },
+    mcp: [
+      { name: "docs", status: { status: "connected" } },
+      { name: "linear", status: { status: "connected" } },
+    ],
     toolUses: {
       tools: {
         docs_search: { count: 1, last: 1 },
@@ -169,7 +173,7 @@ test("says which of an MCP server's own tools this session used", async ({ page 
 })
 
 test("a server that ran nothing says so rather than looking empty", async ({ page }) => {
-  await open(page, { mcp: { docs: { status: "connected" } } })
+  await open(page, { mcp: [{ name: "docs", status: { status: "connected" } }] })
 
   const block = page.locator(".fc-usage-block").filter({ hasText: "Tools" })
   await expect(block).toContainText(/None used in this session|Ninguna usada en esta sesión/)
