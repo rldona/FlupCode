@@ -12,6 +12,7 @@
     "check": "tsgo --noEmit && bun test src",
     "test": "bun test src",
     "test:e2e": "playwright test",
+    "test:e2e:engine": "playwright test --config playwright.engine.config.ts",
     "typecheck": "tsgo --noEmit"
   },
   "dependencies": {

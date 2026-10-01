@@ -31,4 +31,33 @@ describe("pendingPrompts", () => {
     pendingPrompts.remove("msg_c")
     pendingPrompts.remove("msg_d")
   })
+
+  // 2.x holds queued prompts in the session inbox (V2-41): what it lists is what is waiting.
+  test("takes in the prompts a session's inbox holds, and drops the ones it no longer lists", () => {
+    pendingPrompts.adopt("ses_5", [
+      { id: "msg_e", text: "five", files: [], delivery: "queue" },
+      { id: "msg_f", text: "six", files: [], delivery: "steer" },
+    ])
+    expect(
+      pendingPrompts.forSession("ses_5", [], expand, serverUrl).map((entry) => [entry.id, entry.delivery]),
+    ).toEqual([
+      ["msg_e", "queue"],
+      ["msg_f", "steer"],
+    ])
+    pendingPrompts.adopt("ses_5", [{ id: "msg_f", text: "six", files: [], delivery: "steer" }])
+    expect(pendingPrompts.forSession("ses_5", [], expand, serverUrl).map((entry) => entry.id)).toEqual(["msg_f"])
+    pendingPrompts.adopt("ses_5", [])
+    expect(pendingPrompts.forSession("ses_5", [], expand, serverUrl)).toEqual([])
+  })
+
+  test("keeps a prompt sent from here that the inbox does not list yet, and never releases it itself", () => {
+    pendingPrompts.add({ id: "msg_g", sessionID: "ses_6", text: "seven", files: [], delivery: "queue", held: true })
+    pendingPrompts.adopt("ses_6", [])
+    // The engine releases what it holds; releasing it here as well would send it twice.
+    pendingPrompts.release("ses_6", expand, serverUrl)
+    const pending = pendingPrompts.forSession("ses_6", [], expand, serverUrl)
+    expect(pending.map((entry) => [entry.id, entry.delivery])).toEqual([["msg_g", "queue"]])
+    expect(typeof pending[0]?.cancel).toBe("function")
+    pendingPrompts.remove("msg_g")
+  })
 })

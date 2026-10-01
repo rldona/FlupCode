@@ -79,6 +79,42 @@ describe.skipIf(!run)("the OpenCode 2 adapter", () => {
     expect(assistant).toMatchObject({ error: { type: "unknown" } })
   })
 
+  test("a prompt queued behind a running turn waits in the inbox, where it is steered or cancelled", async () => {
+    const session = await domains.session.create({ location: { directory: engine.project } })
+    model.push({ type: "hang" })
+    await domains.session.send({ sessionID: session.id, directory: engine.project, text: "take your time" })
+    const deadline = Date.now() + 10_000
+    while (!(await domains.session.active()).has(session.id) && Date.now() < deadline) await Bun.sleep(50)
+
+    await domains.session.send({
+      sessionID: session.id,
+      directory: engine.project,
+      text: "then this",
+      delivery: "queue",
+    })
+    const queued = await domains.session.inbox.list({ sessionID: session.id })
+    expect(queued).toEqual([{ id: expect.any(String), text: "then this", files: [], delivery: "queue" }])
+    await domains.session.inbox.cancel({ sessionID: session.id, inboxID: queued[0]!.id })
+    expect(await domains.session.inbox.list({ sessionID: session.id })).toEqual([])
+
+    await domains.session.send({
+      sessionID: session.id,
+      directory: engine.project,
+      text: "and this",
+      delivery: "queue",
+    })
+    const [waiting] = await domains.session.inbox.list({ sessionID: session.id })
+    await domains.session.inbox.update({ sessionID: session.id, inboxID: waiting!.id, delivery: "steer" })
+    // The running provider turn never reaches its boundary, so the steered prompt is still waiting.
+    expect((await domains.session.inbox.list({ sessionID: session.id })).map((item) => item.delivery)).toEqual([
+      "steer",
+    ])
+
+    model.push({ type: "text", text: "Done" })
+    await domains.session.abort({ sessionID: session.id })
+    await domains.session.wait({ sessionID: session.id })
+  })
+
   test("renames, forks and removes a session", async () => {
     const session = await domains.session.create({ location: { directory: engine.project } })
     await domains.session.rename({ sessionID: session.id, title: "Renamed" })

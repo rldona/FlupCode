@@ -61,7 +61,7 @@ jobs:
             *) all "event $EVENT" ;;
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
-          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|engine-contract|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           echo "engine=$(matches '^(packages/(core|opencode|llm|server|protocol|schema|client|plugin|sdk|session-ui|engine-contract|remote)/|packages/harness/src/engine/|docs/upstream-inventory\.txt$|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           inventory=false
           [ "$EVENT" = pull_request ] && inventory=$(matches '^(packages/|docs/upstream-inventory\.txt$|script/upstream-inventory\.ts$|\.github/workflows/harness\.yml$)')
@@ -74,7 +74,7 @@ jobs:
     # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026 and a build that
     # changes its own OS on a calendar date is a build that breaks on one.
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -117,6 +117,13 @@ jobs:
 
       - name: E2E
         run: bun run --cwd packages/harness test:e2e
+
+      # The app against a real OpenCode 2 engine (V2-43): the pinned binary with the stub model and no
+      # mocked routes. Send, stream, a permission, a question, the MCP list and the server-side queue.
+      - name: E2E against OpenCode 2
+        env:
+          CI: "1"
+        run: bun run --cwd packages/harness test:e2e:engine
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v6

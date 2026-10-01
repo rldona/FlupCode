@@ -12,6 +12,7 @@ import { openImagePreview } from "../image-preview"
 import { diffLines, escapeHtml, highlight, highlightDiff, languageFor, sideBySideDiff } from "../highlight"
 import { actionLink, outputLines, parseActionSummary, parseTodos, taskSessionID, type ActionSummary, type Todo } from "../tool-render"
 import { recoverablePrompt } from "../unsend"
+import type { RunOutcome } from "../run-outcome"
 import { Loader } from "./Loader"
 import { Markdown } from "./Markdown"
 import { ChapterNav, type Chapter } from "./ChapterNav"
@@ -34,6 +35,8 @@ type SessionViewProps = {
    * status line reads "Thinking…" through every attempt, so a spent quota looks like a hung turn.
    */
   retry?: { message: string; attempt: number }
+  /** How the last 2.x execution ended, when the reader did not see it coming (V2-40). */
+  outcome?: RunOutcome
   usage?: { tokens?: { input: number; output: number; reasoning: number }; cost?: number }
   startedAt?: number
   modelName?: (ref: { providerID: string; id: string }) => string
@@ -903,6 +906,27 @@ export const SessionView: Component<SessionViewProps> = (props) => {
     return index
   })
 
+  // A failure is already told by the last answer when it carries one; only one the transcript has no
+  // place for (it ended before the model answered) gets a line of its own.
+  const outcomeNote = createMemo(() => {
+    const outcome = props.outcome
+    if (!outcome) return undefined
+    if (outcome.kind === "interrupted")
+      return {
+        label: t(
+          outcome.reason === "shutdown"
+            ? "Stopped: the engine shut down"
+            : outcome.reason === "superseded"
+              ? "Stopped: a newer run took over"
+              : "Stopped after a long wait with no progress",
+        ),
+        detail: "",
+      }
+    const last = props.messages?.at(-1)
+    if (last?.type === "assistant" && (last as SessionMessageAssistant).error) return undefined
+    return { label: t("The run failed"), detail: errorDetail(outcome.message) }
+  })
+
   // What the running turn is doing right now, for the status line under the conversation.
   const activity = createMemo(() => {
     // A fold is a turn of its own: it never reads as the agent thinking about the task.
@@ -1432,6 +1456,21 @@ export const SessionView: Component<SessionViewProps> = (props) => {
                   </div>
                 )}
               </For>
+              <Show when={!props.busy && outcomeNote()}>
+                {(note) => (
+                  <div class="fc-message fc-message-assistant fc-run-outcome" data-outcome={props.outcome?.kind}>
+                    <div
+                      class="fc-message-error"
+                      classList={{ "fc-run-outcome-info": props.outcome?.kind !== "failed" }}
+                    >
+                      <div class="fc-message-error-label">{note().label}</div>
+                      <Show when={note().detail}>
+                        <div class="fc-message-error-detail">{note().detail}</div>
+                      </Show>
+                    </div>
+                  </div>
+                )}
+              </Show>
               <Show when={props.busy}>
                 <div class="fc-message fc-message-assistant fc-message-pending">
                   <Loader

@@ -111,11 +111,41 @@ export function createV2Domains(
             ...(input.id ? { id: input.id } : {}),
             text: input.text,
             ...(input.files?.length ? { files: input.files.map((file) => ({ uri: file.uri, name: file.name })) } : {}),
+            // 2.x delivers a prompt itself (V2-41): a steer joins the running execution at its next
+            // safe boundary, a queued one waits in the session inbox until it would go idle.
+            ...(input.delivery ? { delivery: input.delivery } : {}),
           },
           at(input.directory),
         ),
       )
       return nothing()
+    },
+    /** The session inbox: prompts admitted and not yet promoted into the transcript (V2-41). */
+    inbox: {
+      list: async (input) =>
+        (await call(client.session.inbox.list({ sessionID: input.sessionID }))).flatMap((item) =>
+          item.type === "user"
+            ? [
+                {
+                  id: item.id,
+                  text: item.payload.text,
+                  files: (item.payload.files ?? []).map((file) => ({
+                    uri: `data:${file.mime};base64,${file.data}`,
+                    name: file.name ?? "",
+                  })),
+                  delivery: item.delivery,
+                },
+              ]
+            : [],
+        ),
+      cancel: async (input) => {
+        await call(client.session.inbox.cancel({ sessionID: input.sessionID, inboxID: input.inboxID }))
+      },
+      update: async (input) => {
+        await call(
+          client.session.inbox.update({ sessionID: input.sessionID, inboxID: input.inboxID, delivery: input.delivery }),
+        )
+      },
     },
     /** A session is busy while its execution runs; 2.x reports that for every location at once. */
     status: async () => new Set(Object.keys(await call(client.session.active()))),

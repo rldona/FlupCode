@@ -2516,6 +2516,11 @@ button.fc-status {
   color: var(--fc-danger);
 }
 
+/* A stop the reader did not ask for is news, not an error. */
+.fc-run-outcome-info {
+  color: var(--fc-text-muted);
+}
+
 .fc-message-error-label {
   font-weight: 600;
 }

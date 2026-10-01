@@ -16,7 +16,7 @@ import type { McpConfig, McpScope } from "../types"
 import type { ConfiguredProvider } from "../custom-provider"
 import { engineFetch } from "../transport"
 import { subscribeEvents } from "../event-stream"
-import { EngineError } from "./error"
+import { EngineError, unsupported } from "./error"
 import { SUGGESTION_SESSION_TITLE } from "../reply-suggestion"
 import { chatFileParts } from "../chat"
 import { fromLegacy, mergeTranscripts, type LegacyEntry } from "../transcript"
@@ -76,6 +76,14 @@ async function reloadConfig(baseUrl: string, input?: { directory?: string; works
 
 type LocationInput = { location?: { directory?: string; workspace?: string } }
 type Result<T> = { data?: T; error?: unknown }
+
+/** A prompt the engine admitted and holds until the session can take it (V2-41). */
+export type InboxPrompt = {
+  id: string
+  text: string
+  files: Array<{ uri: string; name: string }>
+  delivery: "steer" | "queue"
+}
 
 async function unwrap<T>(call: Promise<Result<T>>): Promise<T> {
   const result = await call
@@ -272,6 +280,8 @@ export function createV1Client(baseUrl: string) {
         system?: string
         files?: Array<{ uri: string; name?: string }>
         model?: { providerID: string; id: string; variant?: string }
+        /** Only 2.x holds a prompt back itself; here the harness does, so this is never sent. */
+        delivery?: "steer" | "queue"
       }) =>
         unwrap(
           client.session.promptAsync({
@@ -289,6 +299,17 @@ export function createV1Client(baseUrl: string) {
             parts: [{ type: "text", text: input.text }, ...chatFileParts(input.files ?? [])],
           }),
         ),
+      /**
+       * The prompts a session's engine holds back until it can take them (V2-41). 1.x keeps no such
+       * queue, so it lists none and the harness keeps its own (pending-prompts.ts).
+       */
+      inbox: {
+        list: async (_input: { sessionID: string }): Promise<InboxPrompt[]> => [],
+        cancel: async (_input: { sessionID: string; inboxID: string }): Promise<void> =>
+          unsupported("a server-side prompt queue"),
+        update: async (_input: { sessionID: string; inboxID: string; delivery: "steer" | "queue" }): Promise<void> =>
+          unsupported("a server-side prompt queue"),
+      },
       /**
        * Which sessions of a folder the legacy runner is working on. `/api/session/active` only knows
        * about v2 runs — measured against a local engine, a legacy turn never appears there — so this
