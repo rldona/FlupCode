@@ -74,6 +74,15 @@ test("the transcript renders markdown with real syntax highlighting", async ({ p
     .evaluateAll((nodes) => [...new Set(nodes.map((node) => getComputedStyle(node).color))])
   expect(colours.length).toBeGreaterThan(2)
 
+  // The code block carries its own copy button, which says it copied.
+  const copy = markdown.locator('[data-component="markdown-code"] [data-slot="markdown-copy-button"] button')
+  await expect(copy).toHaveCount(1)
+  await expect(copy).toHaveAttribute("aria-label", /^(Copy|Copiar)$/)
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"])
+  await markdown.locator('[data-component="markdown-code"]').hover()
+  await copy.click()
+  await expect(copy).toHaveAttribute("aria-label", /^(Copied|Copiado)$/)
+
   // Prose markdown carries the TUI's semantic colours: inline code green, bold/italic warm,
   // headings accent — all resolved from the harness palette, in light and dark.
   const resolved = (token: string) =>

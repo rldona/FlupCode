@@ -1,10 +1,10 @@
 import { type Component } from "solid-js"
-import { Markdown as UpstreamMarkdown } from "@opencode-ai/session-ui/markdown"
+import { MarkdownRenderer } from "../markdown/markdown"
 
 export const Markdown: Component<{ text: string; class?: string; streaming?: boolean; cacheKey?: string }> = (
   props,
 ) => (
-  <UpstreamMarkdown
+  <MarkdownRenderer
     class={`fc-markdown ${props.class ?? ""}`}
     text={props.text ?? ""}
     streaming={props.streaming}
