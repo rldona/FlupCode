@@ -28,7 +28,7 @@ test("a 2.x session keeps its fields and turns its permission rules into the app
     time: { created: 1, updated: 2 },
     title: "",
     location: { directory: "/work/demo" },
-    permission: [{ permission: "shell", pattern: "*", action: "ask" }],
+    permission: [{ permission: "bash", pattern: "*", action: "ask" }],
   })
 })
 

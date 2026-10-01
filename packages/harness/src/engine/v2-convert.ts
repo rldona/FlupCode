@@ -49,7 +49,8 @@ export function toSession(session: V2Session): SessionInfo {
     ...(session.permissions
       ? {
           permission: session.permissions.map((rule) => ({
-            permission: rule.action,
+            // 2.x calls 1.x's `bash` permission `shell`.
+            permission: rule.action === "shell" ? "bash" : rule.action,
             pattern: rule.resource,
             action: rule.effect,
           })),
