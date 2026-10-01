@@ -728,7 +728,8 @@ Downloaded with `curl` the binary is not quarantined; if you download it from a 
 The same binary runs FlupCode's web app against OpenCode 2 on this computer: `flupcode serve`
 starts the engine and answers at `http://127.0.0.1:4096`. It signs in for app.flupcode.com and
 `localhost:4444` only, since OpenCode 2 always asks for a password a page cannot send. The desktop
-app does the same while it is open. See [GETTING-STARTED.md](GETTING-STARTED.md).
+app does the same while it is open. `flupcode serve --install` runs it at every login (macOS and
+Linux). See [GETTING-STARTED.md](GETTING-STARTED.md).
 
 It exposes the OpenCode server at `http://127.0.0.1:4096` (starting `opencode serve` if needed),
 prints a QR code to scan, and keeps running until you type `q`. While it runs, type `p` for a new

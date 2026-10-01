@@ -324,6 +324,32 @@ describe("flupcode serve", () => {
   }, 60_000)
 })
 
+describe("flupcode serve --install", () => {
+  // Nothing is loaded here: FLUPCODE_SERVICE_MANAGER=none writes the file a real install would load.
+  test("writes the login service that runs flupcode serve, and --uninstall removes it", async () => {
+    const home = mkdtempSync(join(tmpdir(), "flupcode-cli-home-"))
+    const env = { HOME: home, XDG_CONFIG_HOME: join(home, ".config"), FLUPCODE_SERVICE_MANAGER: "none" }
+    const file =
+      process.platform === "darwin"
+        ? join(home, "Library", "LaunchAgents", "com.flupcode.serve.plist")
+        : join(home, ".config", "systemd", "user", "flupcode-serve.service")
+    try {
+      const installed = cliWith(env, "serve", "--install", "--port", "4111")
+      expect(await installed.exited).toBe(0)
+      const written = readFileSync(file, "utf8")
+      expect(written).toContain("serve")
+      expect(written).toContain("4111")
+      expect(written).toContain(process.platform === "darwin" ? "<key>KeepAlive</key>" : "Restart=always")
+
+      const removed = cliWith(env, "serve", "--uninstall")
+      expect(await removed.exited).toBe(0)
+      expect(existsSync(file)).toBe(false)
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  })
+})
+
 describe("flupcode engine", () => {
   /** A database with 1.x's session and message tables. */
   function v1Database(folder: string) {
