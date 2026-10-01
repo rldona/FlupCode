@@ -735,7 +735,10 @@ export function createV1Client(baseUrl: string) {
     /** Permissions across every session, and the ones the reader told the engine to remember. */
     permission: {
       /** Everything waiting for an answer, not just the open session's: a blocked agent is silent. */
-      pending: (input?: LocationInput) => unwrap(client.v2.permission.request.list(input)),
+      // Only the requests: the location they were read at is not something the app looks at.
+      pending: async (input?: LocationInput) => ({
+        data: (await unwrap(client.v2.permission.request.list(input))).data,
+      }),
       saved: {
         list: (input?: { projectID?: string }) => unwrap(client.v2.permission.saved.list(input)),
         remove: (input: { id: string }) => unwrap(client.v2.permission.saved.remove({ id: input.id })),
