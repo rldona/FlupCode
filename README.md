@@ -65,12 +65,15 @@ system and the harness features that OpenCode's default UI does not emphasise.
 
 ## Highlights
 
-- **Engine untouched.** All OpenCode packages stay pristine so upstream changes can be pulled in.
+- **The official engine.** FlupCode runs the official OpenCode 2 binary at a pinned version and
+  extends it through plugins, never through patches
+  ([ADR-0027](docs/adr/0027-official-opencode-binary.md)).
 - **Isolated product code.** Everything we build lives in `packages/harness` (web) and
   `packages/harness-desktop` (desktop), reusing `@opencode-ai/ui`, `@opencode-ai/session-ui`
   and the generated client/SDK.
-- **Upstream-first.** `dev` is a fast-forward mirror of `anomalyco/opencode`; our work lives on
-  `power`. See [docs/UPSTREAM.md](docs/UPSTREAM.md).
+- **Upstream by version.** A weekly pull request moves the pin to the newest OpenCode 2 release
+  once it is three days old, and the engine suite and the live e2e judge it. See
+  [docs/UPSTREAM.md](docs/UPSTREAM.md).
 - **Full TUI parity.** Feature-for-feature mapping of the terminal UI to the web UI is tracked in
   [docs/PARITY.md](docs/PARITY.md).
 - **Harness features.** Usage dashboard, activity heatmap, multi-project workspaces, pinned
@@ -180,7 +183,7 @@ OpenCode 1.x is deprecated: `FLUPCODE_ENGINE=v1` keeps it for now. See
 | [docs/OPENCODE-2.md](docs/OPENCODE-2.md) | FlupCode on OpenCode 2: what changed, importing 1.x history, staying on 1.x for now |
 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) | How the monorepo fits together and where FlupCode lives |
 | [docs/USAGE.md](docs/USAGE.md) | Install, run, keyboard shortcuts and troubleshooting |
-| [docs/UPSTREAM.md](docs/UPSTREAM.md) | Branch model, syncing with `anomalyco/opencode` |
+| [docs/UPSTREAM.md](docs/UPSTREAM.md) | Following OpenCode: the pin and the old fork sync |
 | [docs/DESIGN.md](docs/DESIGN.md) | Design system and the Claude Code–style harness direction |
 | [docs/PARITY.md](docs/PARITY.md) | TUI ↔ Web feature parity matrix |
 | [docs/ROADMAP.md](docs/ROADMAP.md) | Prioritised, ticket-based roadmap |

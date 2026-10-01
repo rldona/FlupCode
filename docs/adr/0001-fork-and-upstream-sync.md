@@ -1,6 +1,8 @@
 # ADR-0001: Fork and upstream synchronisation
 
-- **Status:** Accepted
+- **Status:** Superseded by [ADR-0027](0027-official-opencode-binary.md). FlupCode runs the
+  official OpenCode 2 binary; the scheduled sync is off, and V2-71 removes the fork's upstream
+  packages and the `dev` mirror.
 - **Date:** 2026-09-12
 
 ## Context

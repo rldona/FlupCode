@@ -835,7 +835,7 @@ Every ticket is its own PR against `power`.
 | H-16 on 2.x | Done in the default-engine PR, with nothing to change: 2.x offers MCP tools only inside Code Mode's `execute`, but each call a script makes still runs the tool hooks under the server-prefixed name (`contract_echo`), so FlupCode's tool-uses plugin counts and times it and the Context panel's per-server use and latency read it as on 1.x. Pinned by engine-contract `mcp-stats-v2.test.ts` on a real engine (a connected server joins the Code Mode catalog on the next turn) |
 | MCP pasted code | Done in the default-engine PR: a 2.x sign-in attempt in `code` mode opens the page and the app asks for the code (`mcp.authComplete` → `integration.oauth.complete`), then waits for the attempt like an automatic one. 2.0.18 signs MCP servers in through its own callback (found on a real engine: `auto` even with an external `redirect_uri`), so this is proven against a stand-in 2.x (`v2-mcp-code.test.ts`). Also fixed: the adapter waited on a sign-in with `Bun.sleep`, which does not exist in the page |
 | Web on 2.x (2.1) | Done in the web engine proxy PR. 2.x cannot run without a password (its `serve` always sets one, and refuses to start without), so `@flupcode/remote/engine-proxy` signs in for the page instead. It is a `node:http` proxy (Electron and Bun) that adds the credential, answers CORS itself (Chrome's private-network preflight included), and streams event streams and the terminal's WebSocket. A browser request is served only with an allowed `Origin` (app.flupcode.com, `localhost:4444`, the desktop's own window, `FLUPCODE_WEB_ORIGINS`) and a loopback `Host`, which a DNS-rebinding page cannot send. A request no browser made (harness-server, the CLI) is served. The desktop runs the 2.x engine it starts on a private port (`FLUPCODE_ENGINE_PORT`, 4098) with the proxy at 4096, so the web app works while it is open. `flupcode serve` does the same without the desktop. The web's instructions now name `flupcode serve` or the desktop, and the live-engine e2e drives the app through this proxy |
-| V2-71 | **TODO.** After one clean release with OpenCode 2 as the default (V2-70). Remove the V1 adapter (`engine/v1.ts`), the 1.x plugin set, the app-side prompt queue for 1.x, the vendored `packages/opencode` and legacy `sdk/js` usage, and the engine patches; update the docs listed under V2-71 below. Acceptance as written there |
+| V2-71 | **TODO.** Prepared by ADR-0027 (pin, boundary list, bump workflow); see the V2-71 entry below. After one clean release with OpenCode 2 as the default (V2-70). Remove the V1 adapter (`engine/v1.ts`), the 1.x plugin set, the app-side prompt queue for 1.x, the vendored `packages/opencode` and legacy `sdk/js` usage, and the engine patches; update the docs listed under V2-71 below. Acceptance as written there |
 
 ### Phase 0: Baseline
 
@@ -1081,11 +1081,27 @@ event names.
 **V2-70 · Default engine V2, V1 deprecated (P1)**: a feature flag, release notes, one release cycle.
 
 **V2-71 · Remove V1 (P1)** — **TODO**, not started: wait for one clean release on the V2 default
+- **Decided first:** [ADR-0027](adr/0027-official-opencode-binary.md). FlupCode runs the official
+  binary at one pin and follows upstream by bumping it (`opencode-bump.yml`), not by merging `dev`.
+  The scheduled fork sync is off. `docs/opencode-boundary.txt` lists the FlupCode files that still
+  reach the vendored packages, and CI (`script/opencode-pin.ts`) keeps it from growing.
+- **Preparation, reversible, before the removal:**
+  1. Done in the ADR-0027 PR: the ADR, the pin check, the boundary list, the bump workflow, the fork
+     sync off its schedule.
+  2. The transcript's markdown renderer and its styles become FlupCode's own (`Markdown.tsx`,
+     `styles/session-ui.css`), dropping `@opencode-ai/session-ui` and `@opencode-ai/ui`.
+  3. `engine-types.ts` defines the shared engine types from `@opencode/client` or by FlupCode,
+     instead of the 1.x SDK.
+  After these, the list holds only what goes with V1: `engine/v1.ts`, `harness-server/src/engine.ts`,
+  the 1.x web-actions plugin in `engine-plugins.ts`, and the two `package.json` entries for the SDK.
 - **Change:** the V1 adapter, V1 plugin shell, vendored `packages/opencode`, legacy `sdk/js` usage
-  and engine patches.
+  and engine patches. With them: every upstream package, the upstream workflows, `dev`,
+  `upstream-sync.yml`, the upstream inventory and its CI job, and the root workspace, `catalog:`
+  and `patches/` trimmed to FlupCode's packages. The README stops calling FlupCode a fork.
 - **Docs:** update ADR-0001, ADR-0009, `ARCHITECTURE.md`, `V2-HOOKS.md`, `PARITY.md` and the
   `AGENTS.md` "V2 Session Core" section.
-- **Acceptance:** `rg "@opencode-ai/"` finds nothing in FlupCode packages; CI green.
+- **Acceptance:** `rg "@opencode-ai/"` finds nothing in FlupCode packages, and
+  `docs/opencode-boundary.txt` is empty; CI green.
 
 ### Rollback strategy
 

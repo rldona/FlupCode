@@ -1,8 +1,37 @@
 # Upstream
 
 FlupCode tracks [anomalyco/opencode](https://github.com/anomalyco/opencode) so we inherit every
-new engine capability, provider, tool and fix. This document defines how we do that without
-fighting merge conflicts.
+new engine capability, provider, tool and fix.
+
+## Following OpenCode 2: the pin
+
+FlupCode runs the **official OpenCode 2 binary** and follows upstream by moving one pinned version,
+not by merging upstream's source ([ADR-0027](adr/0027-official-opencode-binary.md)).
+
+- **The pin.** `OPENCODE_V2_VERSION` in `packages/remote/src/opencode-v2.ts` is the binary the
+  desktop, `flupcode remote` and `flupcode serve` fetch. `@opencode/client` in the FlupCode
+  `package.json` files is pinned to the same exact version.
+- **The bump.** `.github/workflows/opencode-bump.yml` runs every Monday, and on demand with an
+  optional version. It moves the pin to the newest 2.x release older than `minimumReleaseAge`
+  (`bunfig.toml`, three days), refreshes `bun.lock` and opens or updates the `opencode-bump` pull
+  request. The harness workflow then starts the new binary for real: the engine-contract suite and
+  the live e2e (`test:e2e:engine`). Merge it once `gate` is green. Bump a major by hand.
+- **By hand:** `bun script/opencode-pin.ts bump [version]`, then `bun install`. The script refuses a
+  version younger than `minimumReleaseAge`, or one that any platform binary lacks.
+- **The boundary.** FlupCode packages reach upstream only through the pinned npm packages.
+  `docs/opencode-boundary.txt` lists the files that still import `@opencode-ai/*` or depend on an
+  upstream workspace package. `bun script/opencode-pin.ts` (a step of the harness `build` job)
+  fails on a file not listed, and on a version that disagrees with the pin. When a change removes a
+  file's last upstream import, drop it from the list (`--update` rewrites it). V2-71 empties it.
+
+An engine bug is fixed upstream or worked around in a plugin, never patched here.
+
+## The fork sync (until V2-71)
+
+Everything below describes the fork model of ADR-0001, which ADR-0027 supersedes. The scheduled sync
+is off: upstream's `dev` and `power` no longer share a recent merge base, and the vendored engine is
+not what FlupCode runs. `upstream-sync.yml` can still be dispatched by hand. V2-71 removes the
+upstream packages, the `dev` mirror, this workflow and the inventory below.
 
 ## Remotes
 

@@ -1,0 +1,12 @@
+# FlupCode files that still reach the vendored upstream packages (ADR-0027).
+# CI fails on a file not listed here; this list only shrinks, and V2-71 empties it.
+# Regenerate with: bun script/opencode-pin.ts --update
+
+packages/harness-server/package.json
+packages/harness-server/src/engine.ts
+packages/harness/package.json
+packages/harness/src/components/Markdown.tsx
+packages/harness/src/engine-types.ts
+packages/harness/src/engine/v1.ts
+packages/harness/src/styles/session-ui.css
+packages/remote/src/engine-plugins.ts

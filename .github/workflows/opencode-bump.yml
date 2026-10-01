@@ -1,0 +1,87 @@
+name: opencode-bump
+
+# How FlupCode follows upstream (ADR-0027): not by merging OpenCode's source, but by moving the one
+# pinned OpenCode 2 version to its newest release older than bunfig's minimumReleaseAge. The pull
+# request it opens runs the harness workflow, whose engine-contract suite and live e2e start the
+# new binary for real; merge it like any other once `gate` is green.
+
+on:
+  schedule:
+    # Mondays at 07:00 UTC.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "OpenCode 2 version to pin (default: the newest eligible release)"
+        required: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: opencode-bump
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    # Pinned, not `ubuntu-latest`: the label migrates to Ubuntu 26 in October 2026.
+    runs-on: ubuntu-24.04
+    steps:
+      # A pull request opened with the default GITHUB_TOKEN starts no workflows, so its checks would
+      # never run. The sync token is the PAT the fork sync already uses.
+      - name: Require token
+        env:
+          UPSTREAM_SYNC_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+        run: |
+          if [ -z "$UPSTREAM_SYNC_TOKEN" ]; then
+            echo "::error::UPSTREAM_SYNC_TOKEN is not set: the bump pull request would run no checks."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: power
+          token: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Move the pin
+        id: bump
+        env:
+          VERSION: ${{ inputs.version }}
+        run: bun script/opencode-pin.ts bump $VERSION
+
+      - name: Refresh the lockfile
+        if: steps.bump.outputs.version != ''
+        run: bun install
+
+      - name: Open or update the pull request
+        if: steps.bump.outputs.version != ''
+        env:
+          GH_TOKEN: ${{ secrets.UPSTREAM_SYNC_TOKEN }}
+          VERSION: ${{ steps.bump.outputs.version }}
+          FROM: ${{ steps.bump.outputs.from }}
+        run: |
+          set -euo pipefail
+          git config user.name "flupcode-bot"
+          git config user.email "bot@users.noreply.github.com"
+          git switch -C opencode-bump
+          git commit -am "chore(opencode): pin OpenCode $VERSION"
+          git push --force origin opencode-bump
+          body="Moves the pinned OpenCode 2 (binary and \`@opencode/client\`) to $VERSION, its newest release older than \`minimumReleaseAge\`.
+
+          Upstream changes: https://github.com/anomalyco/opencode/compare/v$FROM...v$VERSION
+
+          Merge once \`gate\` is green: the engine-contract suite and the live e2e ran against this binary (ADR-0027)."
+          pr=$(gh pr list --repo "$GITHUB_REPOSITORY" --head opencode-bump --base power --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr edit "$pr" --repo "$GITHUB_REPOSITORY" --title "chore(opencode): pin OpenCode $VERSION" --body "$body"
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --head opencode-bump --base power \
+              --title "chore(opencode): pin OpenCode $VERSION" --body "$body"
+          fi

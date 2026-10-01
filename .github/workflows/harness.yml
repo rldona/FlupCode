@@ -61,7 +61,7 @@ jobs:
             *) all "event $EVENT" ;;
           esac
           matches() { printf '%s\n' "$files" | grep -Eq "$1" && echo true || echo false; }
-          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|engine-contract|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
+          echo "harness=$(matches '^(packages/(harness|harness-desktop|harness-server|remote|relay|flupcode-cli|engine-contract|sdk|session-ui|ui|core)/|package\.json$|bun\.lock$|script/opencode-pin\.ts$|docs/opencode-boundary\.txt$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           echo "engine=$(matches '^(packages/(core|opencode|llm|server|protocol|schema|client|plugin|sdk|session-ui|engine-contract|remote)/|packages/harness/src/engine/|docs/upstream-inventory\.txt$|package\.json$|bun\.lock$|\.github/workflows/harness\.yml$)')" >> "$GITHUB_OUTPUT"
           inventory=false
           [ "$EVENT" = pull_request ] && inventory=$(matches '^(packages/|docs/upstream-inventory\.txt$|script/upstream-inventory\.ts$|\.github/workflows/harness\.yml$)')
@@ -86,6 +86,11 @@ jobs:
 
       - name: Install
         run: bun install --frozen-lockfile
+
+      # One OpenCode 2 version for the binary and its client, and no new FlupCode file reaching the
+      # vendored upstream packages (ADR-0027).
+      - name: OpenCode pin and boundary
+        run: bun script/opencode-pin.ts
 
       - name: Typecheck
         run: |
