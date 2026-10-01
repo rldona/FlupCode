@@ -402,8 +402,8 @@ export const DEFAULT_GUARDRAILS_CONFIG: GuardrailsConfig = {
 }
 
 /**
- * The trim's bounds, kept in step with TOOL_TRIM_PLUGIN (`packages/remote/src/engine-plugins.ts`): the
- * plugin never posts an output below the floor or past the item cap, so a configured value outside
+ * The trim's bounds, kept in step with `MIN_TRIM_BYTES` and `MAX_TRIM_BYTES` in TOOL_TRIM_PLUGIN_V2
+ * (`packages/remote/src/engine-plugins-v2.ts`): the plugin never posts an output below the floor or past the item cap, so a configured value outside
  * them could never apply. `readBytes` stays below the engine's own 50 KB tool-output truncation, so a
  * read is never cut again on its way back to the model.
  */
@@ -427,7 +427,7 @@ export const DEFAULT_TOOL_TRIM_CONFIG: ToolTrimConfig = {
 }
 
 /**
- * The selection's bounds, kept in step with CACHE_SELECTION_PLUGIN (`packages/remote/src/engine-plugins.ts`),
+ * The selection's bounds, kept in step with CACHE_SELECTION_PLUGIN_V2 (`packages/remote/src/engine-plugins-v2.ts`),
  * which refuses a policy outside them. A gap below the provider's cache TTL trims while the cache is
  * warm, which is what the replay's falsification arm measures, never a production setting.
  */
@@ -449,7 +449,7 @@ export const DEFAULT_SELECTION_CONFIG: SelectionConfig = {
 
 /**
  * The most the server-side relevance deadline may reach. The installed plugin bounds its own fetch at
- * 500 ms by default (`FETCH_TIMEOUT_MS` in `packages/remote/src/engine-plugins.ts`), so the server's
+ * 500 ms by default (`FETCH_TIMEOUT_MS` in RELEVANCE_PLUGIN_V2, `packages/remote/src/engine-plugins-v2.ts`), so the server's
  * deadline has to stay strictly below it for the server to answer first; a larger configured value is
  * clamped here rather than letting the plugin abort and the line vanish without a trace. Raising the
  * plugin's timeout means raising this constant in step.
@@ -458,7 +458,7 @@ export const RELEVANCE_TIMEOUT_MS_CEILING = 450
 
 /**
  * The most names the line may carry. The installed plugin refuses anything but the fixed box with at
- * most three `NAME` tokens (`MAX_LINE_SKILLS` in `packages/remote/src/engine-plugins.ts`), so a larger
+ * most three `NAME` tokens (`MAX_LINE_SKILLS` in RELEVANCE_PLUGIN_V2, `packages/remote/src/engine-plugins-v2.ts`), so a larger
  * `maxSkills` would render a line the plugin drops and the feature would go silent. The cap keeps the
  * writer and the reader in step; a smaller value is still honored.
  */

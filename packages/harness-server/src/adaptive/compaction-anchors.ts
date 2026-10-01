@@ -24,7 +24,10 @@ import { redactText } from "./redaction"
 import { episodeEvidence, episodeSignals } from "./signals"
 import type { EpisodeSignal, EpisodeSignals } from "./signals"
 
-/** The whole block, tags included. Kept in step with the plugin's own check in engine-plugins.ts. */
+/**
+ * The whole block, tags included. Kept in step with `BLOCK_LIMIT`, `PREFIX` and `SUFFIX` in
+ * COMPACTION_ANCHORS_PLUGIN_V2 (`packages/remote/src/engine-plugins-v2.ts`), the plugin's own check.
+ */
 export const ANCHOR_BLOCK_LIMIT = 1536
 export const ANCHOR_PREFIX = "<compaction_anchors>\n"
 export const ANCHOR_SUFFIX = "\n</compaction_anchors>"

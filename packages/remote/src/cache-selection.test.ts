@@ -1,9 +1,11 @@
-import { afterEach, describe, expect, test } from "bun:test"
-import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
+import { afterEach, describe, expect, setSystemTime, test } from "bun:test"
+import { mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { pathToFileURL } from "node:url"
-import { CACHE_SELECTION_PLUGIN, CACHE_SELECTION_SOURCE, installEnginePlugins } from "./engine-plugins"
+import { CACHE_SELECTION_SOURCE } from "./cache-selection-source"
+import { installEnginePlugins } from "./engine-plugins"
+import { CACHE_SELECTION_PLUGIN_V2 } from "./engine-plugins-v2"
 
 // The exact text the plugin inlines, evaluated here: the code under test is the code the engine runs.
 type Message = { info: Record<string, any>; parts: Array<Record<string, any>> }
@@ -355,10 +357,11 @@ describe("selectForCache: rules", () => {
   })
 })
 
-describe("CACHE_SELECTION_PLUGIN", () => {
+describe("CACHE_SELECTION_PLUGIN_V2", () => {
   const dirs: string[] = []
   const servers: Array<() => void> = []
   afterEach(async () => {
+    setSystemTime()
     for (const stop of servers.splice(0)) stop()
     await Promise.all(dirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })))
     delete process.env.FLUPCODE_CONFIG_DIR
@@ -391,19 +394,90 @@ describe("CACHE_SELECTION_PLUGIN", () => {
     return { url: server.url.origin, requests }
   }
 
-  const open = async (url: string | undefined, token: string | false = "adaptive-secret") => {
+  // A request as 2.x hands it to the `context` hook (a tool's result is a `tool` message after its call,
+  // and no message carries a time), with the events the plugin reads the times from: a user message's
+  // delivery and an assistant step's end, each at its own time.
+  type Part = { type: string; id?: string; name?: string; text?: string; result?: { type: string; value: string } }
+  type Request = { messages: Array<{ id?: string; role: string; content: Part[] }>; events: Array<[number, Event]> }
+  type Event = { type: string; data: Record<string, unknown> }
+
+  const user = (id: string, delivered: number): Request => ({
+    messages: [{ id, role: "user", content: [{ type: "text", text: "go" }] }],
+    events: [[delivered, { type: "session.inbox.delivered", data: { sessionID: "ses_1", inboxID: id } }]],
+  })
+  const step = (id: string, ended: number, outputs: Array<[string, number]>): Request => ({
+    messages: [
+      {
+        id,
+        role: "assistant",
+        content: outputs.map(([tool], at) => ({ type: "tool-call", id: `${id}_call_${at}`, name: tool })),
+      },
+      {
+        role: "tool",
+        content: outputs.map(([tool, size], at) => ({
+          type: "tool-result",
+          id: `${id}_call_${at}`,
+          name: tool,
+          result: { type: "text", value: "o".repeat(size) },
+        })),
+      },
+    ],
+    events: [[ended, { type: "session.step.ended", data: { sessionID: "ses_1", assistantMessageID: id } }]],
+  })
+  const join = (...requests: Request[]): Request => ({
+    messages: requests.flatMap((request) => request.messages),
+    events: requests.flatMap((request) => request.events),
+  })
+
+  const T = 1_900_000_000_000
+  const history = () =>
+    join(
+      user("u1", T),
+      step("a1", T + 1_000, [["read", 40_000]]),
+      user("u2", T + 2_000),
+      step("a2", T + 3_000, [["grep", 8_000]]),
+    )
+  const coldTurn = () => user("u3", T + 3_000 + 7 * MINUTE)
+  // The next step of the cold turn, and a later turn after another cold gap.
+  const nextStep = () => step("a3", T + 3_000 + 8 * MINUTE, [["bash", 3_000]])
+  const laterTurn = () => user("u4", T + 3_000 + 20 * MINUTE)
+  // Where each request's tool results sit: the old read and the recent grep.
+  const read = (request: Request) => request.messages[2]!.content[0]!.result!.value
+  const grep = (request: Request) => request.messages[5]!.content[0]!.result!.value
+
+  const open = async (
+    url: string | undefined,
+    events: Array<[number, Event]> = [],
+    token: string | false = "adaptive-secret",
+  ) => {
     const config = await temp()
     const flupcode = await temp()
     process.env.FLUPCODE_CONFIG_DIR = flupcode
     if (url) process.env.FLUPCODE_HARNESS_SERVER_URL = url
     if (token) await writeFile(path.join(flupcode, "adaptive-token"), token)
-    const { paths } = await installEnginePlugins(config)
-    const target = paths.find((entry) => entry.endsWith(CACHE_SELECTION_PLUGIN.file))!
-    const factory = (await import(pathToFileURL(target).href)).flupcodeCacheSelection
-    return (await factory({ directory: "/project" })) as Record<
-      string,
-      (input: unknown, output: unknown) => Promise<void>
-    >
+    const { paths } = await installEnginePlugins(config, "v2")
+    const target = paths.find((entry) => entry.endsWith(CACHE_SELECTION_PLUGIN_V2.file))!
+    const plugin = (await import(pathToFileURL(target).href)).default as { setup: (ctx: unknown) => Promise<unknown> }
+    // The clock stands at the newest event once they are all seen, which is when the requests are made.
+    const now = Math.max(T, ...events.map(([at]) => at))
+    setSystemTime(new Date(now))
+    const hooks: Record<string, (input: unknown) => void> = {}
+    await plugin.setup({
+      location: { directory: "/project" },
+      session: { hook: async (name: string, callback: (input: unknown) => void) => void (hooks[name] = callback) },
+      event: {
+        subscribe: () => ({
+          async *[Symbol.asyncIterator]() {
+            for (const [at, event] of events) {
+              setSystemTime(new Date(at))
+              yield event
+            }
+            setSystemTime(new Date(now))
+          },
+        }),
+      },
+    })
+    return hooks
   }
 
   const settle = async (requests: unknown[], count: number) => {
@@ -415,142 +489,114 @@ describe("CACHE_SELECTION_PLUGIN", () => {
   }
 
   const ENABLED = { enabled: true, keepRecentTurns: 1, minSavingsTokens: 0, coldGapMs: 6 * MINUTE }
-  const T = 1_000_000_000
-  const history = () => [
-    ...turn({ user: T, steps: [{ completed: T + 1_000, outputs: [["read", 40_000]] }] }),
-    ...turn({ user: T + 2_000, steps: [{ completed: T + 3_000, outputs: [["grep", 8_000]] }] }),
-  ]
-  const coldTurn = () => turn({ user: T + 3_000 + 7 * MINUTE, steps: [] })
+  const everything = () => join(history(), coldTurn(), nextStep(), laterTurn()).events
 
   test("the plugin carries the same selection source the tests evaluate", () => {
-    expect(CACHE_SELECTION_PLUGIN.source).toContain(CACHE_SELECTION_SOURCE)
-    expect(CACHE_SELECTION_PLUGIN.source.match(/^export /gm)).toHaveLength(1)
+    expect(CACHE_SELECTION_PLUGIN_V2.source).toContain(CACHE_SELECTION_SOURCE)
+    expect(CACHE_SELECTION_PLUGIN_V2.source.match(/^export /gm)).toHaveLength(1)
   })
 
   test("fetches the policy once when it loads, never inside the hook, and trims in place at a cold step", async () => {
     const fixture = harness({ current: ENABLED })
-    const hooks = await open(fixture.url)
+    const request = join(history(), coldTurn())
+    const hooks = await open(fixture.url, request.events)
     await settle(fixture.requests, 1)
     expect(fixture.requests).toEqual([
       { path: "/harness/adaptive/selection", auth: "Bearer adaptive-secret", method: "GET" },
     ])
-    const messages = [...history(), ...coldTurn()]
-    const user = messages[0]
-    const output = { messages }
-    await hooks["experimental.chat.messages.transform"]!({}, output)
+    const messages = request.messages
+    const first = messages[0]
+    const result = messages[2]!.content[0]
+    hooks.context!({ sessionID: "ses_1", messages })
     expect(fixture.requests).toHaveLength(1)
-    // The same array the engine holds, with the old output replaced and everything else as it was.
-    expect(output.messages).toBe(messages)
-    expect(messages[0]).toBe(user)
-    expect(messages[1]!.parts[0]!.state.output).toStartWith("[Old read output")
-    expect(messages[3]!.parts[0]!.state.output).toHaveLength(8_000)
+    // The same list the engine holds, with the old output replaced in its own tool-result.
+    expect(request.messages).toBe(messages)
+    expect(messages[0]).toBe(first)
+    expect(messages[2]!.content[0]).toBe(result)
+    expect(read(request)).toStartWith("[Old read output")
+    expect(grep(request)).toHaveLength(8_000)
   })
 
   test("a warm step leaves the messages byte-identical", async () => {
     const fixture = harness({ current: ENABLED })
-    const hooks = await open(fixture.url)
+    const request = join(history(), user("u3", T + 60_000))
+    const hooks = await open(fixture.url, request.events)
     await settle(fixture.requests, 1)
-    const messages = [...history(), ...turn({ user: T + 60_000, steps: [] })]
-    const snapshot = bytes(messages)
-    await hooks["experimental.chat.messages.transform"]!({}, { messages })
-    expect(bytes(messages)).toBe(snapshot)
+    const snapshot = bytes(request.messages)
+    hooks.context!({ sessionID: "ses_1", messages: request.messages })
+    expect(bytes(request.messages)).toBe(snapshot)
   })
 
   test("a policy change waits for the session's next cold step", async () => {
     process.env.FLUPCODE_SELECTION_REFRESH_MS = "20"
     const policy = { current: ENABLED as unknown }
     const fixture = harness(policy)
-    const hooks = await open(fixture.url)
+    const hooks = await open(fixture.url, everything())
     await settle(fixture.requests, 1)
-    const transform = hooks["experimental.chat.messages.transform"]!
-    const step = async (messages: Message[]) => {
-      await transform({}, { messages })
-      return messages
+    // Each step reloads the history, so each request is built afresh.
+    const stepped = (request: Request) => {
+      hooks.context!({ sessionID: "ses_1", messages: request.messages })
+      return request
     }
-    const cold = await step([...history(), ...coldTurn()])
-    const trimmed = bytes(cold)
+    const cold = stepped(join(history(), coldTurn()))
+    expect(read(cold)).toStartWith("[Old read output")
+    const trimmed = bytes(cold.messages)
 
-    // Switched off while the cache is warm: the next steps still render the same bytes.
+    // Switched off while the cache is warm: the next step still renders the same bytes.
     policy.current = { ...ENABLED, enabled: false }
     await settle(fixture.requests, fixture.requests.length + 2)
-    // The next step of the same turn: its list ends with the step before it, so it is warm.
-    const warm = await step([
-      ...history(),
-      ...coldTurn(),
-      ...turn({ user: 0, steps: [{ completed: T + 3_000 + 8 * MINUTE, outputs: [["bash", 3_000]] }] }).slice(1),
-    ])
-    expect(bytes(warm.slice(0, cold.length))).toBe(trimmed)
+    const warm = stepped(join(history(), coldTurn(), nextStep()))
+    expect(bytes(warm.messages.slice(0, cold.messages.length))).toBe(trimmed)
 
     // At the next cold step the new policy applies: nothing is trimmed any more.
-    // Each step reloads the history from storage, so the next list is built afresh.
-    const later = await step([
-      ...history(),
-      ...coldTurn(),
-      ...turn({ user: 0, steps: [{ completed: T + 3_000 + 8 * MINUTE, outputs: [["bash", 3_000]] }] }).slice(1),
-      ...turn({ user: T + 3_000 + 20 * MINUTE, steps: [] }),
-    ])
-    expect(later[1]!.parts[0]!.state.output).toHaveLength(40_000)
+    const later = stepped(join(history(), coldTurn(), nextStep(), laterTurn()))
+    expect(read(later)).toHaveLength(40_000)
   })
 
   test("a paused session latches off at its next cold step, and other sessions keep the policy", async () => {
     process.env.FLUPCODE_SELECTION_REFRESH_MS = "20"
     const policy = { current: { ...ENABLED, pausedSessions: ["ses_1"] } as unknown }
     const fixture = harness(policy)
-    const hooks = await open(fixture.url)
+    const hooks = await open(fixture.url, everything())
     await settle(fixture.requests, 1)
-    const transform = hooks["experimental.chat.messages.transform"]!
-    const paused = [...history(), ...coldTurn()]
-    await transform({}, { messages: paused })
-    expect(paused[1]!.parts[0]!.state.output).toHaveLength(40_000)
+    const paused = join(history(), coldTurn())
+    hooks.context!({ sessionID: "ses_1", messages: paused.messages })
+    expect(read(paused)).toHaveLength(40_000)
 
-    // The same history under another session id is trimmed as before.
-    const other = [...history(), ...coldTurn()].map((message) => ({
-      ...message,
-      info: { ...message.info, sessionID: "ses_2" },
-    }))
-    await transform({}, { messages: other })
-    expect(other[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+    // The same history in another session is trimmed as before.
+    const other = join(history(), coldTurn())
+    hooks.context!({ sessionID: "ses_2", messages: other.messages })
+    expect(read(other)).toStartWith("[Old read output")
 
     // A malformed list is no pause at all.
     policy.current = { ...ENABLED, pausedSessions: "ses_1" }
     await settle(fixture.requests, fixture.requests.length + 2)
-    const resumed = [
-      ...history(),
-      ...coldTurn(),
-      ...turn({ user: 0, steps: [{ completed: T + 3_000 + 8 * MINUTE, outputs: [["bash", 3_000]] }] }).slice(1),
-      ...turn({ user: T + 3_000 + 20 * MINUTE, steps: [] }),
-    ]
-    await transform({}, { messages: resumed })
-    expect(resumed[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+    const resumed = join(history(), coldTurn(), nextStep(), laterTurn())
+    hooks.context!({ sessionID: "ses_1", messages: resumed.messages })
+    expect(read(resumed)).toStartWith("[Old read output")
   })
 
   test("a control-arm session of the holdout keeps its messages whole; a treatment session is trimmed", async () => {
     // At a 0.5 share `ses_2` draws control for selection and `ses_1` treatment, as armFor does.
     const fixture = harness({ current: { ...ENABLED, holdoutFraction: 0.5 } })
-    const hooks = await open(fixture.url)
+    const hooks = await open(fixture.url, join(history(), coldTurn()).events)
     await settle(fixture.requests, 1)
-    const transform = hooks["experimental.chat.messages.transform"]!
-    const as = (sessionID: string) =>
-      [...history(), ...coldTurn()].map((message) => ({ ...message, info: { ...message.info, sessionID } }))
-    const control = as("ses_2")
-    const snapshot = bytes(control)
-    await transform({}, { messages: control })
-    expect(bytes(control)).toBe(snapshot)
-    const treatment = as("ses_1")
-    await transform({}, { messages: treatment })
-    expect(treatment[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+    const control = join(history(), coldTurn())
+    const snapshot = bytes(control.messages)
+    hooks.context!({ sessionID: "ses_2", messages: control.messages })
+    expect(bytes(control.messages)).toBe(snapshot)
+    const treatment = join(history(), coldTurn())
+    hooks.context!({ sessionID: "ses_1", messages: treatment.messages })
+    expect(read(treatment)).toStartWith("[Old read output")
   })
 
   test("a share outside [0, 0.5] holds nothing out", async () => {
     const fixture = harness({ current: { ...ENABLED, holdoutFraction: 0.9 } })
-    const hooks = await open(fixture.url)
+    const request = join(history(), coldTurn())
+    const hooks = await open(fixture.url, request.events)
     await settle(fixture.requests, 1)
-    const messages = [...history(), ...coldTurn()].map((message) => ({
-      ...message,
-      info: { ...message.info, sessionID: "ses_2" },
-    }))
-    await hooks["experimental.chat.messages.transform"]!({}, { messages })
-    expect(messages[1]!.parts[0]!.state.output).toStartWith("[Old read output")
+    hooks.context!({ sessionID: "ses_2", messages: request.messages })
+    expect(read(request)).toStartWith("[Old read output")
   })
 
   test("is off without an answer, on a non-200 or a malformed policy, and never throws", async () => {
@@ -562,38 +608,38 @@ describe("CACHE_SELECTION_PLUGIN", () => {
       "on",
     ]) {
       const fixture = harness({ current })
-      const hooks = await open(fixture.url)
+      const request = join(history(), coldTurn())
+      const hooks = await open(fixture.url, request.events)
       await settle(fixture.requests, 1)
-      const messages = [...history(), ...coldTurn()]
-      const snapshot = bytes(messages)
-      await hooks["experimental.chat.messages.transform"]!({}, { messages })
-      expect(bytes(messages)).toBe(snapshot)
+      const snapshot = bytes(request.messages)
+      hooks.context!({ sessionID: "ses_1", messages: request.messages })
+      expect(bytes(request.messages), JSON.stringify(current)).toBe(snapshot)
     }
     const failing = harness({ current: ENABLED, status: 500 })
-    const hooks = await open(failing.url)
+    const request = join(history(), coldTurn())
+    const hooks = await open(failing.url, request.events)
     await settle(failing.requests, 1)
-    const messages = [...history(), ...coldTurn()]
-    const snapshot = bytes(messages)
-    await hooks["experimental.chat.messages.transform"]!({}, { messages })
-    expect(bytes(messages)).toBe(snapshot)
-    for (const output of [undefined, null, {}, { messages: "x" }, { messages: [null, 1] }])
-      await hooks["experimental.chat.messages.transform"]!({}, output)
+    const snapshot = bytes(request.messages)
+    hooks.context!({ sessionID: "ses_1", messages: request.messages })
+    expect(bytes(request.messages)).toBe(snapshot)
+    for (const input of [undefined, null, {}, { sessionID: "ses_1", messages: "x" }, { messages: [null, 1] }])
+      hooks.context!(input)
   })
 
   test("registers nothing without a token or with a non-loopback base, and sends nothing", async () => {
     const fixture = harness({ current: ENABLED })
-    expect(await open(fixture.url, false)).toEqual({})
+    expect(await open(fixture.url, [], false)).toEqual({})
     expect(await open("https://example.com")).toEqual({})
     await Bun.sleep(20)
     expect(fixture.requests).toHaveLength(0)
   })
 
-  test("the engine loads it as a single plugin export", async () => {
+  test("the engine loads it as a single default plugin", async () => {
     const config = await temp()
-    await mkdir(path.join(config, "plugins"), { recursive: true })
-    const { paths } = await installEnginePlugins(config)
-    const target = paths.find((entry) => entry.endsWith(CACHE_SELECTION_PLUGIN.file))!
+    const { paths } = await installEnginePlugins(config, "v2")
+    const target = paths.find((entry) => entry.endsWith(CACHE_SELECTION_PLUGIN_V2.file))!
     const mod = await import(pathToFileURL(target).href)
-    expect(Object.keys(mod)).toEqual(["flupcodeCacheSelection"])
+    expect(Object.keys(mod)).toEqual(["default"])
+    expect(mod.default.id).toBe("flupcode-cache-selection")
   })
 })

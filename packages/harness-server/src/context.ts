@@ -156,7 +156,8 @@ export type CapturedPrompt = {
 
 /**
  * Where FlupCode's engine plugin records those prompts. Kept in step with the plugin it installs
- * (`packages/remote/src/engine-plugins.ts`), which writes one folder per session under it.
+ * (SYSTEM_PROMPT_PLUGIN_V2 in `packages/remote/src/engine-plugins-v2.ts`), which writes one folder per
+ * session under it.
  */
 export function systemPromptsDirectory() {
   const explicit = process.env.FLUPCODE_SYSTEM_PROMPTS_DIR
