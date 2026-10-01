@@ -155,7 +155,12 @@ describe("OpenCode 2 plugins", () => {
       status: "error",
       error: { message: "no match" },
     } as never)
-    await settle()
+    await eventually(
+      async () =>
+        existsSync(data("episode-signals", "ses_1.json")) &&
+        (await json(data("episode-signals", "ses_1.json"))).calls.length === 2 &&
+        existsSync(data("tool-uses", "ses_1.json")),
+    )
 
     const uses = await json(data("tool-uses", "ses_1.json"))
     expect(uses.tools.bash.count).toBe(1)
@@ -176,7 +181,10 @@ describe("OpenCode 2 plugins", () => {
       model: { providerID: "stub", id: "stub-model" },
       system: [{ type: "text", text: "You are an agent." }],
     } as never)
-    await settle()
+    await eventually(
+      async () =>
+        existsSync(data("system-prompts", "ses_1")) && (await readdir(data("system-prompts", "ses_1"))).length > 0,
+    )
     const [file] = await readdir(data("system-prompts", "ses_1"))
     expect(await json(data("system-prompts", "ses_1", file!))).toMatchObject({
       providerID: "stub",
@@ -221,8 +229,10 @@ describe("OpenCode 2 plugins", () => {
       },
     ])
     await events.setup(recorded.ctx)
-    await settle()
-    const ring = await json(data("events", "ses_1.json"))
+    // The writes are queued per session and land in the background: wait for both, not a fixed delay.
+    const file = data("events", "ses_1.json")
+    await eventually(async () => existsSync(file) && (await json(file)).events.length >= 2)
+    const ring = await json(file)
     expect(ring.events).toEqual([
       expect.objectContaining({ kind: "tool.error", tool: "bash", callID: "call_1", message: "boom" }),
       expect.objectContaining({ kind: "session.error", error: "provider", message: "500" }),
@@ -316,7 +326,7 @@ describe("OpenCode 2 adaptive plugins", () => {
     const stamped = await json(process.env.FLUPCODE_RUNTIME_PROBE_FILE)
     expect(stamped).toMatchObject({ pid: process.pid, hookAt: 0 })
     recorded.hooks.get("session.context")!({} as never)
-    await settle()
+    await eventually(async () => (await json(process.env.FLUPCODE_RUNTIME_PROBE_FILE!)).hook === "session.context")
     expect(await json(process.env.FLUPCODE_RUNTIME_PROBE_FILE)).toMatchObject({
       token: stamped.token,
       loadedAt: stamped.loadedAt,
@@ -988,7 +998,11 @@ describe("OpenCode 2 tool-uses", () => {
     hooks.before({ sessionID: "ses_1", id: "call_3", tool: "docs_search" })
     // The id names a file, so anything else is refused rather than written outside the folder.
     hooks.before({ sessionID: "../../escape", id: "call_4", tool: "shell" })
-    await settle()
+    await eventually(
+      async () =>
+        existsSync(data("tool-uses", "ses_1.json")) &&
+        (await json(data("tool-uses", "ses_1.json"))).tools.docs_search?.count === 2,
+    )
     const written = await json(data("tool-uses", "ses_1.json"))
     expect(written.tools.bash.count).toBe(1)
     expect(written.tools.docs_search.count).toBe(2)
@@ -1003,7 +1017,7 @@ describe("OpenCode 2 tool-uses", () => {
     hooks.after({ sessionID: "ses_1", id: "call_1", tool: "docs_search", status: "completed", result: {} })
     // An after with no matching before is not timed rather than claimed to be instantaneous.
     hooks.after({ sessionID: "ses_1", id: "never_started", tool: "shell", status: "completed", result: {} })
-    await settle()
+    await eventually(async () => (await json(data("tool-uses", "ses_1.json"))).calls?.length > 0)
     const written = await json(data("tool-uses", "ses_1.json"))
     expect(written.calls).toEqual([expect.objectContaining({ tool: "docs_search", ms: expect.any(Number) })])
     expect(written.calls[0].ms).toBeGreaterThanOrEqual(0)
@@ -1143,7 +1157,7 @@ describe("OpenCode 2 system-prompt", () => {
     const request = await systemPrompt()
     request("ses_1", "You are an agent.")
     request("../escape", "x")
-    await settle()
+    await eventually(() => existsSync(path.join(process.env.FLUPCODE_SYSTEM_PROMPTS_DIR!, "ses_1")))
     expect(await readdir(process.env.FLUPCODE_SYSTEM_PROMPTS_DIR!)).toEqual(["ses_1"])
   })
 

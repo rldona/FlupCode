@@ -116,6 +116,9 @@ test("a reconnection resyncs once the new stream is open, not before it", async 
 
 test("a prompt shows as the stream announces it, not only after a reload", async ({ page }) => {
   let historyReads = 0
+  // Once delivered, the prompt is in the engine's history too, as it would be: a later read must not
+  // take back what the stream showed. What proves the stream drew it is that no read came in between.
+  let delivered = false
   // A stream that closes makes the app reconnect and refetch the history, which would show the prompt
   // without the stream: the stream is a real one that stays open.
   const streams: ServerResponse[] = []
@@ -144,7 +147,8 @@ test("a prompt shows as the stream announces it, not only after a reload", async
       // for a prompt sent from the composer.
       if (url.pathname === "/api/session/ses_stream/message") {
         historyReads++
-        return route.fulfill({ json: { data: [], cursor: {} } })
+        const prompt = { id: "msg_live", sessionID: "ses_stream", type: "user", text: "Live prompt", time: { created: now } }
+        return route.fulfill({ json: { data: delivered ? [prompt] : [], cursor: {} } })
       }
       if (url.pathname === "/api/session/ses_stream/inbox") return route.fulfill({ json: { data: [] } })
       if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
@@ -155,6 +159,8 @@ test("a prompt shows as the stream announces it, not only after a reload", async
     await page.goto("/")
 
     await expect.poll(() => historyReads > 0 && streams.length === 1).toBe(true)
+    await expect(page.getByText(/No messages yet|Aún no hay mensajes|Sin mensajes/)).toBeVisible()
+    const readsBefore = historyReads
     // The engine admits the prompt into the session inbox and delivers it into the transcript at its
     // next safe boundary; the text is only in the admission, so the delivery must find it there.
     const inbox = [
@@ -168,6 +174,7 @@ test("a prompt shows as the stream announces it, not only after a reload", async
       },
       { type: "session.inbox.delivered", data: { sessionID: "ses_stream", inboxID: "inb_live" } },
     ]
+    delivered = true
     streams[0]!.write(
       inbox
         .map((event, index) => `data: ${JSON.stringify({ id: `evt_${index}`, created: now + index, ...event })}\n\n`)
@@ -175,6 +182,7 @@ test("a prompt shows as the stream announces it, not only after a reload", async
     )
 
     await expect(page.locator(".fc-message-user .fc-message-text")).toContainText("Live prompt")
+    expect(historyReads).toBe(readsBefore)
   } finally {
     events.closeAllConnections()
     events.close()
