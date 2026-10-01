@@ -28,18 +28,29 @@ async function open(page: Page) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
     if (url.pathname === "/api/session/ses_skill/message" && request.method() === "GET")
       return route.fulfill({ json: { data: [], cursor: {} } })
-    if (url.pathname === "/session/ses_skill/prompt_async") {
-      prompts.push(request.postDataJSON() as Record<string, unknown>)
-      return route.fulfill({ json: {} })
+    if (url.pathname === "/api/session/ses_skill/prompt") {
+      const body = request.postDataJSON() as { id: string; text: string }
+      prompts.push(body)
+      return route.fulfill({
+        json: {
+          data: {
+            id: body.id,
+            sessionID: "ses_skill",
+            payload: { text: body.text },
+            delivery: "steer",
+            time: { created: 0 },
+          },
+        },
+      })
     }
-    if (url.pathname === "/session/ses_skill" && request.method() === "PATCH") return route.fulfill({ json: session })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (url.pathname === "/api/event" || url.pathname === "/event")
+    if (url.pathname === "/api/session/ses_skill" && request.method() === "GET")
+      return route.fulfill({ json: { data: session } })
+    if (/^\/api\/session\/ses_skill(\/agent|\/model)?$/.test(url.pathname)) return route.fulfill({ status: 204 })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
   })
@@ -55,7 +66,6 @@ test("the open session can be saved as a skill", async ({ page }) => {
   await page.keyboard.press("Enter")
 
   await expect.poll(() => prompts.length).toBe(1)
-  const parts = (prompts[0] as { parts?: Array<{ text?: string }> }).parts ?? []
-  expect(parts[0]?.text).toContain(".opencode/skills/<short-name>/SKILL.md")
-  expect(parts[0]?.text).toContain("name: <short-name>")
+  expect(prompts[0]?.text).toContain(".opencode/skills/<short-name>/SKILL.md")
+  expect(prompts[0]?.text).toContain("name: <short-name>")
 })

@@ -43,6 +43,12 @@ test("a run's task, filed under its run in metadata on 2.x, nests under it", () 
   expect(toSession({ ...session, metadata: { parentID: 7 } } as V2Session).parentID).toBeUndefined()
 })
 
+test("a staged revert is kept, so the session menu can confirm it", () => {
+  const staged = { ...session, revert: { messageID: "msg_1", files: [] } } as unknown as V2Session
+  expect(toSession(staged).revert).toEqual({ messageID: "msg_1" })
+  expect(toSession(session).revert).toBeUndefined()
+})
+
 const assistant = {
   id: "msg_2",
   type: "assistant",

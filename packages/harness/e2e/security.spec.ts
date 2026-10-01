@@ -49,14 +49,26 @@ async function openApp(page: Page) {
       recorded.connects.push(request.postDataJSON())
       return route.fulfill({ json: { data: {} } })
     }
-    if (url.pathname === "/session/ses_sec/prompt_async") return route.fulfill({ json: {} })
-    if (url.pathname === "/session/ses_sec" && request.method() === "PATCH") {
+    if (url.pathname === "/api/session/ses_sec/prompt")
+      return route.fulfill({
+        json: {
+          data: {
+            id: "msg_p",
+            sessionID: "ses_sec",
+            payload: { text: "Do it" },
+            delivery: "steer",
+            time: { created: now },
+          },
+        },
+      })
+    if (url.pathname === "/api/session/ses_sec/agent") return route.fulfill({ status: 204 })
+    if (url.pathname === "/api/session/ses_sec" && request.method() === "PATCH") {
       recorded.patches.push(request.postDataJSON())
-      return route.fulfill({ json: session })
+      return route.fulfill({ status: 204 })
     }
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (url.pathname === "/api/session/ses_sec") return route.fulfill({ json: { data: session } })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
@@ -73,9 +85,11 @@ test("the default mode no longer grants the session every permission", async ({ 
   await composer.press("Enter")
 
   await expect.poll(() => recorded.patches.length).toBeGreaterThan(0)
-  const rules = (recorded.patches[0] as { permission: Array<{ permission: string; action: string }> }).permission
-  expect(rules.filter((rule) => rule.action === "allow")).toEqual([])
-  expect(rules).toContainEqual({ permission: "external_directory", pattern: "*", action: "ask" })
+  // 2.x keeps a session's rules as `{ action, resource, effect }`.
+  const rules = (recorded.patches[0] as { permissions: Array<{ action: string; resource: string; effect: string }> })
+    .permissions
+  expect(rules.filter((rule) => rule.effect === "allow")).toEqual([])
+  expect(rules).toContainEqual({ action: "external_directory", resource: "*", effect: "ask" })
 })
 
 test("bypassing permissions takes a second, deliberate click", async ({ page }) => {

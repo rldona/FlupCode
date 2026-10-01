@@ -51,15 +51,14 @@ async function openSession(page: Page, options: Options = {}) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/vcs/diff") return route.fulfill({ json: options.diff ?? [] })
+    if (url.pathname === "/api/vcs/diff") return route.fulfill({ json: { data: options.diff ?? [] } })
     if (url.pathname === "/api/session/ses_err/message") {
       if (options.failMessagesAfter !== undefined && served++ >= options.failMessagesAfter)
         return route.fulfill({ status: 500, json: { message: "engine gone" } })
       return route.fulfill({ json: messages })
     }
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event") {
       const batch = streams++ === 0 ? (options.events ?? []) : []
       return route.fulfill({

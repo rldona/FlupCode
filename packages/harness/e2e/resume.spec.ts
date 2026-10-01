@@ -15,9 +15,9 @@ const session = {
 }
 
 type Harness = {
-  /** Bodies POSTed to the legacy prompt endpoint: what reached the model as a message. */
+  /** Bodies POSTed to the session's prompt endpoint: what reached the model as a message. */
   prompts: Array<Record<string, unknown>>
-  /** Session IDs whose summarize endpoint the app called, which is the engine's compaction. */
+  /** Session IDs whose compact endpoint the app called, which is the engine's compaction. */
   summarized: string[]
 }
 
@@ -43,22 +43,26 @@ async function openCowork(page: Page): Promise<Harness> {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
     if (url.pathname === "/api/session/ses_cw/message" && request.method() === "GET")
       return route.fulfill({ json: { data: [], cursor: {} } })
-    if (url.pathname === "/session/ses_cw/summarize") {
+    if (url.pathname === "/api/session/ses_cw/compact") {
       summarized.push("ses_cw")
-      return route.fulfill({ json: true })
+      return route.fulfill({ json: { data: {} } })
     }
-    if (url.pathname === "/session/ses_cw/prompt_async") {
+    if (url.pathname === "/api/session/ses_cw/prompt") {
       prompts.push(request.postDataJSON() as Record<string, unknown>)
-      return route.fulfill({ json: {} })
+      const id = (request.postDataJSON() as { id?: string }).id ?? "msg_p"
+      return route.fulfill({
+        json: { data: { id, sessionID: "ses_cw", payload: { text: "" }, delivery: "steer", time: { created: now } } },
+      })
     }
-    if (url.pathname === "/session/ses_cw" && request.method() === "PATCH") return route.fulfill({ json: session })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/(message|permissions)/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (url.pathname === "/api/event" || url.pathname === "/event")
+    if (url.pathname === "/api/session/ses_cw" && request.method() === "PATCH") return route.fulfill({ status: 204 })
+    if (url.pathname === "/api/session/ses_cw" && request.method() === "GET")
+      return route.fulfill({ json: { data: session } })
+    if (/^\/api\/session\/ses_cw\/(agent|model)$/.test(url.pathname)) return route.fulfill({ status: 204 })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
   })
@@ -87,6 +91,5 @@ test("/resume asks the conversation itself for a checkpoint of the work", async 
   await type(page, "/resume")
 
   await expect.poll(() => prompts.length).toBe(1)
-  const parts = (prompts[0] as { parts?: Array<{ text?: string }> }).parts ?? []
-  expect(parts[0]?.text).toContain("checkpoint of this session")
+  expect(prompts[0]?.text).toContain("checkpoint of this session")
 })

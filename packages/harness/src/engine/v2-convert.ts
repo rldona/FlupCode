@@ -49,6 +49,16 @@ export function toSession(session: V2Session): SessionInfo {
     title: session.title ?? "",
     location: { directory: session.location.directory },
     ...(session.subpath ? { subpath: session.subpath } : {}),
+    // A staged revert is what offers "Confirm revert" in the session menu; its files are not read.
+    ...(session.revert
+      ? {
+          revert: {
+            messageID: session.revert.messageID,
+            ...(session.revert.partID ? { partID: session.revert.partID } : {}),
+            ...(session.revert.snapshot ? { snapshot: session.revert.snapshot } : {}),
+          },
+        }
+      : {}),
     ...(session.permissions
       ? {
           permission: session.permissions.map((rule) => ({

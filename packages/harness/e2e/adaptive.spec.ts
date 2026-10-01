@@ -259,11 +259,7 @@ async function openApp(page: Page, options: Options = {}) {
       return route.fulfill({
         json: { data: Object.fromEntries((options.running?.() ?? []).map((id) => [id, { type: "running" }])) },
       })
-    if (url.pathname === "/session/status")
-      return route.fulfill({
-        json: Object.fromEntries((options.running?.() ?? []).map((id) => [id, { type: "busy" }])),
-      })
-    if (/^\/session\/[^/]+\/abort$/.test(url.pathname)) return route.fulfill({ json: true })
+    if (/^\/api\/session\/[^/]+\/interrupt$/.test(url.pathname)) return route.fulfill({ json: {} })
     if (url.pathname === "/experimental/tool/ids") return route.fulfill({ json: ["bash", "read", "edit"] })
     if (url.pathname === "/api/skill")
       return route.fulfill({ json: { data: [{ name: "effect", description: "Work with Effect v4" }] } })
@@ -1308,7 +1304,7 @@ test("a slow answer for one session never paints its warning in the next one", a
   await expect(page.locator(".fc-guardrail-banner")).toBeVisible({ timeout: 10_000 })
 })
 
-test("View decision opens that decision, and Stop turn aborts the running turn", async ({ page }) => {
+test("View decision opens that decision, and Stop turn interrupts the running turn", async ({ page }) => {
   const calls = await openApp(page, {
     capabilities: ["adaptive-guardrails", "adaptive-decisions"],
     guardrailsStatus: loopStatus,
@@ -1320,7 +1316,7 @@ test("View decision opens that decision, and Stop turn aborts the running turn",
 
   const banner = page.locator(".fc-guardrail-banner")
   await banner.getByRole("button", { name: "Stop turn" }).click()
-  await expect.poll(() => calls.enginePosts).toContain("/session/ses_ad/abort")
+  await expect.poll(() => calls.enginePosts).toContain("/api/session/ses_ad/interrupt")
 
   await banner.getByRole("button", { name: "View decision" }).click()
   await expect(page).toHaveURL(/\/decisions\?decision=/)

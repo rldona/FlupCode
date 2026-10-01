@@ -13,8 +13,10 @@ const session = {
   location: { directory: "/work/demo" },
 }
 
+const prompt = { id: "msg_u", type: "user", text: "Sea el balance", time: { created: now } }
+
+// Newest first, as 2.x pages them.
 const messages = [
-  { id: "msg_u", type: "user", text: "Sea el balance", time: { created: now } },
   {
     id: "msg_a",
     type: "assistant",
@@ -24,6 +26,7 @@ const messages = [
     error: { type: "unknown", message },
     time: { created: now + 1, completed: now + 2 },
   },
+  prompt,
 ]
 
 test("shows the provider's failure reason instead of a generic error", async ({ page }) => {
@@ -38,7 +41,7 @@ test("shows the provider's failure reason instead of a generic error", async ({ 
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (/^\/api\/session\/[^/]+\/(permission|form)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
     return route.fulfill({ status: 404, json: {} })
   })
@@ -65,13 +68,26 @@ test("Retry resends the failed turn's prompt with the same session", async ({ pa
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
       return route.fulfill({ json: { data: messages, cursor: {} } })
-    if (url.pathname === "/session/ses_error/prompt_async") {
-      prompts.push(route.request().postDataJSON())
-      return route.fulfill({ json: { data: { accepted: true } } })
+    if (url.pathname === "/api/session/ses_error/prompt") {
+      const body = route.request().postDataJSON() as { id: string; text: string }
+      prompts.push(body)
+      return route.fulfill({
+        json: {
+          data: {
+            id: body.id,
+            sessionID: "ses_error",
+            payload: { text: body.text },
+            delivery: "steer",
+            time: { created: now },
+          },
+        },
+      })
     }
-    if (url.pathname === "/session/ses_error") return route.fulfill({ json: session })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (url.pathname === "/api/session/ses_error" && route.request().method() === "GET")
+      return route.fulfill({ json: { data: session } })
+    if (/^\/api\/session\/ses_error(\/agent|\/model)?$/.test(url.pathname)) return route.fulfill({ status: 204 })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
@@ -82,7 +98,7 @@ test("Retry resends the failed turn's prompt with the same session", async ({ pa
 
   // The failed prompt goes out again as-is; the draft in the composer stays untouched.
   await expect.poll(() => prompts.length).toBe(1)
-  expect(prompts[0]).toMatchObject({ parts: [{ type: "text", text: "Sea el balance" }] })
+  expect(prompts[0]).toMatchObject({ text: "Sea el balance" })
   await expect(composer).toHaveValue("draft in progress")
 })
 
@@ -107,15 +123,14 @@ test("a turn waiting on a spent quota says so, instead of thinking on forever", 
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/ses_error/message")
-      return route.fulfill({ json: { data: [messages[0]], cursor: {} } })
+      return route.fulfill({ json: { data: [prompt], cursor: {} } })
     if (url.pathname === "/api/event")
       return route.fulfill({
         headers: { "content-type": "text/event-stream" },
         body: `data: ${JSON.stringify(retry)}\n\n`,
       })
-    if (url.pathname === "/session/ses_error") return route.fulfill({ json: session })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
@@ -126,18 +141,14 @@ test("a turn waiting on a spent quota says so, instead of thinking on forever", 
 test("a turn that has spent no tokens does not say 0 tokens", async ({ page }) => {
   const zero = [
     {
-      info: {
-        id: "msg_zero",
-        sessionID: "ses_error",
-        role: "assistant",
-        agent: "build",
-        modelID: "m",
-        providerID: "p",
-        tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
-        cost: 0,
-        time: { created: now },
-      },
-      parts: [{ id: "p_zero", type: "text", text: "", time: { start: now } }],
+      id: "msg_zero",
+      type: "assistant",
+      agent: "build",
+      model: { providerID: "p", id: "m" },
+      tokens: { input: 0, output: 0, reasoning: 0, cache: { read: 0, write: 0 } },
+      cost: 0,
+      time: { created: now },
+      content: [{ type: "text", text: "" }],
     },
   ]
   await page.addInitScript(() => {
@@ -149,10 +160,9 @@ test("a turn that has spent no tokens does not say 0 tokens", async ({ page }) =
     const url = new URL(route.request().url())
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
-    if (url.pathname === "/api/session/ses_error/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (url.pathname === "/session/ses_error/message") return route.fulfill({ json: zero })
+    if (url.pathname === "/api/session/ses_error/message") return route.fulfill({ json: { data: zero, cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
+    if (/^\/api\/session\/[^/]+\/(permission|form)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })

@@ -29,14 +29,15 @@ const editRequest = {
   action: "edit",
   resources: ["/work/demo/a.ts"],
   save: ["*"],
-  source: { type: "tool", messageID: "msg_a", callID: "call_1" },
+  // 2.x names the tool call behind a request `id`.
+  source: { messageID: "msg_a", id: "call_1" },
 }
 
 const awayRequest = { ...editRequest, id: "per_away", sessionID: "ses_away" }
 
+// Newest first, as 2.x pages them.
 const messages = {
   data: [
-    { id: "msg_u", type: "user", text: "Fix the constant", time: { created: now } },
     {
       id: "msg_a",
       type: "assistant",
@@ -48,7 +49,7 @@ const messages = {
           id: "call_1",
           name: "edit",
           state: {
-            status: "pending",
+            status: "streaming",
             input: { path: "/work/demo/a.ts", oldString: "const a = 1", newString: "const a = 2" },
           },
           time: { created: now + 1 },
@@ -56,6 +57,7 @@ const messages = {
       ],
       time: { created: now + 1 },
     },
+    { id: "msg_u", type: "user", text: "Fix the constant", time: { created: now } },
   ],
   cursor: {},
 }
@@ -86,14 +88,13 @@ async function openBlockedSession(page: Page, options: { away?: boolean; saved?:
     if (url.pathname === "/api/permission/saved") return route.fulfill({ json: { data: options.saved ?? [] } })
     if (/^\/api\/permission\/saved\/(.+)$/.test(url.pathname) && request.method() === "DELETE") {
       recorded.revoked.push(url.pathname.split("/").pop()!)
-      return route.fulfill({ json: {} })
+      return route.fulfill({ status: 204 })
     }
     if (/^\/api\/session\/[^/]+\/permission\/[^/]+\/reply$/.test(url.pathname) && request.method() === "POST") {
       recorded.replies.push(request.postDataJSON() as Record<string, unknown>)
-      return route.fulfill({ json: {} })
+      return route.fulfill({ status: 204 })
     }
-    if (/^\/api\/session\/[^/]+\/question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
+    if (/^\/api\/session\/[^/]+\/(form|inbox)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
@@ -126,7 +127,7 @@ test("rejecting can tell the agent why", async ({ page }) => {
   await page.getByRole("button", { name: /Reject with reason|Rechazar con motivo/i }).click()
 
   await expect.poll(() => recorded.replies.length).toBe(1)
-  expect(recorded.replies[0]).toMatchObject({ reply: "reject", message: "Use the other file" })
+  expect(recorded.replies[0]).toMatchObject({ decision: "reject", message: "Use the other file" })
 })
 
 test("a session blocked somewhere else is visible from here", async ({ page }) => {
@@ -156,34 +157,27 @@ test("a permission granted once and remembered forever can be taken back", async
   await expect.poll(() => recorded.revoked).toEqual(["sav_1"])
 })
 
-// Every turn runs on the legacy runtime, which keeps its blocked work in its own registry. Reading
-// only the v2 one left an agent waiting on a question that no dock could show, with no way to answer
-// it from the app at all.
-const legacyQuestion = {
-  id: "que_legacy",
+// 2.x asks the `question` tool's questions as a form, one field per question.
+const questionForm = {
+  id: "frm_q",
   sessionID: "ses_here",
-  questions: [
+  title: "Question",
+  fields: [
     {
-      header: "Commit/PR",
-      question: "The work is already on main. What should I do?",
+      key: "q0",
+      type: "string",
+      title: "Commit/PR",
+      description: "The work is already on main. What should I do?",
       options: [
-        { label: "Leave it", description: "Nothing to open a PR for." },
-        { label: "Redo through a branch", description: "Rewrites published history." },
+        { label: "Leave it", value: "Leave it", description: "Nothing to open a PR for." },
+        { label: "Redo through a branch", value: "Redo through a branch", description: "Rewrites published history." },
       ],
+      custom: true,
     },
   ],
 }
 
-const legacyPermission = {
-  id: "per_legacy",
-  sessionID: "ses_here",
-  permission: "bash",
-  patterns: ["rm -rf build"],
-  always: ["rm -rf build"],
-  metadata: {},
-}
-
-async function openWithLegacyBlock(page: Page, kind: "question" | "permission") {
+test("a question the agent asks reaches the reader, and the answer goes back as the form's", async ({ page }) => {
   const answered: Array<{ path: string; body: unknown }> = []
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
@@ -196,30 +190,20 @@ async function openWithLegacyBlock(page: Page, kind: "question" | "permission") 
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: sessions, cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
     if (url.pathname === "/api/session/ses_here/message") return route.fulfill({ json: messages })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    // The v2 registries know nothing about it…
-    if (/^\/api\/(session\/[^/]+\/)?(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [] } })
-    // …while the legacy one, the only one that can unblock the turn, has it.
-    if (url.pathname === "/question" && request.method() === "GET")
-      return route.fulfill({ json: kind === "question" ? [legacyQuestion] : [] })
-    if (url.pathname === "/permission" && request.method() === "GET")
-      return route.fulfill({ json: kind === "permission" ? [legacyPermission] : [] })
-    if (/^\/(question|permission)\/[^/]+\/(reply|reject)$/.test(url.pathname)) {
+    if (url.pathname === "/api/session/ses_here/form") return route.fulfill({ json: { data: [questionForm] } })
+    if (url.pathname === "/api/session/ses_here/form/frm_q")
+      return route.fulfill({ json: { data: { ...questionForm, state: { status: "pending" } } } })
+    if (url.pathname === "/api/session/ses_here/form/frm_q/reply") {
       answered.push({ path: url.pathname, body: request.postDataJSON() })
-      return route.fulfill({ json: {} })
+      return route.fulfill({ status: 204 })
     }
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (/^\/api\/(session\/[^/]+\/)?(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
-  return answered
-}
-
-test("a question only the legacy runtime knows about still reaches the reader", async ({ page }) => {
-  const answered = await openWithLegacyBlock(page, "question")
 
   const dock = page.locator(".fc-dock-question")
   await expect(dock).toBeVisible()
@@ -227,17 +211,7 @@ test("a question only the legacy runtime knows about still reaches the reader", 
   await dock.getByRole("button", { name: /Leave it/ }).click()
   await dock.getByRole("button", { name: /Respond|Responder/ }).click()
 
-  // And the answer goes back to the runtime that asked, which is the only one that can unblock it.
-  await expect.poll(() => answered.map((call) => call.path)).toEqual(["/question/que_legacy/reply"])
-})
-
-test("a permission only the legacy runtime knows about still reaches the reader", async ({ page }) => {
-  const answered = await openWithLegacyBlock(page, "permission")
-
-  const dock = page.locator(".fc-dock-permission")
-  await expect(dock).toBeVisible()
-  await expect(dock).toContainText("rm -rf build")
-  await dock.getByRole("button", { name: /Allow once|Permitir una vez/ }).click()
-
-  await expect.poll(() => answered.map((call) => call.path)).toEqual(["/permission/per_legacy/reply"])
+  await expect
+    .poll(() => answered)
+    .toEqual([{ path: "/api/session/ses_here/form/frm_q/reply", body: { answer: { q0: "Leave it" } } }])
 })

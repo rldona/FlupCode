@@ -120,19 +120,32 @@ async function setup(page: Page, desktop: boolean) {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: {} })
     if (/^\/api\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    // The prompt path behind `/actions <texto>`: a PATCH to set the session's permission, then the
-    // async prompt. Captured so a test can prove the text reached the agent.
-    if (url.pathname === `/session/${session.id}` && request.method() === "PATCH")
-      return route.fulfill({ json: { id: session.id } })
-    if (url.pathname === `/session/${session.id}/prompt_async` && request.method() === "POST") {
-      calls.sent.push(request.postDataJSON() as Record<string, unknown>)
-      return route.fulfill({ json: {} })
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
+    // The prompt path behind `/actions <texto>`: a PATCH to set the session's permission, the agent
+    // picked, then the prompt. Captured so a test can prove the text reached the agent.
+    if (url.pathname === `/api/session/${session.id}` && request.method() === "PATCH")
+      return route.fulfill({ status: 204 })
+    if (url.pathname === `/api/session/${session.id}` && request.method() === "GET")
+      return route.fulfill({ json: { data: session } })
+    if (url.pathname === `/api/session/${session.id}/agent`) return route.fulfill({ status: 204 })
+    if (url.pathname === `/api/session/${session.id}/prompt` && request.method() === "POST") {
+      const body = request.postDataJSON() as { id: string; text: string }
+      calls.sent.push(body)
+      return route.fulfill({
+        json: {
+          data: {
+            id: body.id,
+            sessionID: session.id,
+            payload: { text: body.text },
+            delivery: "steer",
+            time: { created: now },
+          },
+        },
+      })
     }
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")

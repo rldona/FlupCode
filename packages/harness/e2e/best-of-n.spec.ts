@@ -10,9 +10,10 @@ const session = {
   location: { directory: "/work/demo" },
 }
 
+// 2.x models, which always list their variants.
 const models = [
-  { id: "claude-opus-5", providerID: "anthropic", name: "Claude Opus 5" },
-  { id: "gpt-5", providerID: "openai", name: "GPT-5" },
+  { id: "claude-opus-5", providerID: "anthropic", modelID: "claude-opus-5", name: "Claude Opus 5", variants: [] },
+  { id: "gpt-5", providerID: "openai", modelID: "gpt-5", name: "GPT-5", variants: [] },
 ]
 
 const runs = [
@@ -62,8 +63,8 @@ async function open(page: Page, path: string) {
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/model") return route.fulfill({ json: { data: models } })
     if (/message/.test(url.pathname)) return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/permission|question/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (/permission|form|inbox/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.route("http://127.0.0.1:9097/**", (route) => {

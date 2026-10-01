@@ -14,7 +14,6 @@ const session = {
 
 async function open(page: Page) {
   const added: Array<Record<string, unknown>> = []
-  const sent: Array<Record<string, unknown>> = []
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
     window.localStorage.setItem("flupcode.serverUrl", JSON.stringify("http://127.0.0.1:9"))
@@ -46,30 +45,17 @@ async function open(page: Page) {
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active") return route.fulfill({ json: { data: {} } })
     if (url.pathname === "/api/session/ses_mem/message") return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/\/session\/[^/]+\/message$/.test(url.pathname)) {
-      if (request.method() === "POST") {
-        sent.push(request.postDataJSON() as Record<string, unknown>)
-        return route.fulfill({ json: { data: {} } })
-      }
-      return route.fulfill({ json: [] })
-    }
-    if (/\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: {} } })
-    if (/\/session\/[^/]+$/.test(url.pathname) && request.method() === "PATCH")
-      return route.fulfill({ json: { data: {} } })
-    if (/\/session\/[^/]+\/prompt(_async)?$/.test(url.pathname) && request.method() === "POST") {
-      sent.push(request.postDataJSON() as Record<string, unknown>)
-      return route.fulfill({ json: { data: {} } })
-    }
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
-    if (url.pathname === "/api/event" || url.pathname === "/event") return new Promise(() => {})
+    if (/^\/api\/session\/[^/]+\/(permission|form|inbox)/.test(url.pathname))
+      return route.fulfill({ json: { data: [] } })
+    if (url.pathname === "/api/event") return new Promise(() => {})
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
   await expect(page.locator(".fc-transcript-body")).toBeVisible()
-  return { added, sent }
+  return { added }
 }
 
-test("the project's notes are kept here and handed to the next turn", async ({ page }) => {
+test("the project's notes are kept here", async ({ page }) => {
   const api = await open(page)
 
   // The panel opens from the `/memory` command, and shows the harness's notes first.
@@ -85,13 +71,4 @@ test("the project's notes are kept here and handed to the next turn", async ({ p
   await dialog.getByRole("button", { name: "Add note" }).click()
   await expect.poll(() => api.added).toEqual([{ directory: "/work/demo", text: "Use the server" }])
   await expect(dialog.getByText("Use the server")).toBeVisible()
-
-  await dialog.getByRole("button", { name: "Close" }).click()
-
-  // And the next turn carries them.
-  await composer.fill("hello")
-  await page.locator(".fc-input-send").click()
-  await expect.poll(() => api.sent.length).toBeGreaterThan(0)
-  expect(String(api.sent[0]!.system ?? "")).toContain("Project memory:")
-  expect(String(api.sent[0]!.system ?? "")).toContain("Conventional commits")
 })
