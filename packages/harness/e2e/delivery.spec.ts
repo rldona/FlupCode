@@ -20,18 +20,20 @@ const messages = {
 }
 
 type Harness = {
-  /** Bodies POSTed to the legacy prompt endpoint, which is where a prompt goes now. */
+  /** Bodies POSTed to the session's prompt endpoint. */
   prompts: Array<Record<string, unknown>>
-  /** Session IDs whose abort endpoint the app called. */
-  aborts: string[]
-  /** Lets the session's folder stream report that the turn finished. */
-  finish: () => void
+  /** Session IDs whose interrupt endpoint the app called. */
+  interrupts: string[]
+  /** Inbox calls, in order: `PATCH <id> <delivery>` or `DELETE <id>`. */
+  inbox: string[]
 }
 
 async function openRunningSession(page: Page): Promise<Harness> {
-  const prompts: Array<Record<string, unknown>> = []
-  const aborts: string[] = []
-  const state = { idle: false, announced: false }
+  const prompts: Harness["prompts"] = []
+  const interrupts: string[] = []
+  const inbox: string[] = []
+  // What the session inbox holds: every prompt admitted as `queue` and not sent early or cancelled.
+  const held = new Map<string, { id: string; type: "user"; payload: { text: string }; delivery: string }>()
 
   await page.addInitScript(() => {
     window.localStorage.setItem("flupcode.onboarded", JSON.stringify(true))
@@ -44,61 +46,71 @@ async function openRunningSession(page: Page): Promise<Harness> {
     if (url.pathname === "/api/info") return route.fulfill({ json: { version: "e2e" } })
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active")
-      return route.fulfill({ json: { data: state.idle ? {} : { ses_q2: { type: "running" } } } })
-    if (url.pathname === "/session/status")
-      return route.fulfill({ json: state.idle ? {} : { ses_q2: { type: "busy" } } })
+      return route.fulfill({ json: { data: { ses_q2: { type: "running" } } } })
+    if (url.pathname === "/api/session/ses_q2" && request.method() === "PATCH") return route.fulfill({ status: 204 })
+    if (url.pathname === "/api/session/ses_q2" && request.method() === "GET")
+      return route.fulfill({ json: { data: session } })
+    if (url.pathname === "/api/session/ses_q2/agent") return route.fulfill({ status: 204 })
     if (url.pathname === "/api/session/ses_q2/message" && request.method() === "GET")
       return route.fulfill({ json: messages })
-    if (url.pathname === "/session/ses_q2/abort") {
-      aborts.push("ses_q2")
-      return route.fulfill({ json: true })
-    }
-    if (url.pathname === "/session/ses_q2/prompt_async") {
-      prompts.push(request.postDataJSON() as Record<string, unknown>)
+    if (url.pathname === "/api/session/ses_q2/interrupt") {
+      interrupts.push("ses_q2")
       return route.fulfill({ json: {} })
     }
-    if (url.pathname === "/session/ses_q2" && request.method() === "PATCH") return route.fulfill({ json: session })
-    if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
-      return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (url.pathname === "/event") {
-      // A heartbeat on every connection keeps the reconnect backoff at its floor, so the test does
-      // not wait on it; the idle event goes out once, when the test asks for it.
-      const events: unknown[] = [{ type: "server.heartbeat", properties: {} }]
-      if (state.idle && !state.announced) {
-        state.announced = true
-        events.push({ type: "session.idle", properties: { sessionID: "ses_q2" } })
-      }
+    if (url.pathname === "/api/session/ses_q2/prompt") {
+      const body = request.postDataJSON() as { id: string; text: string; delivery?: string }
+      prompts.push(body)
+      if (body.delivery === "queue")
+        held.set(body.id, { id: body.id, type: "user", payload: { text: body.text }, delivery: "queue" })
       return route.fulfill({
-        headers: { "content-type": "text/event-stream" },
-        body: events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join(""),
+        json: {
+          data: {
+            id: body.id,
+            sessionID: "ses_q2",
+            payload: { text: body.text },
+            delivery: body.delivery ?? "steer",
+            time: { created: now },
+          },
+        },
       })
     }
+    if (url.pathname === "/api/session/ses_q2/inbox") return route.fulfill({ json: { data: [...held.values()] } })
+    const item = url.pathname.match(/^\/api\/session\/ses_q2\/inbox\/([^/]+)$/)?.[1]
+    if (item && request.method() === "PATCH") {
+      inbox.push(`PATCH ${item} ${(request.postDataJSON() as { delivery: string }).delivery}`)
+      held.delete(item)
+      return route.fulfill({ status: 204 })
+    }
+    if (item && request.method() === "DELETE") {
+      inbox.push(`DELETE ${item}`)
+      held.delete(item)
+      return route.fulfill({ status: 204 })
+    }
+    if (/^\/api\/session\/[^/]+\/(permission|form)/.test(url.pathname)) return route.fulfill({ json: { data: [] } })
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
   })
   await page.goto("/")
-  return { prompts, aborts, finish: () => (state.idle = true) }
+  return { prompts, interrupts, inbox }
 }
 
-test("a prompt sent while the agent works interrupts it, then reaches the engine", async ({ page }) => {
-  const { prompts, aborts } = await openRunningSession(page)
+test("a prompt sent while the agent works steers the running turn through the engine", async ({ page }) => {
+  const harness = await openRunningSession(page)
   const composer = page.getByPlaceholder(/Type \/ for commands/i)
 
   await composer.fill("Use the other API")
   await composer.press("Enter")
 
-  // Sending while the agent is working aborts the turn in flight — the tool it is waiting on
-  // included — so the agent answers this line now instead of after that work finishes.
-  await expect.poll(() => aborts.length).toBe(1)
-  await expect.poll(() => prompts.length).toBe(1)
-  expect(prompts[0]).toMatchObject({ parts: [{ type: "text", text: "Use the other API" }] })
-  expect(prompts[0]?.agent).toBeTruthy()
+  // The engine joins a steer to the running execution at its next safe boundary, so the app sends it
+  // as it is and stops nothing first.
+  await expect.poll(() => harness.prompts.length).toBe(1)
+  expect(harness.prompts[0]).toMatchObject({ text: "Use the other API", delivery: "steer" })
   await expect(page.locator(".fc-message-queue-badge")).toContainText(/Steering|Redirigiendo/i)
+  expect(harness.interrupts).toEqual([])
 })
 
-test("a queued prompt is held back until the turn is over", async ({ page }) => {
+test("a queued prompt waits in the session inbox, even across a reload", async ({ page }) => {
   const harness = await openRunningSession(page)
   const composer = page.getByPlaceholder(/Type \/ for commands/i)
 
@@ -107,17 +119,17 @@ test("a queued prompt is held back until the turn is over", async ({ page }) => 
   await composer.fill("And then write the tests")
   await composer.press("Enter")
 
-  // Nothing reaches the engine: sent now it would be swallowed by the turn in flight, because the
-  // legacy runtime has no queue of its own.
+  // The engine holds a queued prompt until the session would go idle; the app hands it over at once.
+  await expect.poll(() => harness.prompts.length).toBe(1)
+  expect(harness.prompts[0]).toMatchObject({ text: "And then write the tests", delivery: "queue" })
   await expect(page.locator(".fc-message-queue-badge")).toContainText(/Queued|En cola/i)
-  await page.waitForTimeout(1500)
-  expect(harness.prompts).toEqual([])
   // Queue means wait, so nothing is interrupted either.
-  expect(harness.aborts).toEqual([])
+  expect(harness.interrupts).toEqual([])
 
-  harness.finish()
-  await expect.poll(() => harness.prompts.length, { timeout: 15_000 }).toBe(1)
-  expect(harness.prompts[0]).toMatchObject({ parts: [{ type: "text", text: "And then write the tests" }] })
+  // The inbox is the engine's, so the queued prompt is still there after a reload.
+  await page.reload()
+  await expect(page.locator(".fc-message-queue-badge")).toContainText(/Queued|En cola/i)
+  expect(harness.prompts).toHaveLength(1)
 })
 
 test("a queued prompt can be sent early or dropped", async ({ page }) => {
@@ -132,13 +144,16 @@ test("a queued prompt can be sent early or dropped", async ({ page }) => {
   await expect(page.locator(".fc-message-send-now")).toHaveCount(2)
   await page.getByRole("button", { name: /^Cancel$|^Cancelar$/ }).click()
   await expect(page.locator(".fc-message-queue-badge")).toHaveCount(0)
-  expect(harness.prompts).toEqual([])
+  const dropped = harness.prompts[0]?.id
+  await expect.poll(() => harness.inbox).toEqual([`DELETE ${dropped}`])
 
   await composer.fill("Send me early")
   await composer.press("Enter")
   await page.getByRole("button", { name: /Send now|Enviar ahora/i }).click()
-  await expect.poll(() => harness.prompts.length).toBe(1)
-  expect(harness.prompts[0]).toMatchObject({ parts: [{ type: "text", text: "Send me early" }] })
+  await expect.poll(() => harness.prompts.length).toBe(2)
+  expect(harness.prompts[1]).toMatchObject({ text: "Send me early", delivery: "queue" })
+  // Sending early asks the engine to steer the prompt it holds, not to admit it again.
+  await expect.poll(() => harness.inbox).toEqual([`DELETE ${dropped}`, `PATCH ${harness.prompts[1]?.id} steer`])
 })
 
 test("the delivery choice is remembered", async ({ page }) => {

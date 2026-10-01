@@ -39,26 +39,14 @@ async function openRunningSession(page: Page): Promise<Harness> {
     if (url.pathname === "/api/session") return route.fulfill({ json: { data: [session], cursor: {} } })
     if (url.pathname === "/api/session/active")
       return route.fulfill({ json: { data: { ses_s: { type: "running" } } } })
-    if (url.pathname === "/session/status") return route.fulfill({ json: { ses_s: { type: "busy" } } })
     if (url.pathname === "/api/session/ses_s/message" && request.method() === "GET")
       return route.fulfill({ json: messages })
-    if (url.pathname === "/session/ses_s/prompt_async") return route.fulfill({ json: {} })
-    if (url.pathname === "/session/ses_s/abort") {
-      record()
-      return route.fulfill({ json: true })
-    }
     if (url.pathname === "/api/session/ses_s/interrupt") {
       record()
       return route.fulfill({ json: {} })
     }
-    if (url.pathname === "/session/ses_s" && request.method() === "PATCH") return route.fulfill({ json: session })
     if (/^\/api\/session\/[^/]+\/(permission|question)/.test(url.pathname))
       return route.fulfill({ json: { data: [], cursor: {} } })
-    if (/^\/session\/[^/]+\/message/.test(url.pathname)) return route.fulfill({ json: [] })
-    if (url.pathname === "/event") {
-      const body = `data: ${JSON.stringify({ type: "server.heartbeat", properties: {} })}\n\n`
-      return route.fulfill({ headers: { "content-type": "text/event-stream" }, body })
-    }
     if (url.pathname === "/api/event")
       return route.fulfill({ headers: { "content-type": "text/event-stream" }, body: "" })
     return route.fulfill({ status: 404, json: {} })
@@ -67,13 +55,12 @@ async function openRunningSession(page: Page): Promise<Harness> {
   return { calls }
 }
 
-test("the stop button aborts the legacy run the turn is actually on", async ({ page }) => {
+test("the stop button interrupts the session's running execution", async ({ page }) => {
   const harness = await openRunningSession(page)
 
   await page.locator(".fc-input-stop").click()
 
-  // The prompt went to the legacy runtime, so the stop has to cancel that runner: the v2 interrupt
-  // alone is a no-op for a legacy turn and left the running bash unstoppable.
-  await expect.poll(() => harness.calls.some((call) => call.path === "/session/ses_s/abort")).toBe(true)
-  expect(harness.calls.find((call) => call.path === "/session/ses_s/abort")?.method).toBe("POST")
+  // OpenCode 2 stops a turn through the session's interrupt, which cancels the running tool too.
+  await expect.poll(() => harness.calls.some((call) => call.path === "/api/session/ses_s/interrupt")).toBe(true)
+  expect(harness.calls.find((call) => call.path === "/api/session/ses_s/interrupt")?.method).toBe("POST")
 })
