@@ -2,15 +2,18 @@ import { expect, test, type APIRequestContext, type Page } from "@playwright/tes
 
 /**
  * The app against a real OpenCode 2 engine (V2-43): no mocked routes, every answer is the engine's.
- * `fixture.ts` serves it on port 4197 with the stub model, whose next replies each spec scripts.
+ * `fixture.ts` serves it on port 4187, through FlupCode's engine proxy, with the stub model, whose
+ * next replies each spec scripts.
  */
-const ENGINE = "http://127.0.0.1:4197"
+const ENGINE = "http://127.0.0.1:4187"
+/** The fixture's side door: the project's folder and the stub model's next replies. */
+const CONTROL = "http://127.0.0.1:4189"
 
 type Reply = { type: "text"; text: string } | { type: "tool"; name: string; input: unknown } | { type: "hang" }
 
 /** The replies the stub model gives next, in order; whatever an earlier spec left unused is dropped. */
 const script = (request: APIRequestContext, ...replies: Reply[]) =>
-  request.post(`${ENGINE}/__fixture/model`, { data: replies })
+  request.post(`${CONTROL}/__fixture/model`, { data: replies })
 
 /**
  * A new session in the engine's project, opened in the app with the build agent: what a reader has
@@ -21,7 +24,7 @@ async function openSession(
   request: APIRequestContext,
   options: { mode: "auto" | "manual"; delivery?: "steer" | "queue" },
 ) {
-  const project = ((await (await request.get(`${ENGINE}/__fixture`)).json()) as { project: string }).project
+  const project = ((await (await request.get(`${CONTROL}/__fixture`)).json()) as { project: string }).project
   const created = await request.post(`${ENGINE}/api/session`, {
     data: { location: { directory: project }, agent: "build" },
   })

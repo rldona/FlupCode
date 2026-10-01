@@ -1,19 +1,18 @@
 import { mcpStdioCommand } from "@flupcode/engine-contract/mcp"
 import { startEngine } from "@flupcode/engine-contract/engine"
 import { startModel, type Reply } from "@flupcode/engine-contract/model"
+import { startEngineProxy } from "@flupcode/remote/engine-proxy"
 
 /**
  * The live-engine Playwright project's engine (V2-43): the pinned OpenCode 2 binary, isolated, with
- * the stub model and one stdio MCP server, behind a proxy on a fixed port the app is pointed at.
- *
- * 2.x always asks for a password and a page in a browser cannot send one, so the proxy adds the
- * engine's credential to every call, as the desktop app does for its renderer, and answers CORS for
- * the preview's origin. `/__fixture` is the tests' side door: where the project lives, and the replies
- * the stub model gives next. Run by Playwright as a web server, with Bun:
+ * the stub model and one stdio MCP server, behind FlupCode's engine proxy on a fixed port the app is
+ * pointed at: 2.x always asks for a password and a page in a browser cannot send one. Run by
+ * Playwright as a web server, with Bun:
  *
  *   FLUPCODE_CONTRACT_LINE=v2 bun e2e-engine/fixture.ts
  */
-const FIXTURE_PORT = 4197
+const FIXTURE_PORT = 4187
+const CONTROL_PORT = 4189
 
 const model = startModel()
 const engine = await startEngine({
@@ -26,45 +25,39 @@ const engine = await startEngine({
   },
 })
 
-const cors = (origin: string | null) => ({
-  "access-control-allow-origin": origin ?? "*",
-  "access-control-allow-headers": "*",
-  "access-control-allow-methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+// The app reaches the engine through FlupCode's own engine proxy, the one the desktop app and
+// `flupcode serve` put in front of OpenCode 2, so the specs drive the path a reader's browser takes.
+// The preview build the specs open is the one page it serves besides FlupCode's own.
+const proxy = await startEngineProxy({
+  port: FIXTURE_PORT,
+  engine: engine.url,
+  authorization: engine.authorization,
+  origins: ["http://localhost:4173"],
 })
 
+// The specs' side door, apart from the engine's address: where the project lives, and the replies
+// the stub model gives next.
 Bun.serve({
-  port: FIXTURE_PORT,
+  port: CONTROL_PORT,
   hostname: "127.0.0.1",
-  // Event streams stay open for the whole test.
-  idleTimeout: 0,
   fetch: async (request) => {
     const url = new URL(request.url)
-    const origin = request.headers.get("origin")
-    if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors(origin) })
-    if (url.pathname === "/__fixture") return Response.json({ project: engine.project }, { headers: cors(origin) })
+    if (url.pathname === "/__fixture") return Response.json({ project: engine.project })
     if (url.pathname === "/__fixture/model" && request.method === "POST") {
       model.reset()
       model.push(...((await request.json()) as Reply[]))
-      return new Response(null, { status: 204, headers: cors(origin) })
+      return new Response(null, { status: 204 })
     }
-    const forwarded = new Request(`${engine.url}${url.pathname}${url.search}`, request)
-    forwarded.headers.set("authorization", engine.authorization)
-    // The engine compresses; handing a compressed body on with its length unchanged breaks the page.
-    forwarded.headers.set("accept-encoding", "identity")
-    const response = await fetch(forwarded)
-    const headers = new Headers(response.headers)
-    headers.delete("content-encoding")
-    headers.delete("content-length")
-    Object.entries(cors(origin)).forEach(([key, value]) => headers.set(key, value))
-    return new Response(response.body, { status: response.status, headers })
+    return new Response("not found", { status: 404 })
   },
 })
 
 const stop = async () => {
+  await proxy.close()
   await engine.stop()
   model.stop()
   process.exit(0)
 }
 process.on("SIGTERM", stop)
 process.on("SIGINT", stop)
-console.log(`OpenCode ${engine.detected.kind} for the live-engine e2e on http://127.0.0.1:${FIXTURE_PORT}`)
+console.log(`OpenCode ${engine.detected.kind} for the live-engine e2e on ${proxy.url}`)

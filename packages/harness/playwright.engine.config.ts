@@ -2,8 +2,8 @@ import { defineConfig } from "@playwright/test"
 
 /**
  * The live-engine project (V2-43): the app against a real OpenCode 2 engine instead of mocked routes.
- * `e2e-engine/fixture.ts` starts the pinned 2.x binary with the stub model and serves it, password
- * included, on port 4197; the specs drive what a reader does there (send, stream, a permission, a
+ * `e2e-engine/fixture.ts` starts the pinned 2.x binary with the stub model and serves it through
+ * FlupCode's engine proxy on port 4187; the specs drive what a reader does there (send, stream, a permission, a
  * question, the MCP list, the queue). One worker: every spec shares the one engine and its model.
  *
  *   bun run test:e2e:engine
@@ -19,7 +19,7 @@ export default defineConfig({
   webServer: [
     {
       command: "bun e2e-engine/fixture.ts",
-      url: "http://127.0.0.1:4197/__fixture",
+      url: "http://127.0.0.1:4189/__fixture",
       env: { FLUPCODE_CONTRACT_LINE: "v2" },
       reuseExistingServer: false,
       timeout: 180_000,

@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
 import { detectEngine, openCodeLineOf, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { startEngineProxy } from "@flupcode/remote/engine-proxy"
 import { openCodeV2Env, resolveOpenCodeV2, wantsOpenCodeV2 } from "@flupcode/remote/opencode-v2"
 import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
@@ -13,8 +14,16 @@ import { vaultKeyForHarness } from "./vault"
 export const SERVER_URL = process.env.FLUPCODE_SERVER_URL ?? "http://127.0.0.1:4096"
 export const HARNESS_SERVER_URL = process.env.FLUPCODE_HARNESS_SERVER_URL ?? "http://127.0.0.1:4097"
 export const OPENCODE_DOCS = "https://opencode.ai/docs/"
+/**
+ * Where an OpenCode 2 engine this app starts listens (2.1). `SERVER_URL` is the engine proxy in front
+ * of it, which signs in for the window, the harness and FlupCode's web app alike: 2.x always asks for a
+ * password, and a web page has no way to send one.
+ */
+const ENGINE_PORT = Number(process.env.FLUPCODE_ENGINE_PORT ?? 4098)
+const ENGINE_URL = `http://127.0.0.1:${ENGINE_PORT}`
 
 let child: ChildProcess | undefined
+let proxy: Awaited<ReturnType<typeof startEngineProxy>> | undefined
 let harnessChild: ChildProcess | undefined
 let prompted = false
 let promptedRestart = false
@@ -159,13 +168,35 @@ function resolveEngine(): { command: string; args: string[]; cwd?: string } | un
   return undefined
 }
 
+/**
+ * The proxy at `SERVER_URL` in front of the 2.x engine, started once: across an engine restart (the
+ * 1.x import) it keeps listening and answers 502 until the engine is back. Besides FlupCode's web app
+ * it serves this app's own window, whose origin is `oc://renderer` (or the dev server's).
+ */
+async function serveEngine() {
+  const credentials = engineCredentials()
+  if (proxy || !credentials) return
+  const renderer = process.env.ELECTRON_RENDERER_URL ? new URL(process.env.ELECTRON_RENDERER_URL).origin : undefined
+  proxy = await startEngineProxy({
+    port: Number(new URL(SERVER_URL).port || 4096),
+    engine: ENGINE_URL,
+    authorization: `Basic ${credentials}`,
+    origins: ["oc://renderer", ...(renderer ? [renderer] : [])],
+  }).catch((cause: unknown) => {
+    console.error(
+      `[flupcode] could not serve the engine at ${SERVER_URL}: ${cause instanceof Error ? cause.message : String(cause)}`,
+    )
+    return undefined
+  })
+}
+
 /** The pinned OpenCode 2 binary, fetched and verified on first use; nothing when that fails. */
 async function pinnedOpenCodeV2(): Promise<{ command: string; args: string[]; cwd?: string } | undefined> {
   const command = await resolveOpenCodeV2().catch((cause: unknown) => {
     console.error(`[flupcode] could not get OpenCode 2: ${cause instanceof Error ? cause.message : String(cause)}`)
     return undefined
   })
-  return command ? { command, args: ["serve", "--port", "4096", "--hostname", "127.0.0.1"] } : undefined
+  return command ? { command, args: [] } : undefined
 }
 
 /**
@@ -300,7 +331,9 @@ export async function ensureServer() {
   // Before the engine starts, since it reads its plugins once, at startup: the set its line loads.
   await installEnginePlugins(undefined, line)
 
-  console.info(`[flupcode] starting the engine: ${[engine.command, ...engine.args].join(" ")}`)
+  // 2.x listens privately; the proxy takes the address everything else asks for, once it is up.
+  const args = line === "v2" ? ["serve", "--port", String(ENGINE_PORT), "--hostname", "127.0.0.1"] : engine.args
+  console.info(`[flupcode] starting the engine: ${[engine.command, ...args].join(" ")}`)
   const secret = ensureEngineCredentials()
   // The actions plugin reads its token and profiles from the harness, so the engine is told where
   // that server answers. It is not the engine's own URL.
@@ -313,7 +346,7 @@ export async function ensureServer() {
   // A 2.x engine gets FlupCode's own database: it would migrate 1.x's `opencode.db` one way, so 1.x
   // history only reaches it through the explicit import (V2-61).
   if (line === "v2") username = "opencode"
-  child = spawn(engine.command, engine.args, {
+  child = spawn(engine.command, args, {
     cwd: engine.cwd,
     stdio: "inherit",
     shell: process.platform === "win32",
@@ -327,7 +360,13 @@ export async function ensureServer() {
   })
 
   for (let attempt = 0; attempt < 40; attempt++) {
-    const started = await runningEngine()
+    const started =
+      line === "v2" ? await detectEngine(ENGINE_URL, fetch, { headers: authHeaders() }) : await runningEngine()
+    if (started.kind === "v2" && line === "v2") {
+      await serveEngine()
+      console.info(`[flupcode] engine ready: OpenCode ${started.version}, for the web app too at ${SERVER_URL}`)
+      return
+    }
     if (started.kind === "v1") {
       console.info(`[flupcode] engine ready: OpenCode ${started.version ?? "unknown version"}`)
       return
@@ -478,6 +517,8 @@ async function stopEngine() {
 }
 
 export function stopServer() {
+  void proxy?.close()
+  proxy = undefined
   harnessChild?.kill()
   harnessChild = undefined
   child?.kill()

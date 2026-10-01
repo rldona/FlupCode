@@ -11,8 +11,10 @@ notes. `docs/V2-MIGRATION-AUDIT.md` has the engineering details.
   another 2.x binary.
 - **It has its own database**: `~/.local/share/flupcode/opencode-v2/opencode.db`. OpenCode 2 changes the
   database it opens in one direction, so FlupCode never points it at OpenCode 1.x's `opencode.db`.
-- **It always runs behind a password.** FlupCode makes one up and signs in for you. A plain browser tab
-  can't drive OpenCode 2, so use the desktop app (or `flupcode remote` and the web app it pairs).
+- **It always runs behind a password.** FlupCode makes one up and signs in for you, in the desktop app
+  and, since 2.1, in the web app too. While the desktop app is open, it answers at
+  `http://127.0.0.1:4096` for app.flupcode.com. Without the desktop, `flupcode serve` does the same.
+  Either way, only FlupCode's own pages are signed in, not any other page open in your browser.
 - **Everything FlupCode adds works on it.** This covers permission modes, memory, web actions, the
   adaptive layer, plan exit and the cowork agent. They run as FlupCode's OpenCode 2 plugins.
 - **What OpenCode 2 removed is hidden:** the Tasks list, sharing a session, archiving, the session

@@ -30,7 +30,6 @@ type OnboardingProps = {
   onRemote: (name: string) => void
 }
 
-const OPENCODE_DOCS = "https://opencode.ai/docs/"
 const DESKTOP_DOWNLOAD = "https://github.com/rldona/FlupCode/releases/latest"
 const GETTING_STARTED = "https://github.com/rldona/FlupCode/blob/power/docs/GETTING-STARTED.md"
 
@@ -38,10 +37,12 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
   const [name, setName] = createSignal("")
   const [copied, setCopied] = createSignal(false)
   const origin = () => (typeof window === "undefined" ? "http://localhost:4444" : window.location.origin)
-  // `env -u` from the start: a shell that exports OPENCODE_SERVER_PASSWORD would otherwise make the
-  // engine ask for credentials no browser page can send, and a new user would meet that wall before
-  // knowing why. The variable is only dropped for this one command.
-  const command = () => `env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors ${origin()}`
+  // OpenCode 2 always asks for a password a page cannot send; `flupcode serve` runs it and signs this
+  // page in (2.1). The 1.x command stays for an engine started with a password the page cannot send.
+  const command = () => "flupcode serve"
+  // `env -u`: a shell that exports OPENCODE_SERVER_PASSWORD would make a 1.x engine ask for credentials
+  // no browser page can send. The variable is only dropped for this one command.
+  const legacyCommand = () => `env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors ${origin()}`
   // On touch devices the engine rarely runs locally, so controlling a computer comes first.
   const remoteFirst = () => props.remoteClient && touchDevice
 
@@ -133,20 +134,22 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         </p>
         <div class="fc-onboarding-command">
           <pre class="fc-onboarding-code">
-            <code>{command()}</code>
+            <code>{legacyCommand()}</code>
           </pre>
-          <button class="fc-button" type="button" onClick={() => copy(command())}>
+          <button class="fc-button" type="button" onClick={() => copy(legacyCommand())}>
             {copied() ? t("Copied") : t("Copy command")}
           </button>
         </div>
       </Show>
 
       <Show when={props.serverHealthy !== true && !props.serverAuthRequired}>
-        <p class="fc-onboarding-text">{t("FlupCode needs the OpenCode engine. Install it once, then start it:")}</p>
         <p class="fc-onboarding-text">
-          {t("FlupCode is a client and does not ship the engine.")}{" "}
-          <a class="fc-link" href={OPENCODE_DOCS} target="_blank" rel="noreferrer">
-            {t("Install the OpenCode CLI")}
+          {t("Start FlupCode's engine on this computer and leave it running, or keep the desktop app open:")}
+        </p>
+        <p class="fc-onboarding-text">
+          {t("It runs OpenCode 2 and signs this page in.")}{" "}
+          <a class="fc-link" href={GETTING_STARTED} target="_blank" rel="noreferrer">
+            {t("Get the flupcode command")}
           </a>
         </p>
         <div class="fc-onboarding-command">
@@ -158,9 +161,7 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
           </button>
         </div>
         <p class="fc-onboarding-text">
-          {t(
-            "Leave it running. If the engine is already running without --cors, stop it and start it with this command.",
-          )}
+          {t("It answers at http://localhost:4096. Use another port with --port and change the server below.")}
         </p>
         <label class="fc-settings-row">
           <span>{t("Server")}</span>

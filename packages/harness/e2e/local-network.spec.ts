@@ -78,9 +78,9 @@ test("a page still blocked with the permission granted is told what the engine h
   await boot(page, () => "blocked", () => {})
 
   // The permission is not what is missing, so asking for it again would answer nothing: what the
-  // engine needs is this origin on its allowed list.
+  // engine proxy needs is this origin on its allowed list.
   const banner = page.locator(".fc-offline-banner")
-  await expect(banner).toContainText("--cors http://app.flupcode.test:4173")
+  await expect(banner).toContainText("FLUPCODE_WEB_ORIGINS=http://app.flupcode.test:4173 flupcode serve")
   await expect(banner.getByRole("button", { name: /Allow access|Permitir acceso/ })).toHaveCount(0)
   await browser.close()
 })

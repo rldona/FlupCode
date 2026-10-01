@@ -1,146 +1,97 @@
 # Getting started
 
-FlupCode is a **client**. It does not ship the OpenCode engine, so nothing runs until one is
-reachable. This page is the shortest path from a clean machine to a working session, and the
-mistakes that block first-time users.
+FlupCode runs on the **OpenCode 2** engine and starts it for you. This page is the shortest path
+from a clean machine to a working session, plus the mistakes that most often block first-time users.
 
 ## What you need
 
-1. The **OpenCode CLI** (the engine). FlupCode talks to it over HTTP + SSE.
-2. A model provider configured for OpenCode ([Providers](https://opencode.ai/docs/providers/)).
-   Without one the model selector is empty and prompts fail.
+1. Nothing to install for the engine. The desktop app and the `flupcode` command fetch the pinned
+   OpenCode 2 once, check it against its published integrity, and keep it in FlupCode's cache. They
+   never use or replace the `opencode` on your PATH.
+2. A model provider ([Providers](https://opencode.ai/docs/providers/)), connected from
+   **Settings → Providers**. Without one, the model selector is empty and prompts fail.
 
-Bun 1.3+ is only needed if you run FlupCode [from source](#from-source).
+You only need Bun 1.3+ if you run FlupCode [from source](#from-source).
 
 ## Pick a path
 
-| I want to…           | Engine             | FlupCode                                                              |
-| -------------------- | ------------------ | --------------------------------------------------------------------- |
-| Use an installed app | Started by the app | [Desktop release](https://github.com/rldona/FlupCode/releases/latest) |
-| Use it in a browser  | You start it       | [app.flupcode.com](https://app.flupcode.com)                          |
-| Run from source      | You start it       | `bun run dev:harness`                                                 |
+| I want to…           | Start the engine with                | Open FlupCode                                                         |
+| -------------------- | ------------------------------------ | --------------------------------------------------------------------- |
+| Use an installed app | the app itself                       | [Desktop release](https://github.com/rldona/FlupCode/releases/latest) |
+| Use it in a browser  | the desktop app, or `flupcode serve` | [app.flupcode.com](https://app.flupcode.com)                          |
+| Run from source      | the desktop app, or `flupcode serve` | `bun run dev:harness`, then `http://localhost:4444`                   |
 
-## Step 1 — Install the engine
+## The desktop app
 
-```bash
-curl -fsSL https://opencode.ai/install | bash
-```
+Install it from the [latest release](https://github.com/rldona/FlupCode/releases/latest) and open
+it. It starts OpenCode 2 with its own password and its own database, and signs in for you. While it
+is open, **the web app works too**: the desktop answers at `http://127.0.0.1:4096` for
+app.flupcode.com and `localhost:4444` and signs them in.
 
-Or pick your platform:
+## The web app without the desktop: `flupcode serve`
 
-| Platform                 | Command                               |
-| ------------------------ | ------------------------------------- |
-| macOS / Linux (Homebrew) | `brew install anomalyco/tap/opencode` |
-| npm / Bun / pnpm         | `npm install -g opencode-ai`          |
-| Windows (Chocolatey)     | `choco install opencode`              |
-| Windows (Scoop)          | `scoop install opencode`              |
-| Arch Linux               | `sudo pacman -S opencode`             |
-
-Windows works best under [WSL](https://opencode.ai/docs/windows-wsl). The full list lives at
-[opencode.ai/docs](https://opencode.ai/docs/).
-
-Verify it and make sure the binary is on your `PATH` (open a new terminal after installing):
+Install the `flupcode` binary for your platform from the
+[latest release](https://github.com/rldona/FlupCode/releases/latest) (see
+[USAGE.md](USAGE.md#from-a-terminal-flupcode-remote)), then **leave this running**:
 
 ```bash
-opencode --version
+flupcode serve
 ```
 
-If the command is not found, the shell has not picked up the install directory yet. FlupCode
-reports the engine as missing until it can find `opencode`.
+It starts OpenCode 2 on a private port and answers at `http://127.0.0.1:4096`. OpenCode 2 always
+asks for a password and a browser page cannot send one, so `flupcode serve` signs in for the page.
+It does that only for FlupCode's own pages (app.flupcode.com and `localhost:4444`; add others with
+`FLUPCODE_WEB_ORIGINS`). Any other page open in your browser is refused, which is what the password
+was protecting. Then open [app.flupcode.com](https://app.flupcode.com). It connects to
+`http://localhost:4096`; change the address in **Settings → Server** if you passed `--port`.
 
-## Step 2 — Start the engine
+## Your OpenCode 1.x history
 
-**Desktop:** skip this. The app looks for `FLUPCODE_OPENCODE`, then an engine in the source
-checkout, then `opencode` on the `PATH`, and starts one. If none is found it shows an install
-prompt. Set `FLUPCODE_OPENCODE` to point at a specific binary, or `FLUPCODE_SERVER_URL` to attach
-to an engine already running elsewhere.
+FlupCode's OpenCode 2 keeps its own database, so your 1.x sessions stay where they are until you
+import them. Use File → _Import OpenCode 1.x History…_ in the desktop, or `flupcode engine import-v1`.
+Both can be undone. See [OPENCODE-2.md](OPENCODE-2.md).
 
-**Hosted web app:** start it yourself, with the hosted origin allowed, and **leave it running**:
-
-```bash
-env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
-```
-
-`--cors` is required because the page (`https://app.flupcode.com`) and the engine
-(`http://localhost:4096`) are different origins. `env -u OPENCODE_SERVER_PASSWORD` drops that
-variable for this one command: a shell that exports it would otherwise make the engine demand
-credentials a browser page cannot send, and the web app would read it as offline. Closing the
-terminal stops the engine and the tab goes back to "offline".
-
-**From source** (gets FlupCode's engine patches — GitHub Copilot OAuth, permission modes):
+## From source
 
 ```bash
 bun install
-env -u OPENCODE_SERVER_PASSWORD OPENCODE_DISABLE_CHANNEL_DB=1 bun run --cwd packages/opencode src/index.ts serve \
-  --port 4096 --cors https://app.flupcode.com
+bun run dev:harness   # the web app at http://localhost:4444
 ```
 
-`OPENCODE_DISABLE_CHANNEL_DB=1` makes the engine read the same database as an installed OpenCode,
-so your TUI sessions appear in FlupCode. See [USAGE.md](USAGE.md#see-your-existing-opencode-tui-sessions).
+For the engine, keep the desktop app open, or run `bun packages/flupcode-cli/src/index.ts serve`.
 
-## Step 3 — Open FlupCode
+## OpenCode 1.x (deprecated)
 
-- Desktop: launch the app; it connects to `http://127.0.0.1:4096`.
-- Web: open [app.flupcode.com](https://app.flupcode.com); it connects to `http://localhost:4096`.
-- Source: open `http://localhost:4444`.
-
-Change the server URL in **Settings → Server** if the engine runs on another port or host. The
-onboarding modal shows the exact command for the page's origin.
-
-## Troubleshooting
-
-FlupCode tells the two apart on purpose: **"Sin conexión al servidor" / Server offline** means
-nothing answered; **"Conexión bloqueada por el navegador" / Connection blocked by the browser**
-means the engine is listening but the browser refused to hand the response to the page.
-
-| Symptom                                          | Cause                                                                            | Fix                                                                                        |
-| ------------------------------------------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| "Server offline"                                 | No engine is running, or the port is wrong                                       | Start `opencode serve` (see [Start the engine](#step-2--start-the-engine)), check the server URL in Settings |
-| "Authentication required"                        | The engine was started with `OPENCODE_SERVER_PASSWORD` (a browser page cannot send it) | Restart it without that variable, or use the desktop app (see below)                  |
-| "Connection blocked by the browser"              | The engine was started without `--cors` for this origin                          | Stop it and start it again with `--cors <page origin>`                                     |
-| Nothing connects on **Safari**                   | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content)  | Use the **desktop app**, which is not subject to the mixed-content rule                    |
-| Chrome shows a Local Network Access prompt       | Chromium gates public→loopback requests                                          | Allow it; FlupCode's engine answers the preflight once it is granted                       |
-| Empty model selector                             | No provider connected                                                            | Connect one in OpenCode, or leave **Auto** enabled                                         |
-| The sidebar does not list TUI sessions           | The dev engine uses a different database                                         | Start the engine with `OPENCODE_DISABLE_CHANNEL_DB=1`                                      |
-| FlupCode warns "stock OpenCode engine"           | The engine is the published CLI, without FlupCode's patches                      | Run the engine from this fork's source (see [Start the engine](#step-2--start-the-engine)) |
-| FlupCode warns the engine version does not match | The engine is a different release than this FlupCode build was generated against | Update the engine, or update FlupCode                                                      |
-| "FlupCode Not Opened" / SmartScreen              | Builds are not signed yet                                                        | See [Installing a release](USAGE.md#installing-a-release)                                  |
-
-### The engine asks for a password
-
-If the engine prints `401` for every call, it was started with `OPENCODE_SERVER_PASSWORD` set — for
-example because another OpenCode process exported it into the shell. A **browser page cannot send
-credentials**: only the desktop app hands them to the page it loads, so the web app and the source
-checkout read the engine as offline even though it is running.
-
-Start the engine without that variable:
+`FLUPCODE_ENGINE=v1` makes the desktop app and `flupcode remote` start the `opencode` on your PATH as
+before. To use a 1.x engine from the web app directly, start it without a password and with the
+page's origin allowed:
 
 ```bash
 env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
 ```
 
-Or open the desktop app, which starts its own engine and signs in for you.
+Support for 1.x is removed in a coming release.
+
+## Troubleshooting
+
+FlupCode tells two failures apart on purpose:
+
+- **"Sin conexión al servidor" / Server offline** means nothing answered.
+- **"Conexión bloqueada por el navegador" / Connection blocked by the browser** means something is
+  listening, but the browser refused to hand the response to the page.
+
+| Symptom                                     | Cause                                                                           | Fix                                                                     |
+| ------------------------------------------- | ------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| "Server offline"                            | Neither the desktop app nor `flupcode serve` is running, or the port is wrong   | Start one of them; check the address in Settings                        |
+| "This engine is OpenCode 2…" in the web app | An OpenCode 2 started some other way: it wants a password the page cannot send  | Stop it and use `flupcode serve` or the desktop app                     |
+| `403` from `127.0.0.1:4096`                 | The page is not FlupCode's web app                                              | Add its origin to `FLUPCODE_WEB_ORIGINS`                                |
+| Nothing connects on **Safari**              | WebKit blocks `https://` pages from reaching `http://localhost` (mixed content) | Use the **desktop app**, which is not subject to the mixed-content rule |
+| Chrome shows a Local Network Access prompt  | Chromium gates requests from public pages to loopback                           | Allow it; FlupCode answers that preflight                               |
+| Empty model selector                        | No provider connected                                                           | Connect one in **Settings → Providers**                                 |
+| "FlupCode Not Opened" / SmartScreen         | Builds are not signed yet                                                       | See [Installing a release](USAGE.md#installing-a-release)               |
 
 ### Why Safari needs the desktop app
 
 Safari does not apply the loopback exception to the mixed-content rule, so an `https://` page is
-**not allowed** to call `http://localhost`. Chromium and Firefox allow it. FlupCode annotates its
-requests as loopback and the engine opts in to Chromium's Local Network Access, but neither
-convinces Safari. The desktop app loads its renderer locally, so the rule never applies.
-
-### The engine is running but still blocked
-
-The most common cause is an engine started **without** `--cors`. If you already have
-`opencode serve --port 4096` running, stop it (`Ctrl+C`) and start it again with the origin:
-
-```bash
-env -u OPENCODE_SERVER_PASSWORD opencode serve --port 4096 --cors https://app.flupcode.com
-```
-
-Then press **Retry** or reconnect in FlupCode. A preflight from the same origin should answer `204`
-with `access-control-allow-origin`:
-
-```bash
-curl -i -X OPTIONS http://localhost:4096/global/health \
-  -H "Origin: https://app.flupcode.com" -H "Access-Control-Request-Method: GET"
-```
+**not allowed** to call `http://localhost`. Chromium and Firefox allow it. The desktop app loads its
+window locally, so the rule never applies.
