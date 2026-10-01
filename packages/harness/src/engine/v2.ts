@@ -39,6 +39,29 @@ export function createV2Domains(
   const openUrl = options.openUrl ?? openExternalUrl
   const store = options.configStore
   const client = OpenCode.make({ baseUrl, fetch: ((input, init) => engineFetch(input, init)) as typeof fetch })
+  // The instructions each session holds, as last read or written, so an unchanged one is not sent
+  // again: every write the engine sees after the first turn becomes an update message.
+  const instructed = new Map<string, Map<string, string>>()
+  const instruct = async (sessionID: string, instructions: Record<string, string | undefined>) => {
+    const held =
+      instructed.get(sessionID) ??
+      new Map(
+        (await call(client.session.instructions.entry.list({ sessionID }))).flatMap((entry) =>
+          typeof entry.value === "string" ? [[entry.key, entry.value] as const] : [],
+        ),
+      )
+    instructed.set(sessionID, held)
+    for (const [key, value] of Object.entries(instructions)) {
+      if (held.get(key) === (value || undefined)) continue
+      if (!value) {
+        await call(client.session.instructions.entry.remove({ sessionID, key }))
+        held.delete(key)
+        continue
+      }
+      await call(client.session.instructions.entry.put({ sessionID, key, value }))
+      held.set(key, value)
+    }
+  }
 
   const session: EngineClient["session"] = {
     list: async (input) => {
@@ -94,11 +117,13 @@ export function createV2Domains(
     },
     active: async () => new Set(Object.keys(await call(client.session.active()))),
     /**
-     * 2.x has one runner, so the prompt the app sends through the 1.x runtime goes through the same
-     * inbox as any other. A model or agent picked for this turn is selected on the session first: 2.x
-     * keeps them as session state, not per prompt. It has no per-prompt system text.
+     * The prompt goes into the session inbox. What 2.x keeps as session state rather than per prompt
+     * is set on the session first: its instructions (the mode's system prompt and the project notes),
+     * then the model and the agent picked for this turn.
      */
     send: async (input) => {
+      // Experimental on 2.x: an engine that refuses them still gets the prompt, as it did before.
+      if (input.instructions) await instruct(input.sessionID, input.instructions).catch(() => undefined)
       if (input.model) await call(client.session.switchModel({ sessionID: input.sessionID, model: input.model }))
       if (input.agent) await call(client.session.switchAgent({ sessionID: input.sessionID, agent: input.agent }))
       await call(

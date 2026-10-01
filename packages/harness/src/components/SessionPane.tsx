@@ -15,7 +15,7 @@ import type {
 } from "../engine-types"
 import type { Attachment, ProjectItem } from "../types"
 import { createClient } from "../client"
-import { CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, type ChatClass } from "../chat"
+import { CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, INSTRUCTION_SYSTEM, type ChatClass } from "../chat"
 import { messageID } from "../ids"
 import { pendingPrompts, type Delivery } from "../pending-prompts"
 import { contextFigures, type CompactionConfig } from "../metrics"
@@ -287,7 +287,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           sessionID: sessionID(),
           directory: props.chatsDirectory,
           text: body,
-          system: CHAT_SYSTEM,
+          instructions: { [INSTRUCTION_SYSTEM]: CHAT_SYSTEM },
           files: fileRefs,
           ...(validModel() ? { model: validModel()! } : {}),
         })
@@ -307,7 +307,6 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
           text,
           files,
           agent: promptAgent,
-          ...(cowork ? { system: COWORK_SYSTEM } : {}),
           ...(validModel() ? { model: validModel()! } : {}),
           delivery: mode,
           ...(mode === "queue" ? { held: true } : {}),
@@ -321,7 +320,7 @@ export const SessionPane: Component<SessionPaneProps> = (props) => {
             id,
             text: body,
             agent: promptAgent,
-            ...(cowork ? { system: COWORK_SYSTEM } : {}),
+            instructions: { [INSTRUCTION_SYSTEM]: cowork ? COWORK_SYSTEM : undefined },
             ...(fileRefs.length > 0 ? { files: fileRefs } : {}),
             ...(validModel() ? { model: validModel()! } : {}),
             ...(mode ? { delivery: mode } : {}),

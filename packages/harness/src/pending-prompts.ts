@@ -19,8 +19,6 @@ export type PendingPrompt = {
   text: string
   files: Attachment[]
   agent?: string
-  /** The system prompt a Cowork prompt was sent with. */
-  system?: string
   model?: { providerID: string; id: string; variant?: string }
   /** Undefined for a prompt that opened an idle session, where delivery makes no difference. */
   delivery?: Delivery

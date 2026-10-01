@@ -50,7 +50,7 @@ import { promptHistory, recordPrompt } from "./prompt-history"
 import { modelSwitchWarningOn, needsModelSwitchWarning, rememberModelSwitch } from "./model-switch"
 import { hasModel, replacementModel } from "./model-catalog"
 import { customProviderPayload, type CustomProviderResult } from "./custom-provider"
-import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, sessionChatClass, type AppView, type ChatClass } from "./chat"
+import { CHAT_PERMISSION, CHAT_SYSTEM, COWORK_AGENT, COWORK_SYSTEM, INSTRUCTION_NOTES, INSTRUCTION_SYSTEM, sessionChatClass, type AppView, type ChatClass } from "./chat"
 import { messageID } from "./ids"
 import { sessionTitle } from "./session-title"
 import {
@@ -1193,8 +1193,14 @@ export const App: Component = () => {
     const notes = projectNotes()
     return notes.length > 0 ? `Project memory:\n${notes.map((note) => `- ${note.text}`).join("\n")}` : ""
   }
-  /** The system a turn runs with: whatever it already had, plus the project's notes (H-37). */
-  const withProjectMemory = (base?: string) => [base, projectMemoryText()].filter(Boolean).join("\n\n") || undefined
+  /**
+   * The instructions a turn runs under (H-37): the mode's own system prompt, if it has one, and the
+   * project's notes. Named apart, so the engine only hears about the one that changed.
+   */
+  const instructionsFor = (system?: string) => ({
+    [INSTRUCTION_SYSTEM]: system,
+    [INSTRUCTION_NOTES]: projectMemoryText() || undefined,
+  })
   const addProjectNote = (text: string) => {
     const directory = vcsDirectory()
     if (!directory) return
@@ -5021,7 +5027,7 @@ export const App: Component = () => {
         sessionID,
         directory,
         text: expandPastes(text),
-        system: withProjectMemory(CHAT_SYSTEM),
+        instructions: instructionsFor(CHAT_SYSTEM),
         files: files.map(({ uri, name }) => ({ uri, name })),
         ...(model ? { model } : {}),
       })
@@ -5072,7 +5078,7 @@ export const App: Component = () => {
       // The folder this session lives in: the list is one page, so a session opened from the palette
       // has no row here and the remembered folder is the only one there is.
       const directory = location ?? selectedSession()?.location?.directory ?? sessionDirectories.get(sessionID)
-      const system = withProjectMemory(options?.system)
+      const instructions = instructionsFor(options?.system)
       pendingPrompts.add({
         id,
         sessionID,
@@ -5080,7 +5086,6 @@ export const App: Component = () => {
         text,
         files,
         agent: promptAgent,
-        ...(system ? { system } : {}),
         ...(model ? { model } : {}),
         delivery: mode,
         ...(mode === "queue" ? { held: true } : {}),
@@ -5097,7 +5102,7 @@ export const App: Component = () => {
           id,
           text: expandPastes(text),
           agent: promptAgent,
-          ...(system ? { system } : {}),
+          instructions,
           ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
           ...(mode ? { delivery: mode } : {}),
