@@ -90,9 +90,29 @@ export function watchEngineEvents(input: {
 
   const handle = (event: { type?: unknown; data?: unknown }) => {
     const data = (typeof event.data === "object" && event.data !== null ? event.data : {}) as Record<string, unknown>
-    const sessionID = typeof data.sessionID === "string" ? data.sessionID : undefined
+    // A 2.x form carries its session inside the form.
+    const form = (typeof data.form === "object" && data.form !== null ? data.form : {}) as Record<string, unknown>
+    const sessionID =
+      typeof data.sessionID === "string"
+        ? data.sessionID
+        : typeof form.sessionID === "string"
+          ? form.sessionID
+          : undefined
     if (!sessionID || typeof event.type !== "string") return
-    if (event.type === "session.updated" || event.type === "session.next.titled") titles.delete(sessionID)
+    if (event.type === "session.updated" || event.type === "session.next.titled" || event.type === "session.renamed")
+      titles.delete(sessionID)
+    // OpenCode 2 says when a run ends, so there is no step to wait past (V2-11). Its events and the
+    // 1.x ones below never share a stream.
+    if (event.type === "session.execution.succeeded") return emit("finished", sessionID)
+    if (event.type === "session.execution.failed") return emit("failed", sessionID)
+    if (event.type === "form.created") {
+      const fields = Array.isArray(form.fields)
+        ? (form.fields as Array<{ description?: unknown; title?: unknown }>)
+        : []
+      const first = fields[0]
+      const detail = [first?.description, first?.title, form.title].find((value) => typeof value === "string" && value)
+      return emit("question", sessionID, detail as string | undefined)
+    }
     if (event.type === "session.next.step.started" || event.type === "session.next.prompted") {
       clearTimeout(finishing.get(sessionID))
       return void finishing.delete(sessionID)
@@ -114,7 +134,7 @@ export function watchEngineEvents(input: {
       finishing.delete(sessionID)
       return emit("failed", sessionID)
     }
-    if (event.type === "permission.v2.asked") {
+    if (event.type === "permission.v2.asked" || event.type === "permission.asked") {
       const resources = Array.isArray(data.resources) ? data.resources.filter((item) => typeof item === "string") : []
       const action = typeof data.action === "string" ? data.action : undefined
       return emit("permission", sessionID, [action, resources.join(", ")].filter(Boolean).join(": "))

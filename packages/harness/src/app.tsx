@@ -1,7 +1,7 @@
 import { For, Show, createEffect, createMemo, createSignal, onCleanup, untrack, type Component } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 import type { RemoteHostState } from "@flupcode/remote"
-import { detectEngine } from "@flupcode/remote/engine-kind"
+import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { createResource } from "./resource"
 import { setAdaptiveModels } from "./adaptive-copy"
 import { createReconciledList } from "./reconciled"
@@ -32,7 +32,6 @@ import {
   invalidateLegacyHistory,
   isSessionGone,
   engineLineOf,
-  openCodeV2Locked,
   probeEngineProfile,
   probeServer,
   rememberEngineLine,
@@ -706,7 +705,10 @@ export const App: Component = () => {
         rememberEngineLine(url, detected.kind)
         return { healthy: true, version: detected.version, line: detected.kind, blocked: false, authRequired: false }
       }
-      if (await openCodeV2Locked(url)) return { ...result, line: "v2" as const, blocked: false, authRequired: true }
+      // 2.x always runs behind a password and a browser page has no way to send one: only the desktop
+      // app, which starts the engine with its own, can drive it.
+      if (await openCodeV2Locked(url, engineFetch))
+        return { ...result, line: "v2" as const, blocked: false, authRequired: true }
       const status = await probeServer(url)
       return {
         ...result,

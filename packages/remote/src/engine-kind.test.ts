@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { detectEngine, openCodeV2Version } from "./engine-kind"
+import { detectEngine, openCodeV2Locked, openCodeV2Version } from "./engine-kind"
 
 const html = () => new Response("<!doctype html><title>OpenCode</title>", { headers: { "content-type": "text/html" } })
 
@@ -17,6 +17,8 @@ const v2 = Bun.serve({
       ? Response.json({ version: "2.0.20", pid: 1, urls: [], paths: { tmp: "/tmp" } })
       : Response.json({ _tag: "NotFound" }, { status: 404 }),
 })
+// A 1.x engine behind a password: plain text, for every path.
+const v1Locked = Bun.serve({ port: 0, fetch: () => new Response("Unauthorized", { status: 401 }) })
 // Something else listening on the port, answering HTML for everything.
 const other = Bun.serve({ port: 0, fetch: html })
 // A 2.x engine that wants credentials the caller does not have.
@@ -28,7 +30,7 @@ const locked = Bun.serve({
       : Response.json({ _tag: "UnauthorizedError" }, { status: 401 }),
 })
 
-afterAll(() => [v1, v2, other, locked].forEach((server) => server.stop(true)))
+afterAll(() => [v1, v2, other, locked, v1Locked].forEach((server) => server.stop(true)))
 
 describe("detectEngine", () => {
   test("reads OpenCode 1.x from its health route", async () => {
@@ -59,5 +61,18 @@ describe("detectEngine", () => {
 describe("openCodeV2Version", () => {
   test("is empty for a 1.x engine, whose web UI answers the path", async () => {
     expect(await openCodeV2Version(v1.url.href)).toBeUndefined()
+  })
+})
+
+describe("openCodeV2Locked", () => {
+  test("names a 2.x engine behind a password the caller does not have", async () => {
+    expect(await openCodeV2Locked(locked.url.href)).toBe(true)
+    expect(await openCodeV2Locked(locked.url.href, fetch, { headers: { authorization: "Basic secret" } })).toBe(false)
+  })
+
+  test("is false for a 1.x engine behind a password, an open 2.x engine and nothing at all", async () => {
+    expect(await openCodeV2Locked(v1Locked.url.href)).toBe(false)
+    expect(await openCodeV2Locked(v2.url.href)).toBe(false)
+    expect(await openCodeV2Locked("http://127.0.0.1:9")).toBe(false)
   })
 })

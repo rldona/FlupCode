@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { homedir } from "node:os"
 import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
-import { detectEngine } from "@flupcode/remote/engine-kind"
+import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
@@ -234,6 +234,20 @@ function promptEngineV2(version: string, command?: string) {
     })
 }
 
+function promptLockedEngine() {
+  if (promptedV2) return
+  promptedV2 = true
+  void dialog.showMessageBox({
+    type: "warning",
+    title: "The engine wants a password",
+    message: `An OpenCode 2 engine at ${SERVER_URL} wants a password FlupCode does not have`,
+    detail:
+      "OpenCode 2 always runs behind a password. Stop that engine and reopen FlupCode, which starts its own, " +
+      "or set OPENCODE_SERVER_PASSWORD to the password it was started with.",
+    buttons: ["Continue offline"],
+  })
+}
+
 /**
  * An engine this app did not start reads its plugins once, when it starts.
  *
@@ -261,6 +275,10 @@ export async function ensureServer() {
   const running = await runningEngine()
   // Nothing is installed for an engine that would reject it: 2.x refuses every FlupCode plugin.
   if (running.kind === "v2") return promptEngineV2(running.version)
+  // An OpenCode 2 engine someone else started, behind a password FlupCode was not given: starting
+  // another one on its port would only fail, so say what it needs instead.
+  if (running.kind === "none" && (await openCodeV2Locked(SERVER_URL, fetch, { headers: authHeaders() })))
+    return promptLockedEngine()
   // Before any engine starts: plugins load at startup (an engine already running picks them up on restart).
   const plugins = await installEnginePlugins()
   if (running.kind === "v1") {

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -30,8 +30,12 @@ afterAll(() => {
 })
 
 function cli(...args: string[]) {
+  return cliWith({}, ...args)
+}
+
+function cliWith(env: Record<string, string | undefined>, ...args: string[]) {
   const child = Bun.spawn(["bun", join(import.meta.dir, "../src/index.ts"), ...args], {
-    env: { ...process.env, FLUPCODE_CONFIG_DIR: configDir, NO_COLOR: "1" },
+    env: { ...process.env, FLUPCODE_CONFIG_DIR: configDir, NO_COLOR: "1", ...env },
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
@@ -115,20 +119,96 @@ describe("flupcode remote", () => {
     expect(await run.exited).toBe(1)
   })
 
-  test("refuses an OpenCode 2.x engine by name", async () => {
-    const v2 = Bun.serve({
+  test("asks for the password of an OpenCode 2.x engine it did not start", async () => {
+    const locked = Bun.serve({
       port: 0,
-      fetch: (request) =>
-        new URL(request.url).pathname === "/api/info"
-          ? Response.json({ version: "2.0.20", pid: 1, urls: [], paths: { tmp: "/tmp" } })
-          : Response.json({ _tag: "NotFound" }, { status: 404 }),
+      fetch: () => Response.json({ _tag: "UnauthorizedError", message: "Authentication required" }, { status: 401 }),
     })
     try {
-      const run = cli("remote", "--no-serve", "--engine", v2.url.href.replace(/\/$/, ""))
-      expect(await new Response(run.stderr).text()).toContain("is OpenCode 2.0.20; FlupCode requires OpenCode 1.x")
+      const run = cliWith(
+        { OPENCODE_SERVER_PASSWORD: undefined },
+        "remote",
+        "--no-serve",
+        "--engine",
+        locked.url.href.replace(/\/$/, ""),
+      )
+      expect(await new Response(run.stderr).text()).toContain("is OpenCode 2 and wants a password")
       expect(await run.exited).toBe(1)
     } finally {
-      v2.stop(true)
+      locked.stop(true)
     }
   })
+
+  // OpenCode 2 always runs behind a password, so the one flupcode starts gets its own, and the relay
+  // signs in with it: a paired phone reaches the engine without ever being told the password.
+  test("starts an OpenCode 2.x engine with a password of its own and exposes it through the relay", async () => {
+    const bin = mkdtempSync(join(tmpdir(), "flupcode-cli-bin-"))
+    const server = join(bin, "server.ts")
+    writeFileSync(
+      server,
+      `const port = Number(process.argv[process.argv.indexOf("--port") + 1])
+const expected = "Basic " + btoa(process.env.OPENCODE_SERVER_USERNAME + ":" + process.env.OPENCODE_SERVER_PASSWORD)
+Bun.serve({
+  port,
+  hostname: "127.0.0.1",
+  fetch: (request) => {
+    if (!process.env.OPENCODE_SERVER_PASSWORD || request.headers.get("authorization") !== expected)
+      return Response.json({ _tag: "UnauthorizedError" }, { status: 401 })
+    if (new URL(request.url).pathname === "/api/info") return Response.json({ version: "2.0.20" })
+    return Response.json({ _tag: "NotFound" }, { status: 404 })
+  },
+})
+`,
+    )
+    writeFileSync(
+      join(bin, "opencode"),
+      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "opencode v2.0.20"; exit 0; fi\nexec "${process.execPath}" "${server}" "$@"\n`,
+    )
+    chmodSync(join(bin, "opencode"), 0o755)
+    const free = Bun.serve({ port: 0, fetch: () => new Response() })
+    const port = free.port
+    free.stop(true)
+    const ownDir = mkdtempSync(join(tmpdir(), "flupcode-cli-v2-"))
+    try {
+      const host = cliWith(
+        {
+          PATH: `${bin}:${process.env.PATH ?? ""}`,
+          FLUPCODE_CONFIG_DIR: ownDir,
+          OPENCODE_SERVER_PASSWORD: undefined,
+          OPENCODE_SERVER_USERNAME: undefined,
+        },
+        "remote",
+        "--engine",
+        `http://127.0.0.1:${port}`,
+        "--relay",
+        relay.url,
+      )
+      const out = reader(host.stdout)
+      await out.wait(/The engine is OpenCode 2\.0\.20/)
+      const [url] = await out.wait(/https:\/\/app\.flupcode\.com\/#remote=[\w-]+/)
+      await out.wait(/Relay .*online/)
+
+      const link = parsePairingHash(new URL(url).hash)!
+      const tunnel = createTunnelClient(
+        await connectChannel(await connectRelayClient({ relay: relay.url, hostId: link.host }), {
+          mode: "pair",
+          id: link.id,
+          psk: fromBase64Url(link.secret),
+        }),
+      )
+      await new Promise((resolve) => tunnel.onControl(resolve))
+      tunnel.sendControl({ type: "device", name: "Test phone" })
+      await out.wait(/Paired Test phone/)
+      expect(await (await tunnel.fetch("https://remote.invalid/api/info")).json()).toEqual({ version: "2.0.20" })
+      // Nobody else can: the engine is not open to a caller without the password.
+      expect((await fetch(`http://127.0.0.1:${port}/api/info`)).status).toBe(401)
+
+      host.stdin.write("q\n")
+      expect(await host.exited).toBe(0)
+      tunnel.close()
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+      rmSync(ownDir, { recursive: true, force: true })
+    }
+  }, 60_000)
 })

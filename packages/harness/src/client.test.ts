@@ -6,7 +6,6 @@ import {
   createHarnessClient,
   engineLineOf,
   isSessionGone,
-  openCodeV2Locked,
   probeServer,
   rememberEngineLine,
   subscribeEvents,
@@ -990,20 +989,4 @@ test("the client talks to the line the health check found at an address (V2-11)"
 
   rememberEngineLine(url, "v1")
   expect(await createClient(url).health.get()).toEqual({ healthy: true, version: "1.4.0" })
-})
-
-test("a 2.x engine behind its password is told apart from a 1.x one", async () => {
-  const answer = (response: () => Response) =>
-    setEngineTransport({
-      fetch: async () => response(),
-      socket: () => {
-        throw new Error("not used")
-      },
-    })
-  answer(() => Response.json({ _tag: "UnauthorizedError", message: "Authentication required" }, { status: 401 }))
-  expect(await openCodeV2Locked("http://127.0.0.1:4912")).toBe(true)
-  answer(() => new Response("Unauthorized", { status: 401 }))
-  expect(await openCodeV2Locked("http://127.0.0.1:4912")).toBe(false)
-  answer(() => Response.json({ version: "2.0.18" }))
-  expect(await openCodeV2Locked("http://127.0.0.1:4912")).toBe(false)
 })

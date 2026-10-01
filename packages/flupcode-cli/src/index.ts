@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 import { spawn, spawnSync, type ChildProcess } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { homedir, hostname } from "node:os"
 import { join } from "node:path"
 import { parseArgs } from "node:util"
 import { createRemoteHost, PAIRING_TTL, type RemoteHostState, type RemoteHostStore } from "@flupcode/remote"
-import { detectEngine } from "@flupcode/remote/engine-kind"
+import { detectEngine, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
 import QRCode from "qrcode"
 import pkg from "../package.json"
@@ -30,7 +31,8 @@ Options:
 While running, type: p (new pairing code), d (devices), r <n> (remove device), q (quit).
 
 Environment: OPENCODE_SERVER_PASSWORD / OPENCODE_SERVER_USERNAME for a password-protected engine,
-FLUPCODE_CONFIG_DIR to change where the host identity and devices are stored.`
+FLUPCODE_CONFIG_DIR to change where the host identity and devices are stored. An OpenCode 2 engine
+always runs behind a password, so one flupcode starts gets a password of its own.`
 
 const tty = process.stdout.isTTY === true
 const paint = (code: number) => (text: string) => (tty ? `\x1b[${code}m${text}\x1b[0m` : text)
@@ -122,45 +124,70 @@ function runningEngine(engine: string, credentials: string | undefined) {
   return detectEngine(engine, fetch, { headers: credentials ? { authorization: `Basic ${credentials}` } : {} })
 }
 
-/** OpenCode 2.x drops the routes and plugin format FlupCode drives, so it is refused by name (V2-00). */
-function failUnsupported(engine: string, version: string): never {
-  fail(
-    `the engine at ${engine} is OpenCode ${version}; FlupCode requires OpenCode 1.x. ` +
-      "Install OpenCode 1.x, or start a 1.x opencode serve and pass --engine",
-  )
-}
-
+/**
+ * The engine to expose, started when nothing answers and `serve` allows it, and the credentials the
+ * relay signs in with. OpenCode 2 always runs behind a password (it makes one up when none is set),
+ * so one it starts is given its own; a 1.x engine still starts without one, as the browser on this
+ * computer has no way to send it.
+ */
 async function ensureEngine(engine: string, credentials: string | undefined, serve: boolean) {
   const running = await runningEngine(engine, credentials)
-  if (running.kind === "v2") failUnsupported(engine, running.version)
+  if (running.kind === "v2") {
+    noteV2(running.version)
+    return { child: undefined, credentials }
+  }
+  if (await openCodeV2Locked(engine))
+    fail(
+      `the engine at ${engine} is OpenCode 2 and wants a password; ` +
+        "set OPENCODE_SERVER_PASSWORD to the one it was started with, or stop it and let flupcode start its own",
+    )
   // Plugins live in this computer's OpenCode config, so they only matter for a local engine.
   const local = ["127.0.0.1", "localhost", "::1", "[::1]"].includes(new URL(engine).hostname)
   const plugins = local ? await installEnginePlugins() : undefined
   if (running.kind === "v1") {
     if (plugins?.changed) console.log(dim("Restart opencode serve to load FlupCode's engine plugins (reasoning effort levels, context capture)."))
-    return undefined
+    return { child: undefined, credentials }
   }
   const hint = `start it with "opencode serve --port ${new URL(engine).port || 4096}" or pass --engine`
   if (!serve) fail(`no OpenCode server at ${engine}; ${hint}`)
-  if (spawnSync("opencode", ["--version"], { stdio: "ignore", shell: process.platform === "win32" }).error)
-    fail(`no OpenCode server at ${engine} and the opencode CLI is not installed; ${hint}`)
+  // 2.x prints `opencode v2.0.18`; 1.x the bare version.
+  const version = spawnSync("opencode", ["--version"], { encoding: "utf8", shell: process.platform === "win32" })
+  if (version.error) fail(`no OpenCode server at ${engine} and the opencode CLI is not installed; ${hint}`)
+  const password =
+    process.env.OPENCODE_SERVER_PASSWORD ||
+    (/(^|\s)v?2\.\d/.test(version.stdout ?? "") ? randomBytes(24).toString("hex") : undefined)
+  const username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
+  const signIn = password ? btoa(`${username}:${password}`) : undefined
   console.log(dim(`Starting opencode serve on ${engine}…`))
   const url = new URL(engine)
   const child = spawn("opencode", ["serve", "--hostname", url.hostname, "--port", url.port || "4096"], {
     stdio: "ignore",
     shell: process.platform === "win32",
+    env: password
+      ? { ...process.env, OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: password }
+      : process.env,
   })
   for (let attempt = 0; attempt < 60; attempt++) {
-    const started = await runningEngine(engine, credentials)
-    if (started.kind === "v1") return child
+    const started = await runningEngine(engine, signIn)
+    if (started.kind === "v1") return { child, credentials: signIn }
     if (started.kind === "v2") {
-      child.kill()
-      failUnsupported(engine, started.version)
+      noteV2(started.version)
+      return { child, credentials: signIn }
     }
     await Bun.sleep(500)
   }
   child.kill()
   fail(`opencode serve did not become ready at ${engine}`)
+}
+
+/** The app drives OpenCode 2 (V2-11), but none of FlupCode's plugins load on it yet. */
+function noteV2(version: string) {
+  console.log(
+    yellow(
+      `The engine is OpenCode ${version}: chats and runs work, but FlupCode's plugins do not run on it yet ` +
+        "(permission modes, memory, the adaptive layer).",
+    ),
+  )
 }
 
 async function showPairing(state: RemoteHostState) {
@@ -180,8 +207,9 @@ function statusLine(state: RemoteHostState) {
 async function runHost(options: { engine: string; relay?: string; app: string; serve: boolean }) {
   const other = runningHost()
   if (other) fail(`flupcode remote is already running (pid ${other})`)
-  const credentials = engineCredentials()
-  const engineProcess: ChildProcess | undefined = await ensureEngine(options.engine, credentials, options.serve)
+  const engine = await ensureEngine(options.engine, engineCredentials(), options.serve)
+  const credentials = engine.credentials
+  const engineProcess: ChildProcess | undefined = engine.child
 
   mkdirSync(configDir(), { recursive: true, mode: 0o700 })
   writeFileSync(lockFile(), String(process.pid))
