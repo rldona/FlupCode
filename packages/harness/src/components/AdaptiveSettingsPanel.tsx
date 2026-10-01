@@ -803,9 +803,15 @@ export function confirmationMessage(path: string, value: unknown, view: Adaptive
 
 /**
  * What a runtime alert says (AH-D05), as a template for `t` and its holes. The acting plugins ride on
- * legacy hooks the V2 runner never calls (docs/V2-HOOKS.md), so every alert says what that costs.
+ * hooks an engine may not call (docs/V2-HOOKS.md), so an alert says what that costs. For the engine
+ * running now, `hooksFire` is the probe's answer (on OpenCode 2, FlupCode's plugin answering from inside
+ * the engine, V2-51), so its version change says whether anything needs checking at all; an older
+ * change was superseded and only says what happened.
  */
-export function runtimeAlertText(alert: AdaptiveRuntimeAlert): { key: string; params: Record<string, string> } {
+export function runtimeAlertText(
+  alert: AdaptiveRuntimeAlert,
+  hooksFire?: boolean,
+): { key: string; params: Record<string, string> } {
   if (alert.kind === "runtime-changed")
     return {
       key: "The engine runtime changed from {from} to {to}. Relevance and guardrails rely on legacy hooks; check docs/V2-HOOKS.md.",
@@ -813,7 +819,12 @@ export function runtimeAlertText(alert: AdaptiveRuntimeAlert): { key: string; pa
     }
   if (alert.kind === "engine-version-changed")
     return {
-      key: "The engine changed from version {from} to {to}. Check that the adaptive hooks still fire (docs/V2-HOOKS.md).",
+      key:
+        hooksFire === undefined
+          ? "The engine changed from version {from} to {to}."
+          : hooksFire
+            ? "The engine changed from version {from} to {to}. FlupCode's plugins answered from it, so the adaptive features work there."
+            : "The engine changed from version {from} to {to}. FlupCode's plugins have not answered from it yet, so the adaptive features stay off until they do (docs/V2-HOOKS.md).",
       params: { from: alert.from ?? "?", to: alert.to },
     }
   return {
@@ -1332,8 +1343,18 @@ export const AdaptiveSettingsPanel: Component<AdaptiveSettingsPanelProps> = (pro
                     <summary>{t("Details")}</summary>
                     <For each={view().runtime.alerts ?? []}>
                       {(alert) => {
-                        const text = runtimeAlertText(alert)
-                        return <span class="fc-settings-hint">{t(text.key, text.params)}</span>
+                        // Only the latest version change is the engine running now, the one the probe speaks for.
+                        const latest = (view().runtime.alerts ?? [])
+                          .filter((entry) => entry.kind === "engine-version-changed")
+                          .at(-1)
+                        const text = runtimeAlertText(
+                          alert,
+                          alert === latest
+                            ? view().runtime.runtime === "legacy" && !view().runtime.degraded
+                            : undefined,
+                        )
+                        // One per line: as inline text, two alerts ran into each other.
+                        return <div class="fc-settings-hint">{t(text.key, text.params)}</div>
                       }}
                     </For>
                   </details>

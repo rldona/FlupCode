@@ -129,9 +129,17 @@ test("a prompt queued behind a running turn waits in the engine, outlives a relo
   const queued = page.locator(".fc-message-optimistic").filter({ hasText: "Then this" })
   await expect(queued.locator(".fc-message-queue-badge")).toHaveText(/Queued|En cola/)
 
+  // The badge shows at once, while the prompt is still on its way: only once the engine lists it in the
+  // session inbox is it the engine's to hold, and a reload before then would cancel the send.
+  await expect
+    .poll(
+      async () =>
+        ((await (await request.get(`${ENGINE}/api/session/${sessionID}/inbox`)).json()) as { data: [] }).data.length,
+    )
+    .toBe(1)
   // The engine holds it, not the page: a reload reads it back from the session inbox.
   await page.reload()
-  await expect(queued.locator(".fc-message-queue-badge")).toHaveText(/Queued|En cola/)
+  await expect(queued.locator(".fc-message-queue-badge")).toHaveText(/Queued|En cola/, { timeout: 15_000 })
 
   await queued.getByRole("button", { name: /Cancel|Cancelar/ }).click()
   await expect(queued).toHaveCount(0)
