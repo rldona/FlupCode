@@ -2269,86 +2269,6 @@ export const App: Component = () => {
       }
     })
 
-    /**
-     * The model's last written todo list, read from the transcript. This is only what the panel
-     * falls back to: the engine's own store (below) is the source that matters, because a long
-     * session can drop the tool part this reads and leave the panel on a list the model moved past.
-     */
-    const transcriptTodos = () => {
-      const data = activeMessages() ?? []
-      const assistants = [...data].reverse().flatMap((message) => (message.type === "assistant" ? [message] : []))
-      for (const message of assistants) {
-        const parts = [...message.content]
-          .reverse()
-          .flatMap((part) => (part.type === "tool" && part.name === "todowrite" ? [part] : []))
-        for (const part of parts) {
-          const raw = (part.state.input as { todos?: unknown }).todos
-          if (!Array.isArray(raw)) continue
-          return raw.flatMap((item) => {
-            if (!item || typeof item !== "object") return []
-            const content = (item as { content?: unknown }).content
-            const status = (item as { status?: unknown }).status
-            if (typeof content !== "string") return []
-            return [{ content, status: typeof status === "string" ? status : "pending" }]
-          })
-        }
-      }
-      return []
-    }
-
-    // The engine keeps the todos the todowrite tool wrote, in a store of its own that is not pruned.
-    // Reread it whenever the transcript's list moves, and prefer it: it is what the model last wrote.
-    const [engineTodos] = createResource(
-      () => {
-        const sessionID = selected()
-        if (!ready() || !sessionID) return undefined
-        return [
-          serverUrl(),
-          sessionID,
-          selectedSession()?.location?.directory ?? "",
-          JSON.stringify(transcriptTodos()),
-        ].join("\n")
-      },
-      async (key) => {
-        const [url = "", sessionID = "", directory = ""] = key.split("\n")
-        const data = await createClient(url)
-          .session.todos({ sessionID, directory: directory || undefined })
-          .then((result) => result.data ?? [])
-          .catch(() => undefined)
-        // Kept with the session for the same reason as the children list: a resource holds the last
-        // session's value while the open one loads, and that is not this session's work.
-        return { sessionID, data }
-      },
-    )
-    // The model does not always close its own list: a task it was working on when the turn ended is
-    // left in_progress, in the engine's store as much as in the transcript. Once nothing is running,
-    // what is still in progress is work that finished and was never marked, so it reads as done.
-    const allTodos = () => {
-      const stored = engineTodos()
-      const list =
-        stored && stored.sessionID === selected() && stored.data !== undefined ? stored.data : transcriptTodos()
-      if (generating()) return list
-      return list.map((todo) => (todo.status === "in_progress" ? { ...todo, status: "completed" } : todo))
-    }
-
-    // Tasks the reader removed from the context panel, per session. The engine keeps the model's
-    // todo list, so removal only hides them here. Hiding is not limited to completed ones: "Clear
-    // all" has to take a task the engine left unfinished, and it goes on reporting it.
-    const [clearedTodos, setClearedTodos] = createSignal<Record<string, string[]>>(
-      readStorage(STORAGE_KEYS.clearedTodos, {}),
-    )
-    const todos = () => {
-      const cleared = clearedTodos()[selected() ?? ""] ?? []
-      return allTodos().filter((todo) => !cleared.includes(todo.content))
-    }
-    const clearTodos = (contents: string[]) => {
-      const sessionID = selected()
-      if (!sessionID) return
-      const next = { ...clearedTodos(), [sessionID]: [...new Set([...(clearedTodos()[sessionID] ?? []), ...contents])] }
-      setClearedTodos(next)
-      writeStorage(STORAGE_KEYS.clearedTodos, next)
-    }
-
     const commandOptions = (): CommandOption[] => [
       ...BUILTIN_COMMANDS.filter(
         (command) =>
@@ -3655,10 +3575,8 @@ export const App: Component = () => {
       // The session's own context is still loading while the resources hold the last session's
       // value: deciding now would offer the panel for work that belongs to the session left behind,
       // which is the flash of it a reader sees right after switching.
-      if (sessionID && (children()?.sessionID !== sessionID || engineTodos()?.sessionID !== sessionID)) return
-      const work =
-        todos().some((todo) => todo.status !== "completed") ||
-        (subagents() ?? []).some((child) => !!runState()[child.id] || blockedSessions().includes(child.id))
+      if (sessionID && children()?.sessionID !== sessionID) return
+      const work = (subagents() ?? []).some((child) => !!runState()[child.id] || blockedSessions().includes(child.id))
       if (work) {
         if (offeredForWork) return
         offeredForWork = true
@@ -6208,9 +6126,6 @@ export const App: Component = () => {
         <Show when={contextPanelShown()}>
           <PanelBoundary name={t("The context panel")}>
             <RightAside
-              todos={todos()}
-              onClearTodos={clearTodos}
-              tasks={false}
               subagents={visibleSubagents()}
               onClearSubagents={clearSubagents}
               onOpenSubagent={selectSession}

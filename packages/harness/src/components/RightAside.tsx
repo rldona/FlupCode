@@ -1,5 +1,4 @@
 import { For, Show, type Component } from "solid-js"
-import type { TodoItem } from "./TodoDock"
 import { MemoryInspector } from "./MemoryInspector"
 import { SubagentList } from "./SubagentList"
 import { SIDEBAR_WIDTH_DEFAULT } from "./Sidebar"
@@ -8,11 +7,6 @@ import { t } from "../i18n"
 import { cssPx } from "../text-size"
 
 type RightAsideProps = {
-  todos: TodoItem[]
-  /** Whether the engine keeps a task list at all; OpenCode 2 has no todo tool (ADR-0026). */
-  tasks?: boolean
-  /** Hides completed tasks by their text. */
-  onClearTodos: (contents: string[]) => void
   /** This session's child sessions, if it has spawned any. */
   subagents: SessionInfo[] | undefined
   /** Hides listed children by their session id. */
@@ -32,15 +26,7 @@ type RightAsideProps = {
 /** Same width as the left sidebar, so both panels read as a pair. */
 export const CONTEXT_PANEL_WIDTH = { min: 240, max: 560, default: SIDEBAR_WIDTH_DEFAULT }
 
-const mark = (status: string) => {
-  if (status === "completed") return "✓"
-  if (status === "in_progress") return "•"
-  return ""
-}
-
 export const RightAside: Component<RightAsideProps> = (props) => {
-  const completed = () => props.todos.filter((todo) => todo.status === "completed").length
-
   return (
     <aside class="fc-rightaside" style={{ width: `${props.width}px` }}>
       <div
@@ -76,60 +62,6 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         }}
       />
       <div class="fc-rightaside-body">
-        <Show when={props.tasks !== false}>
-          <section class="fc-aside-section">
-            <h3 class="fc-aside-title">
-              {t("Tasks")}
-              <Show when={props.todos.length > 0}>
-                <span class="fc-aside-title-actions">
-                  <Show when={completed() > 0}>
-                    <button
-                      class="fc-aside-clear"
-                      type="button"
-                      onClick={() =>
-                        props.onClearTodos(
-                          props.todos.filter((todo) => todo.status === "completed").map((todo) => todo.content),
-                        )
-                      }
-                    >
-                      {t("Clear completed")}
-                    </button>
-                  </Show>
-                  {/* A task the engine left in progress has no other way out of the panel. */}
-                  <button
-                    class="fc-aside-clear"
-                    type="button"
-                    onClick={() => props.onClearTodos(props.todos.map((todo) => todo.content))}
-                  >
-                    {t("Clear all")}
-                  </button>
-                  <span class="fc-aside-count">
-                    {completed()}/{props.todos.length}
-                  </span>
-                </span>
-              </Show>
-            </h3>
-            <Show when={props.todos.length > 0} fallback={<div class="fc-empty">{t("No tasks")}</div>}>
-              <ul class="fc-aside-todos">
-                <For each={props.todos}>
-                  {(todo) => (
-                    <li
-                      class="fc-aside-todo"
-                      classList={{ "fc-aside-todo-done": todo.status === "completed" }}
-                      data-status={todo.status}
-                    >
-                      <span class="fc-aside-todo-mark" aria-hidden="true">
-                        {mark(todo.status)}
-                      </span>
-                      <span class="fc-aside-todo-text">{todo.content}</span>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-          </section>
-        </Show>
-
         <SubagentList
           sessions={props.subagents}
           onOpen={props.onOpenSubagent}

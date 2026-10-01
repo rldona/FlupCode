@@ -21,11 +21,10 @@ import {
  * The client for an OpenCode 2 engine, through its generated `@opencode/client` (pinned to the same
  * version as the sandbox engine, see packages/engine-contract/src/opencode-v2.ts).
  *
- * It is being built domain by domain against `EngineClient`, the 1.x adapter's type, so the app keeps
- * one contract: sessions and messages (V2-20), events (V2-21), permissions and forms (V2-22), MCP
- * (V2-23), config (V2-24) and providers (V2-25). `createClient` picks it once every
- * domain exists. What 2.x removed (sharing, todos, deleting a message, the 1.x replay history) fails
- * with an `UnsupportedByEngine` EngineError, or reads as empty where the app has an empty state.
+ * It implements `EngineClient` (`contract.ts`), the one contract the app is written against: sessions
+ * and messages (V2-20), events (V2-21), permissions and forms (V2-22), MCP (V2-23), config (V2-24) and
+ * providers (V2-25). What 2.x lacks fails with an `UnsupportedByEngine` EngineError, or reads as empty
+ * where the app has an empty state.
  */
 export function createV2Domains(
   baseUrl: string,
@@ -277,7 +276,6 @@ export function createV2Domains(
       data: (await call(client.session.list({ parentID: input.sessionID, limit: 200 }))).data.map(toSession),
     }),
     // 2.x has no todo list; the app's Tasks view has an empty state for exactly this.
-    todos: async () => ({ data: [] }),
   }
 
   const message: EngineClient["message"] = {
