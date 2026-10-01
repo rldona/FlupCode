@@ -126,24 +126,31 @@ export class V2Engine {
   }
 
   /**
-   * Asks the reader in the session itself, as a form the app shows like a question (V2-31): 2.x gives
-   * a plugin's tool no way to ask for a permission, so a web action's approval is asked from here.
-   * `undefined` when the form was cancelled or nobody answered in time.
+   * Asks the reader one question in the session itself, as a form the app shows like any question: 2.x
+   * gives a plugin's tool no way to ask, so a web action's approval (V2-31) and the plan's hand-off to
+   * build (V2-33) are asked from here. The value of the option picked, or `undefined` when the form was
+   * cancelled or nobody answered in time.
    */
-  async askApproval(input: { sessionID: string; title: string; description: string; timeoutMs: number }) {
+  async askChoice(input: {
+    sessionID: string
+    title: string
+    description: string
+    options: Array<{ value: string; label: string; description?: string }>
+    timeoutMs: number
+  }) {
     const form = await call(
       this.client.session.form.create({
         sessionID: input.sessionID,
         title: input.title,
-        metadata: { flupcode: "action-approval" },
+        metadata: { flupcode: "choice" },
         fields: [
           {
-            key: "decision",
+            key: "choice",
             title: input.title,
             description: input.description,
             type: "string",
             required: true,
-            options: APPROVAL_OPTIONS,
+            options: input.options,
           },
         ],
       }),
@@ -153,14 +160,18 @@ export class V2Engine {
       const detail = await call(this.client.session.form.get({ sessionID: input.sessionID, formID: form.id }))
       if (detail.state.status === "cancelled") return undefined
       if (detail.state.status === "answered") {
-        const decision = detail.state.answer.decision
-        return decision === "once" || decision === "always" ? decision : ("deny" as const)
+        const choice = detail.state.answer.choice
+        return typeof choice === "string" ? choice : undefined
       }
       await Bun.sleep(500)
     }
-    // Unanswered: the form goes, so a late answer cannot approve an action that already gave up.
+    // Unanswered: the form goes, so a late answer cannot act for a caller that already gave up.
     await this.client.session.form.cancel({ sessionID: input.sessionID, formID: form.id }).catch(() => undefined)
     return undefined
+  }
+
+  async switchAgent(sessionID: string, agent: string) {
+    await call(this.client.session.switchAgent({ sessionID, agent }))
   }
 
   /** The tool call the session's last assistant message is still inside, if any. */
@@ -207,13 +218,6 @@ export class V2Engine {
     return pages.reverse()
   }
 }
-
-/** The answers a web action's approval offers, in the order the reader sees them. */
-const APPROVAL_OPTIONS = [
-  { value: "once", label: "Allow once" },
-  { value: "always", label: "Always allow" },
-  { value: "deny", label: "Deny" },
-]
 
 /** A 1.x rule as a 2.x one: same meaning, 2.x names, and `bash` is `shell`. */
 function toRule(rule: PermissionRule) {

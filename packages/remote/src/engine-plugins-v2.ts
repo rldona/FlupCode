@@ -2674,6 +2674,150 @@ export default {
 `,
 }
 
+/**
+ * agents: what FlupCode patched into its 1.x engine's agents, as a 2.x plugin (V2-33). The hidden
+ * `cowork` agent the app marks a project chat with (ADR-0013); the plan agent's instruction to hand
+ * off through `plan_exit`, and that tool, which asks the reader through harness-server (a plugin's
+ * tool cannot ask) and switches to build on a yes; and the permission floor: 2.x merges an agent's
+ * rules with the session's, so a session-level `*: allow` (FlupCode's permission modes) would let the
+ * plan agent edit. Here an action the agent's own rules deny stays denied, whatever the session says.
+ */
+export const AGENTS_PLUGIN_V2 = {
+  file: "flupcode-agents.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Adds the hidden cowork agent, the plan agent's hand-off to
+// build (plan_exit), and keeps an agent's own denials denied whatever the session's rules say.
+// Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with PLAN_SYSTEM in packages/core/src/plugin/agent.ts (the 1.x engine).
+const PLAN_SYSTEM =
+  "You are in plan mode: research the request by reading and searching the workspace, ask clarifying questions, and design an implementation plan without making changes. When the plan is ready, present it and call the plan_exit tool to ask the user whether to switch to the build agent and start implementing."
+const PLAN_EXIT_DESCRIPTION = [
+  "Use this tool when you have completed the planning phase and the plan is ready for the user to approve.",
+  "It asks the user whether to switch to the build agent and start implementing, then switches the agent when they approve.",
+  "Call this tool:",
+  "- After you have presented a complete plan",
+  "- After you have clarified any questions with the user",
+  "- When you are confident the plan is ready for implementation",
+  "Do NOT call this tool:",
+  "- Before the plan is finalized",
+  "- If you still have unanswered questions about the implementation",
+  "- If the user has indicated they want to continue planning",
+].join("\n")
+// The reader may take their time; the harness gives up first.
+const PLAN_EXIT_TIMEOUT_MS = 31 * 60 * 1000
+const RULES_TTL_MS = 5000
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+// The engine's own wildcard: "*" matches anything, "?" one character.
+function matches(pattern, value) {
+  const source = String(pattern).replace(/[.+^${"$"}{}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")
+  return new RegExp("^" + source + "$", "s").test(String(value))
+}
+
+// The last rule that names the action and the resource decides, as the engine evaluates them.
+function effectOf(rules, action, resource) {
+  const rule = [...rules].reverse().find((item) => matches(item.action, action) && matches(item.resource, resource))
+  return rule ? rule.effect : undefined
+}
+
+export default {
+  id: "flupcode-agents",
+  setup: async (ctx) => {
+    const directory = ctx.location && ctx.location.directory
+    await ctx.agent.transform((editor) => {
+      const build = editor.get("build")
+      // Not an agent the reader picks: it marks a conversation as Cowork, the chat that runs in the
+      // project with the same permission modes as Code.
+      editor.update("cowork", (draft) => {
+        draft.name = "cowork"
+        draft.description = "Chat that can read, write and run in the project."
+        draft.mode = "primary"
+        draft.hidden = true
+        draft.permissions = [...((build && build.permissions) || []), { action: "question", resource: "*", effect: "allow" }]
+      })
+      editor.update("plan", (draft) => {
+        if (!draft.system) draft.system = PLAN_SYSTEM
+        draft.permissions = [...(draft.permissions || []), { action: "plan_exit", resource: "*", effect: "allow" }]
+      })
+    })
+
+    // The floor: the agent's own rules, asked of the engine and kept for a moment.
+    const rules = new Map()
+    const agentRules = async (agentID) => {
+      const known = rules.get(agentID)
+      if (known && Date.now() - known.at < RULES_TTL_MS) return known.rules
+      const answer = await ctx.agent.get({ agentID, ...(directory ? { location: { directory } } : {}) }).catch(() => undefined)
+      const fresh = (answer && answer.data && answer.data.permissions) || []
+      rules.set(agentID, { rules: fresh, at: Date.now() })
+      return fresh
+    }
+    await ctx.permission.hook("evaluate", async (input) => {
+      if (!input.agent || input.effect === "deny") return
+      const own = await agentRules(input.agent)
+      if (!(input.resources || []).some((resource) => effectOf(own, input.action, resource) === "deny")) return
+      input.effect = "deny"
+      input.message = "The " + input.agent + " agent does not allow " + input.action + "."
+    })
+
+    const base = harnessBaseURL()
+    const token = base === undefined ? undefined : await readToken()
+    if (!base || !token) return
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: "plan_exit",
+        description: PLAN_EXIT_DESCRIPTION,
+        input: { type: "object", properties: {} },
+        options: { codemode: false },
+        execute: async (_input, context) => {
+          const answer = await fetch(base + "/harness/plan-exit", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer " + token },
+            body: JSON.stringify({ sessionID: context.sessionID }),
+            signal: AbortSignal.any([AbortSignal.timeout(PLAN_EXIT_TIMEOUT_MS), context.signal]),
+          })
+            .then((response) => response.json())
+            .catch(() => undefined)
+          return {
+            content:
+              answer && answer.data && answer.data.approved === true
+                ? "The user approved the plan and switched to the build agent. Execute the plan now."
+                : "The user chose to keep refining the plan. Stay in plan mode and continue working with them.",
+          }
+        },
+      })
+    })
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -2690,4 +2834,5 @@ export const PLUGINS_V2 = [
   WEB_ACTIONS_PLUGIN_V2,
   DELIVERY_PLUGIN_V2,
   MEMORY_PLUGIN_V2,
+  AGENTS_PLUGIN_V2,
 ]

@@ -84,7 +84,9 @@ describe("installEnginePlugins for OpenCode 2", () => {
     expect(changed).toBe(true)
     // Every 1.x plugin has its 2.x version under the same name; memory is 2.x's alone (1.x keeps it in
     // the engine), and goes again when 1.x returns.
-    expect(paths.map((file) => path.basename(file)).sort()).toEqual([...v1, "flupcode-memory.js"].sort())
+    expect(paths.map((file) => path.basename(file)).sort()).toEqual(
+      [...v1, "flupcode-agents.js", "flupcode-memory.js"].sort(),
+    )
     for (const file of v1)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
 
@@ -810,5 +812,92 @@ describe("OpenCode 2 memory", () => {
     expect(kept).toEqual([
       expect.objectContaining({ title: "Release", source: "agent_discovery", status: "candidate" }),
     ])
+  })
+})
+
+describe("OpenCode 2 agents", () => {
+  const planRules = [
+    { action: "*", resource: "*", effect: "allow" },
+    { action: "edit", resource: "*", effect: "deny" },
+    { action: "edit", resource: "/home/.opencode/plan/*", effect: "allow" },
+  ]
+
+  async function agents(approved = true) {
+    const calls = await harness({ "/harness/plan-exit": { approved } })
+    const plugin_ = await plugin("flupcode-agents.js")
+    const recorded = context("/work/demo")
+    Object.assign(recorded.ctx, {
+      agent: {
+        transform: async (callback: Callback) => void (recorded.transforms.agent = callback),
+        get: async (input: { agentID: string }) => ({
+          data: { id: input.agentID, permissions: input.agentID === "plan" ? planRules : [] },
+        }),
+      },
+      permission: {
+        hook: async (name: string, callback: Callback) => void recorded.hooks.set(`permission.${name}`, callback),
+      },
+    })
+    await plugin_.setup(recorded.ctx)
+    return { calls, recorded }
+  }
+
+  test("cowork is added hidden with build's rules, and plan learns to hand off through plan_exit", async () => {
+    const { recorded } = await agents()
+    const list: Record<
+      string,
+      { id: string; system?: string; mode?: string; hidden?: boolean; permissions: unknown[] }
+    > = {
+      build: { id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] },
+      plan: { id: "plan", permissions: [...planRules] },
+    }
+    recorded.transforms.agent!({
+      get: (id: string) => list[id],
+      update: (id: string, edit: (draft: (typeof list)[string]) => void) => {
+        list[id] ??= { id, permissions: [] }
+        edit(list[id]!)
+      },
+    } as never)
+    expect(list.cowork).toMatchObject({
+      mode: "primary",
+      hidden: true,
+      permissions: [
+        { action: "*", resource: "*", effect: "allow" },
+        { action: "question", resource: "*", effect: "allow" },
+      ],
+    })
+    expect(list.plan!.system).toContain("call the plan_exit tool")
+  })
+
+  test("an action the agent itself denies stays denied when the session allows everything", async () => {
+    const { recorded } = await agents()
+    const evaluate = recorded.hooks.get("permission.evaluate")!
+    const edit = { sessionID: "ses_1", agent: "plan", action: "edit", resources: ["a.txt"], effect: "allow" } as Record<
+      string,
+      unknown
+    >
+    await evaluate(edit as never)
+    expect(edit).toMatchObject({ effect: "deny", message: "The plan agent does not allow edit." })
+    // What the agent allows, its own plan files included, the session still decides.
+    const plan = { ...edit, resources: ["/home/.opencode/plan/one.md"], effect: "allow", message: undefined }
+    await evaluate(plan as never)
+    expect(plan.effect).toBe("allow")
+    const read = { ...edit, action: "read", effect: "ask", message: undefined }
+    await evaluate(read as never)
+    expect(read.effect).toBe("ask")
+  })
+
+  test("plan_exit asks through the harness and tells the model what the reader chose", async () => {
+    const { calls, recorded } = await agents(true)
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> }> =
+      []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["plan_exit"])
+    expect((await added[0]!.execute({}, { sessionID: "ses_1", signal: new AbortController().signal })).content).toBe(
+      "The user approved the plan and switched to the build agent. Execute the plan now.",
+    )
+    expect(calls.on("/harness/plan-exit")[0]).toMatchObject({
+      authorization: "Bearer browser-token",
+      body: { sessionID: "ses_1" },
+    })
   })
 })

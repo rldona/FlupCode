@@ -407,7 +407,7 @@ export function createV2Domains(
     },
   }
 
-  const memoryCall = async <T,>(method: string, input: object, directory?: string) =>
+  const memoryCall = async <T>(method: string, input: object, directory?: string) =>
     (
       await call(
         client.rpc.call({

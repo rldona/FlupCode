@@ -69,7 +69,10 @@ describe.skipIf(!run)("memory on the OpenCode 2 adapter", () => {
   test("a remembered fact is kept from the prompt and reaches the model on the next turn about it", async () => {
     const session = await domains.session.create({ location: { directory: engine.project } })
     model.push({ type: "text", text: "Noted" })
-    await domains.session.prompt({ sessionID: session.id, text: "Remember that releases are cut from the power branch." })
+    await domains.session.prompt({
+      sessionID: session.id,
+      text: "Remember that releases are cut from the power branch.",
+    })
     await until(
       async () => (await domains.memory.list({ text: "power branch" })).data,
       (memories) => memories.length === 1,

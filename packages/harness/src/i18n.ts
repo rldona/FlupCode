@@ -533,8 +533,6 @@ const ES: Record<string, string> = {
   Troubleshooting: "Solución de problemas",
   "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.":
     "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (modos de permisos, memoria) no están disponibles.",
-  "This engine is OpenCode 2. Some of FlupCode's plugins do not run on it yet, so permission modes and memory are unavailable.":
-    "Este engine es OpenCode 2. Algunos plugins de FlupCode aún no funcionan en él, así que los modos de permisos y la memoria no están disponibles.",
   "How to run FlupCode's engine": "Cómo ejecutar el engine de FlupCode",
   Engine: "Engine",
   "Source build": "Compilación local",

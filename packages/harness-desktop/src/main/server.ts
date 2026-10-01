@@ -17,7 +17,7 @@ let child: ChildProcess | undefined
 let harnessChild: ChildProcess | undefined
 let prompted = false
 let promptedRestart = false
-let promptedV2 = false
+let promptedLocked = false
 
 /**
  * The engine answers any request from any `http://localhost:*` origin, so an unsecured one lets
@@ -220,38 +220,9 @@ function promptInstall() {
     })
 }
 
-/**
- * OpenCode 2.x answers where FlupCode expects its engine: the user installed it over the 1.x
- * `opencode`, or started it by hand. The app drives it through its OpenCode 2 adapter (V2-11), but
- * none of FlupCode's plugins load on 2.x yet, so it says once what is missing and how to get a 1.x
- * engine back instead of letting the extras go quiet.
- */
-function promptEngineV2(version: string, command?: string) {
-  if (promptedV2) return
-  promptedV2 = true
-  void dialog
-    .showMessageBox({
-      type: "info",
-      title: "Running on OpenCode 2",
-      message: `FlupCode is running on OpenCode ${version}`,
-      detail:
-        (command
-          ? `The engine started from "${command}" is OpenCode ${version}.`
-          : `The engine at ${SERVER_URL} is OpenCode ${version}.`) +
-        "\n\nChats, runs and routines work, but some of FlupCode's plugins do not run on OpenCode 2 yet, so permission modes and memory are unavailable.\n\n" +
-        "To get them back, install OpenCode 1.x, or set FLUPCODE_OPENCODE to the path of a 1.x opencode binary, then reopen FlupCode.",
-      buttons: ["Continue", "Open install docs"],
-      defaultId: 0,
-      cancelId: 0,
-    })
-    .then((result) => {
-      if (result.response === 1) void shell.openExternal(OPENCODE_DOCS)
-    })
-}
-
 function promptLockedEngine() {
-  if (promptedV2) return
-  promptedV2 = true
+  if (promptedLocked) return
+  promptedLocked = true
   void dialog.showMessageBox({
     type: "warning",
     title: "The engine wants a password",
@@ -291,7 +262,8 @@ export async function ensureServer() {
   if (running.kind === "v2") {
     // An engine already running picks its plugins up on restart.
     if ((await installEnginePlugins(undefined, "v2")).changed) promptPluginRestart()
-    return promptEngineV2(running.version)
+    console.info(`[flupcode] engine running: OpenCode ${running.version}`)
+    return
   }
   // An OpenCode 2 engine someone else started, behind a password FlupCode was not given: starting
   // another one on its port would only fail, so say what it needs instead.
@@ -339,7 +311,7 @@ export async function ensureServer() {
     }
     if (started.kind === "v2") {
       console.info(`[flupcode] engine ready: OpenCode ${started.version}`)
-      return promptEngineV2(started.version, engine.command)
+      return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
   }

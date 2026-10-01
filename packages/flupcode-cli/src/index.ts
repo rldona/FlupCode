@@ -182,14 +182,9 @@ async function ensureEngine(engine: string, credentials: string | undefined, ser
   fail(`opencode serve did not become ready at ${engine}`)
 }
 
-/** The app drives OpenCode 2 (V2-11), but not every FlupCode plugin runs on it yet. */
+/** OpenCode 2 runs FlupCode's 2.x plugins; it is said once, so the line in use is never a guess. */
 function noteV2(version: string) {
-  console.log(
-    yellow(
-      `The engine is OpenCode ${version}: chats and runs work, but some of FlupCode's plugins do not run on it ` +
-        "yet (permission modes, memory).",
-    ),
-  )
+  console.log(dim(`Engine: OpenCode ${version}`))
 }
 
 async function showPairing(state: RemoteHostState) {

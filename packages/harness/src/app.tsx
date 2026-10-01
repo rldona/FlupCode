@@ -742,7 +742,7 @@ export const App: Component = () => {
   )
   // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
   // stock OpenCode CLI, whose extras (permission modes, memory) are missing.
-  // OpenCode 2 loads none of FlupCode's plugins yet (phase 4), so it is named for what it is.
+  // OpenCode 2 is named for what it is: its extras come from FlupCode's 2.x plugins, not a build.
   const [engineProfile] = createResource(
     () => (ready() ? serverUrl() : undefined),
     (url) => (health()?.line === "v2" ? ("v2" as const) : probeEngineProfile(url)),

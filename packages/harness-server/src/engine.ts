@@ -532,13 +532,19 @@ export class Engine {
 
   /** Stop the turn where it runs: a legacy one is aborted per folder, not interrupted by id. */
   /**
-   * A web action's approval asked in the session (V2-31), on 2.x only: 1.x's plugin asks through the
-   * engine's own permission prompt, so there is nothing for this server to ask there.
+   * One question asked in the session (a web action's approval, V2-31; the plan's hand-off, V2-33), on
+   * 2.x only: 1.x's plugins ask through the engine's own prompts, so there is nothing to ask from here.
    */
-  async askApproval(input: { sessionID: string; title: string; description: string; timeoutMs: number }) {
+  async askChoice(input: Parameters<import("./engine-v2").V2Engine["askChoice"]>[0]) {
     const v2 = await this.v2()
     if (!v2) return undefined
-    return v2.askApproval(input)
+    return v2.askChoice(input)
+  }
+
+  /** Switches a 2.x session's agent; 1.x's plan hand-off switches it in the engine itself. */
+  async switchAgent(sessionID: string, agent: string) {
+    const v2 = await this.v2()
+    if (v2) await v2.switchAgent(sessionID, agent)
   }
 
   async interrupt(sessionID: string, directory?: string) {

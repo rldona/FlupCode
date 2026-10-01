@@ -22,6 +22,7 @@ const harness = startHarness()
 let engine: Engine
 let installed: string[] = []
 let sessionID = ""
+let planSession = ""
 
 beforeAll(async () => {
   if (!run) return
@@ -84,6 +85,30 @@ beforeAll(async () => {
       event.type !== "session.compaction.started" &&
       event.type !== "session.compaction.delta" &&
       event.data.sessionID === sessionID,
+    60_000,
+  )
+  // The permission floor: a session that allows everything, on the plan agent, asked to edit.
+  writeFileSync(join(engine.project, "plan-target.txt"), "untouched\n")
+  planSession = (
+    (await call("POST", "/api/session", { permissions: [{ action: "*", resource: "*", effect: "allow" }] })) as {
+      data: { id: string }
+    }
+  ).data.id
+  await call("POST", `/api/session/${planSession}/agent`, { agent: "plan" })
+  model.push(
+    {
+      type: "tool",
+      name: "edit",
+      input: { path: join(engine.project, "plan-target.txt"), oldString: "untouched", newString: "edited" },
+    },
+    { type: "text", text: "Tried" },
+  )
+  await call("POST", `/api/session/${planSession}/prompt`, { text: "edit it" })
+  await stream.until(
+    (event) =>
+      event.type.startsWith("session.execution.") &&
+      event.type !== "session.execution.started" &&
+      event.data.sessionID === planSession,
     60_000,
   )
   stream.close()
@@ -182,6 +207,16 @@ const evidence: Record<string, () => Promise<void> | void> = {
       .find((item) => item.type === "tool" && item.name === "flupcode_deliver_post")
     expect(delivered?.state?.status).toBe("completed")
     expect(JSON.stringify(delivered?.state?.content)).toContain("The piece")
+  },
+  "flupcode-memory.js": () => {
+    // The store opens on the first request it retrieves for.
+    expect(existsSync(join(data(), "memory.db"))).toBe(true)
+  },
+  "flupcode-agents.js": async () => {
+    const cowork = (await call("GET", "/api/agent/cowork")) as { data: { id: string; hidden: boolean } }
+    expect(cowork.data).toMatchObject({ id: "cowork", hidden: true })
+    // The plan agent denies edits, and the session's `*: allow` does not override it.
+    expect(readFileSync(join(engine.project, "plan-target.txt"), "utf8")).toBe("untouched\n")
   },
   "flupcode-cache-selection.js": () => {
     expect(harness.hits("GET /harness/adaptive/selection").length).toBeGreaterThan(0)

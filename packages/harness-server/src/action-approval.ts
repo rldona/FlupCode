@@ -16,12 +16,13 @@ import type { ActionProfile } from "./actions"
  */
 export function createActionApprover(input: {
   actions: Pick<ActionRunner, "list">
+  /** Asks the reader in the session: the value of the option picked (`APPROVAL_OPTIONS`), if any. */
   ask: (request: {
     sessionID: string
     title: string
     description: string
     timeoutMs: number
-  }) => Promise<"once" | "always" | "deny" | undefined>
+  }) => Promise<string | undefined>
   file: string
   timeoutMs?: number
 }) {
@@ -86,3 +87,10 @@ function writeAlways(file: string, always: string[]) {
 }
 
 export type ActionApprover = ReturnType<typeof createActionApprover>
+
+/** The answers an approval offers, in the order the reader sees them. */
+export const APPROVAL_OPTIONS = [
+  { value: "once", label: "Allow once" },
+  { value: "always", label: "Always allow" },
+  { value: "deny", label: "Deny" },
+]

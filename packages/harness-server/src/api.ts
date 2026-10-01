@@ -427,6 +427,8 @@ export type HarnessHandlerOptions = {
   actions?: ActionRunner
   /** A web action's approval asked in the session, for the OpenCode 2 actions plugin (V2-31). */
   actionApprover?: ActionApprover
+  /** The plan's hand-off to build asked in the session, for the OpenCode 2 `plan_exit` tool (V2-33). */
+  planExit?: (sessionID: string) => Promise<{ approved: boolean }>
   credentials?: CredentialVault
   runtimeProbe?: RuntimeProbe
   decisions?: DecisionService
@@ -504,6 +506,15 @@ export const createHarnessHandler = (
       if (!tokenMatches(options.token ?? "", bearerFrom(request)))
         return json({ error: "Forbidden", code: "invalid_token" }, 403)
       return handleCredentialRequest(request, path.slice(2), options.credentials)
+    }
+    // The plan's hand-off (V2-33): OpenCode 2's `plan_exit` tool has no way to ask, so it asks here,
+    // behind the bearer the engine's plugins hold.
+    if (path[1] === "plan-exit" && request.method === "POST" && options.planExit) {
+      if (!tokenMatches(options.token ?? "", bearerFrom(request)))
+        return json({ error: "Forbidden", code: "invalid_token" }, 403)
+      const body = (await request.json().catch(() => ({}))) as { sessionID?: unknown }
+      if (typeof body.sessionID !== "string" || !body.sessionID) return error("A session is required", 400)
+      return json({ data: await options.planExit(body.sessionID) })
     }
     // Writing an action profile into a config file (WA-8). It edits the user's own config, so it
     // needs the profile id and the shape the form wrote.
