@@ -757,6 +757,9 @@ const ES: Record<string, string> = {
   tokens: "tokens",
   "Error generating the response": "Error al generar la respuesta",
   "The run failed": "La ejecución ha fallado",
+  "Importing your OpenCode 1.x history…": "Importando tu historial de OpenCode 1.x…",
+  "OpenCode 2 could not import the 1.x history: {error}":
+    "OpenCode 2 no ha podido importar el historial de 1.x: {error}",
   "Stopped: the engine shut down": "Detenido: el motor se ha cerrado",
   "Stopped: a newer run took over": "Detenido: otra ejecución más reciente ha tomado el relevo",
   "Stopped after a long wait with no progress": "Detenido tras una larga espera sin avances",

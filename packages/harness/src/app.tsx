@@ -69,6 +69,7 @@ import {
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
 import { runOutcome, type RunOutcome } from "./run-outcome"
+import type { HistoryImportStatus } from "./engine/v1"
 import { recoverablePrompt } from "./unsend"
 import {
   externalLinkOrigin,
@@ -767,6 +768,28 @@ export const App: Component = () => {
   // OpenCode 2 drops features the UI offers on 1.x (sharing, archiving, the replay history, deleting
   // a message, the todo list); they are hidden rather than offered and refused (ADR-0026).
   const engineV2 = () => health()?.line === "v2"
+  // OpenCode 2 importing the 1.x history it was given (V2-61): it runs once, when the engine starts,
+  // and until it finishes those sessions are missing from the list. Asked while it runs, then no more.
+  const [historyImport, setHistoryImport] = createSignal<HistoryImportStatus>()
+  createEffect(() => {
+    const url = serverUrl()
+    if (!engineV2() || health()?.healthy !== true) return setHistoryImport(undefined)
+    let stopped = false
+    onCleanup(() => {
+      stopped = true
+    })
+    const ask = async () => {
+      const status = await createClient(url)
+        .migration.status()
+        .catch(() => undefined)
+      if (stopped) return
+      const wasRunning = historyImport()?.status === "running"
+      setHistoryImport(status?.status === "running" || status?.status === "error" ? status : undefined)
+      if (status?.status === "running") return void setTimeout(ask, 1500)
+      if (wasRunning) publishSessionEvent({ kind: "changed" })
+    }
+    void ask()
+  })
   // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
   // stock OpenCode CLI, whose extras (permission modes, memory) are missing.
   // OpenCode 2 is named for what it is: its extras come from FlupCode's 2.x plugins, not a build.
@@ -5674,6 +5697,22 @@ export const App: Component = () => {
       <main class="fc-main" classList={{ "fc-main-chat-home": chatView() && !selected() && !mobileRemote() }}>
         <Show when={!desktopWindow()}>
           <TopStrip />
+        </Show>
+        <Show when={historyImport()}>
+          {(status) => (
+            <div class="fc-offline-banner fc-history-import" role="status">
+              <span>
+                {(() => {
+                  const current = status()
+                  if (current.status === "error")
+                    return t("OpenCode 2 could not import the 1.x history: {error}", { error: current.error })
+                  if (current.status !== "running") return ""
+                  const progress = current.progress
+                  return `${t("Importing your OpenCode 1.x history…")} ${progress.label}${progress.denominator ? ` ${progress.numerator ?? 0}/${progress.denominator}` : ""}`
+                })()}
+              </span>
+            </div>
+          )}
         </Show>
         <Show
           when={

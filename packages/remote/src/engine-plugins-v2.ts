@@ -526,9 +526,11 @@ const LEGACY_NAMES = { shell: "bash", patch: "apply_patch", subagent: "task" }
 const named = (tool) => LEGACY_NAMES[tool] || tool`
 
 /**
- * runtime-probe: the canary harness-server reads to tell whether the engine's plugin hooks fire. On
- * 2.x that proof is the `context` hook, which fires on every request, so it is recorded as the hook
- * the classifier needs (`hookAt`); the boot token, pid and `loadedAt` work as on 1.x.
+ * runtime-probe: tells harness-server whether the engine's plugin hooks fire. On 2.x that is answered
+ * over the plugin RPC (V2-51): `flupcode.runtime` `ack` returns this process's boot token, pid,
+ * `loadedAt` and, once the `context` hook fired, `hookAt`. 2.x has one runner, so a plugin that answers
+ * at all is one whose hooks run. The canary file is still written, the same record, for a harness that
+ * reads it.
  */
 export const RUNTIME_PROBE_PLUGIN_V2 = {
   file: "flupcode-runtime-probe.js",
@@ -581,15 +583,20 @@ function stamp() {
   })
 }
 
+// What the RPC answers: this process's record, kept in memory so the answer never waits on the file.
+const record = { token: boot, pid: process.pid, loadedAt: Date.now(), hookAt: 0, hook: null }
+
 // One mark per process is enough proof; the context hook fires on every request.
 let marked = false
 function markHook() {
   if (marked) return Promise.resolve()
   marked = true
+  record.hookAt = Date.now()
+  record.hook = "session.context"
   return serial(async () => {
     const previous = await load(filePath())
     if (!previous || previous.token !== boot) return
-    await store({ ...previous, hookAt: Date.now(), hook: "session.context" })
+    await store({ ...previous, hookAt: record.hookAt, hook: record.hook })
   })
 }
 
@@ -600,6 +607,11 @@ export default {
     await ctx.session.hook("context", () => {
       markHook().catch(() => {})
     })
+    const registration = await ctx.rpc.register(
+      { id: "flupcode.runtime", methods: { ack: { input: { type: "object" }, output: {} } }, events: {} },
+      { ack: async () => ({ ...record }) },
+    )
+    return () => registration.dispose()
   },
 }
 `,

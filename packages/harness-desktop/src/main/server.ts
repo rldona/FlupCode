@@ -6,6 +6,7 @@ import { delimiter, join } from "node:path"
 import { app, dialog, shell } from "electron"
 import { detectEngine, openCodeLineOf, openCodeV2Locked } from "@flupcode/remote/engine-kind"
 import { installEnginePlugins } from "@flupcode/remote/engine-plugins"
+import { openCodeV2Env, resolveOpenCodeV2, wantsOpenCodeV2 } from "@flupcode/remote/opencode-v2"
 import { readOrCreateFileToken } from "./browser-token-file"
 import { vaultKeyForHarness } from "./vault"
 
@@ -24,7 +25,8 @@ let promptedLocked = false
  * every page the machine serves drive the agent. The engine FlupCode starts gets a password for the
  * life of the app; one the user started keeps whatever they configured through the environment.
  */
-const username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
+// 2.x has no user name setting: an engine on that line this app starts signs in as "opencode".
+let username = process.env.OPENCODE_SERVER_USERNAME ?? "opencode"
 let password = process.env.OPENCODE_SERVER_PASSWORD
 
 /** `base64(user:pass)` for the engine, or nothing when it needs no credentials. */
@@ -157,6 +159,15 @@ function resolveEngine(): { command: string; args: string[]; cwd?: string } | un
   return undefined
 }
 
+/** The pinned OpenCode 2 binary, fetched and verified on first use; nothing when that fails. */
+async function pinnedOpenCodeV2(): Promise<{ command: string; args: string[]; cwd?: string } | undefined> {
+  const command = await resolveOpenCodeV2().catch((cause: unknown) => {
+    console.error(`[flupcode] could not get OpenCode 2: ${cause instanceof Error ? cause.message : String(cause)}`)
+    return undefined
+  })
+  return command ? { command, args: ["serve", "--port", "4096", "--hostname", "127.0.0.1"] } : undefined
+}
+
 /**
  * The line the engine about to start is on, from its `--version`. A source checkout run through Bun
  * is FlupCode's 1.x engine.
@@ -274,30 +285,38 @@ export async function ensureServer() {
     return
   }
 
-  const engine = resolveEngine()
+  // `FLUPCODE_ENGINE=v2` asks for OpenCode 2 (V2-60): the pinned binary or `FLUPCODE_OPENCODE`, never
+  // whichever `opencode` the PATH happens to hold.
+  const engine = wantsOpenCodeV2() ? await pinnedOpenCodeV2() : resolveEngine()
   if (!engine) {
     promptInstall()
     return
   }
+  const line = wantsOpenCodeV2() ? "v2" : engineLine(engine)
   // Before the engine starts, since it reads its plugins once, at startup: the set its line loads.
-  await installEnginePlugins(undefined, engineLine(engine))
+  await installEnginePlugins(undefined, line)
 
   console.info(`[flupcode] starting the engine: ${[engine.command, ...engine.args].join(" ")}`)
-  ensureEngineCredentials()
+  const secret = ensureEngineCredentials()
+  // The actions plugin reads its token and profiles from the harness, so the engine is told where
+  // that server answers. It is not the engine's own URL.
+  const base = {
+    ...process.env,
+    PATH: searchPath(),
+    FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
+    FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
+  }
+  // A 2.x engine gets FlupCode's own database: it would migrate 1.x's `opencode.db` one way, so 1.x
+  // history only reaches it through the explicit import (V2-61).
+  if (line === "v2") username = "opencode"
   child = spawn(engine.command, engine.args, {
     cwd: engine.cwd,
     stdio: "inherit",
     shell: process.platform === "win32",
-    // The actions plugin reads its token and profiles from the harness, so the engine is told where
-    // that server answers. It is not the engine's own URL.
-    env: {
-      ...process.env,
-      PATH: searchPath(),
-      OPENCODE_SERVER_USERNAME: username,
-      OPENCODE_SERVER_PASSWORD: password,
-      FLUPCODE_HARNESS_SERVER_URL: HARNESS_SERVER_URL,
-      FLUPCODE_BROWSER_TOKEN: harnessBrowserToken(),
-    },
+    env:
+      line === "v2"
+        ? openCodeV2Env({ password: secret, env: base })
+        : { ...base, OPENCODE_SERVER_USERNAME: username, OPENCODE_SERVER_PASSWORD: secret },
   })
   child.on("error", () => {
     child = undefined

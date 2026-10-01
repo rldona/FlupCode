@@ -1,5 +1,6 @@
+import { Database } from "bun:sqlite"
 import { afterAll, describe, expect, test } from "bun:test"
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -51,6 +52,49 @@ function cliWith(env: Record<string, string | undefined>, ...args: string[]) {
   })
   spawned.push(child)
   return child
+}
+
+/**
+ * A stand-in OpenCode 2 binary: `--version` names 2.0.20 and `serve` answers `/api/info` only with the
+ * password it was started with, telling which database and user name it was given. The migration
+ * status says the import finished, as the real one does once it has.
+ */
+function fakeOpenCodeV2() {
+  const bin = mkdtempSync(join(tmpdir(), "flupcode-cli-bin-"))
+  const server = join(bin, "server.ts")
+  writeFileSync(
+    server,
+    `const port = Number(process.argv[process.argv.indexOf("--port") + 1])
+const expected = "Basic " + btoa("opencode:" + process.env.OPENCODE_SERVER_PASSWORD)
+Bun.serve({
+  port,
+  hostname: "127.0.0.1",
+  fetch: (request) => {
+    if (!process.env.OPENCODE_SERVER_PASSWORD || request.headers.get("authorization") !== expected)
+      return Response.json({ _tag: "UnauthorizedError" }, { status: 401 })
+    const path = new URL(request.url).pathname
+    if (path === "/api/info")
+      return Response.json({ version: "2.0.20", db: process.env.OPENCODE_DB, user: process.env.OPENCODE_SERVER_USERNAME ?? null })
+    if (path === "/api/experimental/migration/v1") return Response.json({ status: "completed" })
+    return Response.json({ _tag: "NotFound" }, { status: 404 })
+  },
+})
+`,
+  )
+  const binary = join(bin, "opencode")
+  writeFileSync(
+    binary,
+    `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "opencode v2.0.20"; exit 0; fi\nexec "${process.execPath}" "${server}" "$@"\n`,
+  )
+  chmodSync(binary, 0o755)
+  return { bin, binary }
+}
+
+function freePort() {
+  const free = Bun.serve({ port: 0, fetch: () => new Response() })
+  const port = free.port
+  free.stop(true)
+  return port
 }
 
 /** Collects stdout and resolves once `pattern` appears. */
@@ -151,32 +195,9 @@ describe("flupcode remote", () => {
   // OpenCode 2 always runs behind a password, so the one flupcode starts gets its own, and the relay
   // signs in with it: a paired phone reaches the engine without ever being told the password.
   test("starts an OpenCode 2.x engine with a password of its own and exposes it through the relay", async () => {
-    const bin = mkdtempSync(join(tmpdir(), "flupcode-cli-bin-"))
-    const server = join(bin, "server.ts")
-    writeFileSync(
-      server,
-      `const port = Number(process.argv[process.argv.indexOf("--port") + 1])
-const expected = "Basic " + btoa(process.env.OPENCODE_SERVER_USERNAME + ":" + process.env.OPENCODE_SERVER_PASSWORD)
-Bun.serve({
-  port,
-  hostname: "127.0.0.1",
-  fetch: (request) => {
-    if (!process.env.OPENCODE_SERVER_PASSWORD || request.headers.get("authorization") !== expected)
-      return Response.json({ _tag: "UnauthorizedError" }, { status: 401 })
-    if (new URL(request.url).pathname === "/api/info") return Response.json({ version: "2.0.20" })
-    return Response.json({ _tag: "NotFound" }, { status: 404 })
-  },
-})
-`,
-    )
-    writeFileSync(
-      join(bin, "opencode"),
-      `#!/bin/sh\nif [ "$1" = "--version" ]; then echo "opencode v2.0.20"; exit 0; fi\nexec "${process.execPath}" "${server}" "$@"\n`,
-    )
-    chmodSync(join(bin, "opencode"), 0o755)
-    const free = Bun.serve({ port: 0, fetch: () => new Response() })
-    const port = free.port
-    free.stop(true)
+    const { bin } = fakeOpenCodeV2()
+    const port = freePort()
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
     const ownDir = mkdtempSync(join(tmpdir(), "flupcode-cli-v2-"))
     try {
       const host = cliWith(
@@ -184,7 +205,8 @@ Bun.serve({
           PATH: `${bin}:${process.env.PATH ?? ""}`,
           FLUPCODE_CONFIG_DIR: ownDir,
           OPENCODE_SERVER_PASSWORD: undefined,
-          OPENCODE_SERVER_USERNAME: undefined,
+          OPENCODE_SERVER_USERNAME: "someone",
+          XDG_DATA_HOME: data,
         },
         "remote",
         "--engine",
@@ -208,7 +230,12 @@ Bun.serve({
       await new Promise((resolve) => tunnel.onControl(resolve))
       tunnel.sendControl({ type: "device", name: "Test phone" })
       await out.wait(/Paired Test phone/)
-      expect(await (await tunnel.fetch("https://remote.invalid/api/info")).json()).toEqual({ version: "2.0.20" })
+      // FlupCode's own database, never 1.x's `opencode.db`, and the user name 2.x expects (V2-60).
+      expect(await (await tunnel.fetch("https://remote.invalid/api/info")).json()).toEqual({
+        version: "2.0.20",
+        db: join(data, "flupcode", "opencode-v2", "opencode.db"),
+        user: null,
+      })
       // Nobody else can: the engine is not open to a caller without the password.
       expect((await fetch(`http://127.0.0.1:${port}/api/info`)).status).toBe(401)
 
@@ -223,6 +250,111 @@ Bun.serve({
     } finally {
       rmSync(bin, { recursive: true, force: true })
       rmSync(ownDir, { recursive: true, force: true })
+      rmSync(data, { recursive: true, force: true })
     }
   }, 60_000)
+
+  // `FLUPCODE_ENGINE=v2` names the engine explicitly: whatever `opencode` the PATH holds is not run.
+  test("FLUPCODE_ENGINE=v2 starts the named OpenCode 2 binary, not the opencode on the PATH", async () => {
+    const { bin, binary } = fakeOpenCodeV2()
+    const decoy = mkdtempSync(join(tmpdir(), "flupcode-cli-decoy-"))
+    writeFileSync(join(decoy, "opencode"), `#!/bin/sh\necho "opencode 1.4.0"\nexit 3\n`)
+    chmodSync(join(decoy, "opencode"), 0o755)
+    const ownDir = mkdtempSync(join(tmpdir(), "flupcode-cli-v2-"))
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
+    try {
+      const host = cliWith(
+        {
+          PATH: `${decoy}:${process.env.PATH ?? ""}`,
+          FLUPCODE_ENGINE: "v2",
+          FLUPCODE_OPENCODE: binary,
+          FLUPCODE_CONFIG_DIR: ownDir,
+          OPENCODE_SERVER_PASSWORD: undefined,
+          XDG_DATA_HOME: data,
+        },
+        "remote",
+        "--engine",
+        `http://127.0.0.1:${freePort()}`,
+        "--relay",
+        relay.url,
+      )
+      const out = reader(host.stdout)
+      await out.wait(/Engine: OpenCode 2\.0\.20/)
+      host.stdin.write("q\n")
+      expect(await host.exited).toBe(0)
+    } finally {
+      for (const folder of [bin, decoy, ownDir, data]) rmSync(folder, { recursive: true, force: true })
+    }
+  }, 60_000)
+})
+
+describe("flupcode engine", () => {
+  /** A database with 1.x's session and message tables. */
+  function v1Database(folder: string) {
+    const path = join(folder, "opencode.db")
+    const db = new Database(path)
+    db.run("CREATE TABLE session (id TEXT PRIMARY KEY)")
+    db.run("CREATE TABLE message (id TEXT PRIMARY KEY)")
+    db.run("INSERT INTO session VALUES ('ses_1')")
+    db.run("INSERT INTO message VALUES ('msg_1'), ('msg_2')")
+    db.close()
+    return path
+  }
+
+  test("import-v1 copies the 1.x history, lets OpenCode 2 import it, and rollback-import undoes it", async () => {
+    const { bin, binary } = fakeOpenCodeV2()
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
+    const source = v1Database(data)
+    const env = { FLUPCODE_OPENCODE: binary, XDG_DATA_HOME: data, OPENCODE_SERVER_PASSWORD: undefined }
+    const target = join(data, "flupcode", "opencode-v2", "opencode.db")
+    try {
+      const imported = cliWith(
+        env,
+        "engine",
+        "import-v1",
+        "--from",
+        source,
+        "--engine",
+        `http://127.0.0.1:${freePort()}`,
+      )
+      const output = await new Response(imported.stdout).text()
+      expect(await imported.exited).toBe(0)
+      expect(output).toContain("Copied 1 sessions (2 messages)")
+      expect(output).toContain("Imported.")
+      expect(existsSync(target)).toBe(true)
+
+      const rolledBack = cliWith(env, "engine", "rollback-import", "--engine", `http://127.0.0.1:${freePort()}`)
+      expect(await new Response(rolledBack.stdout).text()).toContain("empty again")
+      expect(await rolledBack.exited).toBe(0)
+      expect(existsSync(target)).toBe(false)
+    } finally {
+      rmSync(bin, { recursive: true, force: true })
+      rmSync(data, { recursive: true, force: true })
+    }
+  }, 60_000)
+
+  test("refuses to change FlupCode's OpenCode 2 database while an OpenCode 2 engine answers", async () => {
+    const running = Bun.serve({
+      port: 0,
+      fetch: () => Response.json({ _tag: "UnauthorizedError" }, { status: 401 }),
+    })
+    const data = mkdtempSync(join(tmpdir(), "flupcode-cli-data-"))
+    try {
+      const refused = cliWith(
+        { XDG_DATA_HOME: data },
+        "engine",
+        "import-v1",
+        "--from",
+        v1Database(data),
+        "--engine",
+        running.url.href.replace(/\/$/, ""),
+      )
+      expect(await new Response(refused.stderr).text()).toContain("stop it first")
+      expect(await refused.exited).toBe(1)
+      expect(existsSync(join(data, "flupcode", "opencode-v2", "opencode.db"))).toBe(false)
+    } finally {
+      running.stop(true)
+      rmSync(data, { recursive: true, force: true })
+    }
+  })
 })

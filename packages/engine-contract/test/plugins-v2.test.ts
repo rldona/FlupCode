@@ -153,11 +153,16 @@ const evidence: Record<string, () => Promise<void> | void> = {
     const ring = JSON.parse(readFileSync(join(data(), "events", `${sessionID}.json`), "utf8"))
     expect(ring.events).toContainEqual(expect.objectContaining({ kind: "tool.error", tool: "read" }))
   },
-  "flupcode-runtime-probe.js": () => {
-    // What harness-server needs to know the plugin hooks fire on this engine.
+  "flupcode-runtime-probe.js": async () => {
+    // What harness-server needs to know the plugin hooks fire on this engine: the plugin's own answer
+    // over the RPC (V2-51), and the canary file it still writes.
+    const ack = (await call("POST", "/api/rpc/flupcode.runtime/ack", { input: {} })) as {
+      output: { token: string; loadedAt: number; hookAt: number; hook: string }
+    }
+    expect(ack.output).toMatchObject({ token: expect.any(String), hook: "session.context" })
+    expect(ack.output.hookAt).toBeGreaterThanOrEqual(ack.output.loadedAt)
     const probe = JSON.parse(readFileSync(join(data(), "runtime-probe.json"), "utf8"))
-    expect(probe).toMatchObject({ hook: "session.context" })
-    expect(probe.hookAt).toBeGreaterThanOrEqual(probe.loadedAt)
+    expect(probe).toMatchObject({ token: ack.output.token, hook: "session.context" })
   },
   "flupcode-relevance.js": () => {
     expect(harness.hits("POST /harness/adaptive/relevance")).toContainEqual(

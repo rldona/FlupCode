@@ -469,6 +469,7 @@ export function createV2Domains(
     | "tools"
     | "skill"
     | "memory"
+    | "migration"
     | "file"
     | "vcs"
   > = {
@@ -539,6 +540,9 @@ export function createV2Domains(
     },
     // FlupCode's memory plugin for 2.x serves the 1.x routes' inputs and answers over the plugin RPC
     // (V2-32). Without it (a 2.x engine FlupCode did not install its plugins into) the lists read empty.
+    migration: {
+      status: async () => call(client.migration.v1.status()),
+    },
     memory: {
       list: async (input) => {
         const { location: where, ...query } = input ?? {}

@@ -31,17 +31,35 @@ describe("classifyRuntime", () => {
     expect(state.evidence.reason).toBe("legacy-hook-fired")
   })
 
-  // OpenCode 2's own plugins prove their hooks fire through the `context` hook (V2-30): the adaptive
-  // plugins run there, so the classification that unlocks them is the same one.
-  test("an OpenCode 2 engine whose context hook fired grants what the adaptive plugins need", () => {
+  // OpenCode 2 has one runner, so FlupCode's runtime plugin answering its RPC is the proof (V2-51):
+  // no turn is needed, and the classification that unlocks the adaptive plugins is the same one.
+  test("an OpenCode 2 engine whose runtime plugin answers grants what the adaptive plugins need", () => {
     const state = classifyRuntime({
       config,
-      engine: { reachable: true, version: "2.0.18" },
-      canary: { pid: 12345, loadedAt: 1000, token, hookAt: 1001, hook: "session.context" },
+      engine: { reachable: true, version: "2.0.18", line: "v2" },
+      canary: { pid: 12345, loadedAt: 1000, token },
       now: 2000,
     })
     expect(state.runtime).toBe("legacy")
-    expect(state.evidence).toMatchObject({ reason: "legacy-hook-fired", detail: "session.context" })
+    expect(state.degraded).toBe(false)
+    expect(state.evidence.reason).toBe("plugin-acknowledged")
+    const hooked = classifyRuntime({
+      config,
+      engine: { reachable: true, version: "2.0.18", line: "v2" },
+      canary: { pid: 12345, loadedAt: 1000, token, hookAt: 1001, hook: "session.context" },
+      now: 2000,
+    })
+    expect(hooked.evidence).toMatchObject({ reason: "plugin-acknowledged", detail: "session.context" })
+  })
+
+  test("an OpenCode 2 engine whose plugin does not answer is unknown, whatever an old canary says", () => {
+    const state = classifyRuntime({
+      config,
+      engine: { reachable: true, version: "2.0.18", line: "v2" },
+      now: 2000,
+    })
+    expect(state.runtime).toBe("unknown")
+    expect(state.evidence.reason).toBe("no-evidence")
   })
 
   test("a hook from before this boot is not legacy", () => {
@@ -193,6 +211,23 @@ describe("createRuntimeProbe", () => {
     expect(state.evidence.engine.url).toBe("http://127.0.0.1:4096")
     expect(seen).toEqual(["http://127.0.0.1:4096"])
     expect(instance.capabilities()).toMatchObject({ runtime: "legacy", canUseLegacyHooks: true, canUseSdkPath: true })
+  })
+
+  test("asks an OpenCode 2 engine's plugin over the RPC and never reads the canary file", async () => {
+    const asked: string[] = []
+    const instance = probe({
+      engineHealth: async () => ({ reachable: true, version: "2.0.18", line: "v2" }),
+      engineAck: async (url) => {
+        asked.push(url)
+        return { pid: 1, loadedAt: 900, token }
+      },
+      readFile: async () => {
+        throw new Error("the canary is 1.x's proof")
+      },
+    })
+    const state = await instance.refresh(true)
+    expect(asked).toEqual(["http://127.0.0.1:4096"])
+    expect(state).toMatchObject({ runtime: "legacy", evidence: { reason: "plugin-acknowledged" } })
   })
 
   test("caches until the TTL passes, and force bypasses it", async () => {
