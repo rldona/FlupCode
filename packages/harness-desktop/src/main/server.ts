@@ -238,7 +238,7 @@ function promptEngineV2(version: string, command?: string) {
         (command
           ? `The engine started from "${command}" is OpenCode ${version}.`
           : `The engine at ${SERVER_URL} is OpenCode ${version}.`) +
-        "\n\nChats, runs and routines work, but some of FlupCode's plugins do not run on OpenCode 2 yet, so permission modes, memory and the adaptive layer are unavailable.\n\n" +
+        "\n\nChats, runs and routines work, but some of FlupCode's plugins do not run on OpenCode 2 yet, so permission modes and memory are unavailable.\n\n" +
         "To get them back, install OpenCode 1.x, or set FLUPCODE_OPENCODE to the path of a 1.x opencode binary, then reopen FlupCode.",
       buttons: ["Continue", "Open install docs"],
       defaultId: 0,

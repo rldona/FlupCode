@@ -31,6 +31,19 @@ describe("classifyRuntime", () => {
     expect(state.evidence.reason).toBe("legacy-hook-fired")
   })
 
+  // OpenCode 2's own plugins prove their hooks fire through the `context` hook (V2-30): the adaptive
+  // plugins run there, so the classification that unlocks them is the same one.
+  test("an OpenCode 2 engine whose context hook fired grants what the adaptive plugins need", () => {
+    const state = classifyRuntime({
+      config,
+      engine: { reachable: true, version: "2.0.18" },
+      canary: { pid: 12345, loadedAt: 1000, token, hookAt: 1001, hook: "session.context" },
+      now: 2000,
+    })
+    expect(state.runtime).toBe("legacy")
+    expect(state.evidence).toMatchObject({ reason: "legacy-hook-fired", detail: "session.context" })
+  })
+
   test("a hook from before this boot is not legacy", () => {
     const state = classifyRuntime({
       config,

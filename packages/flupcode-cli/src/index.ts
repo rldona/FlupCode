@@ -187,7 +187,7 @@ function noteV2(version: string) {
   console.log(
     yellow(
       `The engine is OpenCode ${version}: chats and runs work, but some of FlupCode's plugins do not run on it ` +
-        "yet (permission modes, memory, the adaptive layer).",
+        "yet (permission modes, memory).",
     ),
   )
 }

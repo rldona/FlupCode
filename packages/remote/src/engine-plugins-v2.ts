@@ -490,10 +490,849 @@ export default {
 `,
 }
 
+/**
+ * What every adaptive plugin needs to reach harness-server, inlined into each one (a plugin may import
+ * no package): the loopback base URL, which is the only place the bearer may go, and the adaptive
+ * token the harness writes. Kept in step with the 1.x plugins in `engine-plugins.ts`.
+ */
+const ADAPTIVE_HELPERS = String.raw`function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+// The bearer token is only ever sent to the loopback harness: a remote URL would leak it.
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+// The harness-owned file is the only source of the adaptive token, never an environment variable.
+async function readToken() {
+  const text = await readFile(path.join(flupcodeConfigDir(), "adaptive-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+// Every reader keys on the 1.x tool names.
+const LEGACY_NAMES = { shell: "bash", patch: "apply_patch", subagent: "task" }
+const named = (tool) => LEGACY_NAMES[tool] || tool`
+
+/**
+ * runtime-probe: the canary harness-server reads to tell whether the engine's plugin hooks fire. On
+ * 2.x that proof is the `context` hook, which fires on every request, so it is recorded as the hook
+ * the classifier needs (`hookAt`); the boot token, pid and `loadedAt` work as on 1.x.
+ */
+export const RUNTIME_PROBE_PLUGIN_V2 = {
+  file: "flupcode-runtime-probe.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Writes the runtime probe canary the harness reads to tell
+// whether the engine's plugin hooks fire. Regenerated when FlupCode starts the engine; edits here are
+// overwritten.
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with runtimeProbeFilePath() in packages/harness-server/src/adaptive/runtime.ts.
+function filePath() {
+  if (process.env.FLUPCODE_RUNTIME_PROBE_FILE) return process.env.FLUPCODE_RUNTIME_PROBE_FILE
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "runtime-probe.json")
+}
+
+let tail = Promise.resolve()
+function serial(work) {
+  const next = tail.then(work, work)
+  tail = next.catch(() => {})
+  return next
+}
+
+function load(target) {
+  return readFile(target, "utf8").then(JSON.parse).catch(() => ({}))
+}
+
+async function store(data) {
+  const target = filePath()
+  await mkdir(path.dirname(target), { recursive: true })
+  const temp = target + ".tmp-" + process.pid + "-" + Date.now()
+  await writeFile(temp, JSON.stringify(data))
+  try {
+    await rename(temp, target)
+  } catch (cause) {
+    await rm(temp, { force: true }).catch(() => {})
+    throw cause
+  }
+}
+
+// The token carries the process start, so a reused pid cannot pass as this process.
+const boot = process.pid + ":" + Math.round(Date.now() - process.uptime() * 1000)
+
+function stamp() {
+  return serial(async () => {
+    const previous = await load(filePath())
+    if (previous && previous.token === boot) return
+    await store({ token: boot, pid: process.pid, loadedAt: Date.now(), hookAt: 0, v2At: 0, event: null })
+  })
+}
+
+// One mark per process is enough proof; the context hook fires on every request.
+let marked = false
+function markHook() {
+  if (marked) return Promise.resolve()
+  marked = true
+  return serial(async () => {
+    const previous = await load(filePath())
+    if (!previous || previous.token !== boot) return
+    await store({ ...previous, hookAt: Date.now(), hook: "session.context" })
+  })
+}
+
+export default {
+  id: "flupcode-runtime-probe",
+  setup: async (ctx) => {
+    await stamp().catch(() => {})
+    await ctx.session.hook("context", () => {
+      markHook().catch(() => {})
+    })
+  },
+}
+`,
+}
+
+/** guardrails: opaque digests of tool calls and tool errors for the harness's loop detector. */
+export const GUARDRAILS_PLUGIN_V2 = {
+  file: "flupcode-guardrails.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Feeds the harness's failure/loop detector with opaque digests
+// of tool calls and tool errors. It decides nothing and never waits on the harness. Regenerated when
+// FlupCode starts the engine; edits here are overwritten.
+import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_GUARDRAILS_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 500
+})()
+// The reader stopping a call is not a failure the detector should count.
+const INTERRUPTED = /abort|interrupt|cancel/i
+
+${ADAPTIVE_HELPERS}
+
+function canonical(value) {
+  if (Array.isArray(value)) return value.map(canonical)
+  if (value && typeof value === "object") {
+    const sorted = {}
+    for (const key of Object.keys(value).sort()) sorted[key] = canonical(value[key])
+    return sorted
+  }
+  return value
+}
+
+function digest(value) {
+  return createHash("sha256").update(JSON.stringify(canonical(value === undefined ? null : value))).digest("hex")
+}
+
+export default {
+  id: "flupcode-guardrails",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    // The harness's adaptive project id is the project directory: the plugin's location.
+    const projectID = ctx.location && ctx.location.directory
+    const observe = (sessionID, observation) => {
+      if (typeof sessionID !== "string" || !sessionID || !projectID) return
+      void fetch(base + "/harness/adaptive/guardrails", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify({ projectID, sessionID, observation }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      }).catch(() => {})
+    }
+    await ctx.tool.hook("execute.before", (input) => {
+      if (typeof input.tool !== "string" || !input.tool) return
+      observe(input.sessionID, { kind: "call", tool: named(input.tool), argsDigest: digest(input.input), callID: input.id })
+    })
+    await ctx.tool.hook("execute.after", (input) => {
+      if (input.status !== "error" || typeof input.tool !== "string") return
+      const message = input.error && typeof input.error.message === "string" ? input.error.message : ""
+      if (INTERRUPTED.test(message)) return
+      observe(input.sessionID, { kind: "error", tool: named(input.tool), errorDigest: digest(message), callID: input.id })
+    })
+  },
+}
+`,
+}
+
+/** session-metrics: each step's usage and latency and each tool's output size, for the cost baseline. */
+export const SESSION_METRICS_PLUGIN_V2 = {
+  file: "flupcode-session-metrics.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Posts each model step's token usage, cost and latency, each
+// finished tool's output size and each compaction to the loopback harness, which folds them into one
+// row per turn. Only counts, ids, names and timings travel. Regenerated when FlupCode starts the
+// engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_METRICS_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 2000
+})()
+const MAX_TRACKED = 2000
+const MAX_READ_PATHS = 1000
+
+${ADAPTIVE_HELPERS}
+
+function remember(map, key, value) {
+  map.delete(key)
+  map.set(key, value)
+  if (map.size > MAX_TRACKED) map.delete(map.keys().next().value)
+}
+
+const count = (value) => (typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : 0)
+const text = (value) => (typeof value === "string" && value ? value : undefined)
+
+function tokensOf(tokens) {
+  const cache = tokens && tokens.cache
+  return {
+    input: count(tokens && tokens.input),
+    output: count(tokens && tokens.output),
+    reasoning: count(tokens && tokens.reasoning),
+    cacheRead: count(cache && cache.read),
+    cacheWrite: count(cache && cache.write),
+  }
+}
+
+function contentBytes(content) {
+  if (typeof content === "string") return Buffer.byteLength(content)
+  if (!Array.isArray(content)) return 0
+  return content.reduce((total, item) => total + (item && typeof item.text === "string" ? Buffer.byteLength(item.text) : 0), 0)
+}
+
+// What the inbox holds, by id: only a user's input starts a turn.
+const inputs = new Map()
+// The user message each session's turn answers.
+const prompts = new Map()
+const steps = new Map()
+const tools = new Map()
+const sent = new Map()
+// A read of a file the session read before its last compaction is a re-read (AH-D04).
+const reads = new Map()
+
+function once(key) {
+  if (sent.has(key)) return false
+  remember(sent, key, true)
+  return true
+}
+
+function readsOf(sessionID) {
+  const known = reads.get(sessionID)
+  if (known) return known
+  const fresh = { seen: new Set(), before: new Set() }
+  remember(reads, sessionID, fresh)
+  return fresh
+}
+
+function reread(sessionID, tool, file) {
+  if (tool !== "read" || !file) return false
+  const state = readsOf(sessionID)
+  const again = state.before.delete(file)
+  if (state.seen.size < MAX_READ_PATHS) state.seen.add(file)
+  return again
+}
+
+function firstOutput(stepID) {
+  const step = steps.get(stepID)
+  if (step && step.firstAt === undefined) step.firstAt = Date.now()
+}
+
+function observe(event) {
+  const data = (event && event.data) || {}
+  const sessionID = text(data.sessionID)
+  if (!sessionID) return
+  const stepID = text(data.assistantMessageID)
+  switch (event.type) {
+    case "session.inbox.enqueued":
+      if (text(data.inboxID)) remember(inputs, data.inboxID, data.item && data.item.type)
+      return
+    case "session.inbox.delivered":
+      if (inputs.get(data.inboxID) === "user") remember(prompts, sessionID, data.inboxID)
+      return
+    case "session.step.started": {
+      if (!stepID) return
+      const model = data.model || {}
+      remember(steps, stepID, {
+        turnID: prompts.get(sessionID) || stepID,
+        providerID: text(model.providerID),
+        modelID: text(model.id),
+        agent: text(data.agent),
+        startedAt: Date.now(),
+        firstAt: undefined,
+      })
+      return
+    }
+    case "session.text.started":
+    case "session.reasoning.started":
+      return firstOutput(stepID)
+    // The call's name comes as its input starts streaming; its finished input, without the name, after.
+    case "session.tool.input.started":
+      firstOutput(stepID)
+      if (text(data.id) && text(data.name)) remember(tools, data.id, { name: data.name, tool: named(data.name) })
+      return
+    case "session.tool.called": {
+      const tool = text(data.id) ? tools.get(data.id) : undefined
+      const input = data.input || {}
+      if (!tool) return
+      if (tool.name === "skill") tool.skill = text(input.name)
+      if (tool.name === "read") tool.file = text(input.path)
+      return
+    }
+    case "session.step.ended": {
+      const step = steps.get(stepID)
+      if (!step || !once("step:" + stepID)) return
+      const now = Date.now()
+      return {
+        sessionID,
+        observation: {
+          kind: "step",
+          id: stepID,
+          turnID: step.turnID,
+          ...(step.providerID ? { providerID: step.providerID } : {}),
+          ...(step.modelID ? { modelID: step.modelID } : {}),
+          ...(step.agent ? { agent: step.agent } : {}),
+          tokens: tokensOf(data.tokens),
+          cost: count(data.cost),
+          ms: Math.max(0, now - step.startedAt),
+          ...(step.firstAt !== undefined ? { firstTokenMs: Math.max(0, step.firstAt - step.startedAt) } : {}),
+        },
+      }
+    }
+    case "session.tool.success":
+    case "session.tool.failed": {
+      const callID = text(data.id)
+      const tool = callID ? tools.get(callID) : undefined
+      if (!tool || !once("tool:" + callID)) return
+      const step = steps.get(stepID)
+      const again = event.type === "session.tool.success" && reread(sessionID, tool.tool, tool.file)
+      return {
+        sessionID,
+        observation: {
+          kind: "tool",
+          id: callID,
+          turnID: (step && step.turnID) || prompts.get(sessionID) || stepID,
+          tool: tool.tool,
+          error: event.type === "session.tool.failed",
+          bytes: contentBytes(data.content),
+          ...(tool.skill ? { skill: tool.skill } : {}),
+          ...(again ? { reread: true } : {}),
+        },
+      }
+    }
+    case "session.compaction.ended": {
+      const id = text(data.inputID) || text(data.messageID)
+      if (!id || !once("compaction:" + id)) return
+      const state = readsOf(sessionID)
+      state.before = new Set(state.seen)
+      return { sessionID, observation: { kind: "compaction", id, turnID: id } }
+    }
+  }
+}
+
+export default {
+  id: "flupcode-session-metrics",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const projectID = ctx.location && ctx.location.directory
+    const controller = new AbortController()
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        // Every location's events, and this plugin runs once per location: only its own count here.
+        if (event.location && event.location.directory && event.location.directory !== projectID) continue
+        const selected = observe(event)
+        if (!selected || !selected.observation.turnID) continue
+        void fetch(base + "/harness/adaptive/metrics", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: "Bearer " + token },
+          body: JSON.stringify({ ...(projectID ? { projectID } : {}), sessionID: selected.sessionID, observation: selected.observation }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        }).catch(() => {})
+      }
+    })().catch(() => {})
+    return () => controller.abort()
+  },
+}
+`,
+}
+
+/** compaction-anchors: the goal, the files read and the open errors, handed to the compaction prompt. */
+export const COMPACTION_ANCHORS_PLUGIN_V2 = {
+  file: "flupcode-compaction-anchors.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Hands the engine's compaction request the session's anchors
+// (the goal, the files edited and read, the errors still open) as one capped block after its own
+// system prompt. Summarising stays the engine's; a slow or absent harness adds nothing. Regenerated
+// when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_ANCHORS_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000
+})()
+// Kept in step with ANCHOR_BLOCK_LIMIT, ANCHOR_PREFIX and ANCHOR_SUFFIX in
+// packages/harness-server/src/adaptive/compaction-anchors.ts.
+const BLOCK_LIMIT = 1536
+const PREFIX = "<compaction_anchors>\n"
+const SUFFIX = "\n</compaction_anchors>"
+const MOST_READS = 30
+const GOAL_LIMIT = 300
+const PATH_LIMIT = 1000
+const MAX_SESSIONS = 500
+
+${ADAPTIVE_HELPERS}
+
+function remember(map, key, value) {
+  map.delete(key)
+  map.set(key, value)
+  if (map.size > MAX_SESSIONS) map.delete(map.keys().next().value)
+}
+
+const goals = new Map()
+const reads = new Map()
+
+// The session's first user text is its goal; 2.x hands each part as { type: "text", text }.
+function firstUserGoal(messages) {
+  for (const message of Array.isArray(messages) ? messages : []) {
+    if (!message || message.role !== "user") continue
+    const content = typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content
+    const text = (Array.isArray(content) ? content : [])
+      .filter((part) => part && part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text)
+      .join("\n")
+      .trim()
+    if (text) return text.slice(0, GOAL_LIMIT)
+  }
+  return undefined
+}
+
+function recordRead(sessionID, file) {
+  if (typeof sessionID !== "string" || !sessionID) return
+  if (typeof file !== "string" || !file || file.length > PATH_LIMIT) return
+  const previous = (reads.get(sessionID) || []).filter((entry) => entry !== file)
+  remember(reads, sessionID, [file, ...previous].slice(0, MOST_READS))
+}
+
+// The block is pushed only when it is exactly the harness's box and within the cap.
+function anchorBlock(value) {
+  if (typeof value !== "string" || Buffer.byteLength(value) > BLOCK_LIMIT) return undefined
+  if (!value.startsWith(PREFIX) || !value.endsWith(SUFFIX)) return undefined
+  const inner = value.slice(PREFIX.length, value.length - SUFFIX.length)
+  return inner.includes("<") || inner.includes(">") ? undefined : value
+}
+
+export default {
+  id: "flupcode-compaction-anchors",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const projectID = ctx.location && ctx.location.directory
+    await ctx.session.hook("context", (input) => {
+      if (goals.has(input.sessionID)) return
+      const goal = firstUserGoal(input.messages)
+      if (goal) remember(goals, input.sessionID, goal)
+    })
+    await ctx.tool.hook("execute.after", (input) => {
+      if (input.tool === "read") recordRead(input.sessionID, input.input && input.input.path)
+    })
+    await ctx.session.hook("compaction", async (input) => {
+      try {
+        const goal = goals.get(input.sessionID)
+        const response = await fetch(base + "/harness/adaptive/anchors", {
+          method: "POST",
+          headers: { "content-type": "application/json", authorization: "Bearer " + token },
+          body: JSON.stringify({
+            ...(projectID ? { projectID } : {}),
+            sessionID: input.sessionID,
+            ...(goal ? { goal } : {}),
+            reads: reads.get(input.sessionID) || [],
+          }),
+          signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+        })
+        if (!response.ok) return
+        const answer = await response.json().catch(() => undefined)
+        const block = anchorBlock(answer && answer.data && answer.data.block)
+        // After the engine's own instructions, for the compaction request only.
+        if (block) input.system.push({ type: "text", text: block })
+      } catch {
+        // Compaction never waits on or fails because of the harness.
+      }
+    })
+  },
+}
+`,
+}
+
+/** tool-trim: a large tool output stored whole in the harness and replaced by its head, tail and a ref. */
+export const TOOL_TRIM_PLUGIN_V2 = {
+  file: "flupcode-tool-trim.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Replaces a large tool output with its head, tail and an
+// evidence ref the harness stores, and registers evidence_read to read any range of it back. Fails
+// open: anything short of a confirmed store leaves the output as the tool produced it. Regenerated
+// when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const MIN_TRIM_BYTES = 4096
+const MAX_TRIM_BYTES = 8 * 1024 * 1024
+const EVIDENCE_READ_TOOL = "evidence_read"
+const REF = /^[0-9a-f]{16}$/
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_TOOL_TRIM_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 2000
+})()
+const BREAKER_THRESHOLD = 3
+const BREAKER_OPEN_MS = 60 * 1000
+const MAX_RETRY_AFTER_MS = 10 * 60 * 1000
+const POLICY_TTL_MS = 30 * 1000
+
+${ADAPTIVE_HELPERS}
+
+let failures = 0
+let quietUntil = 0
+let probing = false
+let policy = undefined
+
+function admit(now) {
+  if (now < quietUntil) return false
+  if (failures < BREAKER_THRESHOLD) return true
+  if (probing) return false
+  probing = true
+  return true
+}
+
+function settle(data, now) {
+  probing = false
+  if (!data) {
+    failures++
+    if (failures >= BREAKER_THRESHOLD) quietUntil = now + BREAKER_OPEN_MS
+    return
+  }
+  failures = 0
+  const hint = data.retryAfterMs
+  if (typeof hint === "number" && Number.isFinite(hint) && hint > 0) quietUntil = now + Math.min(hint, MAX_RETRY_AFTER_MS)
+  const next = data.policy
+  if (next && typeof next.thresholdBytes === "number" && Array.isArray(next.exempt))
+    policy = {
+      thresholdBytes: next.thresholdBytes,
+      maxStoredBytes: typeof next.maxStoredBytes === "number" ? next.maxStoredBytes : MAX_TRIM_BYTES,
+      exempt: next.exempt.filter((tool) => typeof tool === "string"),
+      at: now,
+    }
+}
+
+function candidate(tool, bytes, now) {
+  if (tool === EVIDENCE_READ_TOOL) return false
+  if (bytes <= MIN_TRIM_BYTES || bytes > MAX_TRIM_BYTES) return false
+  if (!policy || now - policy.at > POLICY_TTL_MS) return true
+  return bytes > policy.thresholdBytes && bytes <= policy.maxStoredBytes && !policy.exempt.includes(tool)
+}
+
+async function call(base, token, route, payload) {
+  const response = await fetch(base + route, {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  const body = await response.json().catch(() => undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  return { status: response.status, data: data && typeof data === "object" ? data : undefined }
+}
+
+function replacementOf(data, original) {
+  if (!data || data.trimmed !== true) return undefined
+  if (typeof data.ref !== "string" || !REF.test(data.ref)) return undefined
+  const text = data.replacement
+  if (typeof text !== "string" || text.length >= original.length) return undefined
+  return text.includes("evidence:" + data.ref) ? { ref: data.ref, text } : undefined
+}
+
+// What the model is sent: a 2.x result's content, as text.
+function textOf(result) {
+  if (!result) return undefined
+  if (typeof result.content === "string") return result.content
+  if (!Array.isArray(result.content) || result.content.some((part) => !part || part.type !== "text")) return undefined
+  return result.content.map((part) => part.text).join("\n")
+}
+
+export default {
+  id: "flupcode-tool-trim",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    await ctx.tool.hook("execute.after", async (input) => {
+      try {
+        if (input.status !== "completed" || typeof input.sessionID !== "string") return
+        const tool = named(input.tool)
+        const original = textOf(input.result)
+        if (typeof original !== "string") return
+        const now = Date.now()
+        if (!candidate(tool, Buffer.byteLength(original), now) || !admit(now)) return
+        const answer = await call(base, token, "/harness/adaptive/tool-trim", {
+          sessionID: input.sessionID,
+          tool,
+          callID: input.id,
+          output: original,
+        }).catch(() => undefined)
+        const data = answer && answer.status === 200 ? answer.data : undefined
+        settle(data, Date.now())
+        const replacement = replacementOf(data, original)
+        if (!replacement) return
+        // The model reads the content; the structured output stays for the transcript.
+        input.result = {
+          ...input.result,
+          content: [{ type: "text", text: replacement.text }],
+          metadata: { ...(input.result.metadata || {}), evidenceRef: replacement.ref },
+        }
+      } catch {
+        // Fails open: the output stays as the tool produced it.
+      }
+    })
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: EVIDENCE_READ_TOOL,
+        description:
+          "Read back a tool output that was trimmed to save context. A trimmed output says 'evidence:<ref>' and shows only its head and tail; call this with that ref and a range to see any other part of it. Only outputs trimmed in this session can be read.",
+        input: {
+          type: "object",
+          properties: {
+            ref: { type: "string", description: "The ref from the trimmed output, e.g. 3f9a1c2b7d4e5f60 (an 'evidence:' prefix is accepted)." },
+            range: {
+              type: "string",
+              description:
+                "Which part to read: 'START-END' for 1-based line numbers, inclusive (e.g. '40-120'); 'N' or 'N-' to read from line N; 'bytes:START-END' for byte offsets; or 'all' to read from the start. Each call returns a bounded slice and names the range to read next.",
+            },
+          },
+          required: ["ref", "range"],
+        },
+        options: { codemode: false },
+        execute: async (input, context) => {
+          const ref = String((input && input.ref) || "").trim()
+          const range = String((input && input.range) || "")
+          const answer = await call(base, token, "/harness/adaptive/evidence/read", {
+            sessionID: context.sessionID,
+            ref,
+            range,
+          }).catch(() => undefined)
+          const say = (content) => ({ content })
+          if (!answer) return say("The evidence store is not reachable right now. Try again shortly, or re-run the original tool.")
+          if (answer.status === 200 && answer.data && typeof answer.data.text === "string") return say(answer.data.text)
+          if (answer.status === 404)
+            return say(ref + " is not available: it was evicted from the local evidence store or belongs to another session. Re-run the original tool if you need it.")
+          if (answer.status === 400)
+            return say("That is not a readable evidence ref or range. Use the 16-character ref from 'evidence:<ref>' and a range such as '40-120'.")
+          return say("The evidence store could not answer (HTTP " + answer.status + "). Re-run the original tool if you need the output.")
+        },
+      })
+    })
+  },
+}
+`,
+}
+
+/**
+ * relevance: the harness's acting relevance line on a user turn (FH-04, ADR-0021), with the same
+ * cache discipline as on 1.x: decided once, at the first request of a turn, pinned to that turn's user
+ * message and rendered as the same bytes on every later request, never in the system prompt. 2.x hands
+ * the request's messages with their ids but not their times, so a turn is decided only when its user
+ * message was admitted by this process (the `prompt` hook) a moment ago: a session first seen after a
+ * restart never pins a line onto a message the provider already cached without one.
+ */
+export const RELEVANCE_PLUGIN_V2 = {
+  file: "flupcode-relevance.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Adds the harness's acting relevance line to a user turn. It
+// asks the loopback harness once per turn, pins the answer to that turn's user message and renders the
+// same bytes on every request, so the prompt cache is never rewritten by it. Regenerated when
+// FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+const OBJECTIVE_LIMIT = 500
+const DECIDE_WINDOW_MS = 5 * 60 * 1000
+const IDLE_MS = 65 * 60 * 1000
+const MAX_SESSIONS = 500
+const MAX_LINES_PER_SESSION = 200
+const MAX_ADMITTED = 2000
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_RELEVANCE_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 500
+})()
+const BREAKER_THRESHOLD = 3
+const BREAKER_OPEN_MS = 60 * 1000
+const MAX_RETRY_AFTER_MS = 10 * 60 * 1000
+
+// Kept in step with skill-line.ts in packages/harness-server/src/adaptive: anything that is not
+// exactly the names-only box is refused, so a hostile peer on the loopback port adds nothing.
+const SKILL_LINE_PREFIX = "<skill_relevance>Possibly relevant skills: "
+const SKILL_LINE_SUFFIX = ". Consider loading one only if it clearly applies; otherwise ignore.</skill_relevance>"
+const SKILL_NAME = /^[a-z0-9][a-z0-9._-]*$/i
+const MAX_LINE_SKILLS = 3
+const MAX_SKILL_NAME_LENGTH = 64
+const MAX_LINE_LENGTH = 300
+
+${ADAPTIVE_HELPERS}
+
+let failures = 0
+let quietUntil = 0
+let probing = false
+
+function admit(now) {
+  if (now < quietUntil) return false
+  if (failures < BREAKER_THRESHOLD) return true
+  if (probing) return false
+  probing = true
+  return true
+}
+
+function settle(answer, now) {
+  probing = false
+  if (!answer) {
+    failures++
+    if (failures >= BREAKER_THRESHOLD) quietUntil = now + BREAKER_OPEN_MS
+    return
+  }
+  failures = 0
+  const hint = answer.retryAfterMs
+  if (typeof hint === "number" && Number.isFinite(hint) && hint > 0) quietUntil = now + Math.min(hint, MAX_RETRY_AFTER_MS)
+}
+
+function namesOnlyLine(value) {
+  if (typeof value !== "string" || value.length > MAX_LINE_LENGTH) return undefined
+  if (!value.startsWith(SKILL_LINE_PREFIX) || !value.endsWith(SKILL_LINE_SUFFIX)) return undefined
+  const names = value.slice(SKILL_LINE_PREFIX.length, value.length - SKILL_LINE_SUFFIX.length).split(", ")
+  if (names.length < 1 || names.length > MAX_LINE_SKILLS) return undefined
+  if (!names.every((name) => SKILL_NAME.test(name) && name.length <= MAX_SKILL_NAME_LENGTH)) return undefined
+  return value
+}
+
+// The user messages this process admitted, by id: when, and the text the user wrote.
+const admitted = new Map()
+// Per session: the user message last decided, and the line pinned to each message that got one.
+const sessions = new Map()
+
+function touch(sessionID, now) {
+  const entry = sessions.get(sessionID) || { decided: undefined, lines: new Map(), at: now }
+  entry.at = now
+  sessions.delete(sessionID)
+  sessions.set(sessionID, entry)
+  for (const [id, other] of sessions) {
+    if (sessions.size <= 1) break
+    if (now - other.at > IDLE_MS || sessions.size > MAX_SESSIONS) sessions.delete(id)
+    else break
+  }
+  return entry
+}
+
+function pin(entry, messageID, line) {
+  entry.lines.set(messageID, line)
+  if (entry.lines.size > MAX_LINES_PER_SESSION) entry.lines.delete(entry.lines.keys().next().value)
+}
+
+// Each pinned line after the parts of its own user message, built only from the pinned string.
+function render(messages, lines) {
+  for (const message of messages) {
+    if (!message || message.role !== "user" || typeof message.id !== "string") continue
+    const line = lines.get(message.id)
+    if (line === undefined) continue
+    if (typeof message.content === "string") message.content = [{ type: "text", text: message.content }]
+    if (!Array.isArray(message.content)) continue
+    if (message.content.some((part) => part && part.type === "text" && part.text === line)) continue
+    message.content.push({ type: "text", text: line })
+  }
+}
+
+async function requestAnswer(base, token, projectID, sessionID, messageID, objective) {
+  const response = await fetch(base + "/harness/adaptive/relevance", {
+    method: "POST",
+    headers: { "content-type": "application/json", authorization: "Bearer " + token },
+    body: JSON.stringify({ projectID, sessionID, messageID, objective }),
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  })
+  if (!response.ok) return undefined
+  const body = await response.json().catch(() => undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  if (!data || typeof data !== "object") return undefined
+  return { line: namesOnlyLine(data.line), retryAfterMs: data.retryAfterMs }
+}
+
+export default {
+  id: "flupcode-relevance",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const projectID = ctx.location && ctx.location.directory
+    await ctx.session.hook("prompt", (input) => {
+      const text = input.prompt && typeof input.prompt.text === "string" ? input.prompt.text : ""
+      admitted.set(input.messageID, { at: Date.now(), objective: text.slice(0, OBJECTIVE_LIMIT) })
+      if (admitted.size > MAX_ADMITTED) admitted.delete(admitted.keys().next().value)
+    })
+    await ctx.session.hook("context", async (input) => {
+      try {
+        const messages = input.messages
+        const last = Array.isArray(messages) ? messages[messages.length - 1] : undefined
+        const now = Date.now()
+        const entry = touch(input.sessionID, now)
+        const turn = last && last.role === "user" && typeof last.id === "string" ? admitted.get(last.id) : undefined
+        if (turn && now - turn.at <= DECIDE_WINDOW_MS && entry.decided !== last.id && !entry.lines.has(last.id)) {
+          // Marked before the request: whatever it answers, fails or times out is this turn's pin.
+          entry.decided = last.id
+          if (admit(now)) {
+            const answer = await requestAnswer(base, token, projectID, input.sessionID, last.id, turn.objective).catch(
+              () => undefined,
+            )
+            settle(answer, Date.now())
+            if (answer && answer.line) pin(entry, last.id, answer.line)
+          }
+        }
+        render(messages, entry.lines)
+      } catch {
+        // Any failure adds nothing, and the turn is unaffected.
+      }
+    })
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
   SYSTEM_PROMPT_PLUGIN_V2,
   ARTIFACT_WRITE_PLUGIN_V2,
   EPISODE_EVENTS_PLUGIN_V2,
+  RUNTIME_PROBE_PLUGIN_V2,
+  GUARDRAILS_PLUGIN_V2,
+  SESSION_METRICS_PLUGIN_V2,
+  COMPACTION_ANCHORS_PLUGIN_V2,
+  TOOL_TRIM_PLUGIN_V2,
+  RELEVANCE_PLUGIN_V2,
 ]
