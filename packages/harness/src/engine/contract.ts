@@ -81,7 +81,6 @@ export type InboxPrompt = {
     }>;
     delivery: "steer" | "queue";
 };
-/** Drops cached legacy history for a session, or for every session when none is given. */
 
 export type EngineClient = {
     health: {
@@ -210,12 +209,10 @@ export type EngineClient = {
         /** Sessions whose run is still going, across all of its steps. */
         active: () => Promise<Set<string>>;
         /**
-         * Sends a prompt through the legacy runtime, which is the complete one: subagents, MCP, LSP,
-         * retries and engine-written titles all live there, and the v2 runner has none of them. It
-         * returns as soon as the turn is admitted; the folder's event stream carries the rest.
-         *
-         * A prompt sent while a turn is running joins that turn at its next boundary — the legacy
-         * runner has no queue of its own, so waiting is the harness's job (see pending-prompts.ts).
+         * Sends a prompt. It returns as soon as the engine admitted it into the session inbox; the
+         * event stream carries the rest. A prompt sent while a turn is running is delivered by the
+         * engine (V2-41): a steer joins the turn at its next boundary, a queued one waits in the inbox.
+         * `system` is not delivered on 2.x yet.
          */
         send: (input: {
             sessionID: string;
@@ -233,13 +230,9 @@ export type EngineClient = {
                 id: string;
                 variant?: string | undefined;
             } | undefined;
-            /** Only 2.x holds a prompt back itself; here the harness does, so this is never sent. */
             delivery?: "queue" | "steer" | undefined;
         }) => Promise<void>;
-        /**
-         * The prompts a session's engine holds back until it can take them (V2-41). 1.x keeps no such
-         * queue, so it lists none and the harness keeps its own (pending-prompts.ts).
-         */
+        /** The prompts a session's engine holds back until it can take them (V2-41). */
         inbox: {
             list: (_input: {
                 sessionID: string;
@@ -254,20 +247,11 @@ export type EngineClient = {
                 delivery: "queue" | "steer";
             }) => Promise<void>;
         };
-        /**
-         * Which sessions of a folder the legacy runner is working on. `/api/session/active` only knows
-         * about v2 runs — measured against a local engine, a legacy turn never appears there — so this
-         * is what says whether a session is busy once prompts go through the legacy runtime.
-         */
+        /** Which sessions of a folder the engine is working on (on 2.x, the active ones). */
         status: (input: {
             directory: string;
         }) => Promise<Set<string>>;
-        /**
-         * Stops the turn running on this session, whichever runtime owns it. Code and chats run on the
-         * legacy runtime, whose abort cancels its runner; a v2 run — a skill — is stopped by the v2
-         * interrupt. Only one of the two has work and the other is a no-op, so both are asked and the
-         * call only fails when neither could be reached.
-         */
+        /** Stops the turn running on this session: the engine's interrupt. */
         abort: (input: {
             sessionID: string;
             directory?: string | undefined;
@@ -294,11 +278,7 @@ export type EngineClient = {
             directory?: string | undefined;
         }) => Promise<SessionV2Info>;
         revert: {
-            /**
-             * Code's turns run on the legacy runtime and write the legacy message store, so a revert has
-             * to go there too. The v2 revert reads the v2 message table and answers "Message not found"
-             * for a message that only the legacy turn wrote.
-             */
+            /** Stages a revert to a message; `commit` makes it final and `clear` drops it. */
             stage: (input: {
                 sessionID: string;
                 messageID: string;
