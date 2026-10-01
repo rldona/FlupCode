@@ -12,8 +12,9 @@ type OnboardingProps = {
   serverBlocked: boolean
   /** The engine answers `401`/`403`: it was started with a password a browser page cannot send. */
   serverAuthRequired: boolean
+  /** An OpenCode 2 engine, which always asks for a password: only the desktop app can sign in. */
+  serverLockedV2?: boolean
   /** The version of an OpenCode 2.x engine answering here, which FlupCode cannot drive yet (V2-00). */
-  unsupportedEngineVersion: string | undefined
   /** The browser's Local Network Access permission, when this page needs one (H-45). */
   localNetwork: LocalNetworkState
   allowingLocalNetwork: boolean
@@ -71,24 +72,19 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
           ? t("Checking the server…")
           : props.serverHealthy
             ? t("Server connected")
-            : props.unsupportedEngineVersion
-              ? t("Unsupported engine")
-              : props.serverBlocked
-                ? t("Connection blocked by the browser")
-                : props.serverAuthRequired
-                  ? t("Authentication required")
-                  : t("Server offline")}
+            : props.serverBlocked
+              ? t("Connection blocked by the browser")
+              : props.serverAuthRequired
+                ? t("Authentication required")
+                : t("Server offline")}
       </div>
 
-      <Show when={props.unsupportedEngineVersion}>
-        {(version) => (
-          <p class="fc-onboarding-text">
-            {t(
-              "The engine at this address is OpenCode {version}. FlupCode requires OpenCode 1.x: OpenCode 2 changed the server API and the plugin format. Start an OpenCode 1.x engine, or connect to one below.",
-              { version: version() },
-            )}
-          </p>
-        )}
+      <Show when={props.serverHealthy === true && props.engineProfile === "v2"}>
+        <p class="fc-onboarding-text">
+          {t(
+            "This engine is OpenCode 2. FlupCode's plugins do not run on it yet, so its extras (permission modes, memory, the adaptive layer) are unavailable.",
+          )}
+        </p>
       </Show>
 
       <Show when={props.serverHealthy === true && props.engineProfile === "stock"}>
@@ -129,7 +125,15 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
         </Show>
       </Show>
 
-      <Show when={props.serverAuthRequired}>
+      <Show when={props.serverLockedV2}>
+        <p class="fc-onboarding-text">
+          {t(
+            "This engine is OpenCode 2, which always runs behind a password, and a browser page has no way to send one. Open FlupCode's desktop app instead: it starts the engine and signs in for you.",
+          )}
+        </p>
+      </Show>
+
+      <Show when={props.serverAuthRequired && !props.serverLockedV2}>
         <p class="fc-onboarding-text">
           {t(
             "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:",

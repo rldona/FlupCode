@@ -17,7 +17,7 @@ let child: ChildProcess | undefined
 let harnessChild: ChildProcess | undefined
 let prompted = false
 let promptedRestart = false
-let promptedUnsupported = false
+let promptedV2 = false
 
 /**
  * The engine answers any request from any `http://localhost:*` origin, so an unsecured one lets
@@ -207,30 +207,30 @@ function promptInstall() {
 
 /**
  * OpenCode 2.x answers where FlupCode expects its engine: the user installed it over the 1.x
- * `opencode`, or started it by hand. FlupCode cannot drive it (no legacy routes, no plugin loader
- * for its plugins), so it says which engine it found and how to point at a 1.x one instead of
- * reporting the engine as missing.
+ * `opencode`, or started it by hand. The app drives it through its OpenCode 2 adapter (V2-11), but
+ * none of FlupCode's plugins load on 2.x yet, so it says once what is missing and how to get a 1.x
+ * engine back instead of letting the extras go quiet.
  */
-function promptUnsupportedEngine(version: string, command?: string) {
-  if (promptedUnsupported) return
-  promptedUnsupported = true
+function promptEngineV2(version: string, command?: string) {
+  if (promptedV2) return
+  promptedV2 = true
   void dialog
     .showMessageBox({
-      type: "warning",
-      title: "Unsupported OpenCode engine",
-      message: `FlupCode requires OpenCode 1.x, but found OpenCode ${version}`,
+      type: "info",
+      title: "Running on OpenCode 2",
+      message: `FlupCode is running on OpenCode ${version}`,
       detail:
         (command
           ? `The engine started from "${command}" is OpenCode ${version}.`
           : `The engine at ${SERVER_URL} is OpenCode ${version}.`) +
-        "\n\nOpenCode 2 changed the server API and the plugin format, and FlupCode does not support it yet.\n\n" +
-        "Install OpenCode 1.x, or set FLUPCODE_OPENCODE to the path of a 1.x opencode binary, then reopen FlupCode.",
-      buttons: ["Open install docs", "Continue offline"],
+        "\n\nChats, runs and routines work, but FlupCode's plugins do not run on OpenCode 2 yet, so permission modes, memory and the adaptive layer are unavailable.\n\n" +
+        "To get them back, install OpenCode 1.x, or set FLUPCODE_OPENCODE to the path of a 1.x opencode binary, then reopen FlupCode.",
+      buttons: ["Continue", "Open install docs"],
       defaultId: 0,
-      cancelId: 1,
+      cancelId: 0,
     })
     .then((result) => {
-      if (result.response === 0) void shell.openExternal(OPENCODE_DOCS)
+      if (result.response === 1) void shell.openExternal(OPENCODE_DOCS)
     })
 }
 
@@ -260,7 +260,7 @@ export async function ensureServer() {
   if (process.env.FLUPCODE_NO_SERVER === "1") return
   const running = await runningEngine()
   // Nothing is installed for an engine that would reject it: 2.x refuses every FlupCode plugin.
-  if (running.kind === "v2") return promptUnsupportedEngine(running.version)
+  if (running.kind === "v2") return promptEngineV2(running.version)
   // Before any engine starts: plugins load at startup (an engine already running picks them up on restart).
   const plugins = await installEnginePlugins()
   if (running.kind === "v1") {
@@ -302,10 +302,8 @@ export async function ensureServer() {
       return
     }
     if (started.kind === "v2") {
-      // Stopped rather than left running: nothing in FlupCode can use it, and it holds the port.
-      child?.kill()
-      child = undefined
-      return promptUnsupportedEngine(started.version, engine.command)
+      console.info(`[flupcode] engine ready: OpenCode ${started.version}`)
+      return promptEngineV2(started.version, engine.command)
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
   }

@@ -521,18 +521,20 @@ const ES: Record<string, string> = {
   "Connection blocked by the browser": "Conexión bloqueada por el navegador",
   "Authentication required": "Autenticación requerida",
   "The engine is asking for authentication": "El motor pide autenticación",
-  "This engine is OpenCode {version}; FlupCode requires OpenCode 1.x":
-    "Este motor es OpenCode {version}; FlupCode necesita OpenCode 1.x",
-  "start an OpenCode 1.x engine instead": "arranca en su lugar un motor OpenCode 1.x",
-  "Unsupported engine": "Motor no compatible",
-  "The engine at this address is OpenCode {version}. FlupCode requires OpenCode 1.x: OpenCode 2 changed the server API and the plugin format. Start an OpenCode 1.x engine, or connect to one below.":
-    "El motor en esta dirección es OpenCode {version}. FlupCode necesita OpenCode 1.x: OpenCode 2 cambió la API del servidor y el formato de los plugins. Arranca un motor OpenCode 1.x o conéctate a uno abajo.",
+  "This engine is OpenCode 2, which always asks for a password, and a browser page has no way to send one":
+    "Este motor es OpenCode 2, que siempre pide contraseña, y una página del navegador no puede enviarla",
+  "open FlupCode's desktop app, which starts the engine and signs in for you":
+    "abre la app de escritorio de FlupCode, que arranca el motor e inicia sesión por ti",
+  "This engine is OpenCode 2, which always runs behind a password, and a browser page has no way to send one. Open FlupCode's desktop app instead: it starts the engine and signs in for you.":
+    "Este motor es OpenCode 2, que siempre funciona con contraseña, y una página del navegador no puede enviarla. Abre la app de escritorio de FlupCode: arranca el motor e inicia sesión por ti.",
   "restart it without a password, or use the desktop app": "reinícialo sin contraseña o usa la app de escritorio",
   "This engine was started with OPENCODE_SERVER_PASSWORD, so it refuses every call from a browser page — a page has no way to send credentials. Restart it without that variable, or open FlupCode's desktop app, which signs in for you:":
     "Este motor se arrancó con OPENCODE_SERVER_PASSWORD, así que rechaza toda llamada desde una página del navegador — una página no puede enviar credenciales. Reinícialo sin esa variable o abre la app de escritorio de FlupCode, que inicia sesión por ti:",
   Troubleshooting: "Solución de problemas",
   "This engine is the stock OpenCode CLI, so FlupCode's extras (permission modes, memory) are unavailable.":
     "Este engine es la CLI estándar de OpenCode, así que los extras de FlupCode (modos de permisos, memoria) no están disponibles.",
+  "This engine is OpenCode 2. FlupCode's plugins do not run on it yet, so its extras (permission modes, memory, the adaptive layer) are unavailable.":
+    "Este engine es OpenCode 2. Los plugins de FlupCode aún no funcionan en él, así que sus extras (modos de permisos, memoria, la capa adaptativa) no están disponibles.",
   "How to run FlupCode's engine": "Cómo ejecutar el engine de FlupCode",
   Engine: "Engine",
   "Source build": "Compilación local",

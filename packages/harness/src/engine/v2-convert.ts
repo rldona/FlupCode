@@ -30,9 +30,12 @@ import type {
  * the turn's outcome reaches the app through events instead (V2-21).
  */
 export function toSession(session: V2Session): SessionInfo {
+  // A session cannot be created under a parent on 2.x, so harness-server files a run's task under its
+  // run in `metadata.parentID` (V2-26); the app nests it there just the same.
+  const parentID = session.parentID ?? session.metadata?.parentID
   return {
     id: session.id,
-    ...(session.parentID ? { parentID: session.parentID } : {}),
+    ...(typeof parentID === "string" && parentID ? { parentID } : {}),
     projectID: session.projectID,
     ...(session.agent ? { agent: session.agent } : {}),
     ...(session.model ? { model: session.model } : {}),
