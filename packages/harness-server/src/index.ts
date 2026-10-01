@@ -1,4 +1,5 @@
-import { dirname } from "node:path"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
 import { createHarnessHandler } from "./api"
 import { SqliteRoutineRepository, defaultDatabasePath } from "./repository"
 import { RoutineScheduler } from "./scheduler"
@@ -38,7 +39,9 @@ import { createRetryingModel } from "./adaptive/providers/retry"
 import { createJevClient, createJevModel, defaultJevFetch } from "./adaptive/providers/jev"
 import { createModelKey } from "./adaptive/model-key"
 import { createSmallLlmModel } from "./adaptive/providers/small-llm"
+import { APPROVAL_OPTIONS, createActionApprover } from "./action-approval"
 import { Engine } from "./engine"
+import { planExit } from "./plan-exit"
 import { parseModelKey } from "./policy"
 import { createDecisionService } from "./adaptive/decision-service"
 import { createValueGate } from "./adaptive/value-gate"
@@ -388,7 +391,17 @@ export function createHarnessServer(options: HarnessServerOptions = {}) {
       ...(browser ? { browser } : {}),
       ...(browserToken ? { token: browserToken } : {}),
       ...(actions ? { actions } : {}),
+      ...(actions
+        ? {
+            actionApprover: createActionApprover({
+              actions,
+              ask: (request) => new Engine(engineURL).askChoice({ ...request, options: APPROVAL_OPTIONS }),
+              file: join(databasePath === ":memory:" ? tmpdir() : dirname(databasePath), "action-approvals.json"),
+            }),
+          }
+        : {}),
       ...(vault ? { credentials: vault } : {}),
+      planExit: (sessionID) => planExit(new Engine(engineURL), sessionID),
       runtimeProbe,
       decisions,
       valueGate,

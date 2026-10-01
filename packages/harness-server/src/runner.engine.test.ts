@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { CONTRACT_LINE, startEngine, type Engine as ContractEngine } from "@flupcode/engine-contract/engine"
 import { startModel } from "@flupcode/engine-contract/model"
+import { APPROVAL_OPTIONS } from "./action-approval"
 import { CONFINED, Engine, NO_SHELL } from "./engine"
 import { SqliteRoutineRepository } from "./repository"
 import { TaskRunner } from "./runner"
@@ -163,6 +164,35 @@ test.skipIf(!run || CONTRACT_LINE !== "v2")("a confined session's rules reach 2.
     { action: "shell", resource: "*", effect: "deny" },
   ])
 })
+
+test.skipIf(!run || CONTRACT_LINE !== "v2")(
+  "a web action's approval is asked in the session and answered there",
+  async () => {
+    const session = await engine.createSession({ directory: contract.project, title: "approval" })
+    const asked = engine.askChoice({
+      sessionID: session.id,
+      title: "Allow web actions on https://example.com?",
+      description: "Search the catalogue",
+      options: APPROVAL_OPTIONS,
+      timeoutMs: 20_000,
+    })
+    const headers = { authorization: contract.authorization, "content-type": "application/json" }
+    // What the app sees: a pending form with the three answers, which it answers like a question.
+    const form = await until(async () => {
+      const list = (await (await fetch(`${contract.url}/api/session/${session.id}/form`, { headers })).json()) as {
+        data: Array<{ id: string; fields: Array<{ options?: Array<{ value: string }> }> }>
+      }
+      return list.data[0]
+    })
+    expect(form.fields[0]!.options!.map((option) => option.value)).toEqual(["once", "always", "deny"])
+    await fetch(`${contract.url}/api/session/${session.id}/form/${form.id}/reply`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ answer: { choice: "always" } }),
+    })
+    expect(await asked).toBe("always")
+  },
+)
 
 async function until<T>(read: () => T | undefined | Promise<T | undefined>) {
   const deadline = Date.now() + 30_000

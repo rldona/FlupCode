@@ -106,7 +106,7 @@ export async function probeServer(baseUrl: string): Promise<ServerStatus> {
 
 /**
  * Whether the connected engine is FlupCode's build (with its patches), the stock OpenCode CLI, or
- * OpenCode 2, which loads none of FlupCode's plugins yet.
+ * OpenCode 2, which runs FlupCode's 2.x plugins instead of patches.
  */
 export type EngineProfile = "flupcode" | "stock" | "v2" | "unknown"
 

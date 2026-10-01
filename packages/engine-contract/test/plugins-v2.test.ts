@@ -22,6 +22,7 @@ const harness = startHarness()
 let engine: Engine
 let installed: string[] = []
 let sessionID = ""
+let planSession = ""
 
 beforeAll(async () => {
   if (!run) return
@@ -31,6 +32,7 @@ beforeAll(async () => {
       // Plugins load only outside pure mode; the harness is the stand-in below.
       OPENCODE_PURE: undefined,
       FLUPCODE_HARNESS_SERVER_URL: harness.url,
+      FLUPCODE_BROWSER_TOKEN: "browser-token",
     },
     prepare: async (home) => {
       installed = (await installEnginePlugins(join(home, ".config", "opencode"), "v2")).paths.map((file) =>
@@ -39,6 +41,11 @@ beforeAll(async () => {
       // The adaptive plugins only call a loopback harness, and only with the token the harness wrote.
       mkdirSync(join(home, ".config", "flupcode"), { recursive: true })
       writeFileSync(join(home, ".config", "flupcode", "adaptive-token"), "adaptive-token")
+      // The deliver plugin registers one tool per profile it finds in the global config.
+      writeFileSync(
+        join(home, ".config", "opencode", "opencode.json"),
+        JSON.stringify({ flupcode: { delivery: { post: { tool: "flupcode_deliver_post", imageRequired: false } } } }),
+      )
       // The models.dev cache reasoning-variants reads, with effort levels for the stub model.
       mkdirSync(join(home, ".cache", "opencode"), { recursive: true })
       writeFileSync(
@@ -60,6 +67,8 @@ beforeAll(async () => {
     { type: "tool", name: "read", input: {} },
     { type: "tool", name: "read", input: { path: join(engine.project, "large.txt") } },
     { type: "tool", name: "evidence_read", input: { ref: "0123456789abcdef", range: "1-10" } },
+    { type: "tool", name: "flupcode_demo_action", input: { query: "shoes" } },
+    { type: "tool", name: "flupcode_deliver_post", input: { text: "The piece", template: "plain" } },
     { type: "text", text: "Done" },
   )
   await call("POST", `/api/session/${sessionID}/prompt`, { text: "go" })
@@ -76,6 +85,30 @@ beforeAll(async () => {
       event.type !== "session.compaction.started" &&
       event.type !== "session.compaction.delta" &&
       event.data.sessionID === sessionID,
+    60_000,
+  )
+  // The permission floor: a session that allows everything, on the plan agent, asked to edit.
+  writeFileSync(join(engine.project, "plan-target.txt"), "untouched\n")
+  planSession = (
+    (await call("POST", "/api/session", { permissions: [{ action: "*", resource: "*", effect: "allow" }] })) as {
+      data: { id: string }
+    }
+  ).data.id
+  await call("POST", `/api/session/${planSession}/agent`, { agent: "plan" })
+  model.push(
+    {
+      type: "tool",
+      name: "edit",
+      input: { path: join(engine.project, "plan-target.txt"), oldString: "untouched", newString: "edited" },
+    },
+    { type: "text", text: "Tried" },
+  )
+  await call("POST", `/api/session/${planSession}/prompt`, { text: "edit it" })
+  await stream.until(
+    (event) =>
+      event.type.startsWith("session.execution.") &&
+      event.type !== "session.execution.started" &&
+      event.data.sessionID === planSession,
     60_000,
   )
   stream.close()
@@ -144,6 +177,50 @@ const evidence: Record<string, () => Promise<void> | void> = {
     const anchors = harness.hits("POST /harness/adaptive/anchors")
     expect(anchors.some((hit) => hit.body.includes(sessionID) && hit.body.includes('"goal":"go"'))).toBe(true)
   },
+  "flupcode-actions.js": () => {
+    // Asked first, then run: on 2.x the approval is the harness's to ask, in the session.
+    const routes = harness
+      .all()
+      .filter((hit) => hit.route.startsWith("POST /harness/actions/"))
+      .map((hit) => hit.route)
+    expect(routes).toEqual(["POST /harness/actions/approve", "POST /harness/actions/run"])
+    expect(JSON.parse(harness.hits("POST /harness/actions/run")[0]!.body)).toMatchObject({
+      action: "demo",
+      sessionID,
+      inputs: { query: "shoes" },
+    })
+    expect(harness.hits("GET /harness/actions").every((hit) => hit.authorization === "Bearer browser-token")).toBe(true)
+  },
+  "flupcode-deliver.js": async () => {
+    const messages = (await call("GET", `/api/session/${sessionID}/message?limit=200`)) as {
+      data: Array<{
+        type: string
+        content?: Array<{
+          type: string
+          name?: string
+          state?: { status?: string; content?: Array<{ text?: string }> }
+        }>
+      }>
+    }
+    const delivered = messages.data
+      .flatMap((message) => message.content ?? [])
+      .find((item) => item.type === "tool" && item.name === "flupcode_deliver_post")
+    expect(delivered?.state?.status).toBe("completed")
+    expect(JSON.stringify(delivered?.state?.content)).toContain("The piece")
+  },
+  "flupcode-memory.js": () => {
+    // The store opens on the first request it retrieves for.
+    expect(existsSync(join(data(), "memory.db"))).toBe(true)
+  },
+  "flupcode-agents.js": async () => {
+    const cowork = (await call("GET", "/api/agent/cowork")) as { data: { id: string; hidden: boolean } }
+    expect(cowork.data).toMatchObject({ id: "cowork", hidden: true })
+    // The plan agent denies edits, and the session's `*: allow` does not override it.
+    expect(readFileSync(join(engine.project, "plan-target.txt"), "utf8")).toBe("untouched\n")
+  },
+  "flupcode-cache-selection.js": () => {
+    expect(harness.hits("GET /harness/adaptive/selection").length).toBeGreaterThan(0)
+  },
   "flupcode-tool-trim.js": () => {
     expect(harness.hits("POST /harness/adaptive/tool-trim")).toContainEqual(
       expect.objectContaining({ body: expect.stringContaining('"tool":"read"') }),
@@ -207,6 +284,23 @@ function startHarness() {
         authorization: request.headers.get("authorization"),
         body: await request.text(),
       })
+      const route = calls.at(-1)!.route
+      if (route === "GET /harness/actions")
+        return Response.json({
+          data: {
+            profiles: [
+              {
+                id: "demo",
+                tool: "flupcode_demo_action",
+                origin: "https://example.com",
+                description: "A demo action",
+                inputs: { query: "string" },
+                steps: [],
+              },
+            ],
+          },
+        })
+      if (route === "POST /harness/actions/approve") return Response.json({ data: { approved: true } })
       return Response.json({ data: {} })
     },
   })

@@ -14,6 +14,7 @@
  * 1.x name is what is written (`shell` is recorded as `bash`, `patch` as `apply_patch`, `subagent` as
  * `task`), since that is what every reader keys on.
  */
+import { CACHE_SELECTION_SOURCE } from "./cache-selection-source"
 
 /** reasoning-variants: effort levels for models 2.x's catalog lists without any. */
 export const REASONING_VARIANTS_PLUGIN_V2 = {
@@ -1323,6 +1324,1500 @@ export default {
 `,
 }
 
+/**
+ * cache-selection: old, large tool outputs replaced with a placeholder at a cold step (AH-D03,
+ * ADR-0024), by the same `selectForCache` the 1.x plugin runs. 2.x hands the `context` hook the
+ * request's messages in the provider's shape (a tool's result is a `tool` message after the call) and
+ * without times, which the cold boundary is made of. So the plugin keeps each message's time from the
+ * events (a user message's delivery, an assistant step's end), lays the request out in the 1.x shape
+ * the selection reads, and writes each placeholder back into its `tool-result`. A message whose time
+ * it never saw (one from before the engine started) is never a boundary, so nothing is trimmed on a
+ * guess.
+ */
+export const CACHE_SELECTION_PLUGIN_V2 = {
+  file: "flupcode-cache-selection.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Replaces old, large tool outputs with a short placeholder at
+// the steps where the prompt cache is cold anyway, so they stop costing context. Off unless the
+// harness says otherwise; any failure leaves the request exactly as it was. Regenerated when FlupCode
+// starts the engine; edits here are overwritten.
+import { createHash } from "node:crypto"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+${CACHE_SELECTION_SOURCE}
+
+const REFRESH_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_SELECTION_REFRESH_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 30 * 1000
+})()
+const FETCH_TIMEOUT_MS = (() => {
+  const raw = Number(process.env.FLUPCODE_SELECTION_FETCH_TIMEOUT_MS)
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000
+})()
+const POLICY_TTL_MS = 5 * 60 * 1000
+const DEFAULT_COLD_GAP_MS = 65 * 60 * 1000
+const MAX_KEEP_RECENT_TURNS = 50
+const MAX_COLD_GAP_MS = 24 * 60 * 60 * 1000
+const OFF = { enabled: false, keepRecentTurns: 2, minSavingsTokens: 4096, coldGapMs: DEFAULT_COLD_GAP_MS }
+const MAX_SESSIONS = 500
+const MAX_TIMES = 20000
+
+${ADAPTIVE_HELPERS}
+
+let policy = undefined
+let timer = undefined
+const latches = new Map()
+// When each user message was delivered and each assistant message's step ended, by message id.
+const created = new Map()
+const completed = new Map()
+
+function keep(map, key, value) {
+  map.set(key, value)
+  if (map.size > MAX_TIMES) map.delete(map.keys().next().value)
+}
+
+function integerIn(value, min, max) {
+  return typeof value === "number" && Number.isInteger(value) && value >= min && value <= max
+}
+
+function policyOf(data) {
+  if (!data || typeof data !== "object" || typeof data.enabled !== "boolean") return undefined
+  if (!integerIn(data.keepRecentTurns, 0, MAX_KEEP_RECENT_TURNS)) return undefined
+  if (!integerIn(data.minSavingsTokens, 0, Number.MAX_SAFE_INTEGER)) return undefined
+  if (!integerIn(data.coldGapMs, 1, MAX_COLD_GAP_MS)) return undefined
+  return {
+    enabled: data.enabled,
+    keepRecentTurns: data.keepRecentTurns,
+    minSavingsTokens: data.minSavingsTokens,
+    coldGapMs: data.coldGapMs,
+  }
+}
+
+function holdoutOf(data) {
+  const value = data ? data.holdoutFraction : undefined
+  return typeof value === "number" && value >= 0 && value <= 0.5 ? value : 0
+}
+
+// A control-arm session of the holdout keeps every output, deterministically by its id.
+function control(sessionID, fraction) {
+  if (fraction <= 0) return false
+  return createHash("sha256").update("selection:" + sessionID).digest().readUInt32BE(0) / 2 ** 32 < fraction
+}
+
+function pausedOf(data) {
+  const list = data && Array.isArray(data.pausedSessions) ? data.pausedSessions : []
+  return new Set(list.filter((id) => typeof id === "string").slice(0, MAX_SESSIONS))
+}
+
+async function refresh(base, token) {
+  const response = await fetch(base + "/harness/adaptive/selection", {
+    headers: { authorization: "Bearer " + token },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  }).catch(() => undefined)
+  if (!response || !response.ok) return
+  const body = await response.json().catch(() => undefined)
+  const data = body && typeof body === "object" ? body.data : undefined
+  const next = policyOf(data)
+  if (next) policy = { ...next, paused: pausedOf(data), holdout: holdoutOf(data), at: Date.now() }
+}
+
+function currentPolicy(now) {
+  return policy && now - policy.at <= POLICY_TTL_MS ? policy : OFF
+}
+
+// The policy changes only at a cold step, so a switch flipped mid-session cannot rewrite a warm cache.
+function latched(sessionID, view, current) {
+  const held = latches.get(sessionID)
+  const next = !held || coldStep(view, current.coldGapMs) ? current : held
+  latches.delete(sessionID)
+  latches.set(sessionID, next)
+  while (latches.size > MAX_SESSIONS) latches.delete(latches.keys().next().value)
+  return next
+}
+
+// The request in the 1.x shape the selection reads: one entry per user or assistant message, each
+// assistant entry carrying its calls' text results as tool parts, which point back at the 2.x part.
+function layout(messages) {
+  const view = []
+  const results = new Map()
+  for (const message of messages) {
+    if (!message || message.role !== "tool" || !Array.isArray(message.content)) continue
+    for (const part of message.content) if (part && part.type === "tool-result") results.set(part.id, part)
+  }
+  for (const message of messages) {
+    if (!message || (message.role !== "user" && message.role !== "assistant")) continue
+    const id = typeof message.id === "string" ? message.id : undefined
+    if (message.role === "user") {
+      view.push({ info: { role: "user", time: { created: id ? created.get(id) : undefined } }, parts: [] })
+      continue
+    }
+    const calls = Array.isArray(message.content) ? message.content.filter((part) => part && part.type === "tool-call") : []
+    const parts = calls.flatMap((call) => {
+      const result = results.get(call.id)
+      if (!result || !result.result || result.result.type !== "text" || typeof result.result.value !== "string") return []
+      return [{ type: "tool", tool: named(call.name), state: { status: "completed", output: result.result.value }, origin: result }]
+    })
+    view.push({ info: { role: "assistant", time: { completed: id ? completed.get(id) : undefined } }, parts })
+  }
+  return view
+}
+
+export default {
+  id: "flupcode-cache-selection",
+  setup: async (ctx) => {
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const directory = ctx.location && ctx.location.directory
+    if (!timer) {
+      void refresh(base, token)
+      timer = setInterval(() => void refresh(base, token), REFRESH_MS)
+      if (typeof timer.unref === "function") timer.unref()
+    }
+    const controller = new AbortController()
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        if (event.location && event.location.directory && event.location.directory !== directory) continue
+        const data = event.data || {}
+        if (event.type === "session.inbox.delivered" && typeof data.inboxID === "string") keep(created, data.inboxID, Date.now())
+        if (event.type === "session.step.ended" && typeof data.assistantMessageID === "string")
+          keep(completed, data.assistantMessageID, Date.now())
+      }
+    })().catch(() => {})
+    await ctx.session.hook("context", (input) => {
+      try {
+        if (!Array.isArray(input.messages) || input.messages.length === 0) return
+        const view = layout(input.messages)
+        const current = currentPolicy(Date.now())
+        const held = (current.paused && current.paused.has(input.sessionID)) || control(input.sessionID, current.holdout || 0)
+        const effective = latched(input.sessionID, view, held ? { ...current, enabled: false } : current)
+        if (!effective.enabled) return
+        const result = selectForCache(view, effective)
+        result.messages.forEach((message, index) => {
+          if (message === view[index]) return
+          message.parts.forEach((part, at) => {
+            const before = view[index].parts[at]
+            if (part.state.output !== before.state.output) before.origin.result = { type: "text", value: part.state.output }
+          })
+        })
+      } catch {
+        // Any failure leaves the request exactly as it arrived.
+      }
+    })
+    return () => controller.abort()
+  },
+}
+`,
+}
+
+/**
+ * Reading the reader's OpenCode config from a plugin (comments and trailing commas allowed, the files
+ * merged in the engine's order), and keeping the newest image a composing tool produced in each
+ * session. 2.x hands a plugin's tool no conversation, so the image a web action or a delivery needs is
+ * taken from the composing tool's own result as it ends (`execute.after`). Inlined into both plugins.
+ */
+const CONFIG_HELPERS = String.raw`// The plugin sits in <configDir>/plugins, so its parent is the config directory.
+const CONFIG_DIR = path.dirname(path.dirname(fileURLToPath(import.meta.url)))
+const CONFIG_FILES = ["config.json", "opencode.json", "opencode.jsonc"]
+const IMAGE_FILE_LIMIT = 10 * 1024 * 1024
+
+function stripJsonc(text) {
+  let out = ""
+  let inString = false
+  let escape = false
+  let i = 0
+  while (i < text.length) {
+    const ch = text[i]
+    if (inString) {
+      out += ch
+      if (escape) escape = false
+      else if (ch === "\\") escape = true
+      else if (ch === '"') inString = false
+      i += 1
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      out += ch
+      i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "/") {
+      i += 2
+      while (i < text.length && text[i] !== "\n") i += 1
+      continue
+    }
+    if (ch === "/" && text[i + 1] === "*") {
+      i += 2
+      while (i + 1 < text.length && !(text[i] === "*" && text[i + 1] === "/")) i += 1
+      i += 2
+      continue
+    }
+    out += ch
+    i += 1
+  }
+  return out.replace(/,(?=\s*[}\]])/g, "")
+}
+
+function isPlainObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+}
+
+function mergeConfig(target, source) {
+  if (!isPlainObject(target) || !isPlainObject(source)) return source
+  const merged = { ...target }
+  for (const key of Object.keys(source))
+    merged[key] = isPlainObject(target[key]) && isPlainObject(source[key]) ? mergeConfig(target[key], source[key]) : source[key]
+  return merged
+}
+
+async function readJsonc(file) {
+  const text = await readFile(file, "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  try {
+    return JSON.parse(stripJsonc(text))
+  } catch {
+    return undefined
+  }
+}
+
+async function loadConfig() {
+  let merged = {}
+  for (const name of CONFIG_FILES) {
+    const parsed = await readJsonc(path.join(CONFIG_DIR, name))
+    if (isPlainObject(parsed)) merged = mergeConfig(merged, parsed)
+  }
+  return merged
+}
+
+// The newest composed image per session, as the composing tool returned it.
+const images = new Map()
+
+function rememberImage(after, composeTools) {
+  if (after.status !== "completed" || !after.result || !Array.isArray(after.result.content)) return
+  const wanted = Array.isArray(composeTools) && composeTools.length ? composeTools : undefined
+  if (wanted && !wanted.includes(after.tool)) return
+  const image = [...after.result.content]
+    .reverse()
+    .find((part) => part && part.type === "file" && typeof part.mime === "string" && part.mime.startsWith("image/"))
+  if (!image || typeof image.uri !== "string") return
+  images.delete(after.sessionID)
+  images.set(after.sessionID, { uri: image.uri, mime: image.mime })
+  if (images.size > 500) images.delete(images.keys().next().value)
+}
+
+// The image as a data URL, the shape the runner and the attachment take; a file is read once, bounded.
+async function imageDataUrl(sessionID) {
+  const image = images.get(sessionID)
+  if (!image) return undefined
+  if (image.uri.startsWith("data:")) return image.uri
+  if (!image.uri.startsWith("file:")) return undefined
+  const bytes = await readFile(fileURLToPath(image.uri)).catch(() => undefined)
+  if (!bytes || bytes.byteLength === 0 || bytes.byteLength > IMAGE_FILE_LIMIT) return undefined
+  return "data:" + image.mime + ";base64," + Buffer.from(bytes).toString("base64")
+}
+
+function imagePart(dataUrl) {
+  const match = /^data:([^;,]+);base64,/.exec(dataUrl)
+  return match && match[1].startsWith("image/") ? { type: "file", uri: dataUrl, mime: match[1] } : undefined
+}`
+
+/**
+ * web-actions: one browser-action tool per profile the harness accepts (V2-31). As on 1.x the plugin
+ * is a thin proxy that holds no browser state, selectors or credentials. What changes is the approval:
+ * 2.x gives a plugin's tool no permission prompt, so before every run it asks harness-server
+ * (`/harness/actions/approve`), which decides from its own copy of the profile what to ask and asks the
+ * reader in the session; nothing runs without a yes.
+ */
+export const WEB_ACTIONS_PLUGIN_V2 = {
+  file: "flupcode-actions.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Registers one browser-action tool per profile under
+// "flupcode.actions", asks the harness for the reader's approval before each run and forwards the
+// recipe to its runner. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const PROFILE_TIMEOUT_MS = 1200
+const PROFILE_ATTEMPTS = 3
+const PROFILE_DELAY_MS = 400
+// The approval waits for the reader; the harness gives up first, after ten minutes.
+const APPROVAL_TIMEOUT_MS = 11 * 60 * 1000
+const RUN_TIMEOUT_MS = 600000
+const ARTIFACT_TIMEOUT_MS = 15000
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const ATTACHMENT_MIMES = new Set(["image/png", "image/jpeg", "image/jpg", "image/webp", "image/gif"])
+const EVIDENCE_SCAN = 5
+const PROFILE_ID = /^[A-Za-z0-9_-]{1,64}$/
+const UPLOAD_FROM = /^\{\{\s*([A-Za-z0-9_-]+)\s*\}\}$/
+
+${CONFIG_HELPERS}
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+// The browser bearer: the desktop hands it to the engine, and the harness keeps it in a file.
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+function requiredImageNames(steps, imageInputs) {
+  const referenced = new Set()
+  for (const step of steps) {
+    if (!isPlainObject(step) || !isPlainObject(step.upload)) continue
+    const match = typeof step.upload.from === "string" ? UPLOAD_FROM.exec(step.upload.from) : undefined
+    if (match) referenced.add(match[1])
+  }
+  return imageInputs.filter((name) => referenced.has(name))
+}
+
+async function loadProfiles(base, token) {
+  for (let attempt = 0; attempt < PROFILE_ATTEMPTS; attempt++) {
+    const response = await fetch(base + "/harness/actions", {
+      headers: { authorization: "Bearer " + token },
+      signal: AbortSignal.timeout(PROFILE_TIMEOUT_MS),
+    }).catch(() => undefined)
+    if (!response) {
+      if (attempt + 1 < PROFILE_ATTEMPTS) await new Promise((resolve) => setTimeout(resolve, PROFILE_DELAY_MS))
+      continue
+    }
+    if (response.status !== 200) return undefined
+    const body = await response.json().catch(() => undefined)
+    const profiles = body && body.data && body.data.profiles
+    return Array.isArray(profiles) ? profiles : undefined
+  }
+  return undefined
+}
+
+function oneLine(value) {
+  return String(value).replace(/\s*[\r\n  ]+\s*/g, " ")
+}
+
+// What the page said is untrusted, and is marked as such for the model.
+function summarise(profile, data) {
+  const result = isPlainObject(data) ? data : {}
+  const lines = ['Acción "' + (result.action || profile.id) + '" completada.', "Origen: " + (result.origin || profile.origin)]
+  const page = []
+  if (typeof result.url === "string" && result.url) page.push("URL: " + oneLine(result.url))
+  if (typeof result.title === "string" && result.title) page.push("Título: " + oneLine(result.title))
+  if (isPlainObject(result.extract))
+    for (const field of Object.keys(result.extract)) page.push("Extraído " + field + ": " + oneLine(result.extract[field]))
+  if (page.length > 0) lines.push("Datos no confiables (tomados de la página):", ...page)
+  const steps = Array.isArray(result.steps) ? result.steps.filter(isPlainObject) : []
+  if (steps.length > 0) lines.push("Pasos:", ...steps.map((step) => "- #" + step.index + " " + step.kind + ": " + step.status))
+  const evidence = Array.isArray(result.evidence) ? result.evidence : []
+  if (evidence.length > 0) lines.push("Evidencia: " + evidence.join(", "))
+  return lines.join("\n")
+}
+
+function failureText(profile, body) {
+  const error = isPlainObject(body) ? body : {}
+  const code = typeof error.code === "string" ? error.code : ""
+  if (code === "guard_denied") return "La acción fue denegada por un guard (" + (error.guardCode || "sin código") + ")."
+  if (code === "credential_unavailable")
+    return "Falta la credencial nombrada «" + (typeof error.field === "string" && error.field ? error.field : profile.credential || "credential") + "»."
+  if (code === "origin_mismatch" || code === "navigation_blocked") return "La navegación salió del origen permitido."
+  if (code === "step_failed") return "Falló el paso " + (error.step || "?") + " (#" + (error.index !== undefined ? error.index : "?") + ")."
+  if (code === "missing_input" || code === "unknown_input" || code === "invalid_input")
+    return "Falta o no es válido el input " + (error.field || "?") + "."
+  if (code === "extract_failed") return "No se pudo leer " + (error.field || "?") + "."
+  if (code === "unknown_action" || code === "not_found")
+    return "No se encontró la acción; puede que ya no exista. Reinicia el motor y vuelve a intentarlo."
+  if (code === "internal_error")
+    return "La acción no se pudo completar por un fallo del servidor del navegador. Vuelve a intentarlo; si persiste, reinicia el motor."
+  return typeof error.error === "string" && error.error ? error.error : "La acción no se pudo completar."
+}
+
+// The newest evidence screenshot, as a file part the transcript shows.
+async function evidenceImage(base, token, value) {
+  const evidence = isPlainObject(value) && Array.isArray(value.evidence) ? value.evidence : []
+  for (let i = evidence.length - 1; i >= Math.max(0, evidence.length - EVIDENCE_SCAN); i--) {
+    const id = evidence[i]
+    if (typeof id !== "string" || !id) continue
+    const response = await fetch(base + "/harness/artifacts/" + encodeURIComponent(id) + "/raw", {
+      headers: { authorization: "Bearer " + token },
+      signal: AbortSignal.timeout(ARTIFACT_TIMEOUT_MS),
+    }).catch(() => undefined)
+    if (!response || !response.ok) continue
+    const mime = (response.headers.get("content-type") || "").split(";")[0].trim().toLowerCase()
+    if (!ATTACHMENT_MIMES.has(mime)) continue
+    const bytes = await response.arrayBuffer().catch(() => undefined)
+    if (!bytes || bytes.byteLength === 0 || bytes.byteLength > MAX_ATTACHMENT_BYTES) continue
+    return { type: "file", uri: "data:" + mime + ";base64," + Buffer.from(bytes).toString("base64"), mime }
+  }
+  return undefined
+}
+
+function answer(text, image) {
+  return { content: image ? [{ type: "text", text }, image] : text }
+}
+
+function definition(profile, base, token, project) {
+  const properties = {}
+  for (const name of Object.keys(profile.inputs))
+    if (profile.inputs[name] === "string") properties[name] = { type: "string", description: 'Value for the "' + name + '" input.' }
+  return {
+    name: profile.tool,
+    description: profile.description,
+    input: { type: "object", properties, required: Object.keys(properties) },
+    options: { codemode: false },
+    execute: async (args, context) => {
+      if (!project) return answer("Esta sesión no tiene una carpeta de proyecto donde ejecutar la acción.")
+      const imageInputs = Object.keys(profile.inputs).filter((name) => profile.inputs[name] === "image")
+      const dataUrl = imageInputs.length > 0 ? await imageDataUrl(context.sessionID) : undefined
+      if (requiredImageNames(profile.steps, imageInputs).length > 0 && !dataUrl)
+        return answer("No encuentro la imagen compuesta en esta conversación. Compónla primero y vuelve a intentarlo.")
+      const inputs = {}
+      for (const name of Object.keys(profile.inputs)) {
+        const kind = profile.inputs[name]
+        if (kind === "string" && args && typeof args[name] === "string") inputs[name] = args[name]
+        else if (kind === "image" && dataUrl) inputs[name] = { dataUrl }
+      }
+      // Nothing runs without the reader's yes, asked in the session by the harness.
+      const approval = await fetch(base + "/harness/actions/approve", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project }),
+        signal: AbortSignal.any([AbortSignal.timeout(APPROVAL_TIMEOUT_MS), context.signal]),
+      })
+        .then((response) => response.json())
+        .catch(() => undefined)
+      const verdict = approval && approval.data
+      if (!verdict || verdict.approved !== true)
+        return answer(
+          verdict && verdict.reason === "denied"
+            ? "El usuario denegó la acción."
+            : "La acción no se ejecutó: nadie la aprobó.",
+        )
+      const response = await fetch(base + "/harness/actions/run", {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: "Bearer " + token },
+        body: JSON.stringify({ action: profile.id, sessionID: context.sessionID, project, inputs }),
+        signal: AbortSignal.any([AbortSignal.timeout(RUN_TIMEOUT_MS), context.signal]),
+      }).catch(() => undefined)
+      if (!response) return answer("No se pudo contactar con el servidor del navegador. Comprueba que sigue en marcha.")
+      const payload = await response.json().catch(() => undefined)
+      if (response.status !== 200) {
+        const body = isPlainObject(payload) ? payload : {}
+        return answer(failureText(profile, body), await evidenceImage(base, token, body))
+      }
+      const data = payload && payload.data
+      return answer(summarise(profile, data), await evidenceImage(base, token, data))
+    },
+  }
+}
+
+export default {
+  id: "flupcode-actions",
+  setup: async (ctx) => {
+    if (process.env.FLUPCODE_BROWSER_DISABLED === "1") return
+    const base = harnessBaseURL()
+    if (base === undefined) return
+    const token = await readToken()
+    if (token === undefined) return
+    const config = await loadConfig().catch(() => ({}))
+    const profiles = await loadProfiles(base, token)
+    if (profiles === undefined) return
+    const composeTools = config && config.flupcode && config.flupcode.composeTools
+    const project = ctx.location && ctx.location.directory
+    await ctx.tool.hook("execute.after", (after) => rememberImage(after, composeTools))
+    await ctx.tool.transform((editor) => {
+      for (const profile of profiles) {
+        if (!isPlainObject(profile) || typeof profile.tool !== "string" || !profile.tool) continue
+        if (typeof profile.id !== "string" || !PROFILE_ID.test(profile.id)) continue
+        if (typeof profile.origin !== "string" || !profile.origin) continue
+        if (!isPlainObject(profile.inputs) || !Array.isArray(profile.steps)) continue
+        editor.add(definition(profile, base, token, project))
+      }
+    })
+  },
+}
+`,
+}
+
+/**
+ * delivery: one tool per profile under `flupcode.delivery`, as on 1.x: the guards in the reader's
+ * config run first, then the piece is handed back with its composed image to copy by hand. 2.x hands
+ * the tool no conversation, so the image is the newest one a composing tool returned in the session,
+ * and a guard is given no messages.
+ */
+export const DELIVERY_PLUGIN_V2 = {
+  file: "flupcode-deliver.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Registers one delivery tool per profile declared under
+// flupcode.delivery: the guards run, then the piece comes back ready to copy, with its composed image.
+// Nothing is published. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+
+${CONFIG_HELPERS}
+
+// A safety gate must not disappear silently: a guard that cannot load or throws refuses the delivery.
+async function runGuards(paths, input) {
+  if (!Array.isArray(paths)) return undefined
+  const guards = []
+  for (const entry of paths) {
+    if (typeof entry !== "string" || !entry) continue
+    const mod = await import(pathToFileURL(path.resolve(CONFIG_DIR, entry)).href).catch(() => undefined)
+    if (!mod || !Array.isArray(mod.guards)) return "No se entrega. GUARD_LOAD_ERROR: " + entry
+    guards.push(...mod.guards)
+  }
+  for (const guard of guards) {
+    if (!guard || typeof guard.assess !== "function") continue
+    let verdict
+    try {
+      verdict = await guard.assess(input)
+    } catch (cause) {
+      return "No se entrega. GUARD_ERROR: " + String(guard.id) + " - " + (cause instanceof Error ? cause.message : String(cause))
+    }
+    if (verdict && verdict.allow === false) return "No se entrega. " + String(verdict.code) + ": " + String(verdict.reason)
+  }
+  return undefined
+}
+
+function definition(profile) {
+  return {
+    name: profile.tool,
+    description:
+      profile.description ||
+      "Deliver the piece you have just written and composed so a person can copy and paste it by hand. Does not publish anything: it re-emits the composed image as an attachment.",
+    input: {
+      type: "object",
+      properties: {
+        text: { type: "string", description: "The exact text of the piece, as it is copied." },
+        template: { type: "string", description: "The template that was composed." },
+        alt: { type: "string", description: "The image alt text, when there is one." },
+        location: { type: "string", description: "The place the piece is about, when the guards need it." },
+      },
+      required: ["text", "template"],
+    },
+    options: { codemode: false },
+    execute: async (args, context) => {
+      const denied = await runGuards(profile.guards, { text: args.text, template: args.template, alt: args.alt, location: args.location })
+      if (denied) return { content: denied }
+      const dataUrl = await imageDataUrl(context.sessionID)
+      if (!dataUrl && profile.imageRequired !== false)
+        return { content: profile.imageMissing || "I cannot find the composed image in this conversation. Compose it first and try again." }
+      const image = dataUrl ? imagePart(dataUrl) : undefined
+      const labels = profile.labels || {}
+      const alt = args.alt || ""
+      const lines = [
+        labels.title || "Ready to copy and paste. Nothing was published.",
+        "",
+        labels.text || "Text:",
+        args.text,
+        "",
+        alt ? (labels.alt || "Image alt:") + "\n" + alt : labels.missingAlt || "The image has no alt.",
+      ]
+      if (image) lines.push("", labels.image || "The image goes with the piece, below: copy them together.")
+      const text = lines.join("\n")
+      return { content: image ? [{ type: "text", text }, image] : text }
+    },
+  }
+}
+
+export default {
+  id: "flupcode-deliver",
+  setup: async (ctx) => {
+    const config = await loadConfig().catch(() => undefined)
+    const profiles = config && config.flupcode && config.flupcode.delivery
+    if (!profiles || typeof profiles !== "object") return
+    const list = Object.values(profiles).filter((profile) => isPlainObject(profile) && typeof profile.tool === "string" && profile.tool)
+    const composeTools = [...new Set(list.flatMap((profile) => (Array.isArray(profile.composeTools) ? profile.composeTools : [])))]
+    await ctx.tool.hook("execute.after", (after) => rememberImage(after, composeTools))
+    await ctx.tool.transform((editor) => {
+      for (const profile of list) editor.add(definition(profile))
+    })
+  },
+}
+`,
+}
+
+/**
+ * memory: durable memory on OpenCode 2 (V2-32), the store FlupCode patched into its 1.x engine,
+ * rebuilt as a plugin with the same behaviour and the same API shape: its own SQLite file under
+ * FlupCode's data folder; the relevant memories retrieved by the same lexical score and rendered as
+ * the same `<memory>` block after the system prompt (pinned per user turn, so later steps of a turn
+ * send the same bytes); "remember that…" captured when the prompt is admitted; candidates extracted
+ * by the model after a run, at most once per interval; the `memory` tool; and list, get, create,
+ * update, remove, verify and used served over the plugin RPC (`flupcode.memory`), which the app's
+ * OpenCode 2 adapter calls. Nothing is read from 1.x's database.
+ */
+export const MEMORY_PLUGIN_V2 = {
+  file: "flupcode-memory.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Durable memory across sessions: retrieved into each turn,
+// captured from "remember that…", extracted after a run, kept by the memory tool and served to the app
+// over the plugin RPC. Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { Database } from "bun:sqlite"
+import { createHash, randomBytes } from "node:crypto"
+import { existsSync, mkdirSync, statSync } from "node:fs"
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
+
+${CONFIG_HELPERS}
+
+// Kept in step with DEFAULTS in packages/core/src/memory.ts (the 1.x store).
+const DEFAULTS = {
+  enabled: true,
+  auto: true,
+  maxInjected: 8,
+  maxTokens: 1000,
+  staleAfterDays: 90,
+  extractInterval: 30,
+  maxCandidatesPerSession: 20,
+}
+const KINDS = ["fact", "convention", "procedure", "preference", "constraint", "workflow", "decision", "issue", "solution"]
+const SCOPES = ["global", "project", "agent", "session"]
+const STATUSES = ["candidate", "active", "stale", "archived"]
+
+function databasePath() {
+  if (process.env.FLUPCODE_MEMORY_DB) return process.env.FLUPCODE_MEMORY_DB
+  const base = process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share")
+  return path.join(base, "flupcode", "memory.db")
+}
+
+// ---- The pure part, ported from packages/core/src/memory/utils.ts ----
+
+const normalizeContent = (content) => content.trim().toLowerCase().replace(/\s+/g, " ")
+const fingerprint = (content) => createHash("sha256").update(normalizeContent(content)).digest("hex")
+
+const FILE_PATTERN =
+  /(?:^|[\s(${"`"}"'])((?:\.{0,2}\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@-]+)*\.(?:sh|bash|zsh|ps1|ts|tsx|js|mjs|cjs|json|jsonc|toml|yaml|yml|md|sql|py|go|rs|java|rb|php|gradle|lock|env|ini|cfg|conf|tf|nix))(?=$|[\s)${"`"}"',.;:])/gm
+const DIRECTORY_PATTERN = /(?:^|[\s(${"`"}"'])((?:\.{0,2}\/)?[A-Za-z0-9_.@-]+(?:\/[A-Za-z0-9_.@-]+)*\/)(?=$|[\s)${"`"}"',.;:])/gm
+const COMMAND_PATTERN =
+  /\b(?:npm|pnpm|yarn|bun|make|cargo|go|python3?|pip|uv|pytest|docker|kubectl|helm|git|gh|nix|just)\s+(?:run\s+)?[a-z0-9:_-]+/g
+const URL_PATTERN = /https?:\/\/[^\s)${"`"}"',;]+/g
+
+function extractAnchors(content) {
+  const anchors = new Map()
+  const add = (kind, value) => {
+    const normalized = value.replace(/[.,;:]+$/, "")
+    if (normalized.length === 0) return
+    anchors.set(kind + ":" + normalized, { kind, value: normalized, ok: true })
+  }
+  for (const match of content.matchAll(FILE_PATTERN)) add("file", match[1])
+  for (const match of content.matchAll(DIRECTORY_PATTERN)) add("directory", match[1])
+  for (const match of content.matchAll(COMMAND_PATTERN)) add("command", match[0])
+  for (const match of content.matchAll(URL_PATTERN)) add("url", match[0])
+  return [...anchors.values()]
+}
+
+const SOURCE_RANK = { explicit_user: 6, manual: 5, agent_tool: 4, agent_discovery: 3, repository_file: 2, tool_result: 2, conversation: 1, import: 1 }
+const sourceRank = (source) => SOURCE_RANK[source] || 0
+const strongestSource = (a, b) => (sourceRank(a) >= sourceRank(b) ? a : b)
+const unionTags = (a, b) => [...new Set([...a, ...b].map((tag) => tag.trim()).filter((tag) => tag.length > 0))].sort()
+
+function mergeStatus(existing, incoming) {
+  if (existing === "archived") return existing
+  if (incoming === "active") return "active"
+  if (existing === "active") return existing
+  return incoming
+}
+
+const STOPWORDS = new Set(["the", "and", "for", "with", "that", "this", "you", "your", "our", "are", "was", "were", "will", "would", "can", "could", "should", "have", "has", "had", "from", "into", "when", "then", "than", "there", "here", "what", "which", "who", "how", "all", "any", "each", "its", "it's", "use", "using", "get", "got"])
+
+const tokenize = (text) =>
+  [...new Set(normalizeContent(text).split(/[^a-z0-9áéíóúüñ_-]+/i).filter((token) => token.length > 2 && !STOPWORDS.has(token)))]
+
+function lexicalScore(tokens, memory) {
+  if (tokens.length === 0) return 0
+  const title = normalizeContent(memory.title)
+  const content = normalizeContent(memory.content)
+  const tags = memory.tags.map(normalizeContent)
+  let score = 0
+  for (const token of tokens) {
+    if (title.includes(token)) score += 3
+    if (tags.some((tag) => tag.includes(token))) score += 3
+    if (content.includes(token)) score += 1
+  }
+  return score
+}
+
+const SCOPE_WEIGHT = { session: 2.5, project: 2, agent: 1.5, global: 1 }
+const scopeWeight = (scope) => SCOPE_WEIGHT[scope] || 0
+
+const OPPOSITE_TOOLS = [["npm", "pnpm"], ["npm", "yarn"], ["pnpm", "yarn"]]
+const NEGATIVE = /\b(never|don't|do not|must not|avoid|don't ever|should not)\b/i
+const POSITIVE = /\b(always|must|should|prefer|require[sd]?)\b/i
+
+function contradicts(a, b) {
+  if (a.id === b.id || a.scope !== b.scope) return false
+  const at = new Set(a.tags.map(normalizeContent))
+  if (!b.tags.map(normalizeContent).some((tag) => at.has(tag))) return false
+  const ac = normalizeContent(a.content)
+  const bc = normalizeContent(b.content)
+  if (OPPOSITE_TOOLS.some(([left, right]) => ac.includes(left) && bc.includes(right))) return true
+  if (OPPOSITE_TOOLS.some(([left, right]) => ac.includes(right) && bc.includes(left))) return true
+  return (NEGATIVE.test(a.content) && POSITIVE.test(b.content)) || (POSITIVE.test(a.content) && NEGATIVE.test(b.content))
+}
+
+const scopeLabel = (scope) => (scope === "global" ? "user" : scope)
+function oneLine(text, max = 240) {
+  const collapsed = text.replace(/\s+/g, " ").trim()
+  return collapsed.length > max ? collapsed.slice(0, max - 1) + "…" : collapsed
+}
+
+const renderMemoryBlock = (memories) =>
+  [
+    "<memory>",
+    "Relevant memories from previous sessions. They may be outdated; verify before relying on them.",
+    ...memories.map((memory) => "- [" + scopeLabel(memory.scope) + "] " + memory.title + ": " + oneLine(memory.content)),
+    "</memory>",
+  ].join("\n")
+
+const estimateTokens = (text) => Math.ceil(text.length / 4)
+
+const EXPLICIT_PATTERNS = [
+  /\bremember(?: that)?\s+(.+)/gi,
+  /\bdon'?t forget(?: that)?\s+(.+)/gi,
+  /\bkeep in mind(?: that)?\s+(.+)/gi,
+  /\brecuerda(?: que)?\s+(.+)/gi,
+  /\bno olvides(?: que)?\s+(.+)/gi,
+  /\bten en cuenta(?: que)?\s+(.+)/gi,
+  /\bapunta(?: que)?\s+(.+)/gi,
+]
+
+function parseExplicit(text) {
+  const clauses = []
+  for (const segment of text.split(/(?<=[.!?])\s+|\n+/))
+    for (const pattern of EXPLICIT_PATTERNS)
+      for (const match of segment.matchAll(pattern)) {
+        const clause = match[1] && match[1].trim().replace(/[.;,]\s*$/, "")
+        if (clause && clause.length >= 3) clauses.push(clause)
+      }
+  return [...new Set(clauses)]
+}
+
+function resolveExplicitScope(clause) {
+  const agent = (clause.match(/\b(?:the\s+)?([a-z0-9_-]+)\s+agent\b/i) || [])[1]
+  if (agent) return { scope: "agent", agent }
+  if (/\b(this|the)\s+(project|repo|repository|codebase|worktree|directory)\b|(^|\s)here\b|este\s+(proyecto|repo)|en\s+este\s+(proyecto|repo)/i.test(clause))
+    return { scope: "project" }
+  if (/\b(i|my|me)\b[^.]*\b(prefer|like|want|always|never|hate)\b|prefiero|siempre|nunca|no quiero|no me gusta/i.test(clause))
+    return { scope: "global" }
+  return { scope: "project" }
+}
+
+function inferKind(clause) {
+  if (/\b(never|don't|do not|must not|avoid|no olvides|nunca|no)\b/i.test(clause)) return "constraint"
+  if (/\bprefer|prefiero|like|gusta\b/i.test(clause)) return "preference"
+  if (/\b(first|then|next|finally|run|execute|deploy|install|build)\b/i.test(clause)) return "procedure"
+  if (/\b(decided|decision|because|chose|migrat)\b/i.test(clause)) return "decision"
+  if (/\b(convention|always|style|format|lint)\b/i.test(clause)) return "convention"
+  return "fact"
+}
+
+function titleFromClause(clause) {
+  const first = clause.replace(/^that\s+/i, "").split(/[.!?]\s/)[0].trim()
+  const title = first.length > 80 ? first.slice(0, 77) + "…" : first
+  return title.charAt(0).toUpperCase() + title.slice(1)
+}
+
+const explicitCandidates = (text) =>
+  parseExplicit(text).map((clause) => {
+    const resolved = resolveExplicitScope(clause)
+    return { ...resolved, kind: inferKind(clause), title: titleFromClause(clause), content: clause }
+  })
+
+// ---- Extraction, ported from packages/core/src/memory/extract.ts ----
+
+const INSTRUCTIONS = [
+  "Extract durable knowledge that a future coding session should not have to rediscover.",
+  "Include:",
+  "- project conventions, architecture, and decisions",
+  "- deployment, release, test, and build procedures with exact commands",
+  "- user preferences and persistent instructions",
+  "- constraints, known issues, and solutions that worked",
+  "- stable repository facts and important paths",
+  "Exclude:",
+  "- temporary output, logs, stack traces, or one-off errors",
+  "- generated code, diffs, or normal question/answer chatter",
+  "- anything already obvious from a single file you have not verified",
+  "- secrets, credentials, or personal data",
+  "Respond with ONLY a JSON array. Each item:",
+  '{"title": string, "content": string, "kind": "fact|convention|procedure|preference|constraint|workflow|decision|issue|solution", "scope": "global|project|agent|session", "tags": string[], "confidence": number}',
+  "Return at most 5 items. Prefer an empty array [] over low-value items.",
+].join("\n")
+
+const buildPrompt = (transcript) =>
+  ["Here is recent work from a coding session:", "", "<transcript>", transcript, "</transcript>", "", INSTRUCTIONS].join("\n")
+
+function parseCandidates(text) {
+  const start = text.indexOf("[")
+  const end = text.lastIndexOf("]")
+  if (start === -1 || end === -1 || end < start) return []
+  let decoded
+  try {
+    decoded = JSON.parse(text.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(decoded)) return []
+  return decoded.flatMap((item) => {
+    if (!isPlainObject(item)) return []
+    const title = typeof item.title === "string" ? item.title.trim() : ""
+    const content = typeof item.content === "string" ? item.content.trim() : ""
+    if (title.length < 3 || content.length < 8 || content.length > 2000) return []
+    if (/^\s*(error|traceback|stack trace)/i.test(content)) return []
+    return [
+      {
+        title: title.slice(0, 200),
+        content,
+        kind: KINDS.includes(item.kind) ? item.kind : "fact",
+        scope: SCOPES.includes(item.scope) ? item.scope : "project",
+        tags: Array.isArray(item.tags) ? item.tags.filter((tag) => typeof tag === "string").slice(0, 8) : [],
+        confidence: typeof item.confidence === "number" && Number.isFinite(item.confidence) ? Math.max(0, Math.min(1, item.confidence)) : 0.6,
+      },
+    ]
+  })
+}
+
+// The last 40 messages a request carried, as the 1.x extractor serialises them.
+function serializeRecent(messages) {
+  const lines = []
+  for (const message of messages.slice(-40)) {
+    const content = typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content || []
+    for (const part of content) {
+      if (message.role === "user" && part.type === "text" && part.text.trim()) lines.push("User: " + part.text)
+      if (message.role === "assistant" && part.type === "text" && part.text.trim()) lines.push("Assistant: " + part.text)
+      if (message.role === "assistant" && part.type === "tool-call") lines.push("Assistant tool call: " + part.name)
+    }
+  }
+  const joined = lines.join("\n")
+  return joined.length > 6000 ? joined.slice(-6000) : joined
+}
+
+// ---- The store ----
+
+const CONFIDENCE = { explicit_user: 0.95, manual: 0.9, agent_tool: 0.8, repository_file: 0.8, agent_discovery: 0.6, import: 0.5, tool_result: 0.5, conversation: 0.4 }
+const confidenceFor = (source) => CONFIDENCE[source] || 0.4
+const statusFor = (source) => (source === "explicit_user" || source === "manual" ? "active" : "candidate")
+
+let db
+function store() {
+  if (db) return db
+  const file = databasePath()
+  mkdirSync(path.dirname(file), { recursive: true })
+  db = new Database(file, { create: true })
+  db.exec("PRAGMA journal_mode = WAL")
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS memory (id TEXT PRIMARY KEY, scope TEXT NOT NULL, scope_id TEXT NOT NULL, kind TEXT NOT NULL, title TEXT NOT NULL, content TEXT NOT NULL, tags TEXT NOT NULL, source TEXT NOT NULL, source_ref TEXT, status TEXT NOT NULL, confidence REAL NOT NULL, importance INTEGER NOT NULL, created_by TEXT NOT NULL, directory TEXT, fingerprint TEXT NOT NULL, validated_at INTEGER, validation TEXT, superseded_by TEXT, time_last_used INTEGER, use_count INTEGER NOT NULL DEFAULT 0, time_created INTEGER NOT NULL, time_updated INTEGER NOT NULL)",
+  )
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS memory_scope_fingerprint_idx ON memory (scope, scope_id, fingerprint)")
+  db.exec("CREATE INDEX IF NOT EXISTS memory_scope_status_idx ON memory (scope, scope_id, status)")
+  db.exec(
+    "CREATE TABLE IF NOT EXISTS memory_use (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, memory_id TEXT NOT NULL REFERENCES memory(id) ON DELETE CASCADE, agent TEXT, message_id TEXT, score REAL NOT NULL, time_created INTEGER NOT NULL)",
+  )
+  db.exec("CREATE INDEX IF NOT EXISTS memory_use_session_time_idx ON memory_use (session_id, time_created)")
+  db.exec("PRAGMA foreign_keys = ON")
+  return db
+}
+
+// The 1.x API's shape: camelCase, times in epoch milliseconds.
+function fromRow(row) {
+  return {
+    id: row.id,
+    scope: row.scope,
+    scopeID: row.scope_id,
+    kind: row.kind,
+    title: row.title,
+    content: row.content,
+    tags: JSON.parse(row.tags),
+    source: row.source,
+    ...(row.source_ref ? { sourceRef: JSON.parse(row.source_ref) } : {}),
+    status: row.status,
+    confidence: row.confidence,
+    importance: row.importance,
+    createdBy: row.created_by,
+    ...(row.directory ? { directory: row.directory } : {}),
+    ...(row.validated_at !== null ? { validatedAt: row.validated_at } : {}),
+    ...(row.validation ? { validation: JSON.parse(row.validation) } : {}),
+    ...(row.superseded_by ? { supersededBy: row.superseded_by } : {}),
+    timeCreated: row.time_created,
+    timeUpdated: row.time_updated,
+    ...(row.time_last_used !== null ? { timeLastUsed: row.time_last_used } : {}),
+    useCount: row.use_count,
+  }
+}
+
+const findRow = (id) => store().query("SELECT * FROM memory WHERE id = ?").get(id)
+const findFingerprint = (scope, scopeID, fp) =>
+  store().query("SELECT * FROM memory WHERE scope = ? AND scope_id = ? AND fingerprint = ?").get(scope, scopeID, fp)
+
+const COLUMNS = { title: "title", content: "content", kind: "kind", tags: "tags", source: "source", sourceRef: "source_ref", status: "status", confidence: "confidence", importance: "importance", supersededBy: "superseded_by", fingerprint: "fingerprint", validation: "validation", validatedAt: "validated_at" }
+
+function writeRow(id, patch) {
+  const entries = Object.entries(patch).filter(([key]) => COLUMNS[key])
+  const values = entries.map(([key, value]) => (key === "tags" || key === "sourceRef" || key === "validation" ? (value == null ? null : JSON.stringify(value)) : value))
+  store()
+    .query("UPDATE memory SET " + [...entries.map(([key]) => COLUMNS[key] + " = ?"), "time_updated = ?"].join(", ") + " WHERE id = ?")
+    .run(...values, Date.now(), id)
+}
+
+const newID = () => "mem_" + Date.now().toString(16).padStart(12, "0") + randomBytes(7).toString("hex")
+
+function create(input, location) {
+  const scopeID =
+    input.scopeID ||
+    (input.scope === "global"
+      ? "global"
+      : input.scope === "session"
+        ? input.sessionID || "session:" + location.projectID
+        : input.scope === "agent"
+          ? location.projectID + ":" + (input.agent || "default")
+          : location.projectID)
+  const fp = fingerprint(input.content)
+  const existing = findFingerprint(input.scope, scopeID, fp)
+  if (existing) {
+    writeRow(existing.id, {
+      tags: unionTags(JSON.parse(existing.tags), input.tags || []),
+      importance: Math.max(existing.importance, input.importance ?? 3),
+      confidence: Math.max(existing.confidence, input.confidence ?? confidenceFor(input.source)),
+      status: mergeStatus(existing.status, input.status || statusFor(input.source)),
+      source: strongestSource(existing.source, input.source),
+      ...(input.sourceRef ? { sourceRef: input.sourceRef } : {}),
+    })
+    return fromRow(findRow(existing.id))
+  }
+  const id = newID()
+  const now = Date.now()
+  store()
+    .query(
+      "INSERT INTO memory (id, scope, scope_id, kind, title, content, tags, source, source_ref, status, confidence, importance, created_by, directory, fingerprint, time_created, time_updated) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    )
+    .run(
+      id,
+      input.scope,
+      scopeID,
+      input.kind,
+      input.title,
+      input.content,
+      JSON.stringify(input.tags || []),
+      input.source,
+      input.sourceRef ? JSON.stringify(input.sourceRef) : null,
+      input.status || statusFor(input.source),
+      input.confidence ?? confidenceFor(input.source),
+      input.importance ?? 3,
+      input.createdBy || "unknown",
+      input.directory || null,
+      fp,
+      now,
+      now,
+    )
+  return fromRow(findRow(id))
+}
+
+function update(id, patch) {
+  const current = findRow(id)
+  if (!current) return undefined
+  const content = patch.content ?? current.content
+  const fp = fingerprint(content)
+  const collision = fp === current.fingerprint ? undefined : findFingerprint(current.scope, current.scope_id, fp)
+  // Editing a memory into one that exists merges the two, as on 1.x.
+  if (collision && collision.id !== id) {
+    writeRow(collision.id, {
+      tags: unionTags(JSON.parse(collision.tags), patch.tags || JSON.parse(current.tags)),
+      importance: Math.max(collision.importance, patch.importance ?? current.importance),
+      confidence: Math.max(collision.confidence, patch.confidence ?? current.confidence),
+      status: mergeStatus(collision.status, patch.status || current.status),
+    })
+    store().query("DELETE FROM memory WHERE id = ?").run(id)
+    return fromRow(findRow(collision.id))
+  }
+  writeRow(id, { ...patch, ...(patch.content !== undefined ? { fingerprint: fp } : {}) })
+  return fromRow(findRow(id))
+}
+
+function list(query) {
+  const where = []
+  const values = []
+  const add = (clause, ...value) => {
+    where.push(clause)
+    values.push(...value)
+  }
+  const scopes = query.scope ? [query.scope] : query.scopes || []
+  if (scopes.length) add("scope IN (" + scopes.map(() => "?").join(", ") + ")", ...scopes)
+  const statuses = query.status ? [query.status] : query.statuses || []
+  if (statuses.length) add("status IN (" + statuses.map(() => "?").join(", ") + ")", ...statuses)
+  if (query.projectID) add("scope_id = ?", query.projectID)
+  if (query.sessionID) add("scope_id = ?", query.sessionID)
+  if (query.agent) add("scope_id LIKE ?", "%:" + query.agent)
+  const rows = store()
+    .query("SELECT * FROM memory" + (where.length ? " WHERE " + where.join(" AND ") : "") + " ORDER BY time_updated DESC LIMIT ?")
+    .all(...values, Number(query.limit) > 0 ? Number(query.limit) : 500)
+  const memories = rows.map(fromRow)
+  const needle = query.text ? normalizeContent(query.text) : ""
+  if (!needle) return memories
+  return memories.filter((memory) => normalizeContent(memory.title + " " + memory.content + " " + memory.tags.join(" ")).includes(needle))
+}
+
+function used(sessionID) {
+  const ids = [...new Set(store().query("SELECT memory_id FROM memory_use WHERE session_id = ? ORDER BY time_created DESC").all(sessionID).map((row) => row.memory_id))]
+  return ids.flatMap((id) => {
+    const row = findRow(id)
+    return row ? [fromRow(row)] : []
+  })
+}
+
+function recordUse(sessionID, memoryIDs, agent) {
+  const ids = [...new Set(memoryIDs)]
+  if (ids.length === 0) return
+  const now = Date.now()
+  const insert = store().query("INSERT INTO memory_use (session_id, memory_id, agent, message_id, score, time_created) VALUES (?, ?, ?, NULL, 0, ?)")
+  const touch = store().query("UPDATE memory SET use_count = use_count + 1, time_last_used = ? WHERE id = ?")
+  store().transaction(() => {
+    for (const id of ids) {
+      insert.run(sessionID, id, agent || null, now)
+      touch.run(now, id)
+    }
+  })()
+}
+
+function verify(id, location) {
+  const row = findRow(id)
+  if (!row) return undefined
+  const base = row.directory || location.directory
+  const now = Date.now()
+  const anchors = extractAnchors(row.title + "\n" + row.content).map((anchor) => {
+    if (anchor.kind === "url") return { ...anchor, checkedAt: now }
+    if (anchor.kind === "command") return { ...anchor, ok: Bun.which(anchor.value.split(/\s+/)[0] || anchor.value) !== null, checkedAt: now }
+    const target = path.isAbsolute(anchor.value) ? anchor.value : path.join(base || "", anchor.value)
+    const ok = anchor.kind === "directory" ? existsSync(target) && statSync(target).isDirectory() : existsSync(target)
+    return { ...anchor, ok, checkedAt: now }
+  })
+  const failed = anchors.some((anchor) => !anchor.ok)
+  writeRow(id, { validation: { anchors }, validatedAt: now, status: failed ? "stale" : row.status === "stale" ? "active" : row.status })
+  return fromRow(findRow(id))
+}
+
+function retrieve(settings, input, location) {
+  if (!settings.enabled) return []
+  const rows = store()
+    .query(
+      "SELECT * FROM memory WHERE status IN ('active', 'candidate') AND superseded_by IS NULL AND (scope = 'global' OR (scope = 'project' AND scope_id = ?) OR (scope = 'agent' AND scope_id = ?) OR (scope = 'session' AND scope_id = ?))",
+    )
+    .all(location.projectID, location.projectID + ":" + (input.agent || "default"), input.sessionID)
+  const now = Date.now()
+  const tokens = tokenize(input.query)
+  const ranked = rows
+    .map(fromRow)
+    .map((memory) => {
+      const lexical = lexicalScore(tokens, memory)
+      if (lexical === 0 && !(memory.scope === "global" && memory.importance >= 4)) return { memory, score: -Infinity }
+      const ageDays = Math.max(0, (now - (memory.timeLastUsed ?? memory.timeUpdated)) / 86400000)
+      const recency = ageDays < 7 ? 0.6 : ageDays < 30 ? 0.3 : 0
+      return { memory, score: lexical + scopeWeight(memory.scope) + memory.importance * 0.4 + memory.confidence * 1.5 + recency }
+    })
+    .filter((entry) => Number.isFinite(entry.score))
+    .sort((a, b) => b.score - a.score)
+  const selected = []
+  let budget = 0
+  for (const entry of ranked) {
+    if (selected.length >= settings.maxInjected) break
+    if (selected.some((chosen) => contradicts(chosen.memory, entry.memory))) continue
+    const cost = estimateTokens(renderMemoryBlock([entry.memory]))
+    if (selected.length > 0 && budget + cost > settings.maxTokens) continue
+    budget += cost
+    selected.push(entry)
+  }
+  return selected
+}
+
+// The memory block of the reader's config, global then the project's, as the 1.x engine read it.
+async function settingsFor(directory) {
+  const global = await loadConfig().catch(() => ({}))
+  let project = {}
+  for (const name of ["opencode.json", "opencode.jsonc"]) {
+    const parsed = directory ? await readJsonc(path.join(directory, name)) : undefined
+    if (isPlainObject(parsed)) project = mergeConfig(project, parsed)
+  }
+  const config = mergeConfig(global, project)
+  const memory = isPlainObject(config.memory) ? config.memory : {}
+  const model = typeof memory.model === "string" ? memory.model : typeof config.small_model === "string" ? config.small_model : undefined
+  return {
+    enabled: memory.enabled ?? DEFAULTS.enabled,
+    auto: memory.auto ?? DEFAULTS.auto,
+    ...(model ? { model } : {}),
+    maxInjected: memory.max_injected ?? DEFAULTS.maxInjected,
+    maxTokens: memory.max_tokens ?? DEFAULTS.maxTokens,
+    extractInterval: memory.extract_interval ?? DEFAULTS.extractInterval,
+    maxCandidatesPerSession: memory.max_candidates_per_session ?? DEFAULTS.maxCandidatesPerSession,
+  }
+}
+
+const textOf = (message) =>
+  (typeof message.content === "string" ? [{ type: "text", text: message.content }] : message.content || [])
+    .filter((part) => part && part.type === "text" && typeof part.text === "string")
+    .map((part) => part.text)
+    .join("\n")
+
+const ANY = {}
+const OBJECT = { type: "object" }
+
+export default {
+  id: "flupcode-memory",
+  setup: async (ctx) => {
+    const location = { directory: ctx.location && ctx.location.directory, projectID: (ctx.location && ctx.location.project && ctx.location.project.id) || "global" }
+    // The block each user turn was given, so every step of a turn sends the same bytes.
+    const blocks = new Map()
+    // The newest messages each session's request carried, for the extractor.
+    const recent = new Map()
+    const lastRun = new Map()
+
+    await ctx.session.hook("prompt", async (input) => {
+      try {
+        const settings = await settingsFor(location.directory)
+        const text = input.prompt && typeof input.prompt.text === "string" ? input.prompt.text : ""
+        if (!settings.enabled || !text.trim()) return
+        for (const candidate of explicitCandidates(text))
+          create(
+            {
+              scope: candidate.scope,
+              kind: candidate.kind,
+              title: candidate.title,
+              content: candidate.content,
+              source: "explicit_user",
+              status: "active",
+              confidence: 0.95,
+              importance: 4,
+              createdBy: "user",
+              sessionID: input.sessionID,
+              ...(candidate.agent ? { agent: candidate.agent } : {}),
+              sourceRef: { sessionID: input.sessionID },
+            },
+            location,
+          )
+      } catch {
+        // A memory that cannot be kept never stops the prompt.
+      }
+    })
+
+    await ctx.session.hook("context", async (input) => {
+      try {
+        recent.set(input.sessionID, input.messages)
+        if (recent.size > 200) recent.delete(recent.keys().next().value)
+        const lastUser = [...input.messages].reverse().find((message) => message && message.role === "user")
+        if (!lastUser) return
+        const key = input.sessionID + "|" + (lastUser.id || textOf(lastUser))
+        if (!blocks.has(key)) {
+          const settings = await settingsFor(location.directory)
+          const matches = retrieve(settings, { sessionID: input.sessionID, agent: input.agent, query: textOf(lastUser) }, location)
+          if (matches.length > 0) recordUse(input.sessionID, matches.map((match) => match.memory.id), input.agent)
+          blocks.set(key, matches.length > 0 ? renderMemoryBlock(matches.map((match) => match.memory)) : "")
+          if (blocks.size > 2000) blocks.delete(blocks.keys().next().value)
+        }
+        const block = blocks.get(key)
+        if (block) input.system.push({ type: "text", text: block })
+      } catch {
+        // Retrieval that fails sends the turn without memories.
+      }
+    })
+
+    // Candidates from the model after a run, at most once per interval per session.
+    const controller = new AbortController()
+    void (async () => {
+      for await (const event of ctx.event.subscribe({ signal: controller.signal })) {
+        if (event.type !== "session.execution.succeeded") continue
+        if (event.location && event.location.directory && event.location.directory !== location.directory) continue
+        const sessionID = event.data && event.data.sessionID
+        const messages = recent.get(sessionID)
+        if (!sessionID || !messages) continue
+        const settings = await settingsFor(location.directory)
+        const transcript = serializeRecent(messages)
+        const previous = lastRun.get(sessionID)
+        if (!settings.enabled || !settings.auto || transcript.trim().length < 40) continue
+        if (previous !== undefined && Date.now() - previous < settings.extractInterval * 60000) continue
+        lastRun.set(sessionID, Date.now())
+        const [providerID, ...rest] = (settings.model || "").split("/")
+        const model = providerID && rest.length ? { providerID, id: rest.join("/") } : undefined
+        const answer = await ctx.generate.text({ prompt: buildPrompt(transcript), ...(model ? { model } : {}) }).catch(() => undefined)
+        const candidates = parseCandidates((answer && answer.text) || "").slice(0, settings.maxCandidatesPerSession)
+        for (const candidate of candidates)
+          create(
+            { ...candidate, source: "agent_discovery", status: "candidate", createdBy: "extractor", directory: location.directory },
+            location,
+          )
+      }
+    })().catch(() => {})
+
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: "memory",
+        description:
+          "Persist durable knowledge about this project, repository, user, or agent across sessions. Use it when you discover or are told stable facts, conventions, procedures, constraints, or preferences that would otherwise be rediscovered. Do not store temporary output, logs, or one-off errors.",
+        input: {
+          type: "object",
+          properties: {
+            action: { type: "string", enum: ["add", "update", "forget", "list"], description: "add a durable memory, update one, forget one, or list what is currently remembered" },
+            id: { type: "string", description: "Memory id for update or forget" },
+            title: { type: "string", description: "Short one-line label for an added memory" },
+            content: { type: "string", description: "The remembered fact, rule, or procedure" },
+            kind: { type: "string", enum: KINDS },
+            scope: { type: "string", enum: SCOPES, description: "Where the memory applies; defaults to the current project" },
+            tags: { type: "array", items: { type: "string" } },
+            query: { type: "string", description: "Filter for the list action" },
+          },
+          required: ["action"],
+        },
+        options: { codemode: false },
+        execute: async (input, context) => {
+          const say = (memories) =>
+            ({ content: JSON.stringify(memories.map((memory) => ({ id: memory.id, scope: memory.scope, kind: memory.kind, title: memory.title, content: memory.content, status: memory.status }))) })
+          if (input.action === "list") return say(list({ text: input.query, limit: 20 }))
+          if (input.action === "forget") {
+            if (!input.id) return { content: "id is required to forget a memory" }
+            store().query("DELETE FROM memory WHERE id = ?").run(input.id)
+            return say([])
+          }
+          if (input.action === "update") {
+            if (!input.id) return { content: "id is required to update a memory" }
+            const updated = update(input.id, {
+              ...(input.title !== undefined ? { title: input.title } : {}),
+              ...(input.content !== undefined ? { content: input.content } : {}),
+              ...(input.kind !== undefined ? { kind: input.kind } : {}),
+              ...(input.tags !== undefined ? { tags: input.tags } : {}),
+            })
+            return say(updated ? [updated] : [])
+          }
+          if (!input.title || !input.content) return { content: "title and content are required to add a memory" }
+          return say([
+            create(
+              {
+                scope: SCOPES.includes(input.scope) ? input.scope : "project",
+                kind: KINDS.includes(input.kind) ? input.kind : "fact",
+                title: input.title,
+                content: input.content,
+                tags: Array.isArray(input.tags) ? input.tags : [],
+                source: "agent_tool",
+                status: "candidate",
+                createdBy: context.agent,
+                sessionID: context.sessionID,
+                agent: context.agent,
+                sourceRef: { sessionID: context.sessionID, toolCallID: context.id },
+              },
+              location,
+            ),
+          ])
+        },
+      })
+    })
+
+    // The app's memory screens, over the plugin RPC: the 1.x routes' inputs and answers.
+    const method = { input: OBJECT, output: ANY }
+    const registration = await ctx.rpc.register(
+      { id: "flupcode.memory", methods: { list: method, get: method, create: method, update: method, remove: method, verify: method, used: method }, events: {} },
+      {
+        list: async (input) => list(input || {}),
+        get: async (input) => {
+          const row = findRow(input.id)
+          return row ? fromRow(row) : null
+        },
+        create: async (input) =>
+          create(
+            {
+              scope: SCOPES.includes(input.scope) ? input.scope : "project",
+              kind: KINDS.includes(input.kind) ? input.kind : "fact",
+              title: String(input.title || ""),
+              content: String(input.content || ""),
+              tags: Array.isArray(input.tags) ? input.tags : [],
+              source: input.source || "manual",
+              ...(STATUSES.includes(input.status) ? { status: input.status } : {}),
+              ...(typeof input.confidence === "number" ? { confidence: input.confidence } : {}),
+              ...(typeof input.importance === "number" ? { importance: input.importance } : {}),
+              createdBy: "user",
+              ...(input.sessionID ? { sessionID: input.sessionID } : {}),
+              ...(input.agent ? { agent: input.agent } : {}),
+            },
+            location,
+          ),
+        update: async (input) => {
+          const { id, ...patch } = input
+          return update(id, patch) || null
+        },
+        remove: async (input) => {
+          store().query("DELETE FROM memory WHERE id = ?").run(input.id)
+          return true
+        },
+        verify: async (input) => verify(input.id, location) || null,
+        used: async (input) => used(input.sessionID),
+      },
+    )
+    return () => {
+      controller.abort()
+      return registration.dispose()
+    }
+  },
+}
+`,
+}
+
+/**
+ * agents: what FlupCode patched into its 1.x engine's agents, as a 2.x plugin (V2-33). The hidden
+ * `cowork` agent the app marks a project chat with (ADR-0013); the plan agent's instruction to hand
+ * off through `plan_exit`, and that tool, which asks the reader through harness-server (a plugin's
+ * tool cannot ask) and switches to build on a yes; and the permission floor: 2.x merges an agent's
+ * rules with the session's, so a session-level `*: allow` (FlupCode's permission modes) would let the
+ * plan agent edit. Here an action the agent's own rules deny stays denied, whatever the session says.
+ */
+export const AGENTS_PLUGIN_V2 = {
+  file: "flupcode-agents.js",
+  source: String.raw`// Installed by FlupCode for OpenCode 2. Adds the hidden cowork agent, the plan agent's hand-off to
+// build (plan_exit), and keeps an agent's own denials denied whatever the session's rules say.
+// Regenerated when FlupCode starts the engine; edits here are overwritten.
+import { readFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+
+// Kept in step with PLAN_SYSTEM in packages/core/src/plugin/agent.ts (the 1.x engine).
+const PLAN_SYSTEM =
+  "You are in plan mode: research the request by reading and searching the workspace, ask clarifying questions, and design an implementation plan without making changes. When the plan is ready, present it and call the plan_exit tool to ask the user whether to switch to the build agent and start implementing."
+const PLAN_EXIT_DESCRIPTION = [
+  "Use this tool when you have completed the planning phase and the plan is ready for the user to approve.",
+  "It asks the user whether to switch to the build agent and start implementing, then switches the agent when they approve.",
+  "Call this tool:",
+  "- After you have presented a complete plan",
+  "- After you have clarified any questions with the user",
+  "- When you are confident the plan is ready for implementation",
+  "Do NOT call this tool:",
+  "- Before the plan is finalized",
+  "- If you still have unanswered questions about the implementation",
+  "- If the user has indicated they want to continue planning",
+].join("\n")
+// The reader may take their time; the harness gives up first.
+const PLAN_EXIT_TIMEOUT_MS = 31 * 60 * 1000
+const RULES_TTL_MS = 5000
+
+function flupcodeConfigDir() {
+  if (process.env.FLUPCODE_CONFIG_DIR) return process.env.FLUPCODE_CONFIG_DIR
+  const base = process.env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config")
+  return path.join(base, "flupcode")
+}
+
+function harnessBaseURL() {
+  const raw =
+    process.env.FLUPCODE_HARNESS_SERVER_URL || "http://127.0.0.1:" + (process.env.FLUPCODE_HARNESS_PORT || "4097")
+  if (!URL.canParse(raw)) return undefined
+  const url = new URL(raw)
+  if (url.hostname !== "127.0.0.1" && url.hostname !== "[::1]" && url.hostname !== "::1" && url.hostname !== "localhost")
+    return undefined
+  return url.origin
+}
+
+async function readToken() {
+  const fromEnv = process.env.FLUPCODE_BROWSER_TOKEN
+  if (typeof fromEnv === "string" && fromEnv.trim() !== "") return fromEnv.trim()
+  const text = await readFile(path.join(flupcodeConfigDir(), "browser-token"), "utf8").catch(() => undefined)
+  if (text === undefined) return undefined
+  const token = text.trim()
+  return token === "" ? undefined : token
+}
+
+// The engine's own wildcard: "*" matches anything, "?" one character.
+function matches(pattern, value) {
+  const source = String(pattern).replace(/[.+^${"$"}{}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".")
+  return new RegExp("^" + source + "$", "s").test(String(value))
+}
+
+// The last rule that names the action and the resource decides, as the engine evaluates them.
+function effectOf(rules, action, resource) {
+  const rule = [...rules].reverse().find((item) => matches(item.action, action) && matches(item.resource, resource))
+  return rule ? rule.effect : undefined
+}
+
+export default {
+  id: "flupcode-agents",
+  setup: async (ctx) => {
+    const directory = ctx.location && ctx.location.directory
+    await ctx.agent.transform((editor) => {
+      const build = editor.get("build")
+      // Not an agent the reader picks: it marks a conversation as Cowork, the chat that runs in the
+      // project with the same permission modes as Code.
+      editor.update("cowork", (draft) => {
+        draft.name = "cowork"
+        draft.description = "Chat that can read, write and run in the project."
+        draft.mode = "primary"
+        draft.hidden = true
+        draft.permissions = [...((build && build.permissions) || []), { action: "question", resource: "*", effect: "allow" }]
+      })
+      editor.update("plan", (draft) => {
+        if (!draft.system) draft.system = PLAN_SYSTEM
+        draft.permissions = [...(draft.permissions || []), { action: "plan_exit", resource: "*", effect: "allow" }]
+      })
+    })
+
+    // The floor: the agent's own rules, asked of the engine and kept for a moment.
+    const rules = new Map()
+    const agentRules = async (agentID) => {
+      const known = rules.get(agentID)
+      if (known && Date.now() - known.at < RULES_TTL_MS) return known.rules
+      const answer = await ctx.agent.get({ agentID, ...(directory ? { location: { directory } } : {}) }).catch(() => undefined)
+      const fresh = (answer && answer.data && answer.data.permissions) || []
+      rules.set(agentID, { rules: fresh, at: Date.now() })
+      return fresh
+    }
+    await ctx.permission.hook("evaluate", async (input) => {
+      if (!input.agent || input.effect === "deny") return
+      const own = await agentRules(input.agent)
+      if (!(input.resources || []).some((resource) => effectOf(own, input.action, resource) === "deny")) return
+      input.effect = "deny"
+      input.message = "The " + input.agent + " agent does not allow " + input.action + "."
+    })
+
+    const base = harnessBaseURL()
+    const token = base === undefined ? undefined : await readToken()
+    if (!base || !token) return
+    await ctx.tool.transform((editor) => {
+      editor.add({
+        name: "plan_exit",
+        description: PLAN_EXIT_DESCRIPTION,
+        input: { type: "object", properties: {} },
+        options: { codemode: false },
+        execute: async (_input, context) => {
+          const answer = await fetch(base + "/harness/plan-exit", {
+            method: "POST",
+            headers: { "content-type": "application/json", authorization: "Bearer " + token },
+            body: JSON.stringify({ sessionID: context.sessionID }),
+            signal: AbortSignal.any([AbortSignal.timeout(PLAN_EXIT_TIMEOUT_MS), context.signal]),
+          })
+            .then((response) => response.json())
+            .catch(() => undefined)
+          return {
+            content:
+              answer && answer.data && answer.data.approved === true
+                ? "The user approved the plan and switched to the build agent. Execute the plan now."
+                : "The user chose to keep refining the plan. Stay in plan mode and continue working with them.",
+          }
+        },
+      })
+    })
+  },
+}
+`,
+}
+
 export const PLUGINS_V2 = [
   REASONING_VARIANTS_PLUGIN_V2,
   TOOL_USES_PLUGIN_V2,
@@ -1335,4 +2830,9 @@ export const PLUGINS_V2 = [
   COMPACTION_ANCHORS_PLUGIN_V2,
   TOOL_TRIM_PLUGIN_V2,
   RELEVANCE_PLUGIN_V2,
+  CACHE_SELECTION_PLUGIN_V2,
+  WEB_ACTIONS_PLUGIN_V2,
+  DELIVERY_PLUGIN_V2,
+  MEMORY_PLUGIN_V2,
+  AGENTS_PLUGIN_V2,
 ]

@@ -129,12 +129,15 @@ describe.skipIf(!run)("the rest of the OpenCode 2 adapter", () => {
     expect((await domains.session.list({ directory: engine.project })).data.length).toBe(before)
   })
 
-  test("what 2.x no longer has reads empty, and changing it says why", async () => {
+  test("what 2.x no longer has reads empty, and so does memory without FlupCode's plugin", async () => {
+    // This engine runs without plugins: memory is the plugin's (V2-32), so its lists read empty and a
+    // write fails with the engine's own error.
     expect(await domains.memory.list()).toEqual({ data: [] })
+    expect(await domains.memory.create({ title: "x", content: "y" }).catch((cause: unknown) => cause)).toBeInstanceOf(
+      EngineError,
+    )
     expect(await domains.tools()).toEqual([])
     expect(await domains.console.active()).toEqual({ consoleManagedProviders: [], switchableOrgCount: 0 })
-    const refused = await domains.memory.create({ title: "x", content: "y" }).catch((cause: unknown) => cause)
-    expect((refused as EngineError).tag).toBe("UnsupportedByEngine")
     await domains.reload()
   })
 })

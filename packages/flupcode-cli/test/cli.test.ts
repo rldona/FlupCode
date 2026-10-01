@@ -193,7 +193,7 @@ Bun.serve({
         relay.url,
       )
       const out = reader(host.stdout)
-      await out.wait(/The engine is OpenCode 2\.0\.20/)
+      await out.wait(/Engine: OpenCode 2\.0\.20/)
       const [url] = await out.wait(/https:\/\/app\.flupcode\.com\/#remote=[\w-]+/)
       await out.wait(/Relay .*online/)
 

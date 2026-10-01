@@ -79,14 +79,6 @@ export const Onboarding: Component<OnboardingProps> = (props) => {
                 : t("Server offline")}
       </div>
 
-      <Show when={props.serverHealthy === true && props.engineProfile === "v2"}>
-        <p class="fc-onboarding-text">
-          {t(
-            "This engine is OpenCode 2. Some of FlupCode's plugins do not run on it yet, so permission modes and memory are unavailable.",
-          )}
-        </p>
-      </Show>
-
       <Show when={props.serverHealthy === true && props.engineProfile === "stock"}>
         <p class="fc-onboarding-text">
           {t(

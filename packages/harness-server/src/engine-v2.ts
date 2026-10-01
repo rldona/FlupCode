@@ -125,6 +125,55 @@ export class V2Engine {
     await call(this.client.session.interrupt({ sessionID }))
   }
 
+  /**
+   * Asks the reader one question in the session itself, as a form the app shows like any question: 2.x
+   * gives a plugin's tool no way to ask, so a web action's approval (V2-31) and the plan's hand-off to
+   * build (V2-33) are asked from here. The value of the option picked, or `undefined` when the form was
+   * cancelled or nobody answered in time.
+   */
+  async askChoice(input: {
+    sessionID: string
+    title: string
+    description: string
+    options: Array<{ value: string; label: string; description?: string }>
+    timeoutMs: number
+  }) {
+    const form = await call(
+      this.client.session.form.create({
+        sessionID: input.sessionID,
+        title: input.title,
+        metadata: { flupcode: "choice" },
+        fields: [
+          {
+            key: "choice",
+            title: input.title,
+            description: input.description,
+            type: "string",
+            required: true,
+            options: input.options,
+          },
+        ],
+      }),
+    )
+    const deadline = Date.now() + input.timeoutMs
+    while (Date.now() < deadline) {
+      const detail = await call(this.client.session.form.get({ sessionID: input.sessionID, formID: form.id }))
+      if (detail.state.status === "cancelled") return undefined
+      if (detail.state.status === "answered") {
+        const choice = detail.state.answer.choice
+        return typeof choice === "string" ? choice : undefined
+      }
+      await Bun.sleep(500)
+    }
+    // Unanswered: the form goes, so a late answer cannot act for a caller that already gave up.
+    await this.client.session.form.cancel({ sessionID: input.sessionID, formID: form.id }).catch(() => undefined)
+    return undefined
+  }
+
+  async switchAgent(sessionID: string, agent: string) {
+    await call(this.client.session.switchAgent({ sessionID, agent }))
+  }
+
   /** The tool call the session's last assistant message is still inside, if any. */
   async activity(sessionID: string): Promise<Activity | undefined> {
     const assistant = (await this.transcript(sessionID)).findLast((message) => message.type === "assistant")

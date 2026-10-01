@@ -59,8 +59,8 @@ function context(directory = "/work/demo", events: unknown[] = []) {
   }
 }
 
-async function plugin(file: string) {
-  const config = await temp()
+async function plugin(file: string, config?: string) {
+  config ??= await temp()
   const { paths } = await installEnginePlugins(config, "v2")
   const target = paths.find((entry) => entry.endsWith(file))
   expect(target).toBeDefined()
@@ -75,24 +75,26 @@ const data = (...parts: string[]) => path.join(process.env.XDG_DATA_HOME!, "flup
 const json = async (file: string) => JSON.parse(await readFile(file, "utf8"))
 
 describe("installEnginePlugins for OpenCode 2", () => {
-  test("writes the 2.x set, and removes the 1.x plugins that have no 2.x version yet", async () => {
+  test("writes the 2.x set over the 1.x one, file for file, and back again", async () => {
     const config = await temp()
     await installEnginePlugins(config, "v1")
     const v1 = (await readdir(path.join(config, "plugins"))).sort()
-    expect(v1).toContain("flupcode-cache-selection.js")
 
     const { paths, changed } = await installEnginePlugins(config, "v2")
     expect(changed).toBe(true)
-    const v2 = (await readdir(path.join(config, "plugins"))).sort()
-    expect(v2).toEqual(paths.map((file) => path.basename(file)).sort())
-    expect(v2).not.toContain("flupcode-cache-selection.js")
-    for (const file of v2)
+    // Every 1.x plugin has its 2.x version under the same name; memory is 2.x's alone (1.x keeps it in
+    // the engine), and goes again when 1.x returns.
+    expect(paths.map((file) => path.basename(file)).sort()).toEqual(
+      [...v1, "flupcode-agents.js", "flupcode-memory.js"].sort(),
+    )
+    for (const file of v1)
       expect(await readFile(path.join(config, "plugins", file), "utf8")).toContain("export default {")
 
-    // Nothing to do the second time; and back on 1.x every 1.x plugin returns.
     expect((await installEnginePlugins(config, "v2")).changed).toBe(false)
     await installEnginePlugins(config, "v1")
     expect((await readdir(path.join(config, "plugins"))).sort()).toEqual(v1)
+    for (const file of v1)
+      expect(await readFile(path.join(config, "plugins", file), "utf8")).not.toContain("for OpenCode 2")
   })
 })
 
@@ -230,12 +232,18 @@ async function harness(answers: Record<string, unknown> = {}) {
     hostname: "127.0.0.1",
     fetch: async (request) => {
       const route = new URL(request.url).pathname
-      calls.push({ route, authorization: request.headers.get("authorization"), body: await request.json() })
-      return Response.json({ data: answers[route] ?? {} })
+      calls.push({
+        route,
+        authorization: request.headers.get("authorization"),
+        body: await request.json().catch(() => ({})),
+      })
+      const answer = answers[route]
+      return Response.json({ data: (typeof answer === "function" ? answer() : answer) ?? {} })
     },
   })
   const config = await temp()
   await writeFile(path.join(config, "adaptive-token"), "adaptive-token\n")
+  await writeFile(path.join(config, "browser-token"), "browser-token\n")
   process.env.FLUPCODE_CONFIG_DIR = config
   process.env.FLUPCODE_HARNESS_SERVER_URL = `http://127.0.0.1:${server.port}`
   stops.push(() => server.stop(true))
@@ -471,5 +479,425 @@ describe("OpenCode 2 adaptive plugins", () => {
     expect(harnessCalls.on("/harness/adaptive/relevance").map((hit) => hit.body)).toEqual([
       { projectID: "/work/demo", sessionID: "ses_1", messageID: "msg_u", objective: "ship it" },
     ])
+  })
+})
+
+describe("OpenCode 2 cache selection", () => {
+  type Part = { type: string; id?: string; name?: string; text?: string; result?: { type: string; value: string } }
+  const request = (sessionID: string) => ({
+    sessionID,
+    messages: [
+      { id: "msg_u1", role: "user", content: [{ type: "text", text: "read it" }] as Part[] },
+      { id: "msg_a1", role: "assistant", content: [{ type: "tool-call", id: "call_1", name: "read" }] as Part[] },
+      {
+        role: "tool",
+        content: [
+          { type: "tool-result", id: "call_1", name: "read", result: { type: "text", value: "x".repeat(4000) } },
+        ] as Part[],
+      },
+      { id: "msg_u2", role: "user", content: [{ type: "text", text: "and now?" }] as Part[] },
+    ],
+  })
+
+  async function selection(events: Array<{ type: string; data: Record<string, unknown> }>) {
+    await harness({
+      "/harness/adaptive/selection": { enabled: true, keepRecentTurns: 0, minSavingsTokens: 0, coldGapMs: 1 },
+    })
+    const plugin_ = await plugin("flupcode-cache-selection.js")
+    const recorded = context()
+    // A gap between the assistant's end and the next delivery: the cache has gone cold.
+    recorded.ctx.event.subscribe = () => ({
+      async *[Symbol.asyncIterator]() {
+        for (const event of events) {
+          await Bun.sleep(5)
+          yield event
+        }
+      },
+    })
+    await plugin_.setup(recorded.ctx)
+    await Bun.sleep(150)
+    return recorded
+  }
+
+  test("at a cold step an old large output becomes a placeholder in its tool-result", async () => {
+    const recorded = await selection([
+      { type: "session.inbox.delivered", data: { sessionID: "ses_1", inboxID: "msg_u1" } },
+      { type: "session.step.ended", data: { sessionID: "ses_1", assistantMessageID: "msg_a1" } },
+      { type: "session.inbox.delivered", data: { sessionID: "ses_1", inboxID: "msg_u2" } },
+    ])
+    const cold = request("ses_1")
+    recorded.hooks.get("session.context")!(cold as never)
+    const result = cold.messages[2]!.content[0]!.result!
+    expect(result.type).toBe("text")
+    expect(result.value).toContain("[Old read output (4000 characters) cleared by FlupCode to save context.")
+    expect(cold.messages[3]!.content).toEqual([{ type: "text", text: "and now?" }])
+  })
+
+  test("messages whose times it never saw are never a boundary, so nothing is trimmed", async () => {
+    const recorded = await selection([])
+    const unknown = request("ses_2")
+    recorded.hooks.get("session.context")!(unknown as never)
+    expect(unknown.messages[2]!.content[0]!.result!.value).toBe("x".repeat(4000))
+  })
+})
+
+describe("OpenCode 2 web actions and delivery", () => {
+  const profile = {
+    id: "post",
+    tool: "flupcode_post",
+    description: "Post the piece",
+    origin: "https://example.com",
+    inputs: { title: "string", image: "image" },
+    steps: [{ upload: { selector: "input", from: "{{image}}" } }, { submit: { selector: "form" } }],
+  }
+  const composed = "data:image/png;base64,iVBORw0KGgo="
+
+  async function actions(approved: boolean) {
+    const calls = await harness({
+      "/harness/actions": { profiles: [profile] },
+      "/harness/actions/approve": () => (approved ? { approved: true } : { approved: false, reason: "denied" }),
+      "/harness/actions/run": {
+        action: "post",
+        origin: "https://example.com",
+        steps: [{ index: 1, kind: "submit", status: "ok" }],
+      },
+    })
+    const plugin_ = await plugin("flupcode-actions.js")
+    const recorded = context("/work/demo")
+    await plugin_.setup(recorded.ctx)
+    const added: Array<{
+      name: string
+      options: unknown
+      execute: (input: unknown, context: unknown) => Promise<unknown>
+    }> = []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    // The composing tool's result is where the image comes from on 2.x.
+    recorded.hooks.get("tool.execute.after")!({
+      sessionID: "ses_1",
+      tool: "compose",
+      status: "completed",
+      result: {
+        content: [
+          { type: "text", text: "composed" },
+          { type: "file", uri: composed, mime: "image/png" },
+        ],
+      },
+    } as never)
+    return { calls, added }
+  }
+
+  test("an approved action runs with the composed image, after the harness asked in the session", async () => {
+    const { calls, added } = await actions(true)
+    expect(added.map((tool) => [tool.name, tool.options])).toEqual([["flupcode_post", { codemode: false }]])
+    const result = (await added[0]!.execute(
+      { title: "Hello" },
+      { sessionID: "ses_1", signal: new AbortController().signal },
+    )) as {
+      content: string
+    }
+    expect(result.content).toContain('Acción "post" completada.')
+    expect(calls.on("/harness/actions/approve")[0]!.body).toEqual({
+      action: "post",
+      sessionID: "ses_1",
+      project: "/work/demo",
+    })
+    expect(calls.on("/harness/actions/approve")[0]!.authorization).toBe("Bearer browser-token")
+    expect(calls.on("/harness/actions/run")[0]!.body).toEqual({
+      action: "post",
+      sessionID: "ses_1",
+      project: "/work/demo",
+      inputs: { title: "Hello", image: { dataUrl: composed } },
+    })
+  })
+
+  test("a denied action never reaches the runner", async () => {
+    const { calls, added } = await actions(false)
+    expect(
+      await added[0]!.execute({ title: "Hello" }, { sessionID: "ses_1", signal: new AbortController().signal }),
+    ).toEqual({
+      content: "El usuario denegó la acción.",
+    })
+    expect(calls.on("/harness/actions/run")).toHaveLength(0)
+  })
+
+  test("delivery runs the reader's guards and hands the piece back with its composed image", async () => {
+    const config = await temp()
+    await writeFile(
+      path.join(config, "guard.mjs"),
+      'export const guards = [{ id: "len", assess: (input) => input.text.length > 3 ? { allow: true } : { allow: false, code: "SHORT", reason: "too short" } }]',
+    )
+    await writeFile(
+      path.join(config, "opencode.jsonc"),
+      '{ // the reader\'s config\n "flupcode": { "delivery": { "post": { "tool": "flupcode_deliver_post", "guards": ["guard.mjs"], "composeTools": ["compose"] } } } }',
+    )
+    const deliver = await plugin("flupcode-deliver.js", config)
+    const recorded = context()
+    await deliver.setup(recorded.ctx)
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<unknown> }> = []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["flupcode_deliver_post"])
+
+    expect(await added[0]!.execute({ text: "Hi", template: "t" }, { sessionID: "ses_1" })).toEqual({
+      content: "No se entrega. SHORT: too short",
+    })
+    expect(await added[0]!.execute({ text: "Hello world", template: "t" }, { sessionID: "ses_1" })).toEqual({
+      content: "I cannot find the composed image in this conversation. Compose it first and try again.",
+    })
+    recorded.hooks.get("tool.execute.after")!({
+      sessionID: "ses_1",
+      tool: "compose",
+      status: "completed",
+      result: { content: [{ type: "file", uri: composed, mime: "image/png" }] },
+    } as never)
+    const delivered = (await added[0]!.execute({ text: "Hello world", template: "t" }, { sessionID: "ses_1" })) as {
+      content: Array<{ type: string; text?: string; uri?: string; mime?: string }>
+    }
+    expect(delivered.content[0]!.text).toContain("Hello world")
+    expect(delivered.content[1]).toEqual({ type: "file", uri: composed, mime: "image/png" })
+  })
+})
+
+describe("OpenCode 2 memory", () => {
+  type Handlers = Record<string, (input: unknown) => Promise<unknown>>
+
+  async function memory(events: unknown[] = [], answer = "[]") {
+    process.env.FLUPCODE_MEMORY_DB = path.join(await temp(), "memory.db")
+    const plugin_ = await plugin("flupcode-memory.js")
+    const recorded = context("/work/demo", events)
+    let handlers: Handlers = {}
+    let definition: { id: string; methods: Record<string, unknown> } | undefined
+    const prompts: string[] = []
+    Object.assign(recorded.ctx, {
+      location: { directory: "/work/demo", project: { id: "prj_1" } },
+      rpc: {
+        register: async (registered: typeof definition, given: Handlers) => {
+          definition = registered
+          handlers = given
+          return { dispose: async () => {}, events: { emit: async () => {} } }
+        },
+      },
+      generate: {
+        text: async (input: { prompt: string }) => {
+          prompts.push(input.prompt)
+          return { text: answer }
+        },
+      },
+    })
+    await plugin_.setup(recorded.ctx)
+    return { recorded, rpc: () => handlers, definition: () => definition, prompts }
+  }
+
+  afterEach(() => {
+    delete process.env.FLUPCODE_MEMORY_DB
+  })
+
+  test("a 'remember that' prompt is kept, and a turn about it gets it as the same block on every step", async () => {
+    const subject = await memory()
+    await subject.recorded.hooks.get("session.prompt")!({
+      sessionID: "ses_1",
+      messageID: "msg_u",
+      prompt: { text: "Remember that we deploy with bun run deploy." },
+    } as never)
+    const request = () => ({
+      sessionID: "ses_1",
+      agent: "build",
+      system: [{ type: "text", text: "You are an agent." }],
+      messages: [{ id: "msg_u2", role: "user", content: [{ type: "text", text: "how do we deploy this?" }] }],
+    })
+    const first = request()
+    await subject.recorded.hooks.get("session.context")!(first as never)
+    const second = request()
+    await subject.recorded.hooks.get("session.context")!(second as never)
+    expect(first.system[1]!.text).toBe(
+      [
+        "<memory>",
+        "Relevant memories from previous sessions. They may be outdated; verify before relying on them.",
+        "- [project] We deploy with bun run deploy: we deploy with bun run deploy",
+        "</memory>",
+      ].join("\n"),
+    )
+    expect(second.system).toEqual(first.system)
+    // Recorded once for the turn, as the app's "used in this session" reads it.
+    const used = (await subject.rpc().used!({ sessionID: "ses_1" })) as Array<{ title: string; useCount: number }>
+    expect(used.map((item) => [item.title, item.useCount])).toEqual([["We deploy with bun run deploy", 1]])
+  })
+
+  test("the app's screens go through the RPC with the 1.x shapes", async () => {
+    const subject = await memory()
+    expect(subject.definition()!.id).toBe("flupcode.memory")
+    expect(Object.keys(subject.definition()!.methods).sort()).toEqual([
+      "create",
+      "get",
+      "list",
+      "remove",
+      "update",
+      "used",
+      "verify",
+    ])
+    const created = (await subject.rpc().create!({ title: "Lint", content: "Run bun run lint before pushing" })) as {
+      id: string
+      scope: string
+      scopeID: string
+      status: string
+      source: string
+      timeCreated: number
+    }
+    expect(created).toMatchObject({ scope: "project", scopeID: "prj_1", status: "active", source: "manual" })
+    expect(typeof created.timeCreated).toBe("number")
+    // The same content again is the same memory, not a second one.
+    await subject.rpc().create!({ title: "Lint again", content: "run bun run lint   before pushing" })
+    expect(((await subject.rpc().list!({})) as unknown[]).length).toBe(1)
+    expect(await subject.rpc().update!({ id: created.id, importance: 5 })).toMatchObject({ importance: 5 })
+    expect(((await subject.rpc().list!({ text: "lint" })) as unknown[]).length).toBe(1)
+    expect(await subject.rpc().verify!({ id: created.id })).toMatchObject({
+      validation: { anchors: [expect.objectContaining({ kind: "command", value: "bun run lint" })] },
+    })
+    await subject.rpc().remove!({ id: created.id })
+    expect(await subject.rpc().get!({ id: created.id })).toBeNull()
+  })
+
+  test("the memory tool adds and lists as the agent", async () => {
+    const subject = await memory()
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> }> =
+      []
+    subject.recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["memory"])
+    const context_ = { sessionID: "ses_1", agent: "build", id: "call_1" }
+    await added[0]!.execute({ action: "add", title: "Port", content: "The dev server listens on 4444" }, context_)
+    const listed = JSON.parse((await added[0]!.execute({ action: "list", query: "4444" }, context_)).content)
+    expect(listed).toEqual([expect.objectContaining({ title: "Port", status: "candidate", scope: "project" })])
+  })
+
+  test("after a run the model is asked for candidates from the session's recent turns", async () => {
+    let release = () => {}
+    const turnRecorded = new Promise<void>((resolve) => (release = resolve))
+    const ended = {
+      type: "session.execution.succeeded",
+      location: { directory: "/work/demo" },
+      data: { sessionID: "ses_1" },
+    }
+    const subject = await memory(
+      [],
+      '[{"title":"Release","content":"Releases are cut from the power branch","kind":"procedure","scope":"project","tags":["release"],"confidence":0.7}]',
+    )
+    // The run ends only after its turn was seen, as on the engine.
+    subject.recorded.ctx.event.subscribe = () => ({
+      async *[Symbol.asyncIterator]() {
+        await turnRecorded
+        yield ended
+        yield ended
+      },
+    })
+    const plugin_ = await plugin("flupcode-memory.js")
+    await plugin_.setup(subject.recorded.ctx)
+    await subject.recorded.hooks.get("session.context")!({
+      sessionID: "ses_1",
+      system: [],
+      messages: [
+        { id: "msg_u", role: "user", content: [{ type: "text", text: "How are releases cut in this repository?" }] },
+        {
+          id: "msg_a",
+          role: "assistant",
+          content: [{ type: "text", text: "From the power branch, after CI passes." }],
+        },
+      ],
+    } as never)
+    release()
+    await settle()
+    // Once per interval, however many runs end.
+    expect(subject.prompts).toHaveLength(1)
+    expect(subject.prompts[0]).toContain("User: How are releases cut in this repository?")
+    expect(subject.prompts[0]).toContain("Assistant: From the power branch, after CI passes.")
+    const kept = (await subject.rpc().list!({})) as Array<{ title: string; source: string; status: string }>
+    expect(kept).toEqual([
+      expect.objectContaining({ title: "Release", source: "agent_discovery", status: "candidate" }),
+    ])
+  })
+})
+
+describe("OpenCode 2 agents", () => {
+  const planRules = [
+    { action: "*", resource: "*", effect: "allow" },
+    { action: "edit", resource: "*", effect: "deny" },
+    { action: "edit", resource: "/home/.opencode/plan/*", effect: "allow" },
+  ]
+
+  async function agents(approved = true) {
+    const calls = await harness({ "/harness/plan-exit": { approved } })
+    const plugin_ = await plugin("flupcode-agents.js")
+    const recorded = context("/work/demo")
+    Object.assign(recorded.ctx, {
+      agent: {
+        transform: async (callback: Callback) => void (recorded.transforms.agent = callback),
+        get: async (input: { agentID: string }) => ({
+          data: { id: input.agentID, permissions: input.agentID === "plan" ? planRules : [] },
+        }),
+      },
+      permission: {
+        hook: async (name: string, callback: Callback) => void recorded.hooks.set(`permission.${name}`, callback),
+      },
+    })
+    await plugin_.setup(recorded.ctx)
+    return { calls, recorded }
+  }
+
+  test("cowork is added hidden with build's rules, and plan learns to hand off through plan_exit", async () => {
+    const { recorded } = await agents()
+    const list: Record<
+      string,
+      { id: string; system?: string; mode?: string; hidden?: boolean; permissions: unknown[] }
+    > = {
+      build: { id: "build", permissions: [{ action: "*", resource: "*", effect: "allow" }] },
+      plan: { id: "plan", permissions: [...planRules] },
+    }
+    recorded.transforms.agent!({
+      get: (id: string) => list[id],
+      update: (id: string, edit: (draft: (typeof list)[string]) => void) => {
+        list[id] ??= { id, permissions: [] }
+        edit(list[id]!)
+      },
+    } as never)
+    expect(list.cowork).toMatchObject({
+      mode: "primary",
+      hidden: true,
+      permissions: [
+        { action: "*", resource: "*", effect: "allow" },
+        { action: "question", resource: "*", effect: "allow" },
+      ],
+    })
+    expect(list.plan!.system).toContain("call the plan_exit tool")
+  })
+
+  test("an action the agent itself denies stays denied when the session allows everything", async () => {
+    const { recorded } = await agents()
+    const evaluate = recorded.hooks.get("permission.evaluate")!
+    const edit = { sessionID: "ses_1", agent: "plan", action: "edit", resources: ["a.txt"], effect: "allow" } as Record<
+      string,
+      unknown
+    >
+    await evaluate(edit as never)
+    expect(edit).toMatchObject({ effect: "deny", message: "The plan agent does not allow edit." })
+    // What the agent allows, its own plan files included, the session still decides.
+    const plan = { ...edit, resources: ["/home/.opencode/plan/one.md"], effect: "allow", message: undefined }
+    await evaluate(plan as never)
+    expect(plan.effect).toBe("allow")
+    const read = { ...edit, action: "read", effect: "ask", message: undefined }
+    await evaluate(read as never)
+    expect(read.effect).toBe("ask")
+  })
+
+  test("plan_exit asks through the harness and tells the model what the reader chose", async () => {
+    const { calls, recorded } = await agents(true)
+    const added: Array<{ name: string; execute: (input: unknown, context: unknown) => Promise<{ content: string }> }> =
+      []
+    recorded.transforms.tool!({ add: (tool: (typeof added)[number]) => added.push(tool) } as never)
+    expect(added.map((tool) => tool.name)).toEqual(["plan_exit"])
+    expect((await added[0]!.execute({}, { sessionID: "ses_1", signal: new AbortController().signal })).content).toBe(
+      "The user approved the plan and switched to the build agent. Execute the plan now.",
+    )
+    expect(calls.on("/harness/plan-exit")[0]).toMatchObject({
+      authorization: "Bearer browser-token",
+      body: { sessionID: "ses_1" },
+    })
   })
 })
