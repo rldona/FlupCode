@@ -68,6 +68,7 @@ import {
 } from "./transcript"
 import { pendingPrompts, type Delivery } from "./pending-prompts"
 import { questionSessions as findQuestionSessions, type PendingRequest } from "./pending-questions"
+import { runOutcome, type RunOutcome } from "./run-outcome"
 import { recoverablePrompt } from "./unsend"
 import {
   externalLinkOrigin,
@@ -194,6 +195,9 @@ function readColorTheme() {
   return "flupcode"
 }
 
+/** App actions built on what OpenCode 2 removed: its replay history and archiving (ADR-0026). */
+const V2_REMOVED_COMMANDS = new Set(["replay", "archive"])
+
 /** Whether a key event is going into a text field, where a bare shortcut must not fire. */
 function isTypingTarget(target: EventTarget | null) {
   const element = target as HTMLElement | null
@@ -285,6 +289,9 @@ export const App: Component = () => {
   // Why a session is stalled while the engine retries a failed provider call, kept per session so
   // the status line can say "Usage limit exceeded" instead of thinking on forever.
   const [retryState, setRetryState] = createSignal<Record<string, { message: string; attempt: number }>>({})
+  // How a 2.x execution ended when that is worth telling (V2-40): a failure the transcript may not
+  // carry (one before any answer), or a stop the reader did not ask for. Cleared when the next starts.
+  const [runOutcomes, setRunOutcomes] = createSignal<Record<string, RunOutcome>>({})
   const [activityTick, setActivityTick] = createSignal(0)
   // Whether the engine's event streams are carrying this session's run right now. The health check
   // is a separate question: it can answer while a stream is a dead socket nobody noticed. There is
@@ -329,12 +336,19 @@ export const App: Component = () => {
       turnEnded(sessionID)
     }
   }
+  // A session's 2.x inbox, read again whenever it moves: the prompts waiting there are the engine's.
+  const readInbox = (sessionID: string) =>
+    createClient(serverUrl())
+      .session.inbox.list({ sessionID })
+      .then((prompts) => pendingPrompts.adopt(sessionID, prompts))
+      .catch(() => undefined)
   // A new message starts a new run: until its first event arrives, the transcript decides.
   const forgetRun = (sessionID: string) => {
     clearTimeout(idleTimers.get(sessionID))
     idleTimers.delete(sessionID)
     setRunState(({ [sessionID]: _, ...rest }) => rest)
     setRetryState(({ [sessionID]: _dropped, ...rest }) => rest)
+    setRunOutcomes(({ [sessionID]: _outcome, ...rest }) => rest)
   }
   // A v2 run is many steps, and the next one only starts once the model streams again, so a step's end
   // says nothing about the run; nor does anything arrive when a run is stopped between steps. While a
@@ -368,11 +382,21 @@ export const App: Component = () => {
   }
   const trackActivity = (
     type: string,
-    data: { sessionID?: string; status?: { type?: string; message?: string; attempt?: number } } | undefined,
+    data:
+      | {
+          sessionID?: string
+          status?: { type?: string; message?: string; attempt?: number }
+          error?: { message?: string }
+          reason?: string
+        }
+      | undefined,
     knownDirectory?: string,
   ) => {
     const sessionID = data?.sessionID
     if (!sessionID) return
+    const outcome = runOutcome(type, data)
+    if (type === "session.execution.started" || outcome)
+      setRunOutcomes(({ [sessionID]: _previous, ...rest }) => (outcome ? { ...rest, [sessionID]: outcome } : rest))
     if (
       type === "session.next.prompted" ||
       type === "session.next.step.started" ||
@@ -740,6 +764,9 @@ export const App: Component = () => {
     () =>
       Boolean(localNetworkEngine() && health()?.blocked) && (localNetwork() === "prompt" || localNetwork() === "denied"),
   )
+  // OpenCode 2 drops features the UI offers on 1.x (sharing, archiving, the replay history, deleting
+  // a message, the todo list); they are hidden rather than offered and refused (ADR-0026).
+  const engineV2 = () => health()?.line === "v2"
   // Only probed once the engine answers, so the onboarding can tell FlupCode's build from the
   // stock OpenCode CLI, whose extras (permission modes, memory) are missing.
   // OpenCode 2 is named for what it is: its extras come from FlupCode's 2.x plugins, not a build.
@@ -2325,7 +2352,10 @@ export const App: Component = () => {
     }
 
     const commandOptions = (): CommandOption[] => [
-      ...BUILTIN_COMMANDS.filter((command) => desktopWindow() || command.name !== "actions").map((command) => ({
+      ...BUILTIN_COMMANDS.filter(
+        (command) =>
+          (desktopWindow() || command.name !== "actions") && !(engineV2() && V2_REMOVED_COMMANDS.has(command.name)),
+      ).map((command) => ({
         name: command.name,
         description: t(command.descriptionKey),
         // An action that acts on the open session is not offered when there is none.
@@ -2379,6 +2409,12 @@ export const App: Component = () => {
 
     // Once a real message replaces its optimistic prompt, forget it so the list cannot grow.
     createEffect(() => pendingPrompts.reconcile(new Set((activeMessages() ?? []).map((message) => message.id))))
+    // What the open session's inbox holds on 2.x (V2-41): queued prompts outlive a reload there.
+    createEffect(() => {
+      const sessionID = selected()
+      if (!sessionID || health()?.line !== "v2") return
+      void readInbox(sessionID)
+    })
 
     const searchFiles = async (query: string) => {
       const response = await createClient(serverUrl()).file.find({ query, limit: 8 })
@@ -2750,6 +2786,12 @@ export const App: Component = () => {
                   | { sessionID?: string; status?: { type?: string; message?: string; attempt?: number } }
                   | undefined,
               )
+              // A prompt queued, steered or cancelled from anywhere: the open session's inbox is reread.
+              if (type.startsWith("session.inbox.") && type !== "session.inbox.delivered" && payload?.sessionID) {
+                if (type === "session.inbox.cancelled")
+                  pendingPrompts.remove((payload as { inboxID?: string }).inboxID ?? "")
+                if (payload.sessionID === selected()) void readInbox(payload.sessionID)
+              }
               // 1.x names its events `session.next.*`, so on 1.x this never matches a thing.
               const v2 = v2Transcript.reduce(event)
               if (v2) {
@@ -5078,6 +5120,9 @@ export const App: Component = () => {
   const submitPrompt = (text: string, files: Attachment[], keepDraft = false, options?: { agent?: string; system?: string }) => {
     // Delivery only means something when a turn is already running; an idle session starts one.
     const mode = generating() ? delivery() : undefined
+    // 2.x delivers prompts itself (V2-41): the inbox holds a queued one, and a steer joins the
+    // running execution at its next boundary with nothing to stop first.
+    const engineDelivers = engineLineOf(serverUrl()) === "v2"
     const id = messageID()
     // Cowork overrides the app's agent and adds its system prompt; Code sends neither.
     const promptAgent = options?.agent ?? agent()
@@ -5121,21 +5166,22 @@ export const App: Component = () => {
         ...(system ? { system } : {}),
         ...(model ? { model } : {}),
         delivery: mode,
+        ...(engineDelivers && mode === "queue" ? { held: true } : {}),
       })
       setStreamedChars(0)
       if (!keepDraft) {
         setPrompt("")
         setAttachments([])
       }
-      // Queued prompts wait here, not in the engine: the legacy runner has no queue of its own, so
-      // one sent now would join the turn in flight instead of following it. pending-prompts.ts
-      // sends it when the session goes idle, which is also what makes it cancellable.
-      if (mode === "queue") return sessionID
+      // On 1.x queued prompts wait here, not in the engine: the legacy runner has no queue of its
+      // own, so one sent now would join the turn in flight instead of following it. pending-prompts.ts
+      // sends it when the session goes idle, which is also what makes it cancellable. 2.x queues it.
+      if (mode === "queue" && !engineDelivers) return sessionID
       // A message sent while the agent is working interrupts it — the running tool included — and
       // starts a new turn with this one, so the agent answers now instead of after the work it is
       // waiting on. Queue is how the reader asks for the opposite. The interrupted turn, and the
       // partial output of the tool it was running, stay in history for the next turn to read.
-      if (mode === "steer")
+      if (mode === "steer" && !engineDelivers)
         await current.session.abort({ sessionID, directory }).catch(() => {})
       try {
         await current.session.send({
@@ -5147,6 +5193,7 @@ export const App: Component = () => {
           ...(system ? { system } : {}),
           ...(model ? { model } : {}),
           ...(files.length > 0 ? { files: files.map(({ uri, name }) => ({ uri, name })) } : {}),
+          ...(engineDelivers && mode ? { delivery: mode } : {}),
         })
       } catch (cause) {
         pendingPrompts.remove(id)
@@ -5528,8 +5575,8 @@ export const App: Component = () => {
                       onCompact={compactSession}
                       onRename={renameSession}
                       onExport={() => setExportOpen(true)}
-                      onShare={shareSession}
-                      onUnshare={unshareSession}
+                      onShare={engineV2() ? undefined : shareSession}
+                      onUnshare={engineV2() ? undefined : unshareSession}
                       onMove={moveSession}
                       onDelete={deleteSession}
                       onUndo={undo}
@@ -5586,7 +5633,7 @@ export const App: Component = () => {
             onDisplayName={updateDisplayName}
             onToggleSessionPin={togglePin}
             onEditTags={editTags}
-            onArchiveSession={archiveSession}
+            onArchiveSession={engineV2() ? undefined : archiveSession}
             onToggleProject={toggleProject}
             onNewSession={newSession}
             onSelectSession={selectSession}
@@ -6060,6 +6107,10 @@ export const App: Component = () => {
                   const sessionID = selected()
                   return sessionID ? retryState()[sessionID] : undefined
                 })()}
+                outcome={(() => {
+                  const sessionID = selected()
+                  return sessionID ? runOutcomes()[sessionID] : undefined
+                })()}
                 usage={liveUsage()}
                 startedAt={generationStartedAt()}
                 modelName={modelName}
@@ -6068,7 +6119,7 @@ export const App: Component = () => {
                 chat={plainChatView()}
                 pending={pendingForSession()}
                 onEditUser={editMessage}
-                onRecoverUser={unsendMessage}
+                onRecoverUser={engineV2() ? undefined : unsendMessage}
                 onForkUser={forkSession}
                 onRetry={retryTurn}
                 onOpenSession={selectSession}
@@ -6239,6 +6290,7 @@ export const App: Component = () => {
           <PanelBoundary name={t("The context panel")}>
             <RightAside
               todos={todos()}
+              tasks={!engineV2()}
               onClearTodos={clearTodos}
               subagents={visibleSubagents()}
               onClearSubagents={clearSubagents}

@@ -9,6 +9,8 @@ import { cssPx } from "../text-size"
 
 type RightAsideProps = {
   todos: TodoItem[]
+  /** Whether the engine keeps a task list at all; OpenCode 2 has no todo tool (ADR-0026). */
+  tasks?: boolean
   /** Hides completed tasks by their text. */
   onClearTodos: (contents: string[]) => void
   /** This session's child sessions, if it has spawned any. */
@@ -74,57 +76,59 @@ export const RightAside: Component<RightAsideProps> = (props) => {
         }}
       />
       <div class="fc-rightaside-body">
-        <section class="fc-aside-section">
-          <h3 class="fc-aside-title">
-            {t("Tasks")}
-            <Show when={props.todos.length > 0}>
-              <span class="fc-aside-title-actions">
-                <Show when={completed() > 0}>
+        <Show when={props.tasks !== false}>
+          <section class="fc-aside-section">
+            <h3 class="fc-aside-title">
+              {t("Tasks")}
+              <Show when={props.todos.length > 0}>
+                <span class="fc-aside-title-actions">
+                  <Show when={completed() > 0}>
+                    <button
+                      class="fc-aside-clear"
+                      type="button"
+                      onClick={() =>
+                        props.onClearTodos(
+                          props.todos.filter((todo) => todo.status === "completed").map((todo) => todo.content),
+                        )
+                      }
+                    >
+                      {t("Clear completed")}
+                    </button>
+                  </Show>
+                  {/* A task the engine left in progress has no other way out of the panel. */}
                   <button
                     class="fc-aside-clear"
                     type="button"
-                    onClick={() =>
-                      props.onClearTodos(
-                        props.todos.filter((todo) => todo.status === "completed").map((todo) => todo.content),
-                      )
-                    }
+                    onClick={() => props.onClearTodos(props.todos.map((todo) => todo.content))}
                   >
-                    {t("Clear completed")}
+                    {t("Clear all")}
                   </button>
-                </Show>
-                {/* A task the engine left in progress has no other way out of the panel. */}
-                <button
-                  class="fc-aside-clear"
-                  type="button"
-                  onClick={() => props.onClearTodos(props.todos.map((todo) => todo.content))}
-                >
-                  {t("Clear all")}
-                </button>
-                <span class="fc-aside-count">
-                  {completed()}/{props.todos.length}
+                  <span class="fc-aside-count">
+                    {completed()}/{props.todos.length}
+                  </span>
                 </span>
-              </span>
+              </Show>
+            </h3>
+            <Show when={props.todos.length > 0} fallback={<div class="fc-empty">{t("No tasks")}</div>}>
+              <ul class="fc-aside-todos">
+                <For each={props.todos}>
+                  {(todo) => (
+                    <li
+                      class="fc-aside-todo"
+                      classList={{ "fc-aside-todo-done": todo.status === "completed" }}
+                      data-status={todo.status}
+                    >
+                      <span class="fc-aside-todo-mark" aria-hidden="true">
+                        {mark(todo.status)}
+                      </span>
+                      <span class="fc-aside-todo-text">{todo.content}</span>
+                    </li>
+                  )}
+                </For>
+              </ul>
             </Show>
-          </h3>
-          <Show when={props.todos.length > 0} fallback={<div class="fc-empty">{t("No tasks")}</div>}>
-            <ul class="fc-aside-todos">
-              <For each={props.todos}>
-                {(todo) => (
-                  <li
-                    class="fc-aside-todo"
-                    classList={{ "fc-aside-todo-done": todo.status === "completed" }}
-                    data-status={todo.status}
-                  >
-                    <span class="fc-aside-todo-mark" aria-hidden="true">
-                      {mark(todo.status)}
-                    </span>
-                    <span class="fc-aside-todo-text">{todo.content}</span>
-                  </li>
-                )}
-              </For>
-            </ul>
-          </Show>
-        </section>
+          </section>
+        </Show>
 
         <SubagentList
           sessions={props.subagents}
